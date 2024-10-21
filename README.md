@@ -2,7 +2,7 @@
 
 ## Concept
 
-#### Server
+### Server
 Server.qml
 ```qml
 import SynQt
@@ -101,7 +101,7 @@ The component `AdminComponent` being flagged private, it will be shared by the s
 The other components, `HomeComponent`, `TodoComponent`, `AuthComponent`, will already be client side.
 Note this does NOT mean that their contents is shared entirely with the client. It just means their structure is public.
 
-# Client
+### Client
 Client.qml
 ```qml
 import SynQt
