@@ -9,11 +9,11 @@ import SynQt
 import QtQuick
 import QtQuick.Controls
 
-Item {
+Server {
     id: server
 
     property ListModel todoList
-    property var request
+    property var emails: {"user": ["user@email.com", "another@email.com"], "admin": ["hello@iamki.dev"]}
 
     function addTodo(content: string) {
         server.todoList.append({todo: content})
@@ -25,26 +25,89 @@ Item {
         }
     }
 
-    Route on request {
-        query: "*"
-        condition: SynQt.registered(request.user)
-        ok: Todo {
-            title: request.params[0]
+    routes: [
+        {path: "/", component: HomeComponent},
+        {path: "/todos", component: TodoComponent, scope: Server.User},
+        {path: "/auth", component: AuthComponent},
+        {path: "/admin", component: AdminComponent, scope: Server.Administrator, private: true}
+    ]
+
+    scopes: {
+            "": Server.Unauthorized,
+            "user": Server.User,
+            "mod": Server.Operator,
+            "admin": Server.Administrator
+    }
+
+    Authentication {
+
+        onAuthentication: (user, scope) => {
+            if (user.email in Server.emails[scope]) {
+                Client.setScope(Server.scopes[scope]);
+                return true;
+            }
+            Client.setScope(Server.Unauthorized);
+            return false;
         }
+
+        protocol: "OAuth2.0"
+        providers: [
+            Github {
+                client_id: "theclientidstring"
+                home_url: "https://synqt.org"
+                callback_url: "https://synqt.org/auth"
+                client_secret: Server.env.GITHUB_CLIENT_SECRET
+            }
+        ]
+
+
     }
 }
 ```
-Todo.qml
+The component `AdminComponent` being flagged private, it will be shared by the server only to authorized users.
+The other components, `HomeComponent`, `TodoComponent`, `AuthComponent`, will already be client side.
+Note this does NOT mean that their contents is shared entirely with the client. It just means their structure is public.
+
+# Client
+Client.qml
+```qml
+import SynQt
+
+Client {
+    id: client
+
+    //readonly property Item currentPage
+    //readonly property routes: Server.routes
+
+    onRequest: (route) => {
+        if (Client.scope in route.scope) {
+            if (route.private) {
+                client.currentPage = Server.getPrivateComponent(route)
+            } else {
+                client.currentPage = Client.getComponent(route);
+            }
+        }
+    }
+
+    Loader {
+        id: currentPage
+        source: client.page
+    }
+}
+
+```
+
+TodoComponent.qml
 ```qml
 import SynQt
 import QtQuick
 import QtQuick.Controls
 
-Window {
+Page {
     width: 300
     height: 400
 
-    required property string title
+    title: "TODO App"
 
     ColumnLayout {
         anchors.fill: parent
@@ -85,13 +148,5 @@ Window {
             }
         }
     }
-}
-```
-Client.qml
-```qml
-import SynQt
-
-Loader {
-    source: Server.request("/");
 }
 ```
