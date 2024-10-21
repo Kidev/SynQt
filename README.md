@@ -2,6 +2,9 @@
 
 ## Concept
 
+This is a server/client web framework written in C++ with Qt, allowing developers to create complex client/server web application using only QML. On deploy, the QML is compiled by [Qt Quick Compiler](https://doc.qt.io/qt-6/qtqml-qtquick-compiler-tech.html) and then turned into [Wasm](https://doc.qt.io/qt-6/wasm.html). The server runs the contents of `server/` on private server instances(s). The client, upon connection, is delivered the contents of `client/`, and can communicate with the server. SynQt uses [Qt Remote Objects](https://doc.qt.io/qt-6/qtremoteobjects-index.html) and the features of QML to make available the attached property `Server` to the client, and the attached property `Client` to the server, as easily as if both were just instances of QObject locally. Both can bind to signals, events, function calls, property changes... of the other. Also, the server and the client can also reference themeselves using `Server` and `Client` respectively.
+SynQt makes the development of any web application as easy as the creation of a QML application.
+
 ### Server
 Server.qml
 ```qml
