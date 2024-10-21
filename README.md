@@ -55,6 +55,7 @@ Server {
         "admin": Server.Administrator
     }
 
+    // This is default
     onRequestComponent: (request) => {
         const route = Server.routes[request.path];
         if (!(Client.scope in route.scope)) {
@@ -68,15 +69,12 @@ Server {
     }
 
 
-    Authentication {
-        id: authentication
+    identity: OAuth2 {
 
         property var emails: {
             "user": ["user@email.com", "another@email.com"],
             "admin": ["hello@iamki.dev"]
         }
-
-        protocol: "OAuth2.0"
 
         providers: [
             Github {
@@ -87,14 +85,13 @@ Server {
             }
         ]
 
-        // This is default
         onAuthentication: (user, scope) => {
-            if (user.email in Server.authentication.emails[scope]) {
+            if (user.email in Server.identity.emails[scope]) {
                 Client.setScope(Server.scopes[scope]);
-                return true;
+                return;
             }
+            // This is default
             Client.setScope(Server.Unauthorized);
-            return false;
         }
     }
 }
@@ -115,6 +112,7 @@ Client {
     //readonly property Item currentPage
     //readonly property routes: Server.routes
 
+    // This is default
     onRequest: route => {
         if (Client.scope in route.scope) {
             if (route.private) {
@@ -125,6 +123,7 @@ Client {
         }
     }
 
+    // This is default
     Loader {
         id: currentPage
 
