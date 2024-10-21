@@ -21,13 +21,20 @@ Server {
     property ListModel todoList
 
     function addTodo(content: string) {
+        if (!(Server.User in Client.scope)) {
+            return;
+        }
         server.todoList.append({
-                todo: content
-            });
+                todo: content,
+                author: Client.email
+        });
     }
 
     function removeTodo(index) {
-        if (index >= 0 && index < todoList.length) {
+        if (!(Server.User in Client.scope)) {
+            return;
+        }
+        if (index >= 0 && index < todoList.length && server.todoList[index].author == Client.email) {
             server.todoList.remove(index, 1);
         }
     }
@@ -35,20 +42,18 @@ Server {
     // Default: [{path: "/", component: Page{}}]
     routes: [{
             path: "/",
-            component: HomeComponent
+            component: "TodoComponent.qml"
         }, {
             path: "/todos",
-            component: TodoComponent,
+            component: "TodoComponent.qml",
             scope: Server.User
         }, {
-            path: "/auth",
-            component: AuthComponent
-        }, {
             path: "/admin",
-            component: AdminComponent,
+            component: Page {},
             scope: Server.Administrator,
             private: true
-        }]
+        }
+    ]
 
     identity: OAuth2 {
 
@@ -103,8 +108,18 @@ Page {
         anchors.fill: parent
         anchors.margins: 10
 
+        Button {
+            Layout.fillWidth: true
+            text: "Sign In"
+
+            onClicked: {
+                Server.requestAuthentication()
+            }
+        }
+
         TextField {
             id: newTodoInput
+            enabled: Server.User in Client.scope
 
             Layout.fillWidth: true
             placeholderText: "Enter new todo"
@@ -113,6 +128,7 @@ Page {
         Button {
             Layout.fillWidth: true
             text: "Add Todo"
+            enabled: Server.User in Client.scope
 
             onClicked: {
                 if (newTodoInput.text.trim() !== "") {
@@ -137,6 +153,7 @@ Page {
 
                 Button {
                     text: "Remove"
+                    enabled: Server.User in Client.scope && model[index].author === Client.email
 
                     onClicked: Server.removeTodo(index)
                 }
@@ -147,7 +164,7 @@ Page {
 ```
 
 ## Behind the scenes of the demo
-Now the code of the application including the default values of some properties, and explainations to more easily understand the logic. Still very quick!
+Now the code of the application's Server.qml and Client.qml including the default values of some properties, and explainations to more easily understand the logic. Still very quick! TodoComponent.qml is identical.
 
 ### Server
 Server.qml
@@ -162,34 +179,39 @@ Server {
     property ListModel todoList
 
     function addTodo(content: string) {
-        server.todoList.append({
-                todo: content
+        if (!(Server.User in Client.scope)) {
+            return;
+        }
+        Server.todoList.append({
+                todo: content,
+                author: Client.email
             });
     }
 
     function removeTodo(index) {
-        if (index >= 0 && index < todoList.length) {
-            server.todoList.remove(index, 1);
+        if (!(Server.User in Client.scope)) {
+            return;
+        }
+        if (index >= 0 && index < todoList.length && Server.todoList[index].author == Client.email) {
+            Server.todoList.remove(index, 1);
         }
     }
 
     // Default: [{path: "/", component: Page{}}]
     routes: [{
             path: "/",
-            component: HomeComponent
+            component: "TodoComponent.qml"
         }, {
             path: "/todos",
-            component: TodoComponent,
+            component: "TodoComponent.qml",
             scope: Server.User
         }, {
-            path: "/auth",
-            component: AuthComponent
-        }, {
             path: "/admin",
-            component: AdminComponent,
+            component: Page {},
             scope: Server.Administrator,
             private: true
-        }]
+        }
+    ]
 
     // This is default
     scopes: {
@@ -241,9 +263,9 @@ Server {
 }
 
 ```
-The component `AdminComponent` being flagged private, it will be shared by the server only to authorized users.
-The other components, `HomeComponent`, `TodoComponent`, `AuthComponent`, will already be client side.
-Note this does NOT mean that their contents is shared entirely with the client. It just means their structure is public.
+The phony (only here for the example) component `AdminComponent` being flagged private, it will be shared by the server only to authorized users.
+The other component, `TodoComponent`, will already be client side.
+Note this does NOT mean that their contents is shared entirely with the client. It just means their structure is public. Indeed, the `Server.todoList` requires an authorization and an answer from the server
 
 ### Client
 Client.qml
@@ -251,18 +273,17 @@ Client.qml
 import SynQt
 
 Client {
-    id: client
-
-    //readonly property Item currentPage
+    //readonly property Item serverComponent
+    //readonly property string currentPage
     //readonly property routes: Server.routes
 
     // This is default
     onRequest: route => {
         if (Client.scope in route.scope) {
             if (route.private) {
-                client.currentPage = Server.getPrivateComponent(route);
+                Client.serverComponent = Server.getPrivateComponent(route);
             } else {
-                client.currentPage = Client.getComponent(route);
+                Client.currentPage = Client.routes[route].component;
             }
         }
     }
@@ -271,65 +292,8 @@ Client {
     Loader {
         id: currentPage
 
-        source: client.page
-    }
-}
-```
-
-TodoComponent.qml
-```qml
-import SynQt
-import QtQuick
-import QtQuick.Controls
-
-Page {
-    height: 400
-    title: "TODO App"
-    width: 300
-
-    ColumnLayout {
-        anchors.fill: parent
-        anchors.margins: 10
-
-        TextField {
-            id: newTodoInput
-
-            Layout.fillWidth: true
-            placeholderText: "Enter new todo"
-        }
-
-        Button {
-            Layout.fillWidth: true
-            text: "Add Todo"
-
-            onClicked: {
-                if (newTodoInput.text.trim() !== "") {
-                    Server.addTodo(newTodoInput.text.trim());
-                    newTodoInput.text = "";
-                }
-            }
-        }
-
-        ListView {
-            Layout.fillHeight: true
-            Layout.fillWidth: true
-            model: Server.todoList
-
-            delegate: RowLayout {
-                width: parent.width
-
-                Label {
-                    Layout.fillWidth: true
-                    text: model.todo
-                }
-
-                Button {
-                    text: "Remove"
-
-                    onClicked: Server.removeTodo(index)
-                }
-            }
-        }
+        source: Client.page
+        sourceComponent: Client.serverComponent
     }
 }
 ```
