@@ -27,8 +27,8 @@ struct ProviderRegistration
 };
 
 /// Where a custom provider announces itself, and the other half of the expandability escape
-/// hatch documented in docs/providers.md: implementing a family interface gets you a class,
-/// registering it here is what lets `provider.name` select it.
+/// hatch documented in [Providers](https://synqt.org/providers/): implementing a family
+/// interface gets you a class, registering it here is what lets `provider.name` select it.
 ///
 /// The `custom:` prefix is a namespace, not decoration. Only a name carrying it reaches this
 /// registry, so a custom provider can never shadow a bundled one: `sqlite` always means the

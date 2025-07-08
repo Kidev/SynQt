@@ -1,10 +1,10 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="230 92 60 60" role="img" aria-label="SynQt">
   <title>SynQt</title>
   <!-- The browser-tab icon for a SynQt client's loading page. A static, square crop of
-       the animated "signal" mark (docs/assets/synqtsq.svg): the two interlocking hex
+       the animated "signal" mark (docs/assets/synqt-square.svg): the two interlocking hex
        fragments, no animation (a favicon does not animate) and the dark-teal half swapped
-       to white for the dark tab, exactly as docs/assets/synqt-header.svg does for the
-       hero. Keep the shape in sync with synqtsq.svg. -->
+       to white for the dark tab, exactly as docs/assets/synqt.svg does for the
+       hero. Keep the shape in sync with synqt-square.svg. -->
   <defs>
     <path id="hexFrag" d="M -13.86,-8 L 0,-16 L 13.86,-8 L 13.86,8"/>
   </defs>

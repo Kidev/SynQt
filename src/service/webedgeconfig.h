@@ -33,7 +33,7 @@ struct WebEdgeConnectPoint
 
 /// The browser-facing configuration of a web edge: where it serves the bundle, the
 /// public TLS, the browser-hardening policy, and the resource limits. Defaults are the
-/// safe ones from docs/security.md.
+/// safe ones from [Security](https://synqt.org/security/).
 struct WebEdgeConfig
 {
     /// Delivery.

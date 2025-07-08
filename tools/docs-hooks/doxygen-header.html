@@ -7,7 +7,8 @@
   doxygen-awesome extensions (copy button, paragraph links, interactive table of
   contents, tabs), pin the page to dark mode with `class="dark-mode"` so the reference
   matches the dark-only documentation site, and put a link back to that site in the
-  title bar so the reference is never a dead end.
+  title bar so the reference is never a dead end. Everything else follows the stock
+  header, including where the search box goes.
 
   The `$name` tokens are Doxygen substitutions; do not rename them. Regenerate the stock
   header to compare against a new Doxygen release with:
@@ -69,12 +70,9 @@ $extrastylesheet
    <a href="/">synqt.org</a>
    <a href="https://github.com/Kidev/SynQt">GitHub</a>
  </td></tr>
- <!-- Emitted unconditionally, not gated on DISABLE_INDEX as Doxygen's stock header does:
-      the sidebar-only layout hides the tab bar Doxygen would otherwise put search in, so
-      gating it there makes the search box vanish entirely. -->
- <!--BEGIN SEARCHENGINE-->
- <tr><td colspan="2" id="synqt-search">$searchbox</td></tr>
- <!--END SEARCHENGINE-->
+ <!-- No $searchbox here, matching the stock header: in the base layout (DISABLE_INDEX = NO,
+      FULL_SIDEBAR = NO) Doxygen emits the search box into the tab bar itself, and a second
+      copy in the title area is what made it size oddly. -->
  </tbody>
 </table>
 </div>

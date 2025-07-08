@@ -18,6 +18,8 @@ namespace SynQt {
 /// (finish the round, save the draft, then call `applyUpdate()`). An app that handles
 /// nothing gets an immediate reload, because an update nobody applies is worse than an
 /// interruption.
+///
+/// \sa \ref qmlapp "the App accessor page"
 class ClientUpdate : public QObject
 {
     Q_OBJECT

@@ -2,17 +2,9 @@
   SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
   SPDX-License-Identifier: Apache-2.0
 
-  Override of material/partials/header.html. Two changes from stock:
+  Override of material/partials/header.html. One change from stock:
 
-  1. `theme.logo` (docs/assets/synqt.svg) is tuned for a light background (the
-     home page banner, the nav drawer, favicons), and the site header's
-     background is always the indigo --md-primary-fg-color, so its dark teal
-     half nearly disappears there. Point the header specifically at
-     synqt-header.svg, the reversed variant with that half swapped to white;
-     every other use of the logo (nav.html) is untouched and keeps the light
-     variant.
-
-  2. The tabs bar (partials/tabs.html) is included right after the logo,
+  The tabs bar (partials/tabs.html) is included right after the logo,
      inside the same `.md-header__inner` row, instead of stock's placement
      (its own full width row below the header, or - with
      navigation.tabs.sticky, which mkdocs.yml enables so base.html's own
@@ -25,7 +17,7 @@
 <header class="{{ class }}" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="{{ lang.t('header') }}">
     <a href="{{ config.extra.homepage | d(nav.homepage.url, true) | url }}" title="{{ config.site_name | e }}" class="md-header__button md-logo" aria-label="{{ config.site_name }}" data-md-component="logo">
-      <img src="{{ 'assets/synqt-header.svg' | url }}" alt="logo">
+      <img src="{{ 'assets/synqt.svg' | url }}" alt="logo">
     </a>
     {% if "navigation.tabs" in features %}
       {% include "partials/tabs.html" %}

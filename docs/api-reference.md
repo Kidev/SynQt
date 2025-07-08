@@ -26,7 +26,23 @@ explains what each is responsible for and why they are split the way they are.
 | `SynQtProviders` | `SynQt::IPersistenceProvider`, `SynQt::IDocumentProvider`, `SynQt::ICacheProvider`, `SynQt::ProviderRegistry`, and the bundled provider implementations. |
 
 Every class and member is listed, whether or not it carries a comment, so the reference
-is a complete map of the runtime rather than a partial one.
+is a complete map of the runtime rather than a partial one. Private members are listed
+too, grouped separately from the callable surface: much of what explains a runtime class
+is the state it keeps, not the state it exposes.
+
+### Finding a class from a QML name
+
+An application knows `Server` and `Caller`, not `ServerAccessor` and the class that binds
+`Client`. The [QML accessors](/api/qmlaccessors.html){ target=_blank } section of the
+reference bridges the two, with a page per accessor:
+[App](/api/qmlapp.html){ target=_blank },
+[Server](/api/qmlserver.html){ target=_blank },
+[Session](/api/qmlsession.html){ target=_blank },
+[Router](/api/qmlrouter.html){ target=_blank },
+[Caller](/api/qmlcaller.html){ target=_blank }, and
+[Client](/api/qmlclient.html){ target=_blank }. Each says what the name is, which class
+implements it, and which side of the trust boundary it links into. The members themselves
+are on [runtime API](runtime-api.md), written for the QML that calls them.
 
 ## Building it locally
 
@@ -40,10 +56,14 @@ Everything else lives in [`Doxyfile`](https://github.com/Kidev/SynQt/blob/main/D
 the input set, the Qt macro handling, and the theme. The pages are styled with
 [doxygen-awesome-css](https://github.com/jothepro/doxygen-awesome-css) (MIT), vendored
 under [`tools/docs-hooks/doxygen-awesome/`](https://github.com/Kidev/SynQt/tree/main/tools/docs-hooks/doxygen-awesome)
-so a docs build needs no network, in its sidebar-only layout with a
-[SynQt brand layer](https://github.com/Kidev/SynQt/blob/main/tools/docs-hooks/doxygen-synqt.css) on top and a
-[custom header](https://github.com/Kidev/SynQt/blob/main/tools/docs-hooks/doxygen-header.html) that links back
-here.
+so a docs build needs no network, in its base layout: the tab bar across the top is the
+primary navigation and carries the search box, with the class tree beside the content.
+On top of it sit a
+[SynQt brand layer](https://github.com/Kidev/SynQt/blob/main/tools/docs-hooks/doxygen-synqt.css),
+a [custom header](https://github.com/Kidev/SynQt/blob/main/tools/docs-hooks/doxygen-header.html)
+that links back here, and a
+[custom footer](https://github.com/Kidev/SynQt/blob/main/tools/docs-hooks/doxygen-footer.html)
+carrying the license instead of a generator credit.
 
 To generate it on its own, into `build/apidocs/html/index.html`:
 

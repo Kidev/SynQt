@@ -1,9 +1,18 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="190 42 284 150" width="284" height="150" role="img" aria-label="SynQt logo">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="196 58.5 128 128" width="128" height="128" role="img" aria-label="SynQt signal mark">
   <title>SynQt</title>
+  <!-- The signal mark on its own, without the wordmark, for square uses: favicons,
+       app icons, the loading page. The viewBox is cropped to the drawing and then
+       padded to a square, so there is no transparent margin to center around: an
+       icon renderer that fits the box fills the box. The bounds account for the
+       animation, whose outermost pulse reaches scale 2.4, and for half the stroke
+       width at that scale, so no frame of it is ever clipped.
+       Both halves are the dark-background variant (see docs/assets/synqt.svg): the
+       teal #00414a of the light variant is swapped to #00a6ed, since an icon sits
+       on a dark tab strip or the loading page gradient far more often than on white. -->
   <defs>
     <path id="hexFrag" d="M -13.86,-8 L 0,-16 L 13.86,-8 L 13.86,8"/>
   </defs>
-  
+
   <g class="motion" fill="none" stroke="#46F477" stroke-width="3" stroke-linecap="round" stroke-linejoin="square" transform="translate(255,125) scale(-1.35) rotate(30)">
     <use href="#hexFrag">
       <animateTransform attributeName="transform" type="scale" values="1;2.4" dur="2s" repeatCount="indefinite"/>
@@ -18,8 +27,8 @@
       <animate attributeName="opacity" values="1;0.8;0" begin="-1.33s" dur="2s" repeatCount="indefinite"/>
     </use>
   </g>
-  
-  <g class="motion" fill="none" stroke="#00414a" stroke-width="3" stroke-linecap="round" stroke-linejoin="square" transform="translate(265,120) scale(1.35) rotate(30)">
+
+  <g class="motion" fill="none" stroke="#00a6ed" stroke-width="3" stroke-linecap="round" stroke-linejoin="square" transform="translate(265,120) scale(1.35) rotate(30)">
     <use href="#hexFrag">
       <animateTransform attributeName="transform" type="scale" values="1;2.4" dur="2s" repeatCount="indefinite"/>
       <animate attributeName="opacity" values="1;0.8;0" dur="2s" repeatCount="indefinite"/>

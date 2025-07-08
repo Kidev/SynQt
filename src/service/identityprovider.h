@@ -39,7 +39,8 @@ struct CookiePolicy
 /// verification, token storage, refresh) live in an OAuthBackend, so the browser only ever
 /// ends with the session cookie.
 ///
-/// Two modes (docs/authentication.md "Where identity runs"):
+/// Two modes (see "Where identity runs" in
+/// [Authentication](https://synqt.org/authentication/)):
 ///  - In process (default): this provider owns an OAuthBackend; the secret and tokens live
 ///    on the edge.
 ///  - provider_entity: the edge holds no secret. The begin/exchange steps are delegated to
