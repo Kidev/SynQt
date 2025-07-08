@@ -1,0 +1,11 @@
+// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+// SPDX-License-Identifier: Apache-2.0
+
+// The permanent Hall of Fame contract: owned by the database entity, used only by the edge
+// (docs/tutorial-multiplayer-rounds.md). The database authorizes the calling entity
+// (Caller.entity === "web"), never a user; the browser never reaches it.
+contract Scores {
+    slot award(string sub, string name)   // give this champion one point
+    slot var top()                         // the highest scorers, back to the edge
+    signal standingsChanged()              // the table moved; repull
+}

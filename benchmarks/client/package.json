@@ -1,0 +1,13 @@
+{
+    "name": "synqt-client-bench",
+    "version": "1.0.0",
+    "private": true,
+    "type": "module",
+    "description": "Playwright harness that measures the WASM client cold start and frame time as entities in view grow.",
+    "scripts": {
+        "frame-time": "node frame-time.mjs"
+    },
+    "dependencies": {
+        "playwright": "^1.49.0"
+    }
+}

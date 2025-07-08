@@ -1,0 +1,12 @@
+// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+// SPDX-License-Identifier: Apache-2.0
+
+// M1 acceptance contract: one prop, one model, one fire-and-forget slot, one
+// returning slot, and one signal; all four QtRO directions the generator lowers.
+contract Todo {
+    prop int count                       // owner writes, consumers read (READPUSH)
+    model items(text, author, done)      // only these roles cross to consumers
+    slot add(string text)                // fire and forget request
+    slot bool clear()                    // returning slot -> async call on consumer
+    signal rejected(string reason)       // owner explains a refusal
+}

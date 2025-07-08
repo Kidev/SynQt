@@ -1,0 +1,69 @@
+# SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+# SPDX-License-Identifier: Apache-2.0
+#
+# TechEmpower-style HTTP benchmark of the SynQt web edge (QHttpServer + QSQLITE).
+# Load generator: wrk -t4 -c256 -d15s (the industry-standard driver, for cross-framework
+# comparison). Routes named as TechEmpower test types. See benchmarks/edge/.
+# Host: Arch Linux, x86_64, 32 CPUs. Qt 6.11.1. Date: 2026-07-13.
+# Summary (req/s): plaintext 74.4k, json 71.2k, single-query 52.6k, 20-queries 19.2k,
+#                  20-updates 13.6k, fortunes 40.8k; avg latency 3.4-18.7ms, tight tails.
+
+$ wrk -t4 -c256 -d15s http://127.0.0.1:8480/json
+Running 15s test @ http://127.0.0.1:8480/json
+  4 threads and 256 connections
+  Thread Stats   Avg      Stdev     Max   +/- Stdev
+    Latency     3.58ms  135.33us   7.51ms   95.01%
+    Req/Sec    17.94k   512.30    23.78k    90.33%
+  1071380 requests in 15.05s, 149.18MB read
+Requests/sec:  71208.64
+Transfer/sec:      9.91MB
+
+$ wrk -t4 -c256 -d15s http://127.0.0.1:8480/plaintext
+Running 15s test @ http://127.0.0.1:8480/plaintext
+  4 threads and 256 connections
+  Thread Stats   Avg      Stdev     Max   +/- Stdev
+    Latency     3.43ms  117.45us   5.88ms   94.68%
+    Req/Sec    18.76k   405.46    21.26k    82.83%
+  1119816 requests in 15.04s, 134.56MB read
+Requests/sec:  74439.08
+Transfer/sec:      8.94MB
+
+$ wrk -t4 -c256 -d15s http://127.0.0.1:8480/db
+Running 15s test @ http://127.0.0.1:8480/db
+  4 threads and 256 connections
+  Thread Stats   Avg      Stdev     Max   +/- Stdev
+    Latency     4.84ms  207.27us   9.59ms   92.83%
+    Req/Sec    13.25k   449.50    16.30k    85.33%
+  791407 requests in 15.05s, 113.05MB read
+Requests/sec:  52575.86
+Transfer/sec:      7.51MB
+
+$ wrk -t4 -c256 -d15s "http://127.0.0.1:8480/queries?queries=20"
+Running 15s test @ http://127.0.0.1:8480/queries?queries=20
+  4 threads and 256 connections
+  Thread Stats   Avg      Stdev     Max   +/- Stdev
+    Latency    13.22ms  519.86us  26.72ms   92.01%
+    Req/Sec     4.85k   303.60     6.51k    50.83%
+  289515 requests in 15.06s, 208.90MB read
+Requests/sec:  19227.22
+Transfer/sec:     13.87MB
+
+$ wrk -t4 -c256 -d15s "http://127.0.0.1:8480/updates?queries=20"
+Running 15s test @ http://127.0.0.1:8480/updates?queries=20
+  4 threads and 256 connections
+  Thread Stats   Avg      Stdev     Max   +/- Stdev
+    Latency    18.72ms  696.40us  39.18ms   95.09%
+    Req/Sec     3.43k   297.18     3.88k    68.50%
+  205045 requests in 15.05s, 147.95MB read
+Requests/sec:  13627.68
+Transfer/sec:      9.83MB
+
+$ wrk -t4 -c256 -d15s http://127.0.0.1:8480/fortunes
+Running 15s test @ http://127.0.0.1:8480/fortunes
+  4 threads and 256 connections
+  Thread Stats   Avg      Stdev     Max   +/- Stdev
+    Latency     6.24ms  225.44us  12.94ms   93.13%
+    Req/Sec    10.27k   282.80    14.07k    88.50%
+  613611 requests in 15.06s, 792.93MB read
+Requests/sec:  40752.79
+Transfer/sec:     52.66MB

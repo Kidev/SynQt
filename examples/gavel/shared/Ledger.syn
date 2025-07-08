@@ -1,0 +1,13 @@
+// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+// SPDX-License-Identifier: Apache-2.0
+
+// The ledger contract: owned by the database entity, consumed only by the web edge over
+// the mesh (docs/tutorial-hall-of-fame.md). The database authorizes the calling ENTITY
+// (Caller.entity === "web"), never a user. A recorded winner is announced as a scalar
+// signal (scalars replicate reliably), and the edge maintains the browser-facing Hall from
+// it; the browser never reaches the database directly.
+contract Ledger {
+    prop int count                                            // number of recorded winners
+    slot recordWinner(string item, string winner, int amount) // edge -> database
+    signal winnerRecorded(string item, string winner, int amount)
+}

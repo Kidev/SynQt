@@ -1,0 +1,94 @@
+# SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+# SPDX-License-Identifier: Apache-2.0
+#
+# Doxygen configuration for the SynQt C++ runtime reference.
+#
+# Build it on its own:      doxygen Doxyfile        (output in build/apidocs/html)
+# Build it with the site:   mkdocs build            (output under the site's /api/)
+#
+# The MkDocs hook in tools/docs-hooks/doxygen_hook.py overrides OUTPUT_DIRECTORY so the
+# generated HTML lands inside the documentation site. Everything else comes from here.
+
+PROJECT_NAME           = "SynQt"
+PROJECT_BRIEF          = "C++ runtime reference"
+PROJECT_LOGO           = docs/assets/synqt.svg
+OUTPUT_DIRECTORY       = build/apidocs
+OUTPUT_LANGUAGE        = English
+
+# The runtime libraries only. The tooling is Python, the tests and benchmarks are
+# fixtures, and neither belongs in a reference of the public runtime surface.
+INPUT                  = src tools/docs-hooks/apidocs-mainpage.md
+FILE_PATTERNS          = *.h *.cpp *.md
+USE_MDFILE_AS_MAINPAGE = tools/docs-hooks/apidocs-mainpage.md
+RECURSIVE              = YES
+EXCLUDE_PATTERNS       = */build/* */generated/*
+
+# Every class and member appears, documented or not, so the reference is a complete map
+# of the runtime rather than a partial one that silently omits whatever lacks a comment.
+EXTRACT_ALL            = YES
+EXTRACT_STATIC         = YES
+EXTRACT_LOCAL_CLASSES  = NO
+HIDE_UNDOC_MEMBERS     = NO
+HIDE_UNDOC_CLASSES     = NO
+
+# The headers document with `///` blocks whose first sentence is the brief.
+JAVADOC_AUTOBRIEF      = YES
+QT_AUTOBRIEF           = YES
+MULTILINE_CPP_IS_BRIEF = NO
+INHERIT_DOCS           = YES
+SORT_MEMBER_DOCS       = NO
+SORT_BRIEF_DOCS        = NO
+
+# Qt's moc keywords are not C++ and would otherwise be parsed as identifiers.
+ENABLE_PREPROCESSING   = YES
+MACRO_EXPANSION        = YES
+EXPAND_ONLY_PREDEF     = YES
+PREDEFINED             = Q_OBJECT= \
+                         Q_GADGET= \
+                         Q_PROPERTY(x)= \
+                         Q_INVOKABLE= \
+                         Q_ENUM(x)= \
+                         Q_DECLARE_METATYPE(x)= \
+                         Q_SIGNALS=signals \
+                         Q_SLOTS=slots \
+                         Q_EMIT= \
+                         QT_BEGIN_NAMESPACE= \
+                         QT_END_NAMESPACE=
+
+BUILTIN_STL_SUPPORT    = YES
+GENERATE_TODOLIST      = NO
+GENERATE_TESTLIST      = NO
+GENERATE_BUGLIST       = NO
+GENERATE_DEPRECATEDLIST = NO
+
+# Warn about anything the parser cannot make sense of, but do not fail a docs build on a
+# missing comment: EXTRACT_ALL already covers those, and the site must still publish.
+QUIET                  = YES
+WARNINGS               = YES
+WARN_IF_UNDOCUMENTED   = NO
+WARN_IF_DOC_ERROR      = YES
+WARN_NO_PARAMDOC       = NO
+
+GENERATE_HTML          = YES
+HTML_OUTPUT            = html
+HTML_COLORSTYLE        = DARK
+HTML_DYNAMIC_SECTIONS  = YES
+GENERATE_TREEVIEW      = YES
+FULL_SIDEBAR           = NO
+DISABLE_INDEX          = NO
+SEARCHENGINE           = YES
+GENERATE_LATEX         = NO
+GENERATE_XML           = NO
+
+# Collaboration and inheritance graphs, when Graphviz is present. Without `dot` doxygen
+# falls back to plain text lists rather than failing.
+HAVE_DOT               = YES
+DOT_IMAGE_FORMAT       = svg
+INTERACTIVE_SVG        = YES
+CLASS_GRAPH            = YES
+COLLABORATION_GRAPH    = NO
+INCLUDE_GRAPH          = NO
+INCLUDED_BY_GRAPH      = NO
+CALL_GRAPH             = NO
+CALLER_GRAPH           = NO
+DOT_GRAPH_MAX_NODES    = 60

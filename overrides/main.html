@@ -1,0 +1,24 @@
+{#-
+  SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+  SPDX-License-Identifier: Apache-2.0
+
+  Override of material/main.html (which stock is just `{% extends "base.html" %}`
+  with no blocks of its own). Re-declares base.html's `container` block
+  unchanged except for one added class, `md-content--home`, on the home page
+  only (page.is_homepage). docs/stylesheets/home.css hooks off that class to
+  give the home page its own wide, sidebar-free layout without touching the
+  centered, sidebared layout every other page keeps.
+-#}
+{% extends "base.html" %}
+{% block container %}
+  <div class="md-content{{ ' md-content--home' if page.is_homepage }}" data-md-component="content">
+    {% if "navigation.path" in features %}
+      {% include "partials/path.html" %}
+    {% endif %}
+    <article class="md-content__inner md-typeset">
+      {% block content %}
+        {% include "partials/content.html" %}
+      {% endblock %}
+    </article>
+  </div>
+{% endblock %}

@@ -1,0 +1,15 @@
+// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+// SPDX-License-Identifier: Apache-2.0
+
+// The arena contract under test (a focused subset of examples/arena/shared/Arena.syn: the
+// champions/round mirroring is exercised by the auction's database path and left out here).
+// The only movement input is an aim point, a goal; models flow owner -> consumer, so a
+// browser can never write a position, mass, or name.
+contract Arena {
+    model blobs(id, name, x, y, mass, online)     // players in view, for drawing
+    model board(name, mass)                        // the live leaderboard, biggest first
+    model pellets(id, x, y)                        // food in view
+    slot steer(real x, real y)                     // "I am aiming at this spot" (a goal)
+    slot real ping()                               // the edge clock in ms, for latency
+    signal eaten(string prey, string predator)     // one blob swallowed another
+}

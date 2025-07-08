@@ -1,0 +1,13 @@
+{
+    "name": "synqt-m0-verify",
+    "version": "1.0.0",
+    "private": true,
+    "type": "module",
+    "description": "Playwright harness that proves the M0 QtRO-over-WebSockets transport in real browsers.",
+    "scripts": {
+        "verify": "node verify.mjs"
+    },
+    "dependencies": {
+        "playwright": "^1.49.0"
+    }
+}

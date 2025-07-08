@@ -1,0 +1,20 @@
+// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+// SPDX-License-Identifier: Apache-2.0
+
+// The identity connect point, owned by a dedicated auth entity when identity.provider_entity
+// is set (docs/authentication.md "Where identity runs"). The edges consume it over the mesh
+// to delegate the secret-bearing OAuth steps: the client secret, the token exchange, ID-token
+// verification and the stored tokens all live on the auth entity. The edge keeps only the
+// browser-facing half (cookies, session), so no secret and no token ever reaches an edge.
+//
+// A per_peer Source answers each edge on itself, so a user's identity never crosses to
+// another edge. Requests carry a requestId the edge correlates its answer against; the
+// normalized identity travels back as a JSON string.
+contract Identity {
+    slot beginLogin(string requestId, string provider, string redirectUri)
+    slot exchangeCode(string requestId, string state, string code, string redirectUri)
+    slot bindSession(string state, string sessionId)
+    slot releaseSession(string sessionId)
+    signal beginResult(string requestId, string state, string authorizeUrl, string error)
+    signal exchangeResult(string requestId, string identityJson, string error)
+}

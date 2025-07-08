@@ -1,0 +1,19 @@
+{
+    "version": 3,
+    "cmakeMinimumRequired": { "major": 3, "minor": 21, "patch": 0 },
+    "configurePresets": [
+        {
+            "name": "m4",
+            "displayName": "M4 entity runtime + topology test (native host kit)",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/../../build/m4-topology",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+                "CMAKE_PREFIX_PATH": "/opt/Qt/6.11.1/gcc_64"
+            }
+        }
+    ],
+    "buildPresets": [
+        { "name": "m4", "configurePreset": "m4" }
+    ]
+}

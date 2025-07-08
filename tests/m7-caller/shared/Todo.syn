@@ -1,0 +1,13 @@
+// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+// SPDX-License-Identifier: Apache-2.0
+
+// The browser-facing todo contract (owned by the web edge, consumed by the client).
+// The model declares only these roles, so ownerSub; which the edge keeps per row for
+// authorization; is NOT here and can never cross to a browser.
+contract Todo {
+    prop int count                       // number of items; the client reads it
+    model items(id, text, author, done)  // only these roles cross; no ownerSub
+    slot add(string text)                // the edge authorizes the user, then persists
+    slot remove(int id)                  // the edge authorizes ownership / moderator
+    signal rejected(string reason)       // the edge explains a refusal to one caller
+}

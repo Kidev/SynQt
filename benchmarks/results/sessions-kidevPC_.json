@@ -1,0 +1,38 @@
+{
+    "arch": "x86_64",
+    "benchmark": "sessions",
+    "host": "Arch Linux",
+    "iterations": 500000,
+    "path": "sessionmanager-lookup-and-scope-check",
+    "qt_version": "6.11.1",
+    "recorded": "2026-07-14T09:14:05Z",
+    "sweep": [
+        {
+            "create_ns": 635.045,
+            "hasscope_hier_ns": 44.477754,
+            "hasscope_set_ns": 34.517518,
+            "lookup_hit_ns": 28.294798,
+            "lookup_miss_ns": 49.002646,
+            "sessions": 1000,
+            "snapshot_ms": 0.323128
+        },
+        {
+            "create_ns": 595.1972,
+            "hasscope_hier_ns": 52.460704,
+            "hasscope_set_ns": 42.389088,
+            "lookup_hit_ns": 38.83757,
+            "lookup_miss_ns": 45.923566,
+            "sessions": 10000,
+            "snapshot_ms": 3.002
+        },
+        {
+            "create_ns": 618.33493,
+            "hasscope_hier_ns": 60.48501,
+            "hasscope_set_ns": 50.975254,
+            "lookup_hit_ns": 78.961754,
+            "lookup_miss_ns": 50.691434,
+            "sessions": 100000,
+            "snapshot_ms": 39.07313
+        }
+    ]
+}

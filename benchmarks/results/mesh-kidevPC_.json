@@ -1,0 +1,113 @@
+{
+    "arch": "x86_64",
+    "benchmark": "mesh",
+    "host": "Arch Linux",
+    "latency": [
+        {
+            "max": 0.05164,
+            "mean": 0.02635215599999999,
+            "min": 0.025709,
+            "name": "mtls_loopback.slot_round_trip_64B",
+            "p50": 0.02597,
+            "p95": 0.0272115,
+            "p99": 0.0405342,
+            "samples": 2000,
+            "unit": "ms"
+        },
+        {
+            "max": 0.054419,
+            "mean": 0.030390992500000012,
+            "min": 0.029319,
+            "name": "mtls_loopback.slot_round_trip_4096B",
+            "p50": 0.02979,
+            "p95": 0.03209245,
+            "p99": 0.047070100000000004,
+            "samples": 2000,
+            "unit": "ms"
+        },
+        {
+            "max": 40.701666,
+            "mean": 0.0366428045,
+            "min": 0.01563,
+            "name": "mtls_loopback.property_push_propagation",
+            "p50": 0.01613,
+            "p95": 0.01649045,
+            "p99": 0.0207007,
+            "samples": 2000,
+            "unit": "ms"
+        },
+        {
+            "max": 0.0295,
+            "mean": 0.01497615349999997,
+            "min": 0.0146,
+            "name": "local_socket.slot_round_trip_64B",
+            "p50": 0.01483,
+            "p95": 0.01501,
+            "p99": 0.0187912,
+            "samples": 2000,
+            "unit": "ms"
+        },
+        {
+            "max": 0.055309,
+            "mean": 0.016781066999999972,
+            "min": 0.01609,
+            "name": "local_socket.slot_round_trip_4096B",
+            "p50": 0.01648,
+            "p95": 0.017963949999999996,
+            "p99": 0.023620099999999998,
+            "samples": 2000,
+            "unit": "ms"
+        },
+        {
+            "max": 0.01347,
+            "mean": 0.008183197999999987,
+            "min": 0.00794,
+            "name": "local_socket.property_push_propagation",
+            "p50": 0.0081,
+            "p95": 0.00837,
+            "p99": 0.01105079,
+            "samples": 2000,
+            "unit": "ms"
+        },
+        {
+            "max": 4.017142,
+            "mean": 3.640296545000001,
+            "min": 3.578716,
+            "name": "mtls_loopback.connection_setup",
+            "p50": 3.626956,
+            "p95": 3.692558,
+            "p99": 3.96823649,
+            "samples": 200,
+            "unit": "ms"
+        },
+        {
+            "max": 0.108739,
+            "mean": 0.033365635,
+            "min": 0.03073,
+            "name": "local_socket.connection_setup",
+            "p50": 0.03203,
+            "p95": 0.03845899999999999,
+            "p99": 0.05029138999999986,
+            "samples": 200,
+            "unit": "ms"
+        }
+    ],
+    "path": "synqt-mesh-transports-one-process",
+    "qt_version": "6.11.1",
+    "recorded": "2026-07-13T23:15:47Z",
+    "samples": 2000,
+    "setup_samples": 200,
+    "throughput": [
+        {
+            "name": "mtls_loopback.slot_throughput_64B",
+            "unit": "calls/s",
+            "value": 283742.9451218161
+        },
+        {
+            "name": "local_socket.slot_throughput_64B",
+            "unit": "calls/s",
+            "value": 344199.94946800545
+        }
+    ],
+    "warmup": 500
+}

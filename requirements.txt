@@ -1,0 +1,12 @@
+# SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+# SPDX-License-Identifier: Apache-2.0
+#
+# Docs site toolchain. Pinned so local builds and CI match.
+mkdocs-material>=9.5,<10
+mkdocs-callouts>=1.13,<2
+pymdown-extensions>=10.7
+
+# Registers the `syn`, `cli`, and `synqt-qml` Pygments lexers used by the docs
+# (see tools/pygments-synqt) via the `pygments.lexers` entry point. The `qml`
+# fences are routed to `synqt-qml` by extend_pygments_lang in mkdocs.yml.
+-e ./tools/pygments-synqt

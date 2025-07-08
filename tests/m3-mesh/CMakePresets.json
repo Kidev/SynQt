@@ -1,0 +1,19 @@
+{
+    "version": 3,
+    "cmakeMinimumRequired": { "major": 3, "minor": 21, "patch": 0 },
+    "configurePresets": [
+        {
+            "name": "m3",
+            "displayName": "M3 mesh transport test (native host kit)",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/../../build/m3-mesh",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+                "CMAKE_PREFIX_PATH": "/opt/Qt/6.11.1/gcc_64"
+            }
+        }
+    ],
+    "buildPresets": [
+        { "name": "m3", "configurePreset": "m3" }
+    ]
+}

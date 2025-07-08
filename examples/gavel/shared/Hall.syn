@@ -1,0 +1,9 @@
+// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+// SPDX-License-Identifier: Apache-2.0
+
+// The Hall of Fame the browser sees: owned by the web edge, consumed by the client
+// (docs/tutorial-hall-of-fame.md). The edge fills it from the database and mirrors it to
+// every browser. Only these three roles cross the wire.
+contract Hall {
+    model winners(item, winner, amount)   // a live list the browser watches
+}

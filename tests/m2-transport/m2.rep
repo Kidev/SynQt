@@ -1,0 +1,11 @@
+// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+// SPDX-License-Identifier: Apache-2.0
+
+// A trivial contract for the M2 transport acceptance test: one push property (to
+// prove owner -> consumer updates cross the WebSocketTransport) and one slot (to
+// prove a consumer -> owner call reaches the Source).
+class Echo
+{
+    PROP(int value READPUSH)
+    SLOT(void poke(int n))
+}
