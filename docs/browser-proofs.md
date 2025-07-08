@@ -13,12 +13,12 @@ on SynQt itself; building an application needs none of it.
 
 | Harness | What it drives | Chromium | Firefox | WebKit | Runner |
 |---------|----------------|----------|---------|--------|--------|
-| Transport: property, signal, slot, and model over `ws` and `wss`, plus reconnect | QtRO over WebSockets, WebAssembly client against a native edge | covered | covered | opt in | `tests/m0-transport/verify/verify.mjs` |
-| Transport, multi threaded: the same matrix on the threaded kit under COOP and COEP | threaded WebAssembly with SharedArrayBuffer | covered | covered | opt in | `tests/m0-transport/verify/verify-mt.mjs` |
-| Client counter: two tabs stay in sync, reconnect, route guard | the full client runtime | covered | not targeted | not targeted | `tests/m6-client/verify/verify.mjs` |
+| Transport: property, signal, slot, and model over `ws` and `wss`, plus reconnect | QtRO over WebSockets, WebAssembly client against a native edge | covered | covered | opt in | [`tests/m0-transport/verify/verify.mjs`](https://github.com/Kidev/SynQt/blob/main/tests/m0-transport/verify/verify.mjs) |
+| Transport, multi threaded: the same matrix on the threaded kit under COOP and COEP | threaded WebAssembly with SharedArrayBuffer | covered | covered | opt in | [`tests/m0-transport/verify/verify-mt.mjs`](https://github.com/Kidev/SynQt/blob/main/tests/m0-transport/verify/verify-mt.mjs) |
+| Client counter: two tabs stay in sync, reconnect, route guard | the full client runtime | covered | not targeted | not targeted | [`tests/m6-client/verify/verify.mjs`](https://github.com/Kidev/SynQt/blob/main/tests/m6-client/verify/verify.mjs) |
 | Generated app boot: a scaffolded app boots and connects over a live QtRO link | the `synqt dev` WebAssembly shell | covered | not targeted | not targeted | `synqt dev` |
-| Qt Quick 3D Physics load: the scene links, the RHI comes up, the event loop runs | single threaded WebAssembly with PhysX | covered | not targeted | not targeted | `tests/wasm-quick3dphysics/verify/verify-phys.mjs` |
-| Qt Quick 3D Physics simulation: a box falls under gravity and rests on the plane | multi threaded WebAssembly with PhysX (`numThreads: 0`) | covered | not targeted | not targeted | `tests/wasm-quick3dphysics/verify/run-phys-mt.sh` |
+| Qt Quick 3D Physics load: the scene links, the RHI comes up, the event loop runs | single threaded WebAssembly with PhysX | covered | not targeted | not targeted | [`tests/wasm-quick3dphysics/verify/verify-phys.mjs`](https://github.com/Kidev/SynQt/blob/main/tests/wasm-quick3dphysics/verify/verify-phys.mjs) |
+| Qt Quick 3D Physics simulation: a box falls under gravity and rests on the plane | multi threaded WebAssembly with PhysX (`numThreads: 0`) | covered | not targeted | not targeted | [`tests/wasm-quick3dphysics/verify/run-phys-mt.sh`](https://github.com/Kidev/SynQt/blob/main/tests/wasm-quick3dphysics/verify/run-phys-mt.sh) |
 
 `covered` means the harness drives that engine headless on every run. `opt in` means the
 harness probes for the engine, drives it when it launches, and skips it with a message
@@ -63,8 +63,8 @@ tests/m0-transport/verify/run-m0.sh    # the WebKit cases now run too
 
 ## In continuous integration
 
-`browser-matrix.yml` runs the transport harness across Chromium, Firefox, and WebKit.
-`wasm-proofs.yml` runs the proofs that need a WebAssembly kit no other workflow
+[`browser-matrix.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/browser-matrix.yml) runs the transport harness across Chromium, Firefox, and WebKit.
+[`wasm-proofs.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/wasm-proofs.yml) runs the proofs that need a WebAssembly kit no other workflow
 installs: the multi threaded SharedArrayBuffer proof, Qt Quick 3D Physics on both kits,
 and a real `synqt build` of the arena client bundle. Both build a Qt module from source
 for the WebAssembly kit, which ships no QtRemoteObjects, so both are dispatched manually
@@ -76,7 +76,7 @@ and on changes to what they cover rather than on every push.
   Safari's own specifics.
 - Sustained load and interactive sessions (the multi player capstone load test and the
   client frame time benchmark) need a normal host with a display, not a headless CI
-  runner. `benchmarks/README.md` marks which harnesses those are.
+  runner. [`benchmarks/README.md`](https://github.com/Kidev/SynQt/blob/main/benchmarks/README.md) marks which harnesses those are.
 - `worker-src 'self' blob:` is still emitted under cross origin isolation even though
   Chromium and Firefox provably do not need it, because two questions are WebKit's to
   answer: whether its loader uses `blob:` workers, and whether it grants

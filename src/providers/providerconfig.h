@@ -14,10 +14,10 @@ namespace SynQt {
 /// connect point.
 struct ProviderConfig
 {
-    QString name;              // sqlite | postgres | memory | mongodb | redis | custom:X
+    QString name;             ///< sqlite | postgres | memory | mongodb | redis | custom:X
 
     /// Embedded relational (sqlite).
-    QString file;              // database file path
+    QString file;             ///< database file path
     QString journalMode{QStringLiteral("wal")};
     int busyTimeoutMs{5000};
 
@@ -26,13 +26,13 @@ struct ProviderConfig
     int port{0};
     QString database;
     QString user;
-    QString password;          // env: only
+    QString password;         ///< env: only
     QString sslMode{QStringLiteral("verify-full")};
-    QString caCert;            // CA that signed the engine certificate
+    QString caCert;           ///< CA that signed the engine certificate
     int poolSize{4};
 
     /// Cache/document connection (redis/mongodb).
-    QString uri;               // env: only (full connection string)
+    QString uri;              ///< env: only (full connection string)
     bool tls{true};
 
     /// Whether the entity is built for release. In release, an external provider refuses a

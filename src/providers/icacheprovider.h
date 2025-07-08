@@ -21,10 +21,10 @@ public:
     virtual void disconnect() = 0;
     virtual bool isHealthy() const = 0;
 
-    virtual QVariant get(const QString &key) = 0;                 // invalid if missing/expired
+    virtual QVariant get(const QString &key) = 0;                ///< invalid if missing/expired
     virtual void set(const QString &key, const QVariant &value, int ttlSeconds) = 0;
     virtual void del(const QString &key) = 0;
-    virtual qint64 incr(const QString &key, qint64 by) = 0;       // returns the new value
+    virtual qint64 incr(const QString &key, qint64 by) = 0;      ///< returns the new value
     virtual void expire(const QString &key, int ttlSeconds) = 0;
 
     virtual QString name() const = 0;

@@ -45,7 +45,7 @@ public:
 
 private:
     ProviderConfig m_config;
-    void *m_client{nullptr};   // mongoc_client_t*
+    void *m_client{nullptr};  ///< mongoc_client_t*
 };
 
 } // namespace SynQt

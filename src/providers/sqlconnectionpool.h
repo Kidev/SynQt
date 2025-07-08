@@ -67,8 +67,8 @@ public:
     /// Close and drop every connection (used on disconnect).
     void closeAll();
 
-    int openCount() const;   // connections currently created (leased or idle)
-    int busyCount() const;   // connections currently leased out
+    int openCount() const;  ///< connections currently created (leased or idle)
+    int busyCount() const;  ///< connections currently leased out
     int maxSize() const { return m_maxSize; }
 
 private:

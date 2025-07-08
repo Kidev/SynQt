@@ -16,7 +16,7 @@ struct RouteConfig
 {
     QString path;
     QString view;
-    QString scope;  // empty: reachable by any session
+    QString scope; ///< empty: reachable by any session
 };
 
 /// One connect point the client consumes: its name (how it is acquired and exposed as
@@ -33,11 +33,11 @@ struct ClientConnectPoint
 /// baked in from build.desktop.edge_url. The rest is the client's slice of the topology.
 struct SynClientConfig
 {
-    QUrl edgeUrl;                          // the wss sync endpoint
-    QList<ClientConnectPoint> connectPoints;  // connect points this client consumes
+    QUrl edgeUrl;                         ///< the wss sync endpoint
+    QList<ClientConnectPoint> connectPoints; ///< connect points this client consumes
 
     /// Native TLS trust (the browser terminates TLS itself). Empty verifies the edge
-    /// certificate against the OS trust store (and the hostname); set a PEM path to also
+    /// certificate against the OS trust store (and the hostname). Set a PEM path to also
     /// trust a pinned/self-hosted certificate. The client never disables verification.
     QString pinnedCaCertPath;
 

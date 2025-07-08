@@ -37,7 +37,7 @@ public:
     bool start();
     QString errorString() const;
     QString name() const;
-    quint16 serverPort() const;   // the mutual-TLS listen port (0 for a local socket)
+    quint16 serverPort() const;  ///< the mutual-TLS listen port (0 for a local socket)
 
     /// Expose an accessor (e.g. a consumed connect point or the Db helper) to every Source
     /// instance's QML context.
@@ -57,9 +57,9 @@ private:
     ConnectPointConfig m_config;
     MeshCredentials m_credentials;
     QQmlEngine *m_engine;
-    QRemoteObjectHost *m_host{nullptr};   // the shared-instance host (null for per_peer)
+    QRemoteObjectHost *m_host{nullptr};  ///< the shared-instance host (null for per_peer)
     MeshServer *m_server{nullptr};
-    QObject *m_source{nullptr};           // the shared-instance Source (null for per_peer)
+    QObject *m_source{nullptr};          ///< the shared-instance Source (null for per_peer)
     QHash<QString, QObject *> m_contextObjects;
     QString m_errorString;
 };

@@ -5,7 +5,7 @@
 
 The generated class and member reference for SynQt's C++ runtime lives at
 [**/api/**](/api/index.html){ target=_blank }. It is produced by Doxygen from the
-headers in `src/`, so it never drifts from the code.
+headers in [`src/`](https://github.com/Kidev/SynQt/tree/main/src), so it never drifts from the code.
 
 This is the reference for working on SynQt itself, or for extending it from C++ (a custom
 provider, a custom entity, embedding a runtime in an existing application). Building an
@@ -20,7 +20,7 @@ explains what each is responsible for and why they are split the way they are.
 | Library | Where to start in the reference |
 |---------|----------------------------------|
 | `SynQtTransport` | `SynQt::WebSocketTransport`, the `QIODevice` over a `QWebSocket` that carries QtRemoteObjects. |
-| `SynQtClient` | `SynQt::SynClient`, `SynQt::ServerAccessor`, `SynQt::Session`, `SynQt::Router`, `SynQt::ReplicaRegistry`. |
+| `SynQtClient` | `SynQt::SynClient`, `SynQt::ServerAccessor`, `SynQt::Session`, `SynQt::Router`, and the typed replica factory registry in `replicaregistry.h`. |
 | `SynQtConsumer` | The connect point resolver and the attached handler types behind `Contract.on<Signal>`. |
 | `SynQtService` | `SynQt::EntityRuntime`, `SynQt::ConnectPointHost`, `SynQt::MeshServer`, `SynQt::MeshClient`, `SynQt::WebEdge`, `SynQt::SessionManager`, `SynQt::Caller`, `SynQt::IdentityProvider`. |
 | `SynQtProviders` | `SynQt::IPersistenceProvider`, `SynQt::IDocumentProvider`, `SynQt::ICacheProvider`, `SynQt::ProviderRegistry`, and the bundled provider implementations. |
@@ -31,9 +31,19 @@ is a complete map of the runtime rather than a partial one.
 ## Building it locally
 
 The published site includes the reference: `mkdocs build` runs Doxygen through
-`tools/docs-hooks/doxygen.py` and writes it into the site under `/api/`. Doxygen is
-optional for a local site build; without it every other page still builds and the hook
-logs that the reference was skipped.
+[`tools/docs-hooks/doxygen.py`](https://github.com/Kidev/SynQt/blob/main/tools/docs-hooks/doxygen.py) and writes
+it into the site under [`/api/`](/api/index.html). Doxygen is optional for a local site
+build; without it every other page still builds and the hook logs that the reference was
+skipped.
+
+Everything else lives in [`Doxyfile`](https://github.com/Kidev/SynQt/blob/main/Doxyfile) at the repository root:
+the input set, the Qt macro handling, and the theme. The pages are styled with
+[doxygen-awesome-css](https://github.com/jothepro/doxygen-awesome-css) (MIT), vendored
+under [`tools/docs-hooks/doxygen-awesome/`](https://github.com/Kidev/SynQt/tree/main/tools/docs-hooks/doxygen-awesome)
+so a docs build needs no network, in its sidebar-only layout with a
+[SynQt brand layer](https://github.com/Kidev/SynQt/blob/main/tools/docs-hooks/doxygen-synqt.css) on top and a
+[custom header](https://github.com/Kidev/SynQt/blob/main/tools/docs-hooks/doxygen-header.html) that links back
+here.
 
 To generate it on its own, into `build/apidocs/html/index.html`:
 

@@ -419,6 +419,8 @@ connect_points:
   security design.
 - [Examples](examples.md): complete worked systems.
 - [Contributing](development.md): the codebase map, for working on SynQt itself.
+- [C++ reference](/api/index.html): the generated class and member reference for the
+  runtime.
 
 </div>
 

@@ -23,7 +23,7 @@ public:
     virtual void disconnect() = 0;
     virtual bool isHealthy() const = 0;
 
-    virtual QVariant insert(const QString &collection, const QVariantMap &document) = 0;  // id
+    virtual QVariant insert(const QString &collection, const QVariantMap &document) = 0; ///< id
     virtual QVariantList find(const QString &collection, const QVariantMap &filter,
                               const QVariantMap &options) = 0;
     virtual int update(const QString &collection, const QVariantMap &filter,

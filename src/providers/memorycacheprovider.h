@@ -32,24 +32,24 @@ public:
     void expire(const QString &key, int ttlSeconds) override;
     QString name() const override;
 
-    int size() const;  // for tests: the number of live entries
+    int size() const; ///< for tests: the number of live entries
 
 private:
     struct Entry
     {
         QVariant value;
-        qint64 expiresMs{0};  // 0 == no expiry
+        qint64 expiresMs{0}; ///< 0 == no expiry
     };
 
     bool isExpired(const Entry &entry) const;
-    void touch(const QString &key);   // mark most-recently-used
+    void touch(const QString &key);  ///< mark most-recently-used
     void evictIfNeeded();
 
     ProviderConfig m_config;
     int m_maxEntries;
     bool m_connected{false};
     QHash<QString, Entry> m_entries;
-    QList<QString> m_lru;  // front = least-recently-used, back = most-recently-used
+    QList<QString> m_lru; ///< front = least-recently-used, back = most-recently-used
 };
 
 } // namespace SynQt

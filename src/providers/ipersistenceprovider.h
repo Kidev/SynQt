@@ -18,9 +18,9 @@ struct DbResult
 {
     bool ok{false};
     QString error;
-    QVariantList rows;     // query(): one QVariantMap per row (column name -> value)
-    int affected{0};       // exec(): rows changed
-    QVariant insertId;     // exec(): the last inserted row id, when the engine reports one
+    QVariantList rows;    ///< query(): one QVariantMap per row (column name -> value)
+    int affected{0};      ///< exec(): rows changed
+    QVariant insertId;    ///< exec(): the last inserted row id, when the engine reports one
 
     static DbResult failure(const QString &message)
     {

@@ -20,18 +20,18 @@ struct IdentityProviderConfig
     QString name;
     QUrl authorizeUrl;
     QUrl tokenUrl;
-    QUrl userinfoUrl;               // OAuth2 profile endpoint (empty for pure OIDC)
+    QUrl userinfoUrl;              ///< OAuth2 profile endpoint (empty for pure OIDC)
     QStringList scopes;
 
     QString clientId;
-    QString clientSecret;           // resolved from env: only
+    QString clientSecret;          ///< resolved from env: only
 
     /// OpenID Connect: when true, identity comes from the ID token, whose signature is
     /// verified against the provider JWKS. Otherwise identity comes from the userinfo JSON.
     bool useIdToken{false};
-    QUrl jwksUrl;                   // provider signing keys (OIDC)
-    QString issuer;                 // expected iss claim (OIDC)
-    QString audience;               // expected aud claim (OIDC); defaults to clientId
+    QUrl jwksUrl;                  ///< provider signing keys (OIDC)
+    QString issuer;                ///< expected iss claim (OIDC)
+    QString audience;              ///< expected aud claim (OIDC); defaults to clientId
 
     /// Normalization: which raw fields feed each identity field (userinfo path). Defaults
     /// suit the generic OAuth2 template; the GitHub template maps the numeric id to sub and
@@ -40,7 +40,7 @@ struct IdentityProviderConfig
     QString loginField{QStringLiteral("login")};
     QString nameField{QStringLiteral("name")};
     QString emailField{QStringLiteral("email")};
-    QUrl emailsUrl;                 // GitHub-style fallback for a private email
+    QUrl emailsUrl;                ///< GitHub-style fallback for a private email
 
     /// A dev-only stub provider (issued by `synqt dev`); it must never run in a shipped
     /// edge. The runtime refuses it unless the dev gate is explicitly enabled.
@@ -52,15 +52,15 @@ struct IdentityProviderConfig
 struct IdentityConfig
 {
     bool enabled{false};
-    bool required{false};           // an unauthenticated browser cannot acquire scoped CPs
-    QString providerEntity;         // empty: in-process at the edge
+    bool required{false};          ///< an unauthenticated browser cannot acquire scoped CPs
+    QString providerEntity;        ///< empty: in-process at the edge
 
     QString loginRoute{QStringLiteral("/auth/login")};
     QString callbackRoute{QStringLiteral("/auth/callback")};
     QString logoutRoute{QStringLiteral("/auth/logout")};
 
-    QString mappingHook;            // web/identity/map.qml (optional)
-    QString appRoute{QStringLiteral("/")};  // where to send the browser after login
+    QString mappingHook;           ///< web/identity/map.qml (optional)
+    QString appRoute{QStringLiteral("/")}; ///< where to send the browser after login
 
     QList<IdentityProviderConfig> providers;
 
