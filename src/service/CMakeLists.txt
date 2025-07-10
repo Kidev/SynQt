@@ -32,7 +32,7 @@ endif()
 # jwt-cpp ships no version macro, so require the symbol JwksVerifier actually calls rather than
 # a version number: create_public_key_from_rsa_components (it builds the RSA public key from the
 # JWK modulus/exponent) arrived in v0.7.1. Against an older header the build dies ~200 lines deep
-# in std::string overload candidates, naming basic_string rather than jwt-cpp -- so say it here,
+# in std::string overload candidates, naming basic_string rather than jwt-cpp, so say it here,
 # at configure time, in terms of the thing to go fix.
 file(STRINGS "${JWT_CPP_INCLUDE_DIR}/jwt-cpp/jwt.h" JWT_CPP_HAS_RSA_COMPONENTS
     REGEX "create_public_key_from_rsa_components" LIMIT_COUNT 1)

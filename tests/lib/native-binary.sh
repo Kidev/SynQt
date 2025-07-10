@@ -13,8 +13,8 @@
 #
 # The kind is read from the file's magic number rather than from `file`'s prose. `file` is not in
 # every Git-for-Windows install, and its wording is neither stable across versions nor the same on
-# two platforms -- which is exactly how `file -b ... | grep -q ELF` came to report MISSING on macOS
-# for three executables that had just linked successfully: the assertion only ever recognised
+# two platforms, which is exactly how `file -b ... | grep -q ELF` came to report MISSING on macOS
+# for three executables that had linked successfully. The assertion only ever recognised
 # Linux, so the one thing it proved was that the test ran on Linux.
 
 # Echo the path of a built executable, accounting for the .exe suffix on Windows. Echoes nothing
@@ -36,8 +36,8 @@ native_exe_path() {
     fi
 }
 
-# Echo a short human-readable binary kind (ELF, Mach-O, PE), or nothing if the file is not a
-# native executable for any platform we build for.
+# Echo a short binary kind label (ELF, Mach-O, PE), or nothing if the file is not a
+# native executable for any platform SynQt builds for.
 native_exe_kind() {
     magic="$(od -A n -t x1 -N 4 "$1" 2>/dev/null | tr -d ' \n')"
     case "$magic" in

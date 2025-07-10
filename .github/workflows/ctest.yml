@@ -78,7 +78,7 @@ jobs:
     # a hang: a test process that stops making progress otherwise sits here for the default six
     # hours. One already did (see the PATH note in the run step) and had to be cancelled by hand
     # after 80 minutes, which is 80 minutes that produced no evidence. CTest's own per-test
-    # timeout is not enough on its own -- it waits on the test's output pipe, which a crashed
+    # timeout is not enough on its own; it waits on the test's output pipe, which a crashed
     # process's error-reporting child can hold open after the test itself is gone.
     timeout-minutes: 60
     strategy:
@@ -170,7 +170,7 @@ jobs:
         #
         # OpenGL (Linux only): Qt6GuiConfig hard-requires WrapOpenGL, so without the dev files
         # Qt6Gui sets Qt6Gui_FOUND to FALSE and every component that depends on it (Qml, Quick,
-        # NetworkAuth) disappears with it -- find_package fails naming the dependent component,
+        # NetworkAuth) disappears with it; find_package fails naming the dependent component,
         # not the missing library, which is what makes this one slow to read. libgl1-mesa-dev
         # pulls the libglvnd dev files, so it covers all three of CMake's OPENGL_opengl_LIBRARY,
         # OPENGL_glx_LIBRARY, and OPENGL_INCLUDE_DIR. macOS has OpenGL in the SDK, and the
@@ -349,7 +349,7 @@ jobs:
           # Windows resolves a DLL through the executable's own directory and then PATH; it has
           # no RPATH, which is the only reason the other two columns need nothing here. A freshly
           # linked tst_m1.exe sits in build/ and Qt6Core.dll sits in the kit's bin, so without
-          # this the loader finds nothing and the process dies before main() -- and the runner
+          # this the loader finds nothing and the process dies before main(), and the runner
           # blocks on the resulting error dialog instead of reporting it. That is exactly what
           # happened: m1 printed "Start 1: m1" and hung for 78 minutes until the job was
           # cancelled, having compiled perfectly. The build itself was never affected because

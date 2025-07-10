@@ -46,19 +46,19 @@ echo "== [4/4] Native: assert the box falls under gravity and rests on the plane
 # Rendered offscreen with Mesa's software rasteriser, with no display and no X server. The
 # note this replaces said Quick3D "needs a real GL context, so this cannot run on the
 # offscreen platform" and reached for Xvfb instead; measured against the pinned 6.11.1 kit
-# that is simply not true -- the offscreen platform brings up the RHI through surfaceless
+# that is simply not true; the offscreen platform brings up the RHI through surfaceless
 # EGL and prints the identical startY/minY/finalY. The Xvfb route cost a day to disprove:
 # xvfb-run requires xauth, funnels the X server's own errors into a temp file it deletes on
 # the way out, and so failed on the CI runner in under a second having emitted nothing at
 # all. This path has no X server, no xauth and no display in it to go wrong, and it is the
-# same one on a developer's machine as on a runner -- the previous arrangement ran the two
+# same one on a developer's machine as on a runner; the previous arrangement ran the two
 # differently, which is the arrangement that let CI break without anyone's desktop noticing.
 #
 # LIBGL_ALWAYS_SOFTWARE is load-bearing, not belt-and-braces: without it, an offscreen run
 # on a machine with no display hangs indefinitely rather than falling back (measured).
 phys_log="$REPO_ROOT/build/q3dphys-desktop/native-run.log"
 # tee, because the evidence is the point. The pipeline used to end in `grep | head -1`, which
-# discards every line that is not the one being looked for -- including the reason there is no
+# discards every line that is not the one being looked for, including the reason there is no
 # such line. `head -1` is still what stops the run: the scene never exits on its own (its timer
 # stops, the event loop does not), so closing the pipe after the line we came for is what ends
 # it, and `timeout` is the backstop for the case where that line never comes.

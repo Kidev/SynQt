@@ -35,12 +35,12 @@ def _presets(config: Dict[str, Any]) -> Dict[str, Any]:
             "displayName": "Host (native services + desktop client)",
             "binaryDir": "${sourceDir}/build/host",
             # Named, not defaulted. CMake's default generator is per platform, and on Windows
-            # it is Visual Studio -- a multi-config generator, which changes two things this
+            # it is Visual Studio, a multi-config generator, which changes two things this
             # build takes for granted: it ignores CMAKE_BUILD_TYPE below (the config is chosen
             # at build time, and `cmake --build` with none named picks Debug), and it puts the
             # binaries in a per-config subdirectory, so an entity built as build/host/web on
             # Linux and macOS turned up at build/host/Debug/web.exe on Windows and everything
-            # downstream -- `synqt serve`, `synqt dev`, the desktop-client suite -- looked for
+            # downstream (`synqt serve`, `synqt dev`, the desktop-client suite) looked for
             # it where the other two platforms put it and reported it had never been built.
             # Ninja is single-config everywhere, is already what the WebAssembly build uses,
             # and is already a tool `synqt doctor` requires, so this makes the host build the

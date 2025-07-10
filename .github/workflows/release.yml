@@ -26,7 +26,7 @@
 #     from the setup-python interpreter's deployment target, not the runner OS, so they do not have
 #     the same image-rot problem.
 # Every row smoke-tests its own frozen binary (help + a toolchain-free scaffold + the providers
-# registry) in the environment it was built in -- so the Linux artifact is exercised ON its glibc
+# registry) in the environment it was built in, so the Linux artifact is exercised ON its glibc
 # floor, which is the point of building it there.
 
 name: Publish a release of the synqt CLI
@@ -80,8 +80,8 @@ jobs:
         run: |
           set -eu
           latest="$(git tag --list 'v[0-9]*' --sort=-version:refname | head -n1)"
-          # First release: with no v* tag yet, seed 0.0.0 so the first build is the natural
-          # start of each track -- patch -> 0.0.1, minor -> 0.1.0, major -> 1.0.0.
+          # First release: with no v* tag yet, seed 0.0.0 so the first build is the base
+          # of each track: patch -> 0.0.1, minor -> 0.1.0, major -> 1.0.0.
           first="false"
           if [ -z "$latest" ]; then
             latest="v0.0.0"
@@ -145,8 +145,8 @@ jobs:
         # freeze it with PyInstaller (a tiny launcher is the entry point; --collect-submodules pulls
         # every synqt.* command module, even the ones cli.py imports lazily by name), then smoke-test
         # the frozen binary ON this floor. The smoke test exercises the parts a onefile freeze most
-        # often gets wrong -- arg parsing, the scaffold (its templating and packaged data files), and
-        # the providers registry -- while touching no Qt or toolchain (that is what `dev`/`build`
+        # often gets wrong: arg parsing, the scaffold (its templating and packaged data files), and
+        # the providers registry, while touching no Qt or toolchain (that is what `dev`/`build`
         # need, not `new`/`providers`).
         #
         # The interpreter is the AlmaLinux 8 system python (dnf) referenced BY ABSOLUTE PATH, NOT

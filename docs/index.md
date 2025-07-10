@@ -12,7 +12,7 @@ hide:
 
 <div class="synqt-hero__text" markdown>
 
-<p class="synqt-eyebrow">QML · one toolchain · zero third party servers</p>
+<p class="synqt-eyebrow">QML / one toolchain / zero third party servers</p>
 
 <div class="synqt-headline" markdown>
 Build complete web systems with QML, with no third party servers to stand up.

@@ -43,7 +43,7 @@ target_link_libraries(tst_customprovider PRIVATE Qt6::Test SynQtProviders)
 # Per compiler, because these are not a portable spelling. cl.exe parses -Wall as its own
 # /Wall and then reads -Wextra as /W + "extra", which is not a number: "Command line error
 # D8021: invalid numeric argument '/Wextra'". That is a hard failure before any code is
-# looked at, so the Windows column was not enforcing this standard loosely -- it could not
+# looked at, so the Windows column was not enforcing this standard loosely; it could not
 # build the fixture at all. /W4 /WX is the MSVC equivalent (/Wall there means every warning
 # including the off-by-default ones, which is not what -Wall means).
 if(MSVC)

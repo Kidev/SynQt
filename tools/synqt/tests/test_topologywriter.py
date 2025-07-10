@@ -178,7 +178,7 @@ class WriteTest(unittest.TestCase):
         # shared/Items.syn leaves a project that cannot configure, and this test used to pass
         # anyway: build() caught the CMake failure, returned it as a note, and carried on
         # writing the topology this asserts on. It raises now, so the fixture has to be a
-        # project that really builds -- which is the only version of it that proves anything.
+        # project that really builds, which is the only version of it that proves anything.
         (root / "shared").mkdir(exist_ok=True)
         (root / "shared" / "Items.syn").write_text(
             "// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux\n"

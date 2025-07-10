@@ -223,7 +223,7 @@ QtRO fans the change out to every consumer.
 ### `Client`: the web edge alias
 
 On web edge connect points, `Client` is a convenience alias for `Caller` when the
-caller is a browser user, so edge code reads naturally:
+caller is a browser user, so edge code reads directly:
 
 ```qml
 Client.hasScope("user")     // == Caller.hasScope("user")
