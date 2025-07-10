@@ -1,0 +1,91 @@
+# SPDX-FileCopyrightText: 2026 The SynQt Authors
+# SPDX-License-Identifier: Apache-2.0
+
+name: Bug report
+description: Something in SynQt behaves differently from what the documentation says.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        SynQt spans a browser client, a web edge, and a service mesh, so the same symptom
+        has very different causes depending on where it happens. The fields below are what
+        it takes to tell them apart.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you saw, and what you expected instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: How to reproduce
+      description: >-
+        The smallest set of steps that shows it. A `synqt new` project with the one change
+        that triggers it is worth more than a description of a large application.
+      placeholder: |
+        1. synqt new demo
+        2. ...
+        3. synqt dev
+    validations:
+      required: true
+
+  - type: dropdown
+    id: where
+    attributes:
+      label: Which part
+      description: Where the problem shows up. Pick the closest.
+      options:
+        - Client (WebAssembly, in a browser)
+        - Client (native desktop build)
+        - Web edge
+        - Service entity or the mesh
+        - Provider (persistence, document, or cache)
+        - The synqt CLI or the build
+        - Contract generator (.syn)
+        - Documentation
+        - Not sure
+    validations:
+      required: true
+
+  - type: input
+    id: synqt-version
+    attributes:
+      label: SynQt version
+      description: The output of `synqt --version`.
+    validations:
+      required: true
+
+  - type: input
+    id: qt-version
+    attributes:
+      label: Qt version
+      description: >-
+        From `project.qt_version` in synqt.yaml, or the output of `synqt doctor`. SynQt
+        targets Qt 6.11.1; a different version is worth saying up front.
+    validations:
+      required: true
+
+  - type: input
+    id: platform
+    attributes:
+      label: Platform
+      description: Operating system and version, and the browser and version if it is in one.
+      placeholder: Ubuntu 24.04, Firefox 141
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Output
+      description: >-
+        The relevant console, `synqt dev`, or entity output. Paste it as text rather than a
+        screenshot so it can be searched. Remove any token, cookie, or certificate first.
+      render: text
+    validations:
+      required: false
