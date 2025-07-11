@@ -3,13 +3,28 @@
   SPDX-License-Identifier: Apache-2.0
 
   Override of material/main.html (which stock is just `{% extends "base.html" %}`
-  with no blocks of its own). Re-declares base.html's `container` block
-  unchanged except for one added class, `md-content--home`, on the home page
-  only (page.is_homepage). docs/stylesheets/home.css hooks off that class to
-  give the home page its own wide, sidebar-free layout without touching the
-  centered, sidebared layout every other page keeps.
+  with no blocks of its own). Re-declares two of base.html's blocks.
+
+  `container`: unchanged except for one added class, `md-content--home`, on the
+  home page only (page.is_homepage). docs/stylesheets/home.css hooks off that
+  class to give the home page its own wide, sidebar-free layout without touching
+  the centered, sidebared layout every other page keeps.
+
+  `htmltitle`: every page keeps Material's "<page> - <site>" shape, but the home
+  page gets the tagline instead of the bare site name. Stock titles the home page
+  "SynQt" and nothing else, which says nothing to anyone reading a search result,
+  a browser tab, or a link preview.
 -#}
 {% extends "base.html" %}
+{% block htmltitle %}
+  {% if page.meta and page.meta.title %}
+    <title>{{ page.meta.title }}</title>
+  {% elif page.is_homepage %}
+    <title>{{ config.site_name }}: {{ config.extra.tagline }}</title>
+  {% else %}
+    <title>{{ page.title | striptags }} - {{ config.site_name }}</title>
+  {% endif %}
+{% endblock %}
 {% block container %}
   <div class="md-content{{ ' md-content--home' if page.is_homepage }}" data-md-component="content">
     {% if "navigation.path" in features %}

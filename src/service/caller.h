@@ -19,10 +19,10 @@
 namespace SynQt {
 
 /// The identity of whoever is calling the owner's slot, exposed to the owner QML as the
-/// context property `Caller` (and, for browser callers, aliased as `Client`). Bound to one
-/// per-connection Source instance: a per_session instance carries a browser user (isUser),
-/// a per_peer instance carries a verified calling entity (isEntity). The two identity
-/// systems never mix; a user value is never treated as an entity, and vice versa.
+/// context property \qmlCaller (and, for browser callers, aliased as \qmlClient). Bound to
+/// one per-connection Source instance: a per_session instance carries a browser user
+/// (isUser), a per_peer instance carries a verified calling entity (isEntity). The two
+/// identity systems never mix; a user value is never treated as an entity, and vice versa.
 ///
 /// User callers expose session/identity/scope/hasScope/setScope; entity callers expose the
 /// certificate-verified entity name. emitSignal delivers a contract signal to this one

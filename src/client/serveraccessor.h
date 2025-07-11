@@ -19,9 +19,9 @@ namespace SynQt {
 class ConsumerBase;
 
 /// The client's handle on the web edge: each connect point the client consumes appears
-/// on it by name (Server.\<name\>), as a live Replica. Replicas are acquired in C++ (the
-/// QtRO QML Node type cannot take an externally connected transport). Exposed to QML as
-/// the well-known `Server`.
+/// on it by name, as a live Replica. Replicas are acquired in C++ (the QtRO QML Node
+/// type cannot take an externally connected transport). Exposed to QML as the well-known
+/// \qmlServer.
 ///
 /// \sa \ref qmlserver "the Server accessor page"
 class ServerAccessor : public QQmlPropertyMap

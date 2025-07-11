@@ -18,8 +18,8 @@ namespace SynQt {
 /// publish themselves here as they bind a replica (and re-publish on reconnect); the attached
 /// type resolves by contract, optionally disambiguated by the connect point's name (`.point`).
 ///
-/// Process-global (one entity runs one process): the accessor family (Server, Database, ...)
-/// and the attached types share one view of what is currently consumed.
+/// Process-global (one entity runs one process): the accessor family (\qmlServer,
+/// Database, ...) and the attached types share one view of what is currently consumed.
 class ConnectPointResolver : public QObject
 {
     Q_OBJECT

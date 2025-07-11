@@ -2,7 +2,11 @@ doxygen-awesome-css v2.4.2
 https://github.com/jothepro/doxygen-awesome-css
 Upstream commit: 82d315e (MIT, see LICENSE in this directory)
 
-Vendored selectively: only the files the Doxyfile loads are kept. The layout is the
-theme's base one, so doxygen-awesome-sidebar-only.css and its darkmode-toggle extension
-are not vendored (dark mode is pinned in doxygen-header.html, so a toggle has nothing
-to toggle).
+Vendored selectively: only the files the Doxyfile loads are kept, so the darkmode-toggle
+extension is not among them (dark mode is pinned in doxygen-header.html, so a toggle would
+have nothing to toggle).
+
+doxygen-awesome-sidebar-only.css is loaded, but it was written when Doxygen emitted the
+sidebar head and the tree as siblings, and 1.16 nests the head inside the sidebar. The
+correction is in doxygen-synqt.css rather than here, so this directory stays a verbatim
+copy of upstream and can be replaced wholesale on the next release.
