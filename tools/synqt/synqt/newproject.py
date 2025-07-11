@@ -17,12 +17,12 @@ from typing import Any, Dict, List, Optional
 
 import yaml
 
-from . import appgen, licenses, presets
+from . import appgen, licenses, presets, toolchain
 
-QT_VERSION = "6.11.1"
+QT_VERSION = toolchain.QT_VERSION
 
 # The qmlformat settings a scaffolded project gets, and the only source of truth for them
-# (there is no copy anywhere; see QmlFormatSettingsSourceTest). Inline rather than read from
+# (there is no copy anywhere. See QmlFormatSettingsSourceTest). Inline rather than read from
 # disk because the released CLI is a PyInstaller --onefile binary with no data files, and a
 # `synqt new` that set check.qml_format without shipping the settings would warn on every
 # check from the very first one.

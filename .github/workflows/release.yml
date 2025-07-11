@@ -138,6 +138,24 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - name: Stamp the CLI version
+        shell: bash
+        # The version is passed through the environment, not interpolated into the script,
+        # for the same reason the version job above keeps SUFFIX out of its script body: it
+        # ultimately carries the free-form --suffix workflow_dispatch input, and a value
+        # inserted straight into a run: string can break out of it (workflow injection).
+        env:
+          SYNQT_VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          printf '%s\n' \
+            "# SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux" \
+            "# SPDX-License-Identifier: Apache-2.0" \
+            "" \
+            '"""Stamped by the release workflow. See tools/synqt/synqt/_version.py."""' \
+            "" \
+            "__version__ = \"$SYNQT_VERSION\"" \
+            > tools/synqt/synqt/_version.py
+
       - name: Freeze and smoke-test inside manylinux_2_28 (glibc 2.28 floor)
         env:
           IMAGE: ${{ matrix.image }}
@@ -219,6 +237,23 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
+
+      - name: Stamp the CLI version
+        shell: bash
+        # See the matching step in build-linux: the version is passed through the
+        # environment, not interpolated into the script, because it carries the free-form
+        # --suffix workflow_dispatch input.
+        env:
+          SYNQT_VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          printf '%s\n' \
+            "# SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux" \
+            "# SPDX-License-Identifier: Apache-2.0" \
+            "" \
+            '"""Stamped by the release workflow. See tools/synqt/synqt/_version.py."""' \
+            "" \
+            "__version__ = \"$SYNQT_VERSION\"" \
+            > tools/synqt/synqt/_version.py
 
       - name: Install the CLI and PyInstaller
         # Installing the package (not just its sources) pulls its PyYAML dependency and makes the
