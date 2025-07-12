@@ -45,7 +45,7 @@ class _PrintVersionAction(argparse.Action):
 
     def __call__(self, parser: argparse.ArgumentParser, namespace: argparse.Namespace,
                 values: Any, option_string: Optional[str] = None) -> None:
-        parser._print_message("\n".join(versionmod.version_lines()) + "\n", sys.stdout)
+        print("\n".join(versionmod.version_lines()))
         parser.exit()
 
 

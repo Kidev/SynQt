@@ -40,11 +40,17 @@ def test_version_lines_carry_the_toolchain_pins():
 
 
 def test_cli_version_flag_exits_zero():
+    # argparse's `action="version"` would reflow the three lines into one, so the line count
+    # and the toolchain line are asserted.
     result = subprocess.run(
         [sys.executable, "-m", "synqt", "--version"],
         capture_output=True, text=True, check=False)
     assert result.returncode == 0
-    assert result.stdout.splitlines()[0].startswith("synqt ")
+    lines = result.stdout.splitlines()
+    assert len(lines) == 3
+    assert lines[0].startswith("synqt ")
+    assert toolchain.QT_VERSION in lines[1]
+    assert toolchain.EMSCRIPTEN_VERSION in lines[1]
 
 
 def test_newproject_does_not_redefine_the_qt_pin():
