@@ -33,6 +33,8 @@ qt_add_library(SynQtClient STATIC
     clientupdate.h
     replicaregistry.cpp
     replicaregistry.h
+    routepattern.cpp
+    routepattern.h
     session.cpp
     session.h
     router.cpp
