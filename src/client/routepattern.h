@@ -34,8 +34,14 @@ public:
 
     bool hasParameters() const;
 
-    /// Match path (no query string; call splitQuery() first). Captured placeholders are
-    /// written to parameters, percent-decoded. A trailing slash on path is ignored.
+    /// Match path (no query string; call splitQuery() first) against this
+    /// pattern. path must be absolute (start with '/') and contain no
+    /// empty segment; exactly one optional trailing slash is tolerated
+    /// and ignored. Anything else structurally fails to match: a
+    /// relative path, a leading "//", or any interior "//" (the classic
+    /// protocol-relative payload never matches here). Captured
+    /// placeholders are written to parameters, percent-decoded;
+    /// parameters is left untouched when this returns false.
     bool matches(const QString &path, QVariantMap *parameters) const;
 
     /// Split "/path?a=1" into "/path" plus the decoded query pairs.
