@@ -29,6 +29,8 @@ qt_add_library(SynQtClient STATIC
     synclientconfig.h
     clientlogging.cpp
     clientlogging.h
+    browserhistory.cpp
+    browserhistory.h
     clientupdate.cpp
     clientupdate.h
     replicaregistry.cpp
