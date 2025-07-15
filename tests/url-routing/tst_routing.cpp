@@ -1,18 +1,24 @@
 // SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 // SPDX-License-Identifier: Apache-2.0
 
-// URL routing acceptance: the pure client-side logic. Route patterns here; the Router
-// behavior and the resume-path rules join this executable in later tasks.
+// URL routing acceptance: the pure client-side logic. Route patterns, the history
+// stack, and the Router that resolves a path to a page component; the resume-path
+// rules join this executable in a later task.
 
 #include "routepattern.h"
 #include "browserhistory.h"
+#include "router.h"
+#include "session.h"
 
+#include <QQmlComponent>
+#include <QQmlEngine>
 #include <QSignalSpy>
 #include <QTest>
 #include <QVariantMap>
 
 using SynQt::RoutePattern;
 using SynQt::BrowserHistory;
+using SynQt::Router;
 
 class tst_Routing : public QObject
 {
@@ -37,7 +43,41 @@ private slots:
     void historyPushThenBackPopsThePrevious();
     void historyReplaceDoesNotGrowTheStack();
     void historyStripsAndRestoresTheBasePath();
+
+    void routerResolvesACompiledInView();
+    void routerExposesPathParameters();
+    void routerPrefersTheMoreLiteralRoute();
+    void routerRedirectsAnUnderScopedRouteToTheFallback();
+    void routerReportsNotFoundForAnUndeclaredPath();
+    void routerBackRestoresThePreviousPath();
+    void routerKeepsOneComponentAcrossAParameterChange();
+    void routerReportsErrorForARouteWithNoCompiledInView();
 };
+
+namespace {
+
+SynQt::SynClientConfig routingFixture()
+{
+    SynQt::SynClientConfig config;
+    config.routerFallback = QStringLiteral("/");
+    config.routerBase = QStringLiteral("/");
+    config.scopeOrder = {QStringLiteral("anonymous"), QStringLiteral("staff")};
+    config.scopesHierarchical = true;
+    config.defaultScope = QStringLiteral("anonymous");
+    config.routes = {
+        SynQt::RouteConfig{QStringLiteral("/"), QStringLiteral("Home.qml"), QString{},
+                           QStringLiteral("qrc:/fixtures/Home.qml")},
+        SynQt::RouteConfig{QStringLiteral("/c/summary"), QStringLiteral("Summary.qml"),
+                           QString{}, QStringLiteral("qrc:/fixtures/Summary.qml")},
+        SynQt::RouteConfig{QStringLiteral("/c/:campaign"), QStringLiteral("Campaign.qml"),
+                           QString{}, QStringLiteral("qrc:/fixtures/Campaign.qml")},
+        SynQt::RouteConfig{QStringLiteral("/admin"), QStringLiteral("Admin.qml"),
+                           QStringLiteral("staff"), QStringLiteral("qrc:/fixtures/Admin.qml")},
+    };
+    return config;
+}
+
+} // namespace
 
 void tst_Routing::literalMatches()
 {
@@ -198,6 +238,112 @@ void tst_Routing::historyStripsAndRestoresTheBasePath()
     QCOMPARE(history.toBrowserPath(QStringLiteral("/cart")), QStringLiteral("/shop/cart"));
     QCOMPARE(history.toApplicationPath(QStringLiteral("/shop/cart")),
              QStringLiteral("/cart"));
+}
+
+void tst_Routing::routerResolvesACompiledInView()
+{
+    QQmlEngine engine;
+    SynQt::Session session{routingFixture()};
+    Router router{routingFixture(), &session, &engine};
+    router.go(QStringLiteral("/"));
+    QCOMPARE(router.path(), QStringLiteral("/"));
+    QCOMPARE(router.pageStatus(), Router::Ready);
+    QVERIFY(router.pageComponent() != nullptr);
+    QVERIFY2(router.pageComponent()->isReady(),
+             qPrintable(router.pageComponent()->errorString()));
+}
+
+void tst_Routing::routerExposesPathParameters()
+{
+    QQmlEngine engine;
+    SynQt::Session session{routingFixture()};
+    Router router{routingFixture(), &session, &engine};
+    router.go(QStringLiteral("/c/summer-sale?ref=email"));
+    QCOMPARE(router.path(), QStringLiteral("/c/summer-sale"));
+    QCOMPARE(router.params().value(QStringLiteral("campaign")).toString(),
+             QStringLiteral("summer-sale"));
+    QCOMPARE(router.query().value(QStringLiteral("ref")).toString(),
+             QStringLiteral("email"));
+}
+
+void tst_Routing::routerPrefersTheMoreLiteralRoute()
+{
+    QQmlEngine engine;
+    SynQt::Session session{routingFixture()};
+    Router router{routingFixture(), &session, &engine};
+    router.go(QStringLiteral("/c/summary"));
+    QCOMPARE(router.path(), QStringLiteral("/c/summary"));
+    QVERIFY(router.params().isEmpty());
+}
+
+void tst_Routing::routerRedirectsAnUnderScopedRouteToTheFallback()
+{
+    QQmlEngine engine;
+    SynQt::Session session{routingFixture()};
+    Router router{routingFixture(), &session, &engine};
+    router.go(QStringLiteral("/admin"));
+    QCOMPARE(router.path(), QStringLiteral("/"));
+    QCOMPARE(router.pageStatus(), Router::Forbidden);
+}
+
+void tst_Routing::routerReportsNotFoundForAnUndeclaredPath()
+{
+    QQmlEngine engine;
+    SynQt::Session session{routingFixture()};
+    Router router{routingFixture(), &session, &engine};
+    router.go(QStringLiteral("/nowhere"));
+    QCOMPARE(router.path(), QStringLiteral("/"));
+    QCOMPARE(router.pageStatus(), Router::NotFound);
+}
+
+void tst_Routing::routerBackRestoresThePreviousPath()
+{
+    QQmlEngine engine;
+    SynQt::Session session{routingFixture()};
+    Router router{routingFixture(), &session, &engine};
+    router.go(QStringLiteral("/"));
+    router.go(QStringLiteral("/c/summer-sale"));
+    router.back();
+    QCOMPARE(router.path(), QStringLiteral("/"));
+}
+
+void tst_Routing::routerKeepsOneComponentAcrossAParameterChange()
+{
+    // Two paths through the same route are the same page with different data, so
+    // the component is reused and a Loader bound to it keeps its item; only path
+    // and params change.
+    QQmlEngine engine;
+    SynQt::Session session{routingFixture()};
+    Router router{routingFixture(), &session, &engine};
+    router.go(QStringLiteral("/c/spring"));
+    QQmlComponent *first{router.pageComponent()};
+    QVERIFY(first != nullptr);
+    QSignalSpy pageChanged{&router, &Router::pageChanged};
+    QSignalSpy pathChanged{&router, &Router::pathChanged};
+    router.go(QStringLiteral("/c/summer"));
+    QCOMPARE(router.pageComponent(), first);
+    QCOMPARE(pageChanged.count(), 0);
+    QCOMPARE(pathChanged.count(), 1);
+    QCOMPARE(router.params().value(QStringLiteral("campaign")).toString(),
+             QStringLiteral("summer"));
+}
+
+void tst_Routing::routerReportsErrorForARouteWithNoCompiledInView()
+{
+    // A declared route with no compiled-in view is how an edge-delivered page is
+    // represented. Nothing here can fetch one, so resolveRemote() declines and the
+    // status says so rather than showing a blank page as if it were Ready.
+    QQmlEngine engine;
+    SynQt::SynClientConfig config{routingFixture()};
+    config.routes.append(SynQt::RouteConfig{QStringLiteral("/remote"),
+                                            QStringLiteral("Remote.qml"), QString{},
+                                            QString{}});
+    SynQt::Session session{config};
+    Router router{config, &session, &engine};
+    router.go(QStringLiteral("/remote"));
+    QCOMPARE(router.path(), QStringLiteral("/remote"));
+    QCOMPARE(router.pageStatus(), Router::Error);
+    QCOMPARE(router.pageComponent(), nullptr);
 }
 
 QTEST_MAIN(tst_Routing)

@@ -372,9 +372,11 @@ int main(int argc, char *argv[])
     config.routerBase = QStringLiteral("{router_base}");
     config.routes = {{{route_list}}};
 
-    SynClient *client{{new SynClient{{config, &app}}}};
-
+    // The engine comes first: the Router builds each route's page component with it.
     QQmlApplicationEngine engine;
+
+    SynClient *client{{new SynClient{{config, &engine, &app}}}};
+
     engine.rootContext()->setContextProperty(QStringLiteral("Server"), client->server());
     engine.rootContext()->setContextProperty(QStringLiteral("Session"), client->session());
     engine.rootContext()->setContextProperty(QStringLiteral("Router"), client->router());

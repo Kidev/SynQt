@@ -90,8 +90,8 @@ private slots:
         QVERIFY2(edge.start(), qPrintable(edge.errorString()));
         const quint16 port{edge.serverPort()};
 
-        SynClient clientA{clientConfig(port)};
-        SynClient clientB{clientConfig(port)};
+        SynClient clientA{clientConfig(port), &engine};
+        SynClient clientB{clientConfig(port), &engine};
         clientA.start();
         clientB.start();
 
@@ -139,7 +139,7 @@ private slots:
         WebEdge edge{edgeConfig(0), &engine};
         QVERIFY(edge.start());
 
-        SynClient client{clientConfig(edge.serverPort())};
+        SynClient client{clientConfig(edge.serverPort()), &engine};
         QSignalSpy stateSpy{client.session(), &Session::stateChanged};
         client.start();
 
@@ -155,7 +155,7 @@ private slots:
         auto edge{std::make_unique<WebEdge>(edgeConfig(port), &engine)};
         QVERIFY2(edge->start(), qPrintable(edge->errorString()));
 
-        SynClient client{clientConfig(port)};
+        SynClient client{clientConfig(port), &engine};
         client.start();
         QTRY_COMPARE_WITH_TIMEOUT(client.session()->state(), QStringLiteral("connected"), 8000);
 
@@ -176,7 +176,8 @@ private slots:
     void routeGuardRedirectsAboveScope()
     {
         // No edge needed: a guard is navigation-only. An anonymous session lacks "admin".
-        SynClient client{clientConfig(1)};
+        QQmlEngine engine;
+        SynClient client{clientConfig(1), &engine};
         Router *router{client.router()};
 
         router->go(QStringLiteral("/admin"));

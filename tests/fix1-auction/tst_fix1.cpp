@@ -206,9 +206,11 @@ private slots:
             identityFor(QStringLiteral("gavelmaster"), QStringLiteral("Auctioneer")))};
         const QByteArray anonToken{m_edge->sessionManager()->createSession()};
 
-        SynClient alice{clientConfig(m_edgePort, cookieFor(aliceToken))};
-        SynClient auctioneer{clientConfig(m_edgePort, cookieFor(auctioneerToken))};
-        SynClient anon{clientConfig(m_edgePort, cookieFor(anonToken))};
+        QQmlEngine clientEngine;
+        SynClient alice{clientConfig(m_edgePort, cookieFor(aliceToken)), &clientEngine};
+        SynClient auctioneer{clientConfig(m_edgePort, cookieFor(auctioneerToken)),
+                             &clientEngine};
+        SynClient anon{clientConfig(m_edgePort, cookieFor(anonToken)), &clientEngine};
         alice.start();
         auctioneer.start();
         anon.start();

@@ -150,8 +150,9 @@ private slots:
             identityFor(QStringLiteral("p1"), QStringLiteral("playerone")))};
         const QByteArray anonToken{m_edge->sessionManager()->createSession()};
 
-        SynClient player{clientConfig(m_edgePort, cookieFor(playerToken))};
-        SynClient anon{clientConfig(m_edgePort, cookieFor(anonToken))};
+        QQmlEngine clientEngine;
+        SynClient player{clientConfig(m_edgePort, cookieFor(playerToken)), &clientEngine};
+        SynClient anon{clientConfig(m_edgePort, cookieFor(anonToken)), &clientEngine};
         player.start();
         anon.start();
 
@@ -179,7 +180,8 @@ private slots:
         const QByteArray playerToken{m_edge->sessionManager()->createSession(
             QStringLiteral("player"),
             identityFor(QStringLiteral("p2"), QStringLiteral("racer")))};
-        SynClient player{clientConfig(m_edgePort, cookieFor(playerToken))};
+        QQmlEngine clientEngine;
+        SynClient player{clientConfig(m_edgePort, cookieFor(playerToken)), &clientEngine};
         player.start();
         QTRY_COMPARE_WITH_TIMEOUT(player.session()->state(), QStringLiteral("connected"), 8000);
 

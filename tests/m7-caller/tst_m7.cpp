@@ -199,10 +199,11 @@ private slots:
                                                     identityFor(QStringLiteral("mod")))};
         const QByteArray anonToken{m_edge->sessionManager()->createSession()};
 
-        SynClient alice{clientConfig(m_edgePort, cookieFor(aliceToken))};
-        SynClient bob{clientConfig(m_edgePort, cookieFor(bobToken))};
-        SynClient mod{clientConfig(m_edgePort, cookieFor(modToken))};
-        SynClient anon{clientConfig(m_edgePort, cookieFor(anonToken))};
+        QQmlEngine clientEngine;
+        SynClient alice{clientConfig(m_edgePort, cookieFor(aliceToken)), &clientEngine};
+        SynClient bob{clientConfig(m_edgePort, cookieFor(bobToken)), &clientEngine};
+        SynClient mod{clientConfig(m_edgePort, cookieFor(modToken)), &clientEngine};
+        SynClient anon{clientConfig(m_edgePort, cookieFor(anonToken)), &clientEngine};
         alice.start();
         bob.start();
         mod.start();
@@ -332,10 +333,13 @@ private slots:
     }
 
     // Clause 6: a hand-crafted client presenting a forged session is refused at the
-    // WebSocket upgrade; it never connects and never acquires anything.
+    // WebSocket upgrade. It never connects and never acquires anything.
     void forgedSessionRefusedAtUpgrade()
     {
-        SynClient forged{clientConfig(m_edgePort, QByteArrayLiteral("synqt_session=forged-nonsense"))};
+        QQmlEngine clientEngine;
+        SynClient forged{clientConfig(m_edgePort,
+                                      QByteArrayLiteral("synqt_session=forged-nonsense")),
+                         &clientEngine};
         QSignalSpy rejected{m_edge.get(), &WebEdge::upgradeRejected};
         forged.start();
 

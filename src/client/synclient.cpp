@@ -47,12 +47,12 @@ QSslConfiguration nativeTlsConfiguration(const SynClientConfig &config)
 } // namespace
 #endif
 
-SynClient::SynClient(SynClientConfig config, QObject *parent)
+SynClient::SynClient(SynClientConfig config, QQmlEngine *engine, QObject *parent)
     : QObject{parent}
     , m_config{std::move(config)}
     , m_server{new ServerAccessor{m_config.connectPoints, this}}
     , m_session{new Session{m_config, this}}
-    , m_router{new Router{m_config, m_session, this}}
+    , m_router{new Router{m_config, m_session, engine, this}}
     , m_update{new ClientUpdate{this}}
     , m_reconnectTimer{new QTimer{this}}
     , m_backoffMs{m_config.reconnectBaseMs}
