@@ -339,6 +339,7 @@ jobs:
             tests/fix2-arena/run-fix2.sh
             tests/appgen-native/run-appgen-native.sh
             tests/desktop-client/run-desktop-client.sh
+            tests/url-routing/run-urlrouting.sh
           "
           # m6-client's phases 2 and 3 need the WebAssembly kit and a browser, which this
           # workflow does not install (browser-matrix.yml and wasm-proofs.yml own that
