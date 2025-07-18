@@ -78,6 +78,11 @@ private:
     void cacheBundle();
     QByteArray etagFor(const QString &path) const;
     QString bundlePathFor(const QString &urlPath) const;
+    /// The answer for a URL that names no bundle file: the application shell when the
+    /// request is a navigation to a client route, a 404 otherwise. Two routes need this,
+    /// because the asset route and the shell fallback share one URL template.
+    QHttpServerResponse shellOrNotFound(const QString &path,
+                                        const QHttpServerRequest &request) const;
     QStringList expandedAllowedOrigins() const;
     QByteArray issueSessionCookie();
     QByteArray sessionIdFromCookie(const QByteArray &cookieHeader) const;
