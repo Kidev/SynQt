@@ -82,7 +82,10 @@ private:
     /// request is a navigation to a client route, a 404 otherwise. Two routes need this,
     /// because the asset route and the shell fallback share one URL template.
     QHttpServerResponse shellOrNotFound(const QString &path,
-                                        const QHttpServerRequest &request) const;
+                                        const QHttpServerRequest &request);
+    /// The bundle-document headers the shell shares with the client route: the session
+    /// cookie the client presents at the wss upgrade, and index.html's cache terms.
+    void stampShell(QHttpServerResponse &response);
     QStringList expandedAllowedOrigins() const;
     QByteArray issueSessionCookie();
     QByteArray sessionIdFromCookie(const QByteArray &cookieHeader) const;
