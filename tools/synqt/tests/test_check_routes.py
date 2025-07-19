@@ -3,12 +3,18 @@
 
 """Route table validation: a bad table fails the build, not a visitor's navigation."""
 
+import tempfile
+from pathlib import Path
+
 from synqt import check
 
 
 def _findings(routes, router=None):
-    config = {"client": {"routes": routes, "router": router or {"fallback": "/"}}}
-    return [f for f in check.lint_routes(config)]
+    # `routes` and `router` are top-level blocks (docs/project-layout-and-config.md),
+    # which is where appgen reads them to compile the table into the client. Building
+    # any other shape here would prove nothing about a real synqt.yaml.
+    config = {"routes": routes, "router": router or {"fallback": "/"}}
+    return list(check.lint_routes(config))
 
 
 def test_a_valid_table_passes():
@@ -28,6 +34,18 @@ def test_duplicate_paths_differing_only_by_a_trailing_slash_are_rejected():
     findings = _findings([{"path": "/c", "view": "A.qml"},
                           {"path": "/c/", "view": "B.qml"}])
     assert any("duplicate" in f.lower() for f in findings)
+
+
+def test_duplicate_paths_differing_only_by_an_empty_segment_are_rejected():
+    # RoutePattern splits a pattern with Qt::SkipEmptyParts, so a doubled slash is not a
+    # segment either, at the end of the path or in the middle of it.
+    doubled_tail = _findings([{"path": "/c", "view": "A.qml"},
+                              {"path": "/c//", "view": "B.qml"}])
+    assert any("duplicate" in f.lower() for f in doubled_tail)
+    interior = _findings([{"path": "/a/b", "view": "A.qml"},
+                          {"path": "/a//b", "view": "B.qml"}],
+                         router={"fallback": "/a/b"})
+    assert any("duplicate" in f.lower() for f in interior)
 
 
 def test_the_root_route_is_not_mangled_by_normalization():
@@ -50,6 +68,22 @@ def test_a_non_ascii_parameter_name_is_accepted():
     # Written as an escape so this file stays ASCII: "/cafe/:cafe" with accented e's.
     path = "/caf\u00e9/:caf\u00e9"
     assert _findings([{"path": path, "view": "A.qml"}], router={"fallback": path}) == []
+
+
+def test_a_non_bmp_parameter_name_is_rejected():
+    # RoutePattern::isIdentifier iterates QChar, so U+20000 arrives as two surrogates and
+    # QChar::isLetter is false on both: the pattern is invalid and the route silently
+    # never matches. The check must not call that table clean.
+    findings = _findings([{"path": "/c/:\U00020000", "view": "A.qml"}])
+    assert any("malformed parameter" in f.lower() for f in findings)
+
+
+def test_a_path_that_is_not_a_string_does_not_crash_the_check():
+    # "- path:" with no value is the common typo, and yaml reads it as null.
+    findings = _findings([{"path": None, "view": "A.qml"}])
+    assert any("must be a string" in f.lower() for f in findings)
+    assert any("must be a string" in f.lower()
+               for f in _findings([{"path": 7, "view": "A.qml"}]))
 
 
 def test_repeated_parameter_name_is_rejected():
@@ -88,8 +122,8 @@ def test_reserved_edge_paths_follow_configured_identity_routes():
     # path guarded, not the default one nobody is using anymore.
     config = {
         "identity": {"login": "/enter", "callback": "/auth/callback", "logout": "/auth/logout"},
-        "client": {"routes": [{"path": "/enter", "view": "A.qml"}],
-                   "router": {"fallback": "/enter"}},
+        "routes": [{"path": "/enter", "view": "A.qml"}],
+        "router": {"fallback": "/enter"},
     }
     findings = list(check.lint_routes(config))
     assert any("reserved" in f.lower() for f in findings)
@@ -98,3 +132,52 @@ def test_reserved_edge_paths_follow_configured_identity_routes():
 def test_router_base_must_start_with_slash():
     findings = _findings([{"path": "/", "view": "Home.qml"}], router={"base": "app"})
     assert any("base" in f.lower() for f in findings)
+
+
+_PROJECT = """\
+project:
+  name: routecheck
+
+entities:
+  - name: web
+    kind: service
+    capability: web_edge
+
+  - name: client
+    kind: client
+
+router:
+  fallback: /
+
+routes:
+  - path: /
+    view: client/Home.qml
+
+  - path: /c
+    view: client/A.qml
+
+  - path: /c/
+    view: client/B.qml
+"""
+
+
+def test_a_duplicate_route_fails_the_whole_check():
+    """The rule reaches a real synqt.yaml, through the entry point `synqt check` calls.
+
+    Every rule above builds its own config dict, so all of them would keep passing if
+    lint_routes read a key no project writes. Only going through check_project, with the
+    table where the schema puts it, proves the rule is wired to anything.
+    """
+    root = Path(tempfile.mkdtemp())
+    (root / "synqt.yaml").write_text(_PROJECT)
+    ok, messages = check.check_project(root)
+    assert not ok, messages
+    assert any("duplicate route path" in m.lower() for m in messages), messages
+
+
+def test_a_clean_route_table_leaves_the_check_passing():
+    root = Path(tempfile.mkdtemp())
+    (root / "synqt.yaml").write_text(_PROJECT.replace("  - path: /c/\n", "  - path: /d\n"))
+    ok, messages = check.check_project(root)
+    assert ok, messages
+    assert not any("route" in m.lower() for m in messages), messages
