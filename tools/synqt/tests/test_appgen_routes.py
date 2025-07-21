@@ -30,3 +30,12 @@ def test_router_base_defaults_to_root_and_is_configurable():
     based = appgen.render_client_main(
         {"name": "shop", "routes": [], "router": {"base": "/shop"}}, uri="Shop")
     assert 'config.routerBase = QStringLiteral("/shop")' in based
+
+
+def test_router_fallback_defaults_to_root_and_is_configurable():
+    plain = appgen.render_client_main({"name": "shop", "routes": []}, uri="Shop")
+    assert 'config.routerFallback = QStringLiteral("/")' in plain
+
+    redirected = appgen.render_client_main(
+        {"name": "shop", "routes": [], "router": {"fallback": "/home"}}, uri="Shop")
+    assert 'config.routerFallback = QStringLiteral("/home")' in redirected
