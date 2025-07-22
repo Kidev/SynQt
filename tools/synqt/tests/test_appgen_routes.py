@@ -23,6 +23,55 @@ def test_view_name_without_extension_still_resolves():
     assert 'qrc:/qt/qml/Shop/Main.qml' in source
 
 
+def _client_cmake(routes):
+    config = {
+        "project": {"name": "shop"},
+        "entities": [{"name": "client", "kind": "client"}],
+        "routes": routes,
+    }
+    return appgen.render_root_cmakelists(config, synqt_root="/synqt")
+
+
+def test_every_route_view_is_in_the_clients_qml_module():
+    # A view outside the QML module is outside the resource system, so the qrc URL the
+    # route table carries resolves to nothing and the router reports Error.
+    cmake = _client_cmake([{"path": "/", "view": "Home.qml"},
+                           {"path": "/cart", "view": "Cart.qml"}])
+    assert '"${CMAKE_CURRENT_SOURCE_DIR}/client/Home.qml"' in cmake
+    assert '"${CMAKE_CURRENT_SOURCE_DIR}/client/Cart.qml"' in cmake
+    # Each file is listed by absolute path, so each needs the alias that puts it at the
+    # module root: that is the half of the URL qrc:/qt/qml/Shop/Home.qml the route needs.
+    assert "PROPERTIES QT_RESOURCE_ALIAS Home.qml)" in cmake
+    assert "PROPERTIES QT_RESOURCE_ALIAS Cart.qml)" in cmake
+
+
+def test_a_view_named_without_its_extension_is_listed_as_a_file():
+    cmake = _client_cmake([{"path": "/", "view": "Home"}])
+    assert '"${CMAKE_CURRENT_SOURCE_DIR}/client/Home.qml"' in cmake
+
+
+def test_a_view_is_listed_once_however_many_routes_name_it():
+    cmake = _client_cmake([{"path": "/", "view": "Home.qml"},
+                           {"path": "/home", "view": "Home"}])
+    assert cmake.count('"${CMAKE_CURRENT_SOURCE_DIR}/client/Home.qml"') == 2  # file + alias
+    assert cmake.count("PROPERTIES QT_RESOURCE_ALIAS Home.qml)") == 1
+
+
+def test_main_is_never_listed_twice():
+    cmake = _client_cmake([{"path": "/", "view": "Main.qml"}])
+    assert cmake.count("PROPERTIES QT_RESOURCE_ALIAS Main.qml)") == 1
+
+
+def test_a_project_with_no_routes_compiles_an_empty_table():
+    # No manufactured "/" -> Main.qml route: that view is the window, so a Loader bound
+    # to Router.pageComponent inside it would load the window again. With no table
+    # pageComponent stays null and an app that does not route is untouched.
+    source = appgen.render_client_main({"name": "shop"}, uri="Shop")
+    assert "config.routes = {};" in source
+    cmake = _client_cmake([])
+    assert cmake.count("QT_RESOURCE_ALIAS") == 1
+
+
 def test_router_base_defaults_to_root_and_is_configurable():
     plain = appgen.render_client_main({"name": "shop", "routes": []}, uri="Shop")
     assert 'config.routerBase = QStringLiteral("/")' in plain
