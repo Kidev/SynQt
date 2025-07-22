@@ -313,12 +313,22 @@ router:
 
 routes:
   - path: /
-    view: client/Home.qml
+    view: Home.qml
+
+  - path: /c/:campaign      # a path parameter, read in QML as Router.params.campaign
+    view: Campaign.qml
 
   - path: /admin
-    view: client/Admin.qml
+    view: Admin.qml
     scope: admin            # below this scope, the router redirects to fallback
 ```
+
+Each route is a real URL, so a visitor can bookmark it, share it, and refresh on it.
+`Router.pageComponent` is what a single `Loader` in `Main.qml` renders, and
+`Router.path`, `Router.params`, and `Router.query` are what a view binds to. The
+members are listed in the [runtime API reference](runtime-api.md#client-router),
+and the keys in
+[configuration](project-layout-and-config.md#router-and-routes-client-navigation).
 
 A guard is a redirect rule, not a secrecy mechanism. The privileged screen still
 renders nothing useful without privileged connect points, which the edge refuses

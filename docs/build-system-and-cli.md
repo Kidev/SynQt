@@ -97,6 +97,7 @@ synqt check             # Validate config and topology, lint QML and contracts.
 synqt test              # Build and run the project's test suite.
 synqt clean             # Remove build outputs (keeps the toolchain cache and the CA).
 synqt doctor            # Diagnose toolchain, ports, certificates, versions, topology.
+synqt --version         # Print the CLI version and the pinned toolchain (also -V).
 
 synqt add entity <name> [--blueprint <kind>]     # Scaffold a new entity (bare or from a blueprint).
 synqt add entity <name> --blueprint <kind> --provider <engine>
@@ -110,6 +111,20 @@ synqt add provider <name> --family <fam>         # Scaffold a custom provider im
 synqt providers         # List available providers per blueprint family.
 synqt mesh ...          # Certificate authority and entity certificates.
 ```
+
+`synqt --version` (or `-V`) answers in three lines:
+
+```cli
+synqt 0.1.0
+Qt 6.11.1, Emscripten 4.0.7
+Python 3.14.5 at /home/you/.local/lib/python3.14/site-packages/synqt
+```
+
+The toolchain pins are on the second line because a report about a build is nearly
+always a question about which Qt and which Emscripten produced it, and the Python
+line names the interpreter and the directory the CLI is running from, which is what
+separates "the version I installed" from "the version on this PATH". `synqt doctor`
+opens with the same three lines, so a pasted doctor report carries them too.
 
 `synqt check` also reports QML that `qmlformat` would reformat, when the project sets
 `check.qml_format: true` (`synqt new` does). It reports and never rewrites, and the

@@ -17,7 +17,7 @@ in an owned connect point's implementation.
 |----------|--------------|---------|
 | `Server` | client entity QML | the connect points this client consumes, by name |
 | `Session` | client entity QML | read-only session state, plus `login()` / `logout()` |
-| `Router` | client entity QML | scope-gated navigation over the route table |
+| `Router` | client entity QML | scope-gated navigation over the route table, and the browser's address bar |
 | `App` | client entity QML | the running client itself: whether a newer build is ready, and applying it |
 | `Caller` | any owner slot (any entity) | who invoked this slot: a browser user, or a calling entity |
 | `Client` | web edge owner slots | alias for `Caller` when the caller is a browser user |
@@ -121,13 +121,118 @@ server-side and expires the credential. The session returns to `scopes.default`
 
 ## Client: `Router`
 
-`Router` applies the `routes` list and the `router` fallback from config,
-with scope-gated navigation.
+`Router` applies the `routes` list and the `router` block from config
+([configuration](project-layout-and-config.md#router-and-routes-client-navigation)),
+resolves the current URL to a page component, and drives the browser's address bar.
+It is the same object on a [native desktop build](desktop.md#navigating-without-an-address-bar),
+where an in-memory stack stands in for the address bar.
 
 | Member | Type | Description |
 |--------|------|-------------|
-| `Router.go(path)` | action | navigate to `path`. If the matched route declares a `scope` the session lacks, the router redirects to `router.fallback` instead. |
-| `Router.path` | string | the current route path. |
+| `Router.path` | string | the current application path, without the query string and without `router.base`. Read-only; it changes as a result of navigation, and after a guard redirect it is the fallback path, not the one that was asked for. |
+| `Router.params` | object | the path parameters the matched route captured, percent-decoded (`/c/:campaign` navigated to `/c/summer%20sale` gives `{ campaign: "summer sale" }`). Empty for a route with no parameters, and emptied on a redirect. |
+| `Router.query` | object | the decoded query string of the current URL (`?page=2&q=hat` gives `{ page: "2", q: "hat" }`). Cleared when a guard refuses the navigation, so a query addressed to the refused page never reaches the fallback. |
+| `Router.pageComponent` | Component \| null | the component for the current route's view, ready to hand to a `Loader`. `null` when the route has no view to show. |
+| `Router.pageStatus` | enumeration | why the current page is the one showing: `Ready`, `Loading`, `Forbidden`, `NotFound`, or `Error`. Values below. |
+| `Router.go(path)` | action | navigate to `path` and add a history entry. If the matched route declares a `scope` the session lacks, the router goes to `router.fallback` instead and reports `Forbidden`. |
+| `Router.replace(path)` | action | navigate without adding a history entry: the current entry is rewritten, so `back()` skips the page being left. |
+| `Router.back()` | action | go back one history entry, exactly as the browser's Back button does. |
+| `Router.forward()` | action | go forward one history entry. |
+| `Router.resumeAfterLogin()` | action | go to the page the visitor was refused before signing in, if the session can now reach it, and forget it either way. The framework already calls this on every scope change; call it yourself only if your app establishes a session by some route of its own. |
+
+`Router.path` and `Router.params` change together, and `Router.query` changes with
+them, so one binding on any of the three sees a consistent set.
+
+`Router.pageStatus` values:
+
+| Value | Meaning |
+|-------|---------|
+| `Ready` | the matched route's view is built and showing. |
+| `Loading` | the view is still being built. A view compiled into the bundle is built synchronously, so a route pointing at one never reports this. |
+| `Forbidden` | a route matched, but it declares a `scope` the session lacks. `path` is now `router.fallback` and the fallback's view is showing. The refused path is remembered for [after login](#returning-to-the-page-that-was-refused). |
+| `NotFound` | nothing in the route table matched. `path` is now `router.fallback` and the fallback's view is showing. |
+| `Error` | there is no page to show: the view's file is missing from the client's QML module, it failed to compile, or the route names no view at all. `Error` also wins over `Forbidden` and `NotFound` when it is the *fallback's* own view that failed, because a broken fallback is the more urgent fact and is what an app has to surface first. |
+
+`Router` is bound as a context property rather than as a registered QML type, so
+the value names above are not in scope in QML: `pageStatus` reads there as its
+integer value, counting from zero in the order of the table.
+
+### Rendering the current page
+
+`pageComponent` is the member an application actually renders. One `Loader` in
+`Main.qml` is the whole of it:
+
+```qml
+Loader {
+    anchors.fill: parent
+    sourceComponent: Router.pageComponent
+}
+```
+
+Two paths through one parameterized route (`/c/spring` then `/c/summer`) resolve to
+the same component, and the router hands back the same instance rather than
+rebuilding it, so the `Loader` keeps its item alive and only `path` and `params`
+change. A view that wants to react to that binds `Router.params`.
+
+Each route's `view` has to be part of the client's QML module for this to resolve to
+anything, and the project generator does not put it there yet. Read the
+[warning on `routes[].view`](project-layout-and-config.md#router-and-routes-client-navigation)
+before laying an app out around separate view files.
+
+### How a path is matched
+
+A route path is a sequence of segments, each either a literal or a `:name`
+parameter that captures. When two routes both match, **the one with more literal
+segments wins, whatever order they are declared in**: `/c/summary` beats
+`/c/:campaign` even when `/c/:campaign` comes first in `synqt.yaml`. Precedence is a
+property of the table, not of the order something happened to emit it in.
+
+An empty segment is not a segment, so `/c` and `/c/` are one route and `synqt check`
+[rejects declaring both](project-layout-and-config.md#validation). A query string is
+never part of a path: it is split off before matching and arrives in
+`Router.query`.
+
+### Deep links, refreshes, and scope changes
+
+The generated client resolves the URL the page was loaded at, at boot, before the
+link to the edge opens. A visitor who bookmarked `/c/summer-sale`, or who pressed
+refresh on it, lands on that page rather than on the home page. The edge cooperates
+by [serving the application shell](security.md#deep-links-and-the-login-resume) for
+any path it does not answer itself.
+
+At that moment the session holds only the default scope, because the link to the
+edge has not opened yet. A **scope-gated** deep link therefore resolves `Forbidden`
+at boot, and is resumed the moment the real scope arrives.
+
+The router re-resolves the current route on every scope change, in both directions:
+
+- **Gaining** scope (a sign-in) promotes a route that was refused, and then replays
+  a remembered destination.
+- **Losing** scope (a sign-out, or an expired session) evicts the visitor from a
+  page they may no longer see, instead of leaving them sitting on it. The address
+  bar is corrected with it, so a refresh does not walk straight back into the
+  redirect.
+
+Neither is a navigation, so neither adds a history entry.
+
+### Returning to the page that was refused
+
+When a guard refuses a navigation, the router remembers the path (never the query
+string, which may carry a token) and replays it once the session can reach it. A
+visitor who follows a link to `/admin`, signs in, and holds `admin` afterwards ends
+up on `/admin`, not on the home page with no explanation.
+
+The remembered path is cleared by being read, whether or not it turned out to be
+usable, so a stale intent cannot steer a later visit. It is **not** cleared by
+navigating somewhere else: a visitor bounced off `/admin` who then browses to
+`/products` and signs in there is still taken to `/admin`. That is deliberate: the
+page they were refused is the one they asked for, and whatever they looked at while
+signed out was them waiting to be let in.
+
+The stored path is under the control of whoever put the link in front of the
+visitor, so it is validated before anything acts on it. The rules, and why they are
+what they are, are in
+[deep links and the login resume](security.md#deep-links-and-the-login-resume).
 
 A route guard is a **redirect rule, not a secrecy mechanism**. The client is one
 compiled bundle, so every view's QML ships to every visitor; guards steer
@@ -289,6 +394,11 @@ The framework, not your code, owns each accessor's lifecycle:
 - Attached signal handlers (`<Contract>.on<Signal>`) fire only while the connect
   point is live. Before acquisition, or during `reconnecting`, they simply do not
   fire, and they resume on reconnect.
+- `Router` resolves the URL the page was loaded at before the link to the edge
+  opens, and re-resolves the current route on every scope change, so a scope-gated
+  page is refused at boot and reached again once the session actually holds the
+  scope. See [deep links, refreshes, and scope
+  changes](#deep-links-refreshes-and-scope-changes).
 - `Caller` exists only for the duration of a slot invocation that originated from a
   consumer. Do not capture it and use it later; read what you need from it inside
   the slot.
