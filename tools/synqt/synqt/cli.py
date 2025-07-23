@@ -14,9 +14,9 @@ from typing import Any, Dict, List, Optional
 
 import yaml
 
-from . import (addauth, addcontract, addentity, addprovider, build as buildmod,
-               check as checkmod, clientbuild, doctor, mesh, newproject, run as runmod,
-               version as versionmod)
+from . import (addauth, addcontract, addentity, addprovider, appgen,
+               build as buildmod, check as checkmod, clientbuild, doctor, mesh,
+               newproject, run as runmod, version as versionmod)
 
 
 def _load_config(project_dir: str) -> Dict[str, Any]:
@@ -220,7 +220,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             parser.error("unknown command")
     except (newproject.NewProjectError, addauth.AddAuthError, addentity.AddEntityError,
             addprovider.AddProviderError, addcontract.AddContractError, mesh.MeshError,
-            buildmod.BuildError, FileNotFoundError) as error:
+            appgen.AppGenError, buildmod.BuildError, FileNotFoundError) as error:
         print(f"synqt {args.command}: {error}", file=sys.stderr)
         return 1
     return 0

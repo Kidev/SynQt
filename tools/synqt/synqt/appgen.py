@@ -22,10 +22,15 @@ from __future__ import annotations
 import html
 import os
 import re
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Dict, List, Optional
 
 from . import clientbuild, clientcache, loadingpage
+
+
+class AppGenError(Exception):
+    """A generation error surfaced to the CLI (no traceback for the user)."""
+
 
 _HEADER_CPP = ("// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux\n"
                "// SPDX-License-Identifier: Apache-2.0\n")
@@ -82,8 +87,33 @@ def _mesh_consumed(config: Dict[str, Any], entity_name: str) -> List[Dict[str, A
 
 
 def _view_file(view: str) -> str:
-    """The QML file a route's `view` names, restoring the extension it may omit."""
-    return view if view.endswith(".qml") else f"{view}.qml"
+    """The QML file a route's `view` names, restoring the extension it may omit.
+
+    The name is also normalized, so the one file a route means is spelled one way
+    everywhere: `./About.qml` and `About.qml` are the same view, and writing the first
+    would otherwise put a literal `./` into both the resource alias and the compiled-in
+    `qrc:/qt/qml/<Uri>/./About.qml`, which is a second entry for one file.
+    """
+    name = view.strip()
+    if not name.endswith(".qml"):
+        name += ".qml"
+    return PurePosixPath(name.replace("\\", "/")).as_posix()
+
+
+def _route_view(route: Dict[str, Any]) -> str:
+    """The QML file one route names, or refuse to generate.
+
+    A route with no `view` used to default to Main.qml, which is the window: a `Loader`
+    bound to `Router.pageComponent` inside Main.qml would then load the window inside
+    itself. `synqt check` reports this earlier and more kindly, but nothing makes
+    `synqt build` run the check, so the generator refuses it too rather than quietly
+    emitting the recursion.
+    """
+    view = route.get("view")
+    if not isinstance(view, str) or not view.strip():
+        raise AppGenError(f"route {route.get('path')!r} declares no view; there is "
+                          "nothing for the router to show there")
+    return _view_file(view)
 
 
 def _route_views(config: Dict[str, Any]) -> List[str]:
@@ -96,10 +126,7 @@ def _route_views(config: Dict[str, Any]) -> List[str]:
     for route in config.get("routes") or []:
         if not isinstance(route, dict):
             continue
-        view = route.get("view")
-        if not isinstance(view, str) or not view.strip():
-            continue
-        name = _view_file(view.strip())
+        name = _route_view(route)
         if name != "Main.qml" and name not in views:
             views.append(name)
     return views
@@ -277,12 +304,15 @@ def _component_url(view: str, uri: str) -> str:
     """The qrc URL of a compiled-in view inside the client's QML module."""
     if not view:
         return ""
-    return f"qrc:/qt/qml/{uri}/{_view_file(view)}"
+    return f"qrc:/qt/qml/{uri}/{view}"
 
 
 def _route_literal(route: Dict[str, Any], uri: str) -> str:
     path = route.get("path", "/")
-    view = route.get("view", "Main")
+    # The file the route names, spelled the one way the module compiles it in: no
+    # default, because a route with no view would otherwise point at Main.qml, which is
+    # the window (_route_view refuses it instead).
+    view = _route_view(route)
     scope = route.get("scope", "") or ""
     url = _component_url(view, uri)
     # Empty scope stays QString{} (not QStringLiteral("")) so this literal, and every
@@ -303,7 +333,7 @@ def render_client_main(config: Dict[str, Any], uri: str) -> str:
     # point the router at the window itself, so a Loader bound to Router.pageComponent
     # inside Main.qml would load the window again; with an empty table pageComponent stays
     # null and an app that does not use the router behaves exactly as before.
-    routes = config.get("routes") or []
+    routes = [r for r in (config.get("routes") or []) if isinstance(r, dict)]
 
     # Every accessor bound with setContextProperty needs its complete type here:
     # synclient.h only forward-declares them, and an incomplete type misses the QObject*
