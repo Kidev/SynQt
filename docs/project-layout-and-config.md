@@ -454,20 +454,21 @@ routes:
 | Key | Required | Meaning |
 |-----|----------|---------|
 | `path` | yes | The route's path, absolute. Each segment is either a literal or a `:name` parameter that captures whatever is in that position. A parameter name starts with a letter or an underscore and continues with letters, digits, or underscores, and no name repeats within one path. Captured values are percent-decoded and arrive as `Router.params`. |
-| `view` | yes | The QML file to show, named inside the client entity's QML module. Write it relative to the client entity's directory (`Home.qml`, not `client/Home.qml`); the router loads it from that module's resource root. A view the module does not contain cannot be built, and the router reports [`pageStatus: Error`](runtime-api.md#client-router) rather than a blank page. |
+| `view` | yes | The QML file to show. Write it relative to the client entity's directory (`Home.qml`, not `client/Home.qml`), with or without the `.qml` extension. `synqt build` compiles it into the client's QML module and the router loads it from that module's root, so a view needs nothing beyond the file being there. |
 | `scope` | no | The scope a session must hold to reach this route. Omitted, the route is open to everyone, anonymous sessions included. |
 
-!!! warning "A route view has to be in the client's QML module"
-    `synqt build` puts only the client entity's `Main.qml` into that module today,
-    so a route naming any other file resolves to a URL the bundle does not contain
-    and the router reports `pageStatus: Error`. A project that declares no `routes`
-    at all gets exactly one route, `/` pointing at `Main.qml`, which is also the
-    window: do not bind a `Loader` inside `Main.qml` to `Router.pageComponent`
-    there, or it loads the window again. Until the generated CMake lists every
-    route's view, drive the per route screens from `Router.path` inside `Main.qml`
-    (a `StackLayout`, or a `Loader` over inline `Component`s). Editing the
-    generated `CMakeLists.txt` does not help: it is rewritten from `synqt.yaml` on
-    every build.
+Every view a route names is put into the client's QML module for you, alongside
+`Main.qml`, and `synqt check` refuses a route whose view is not on disk, naming the
+route and the file it looked for. Do not add views to the generated
+`CMakeLists.txt` by hand: it is rewritten from `synqt.yaml` on every build.
+
+An app that declares no `routes` at all has no route table, `Router.pageComponent`
+is null, and nothing about it changes: routing is opt in, and `Main.qml` alone is a
+complete client. An app that does route puts one `Loader` on
+`Router.pageComponent` in `Main.qml` (see
+[rendering the current page](runtime-api.md#rendering-the-current-page)) and keeps
+its screens in the view files the table names, so `Main.qml` is the window and never
+a route's view.
 
 Three rules decide what a path resolves to:
 
@@ -722,11 +723,21 @@ reaches them. Each rule below fails the check, with the message quoted:
 | A `path` claims a path the edge answers itself | `error: route path '/sync' is reserved by the web edge: a client route there is either answered by the edge itself or collides with the wss sync endpoint` |
 | A parameter name is not an identifier | `error: route path '/c/:2campaign' has a malformed parameter ':2campaign'; a parameter name must be a letter or underscore, then letters, digits, or underscores` |
 | One path uses a parameter name twice | `error: route path '/c/:id/:id' repeats the parameter name 'id'` |
+| A route declares no `view` | `error: route '/admin' declares no view; there is nothing for the router to show there` |
+| A `view` names a file that is not there | `error: route '/admin' names view 'Admin.qml': no such file 'client/Admin.qml'` |
+| A `view` is written with the entity directory in it | `error: route '/admin' names view 'client/Admin.qml': no such file 'client/client/Admin.qml'; a view is named relative to the client entity's directory, so write it as 'Admin.qml'` |
+| A `view` points outside the client entity's directory | `error: route '/admin' names view '../web/Admin.qml': a view is named relative to the client entity's directory ('client/'), so it cannot be an absolute or parent path` |
 | `router.fallback` names no declared route | `error: router.fallback '/home' is not a declared route; a redirect to it would go nowhere` |
 | `router.base` is not rooted | `error: router.base 'shop' must start with '/'` |
+| `router.mode` is not `history` | `warn: router.mode 'hash' is not a mode SynQt has; the router always drives the History API ('history') and ignores this key` |
 
-Two of those deserve a note:
+Three of those deserve a note:
 
+- The view rules are what keep a broken route out of the build. Every view a route
+  names is compiled into the client's QML module, so a view that is not on disk
+  would otherwise stop CMake on a generated file you do not own; caught here, the
+  message names the route and the file. A `view` written with or without `.qml`
+  means the same file either way.
 - The duplicate rule compares paths the way the runtime splits them, where an empty
   segment is not a segment. `/c` and `/c/` are the same route, and the message says
   so rather than leaving you to wonder why two visibly different strings collided.
@@ -741,4 +752,4 @@ Two of those deserve a note:
 
 The `fallback` rule applies only once at least one route is declared: a project
 with no `routes` at all has nothing for a fallback to point at, and the client
-compiles a single route for `Main.qml`.
+compiles an empty route table.
