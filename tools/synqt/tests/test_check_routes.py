@@ -151,14 +151,24 @@ router:
 
 routes:
   - path: /
-    view: client/Home.qml
+    view: Home.qml
 
   - path: /c
-    view: client/A.qml
+    view: A.qml
 
   - path: /c/
-    view: client/B.qml
+    view: B.qml
 """
+
+
+def _project(source=_PROJECT, views=("Home.qml", "A.qml", "B.qml", "D.qml")):
+    """A project on disk whose client entity really holds the views its routes name."""
+    root = Path(tempfile.mkdtemp())
+    (root / "synqt.yaml").write_text(source)
+    (root / "client").mkdir()
+    for view in views:
+        (root / "client" / view).write_text("import QtQuick\n\nItem {}\n")
+    return root
 
 
 def test_a_duplicate_route_fails_the_whole_check():
@@ -168,15 +178,64 @@ def test_a_duplicate_route_fails_the_whole_check():
     lint_routes read a key no project writes. Only going through check_project, with the
     table where the schema puts it, proves the rule is wired to anything.
     """
-    root = Path(tempfile.mkdtemp())
-    (root / "synqt.yaml").write_text(_PROJECT)
+    root = _project()
     ok, messages = check.check_project(root)
     assert not ok, messages
     assert any("duplicate route path" in m.lower() for m in messages), messages
 
 
+def test_a_view_that_is_not_on_disk_fails_the_check():
+    # `synqt build` compiles every route's view into the client's QML module, so a view
+    # that is not there would fail inside a generated CMakeLists the project does not own.
+    root = _project(views=("Home.qml", "A.qml", "B.qml"))
+    (root / "synqt.yaml").write_text(_PROJECT.replace("view: B.qml", "view: Missing.qml"))
+    ok, messages = check.check_project(root)
+    assert not ok, messages
+    assert any("no such file 'client/Missing.qml'" in m for m in messages), messages
+
+
+def test_a_view_written_with_the_entity_directory_says_how_to_write_it():
+    root = _project()
+    (root / "synqt.yaml").write_text(_PROJECT.replace("view: A.qml", "view: client/A.qml"))
+    ok, messages = check.check_project(root)
+    assert not ok, messages
+    assert any("write it as 'A.qml'" in m for m in messages), messages
+
+
+def test_a_view_named_without_its_extension_is_accepted():
+    # _component_url appends the extension, so `view: Home` names client/Home.qml.
+    root = _project()
+    (root / "synqt.yaml").write_text(_PROJECT.replace("view: Home.qml", "view: Home")
+                                             .replace("  - path: /c/\n", "  - path: /d\n"))
+    ok, messages = check.check_project(root)
+    assert ok, messages
+
+
+def test_a_route_outside_the_client_directory_is_rejected():
+    root = _project()
+    (root / "synqt.yaml").write_text(_PROJECT.replace("view: A.qml", "view: ../web/A.qml"))
+    ok, messages = check.check_project(root)
+    assert not ok, messages
+    assert any("parent path" in m for m in messages), messages
+
+
+def test_a_route_with_no_view_is_rejected():
+    root = _project()
+    (root / "synqt.yaml").write_text(_PROJECT.replace("    view: A.qml\n", ""))
+    ok, messages = check.check_project(root)
+    assert not ok, messages
+    assert any("declares no view" in m for m in messages), messages
+
+
+def test_an_unknown_router_mode_is_a_warning():
+    findings = _findings([{"path": "/", "view": "Home.qml"}],
+                         router={"fallback": "/", "mode": "hash"})
+    assert any(f.startswith("warn:") and "router.mode" in f for f in findings), findings
+    assert not any(f.startswith("error:") for f in findings), findings
+
+
 def test_a_clean_route_table_leaves_the_check_passing():
-    root = Path(tempfile.mkdtemp())
+    root = _project()
     (root / "synqt.yaml").write_text(_PROJECT.replace("  - path: /c/\n", "  - path: /d\n"))
     ok, messages = check.check_project(root)
     assert ok, messages
