@@ -3,6 +3,9 @@
 
 """The generated client carries a component URL per route, and the router base."""
 
+import tempfile
+from pathlib import Path
+
 import pytest
 
 from synqt import appgen
@@ -32,6 +35,25 @@ def _client_cmake(routes):
         "routes": routes,
     }
     return appgen.render_root_cmakelists(config, synqt_root="/synqt")
+
+
+def _client_project(files, routes=()):
+    """A project on disk whose client entity holds `files` (relative path -> contents)."""
+    root = Path(tempfile.mkdtemp())
+    for name, text in files.items():
+        path = root / "client" / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text)
+    config = {
+        "project": {"name": "shop"},
+        "entities": [{"name": "client", "kind": "client"}],
+        "routes": list(routes),
+    }
+    return appgen.render_root_cmakelists(config, synqt_root="/synqt", project_dir=root)
+
+
+_ITEM = "import QtQuick\n\nItem {}\n"
+_SINGLETON = "pragma Singleton\nimport QtQuick\n\nQtObject {}\n"
 
 
 def test_a_view_written_with_a_leading_dot_slash_is_one_view_not_two():
@@ -72,6 +94,49 @@ def test_a_route_with_no_view_is_refused_at_generation():
 
     with pytest.raises(appgen.AppGenError):
         _client_cmake([{"path": "/admin", "view": ""}])
+
+
+def test_a_views_helper_components_are_compiled_in_too():
+    # A view that instantiates a sibling Card.qml needs that file inside the same module,
+    # or it fails to load exactly the way a view outside the module does.
+    cmake = _client_project({"Main.qml": _ITEM, "Home.qml": _ITEM, "Card.qml": _ITEM,
+                             "parts/Badge.qml": _ITEM},
+                            routes=[{"path": "/", "view": "Home.qml"}])
+    assert "PROPERTIES QT_RESOURCE_ALIAS Card.qml)" in cmake
+    assert "PROPERTIES QT_RESOURCE_ALIAS parts/Badge.qml)" in cmake
+    assert '"${CMAKE_CURRENT_SOURCE_DIR}/client/parts/Badge.qml"' in cmake
+
+
+def test_a_singleton_is_marked_as_one():
+    # Without QT_QML_SINGLETON_TYPE the module registers Theme.qml as an ordinary type
+    # and a view reading `Theme.color` does not compile.
+    cmake = _client_project({"Main.qml": _ITEM, "Theme.qml": _SINGLETON})
+    assert "PROPERTIES QT_QML_SINGLETON_TYPE TRUE QT_RESOURCE_ALIAS Theme.qml)" in cmake
+    assert "PROPERTIES QT_RESOURCE_ALIAS Main.qml)" in cmake
+
+
+def test_build_output_under_the_client_is_never_swept_in():
+    # `synqt build` and a stray CMake run both leave copies of the QML under the entity;
+    # compiling those back in would duplicate every type in the module.
+    cmake = _client_project({"Main.qml": _ITEM, "build/Main.qml": _ITEM,
+                             "generated/Gen.qml": _ITEM, ".cache/Old.qml": _ITEM})
+    assert "build/Main.qml" not in cmake
+    assert "generated/Gen.qml" not in cmake
+    assert "Old.qml" not in cmake
+    assert cmake.count("PROPERTIES QT_RESOURCE_ALIAS Main.qml)") == 1
+
+
+def test_a_route_view_on_disk_is_listed_once():
+    cmake = _client_project({"Main.qml": _ITEM, "Home.qml": _ITEM},
+                            routes=[{"path": "/", "view": "Home"}])
+    assert cmake.count("PROPERTIES QT_RESOURCE_ALIAS Home.qml)") == 1
+
+
+def test_without_a_project_directory_the_module_is_main_and_the_route_views():
+    # A caller rendering CMake from a config alone (no app on disk) still gets exactly
+    # what this generator has always emitted.
+    cmake = _client_cmake([{"path": "/", "view": "Home.qml"}])
+    assert cmake.count("QT_RESOURCE_ALIAS") == 2
 
 
 def test_every_route_view_is_in_the_clients_qml_module():
