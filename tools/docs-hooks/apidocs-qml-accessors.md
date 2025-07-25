@@ -156,8 +156,8 @@ to the configured fallback when a route names a scope the session lacks.
 | Member | Type | Implemented by | Description |
 |--------|------|----------------|-------------|
 | `Router.path` | string | SynQt::Router::path | The current application path, without the query string and without the router base. Read-only from QML; after a redirect it is the fallback path, not the one that was asked for. |
-| `Router.params` | object | SynQt::Router::params | The path parameters the matched route captured, percent-decoded. Empty for a route without parameters, and emptied on a redirect. |
-| `Router.query` | object | SynQt::Router::query | The decoded query string of the current URL. Cleared when a guard refuses the navigation, so a query addressed to the refused page never reaches the fallback. |
+| `Router.params` | object | SynQt::Router::params | The path parameters the matched route captured, percent-decoded. Empty for a route without parameters. On a redirect the refused route's captures are dropped and the fallback route's own take their place, which is nothing at all for the usual parameterless fallback. |
+| `Router.query` | object | SynQt::Router::query | The decoded query string of the current URL. Cleared whenever the navigation ends somewhere other than the route that was asked for, a guard refusal and an unmatched path alike, so a query addressed to that page never reaches the fallback. |
 | `Router.pageComponent` | Component \| null | SynQt::Router::pageComponent | The component for the current route's view, ready to hand to a `Loader`. Null when there is no view to show. |
 | `Router.pageStatus` | enumeration | SynQt::Router::pageStatus | Why the current page is the one showing: SynQt::Router::Ready, SynQt::Router::Loading, SynQt::Router::Forbidden, SynQt::Router::NotFound, or SynQt::Router::Error. |
 | `Router.go(path)` | action | SynQt::Router::go | Navigate to `path` and push a history entry. When the matched route declares a scope the session lacks, the router goes to the configured fallback instead and reports `Forbidden`. |
