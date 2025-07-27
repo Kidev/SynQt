@@ -361,14 +361,26 @@ def _hot_reload(root: Path, state: Dict[str, Any], port: int, client: str,
     # stays up and the error is reported. (`build` raises for the opposite reason: it must
     # never report success for a binary it did not produce.)
     #
-    # Both failures are caught, because compile_incremental regenerates before it compiles:
-    # a config the generator refuses (a route saved before its `view` is typed) raises
-    # AppGenError, and that edit is exactly the one the watcher exists for. Letting it out
-    # would tear down every child process on a half-finished save.
+    # BuildError and AppGenError get their own clear message: compile_incremental regenerates
+    # before it compiles, so a config the generator refuses (a route saved before its `view`
+    # is typed) raises AppGenError, and that edit is exactly the one the watcher exists for.
+    #
+    # The broad fallback below is deliberate: in dev the contract is always "report and keep
+    # running", never "crash". A half-typed synqt.yaml can parse as valid YAML yet put a
+    # scalar where the generator expects a mapping (`router: /home` before its indented
+    # `fallback:` is typed), which reaches appgen and raises a bare AttributeError that no
+    # narrow tuple lists. Letting any such exception out would hit `_watch_loop`'s finally
+    # and tear down every child process on a half-finished save. `except Exception` reports
+    # the message and survives; it does not catch KeyboardInterrupt or SystemExit (those are
+    # BaseException, not Exception), so Ctrl-C still stops the session cleanly.
     try:
         note, _, _ = buildmod.compile_incremental(root, config, client=client)
     except (buildmod.BuildError, appgen.AppGenError) as error:
         print(f"  {error}\n  (keeping the running processes; fix and save again)")
+        return
+    except Exception as error:
+        print(f"  rebuild failed: {error}\n"
+              "  (keeping the running processes; fix and save again)")
         return
 
     host_changed, _ = _categorize(changed, root, config)
