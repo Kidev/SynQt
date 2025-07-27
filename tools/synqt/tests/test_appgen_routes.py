@@ -96,6 +96,32 @@ def test_a_route_with_no_view_is_refused_at_generation():
         _client_cmake([{"path": "/admin", "view": ""}])
 
 
+def test_a_view_reaching_outside_the_client_directory_is_refused_at_generation():
+    # The escape rule `synqt check` enforces has to hold here too: nothing makes
+    # `synqt build` run the check, and a '../web/A.qml' view would otherwise land in the
+    # resource alias and in qrc:/qt/qml/Shop/../web/A.qml, neither of which names a file.
+    for view in ("../web/A.qml", "..\\web\\A.qml", "/etc/A.qml", "C:/x/B.qml",
+                 "C:\\x\\B.qml"):
+        with pytest.raises(appgen.AppGenError) as raised:
+            appgen.render_client_main({"name": "shop",
+                                       "routes": [{"path": "/a", "view": view}]}, uri="Shop")
+        assert "absolute or parent path" in str(raised.value), view
+        assert "/a" in str(raised.value), view
+        with pytest.raises(appgen.AppGenError):
+            _client_cmake([{"path": "/a", "view": view}])
+
+
+def test_the_escape_predicate_takes_the_views_that_are_really_paths():
+    # A legal POSIX filename that happens to start with a letter and a colon is a view,
+    # not a Windows drive path; the separator after the colon is what tells them apart.
+    for accepted in ("Home.qml", "./Home.qml", "views/Home.qml", "Home", "a:b.qml",
+                     "views/a:b.qml"):
+        assert not appgen.view_escapes_client_directory(accepted), accepted
+    for rejected in ("../a.qml", "..\\a.qml", "/a.qml", "C:/a.qml", "C:\\a.qml",
+                     "views/../../a.qml"):
+        assert appgen.view_escapes_client_directory(rejected), rejected
+
+
 def test_a_views_helper_components_are_compiled_in_too():
     # A view that instantiates a sibling Card.qml needs that file inside the same module,
     # or it fails to load exactly the way a view outside the module does.

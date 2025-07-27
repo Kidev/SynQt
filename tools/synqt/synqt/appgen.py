@@ -86,18 +86,56 @@ def _mesh_consumed(config: Dict[str, Any], entity_name: str) -> List[Dict[str, A
             if cp.get("owner") != entity_name]
 
 
-def _view_file(view: str) -> str:
+def view_file_name(view: str) -> str:
     """The QML file a route's `view` names, restoring the extension it may omit.
 
     The name is also normalized, so the one file a route means is spelled one way
     everywhere: `./About.qml` and `About.qml` are the same view, and writing the first
     would otherwise put a literal `./` into both the resource alias and the compiled-in
     `qrc:/qt/qml/<Uri>/./About.qml`, which is a second entry for one file.
+
+    Public because `synqt check` reads a view the same way this generator writes it; two
+    copies of the spelling rule would drift and disagree about which file a route means.
     """
     name = view.strip()
     if not name.endswith(".qml"):
         name += ".qml"
     return PurePosixPath(name.replace("\\", "/")).as_posix()
+
+
+def view_escapes_client_directory(view: str) -> bool:
+    """Whether `view` reaches outside the client entity's directory.
+
+    A view is named relative to that directory, and the generator both aliases it into
+    the QML module at that relative path and compiles a `qrc:/qt/qml/<Uri>/<view>` URL
+    from it, so an absolute or parent path yields an alias and a URL that name nothing.
+
+    Both spellings of a separator, and a drive-rooted Windows path, because SynQt builds
+    on Windows hosts too: PurePosixPath reads 'C:/views/Home.qml' as relative and
+    '..\\web\\A.qml' as one part with no '..' in it, so a POSIX-only rule would wave
+    through exactly the two escapes it advertises catching, on the host where they
+    resolve. The drive rule asks for the separator after the colon: 'C:/x' and 'C:\\x'
+    are the drive-rooted paths that escape, while 'a:b.qml' is a legal POSIX filename
+    and a perfectly good view.
+
+    This is the one place the rule lives. `synqt check` reports it early, by route and
+    by file; the generator refuses it again, because nothing makes `synqt build` run
+    the check.
+    """
+    name = view_file_name(view)
+    spelled = PurePosixPath(name)
+    return (spelled.is_absolute() or ".." in spelled.parts
+            or re.match(r"^[A-Za-z]:[\\/]", name) is not None)
+
+
+def _view_file(view: str, route_path: Any = None) -> str:
+    """`view` as the one file name the module compiles it in as, or refuse to generate."""
+    if view_escapes_client_directory(view):
+        where = f"route {route_path!r} " if route_path is not None else ""
+        raise AppGenError(f"{where}names view {view!r}: a view is named relative to the "
+                          "client entity's directory, so it cannot be an absolute or "
+                          "parent path")
+    return view_file_name(view)
 
 
 def _route_view(route: Dict[str, Any]) -> str:
@@ -113,7 +151,7 @@ def _route_view(route: Dict[str, Any]) -> str:
     if not isinstance(view, str) or not view.strip():
         raise AppGenError(f"route {route.get('path')!r} declares no view; there is "
                           "nothing for the router to show there")
-    return _view_file(view)
+    return _view_file(view, route.get("path"))
 
 
 def _route_views(config: Dict[str, Any]) -> List[str]:
