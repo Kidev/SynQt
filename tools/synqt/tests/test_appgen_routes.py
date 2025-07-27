@@ -122,6 +122,36 @@ def test_the_escape_predicate_takes_the_views_that_are_really_paths():
         assert appgen.view_escapes_client_directory(rejected), rejected
 
 
+def test_two_qml_files_with_one_base_name_are_refused():
+    # Qt names a QML type after the file whatever directory it sits in, and every file
+    # goes into the one module-root qmldir, so both of these register as `Header` and one
+    # silently shadows the other. A silent shadow is the worst outcome, so refuse.
+    with pytest.raises(appgen.AppGenError) as raised:
+        _client_project({"Main.qml": _ITEM, "pages/Header.qml": _ITEM,
+                         "widgets/Header.qml": _ITEM})
+    message = str(raised.value)
+    assert "pages/Header.qml" in message
+    assert "widgets/Header.qml" in message
+    assert "Header" in message
+
+
+def test_a_route_view_that_is_also_on_disk_is_not_a_collision():
+    # The route view and the swept file are one relative path, so the list holds it once
+    # and the shadow rule must not read that as two types.
+    cmake = _client_project({"Main.qml": _ITEM, "views/Home.qml": _ITEM},
+                            routes=[{"path": "/", "view": "views/Home"}])
+    assert cmake.count("PROPERTIES QT_RESOURCE_ALIAS views/Home.qml)") == 1
+
+
+def test_a_hidden_qml_file_is_never_swept_in():
+    # The dot rule covers the file as well as the directory: client/.Scratch.qml is an
+    # editor's leftover, and compiling it in would register a type for it.
+    cmake = _client_project({"Main.qml": _ITEM, ".Scratch.qml": _ITEM,
+                            "parts/.Old.qml": _ITEM})
+    assert "Scratch" not in cmake
+    assert "Old.qml" not in cmake
+
+
 def test_a_views_helper_components_are_compiled_in_too():
     # A view that instantiates a sibling Card.qml needs that file inside the same module,
     # or it fails to load exactly the way a view outside the module does.
