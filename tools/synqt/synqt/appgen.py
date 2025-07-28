@@ -128,6 +128,24 @@ def view_escapes_client_directory(view: str) -> bool:
             or re.match(r"^[A-Za-z]:[\\/]", name) is not None)
 
 
+def normalize_route_path(path: str) -> str:
+    """A route path spelled the one way the runtime matcher can match.
+
+    RoutePattern splits a pattern with Qt::SkipEmptyParts, so an empty segment is not a
+    segment: "/c", "/c/" and "/c//" all name one route. Rebuilding the path from its
+    non-empty segments is that same rule, so the root comes back as "/": it is the one
+    path that is nothing but slashes.
+
+    Public because two places need the identical spelling. `synqt check` compares a
+    router.fallback to the declared routes through this rule, so "/c//" is accepted as
+    the route "/c". The generator then writes the fallback through it too, because the
+    client looks the fallback up with RoutePattern::matches(), which tolerates only one
+    trailing slash: the raw "/c//" would match nothing and blank the page. One rule, so
+    the two never disagree about which route a fallback means.
+    """
+    return "/" + "/".join(segment for segment in path.split("/") if segment)
+
+
 def _view_file(view: str, route_path: Any = None) -> str:
     """`view` as the one file name the module compiles it in as, or refuse to generate."""
     if view_escapes_client_directory(view):
@@ -499,7 +517,7 @@ def render_client_main(config: Dict[str, Any], uri: str) -> str:
         _route_literal(r, uri) for r in routes)
     router = config.get("router") or {}
     router_base = router.get("base") or "/"
-    router_fallback = router.get("fallback") or "/"
+    router_fallback = normalize_route_path(router.get("fallback") or "/")
 
     body = f"""{_HEADER_CPP}
 // The {name} entry point, built for the browser (WASM) and as a native desktop app from
