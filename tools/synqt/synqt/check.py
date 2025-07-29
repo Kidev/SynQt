@@ -87,6 +87,18 @@ def validate(config: Dict[str, Any]) -> Tuple[bool, List[str]]:
             f"error: build.client_logging must be 'console', 'qt', or 'none', not "
             f"'{logging_mode}'")
 
+    # Scope checks are hierarchical (a higher scope satisfies a lower one) by default, or
+    # set-based when scopes.hierarchical is false. Both mains read it as a boolean; a string
+    # like "false" is truthy in Python, so it would silently stay hierarchical -- the exact
+    # authorization surprise (a lower scope granted to a higher-ranked holder) the setter
+    # meant to turn off. Insist on a real boolean rather than misread one.
+    scopes = config.get("scopes")
+    if isinstance(scopes, dict) and "hierarchical" in scopes:
+        if not isinstance(scopes["hierarchical"], bool):
+            messages.append(
+                f"error: scopes.hierarchical must be true or false, not "
+                f"{scopes['hierarchical']!r}")
+
     messages += _loading_messages(config)
     for name in sorted(entities):
         messages += _provider_messages(name, entities[name])
