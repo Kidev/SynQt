@@ -1,0 +1,21 @@
+// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+// SPDX-License-Identifier: Apache-2.0
+
+// The framework's own connect point for edge-delivered pages. It is an ordinary
+// contract, so page delivery rides the authenticated wss link and inherits the upgrade
+// verifier, the session gating, and Caller, rather than opening a second path that would
+// have to re-implement all of it.
+
+record PageResponse(string status, string qml, string hash, string seed)
+
+contract Pages {
+    // The remote half of the route table, as JSON. Pushed, so adding a page on the edge
+    // reaches open tabs without a client rebuild.
+    prop string routeTable
+
+    // haveHash is the content hash the caller already holds, so an unchanged page costs
+    // a status and nothing else.
+    slot PageResponse fetchPage(string route, string haveHash)
+
+    signal pageChanged(string route, string hash)
+}
