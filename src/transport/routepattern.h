@@ -15,7 +15,7 @@ namespace SynQt {
 /// A pattern is a sequence of segments, each either a literal or a `:name` placeholder
 /// that captures. Precedence between two patterns that both match is decided by
 /// literalSegmentCount(), so `/c/summary` wins over `/c/:campaign` however the routes
-/// were declared; ordering by declaration would make the table's meaning depend on the
+/// were declared. Ordering by declaration would make the table's meaning depend on the
 /// order a generator happened to emit it in.
 class RoutePattern
 {
@@ -34,9 +34,9 @@ public:
 
     bool hasParameters() const;
 
-    /// Match path (no query string; call splitQuery() first) against this
+    /// Match path (no query string, so call splitQuery() first) against this
     /// pattern. path must be absolute (start with '/') and contain no
-    /// empty segment; exactly one optional trailing slash is tolerated
+    /// empty segment. Exactly one optional trailing slash is tolerated
     /// and ignored. Anything else structurally fails to match: a
     /// relative path, a leading "//", or any interior "//" (the classic
     /// protocol-relative payload never matches here). Captured

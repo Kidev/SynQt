@@ -89,6 +89,11 @@ QString PageStore::routeTableJson() const
     return QString::fromUtf8(QJsonDocument{table}.toJson(QJsonDocument::Compact));
 }
 
+QStringList PageStore::declaredRoutes() const
+{
+    return m_pages.keys();
+}
+
 void PageStore::setWatching(bool watching)
 {
     if (!watching) {

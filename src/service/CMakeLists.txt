@@ -60,6 +60,10 @@ if(NOT TARGET SynQtProviders)
     add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../providers" "${CMAKE_BINARY_DIR}/SynQtProviders")
 endif()
 
+# synqt_add_contract, for the framework's own Pages connect point below: PagesService is
+# an ordinary contract owner, generated the same way an app's connect points are.
+include("${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/SynQtContracts.cmake")
+
 qt_add_library(SynQtService STATIC
     meshpeer.h
     meshserver.cpp
@@ -92,6 +96,8 @@ qt_add_library(SynQtService STATIC
     stubidentityserver.h
     pagestore.cpp
     pagestore.h
+    pagesservice.cpp
+    pagesservice.h
     webedgeconfig.h
     webedge.cpp
     webedge.h
@@ -101,6 +107,19 @@ set_target_properties(SynQtService PROPERTIES AUTOMOC ON)
 
 target_include_directories(SynQtService PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 target_include_directories(SynQtService PRIVATE "${JWT_CPP_INCLUDE_DIR}")
+
+# The framework's own Pages connect point (edge-delivered pages): PagesService's
+# fetchPageFor returns the generated PageResponse record, so the library needs the
+# owner-side generated code for its own compile, exactly as an app entity would for its
+# own connect points. The generated header is exposed PUBLIC (unlike a normal
+# per-executable synqt_add_contract call) so a consumer needing "rep_pages_source.h"
+# (e.g. a test constructing a PageResponse) finds it without generating and linking its
+# own duplicate copy of PagesSourceHelper/PagesCaller alongside this static library's.
+synqt_add_contract(SynQtService ROLE source
+    SYN "${CMAKE_CURRENT_SOURCE_DIR}/contracts/Pages.syn")
+target_include_directories(SynQtService PUBLIC
+    "${CMAKE_CURRENT_BINARY_DIR}/synqt_generated/SynQtService"
+    "${CMAKE_CURRENT_BINARY_DIR}")
 
 target_link_libraries(SynQtService PUBLIC
     SynQtTransport

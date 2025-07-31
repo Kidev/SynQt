@@ -2,8 +2,10 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # The shared QWebSocket QIODevice adapter used by both the client runtime (to reach the
-# edge) and the web edge (to wrap accepted browser sockets). A leaf library so both can
-# depend on it without one depending on the other. Qt Core + WebSockets only.
+# edge) and the web edge (to wrap accepted browser sockets), plus RoutePattern, the route
+# matcher both the client (navigation) and a service (fetchPage authorization) compile a
+# request path against. A leaf library so both sides can depend on it without one
+# depending on the other. Qt Core + WebSockets only.
 
 # GLOBAL: see the note in src/service/CMakeLists.txt. Qt6::WebSockets is public on this target,
 # so it has to resolve in whatever scope the consuming executable is finalized in.
@@ -12,6 +14,8 @@ find_package(Qt6 6.11 REQUIRED COMPONENTS Core WebSockets GLOBAL)
 qt_add_library(SynQtTransport STATIC
     websockettransport.cpp
     websockettransport.h
+    routepattern.cpp
+    routepattern.h
 )
 
 set_target_properties(SynQtTransport PROPERTIES AUTOMOC ON)

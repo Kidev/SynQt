@@ -87,9 +87,9 @@ bool RoutePattern::matches(const QString &path, QVariantMap *parameters) const
     }
     QStringList actual{path.split(QLatin1Char('/'), Qt::KeepEmptyParts)};
     // path starts with '/', so the leading element is always the empty
-    // string in front of it; drop it, it is not a segment.
+    // string in front of it. Drop it, it is not a segment.
     actual.removeFirst();
-    // Tolerate exactly one trailing slash: it produces exactly one
+    // Tolerate exactly one trailing slash. It produces exactly one
     // trailing empty element, dropped here rather than rejected below.
     if (!actual.isEmpty() && actual.last().isEmpty()) {
         actual.removeLast();
@@ -98,7 +98,7 @@ bool RoutePattern::matches(const QString &path, QVariantMap *parameters) const
         if (segment.isEmpty()) {
             // Any remaining empty element is an interior "//" (or a
             // leading "//", which after removeFirst() also shows up as
-            // a leading empty element here); this never matches.
+            // a leading empty element here). This never matches.
             return false;
         }
     }

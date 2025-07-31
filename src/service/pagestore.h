@@ -7,6 +7,7 @@
 #include <QHash>
 #include <QObject>
 #include <QString>
+#include <QStringList>
 
 QT_BEGIN_NAMESPACE
 class QFileSystemWatcher;
@@ -46,6 +47,9 @@ public:
     /// The remote route table as a JSON array of {path, scope} objects, for
     /// the Pages connect point to push.
     QString routeTableJson() const;
+
+    /// Every declared route, for matching a request path against the table.
+    QStringList declaredRoutes() const;
 
     /// Watch the page files and re-hash on change. Development only.
     void setWatching(bool watching);
