@@ -28,3 +28,7 @@ target_link_libraries(tst_pagestore PRIVATE SynQtService Qt6::Test)
 target_compile_definitions(tst_pagestore PRIVATE
     REMOTE_PAGES_SRCDIR="${CMAKE_CURRENT_SOURCE_DIR}")
 add_test(NAME pagestore COMMAND tst_pagestore)
+
+qt_add_executable(tst_remotepage tst_remotepage.cpp)
+target_link_libraries(tst_remotepage PRIVATE SynQtClient Qt6::Test Qt6::Qml)
+add_test(NAME remotepage COMMAND tst_remotepage)
