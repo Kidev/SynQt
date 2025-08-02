@@ -12,13 +12,18 @@ namespace SynQt {
 namespace {
 
 /// Strip line and block comments so a commented-out import is neither
-/// honored nor mistaken for a real one.
+/// honored nor mistaken for a real one. String literals are tracked (with
+/// backslash escapes honored) so a "//" or "/*" inside a quoted string is
+/// never mistaken for the start of a comment: the boundary must not rely
+/// on QML's own parsing to keep a hidden statement from being swallowed.
 QString withoutComments(const QString &source)
 {
     QString stripped;
     stripped.reserve(source.size());
     bool inLine{false};
     bool inBlock{false};
+    bool inString{false};
+    QChar stringQuote{};
     for (int index{0}; index < source.size(); ++index) {
         const QChar character{source.at(index)};
         const bool hasNext{index + 1 < source.size()};
@@ -37,6 +42,24 @@ QString withoutComments(const QString &source)
             }
             continue;
         }
+        if (inString) {
+            stripped.append(character);
+            if (character == QLatin1Char('\\') && hasNext) {
+                stripped.append(source.at(index + 1));
+                ++index;
+                continue;
+            }
+            if (character == stringQuote) {
+                inString = false;
+            }
+            continue;
+        }
+        if (character == QLatin1Char('"') || character == QLatin1Char('\'')) {
+            inString = true;
+            stringQuote = character;
+            stripped.append(character);
+            continue;
+        }
         if (character == QLatin1Char('/') && hasNext) {
             if (source.at(index + 1) == QLatin1Char('/')) {
                 inLine = true;
@@ -52,6 +75,29 @@ QString withoutComments(const QString &source)
         stripped.append(character);
     }
     return stripped;
+}
+
+/// True when line begins with keyword at a real QML token boundary: the
+/// next character (if any) is whitespace, or a quote when
+/// quoteEndsKeyword, or the line simply ends there. QML's lexer treats
+/// any whitespace as a separator, so this must not require exactly one
+/// ASCII space. A lookalike identifier such as "imports" or
+/// "importation" continues with a non-boundary character and is
+/// correctly rejected.
+bool matchesKeyword(const QString &line, const QString &keyword, bool quoteEndsKeyword)
+{
+    if (!line.startsWith(keyword)) {
+        return false;
+    }
+    if (line.size() == keyword.size()) {
+        return true;
+    }
+    const QChar next{line.at(keyword.size())};
+    if (next.isSpace()) {
+        return true;
+    }
+    return quoteEndsKeyword
+        && (next == QLatin1Char('"') || next == QLatin1Char('\''));
 }
 
 } // namespace
@@ -77,14 +123,20 @@ bool QmlPalette::isAcceptable(const QString &source, QString *reason) const
         if (line.isEmpty()) {
             continue;
         }
-        if (line.startsWith(QLatin1String("import "))) {
+        if (matchesKeyword(line, QStringLiteral("import"), true)) {
             if (headerEnded) {
                 if (reason) {
                     *reason = QStringLiteral("import below the header: %1").arg(line);
                 }
                 return false;
             }
-            const QString rest{line.mid(7).trimmed()};
+            const QString rest{line.mid(6).trimmed()};
+            if (rest.isEmpty()) {
+                if (reason) {
+                    *reason = QStringLiteral("malformed import: %1").arg(line);
+                }
+                return false;
+            }
             if (rest.startsWith(QLatin1Char('"')) || rest.startsWith(QLatin1Char('\''))) {
                 if (reason) {
                     *reason = QStringLiteral("path import is not allowed: %1").arg(line);
@@ -101,7 +153,7 @@ bool QmlPalette::isAcceptable(const QString &source, QString *reason) const
             }
             continue;
         }
-        if (line.startsWith(QLatin1String("pragma "))) {
+        if (matchesKeyword(line, QStringLiteral("pragma"), false)) {
             continue;
         }
         headerEnded = true;
