@@ -35,6 +35,8 @@ qt_add_library(SynQtClient STATIC
     clientupdate.h
     qmlpalette.cpp
     qmlpalette.h
+    remotepageloader.cpp
+    remotepageloader.h
     replicaregistry.cpp
     replicaregistry.h
     resumepath.cpp
