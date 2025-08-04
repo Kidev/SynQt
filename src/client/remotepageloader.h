@@ -8,6 +8,7 @@
 
 #include <QHash>
 #include <QObject>
+#include <QPointer>
 #include <QString>
 
 QT_BEGIN_NAMESPACE
@@ -19,13 +20,12 @@ namespace SynQt {
 
 /// Turns a page the edge delivered into something the app can render.
 ///
-/// Delivered QML is interpreted. qmlcachegen and the ahead-of-time compiler only apply to
-/// QML compiled into the bundle, and WebAssembly has no JIT. That is the right trade for a
-/// form, a report, or a campaign page, and the wrong one for anything running per frame.
+/// Delivered QML is interpreted: qmlcachegen and the ahead-of-time compiler apply only to QML
+/// compiled into the bundle, and WebAssembly has no JIT. Suitable for a form, a report or a
+/// campaign page, not for anything running per frame.
 ///
-/// Components are cached by content hash, so a revisit costs nothing and an unchanged page
-/// is never re-parsed. The cache is memory only. A reload refetches, which keeps a stale
-/// page from outliving a deploy.
+/// Components are cached by content hash in memory only, so an unchanged page is never
+/// re-parsed and a reload refetches.
 class RemotePageLoader : public QObject
 {
     Q_OBJECT
@@ -55,11 +55,19 @@ public:
     /// changed.
     void invalidate(const QString &route);
 
+    /// Forget every route, so the next resolution to any of them refetches. Called on a
+    /// scope change. A page (and the seed it was delivered with) fetched under one scope
+    /// must not go on being shown, unconfirmed, to a session that no longer holds it.
+    void clear();
+
 private:
     struct CachedPage
     {
         QString hash;
-        QQmlComponent *component{nullptr};
+        // QPointer: this cache is the sole owner of the component (deleted in
+        // deliver()/invalidate()/clear()/the destructor), and a cleared QPointer reads as a cache
+        // miss, never as a freed pointer.
+        QPointer<QQmlComponent> component{};
     };
 
     QQmlEngine *m_engine;
