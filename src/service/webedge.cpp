@@ -5,6 +5,9 @@
 
 #include "caller.h"
 #include "identityprovider.h"
+#include "pagesedgesource.h"
+#include "pagesservice.h"
+#include "pagestore.h"
 #include "sessionmanager.h"
 #include "topology.h"           // loadCertificate / loadPrivateKey
 #include "websockettransport.h" // reused host-side (from src/transport)
@@ -434,6 +437,30 @@ bool WebEdge::start()
         m_sharedSources.insert(connectPoint.name, source);
     }
 
+    // 1.5. The framework's own Pages connect point (edge-delivered pages): one
+    //      PageStore/PagesService shared by every connection, since the page table
+    //      is the same for everyone. Built once, here, and never rebuilt per
+    //      connection; a per-connection PagesEdgeSource is created in
+    //      hostConnection() so each carries its own Caller. Nothing is created when
+    //      the project configures no pages, so that app pays nothing.
+    if (!m_config.pages.isEmpty()) {
+        m_pageStore = new PageStore{m_config.pagesDir, this};
+        for (const WebEdgePage &page : m_config.pages) {
+            m_pageStore->addPage(page.path, page.file, page.scope);
+        }
+        // Development-only watching. WebEdgeConfig carries no separate
+        // development/release flag, so this reuses the signal the project already
+        // keys "synqt dev" to: dev_command() in tools/synqt/synqt/run.py launches
+        // the edge with no --cert/--key, i.e. plaintext (see usesTls() below), while
+        // a built or served edge always has certFile/keyFile set. Adding a second
+        // flag for the same fact would be a config surface this framework does not
+        // need.
+        if (!m_config.usesTls()) {
+            m_pageStore->setWatching(true);
+        }
+        m_pagesService = new PagesService{m_pageStore, this};
+    }
+
     // 2. The HTTP server: serve the bundle, stamp headers, and verify upgrades.
     m_httpServer = new QHttpServer{this};
     m_httpServer->route(m_config.clientRoute, [this](const QHttpServerRequest &request) {
@@ -756,6 +783,24 @@ void WebEdge::hostConnection(QWebSocket *socket)
         if (source && !node->enableRemoting(source, connectPoint.name)) {
             emit upgradeRejected(
                 QStringLiteral("enableRemoting failed for %1").arg(connectPoint.name));
+        }
+    }
+
+    // The framework's own Pages connect point, hosted the same way as every
+    // per_session connect point above: a fresh Source per connection, carrying this
+    // connection's own Caller, over the PageStore/PagesService shared by every
+    // connection. Page-level scope gating happens inside PagesService, per request,
+    // so there is no single connect-point-level scope to check here.
+    if (m_pagesService) {
+        Caller *pagesCaller{Caller::forUser(QStringLiteral("Pages"), m_sessionManager,
+                                            sessionId, nullptr, socket)};
+        pagesCaller->setScopeOrder(m_config.scopeOrder, m_config.scopesHierarchical);
+        PagesEdgeSource *pagesSource{
+            new PagesEdgeSource{m_pageStore, m_pagesService, pagesCaller, socket}};
+        pagesCaller->setParent(pagesSource);
+        pagesCaller->setSource(pagesSource);
+        if (!node->enableRemoting(pagesSource, QStringLiteral("Pages"))) {
+            emit upgradeRejected(QStringLiteral("enableRemoting failed for Pages"));
         }
     }
 
