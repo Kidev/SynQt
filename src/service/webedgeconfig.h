@@ -91,6 +91,12 @@ struct WebEdgeConfig
     QString pagesDir;
     QList<WebEdgePage> pages;
 
+    /// Development-only page watching: when true the edge watches its page files and pushes
+    /// pageChanged on a change (hot reload). Defaults false (fail closed) and is set only by
+    /// the `synqt dev` launch path; a built or served edge never watches, regardless of
+    /// whether TLS terminates here or at a reverse proxy.
+    bool devWatch{false};
+
     /// Login and identity (M8). Disabled by default; `synqt add auth` enables it.
     IdentityConfig identity;
 

@@ -448,14 +448,13 @@ bool WebEdge::start()
         for (const WebEdgePage &page : m_config.pages) {
             m_pageStore->addPage(page.path, page.file, page.scope);
         }
-        // Development-only watching. WebEdgeConfig carries no separate
-        // development/release flag, so this reuses the signal the project already
-        // keys "synqt dev" to: dev_command() in tools/synqt/synqt/run.py launches
-        // the edge with no --cert/--key, i.e. plaintext (see usesTls() below), while
-        // a built or served edge always has certFile/keyFile set. Adding a second
-        // flag for the same fact would be a config surface this framework does not
-        // need.
-        if (!m_config.usesTls()) {
+        // Development-only watching, keyed to an explicit dev flag. Only the
+        // "synqt dev" launch path (dev_command() in tools/synqt/synqt/run.py, via the
+        // generated edge's --dev option) sets devWatch; a built or served edge leaves
+        // it false and never watches. Deriving "development" from the absence of local
+        // TLS would be wrong: a production edge that terminates TLS at a reverse proxy
+        // and speaks plaintext on the loopback hop has no local cert yet is not dev.
+        if (m_config.devWatch) {
             m_pageStore->setWatching(true);
         }
         m_pagesService = new PagesService{m_pageStore, this};

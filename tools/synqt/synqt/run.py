@@ -151,7 +151,7 @@ def dev_command(root: Path, entity: Dict[str, Any], config: Dict[str, Any],
     binary = str(resolved) if resolved else str(root / "build" / "host" / name)
     if _is_edge(entity):
         return [binary, "--bundle", str(root / "build" / "client"),
-                "--qml-dir", str(root), "--port", str(port)]
+                "--qml-dir", str(root), "--port", str(port), "--dev"]
     command = [binary, "--topology", str(root / "build" / name / "topology.json")]
     # A service that declares pragma-Singleton QML resolves it against the project root.
     if appgen.discover_singletons(root / name):
