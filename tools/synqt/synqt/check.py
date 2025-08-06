@@ -327,7 +327,11 @@ def lint_routes(config: Dict[str, Any],
             findings.append(f"error: route path {path!r} must be a string starting "
                             "with '/'")
             continue
-        if client_dir is not None:
+        if client_dir is not None and not appgen._is_remote_route(route):
+            # A remote route (`remote:`, no `view:`) has no compiled-in view to check
+            # against the client directory at all: it is delivered by the edge, not
+            # carried by the client bundle, and its file is validated by
+            # lint_remote_pages under `<edge>/pages` instead.
             findings += _route_view_findings(path, route.get("view"), client, client_dir)
         if not path.startswith("/"):
             findings.append(f"error: route path {path!r} must be absolute (start with '/')")
@@ -412,13 +416,19 @@ def _imports_of(qml_file: os.PathLike[str] | str) -> List[str]:
 
     This is a build-time convenience gate; its authoritative counterpart is the
     client-side C++ `QmlPalette` (Task 4), which is what actually enforces the palette
-    on a delivered page at run time. The two are not byte-identical: `QmlPalette`
-    strips comments and rejects any quoted import outright (a path import is never
-    allowed, regardless of palette), while this scan is a plain per-line regex and
-    treats a quoted import as simply not a module import to check. A page whose only
-    palette problem is a quoted import would pass here and still be refused by
-    `QmlPalette` at run time; every other case -- an unquoted import of a module the
-    palette does not list -- is caught by both.
+    on a delivered page at run time, and this scan does not attempt to match it byte
+    for byte. `QmlPalette` strips comments first and rejects any quoted import outright
+    (a path import is never allowed, regardless of palette); this scan is a plain
+    per-line regex with neither behavior. Two kinds of import this scan misses that
+    `QmlPalette` still refuses at run time: a quoted import (`import "helpers.js"`,
+    read as simply not a module import here, with nothing to check against the
+    palette) and an unquoted import an inline comment obscures from the regex
+    (`import /* x */ EvilModule` -- `QmlPalette` strips the comment first and still
+    sees `EvilModule`; the anchored regex here does not strip it and never matches the
+    line at all). Both are missed builds, never a security hole: a page this lint
+    waves through on either count is still refused by `QmlPalette` at run time, just
+    later than a developer would like. Every import this scan does flag as
+    palette-violating is one `QmlPalette` would refuse too.
     """
     text = Path(qml_file).read_text(encoding="utf-8", errors="replace")
     modules: List[str] = []
@@ -472,7 +482,9 @@ def lint_remote_pages(config: Dict[str, Any],
             "error: a route declares 'remote:' but router.palette is empty; a "
             "delivered page may only import declared modules")
 
-    compiled_paths = {r.get("path") for r in routes if r.get("view")}
+    # A route that sets both is its own "sets both" finding below, not a shadow of
+    # itself: only a *separate* view route at the same path is a real shadow.
+    compiled_paths = {r.get("path") for r in routes if r.get("view") and not r.get("remote")}
     pages_dir = os.path.join(str(project_dir), edge, "pages") if project_dir is not None \
         else None
 
