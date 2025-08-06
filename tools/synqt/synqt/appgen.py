@@ -156,6 +156,20 @@ def _view_file(view: str, route_path: Any = None) -> str:
     return view_file_name(view)
 
 
+def _is_remote_route(route: Dict[str, Any]) -> bool:
+    """Whether `route` is delivered by the edge on demand rather than compiled in.
+
+    A remote route has a non-empty `remote:` and no usable `view:` (the two are mutually
+    exclusive; `check.lint_remote_pages` is what rejects a route setting both). `view:`
+    still wins here so a malformed remote-only route falls through to `_route_view`'s
+    ordinary "declares no view" error rather than being silently treated as remote.
+    """
+    remote = route.get("remote")
+    view = route.get("view")
+    return bool(isinstance(remote, str) and remote.strip()
+                and not (isinstance(view, str) and view.strip()))
+
+
 def _route_view(route: Dict[str, Any]) -> str:
     """The QML file one route names, or refuse to generate.
 
@@ -164,7 +178,14 @@ def _route_view(route: Dict[str, Any]) -> str:
     itself. `synqt check` reports this earlier and more kindly, but nothing makes
     `synqt build` run the check, so the generator refuses it too rather than quietly
     emitting the recursion.
+
+    A remote route (`remote:`, no `view:`) has nothing to compile in: it is delivered by
+    the edge, not carried by the client bundle. It returns an empty string rather than
+    raising, so the route stays in `_route_literal`'s table with an empty componentUrl --
+    that empty URL is exactly what the client Router keys `resolveRemote` on.
     """
+    if _is_remote_route(route):
+        return ""
     view = route.get("view")
     if not isinstance(view, str) or not view.strip():
         raise AppGenError(f"route {route.get('path')!r} declares no view; there is "
@@ -176,11 +197,15 @@ def _route_views(config: Dict[str, Any]) -> List[str]:
     """Every distinct view file the routes name, in declaration order, minus Main.qml.
 
     Main.qml is in the client's QML module unconditionally (it is the window), so it is
-    listed by the caller and skipped here; a route naming it adds nothing.
+    listed by the caller and skipped here; a route naming it adds nothing. A remote
+    route is skipped outright: a page the edge delivers on demand is never compiled
+    into the client module.
     """
     views: List[str] = []
     for route in config.get("routes") or []:
         if not isinstance(route, dict):
+            continue
+        if _is_remote_route(route):
             continue
         name = _route_view(route)
         if name != "Main.qml" and name not in views:
@@ -533,6 +558,13 @@ def render_client_main(config: Dict[str, Any], uri: str) -> str:
     router = config.get("router") or {}
     router_base = router.get("base") or "/"
     router_fallback = normalize_route_path(router.get("fallback") or "/")
+    # The import palette a delivered page is held to (checked at build time by
+    # check.lint_remote_pages, enforced at run time by the client's QmlPalette). Emitted
+    # only when non-empty, so a project with no remote routes keeps this line out of its
+    # generated main entirely.
+    palette = router.get("palette") or []
+    palette_line = (f'\n    config.remotePalette = {{{_string_list_literal(palette)}}};'
+                    if palette else "")
 
     body = f"""{_HEADER_CPP}
 // The {name} entry point, built for the browser (WASM) and as a native desktop app from
@@ -597,7 +629,7 @@ int main(int argc, char *argv[])
     config.scopesHierarchical = {"true" if scopes_hierarchical(config) else "false"};
     config.routerFallback = QStringLiteral("{router_fallback}");
     config.routerBase = QStringLiteral("{router_base}");
-    config.routes = {{{route_list}}};
+    config.routes = {{{route_list}}};{palette_line}
 
     // The engine comes first: the Router builds each route's page component
     // with it.
@@ -736,6 +768,35 @@ def render_edge_main(config: Dict[str, Any], edge: Dict[str, Any],
     cp_section = ("\n".join(cp_blocks) if cp_blocks
                   else "    // No client-facing connect points yet.")
 
+    # Edge-delivered pages (routes with `remote:` rather than a compiled-in `view:`).
+    # Pages reach the edge through this generated C++, exactly parallel to how
+    # connectPoints are emitted above; topologywriter.write() never sees them, because a
+    # Pages connect point is not a mesh link. Emitted only when the project has at least
+    # one remote route, so an edge that does not use the feature stays byte-for-byte what
+    # it was before this existed.
+    remote_routes = [r for r in (config.get("routes") or [])
+                     if isinstance(r, dict) and _is_remote_route(r)]
+    if remote_routes:
+        page_blocks: List[str] = []
+        for index, route in enumerate(remote_routes):
+            page = f"page{index}"
+            route_path = route.get("path", "")
+            page_file = route.get("remote", "")
+            scope = route.get("scope", "") or ""
+            page_blocks.append(f"""    {{
+        WebEdgePage {page};
+        {page}.path = QStringLiteral("{route_path}");
+        {page}.file = QStringLiteral("{page_file}");
+        {page}.scope = QStringLiteral("{scope}");
+        config.pages.append({page});
+    }}""")
+        pages_section = (
+            f'    config.pagesDir = qmlDir + QStringLiteral("/{name}/pages");\n'
+            + "\n".join(page_blocks))
+    else:
+        pages_section = ""
+    pages_block = f"\n\n{pages_section}" if pages_section else ""
+
     body = f"""{_HEADER_CPP}
 // The {name} entity (web edge): it serves the client bundle and hosts the browser-facing connect
 // points. Plaintext on localhost for `synqt dev`; pass --cert/--key for TLS. Generated
@@ -796,7 +857,7 @@ int main(int argc, char *argv[])
     config.crossOriginIsolation = {coi_literal};
     config.serviceWorker = {sw_literal};
 
-{cp_section}
+{cp_section}{pages_block}
 
     WebEdge edge{{config, &engine}};
 {mesh_inject_block}    if (!edge.start()) {{
