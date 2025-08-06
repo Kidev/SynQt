@@ -59,6 +59,13 @@ public:
     /// The identity provider, when login is configured; null otherwise.
     IdentityProvider *identityProvider() const;
 
+    /// The shared page service, when the project configures edge-delivered pages; null
+    /// otherwise. Exposed so a test can drive fetchPageFor() with a Caller it built
+    /// itself. This is not a way around authorization: fetchPageFor() applies the route's
+    /// scope check to whatever Caller it is handed, so a caller with no scope still gets
+    /// nothing.
+    PagesService *pagesService() const;
+
     /// Expose a consumed-mesh accessor (e.g. "Database") to every per_session Source's QML
     /// context, so an owner Source can delegate across the mesh (Database.items.insert).
     void setContextObject(const QString &name, QObject *object);
@@ -93,6 +100,9 @@ private:
     QByteArray sessionIdFromCookie(const QByteArray &cookieHeader) const;
     QObject *createSource(const WebEdgeConnectPoint &connectPoint, QObject *caller,
                           QObject *parent, QString *error);
+    /// Build each configured page's seed hook once and install the one provider that
+    /// dispatches to them, on the shared PagesService.
+    void buildPageSeedHooks();
     static QString peerKey(const QString &address, quint16 port);
 
     WebEdgeConfig m_config;
@@ -120,6 +130,10 @@ private:
     /// the feature pays nothing for it.
     PageStore *m_pageStore{nullptr};
     PagesService *m_pagesService{nullptr};
+    /// One page seed hook per configured page that declares one, keyed by the page's
+    /// declared ROUTE (the pattern, e.g. "/c/:campaign"), which is what PagesService
+    /// hands the seed provider. Empty for a project whose routes declare no seed.
+    QHash<QString, QObject *> m_pageSeedHooks;
     /// Consumed-mesh accessors exposed to per_session Source QML contexts (e.g. Database).
     QHash<QString, QObject *> m_contextObjects;
 
