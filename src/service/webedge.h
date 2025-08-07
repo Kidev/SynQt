@@ -10,6 +10,7 @@
 #include <QObject>
 #include <QPointer>
 #include <QString>
+#include <QVariantMap>
 
 QT_BEGIN_NAMESPACE
 class QAbstractSocket;
@@ -26,6 +27,7 @@ QT_END_NAMESPACE
 
 namespace SynQt {
 
+class Caller;
 class IdentityProvider;
 class PageStore;
 class PagesService;
@@ -59,11 +61,10 @@ public:
     /// The identity provider, when login is configured; null otherwise.
     IdentityProvider *identityProvider() const;
 
-    /// The shared page service, when the project configures edge-delivered pages; null
-    /// otherwise. Exposed so a test can drive fetchPageFor() with a Caller it built
-    /// itself. This is not a way around authorization: fetchPageFor() applies the route's
-    /// scope check to whatever Caller it is handed, so a caller with no scope still gets
-    /// nothing.
+    /// The page service backing this edge's Pages connect point, shared by every
+    /// connection; null when the project configures no edge-delivered pages. Its
+    /// fetchPageFor() answers for the Caller it is given, applying that route's scope
+    /// check to it, so a caller reaches through it exactly what it may reach directly.
     PagesService *pagesService() const;
 
     /// Expose a consumed-mesh accessor (e.g. "Database") to every per_session Source's QML
@@ -103,6 +104,11 @@ private:
     /// Build each configured page's seed hook once and install the one provider that
     /// dispatches to them, on the shared PagesService.
     void buildPageSeedHooks();
+    /// The seed one request gets, or an empty string when the route's hook cannot produce
+    /// a sound one. Every failure degrades to "no seed" and the page is still delivered.
+    QString seedFor(const QString &route, const QVariantMap &parameters, Caller *caller);
+    /// Report a misbehaving seed hook, at most once for the life of the route.
+    void warnAboutSeedOnce(const QString &route, const char *reason);
     static QString peerKey(const QString &address, quint16 port);
 
     WebEdgeConfig m_config;
@@ -130,10 +136,20 @@ private:
     /// the feature pays nothing for it.
     PageStore *m_pageStore{nullptr};
     PagesService *m_pagesService{nullptr};
-    /// One page seed hook per configured page that declares one, keyed by the page's
-    /// declared ROUTE (the pattern, e.g. "/c/:campaign"), which is what PagesService
-    /// hands the seed provider. Empty for a project whose routes declare no seed.
-    QHash<QString, QObject *> m_pageSeedHooks;
+    /// One page seed hook: the QML object, the file it was built from (for diagnostics,
+    /// which name the hook a developer wrote and never a page or anything a hook read),
+    /// and whether this route has already reported a misbehaving one.
+    struct PageSeedHook
+    {
+        QObject *object{nullptr};
+        QString file;
+        bool warned{false};
+    };
+
+    /// One entry per configured page that declares a seed, keyed by the page's declared
+    /// ROUTE (the pattern, e.g. "/c/:campaign"), which is what PagesService hands the seed
+    /// provider. Empty for a project whose routes declare no seed.
+    QHash<QString, PageSeedHook> m_pageSeedHooks;
     /// Consumed-mesh accessors exposed to per_session Source QML contexts (e.g. Database).
     QHash<QString, QObject *> m_contextObjects;
 

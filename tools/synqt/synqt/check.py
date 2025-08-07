@@ -478,7 +478,18 @@ def lint_remote_pages(config: Dict[str, Any],
     # through the edge at all, so a `seed:` there would silently never run. Checked before
     # the "no remote routes at all" exit below, which is exactly the case that hides it.
     for route in routes:
-        if route.get("seed") and not route.get("remote"):
+        seed = route.get("seed")
+        if not seed:
+            continue
+        if not isinstance(seed, str):
+            # A bare "seed:" reads as null and is no declaration at all (caught above);
+            # every other non-string is a typo that would otherwise reach appgen and be
+            # emitted as a path that can never exist, with nothing said here.
+            findings.append(
+                f"error: route {route.get('path', '')!r} 'seed:' must be a string path "
+                f"to the hook QML, not {seed!r}")
+            continue
+        if not route.get("remote"):
             findings.append(
                 f"error: route {route.get('path', '')!r} declares 'seed:' but no "
                 "'remote:'; a page seed only applies to an edge-delivered page")

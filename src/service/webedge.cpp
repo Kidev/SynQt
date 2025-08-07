@@ -26,7 +26,9 @@
 #include <QHttpServerResponse>
 #include <QHttpServerWebSocketUpgradeResponse>
 #include <QJSValue>
+#include <QJSValueIterator>
 #include <QJsonDocument>
+#include <QMetaMethod>
 #include <QNetworkRequest>
 #include <QQmlComponent>
 #include <QQmlContext>
@@ -147,6 +149,137 @@ PagesService *WebEdge::pagesService() const
     return m_pagesService;
 }
 
+namespace {
+
+// How deep a seed may nest, and how large its JSON may get. A seed is one page's first
+// frame of data, not a feed, so both bounds are generous for every honest use. They exist
+// because QJSValue::toVariant() and QJsonDocument::fromVariant() recurse without a bound
+// of their own and take the process down on a deep enough structure.
+constexpr int kMaxSeedDepth{32};
+constexpr int kMaxSeedBytes{64 * 1024};
+
+/// Whether hook declares the seedFor(route, parameters, caller) the edge calls. Matched
+/// on name and argument count rather than on an exact signature, so a hook that annotates
+/// its parameter types is recognized too.
+bool declaresSeedFor(const QObject *hook)
+{
+    const QMetaObject *meta{hook->metaObject()};
+    for (int index{0}; index < meta->methodCount(); ++index) {
+        const QMetaMethod method{meta->method(index)};
+        if (method.name() == QByteArrayLiteral("seedFor") && method.parameterCount() == 3) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/// value converted to a QVariant, refusing anything nested deeper than kMaxSeedDepth.
+///
+/// This exists instead of QJSValue::toVariant() because that function (and
+/// QJsonDocument::fromVariant() after it) recurses once per level with no limit: a
+/// structure whose depth follows its data, like a category tree, overflows the stack and
+/// kills the edge for every connected browser. The walk here recurses too, but only ever
+/// to kMaxSeedDepth. Sets ok to false when the bound is hit.
+QVariant boundedSeedVariant(const QJSValue &value, int depth, bool *ok)
+{
+    if (depth > kMaxSeedDepth) {
+        *ok = false;
+        return QVariant{};
+    }
+    // A QObject reached through a seed is not data to serialize (a hook handed the
+    // caller, say); it converts to nothing, which the object check downstream reports.
+    if (value.isQObject() || value.isCallable()) {
+        return QVariant{};
+    }
+    if (value.isArray()) {
+        QVariantList list{};
+        const int length{value.property(QStringLiteral("length")).toInt()};
+        for (int index{0}; index < length; ++index) {
+            list.append(boundedSeedVariant(value.property(static_cast<quint32>(index)),
+                                           depth + 1, ok));
+            if (!*ok) {
+                return QVariant{};
+            }
+        }
+        return list;
+    }
+    if (value.isObject()) {
+        QVariantMap map{};
+        QJSValueIterator iterator{value};
+        while (iterator.hasNext()) {
+            iterator.next();
+            map.insert(iterator.name(), boundedSeedVariant(iterator.value(), depth + 1, ok));
+            if (!*ok) {
+                return QVariant{};
+            }
+        }
+        return map;
+    }
+    return value.toVariant();
+}
+
+} // namespace
+
+QString WebEdge::seedFor(const QString &route, const QVariantMap &parameters, Caller *caller)
+{
+    // Installed once on the shared service, but handed the calling connection's own
+    // Caller on every call: read the argument, never capture or cache one, or one
+    // browser's authorization would answer for another's.
+    const auto entry{m_pageSeedHooks.constFind(route)};
+    if (entry == m_pageSeedHooks.constEnd()) {
+        return QString{};
+    }
+    QVariant result{};
+    if (!QMetaObject::invokeMethod(entry->object, "seedFor", Qt::DirectConnection,
+                                   Q_RETURN_ARG(QVariant, result),
+                                   Q_ARG(QVariant, QVariant{route}),
+                                   Q_ARG(QVariant, QVariant{parameters}),
+                                   Q_ARG(QVariant, QVariant::fromValue(
+                                       static_cast<QObject *>(caller))))) {
+        warnAboutSeedOnce(route, "could not be called");
+        return QString{};
+    }
+    // A QML function returning an object literal comes back wrapped in a QJSValue, which
+    // QJsonDocument::fromVariant() knows nothing about; unwrap it to plain containers
+    // first (bounded, see boundedSeedVariant), or every hook would silently seed nothing.
+    if (result.canConvert<QJSValue>()) {
+        bool withinDepth{true};
+        result = boundedSeedVariant(result.value<QJSValue>(), 0, &withinDepth);
+        if (!withinDepth) {
+            warnAboutSeedOnce(route, "returned a seed nested deeper than a seed may be");
+            return QString{};
+        }
+    }
+    // The client reads a seed as a JSON object. Anything else (an array, a string, a
+    // number, nothing at all) would arrive as an empty one, so say so rather than let an
+    // author debug a page that paints blank for no stated reason.
+    const QJsonDocument document{QJsonDocument::fromVariant(result)};
+    if (!document.isObject()) {
+        warnAboutSeedOnce(route, "did not return an object");
+        return QString{};
+    }
+    const QByteArray json{document.toJson(QJsonDocument::Compact)};
+    if (json.size() > kMaxSeedBytes) {
+        warnAboutSeedOnce(route, "returned a seed larger than a seed may be");
+        return QString{};
+    }
+    // Whatever the hook returns goes to the browser, verbatim.
+    return QString::fromUtf8(json);
+}
+
+void WebEdge::warnAboutSeedOnce(const QString &route, const char *reason)
+{
+    // Once per route, never once per request: a browser chooses how often it asks for a
+    // page, so a per-request diagnostic is an unbounded log it can grow on demand.
+    const auto entry{m_pageSeedHooks.find(route)};
+    if (entry == m_pageSeedHooks.end() || entry->warned) {
+        return;
+    }
+    entry->warned = true;
+    qWarning("SynQt: page seed hook %s (route %s) %s; the page is delivered with no seed",
+             qUtf8Printable(entry->file), qUtf8Printable(route), reason);
+}
+
 void WebEdge::buildPageSeedHooks()
 {
     // The app-facing page seed hook, built the way the identity mapping hook is
@@ -174,8 +307,18 @@ void WebEdge::buildPageSeedHooks()
                      qUtf8Printable(page.seed), qUtf8Printable(component->errorString()));
             continue;
         }
+        // Probed here, once, rather than left to fail per request: Qt logs its own "no
+        // such method" complaint on every failed invokeMethod, and a browser decides how
+        // often it asks for a page. A hook that cannot answer is not kept.
+        if (!declaresSeedFor(hook)) {
+            qWarning("SynQt: page seed hook %s declares no seedFor(route, parameters, "
+                     "caller); the page is delivered with no seed",
+                     qUtf8Printable(page.seed));
+            delete hook;
+            continue;
+        }
         hook->setParent(this);
-        m_pageSeedHooks.insert(page.path, hook);
+        m_pageSeedHooks.insert(page.path, PageSeedHook{hook, page.seed, false});
     }
     if (m_pageSeedHooks.isEmpty()) {
         return;
@@ -183,33 +326,7 @@ void WebEdge::buildPageSeedHooks()
     m_pagesService->setSeedProvider([this](const QString &route,
                                            const QVariantMap &parameters,
                                            Caller *caller) -> QString {
-        // Installed once on the shared service, but handed the calling connection's own
-        // Caller on every call: read the argument, never capture or cache one, or one
-        // browser's authorization would answer for another's.
-        QObject *hook{m_pageSeedHooks.value(route)};
-        if (!hook) {
-            return QString{};
-        }
-        QVariant result{};
-        if (!QMetaObject::invokeMethod(hook, "seedFor", Qt::DirectConnection,
-                                       Q_RETURN_ARG(QVariant, result),
-                                       Q_ARG(QVariant, QVariant{route}),
-                                       Q_ARG(QVariant, QVariant{parameters}),
-                                       Q_ARG(QVariant, QVariant::fromValue(
-                                           static_cast<QObject *>(caller))))) {
-            // A hook missing seedFor degrades to "no seed": the page is still
-            // delivered, it just paints with nothing until its connect points push.
-            return QString{};
-        }
-        // A QML function returning an object literal comes back wrapped in a QJSValue,
-        // which QJsonDocument::fromVariant() knows nothing about; unwrap it to the plain
-        // container first, or every hook would silently produce an empty seed.
-        if (result.canConvert<QJSValue>()) {
-            result = result.value<QJSValue>().toVariant();
-        }
-        // Whatever the hook returns goes to the browser, verbatim.
-        return QString::fromUtf8(
-            QJsonDocument::fromVariant(result).toJson(QJsonDocument::Compact));
+        return seedFor(route, parameters, caller);
     });
 }
 

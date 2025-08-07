@@ -230,6 +230,29 @@ def test_check_project_fails_on_a_missing_seed_file(tmp_path):
     assert any("Gone.qml" in m for m in messages), messages
 
 
+def test_a_non_string_seed_is_rejected(tmp_path):
+    # `seed: true` (or a nested map from a YAML typo) used to slip through the
+    # isinstance guard and reach appgen, which emitted QStringLiteral("/True") -- a path
+    # that can never exist, with nothing said at build time.
+    config, root = _project(
+        tmp_path, [{"path": "/c", "remote": "C.qml", "seed": True}],
+        palette=["QtQuick"], page_bodies={"C.qml": "import QtQuick\nItem { }\n"})
+    findings = check.lint_remote_pages(config, str(root))
+    assert any(f.startswith("error:") and "must be a string" in f
+               for f in findings), findings
+
+
+def test_a_non_string_seed_is_rejected_without_a_project_dir(tmp_path):
+    # The shape rule is config-only, so it must also fire for a caller holding nothing
+    # but a parsed config (the existence rule is the half that needs the filesystem).
+    config, _ = _project(
+        tmp_path, [{"path": "/c", "remote": "C.qml", "seed": {"file": "C.qml"}}],
+        palette=["QtQuick"], page_bodies={"C.qml": "import QtQuick\nItem { }\n"})
+    findings = check.lint_remote_pages(config)
+    assert any(f.startswith("error:") and "must be a string" in f
+               for f in findings), findings
+
+
 def test_appgen_edge_emits_the_seed():
     source = appgen.render_edge_main(
         {"entities": [{"name": "web", "kind": "web_edge"},
@@ -239,6 +262,16 @@ def test_appgen_edge_emits_the_seed():
         {"name": "web", "kind": "web_edge"})
     # Project-root relative, resolved against qmlDir exactly the way serverFile is.
     assert 'page0.seed = qmlDir + QStringLiteral("/web/seeds/Campaign.qml");' in source
+
+
+def test_appgen_edge_emits_nothing_for_a_non_string_seed():
+    # `synqt check` reports the typo, but nothing makes `synqt build` run the check.
+    source = appgen.render_edge_main(
+        {"entities": [{"name": "web", "kind": "web_edge"},
+                      {"name": "client", "kind": "client"}],
+         "routes": [{"path": "/c", "remote": "C.qml", "seed": True}]},
+        {"name": "web", "kind": "web_edge"})
+    assert ".seed" not in source
 
 
 def test_appgen_edge_without_a_seed_emits_no_seed():
