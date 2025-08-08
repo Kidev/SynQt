@@ -152,7 +152,19 @@ commercial license for a closed WASM app.
 
 Practical consequence: an open source SynQt app publishes its client source under
 GPLv3. A closed source client requires a commercial Qt license. This is a property
-of Qt for WebAssembly, not of SynQt, and it would apply to any Qt WASM app.
+of Qt for WebAssembly rather than of SynQt, and it would apply to any Qt WASM app.
+
+### Remote pages are conveyed too
+
+A [remote page](remote-pages.md) is QML the web edge delivers to a visitor at
+navigation time rather than compiling into the bundle. The delivery is still a
+transfer of a copy to the visitor's machine, so under open source Qt a remote page is
+conveyed exactly as the bundle is, and it falls under the same GPLv3 source obligation
+as the rest of the client. Keeping a page off most visitors' machines, by not
+compiling it in, or behind a `scope`, is a confidentiality and weight measure rather
+than a way around conveyance. The visitors who do receive the page receive a copy, and
+that copy carries the obligation. Include a remote page's source in the client source you
+offer under GPLv3, the same as any compiled-in view.
 
 ## If you distribute the edge or services
 

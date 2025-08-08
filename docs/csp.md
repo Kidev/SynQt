@@ -129,3 +129,16 @@ example multi-threaded client without cross-origin isolation), and `synqt doctor
 resulting header obligations. The web edge test suite asserts the computed policy; the appended
 wss origin always, and COOP/COEP plus `worker-src 'self' blob:` under cross-origin isolation;
 so a change that breaks the computation fails the build.
+
+## Remote pages need no CSP change
+
+A [remote page](remote-pages.md) is QML the web edge delivers at run time, so a natural
+question is whether it needs the CSP loosened, the way a page that injected script would. It
+does not. A delivered page arrives over the `wss` link as data and is parsed by the QML engine
+running inside the WebAssembly module. It never reaches the browser's JavaScript evaluator, is
+never turned into a `<script>`, and never touches `eval()`. The `script-src` policy governs
+what the browser's own JavaScript engine may run, and a remote page is invisible to it, so
+`'unsafe-inline'` and `'unsafe-eval'` stay out and the strict policy above is unchanged whether
+or not an app uses remote pages. What bounds a delivered page is not the CSP but the
+[palette](remote-pages.md#the-palette-what-a-delivered-page-may-import), the set of QML modules
+it may import, enforced by the client itself.

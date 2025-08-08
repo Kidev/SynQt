@@ -125,9 +125,13 @@ nav:
           - See the others: tutorial-multiplayer-client.md
           - The round and the Hall of Fame: tutorial-multiplayer-rounds.md
           - Only what you can see: tutorial-multiplayer-run.md
+      - Pages from the edge:
+          - Build it: tutorial-remote-pages.md
+          - Lighter and live: tutorial-remote-pages-live.md
   - Framework:
       - Architecture: architecture.md
       - Programming model: programming-model.md
+      - Remote pages: remote-pages.md
       - Entities: entities.md
       - Providers: providers.md
       - Authentication: authentication.md
