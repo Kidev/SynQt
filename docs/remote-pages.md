@@ -124,23 +124,24 @@ PageSeed {
 The edge runs `seedFor` after the route's scope check passes, once per fetch. It receives
 the matched `route`, the captured path `parameters`, and the `caller`, so it can shape its
 output to the concrete request and to who is asking. Whatever it returns becomes
-`Router.pageSeed` on the client: a read-only map the delivered page binds to. The stall's
+`Router.pageSeed` on the client, a read-only map the delivered page binds to. The stall's
 `Campaign.qml` reads it as `Router.pageSeed.headline`, so `/c/summer-sale` shows "Summer
 Sale" on its very first frame, before the catalog replica arrives, and never flashes empty.
 
-The seed is keyed on the concrete parameters, not on the page file, so two slugs get two
-seeds even though one `Campaign.qml` serves them all. When a visitor already holds the page
-body (the content hash matches) the edge still sends the fresh seed, so a revisit with new
-parameters paints the new parameters, not the old page's data.
+The seed is keyed on the concrete parameters rather than on the page file, so two slugs get
+two seeds even though one `Campaign.qml` serves them all. When a visitor already holds the
+page body (the content hash matches) the edge still sends the fresh seed, so a revisit with
+new parameters paints the new parameters rather than the old page's data.
 
 > [!IMPORTANT]
 > Leave `seedFor`'s parameters untyped. The edge invokes the hook generically, passing
 > every argument as a `QVariant`. Annotating a parameter with a concrete type, for example
 > `seedFor(route: string, ...)`, changes the QML method signature the edge is trying to
-> call, so the edge's `QVariant` call no longer matches it, and the page is delivered with
-> no seed at all. Nothing surfaces in the browser, so the page just paints with an empty
-> `Router.pageSeed`; the cause is in the edge log, which prints `SynQt: page seed hook
-> <file> (route <route>) could not be called; the page is delivered with no seed`. The
+> call, so the edge's `QVariant` call could never match it, and the page is delivered with
+> no seed at all. The edge catches this when it loads the hook rather than per request, and logs
+> `SynQt: page seed hook <file> declares seedFor with typed parameters; the edge calls it
+> with untyped (QVariant) arguments, so leave seedFor's parameters untyped or the page is
+> delivered with no seed`. Nothing surfaces in the browser, so watch the edge log. The
 > return type may be annotated
 > `: var`, which does match, because a seed is a plain object. The reference hook is
 > [`examples/stall/web/campaign-seed.qml`](https://github.com/Kidev/SynQt/blob/main/examples/stall/web/campaign-seed.qml),

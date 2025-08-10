@@ -143,10 +143,11 @@ Step 1.
 > Leave `seedFor`'s parameters untyped. The edge invokes the hook generically, passing every
 > argument as a `QVariant`. If you annotate a parameter with a concrete type, for example
 > `seedFor(route: string, ...)`, the QML method signature changes and the edge's `QVariant`
-> call silently no longer matches it, so the page is delivered with **no seed** and paints
-> empty. Nothing surfaces in the browser, so check the edge log, which names the cause:
-> `page seed hook ... could not be called; the page is delivered with no seed`. The return
-> may be annotated `: var`, which does
+> call could never match it, so the page is delivered with **no seed** and paints empty. The
+> edge catches this when it loads the hook and names the cause in its log: `page seed hook
+> ... declares seedFor with typed parameters ... leave seedFor's parameters untyped`. Nothing
+> surfaces in the browser, so watch the edge log. The return may be annotated `: var`, which
+> does
 > match, because a seed is a plain object. This is the single most likely mistake to make
 > here; the in-file comment in
 > [`web/campaign-seed.qml`](https://github.com/Kidev/SynQt/blob/main/examples/stall/web/campaign-seed.qml)

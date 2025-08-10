@@ -158,19 +158,33 @@ namespace {
 constexpr int kMaxSeedDepth{32};
 constexpr int kMaxSeedBytes{64 * 1024};
 
-/// Whether hook declares the seedFor(route, parameters, caller) the edge calls. Matched
-/// on name and argument count rather than on an exact signature, so a hook that annotates
-/// its parameter types is recognized too.
-bool declaresSeedFor(const QObject *hook)
+/// How, if at all, a hook exposes the seedFor(route, parameters, caller) the edge calls.
+enum class SeedForSupport {
+    None,     ///< no seedFor(route, parameters, caller) at all.
+    Untyped,  ///< seedFor with three untyped (QVariant) parameters: the edge can call it.
+    Typed,    ///< seedFor with three parameters, at least one annotated: not callable.
+};
+
+/// Classify a hook's seedFor. The edge invokes it with three QVariant arguments, so only an
+/// untyped seedFor matches; annotating a parameter type (`route: string`) changes the method
+/// signature so the invoke can never bind to it. The probe therefore mirrors the invoke
+/// exactly, rather than accepting any three-argument seedFor and letting it fail per request.
+SeedForSupport seedForSupport(const QObject *hook)
 {
     const QMetaObject *meta{hook->metaObject()};
     for (int index{0}; index < meta->methodCount(); ++index) {
         const QMetaMethod method{meta->method(index)};
-        if (method.name() == QByteArrayLiteral("seedFor") && method.parameterCount() == 3) {
-            return true;
+        if (method.name() != QByteArrayLiteral("seedFor") || method.parameterCount() != 3) {
+            continue;
         }
+        for (int argument{0}; argument < 3; ++argument) {
+            if (method.parameterMetaType(argument).id() != QMetaType::QVariant) {
+                return SeedForSupport::Typed;
+            }
+        }
+        return SeedForSupport::Untyped;
     }
-    return false;
+    return SeedForSupport::None;
 }
 
 /// value converted to a QVariant, refusing anything nested deeper than kMaxSeedDepth.
@@ -310,7 +324,20 @@ void WebEdge::buildPageSeedHooks()
         // Probed here, once, rather than left to fail per request: Qt logs its own "no
         // such method" complaint on every failed invokeMethod, and a browser decides how
         // often it asks for a page. A hook that cannot answer is not kept.
-        if (!declaresSeedFor(hook)) {
+        const SeedForSupport support{seedForSupport(hook)};
+        if (support == SeedForSupport::Typed) {
+            // The single most likely mistake: the edge calls seedFor with untyped
+            // (QVariant) arguments, so a hook that annotates a parameter can never be
+            // reached. Say exactly that, once, instead of leaving Qt to log a generic
+            // "no such method" on every request the browser makes.
+            qWarning("SynQt: page seed hook %s declares seedFor with typed parameters; the "
+                     "edge calls it with untyped (QVariant) arguments, so leave seedFor's "
+                     "parameters untyped or the page is delivered with no seed",
+                     qUtf8Printable(page.seed));
+            delete hook;
+            continue;
+        }
+        if (support == SeedForSupport::None) {
             qWarning("SynQt: page seed hook %s declares no seedFor(route, parameters, "
                      "caller); the page is delivered with no seed",
                      qUtf8Printable(page.seed));
