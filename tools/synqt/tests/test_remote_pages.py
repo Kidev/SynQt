@@ -181,6 +181,34 @@ def test_appgen_edge_emits_pages():
     assert 'QStringLiteral("member")' in source
 
 
+def test_cxx_string_literal_escapes_quotes_and_backslashes():
+    assert appgen._cxx_string_literal('a"b') == 'a\\"b'
+    assert appgen._cxx_string_literal('a\\b') == 'a\\\\b'
+    assert appgen._cxx_string_literal("a\tb\nc") == "a\\tb\\nc"
+    # A no-op for every value validation already accepts, so valid projects are unchanged.
+    assert appgen._cxx_string_literal("/c/:campaign") == "/c/:campaign"
+
+
+def test_appgen_client_escapes_a_quote_from_config():
+    # A double quote in a synqt.yaml value must be escaped into the C++ literal, never
+    # spliced through it verbatim (which would end the string early).
+    source = appgen.render_client_main(
+        {"entities": [{"name": "client", "kind": "client"}],
+         "routes": [{"path": "/x", "view": "Home.qml", "scope": 'a"b'}]},
+        uri="Shop")
+    assert r'QStringLiteral("a\"b")' in source
+    assert 'QStringLiteral("a"b")' not in source
+
+
+def test_appgen_edge_escapes_a_backslash_in_a_page_path():
+    source = appgen.render_edge_main(
+        {"entities": [{"name": "web", "kind": "web_edge"},
+                      {"name": "client", "kind": "client"}],
+         "routes": [{"path": "/c\\x", "remote": "Campaign.qml"}]},
+        {"name": "web", "kind": "web_edge"})
+    assert r'QStringLiteral("/c\\x")' in source
+
+
 def test_a_seed_on_a_remote_route_passes(tmp_path):
     config, root = _project(
         tmp_path, [{"path": "/c/:campaign", "remote": "Campaign.qml",

@@ -326,7 +326,8 @@ def _singleton_registrations(entity_name: str, singletons: List[str]) -> str:
         lines.append(
             "    qmlRegisterSingletonType(QUrl::fromLocalFile(\n"
             "        qmlDir + QStringLiteral(\"/%s/%s.qml\")), \"SynQt\", 1, 0, \"%s\");"
-            % (entity_name, type_name, type_name))
+            % (_cxx_string_literal(entity_name), _cxx_string_literal(type_name),
+               _cxx_string_literal(type_name)))
     return "\n".join(lines)
 
 
@@ -480,8 +481,30 @@ def scopes_hierarchical(config: Dict[str, Any]) -> bool:
     return bool(config.get("scopes", {}).get("hierarchical", True))
 
 
+def _cxx_string_literal(value: str) -> str:
+    """Escape a value for safe interpolation inside a C++ ``"..."`` literal.
+
+    Every generated ``QStringLiteral("...")`` takes its contents from ``synqt.yaml`` (a
+    route path, a file name, a scope, a seed path, a connect-point name). A backslash or a
+    double quote in one of those would otherwise end the literal early or splice into the
+    emitted source; the control characters a literal cannot carry raw would break the build
+    outright. Escape them so the emitted code is always one well-formed string. For every
+    value that validation already accepts this is a no-op, so valid projects generate
+    byte-for-byte what they did before.
+    """
+    replacements = {
+        "\\": "\\\\",
+        "\"": "\\\"",
+        "\n": "\\n",
+        "\r": "\\r",
+        "\t": "\\t",
+    }
+    return "".join(replacements.get(char, char) for char in value)
+
+
 def _string_list_literal(values: List[str]) -> str:
-    return ", ".join('QStringLiteral("%s")' % value for value in values)
+    return ", ".join('QStringLiteral("%s")' % _cxx_string_literal(value)
+                     for value in values)
 
 
 def _component_url(view: str, uri: str) -> str:
@@ -502,9 +525,11 @@ def _route_literal(route: Dict[str, Any], uri: str) -> str:
     # Empty scope stays QString{} (not QStringLiteral("")) so this literal, and every
     # other field byte for byte, is unchanged for a route that does not use scope gating;
     # only the trailing componentUrl field is new here.
-    scope_literal = f'QStringLiteral("{scope}")' if scope else "QString{}"
-    return (f'RouteConfig{{QStringLiteral("{path}"), QStringLiteral("{view}"), '
-            f'{scope_literal}, QStringLiteral("{url}")}}')
+    scope_literal = (f'QStringLiteral("{_cxx_string_literal(scope)}")'
+                     if scope else "QString{}")
+    return (f'RouteConfig{{QStringLiteral("{_cxx_string_literal(path)}"), '
+            f'QStringLiteral("{_cxx_string_literal(view)}"), '
+            f'{scope_literal}, QStringLiteral("{_cxx_string_literal(url)}")}}')
 
 
 def render_client_main(config: Dict[str, Any], uri: str) -> str:
@@ -551,8 +576,10 @@ def render_client_main(config: Dict[str, Any], uri: str) -> str:
                            "    ClientLogging::install(ClientLogging::Mode::Console);\n"
                            "#endif")
 
-    cp_list = ", ".join('{QStringLiteral("%s"), QStringLiteral("%s")}'
-                        % (cp.get("name"), cp.get("contract", "")) for cp in consumed)
+    cp_list = ", ".join(
+        '{QStringLiteral("%s"), QStringLiteral("%s")}'
+        % (_cxx_string_literal(cp.get("name") or ""),
+           _cxx_string_literal(cp.get("contract", ""))) for cp in consumed)
     route_list = ",\n                     ".join(
         _route_literal(r, uri) for r in routes)
     router = config.get("router") or {}
@@ -628,8 +655,8 @@ int main(int argc, char *argv[])
     config.connectPoints = {{{cp_list}}};
     config.scopeOrder = {{{_string_list_literal(scopes)}}};
     config.scopesHierarchical = {"true" if scopes_hierarchical(config) else "false"};
-    config.routerFallback = QStringLiteral("{router_fallback}");
-    config.routerBase = QStringLiteral("{router_base}");
+    config.routerFallback = QStringLiteral("{_cxx_string_literal(router_fallback)}");
+    config.routerBase = QStringLiteral("{_cxx_string_literal(router_base)}");
     config.routes = {{{route_list}}};{palette_line}
 
     // The engine comes first: the Router builds each route's page component
@@ -738,10 +765,12 @@ def render_edge_main(config: Dict[str, Any], edge: Dict[str, Any],
             "\n    // Give each owner Source its mesh accessor (e.g. Database) by name.",
         ]
         for owner in mesh_owners:
+            owner_literal = _cxx_string_literal(owner)
             inject_lines.append(
-                f'    edge.setContextObject(EntityRuntime::accessorName(QStringLiteral("{owner}")),\n'
+                f'    edge.setContextObject(EntityRuntime::accessorName('
+                f'QStringLiteral("{owner_literal}")),\n'
                 f'                          runtime.accessor(EntityRuntime::accessorName('
-                f'QStringLiteral("{owner}"))));')
+                f'QStringLiteral("{owner_literal}"))));')
         mesh_inject_block = "\n".join(inject_lines) + "\n"
     else:
         mesh_includes_extra = ""
@@ -759,9 +788,9 @@ def render_edge_main(config: Dict[str, Any], edge: Dict[str, Any],
         server_file = f"{name}/{contract}.qml"
         block = f"""    {{
         WebEdgeConnectPoint {var};
-        {var}.name = QStringLiteral("{cp_name}");
-        {var}.contract = QStringLiteral("{contract}");
-        {var}.serverFile = qmlDir + QStringLiteral("/{server_file}");
+        {var}.name = QStringLiteral("{_cxx_string_literal(cp_name)}");
+        {var}.contract = QStringLiteral("{_cxx_string_literal(contract)}");
+        {var}.serverFile = qmlDir + QStringLiteral("/{_cxx_string_literal(server_file)}");
         {var}.instance = {instance};
         config.connectPoints.append({var});
     }}"""
@@ -794,13 +823,14 @@ def render_edge_main(config: Dict[str, Any], edge: Dict[str, Any],
             # non-string emits nothing here rather than a path that cannot exist.
             seed = route.get("seed")
             seed = seed.strip() if isinstance(seed, str) else ""
-            seed_line = (f'\n        {page}.seed = qmlDir + QStringLiteral("/{seed}");'
-                         if seed else "")
+            seed_line = (
+                f'\n        {page}.seed = qmlDir + '
+                f'QStringLiteral("/{_cxx_string_literal(seed)}");' if seed else "")
             page_blocks.append(f"""    {{
         WebEdgePage {page};
-        {page}.path = QStringLiteral("{route_path}");
-        {page}.file = QStringLiteral("{page_file}");
-        {page}.scope = QStringLiteral("{scope}");{seed_line}
+        {page}.path = QStringLiteral("{_cxx_string_literal(route_path)}");
+        {page}.file = QStringLiteral("{_cxx_string_literal(page_file)}");
+        {page}.scope = QStringLiteral("{_cxx_string_literal(scope)}");{seed_line}
         config.pages.append({page});
     }}""")
         pages_section = (
