@@ -1,0 +1,107 @@
+{
+  "benchmark": "remote-pages",
+  "path": "first-load-saving-of-edge-delivered-pages",
+  "example": "examples/stall",
+  "host": "kidevPC_",
+  "arch": "x86_64",
+  "qt_version": "6.11.1",
+  "emscripten_version": "4.0.7",
+  "kit": "wasm_singlethread",
+  "recorded": "2026-07-23T18:56:07Z",
+  "remote": {
+    "label": "stall-remote",
+    "total_raw": 26092721,
+    "total_gzip": 9581701,
+    "total_brotli": 6746398,
+    "file_count": 6,
+    "files": [
+      {
+        "name": "client.js",
+        "raw": 264309,
+        "gzip": 60676,
+        "brotli": 52567
+      },
+      {
+        "name": "client.wasm",
+        "raw": 25798204,
+        "gzip": 9510272,
+        "brotli": 6684927
+      },
+      {
+        "name": "index.html",
+        "raw": 6265,
+        "gzip": 2599,
+        "brotli": 2166
+      },
+      {
+        "name": "qtloader.js",
+        "raw": 12445,
+        "gzip": 4053,
+        "brotli": 3412
+      },
+      {
+        "name": "synqt-boot.js",
+        "raw": 5572,
+        "gzip": 1986,
+        "brotli": 1617
+      },
+      {
+        "name": "synqt-sw.js",
+        "raw": 5926,
+        "gzip": 2115,
+        "brotli": 1709
+      }
+    ]
+  },
+  "compiled_in": {
+    "label": "stall-compiled-in",
+    "total_raw": 26108258,
+    "total_gzip": 9584939,
+    "total_brotli": 6749377,
+    "file_count": 6,
+    "files": [
+      {
+        "name": "client.js",
+        "raw": 264309,
+        "gzip": 60674,
+        "brotli": 52567
+      },
+      {
+        "name": "client.wasm",
+        "raw": 25813741,
+        "gzip": 9513512,
+        "brotli": 6687906
+      },
+      {
+        "name": "index.html",
+        "raw": 6265,
+        "gzip": 2599,
+        "brotli": 2166
+      },
+      {
+        "name": "qtloader.js",
+        "raw": 12445,
+        "gzip": 4053,
+        "brotli": 3412
+      },
+      {
+        "name": "synqt-boot.js",
+        "raw": 5572,
+        "gzip": 1986,
+        "brotli": 1617
+      },
+      {
+        "name": "synqt-sw.js",
+        "raw": 5926,
+        "gzip": 2115,
+        "brotli": 1709
+      }
+    ]
+  },
+  "saving": {
+    "raw_bytes": 15537,
+    "gzip_bytes": 3238,
+    "brotli_bytes": 2979,
+    "file_count_delta": 0
+  }
+}
