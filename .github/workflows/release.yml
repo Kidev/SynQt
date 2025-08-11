@@ -199,7 +199,11 @@ jobs:
             "$py" -m PyInstaller --onefile --name synqt --collect-submodules synqt synqt_entry.py
             ./dist/synqt --help
             tmp="$(mktemp -d)"
-            ./dist/synqt new smoketest --parent-dir "$tmp"
+            # A frozen binary carries no framework sources, so point the scaffold at this
+            # checkout (mounted at /io): `synqt new` bakes SYNQT_ROOT into the generated CMake
+            # and now refuses to resolve a root without src/ and cmake/, so a real one proves
+            # the scaffold is buildable rather than booby-trapped with a dead path.
+            SYNQT_ROOT=/io ./dist/synqt new smoketest --parent-dir "$tmp"
             test -f "$tmp/smoketest/synqt.yaml"
             ./dist/synqt providers
           '
@@ -311,7 +315,11 @@ jobs:
           # rewritten differently for the native .exe than for the shell's own `test`, so a
           # relative path (resolved against the same CWD by both) is the portable choice.
           mkdir -p smoke-out
-          "$bin" new smoketest --parent-dir smoke-out
+          # A frozen binary carries no framework sources, so point the scaffold at this checkout:
+          # `synqt new` bakes SYNQT_ROOT into the generated CMake and refuses a root without src/
+          # and cmake/. GITHUB_WORKSPACE is a native path on every runner (a Windows path under
+          # Git bash), which the native binary resolves; an MSYS $PWD would not survive the handoff.
+          SYNQT_ROOT="$GITHUB_WORKSPACE" "$bin" new smoketest --parent-dir smoke-out
           test -f smoke-out/smoketest/synqt.yaml
           "$bin" providers
 
