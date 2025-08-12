@@ -246,6 +246,14 @@ jobs:
             os_tag: windows
             arch_tag: x86_64
             ext: zip
+          # windows-11-arm is GitHub's native arm64 Windows runner, so this row is a true
+          # aarch64 build, not an emulated one. install.ps1 already resolves ARM64 hosts to the
+          # synqt-windows-arm64.zip asset (PROCESSOR_ARCHITEW6432/ARCHITECTURE -> arm64), so this
+          # row is what makes that download exist rather than 404 for arm64 Windows users.
+          - os: windows-11-arm
+            os_tag: windows
+            arch_tag: arm64
+            ext: zip
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
