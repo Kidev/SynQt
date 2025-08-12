@@ -10,19 +10,20 @@
   class to give the home page its own wide, sidebar-free layout without touching
   the centered, sidebared layout every other page keeps.
 
-  `htmltitle`: every page keeps Material's "<page> - <site>" shape, but the home
-  page gets the tagline instead of the bare site name. Stock titles the home page
-  "SynQt" and nothing else, which says nothing to anyone reading a search result,
-  a browser tab, or a link preview.
+  `htmltitle`: every page reads brand first, "SynQt - <page>", matching the C++
+  reference (tools/docs-hooks/doxygen-header.html, "SynQt - C++ reference - <page>")
+  and the wordmark's own order. The home page gets the tagline in place of a page
+  name. Stock titles the home page "SynQt" and nothing else, and every other page
+  "<page> - SynQt", which says less at the front of a tab or a search result.
 -#}
 {% extends "base.html" %}
 {% block htmltitle %}
   {% if page.meta and page.meta.title %}
-    <title>{{ page.meta.title }}</title>
+    <title>{{ config.site_name }} - {{ page.meta.title }}</title>
   {% elif page.is_homepage %}
-    <title>{{ config.site_name }}: {{ config.extra.tagline }}</title>
+    <title>{{ config.site_name }} - {{ config.extra.tagline }}</title>
   {% else %}
-    <title>{{ page.title | striptags }} - {{ config.site_name }}</title>
+    <title>{{ config.site_name }} - {{ page.title | striptags }}</title>
   {% endif %}
 {% endblock %}
 {% block container %}

@@ -1,0 +1,17 @@
+# SPDX-FileCopyrightText: 2026 The SynQt Authors
+# SPDX-License-Identifier: Apache-2.0
+
+tools/docs-hooks/doxygen-awesome/** linguist-vendored
+
+docs/**                 linguist-documentation
+overrides/**            linguist-documentation
+deploy/get.synqt.org/** linguist-documentation
+tools/docs-hooks/**     linguist-documentation
+tools/pygments-synqt/** linguist-documentation
+
+tests/**              linguist-vendored
+benchmarks/**         linguist-vendored
+tools/synqt/tests/**  linguist-vendored
+tools/synqtc/tests/** linguist-vendored
+tests/**/*.qml        -linguist-vendored
+benchmarks/**/*.qml   -linguist-vendored

@@ -70,6 +70,32 @@ def _fingerprint_assets(html_dir):
             page.write_text(rewritten, encoding="utf-8")
 
 
+def _dedupe_index_title(html_dir):
+    """Collapse the doubled <title> on the reference's landing page.
+
+    The header template titles every page "SynQt - The C++ runtime reference - <page>"
+    (doxygen-header.html). On the landing page the <page> part ($title) is the section
+    name itself, so it comes out doubled ("... - The C++ runtime reference - The C++
+    runtime reference"). Drop the repeated tail on that one page; every other page keeps
+    the full "SynQt - <section> - <page>". Matching the repetition rather than a hard
+    coded string keeps this correct if the section is ever renamed.
+    """
+    index = html_dir / "index.html"
+    if not index.is_file():
+        return
+
+    def collapse(match):
+        parts = [part.strip() for part in match["title"].split(" - ")]
+        if len(parts) >= 2 and parts[-1] == parts[-2]:
+            parts.pop()
+        return "<title>%s</title>" % " - ".join(parts)
+
+    text = index.read_text(encoding="utf-8")
+    rewritten = re.sub(r"<title>(?P<title>[^<]*)</title>", collapse, text, count=1)
+    if rewritten != text:
+        index.write_text(rewritten, encoding="utf-8")
+
+
 def on_post_build(config, **kwargs):
     doxygen = shutil.which("doxygen")
     if doxygen is None:
@@ -97,4 +123,5 @@ def on_post_build(config, **kwargs):
         if line.strip():
             log.warning("doxygen: %s", line.strip())
     _fingerprint_assets(site_dir / "api")
+    _dedupe_index_title(site_dir / "api")
     log.info("C++ API reference generated into %s", site_dir / "api")
