@@ -134,7 +134,10 @@ pretends otherwise. Revert the change before continuing.
 
 ## Where to go next
 
-- Read [the remote-pages reference](remote-pages.md) for the full feature: the palette as a
+- Read [Links that work](tutorial-remote-pages-urls.md), the last part of this tutorial, on the
+  campaign page's URL, and what a bookmark, a refresh, a Back button, and a guarded link do
+  to it.
+- Read [the remote-pages reference](remote-pages.md) for the full feature, the palette as a
   trust boundary, what a page's `scope:` does and does not protect, and the interpretation
   cost that decides when to keep a view compiled in.
 - Read [security](security.md#remote-pages-edge-delivered-qml) for why the owner-side check

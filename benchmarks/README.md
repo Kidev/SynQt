@@ -302,6 +302,33 @@ build sandbox (which terminates sustained load); the harness is validated in-env
 (tick cadence held, snapshot rate tracks the target, payload flattens at k), and the committed
 baseline waits on a permissive runner.
 
+## remote-pages: the first-load weight of edge-delivered pages
+
+`remote-pages/` weighs what a `remote:` route keeps out of the client bundle. It builds the
+[stall](../examples/stall) storefront twice through the real `synqt build` path, once as written
+(its two campaign pages edge-delivered) and once with those routes rewritten to compiled-in `view:`
+routes, and weighs each client bundle with the shared `client/measure-bundle.sh` (raw, gzip,
+Brotli). The difference is the bytes a first-time visitor does not download.
+
+```sh
+benchmarks/remote-pages/run.sh --out benchmarks/results/remote-pages-$(hostname).json
+```
+
+### Baseline captured on this checkout
+
+Qt 6.11.1, Emscripten 4.0.7, the `wasm_singlethread` kit, recorded 2026-07-23:
+
+| variant     | raw bytes | gzip bytes | Brotli bytes |
+| ----------- | --------- | ---------- | ------------ |
+| remote      | 26092721  | 9581701    | 6746398      |
+| compiled-in | 26108258  | 9584939    | 6749377      |
+| **saving**  | **15537** | **3238**   | **2979**     |
+
+Read that as what those two small pages weigh in this one small demo, not as a figure for SynQt in
+general: the saving is a function of how much of an application is rarely visited, so it grows with
+every seldom-reached page an app keeps on the edge. `remote-pages/README.md` says the same at
+length, and says why the harness needs the WebAssembly kit and so belongs on a workstation.
+
 ## Still to build (the rest of the benchmarking plan)
 
 Every runtime path in the plan now has a harness: transport (BENCH-1), the edge HTTP path, the edge

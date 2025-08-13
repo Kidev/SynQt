@@ -8,7 +8,7 @@ import QtQuick.Layouts
 // paints its headline from the per-request seed the edge built (Router.pageSeed), so it
 // shows real content on its first frame, before the catalog replica has pushed anything,
 // and never flashes empty. Once the offers arrive it keeps them live through
-// Server.Catalog.offers. It may import only the palette modules (QtQuick, QtQuick.Layouts);
+// Server.catalog.offers. It may import only the palette modules (QtQuick, QtQuick.Layouts);
 // the client's QmlPalette refuses any other. The root is an Item, because a delivered page
 // is loaded into the client's Loader, not shown as a window of its own.
 Item {
@@ -32,7 +32,7 @@ Item {
             Layout.fillWidth: true
             Layout.fillHeight: true
             clip: true
-            model: Server.Catalog.offers
+            model: Server.catalog.offers
             delegate: Text {
                 required property string title
                 required property int price
