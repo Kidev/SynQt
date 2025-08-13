@@ -40,6 +40,29 @@
      $title". The shell adopts this title for the browser tab. -->
 <title>SynQt - The C++ runtime reference - $title</title>
 <script type="text/javascript">
+// The sidebar tree follows the page on screen, and nothing remembers which page that
+// was; tools/docs-hooks/doxygen.py takes the two halves of Doxygen's "navpath" memory
+// out of navtree.js. This clears what is already stored, because that is the one half
+// the hook cannot reach: a browser holding a copy of navtree.js from before the fix
+// runs the old code, which reads the entry back and pins the tree to it. Under Chrome
+// the entry is a sessionStorage key, so it outlives every navigation of the tab and the
+// tree never comes unstuck on its own. Keep this above the tree substitution below,
+// stale copy or not, so the entry is always gone before anything can read it. (Do not
+// name that substitution here: Doxygen expands its tokens inside comments too, and
+// would drop the tree's script tags into the middle of this one.)
+(function () {
+    "use strict";
+    var name = "doxygen_navpath";
+    try {
+        window.localStorage.removeItem(name);
+        window.sessionStorage.removeItem(name);
+    } catch (error) {
+        // Storage can be disabled outright, in which case there is nothing stored.
+    }
+    document.cookie = name + "=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/";
+})();
+</script>
+<script type="text/javascript">
 // Join to the documentation site's shell page; see the note at the top of this file.
 (function () {
     "use strict";

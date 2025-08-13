@@ -235,8 +235,8 @@ Put `roundMs` back to ten minutes when you are done.
 >
 > Then run `synqt check`. Predict what it says.
 
-<details class="question" markdown>
-<summary>Try it, then open this</summary>
+<details class="solution" markdown>
+<summary>Solution</summary>
 
 `synqt check` rejects it. A connect point the browser consumes must be owned by the web
 edge, and the database is not a web edge. The browser can physically reach only the

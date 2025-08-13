@@ -164,8 +164,8 @@ that happen.
 > Then, predict: if you delete the line `if (amount <= auction.highBid)` from
 > `web/Auction.qml` and save, what will a bid of 10 do to the standing bid of 50?
 
-<details class="question" markdown>
-<summary>Try it, then open this</summary>
+<details class="solution" markdown>
+<summary>Solution</summary>
 
 With the check in place, the bid of 10 is rejected and you see the message,
 because the edge refuses any bid that does not beat the current high bid.
