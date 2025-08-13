@@ -18,7 +18,10 @@
  * highlighted code in its own element, hands each gloss to the first line that contains its
  * fragment, and shows the text under the file while that line is hovered. It reads the
  * fragments rather than line numbers so that editing a snippet does not silently shift
- * every explanation in it by one.
+ * every explanation in it by one. A gloss that also carries a `data-href` turns its line
+ * into a link to the page that documents it, which is where the section hands the reader
+ * on: to the class in the C++ reference for a runtime accessor, or to the framework page
+ * that covers the idea for everything else.
  *
  * Everything is rebuilt on each page change through Material's `document$` observable, and
  * the document-level listeners are installed once, since the document survives instant
@@ -29,7 +32,8 @@
 
   var PIN = "synqt-pinned";
   var HINT_UNPINNED = "Click to pin";
-  var HINT_PINNED = "Pinned. Hover a line to see what it does, click again to unpin.";
+  var HINT_PINNED = "Pinned. Hover a line for what it does, an arrow to open its page. "
+    + "Click again to unpin.";
 
   // Every part of the diagram that has a file behind it: the five entity and contract
   // hotspots over the drawing, and the configuration chip above it.
@@ -51,37 +55,73 @@
   }
 
   /* Give every line of the highlighted block its own element, so a line can be hovered and
-   * marked. The highlighter emits a flat run of token spans separated by plain newline
-   * text, and no token of these snippets spans a line break; a snippet that ever did (a
-   * block comment, a multi-line string) is left alone rather than re-flowed wrongly. */
+   * marked.
+   *
+   * The highlighter usually emits a flat run of token spans with plain newline text
+   * between them, but it is not required to: a token that covers a blank line, and any
+   * future lexer that emits one token per block comment, hands back a span with a line
+   * break inside it. Such a span is reopened on the next line, the way a text editor
+   * splits a styled run, so the colouring survives the split. The whole block is built
+   * first and swapped in at the end, so a snippet this cannot handle is left exactly as
+   * the highlighter wrote it instead of half rewritten. */
   function wrapLines(code) {
-    var children = Array.prototype.slice.call(code.childNodes);
     var lines = [];
-    var line = document.createElement("span");
-    line.className = "synqt-code__line";
-    lines.push(line);
-    for (var index = 0; index < children.length; index++) {
-      var node = children[index];
+    var open = [];
+    var line = null;
+
+    function start() {
+      line = document.createElement("span");
+      line.className = "synqt-code__line";
+      lines.push(line);
+      var host = line;
+      for (var depth = 0; depth < open.length; depth++) {
+        var reopened = open[depth].source.cloneNode(false);
+        host.appendChild(reopened);
+        open[depth].live = reopened;
+        host = reopened;
+      }
+    }
+
+    function tip() {
+      return open.length > 0 ? open[open.length - 1].live : line;
+    }
+
+    function add(node) {
       if (node.nodeType === 3) {
         var parts = node.data.split("\n");
         for (var part = 0; part < parts.length; part++) {
           if (part > 0) {
-            line = document.createElement("span");
-            line.className = "synqt-code__line";
-            lines.push(line);
+            start();
           }
           if (parts[part]) {
-            line.appendChild(document.createTextNode(parts[part]));
+            tip().appendChild(document.createTextNode(parts[part]));
           }
         }
-      } else {
-        if (node.textContent.indexOf("\n") !== -1) {
-          return null;
-        }
-        line.appendChild(node);
+        return;
       }
+      if (node.nodeType !== 1) {
+        return;
+      }
+      if (node.textContent.indexOf("\n") === -1) {
+        tip().appendChild(node.cloneNode(true));
+        return;
+      }
+      var shell = node.cloneNode(false);
+      tip().appendChild(shell);
+      open.push({ source: node, live: shell });
+      var children = Array.prototype.slice.call(node.childNodes);
+      for (var index = 0; index < children.length; index++) {
+        add(children[index]);
+      }
+      open.pop();
     }
-    while (lines.length > 0 && lines[lines.length - 1].textContent === "") {
+
+    start();
+    var top = Array.prototype.slice.call(code.childNodes);
+    for (var at = 0; at < top.length; at++) {
+      add(top[at]);
+    }
+    while (lines.length > 1 && lines[lines.length - 1].textContent === "") {
       lines.pop();
     }
     code.textContent = "";
@@ -99,6 +139,7 @@
     var entries = list.querySelectorAll("li[data-code]");
     for (var entry = 0; entry < entries.length; entry++) {
       var fragment = entries[entry].getAttribute("data-code");
+      var href = entries[entry].getAttribute("data-href");
       for (var line = 0; line < lines.length; line++) {
         if (lines[line].getAttribute("data-gloss")) {
           continue;
@@ -106,6 +147,10 @@
         if (lines[line].textContent.indexOf(fragment) !== -1) {
           lines[line].setAttribute("data-gloss", entries[entry].textContent.trim());
           lines[line].className = "synqt-code__line synqt-code__line--gloss";
+          if (href) {
+            lines[line].setAttribute("data-href", href);
+            lines[line].className += " synqt-code__line--linked";
+          }
           break;
         }
       }
@@ -200,6 +245,26 @@
       if (panel.classList.contains(PIN)) {
         say(panel, HINT_PINNED);
       }
+    });
+
+    // A line whose gloss names a page opens it, which is how the section hands the
+    // reader on: the runtime accessors to their class in the C++ reference, the rest
+    // to the page of the docs that covers them. Selecting text inside the file ends in
+    // a click too, so a click that finished a selection is left alone.
+    tooltipOf(panel).addEventListener("click", function (event) {
+      if (!panel.classList.contains(PIN) || !event.target.closest) {
+        return;
+      }
+      var line = event.target.closest(".synqt-code__line[data-href]");
+      if (!line) {
+        return;
+      }
+      var selection = window.getSelection && window.getSelection();
+      if (selection && !selection.isCollapsed) {
+        return;
+      }
+      event.preventDefault();
+      window.location.href = line.getAttribute("data-href");
     });
   }
 

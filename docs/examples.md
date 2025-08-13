@@ -514,7 +514,8 @@ ItemsSource {
     function list() {
         // Only the edge may read. Authorize the calling entity.
         if (Caller.entity !== "web") return []
-        return Db.query("SELECT id, text, author, owner_sub AS ownerSub FROM items ORDER BY id DESC LIMIT 200")
+        return Db.query("SELECT id, text, author, owner_sub AS ownerSub"
+                        + " FROM items ORDER BY id DESC LIMIT 200")
     }
 
     function insert(row) {
@@ -578,7 +579,8 @@ TodoSource {
             Caller.emitRejected("Items must be 1 to 280 characters."); return
         }
         // Persist via the database entity. The database authorizes that the caller is the edge.
-        Database.items.insert({ text: clean, author: Caller.identity.email, ownerSub: Caller.identity.sub })
+        Database.items.insert({ text: clean, author: Caller.identity.email,
+                                ownerSub: Caller.identity.sub })
     }
 
     function remove(index) {

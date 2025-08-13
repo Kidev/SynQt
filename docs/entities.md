@@ -135,7 +135,7 @@ ItemsSource {
 
     function reload() {
         const rows = Db.query("SELECT text, author FROM items ORDER BY id DESC LIMIT 200")
-        items.setRows(rows)                            // set<Model> for "rows": only declared roles cross
+        items.setRows(rows)                    // set<Model>: only declared roles cross
     }
 }
 ```

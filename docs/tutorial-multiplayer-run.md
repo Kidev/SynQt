@@ -267,7 +267,7 @@ now lives in `web/World.qml` if you want to watch a round resolve again.)
 > Then hunt for a way to place your blob somewhere, to make it huge, or to wear another
 > player's name. Predict what you can and cannot do.
 
-<details>
+<details class="question" markdown>
 <summary>Try it, then open this</summary>
 
 `steer(3999, 3999)` does not teleport you; it aims you at the corner, and the edge walks

@@ -242,7 +242,8 @@ TodoSource {
         }
         // Persist via the database entity (async cross entity call).
         // The database will authorize that the caller is the edge.
-        Database.items.insert({ text: clean, author: Caller.identity.email, ownerSub: Caller.identity.sub })
+        Database.items.insert({ text: clean, author: Caller.identity.email,
+                                ownerSub: Caller.identity.sub })
     }
 }
 ```

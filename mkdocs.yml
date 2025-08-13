@@ -78,6 +78,9 @@ extra:
 # docs/api-reference.md). Skipped with a warning when doxygen is not installed.
 hooks:
   - tools/docs-hooks/doxygen.py
+  # Appends a content hash to the extra_css and extra_javascript references above, so a
+  # deploy can never pair this page's new script with a reader's cached stylesheet.
+  - tools/docs-hooks/assets.py
 
 plugins:
   - search
