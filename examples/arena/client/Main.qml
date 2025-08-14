@@ -20,7 +20,7 @@ ApplicationWindow {
     visible: true
     width: 900
     height: 700
-    title: qsTr("Arena")
+    title: "Arena"
     color: "#0d1020"                              // matches the field, for the HUD around it
 
     readonly property real world: 4000            // the arena is 4000 x 4000 units
@@ -247,7 +247,7 @@ ApplicationWindow {
         anchors.right: parent.right
         anchors.margins: 12
         spacing: 2
-        Text { text: qsTr("On the map"); color: "white"; font.bold: true; font.pixelSize: 14
+        Text { text: "On the map"; color: "white"; font.bold: true; font.pixelSize: 14
                style: Text.Outline; styleColor: "black" }
         Repeater {
             model: Server.arena.board
@@ -270,14 +270,14 @@ ApplicationWindow {
         spacing: 2
         Text {
             color: "white"; style: Text.Outline; styleColor: "black"; font.pixelSize: 14
-            text: Session.state === "connected" ? qsTr("online")
-                : Session.state === "reconnecting" ? qsTr("reconnecting...")
-                : Session.state === "connecting" ? qsTr("connecting...") : qsTr("offline")
+            text: Session.state === "connected" ? "online"
+                : Session.state === "reconnecting" ? "reconnecting..."
+                : Session.state === "connecting" ? "connecting..." : "offline"
         }
         Text {
             color: "white"; style: Text.Outline; styleColor: "black"; font.pixelSize: 14
             visible: root.latencyMs >= 0
-            text: qsTr("ping %1 ms").arg(root.latencyMs)
+            text: "ping " + root.latencyMs + " ms"
         }
     }
 
@@ -302,7 +302,7 @@ ApplicationWindow {
         anchors.right: parent.right
         anchors.margins: 12
         spacing: 2
-        Text { text: qsTr("Hall of Fame"); color: "white"; font.bold: true; font.pixelSize: 14
+        Text { text: "Hall of Fame"; color: "white"; font.bold: true; font.pixelSize: 14
                style: Text.Outline; styleColor: "black" }
         Repeater {
             model: Server.arena.champions
@@ -343,19 +343,19 @@ ApplicationWindow {
                 anchors.horizontalCenter: parent.horizontalCenter
                 color: "white"; font.pixelSize: 22; horizontalAlignment: Text.AlignHCenter
                 text: !Session.identity
-                      ? qsTr("Sign in with GitHub to enter the arena")
-                      : qsTr("Sorry %1, you are not on the guest list.").arg(Session.identity.login)
+                      ? "Sign in with GitHub to enter the arena"
+                      : "Sorry " + Session.identity.login + ", you are not on the guest list."
             }
             Button {
                 anchors.horizontalCenter: parent.horizontalCenter
                 visible: !Session.identity
-                text: qsTr("Sign in with GitHub")
+                text: "Sign in with GitHub"
                 onClicked: Session.login()
             }
             Button {
                 anchors.horizontalCenter: parent.horizontalCenter
                 visible: !!Session.identity
-                text: qsTr("Sign out")
+                text: "Sign out"
                 onClicked: Session.logout()
             }
         }
@@ -383,12 +383,12 @@ ApplicationWindow {
             spacing: 12
 
             Text {
-                text: qsTr("A new version is ready")
+                text: "A new version is ready"
                 color: "white"
                 font.pixelSize: 14
             }
             Button {
-                text: qsTr("Reload")
+                text: "Reload"
                 onClicked: App.applyUpdate()
             }
         }
@@ -398,9 +398,9 @@ ApplicationWindow {
 
     Arena.onEaten: (prey, predator) => {
         const me = Session.identity ? Session.identity.login : null;
-        if (prey === me) banner.flash(qsTr("You were eaten by %1!").arg(predator));
-        else if (predator === me) banner.flash(qsTr("You ate %1").arg(prey));
-        else banner.flash(qsTr("%1 ate %2").arg(predator).arg(prey));
+        if (prey === me) banner.flash("You were eaten by " + predator + "!");
+        else if (predator === me) banner.flash("You ate " + prey);
+        else banner.flash(predator + " ate " + prey);
     }
-    Arena.onRoundEnded: winner => banner.flash(qsTr("Round over! %1 takes the point.").arg(winner))
+    Arena.onRoundEnded: winner => banner.flash("Round over! " + winner + " takes the point.")
 }

@@ -63,8 +63,11 @@ extra_javascript:
   # Keeps the address bar, the browser tab and the frame on /api/ in step; see
   # docs/api.md and overrides/api.html.
   - javascripts/api-shell.js
-  # The home page's "What it looks like" project: pinning, the code glossary, and the
-  # dynamic hint under each file.
+  # Redraws the header's repository facts from the last ones this browser received
+  # when the GitHub API refuses a fetch (its hourly allowance is sixty requests).
+  - javascripts/source-facts.js
+  # The home page's "What it looks like" project: the tree and diagram triggers, the
+  # code glossary, and the explanation under the file being read.
   - javascripts/home-flow.js
 
 extra:

@@ -19,13 +19,13 @@ Item {
         spacing: 12
 
         Text {
-            text: qsTr("Members only")
+            text: "Members only"
             font.pixelSize: 24
             Layout.fillWidth: true
         }
 
         Text {
-            text: qsTr("Thanks for signing in. Your member offers live here.")
+            text: "Thanks for signing in. Your member offers live here."
             Layout.fillWidth: true
             wrapMode: Text.WordWrap
         }

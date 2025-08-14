@@ -274,7 +274,7 @@ and apply it once the moment is safe:
 
 ```qml
 Button {
-    text: qsTr("Reload")
+    text: "Reload"
     onClicked: App.applyUpdate()
 }
 ```

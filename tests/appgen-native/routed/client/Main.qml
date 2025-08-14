@@ -36,7 +36,7 @@ ApplicationWindow {
     width: 320
     height: 240
     visible: true
-    title: qsTr("Routed")
+    title: "Routed"
 
     Loader {
         id: page

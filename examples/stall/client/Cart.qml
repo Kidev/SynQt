@@ -19,7 +19,7 @@ Page {
         spacing: 12
 
         Label {
-            text: qsTr("Your cart")
+            text: "Your cart"
             font.pixelSize: 24
             Layout.fillWidth: true
         }
@@ -33,12 +33,12 @@ Page {
                 required property string title
                 required property int price
                 width: ListView.view.width
-                text: qsTr("%1  -  %2").arg(title).arg(price)
+                text: title + "  -  " + price
             }
         }
 
         Button {
-            text: qsTr("Back to the storefront")
+            text: "Back to the storefront"
             onClicked: Router.go("/")
         }
     }

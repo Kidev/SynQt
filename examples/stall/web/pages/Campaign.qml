@@ -14,7 +14,7 @@ import QtQuick.Layouts
 Item {
     id: campaign
 
-    readonly property string headline: Router.pageSeed.headline ?? qsTr("Today's offers")
+    readonly property string headline: Router.pageSeed.headline ?? "Today's offers"
 
     ColumnLayout {
         anchors.fill: parent
@@ -37,7 +37,7 @@ Item {
                 required property string title
                 required property int price
                 width: ListView.view.width
-                text: qsTr("%1  -  %2").arg(title).arg(price)
+                text: title + "  -  " + price
             }
         }
     }
