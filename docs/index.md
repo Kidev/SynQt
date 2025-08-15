@@ -363,18 +363,30 @@ scopes:
 
 entities:
   - { name: client, kind: client, edge: web }
-  - { name: web, kind: service, capabilities: [web_edge],
-      public: { port: 8443, sync_route: /sync } }
+  - name: web
+    kind: service
+    capabilities: [web_edge]
+    public: { port: 8443, sync_route: /sync }
   - { name: database, kind: service, blueprint: persistence }
   - { name: api, kind: service, blueprint: gateway }
 
 connect_points:
-  - { name: feed, contract: Feed, owner: web, scope: user,
-      consumers: [client], server: web/Feed.qml }
-  - { name: access, contract: Access, owner: database,
-      consumers: [web], server: database/Access.qml }
-  - { name: upstream, contract: Upstream, owner: api,
-      consumers: [web], server: api/Upstream.qml }
+  - name: feed
+    contract: Feed
+    owner: web
+    scope: user
+    consumers: [client]
+    server: web/Feed.qml
+  - name: access
+    contract: Access
+    owner: database
+    consumers: [web]
+    server: database/Access.qml
+  - name: upstream
+    contract: Upstream
+    owner: api
+    consumers: [web]
+    server: api/Upstream.qml
 ```
 
 <ul class="synqt-flow__glossary" hidden>
@@ -492,7 +504,7 @@ FeedSource {
 ```
 
 <ul class="synqt-flow__glossary" hidden>
-<li data-code="FeedSource" data-href="programming-model/">Generated from the contract. Owning a connect point means writing its Source, and nothing else.</li>
+<li data-code="FeedSource" data-href="programming-model/">Generated from the contract: Feed is the consumer's side of it, FeedSource the owner's. Owning a connect point means writing its Source, and nothing else.</li>
 <li data-code="Caller.hasScope" data-href="api/?p=classSynQt_1_1Caller.html">Who is calling, established by the session the edge issued. A caller cannot claim a scope it lacks.</li>
 <li data-code="Caller.emitDenied" data-href="api/?p=classSynQt_1_1Caller.html">Answers this one caller, not everyone watching. The signal is the contract's, so the client already handles it.</li>
 <li data-code="Database.access.allows" data-href="api/?p=classSynQt_1_1EntityRuntime.html">A mesh call, shaped like a local one, over mutual TLS. The subject is the identity the edge holds, not a browser value.</li>
