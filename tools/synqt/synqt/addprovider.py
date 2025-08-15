@@ -221,7 +221,7 @@ def scaffold(project_dir: os.PathLike[str] | str, name: str, family: str) -> str
         f"  - Implement the {interface} operations (parameters separate, errors returned).\n"
         f"    It compiles and registers as it is; every operation reports that it is not\n"
         f"    written yet, so nothing fails quietly while you work.\n"
-        f"  - Compile the file into the entity that uses it (its CMake target), so the\n"
-        f"    {FAMILY_REGISTER_MACRO[family]} line in it runs.\n"
         f"  - Select it with provider.name: custom:{name} in that entity's synqt.yaml block.\n"
+        f"    That selection is also what compiles this file into the entity, so the\n"
+        f"    {FAMILY_REGISTER_MACRO[family]} line in it runs; there is no CMake to edit.\n"
         "  - Connect over verified TLS; keep credentials in the entity env only.")

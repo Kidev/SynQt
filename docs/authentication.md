@@ -183,9 +183,14 @@ IdentityMapping {
 }
 ```
 
-For systems where roles live in a database, the hook can consult a connect point
-the edge consumes (for example `Database.roles.scopeFor(identity.sub)`), so role
-assignment is data driven rather than hard coded.
+For systems where roles live in a database, the hook can read a connect point the
+edge consumes (for example a `prop var assignments` the roles entity pushes, looked
+up as `Database.roles.assignments[identity.sub]`), so role assignment is data driven
+rather than hard coded. Read a pushed property, not a returning slot: `scopeFor` runs
+synchronously, because the edge needs the scope before it can create the session, and
+a returning slot hands back a promise instead of a value.
+[An identity service of your own](tutorial-advanced-identity.md) works through this
+and the two customizations either side of it.
 
 ## Session lifecycle
 

@@ -4,23 +4,23 @@
 # Remote pages
 
 Most of a SynQt client is compiled into one WebAssembly bundle, and that is the right
-default: the bundle is downloaded once, cached, and every view in it renders at native
-QML speed. But a bundle has two costs that grow with it. The first is weight: every view
+default. The bundle is downloaded once, cached, and every view in it renders at native
+QML speed. But a bundle has two costs that grow with it. The first is weight. Every view
 a visitor might reach ships to every visitor on first load, whether they open it or not.
-The second is cadence: changing any view means a rebuild and a redeploy of the whole
+The second is cadence. Changing any view means a rebuild and a redeploy of the whole
 client, so a page that changes often drags the whole bundle's release cycle with it.
 
 A remote page answers both. It is a QML file the web edge keeps and delivers on demand,
 over the same authenticated `wss` link the client already holds, at the moment a visitor
 navigates to its route. It never enters the bundle, so it adds nothing to first load, and
-it is edited on the edge, so it changes without a client rebuild. A marketing campaign
-page, a seasonal landing page, a rarely visited legal notice: these are what remote pages
-are for.
+it is edited on the edge, so it changes without a client rebuild. Remote pages are for a
+marketing campaign page, a seasonal landing page, or a rarely visited legal notice.
 
 This page is the reference for the feature. [Routes and URLs](routing.md) is the other half
-of it: how a path resolves to a page at all, whichever kind of page it turns out to be. The
-[build-it tutorial](tutorial-remote-pages.md) walks through a working storefront that uses
-remote pages, [lighter and live](tutorial-remote-pages-live.md) has the hands-on checks, and
+of it, how a path resolves to a page at all, whichever kind of page it turns out to be. The
+[light storefront](tutorial-remote-pages.md) tutorial walks through a working shop that uses
+remote pages. [Build it](tutorial-remote-pages-build.md) writes it,
+[lighter and live](tutorial-remote-pages-live.md) has the hands-on checks, and
 [links that work](tutorial-remote-pages-urls.md) covers their URLs.
 
 ## Declaring a remote route

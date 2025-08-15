@@ -3,7 +3,7 @@
 
 # Lighter and live
 
-The storefront from [part one](tutorial-remote-pages.md) works. This page makes its two
+The storefront from [part one](tutorial-remote-pages-build.md) works. This page makes its two
 payoffs concrete, with three hands-on checks you run yourself, and then shows the one
 boundary edge-delivered pages never cross. Start the app with `synqt dev` and keep a browser
 tab open on it.

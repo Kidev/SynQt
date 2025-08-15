@@ -347,7 +347,7 @@ def _singleton_registrations(entity_name: str, singletons: List[str]) -> str:
     return "\n".join(lines)
 
 
-# --------------------------------------------------------------------------- CMake
+# CMake
 
 def render_root_cmakelists(config: Dict[str, Any], synqt_root: os.PathLike[str] | str,
                            project_dir: os.PathLike[str] | str | None = None) -> str:
@@ -385,7 +385,7 @@ def render_root_cmakelists(config: Dict[str, Any], synqt_root: os.PathLike[str] 
         lines += _client_cmake(config, client, uri, client_dir)
 
     if services:
-        lines += ["", "# ---- Service entities (host only; never built for WebAssembly) ----",
+        lines += ["", "# Service entities (host only; never built for WebAssembly)",
                   "if(NOT EMSCRIPTEN)",
                   f"    find_package(Qt6 {qt_version} REQUIRED COMPONENTS HttpServer NetworkAuth Sql)",
                   '    add_subdirectory("${SYNQT_ROOT}/src/service" "${CMAKE_BINARY_DIR}/SynQtService")']
@@ -414,7 +414,7 @@ def _client_cmake(config: Dict[str, Any], client: Dict[str, Any], uri: str,
     # the route table carries nor a view's own `Card {}` would resolve to anything.
     views = _client_qml_files(config, client_dir)
     qml_files = ['"${CMAKE_CURRENT_SOURCE_DIR}/%s/%s"' % (name, view) for view in views]
-    lines = ["# ---- The client (browser WASM and native desktop, from one QML) ----",
+    lines = ["# The client (browser WASM and native desktop, from one QML)",
              'add_subdirectory("${SYNQT_ROOT}/src/client" "${CMAKE_BINARY_DIR}/SynQtClient")']
     # Each file is listed by absolute path, and each has to land where it sits in the
     # entity directory: the module root is where loadFromModule() looks for Main and
@@ -473,10 +473,39 @@ def _service_cmake(config: Dict[str, Any], entity: Dict[str, Any]) -> List[str]:
     lines += [f"    target_link_libraries({name} PRIVATE",
               f"        {link} Qt6::Core Qt6::Gui Qt6::Network Qt6::Qml",
               "        Qt6::RemoteObjects Qt6::WebSockets Qt6::HttpServer)"]
+    lines += _custom_provider_cmake(entity, name)
     return lines
 
 
-# ---------------------------------------------------------------------------- C++
+def _custom_provider_cmake(entity: Dict[str, Any], name: str) -> List[str]:
+    """Compile `providers/custom/` into an entity that selects a `custom:` provider.
+
+    A custom provider is only reachable once its registration macro has run, and that macro
+    runs because the file is linked into the entity. Nothing else picks these files up:
+    this file rewrites the root CMakeLists on every build, so a hand-added `target_sources`
+    would not survive one. Globbing keeps `synqt add provider` honest, since what it writes
+    is compiled with no further step, and CONFIGURE_DEPENDS means a provider added later is
+    picked up by the next build rather than needing CMake re-run by hand.
+
+    Every file in the directory goes into every entity that selects a custom provider. A
+    registration only publishes a name under `custom:`, and a family factory looks up the
+    one name that entity's config selected, so an entity carrying a registration it does not
+    use has a symbol it never reaches, not a provider it did not ask for.
+    """
+    provider = entity.get("provider") or {}
+    if not str(provider.get("name", "")).startswith("custom:"):
+        return []
+    variable = "SYNQT_CUSTOM_PROVIDERS_%s" % name.upper().replace("-", "_")
+    return ["",
+            "    # This entity selects a custom: provider, so its implementation is linked in.",
+            f"    file(GLOB {variable} CONFIGURE_DEPENDS",
+            '        "${CMAKE_CURRENT_SOURCE_DIR}/providers/custom/*.cpp")',
+            f"    if({variable})",
+            f"        target_sources({name} PRIVATE ${{{variable}}})",
+            "    endif()"]
+
+
+# C++
 
 def _scope_vocab(config: Dict[str, Any]) -> List[str]:
     return list(config.get("scopes", {}).get("order", ["anonymous"]))
@@ -1024,7 +1053,7 @@ int main(int argc, char *argv[])
     return body
 
 
-# ------------------------------------------------------------- the WASM client shell
+# the WASM client shell
 
 # Qt's default WebAssembly template boots from `<body onload="init()">` with an inline
 # script. An inline event handler cannot be allowed by a CSP hash, so it violates the
@@ -1418,7 +1447,7 @@ self.addEventListener("message", function (event) {
 """
 
 
-# --------------------------------------------------------- the dev live-reload hook
+# the dev live-reload hook
 
 def render_dev_reload_js() -> str:
     """The dev-only live-reload script ``synqt dev`` injects into the served bundle.
@@ -1470,7 +1499,7 @@ def render_dev_reload_js() -> str:
 """
 
 
-# ------------------------------------------------------------------------ writing
+# writing
 
 def generate(project_dir: os.PathLike[str] | str, config: Dict[str, Any], *,
              synqt_root: os.PathLike[str] | str | None = None) -> List[str]:

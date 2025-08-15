@@ -241,6 +241,16 @@ When no bundled provider fits (a niche engine, an in house store, a SaaS data AP
 implement the family interface yourself. This is the expandability escape hatch and
 keeps the framework open ended.
 
+> [!TIP]
+> This section is the reference. For the same thing built step by step, with two complete
+> adaptors, see the [Advanced tutorials](tutorial-advanced.md):
+> [a database of your own](tutorial-advanced-database.md) puts a persistence entity in
+> front of an engine reached through a Qt SQL driver, and
+> [a cache of your own](tutorial-advanced-cache.md) writes an engine's wire protocol by
+> hand where Qt has no driver at all.
+> [An identity service of your own](tutorial-advanced-identity.md) covers the one
+> customization that is not a provider.
+
 `synqt add provider MyEngine --family persistence` writes the whole shape below into
 `providers/custom/myengineprovider.cpp`; the three steps are what it wrote and why.
 
@@ -257,9 +267,11 @@ keeps the framework open ended.
 
    (`SYNQT_REGISTER_CACHE_PROVIDER` and `SYNQT_REGISTER_DOCUMENT_PROVIDER` for the
    other two families.) The name here is the bare one: no `custom:` prefix.
-3. Compile the file into the entity's target, and select it:
-   `provider.name: custom:MyEngine`, with the rest of the `provider` section carrying
-   settings your provider reads from its `ProviderConfig`.
+3. Select it: `provider.name: custom:MyEngine`, with the rest of the `provider` section
+   carrying settings your provider reads from its `ProviderConfig`. That selection is
+   also what compiles `providers/custom/` into the entity, so the registration above
+   runs. There is no CMake to edit, and editing it would not last: the build regenerates
+   the project's `CMakeLists.txt` from the topology every time.
 
 `custom:` is a namespace, not decoration. Only a name carrying it is looked up among
 your registrations, so a custom provider can never shadow a bundled one: `sqlite`
