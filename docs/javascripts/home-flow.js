@@ -34,9 +34,12 @@
   var ON = "synqt-trigger--on";
   var SHOWN = "synqt-flow__hint--on";
   // Long enough that a pointer crossing the diagram on its way somewhere else does
-  // not open three files behind it, short enough that a pointer that stopped has
-  // not started wondering whether anything is going to happen.
-  var DWELL = 200;
+  // not open three files behind it, and short enough to read as the file opening
+  // where the pointer landed rather than a moment after it. Nothing is lit until
+  // it elapses (the light follows the open file and nothing else, see
+  // .synqt-tree__file in home.css), so a longer wait than this shows as a section
+  // that lags the pointer.
+  var DWELL = 100;
 
   /* Give every line of the highlighted block its own element, so a line can be hovered
    * and marked.

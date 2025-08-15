@@ -27,9 +27,14 @@
 
   // A generated page name, and nothing else: no scheme, no host, no leading
   // slash, no `..`. `?p=` comes from the address bar, so it decides what the
-  // frame loads and is treated as untrusted input; anything that does not look
+  // frame loads and is treated as untrusted input. Anything that does not look
   // like a page of the reference falls back to its landing page.
-  var PAGE = /^[A-Za-z0-9][\w.-]*(\/[A-Za-z0-9][\w.-]*)*\.html$/;
+  //
+  // `~` is in the set because Doxygen splits a member index by first character
+  // and names each page after it, so the destructors land on `functions_~.html`.
+  // Left out, the letter bar's last entry bounced the reader to the reference's
+  // landing page instead, which looked exactly like the tree losing the page.
+  var PAGE = /^[A-Za-z0-9][\w.~-]*(\/[A-Za-z0-9][\w.~-]*)*\.html$/;
 
   function requestedPage() {
     var match = /[?&]p=([^&#]*)/.exec(window.location.search);
@@ -57,15 +62,10 @@
     return new URL(".", new URL(declared, window.location.href)).href;
   }
 
-  // Doxygen remembers the last tree entry a reader clicked and reselects that one
-  // on every page it draws, instead of the page on screen. The reference no longer
-  // keeps that memory (tools/docs-hooks/doxygen.py) and clears it as each of its
-  // pages loads (tools/docs-hooks/doxygen-header.html), but a browser still
-  // holding a cached copy of the reference from before those two runs the old code
-  // and stays pinned to whichever entry it remembers. This is the way out that a
-  // cached copy cannot get in front of. The reference is served from this origin,
-  // so its storage is this page's storage, and the frame is not pointed at
-  // anything until after this has run.
+  // Doxygen reselects the last tree entry a reader clicked instead of the page on
+  // screen. The reference clears that memory itself, but a cached copy of its old
+  // navtree.js can still pin the tree. The reference shares this origin's storage, and
+  // the frame loads nothing until this has run.
   var NAVPATH = "doxygen_navpath";
 
   function forgetTreeMemory() {
@@ -78,17 +78,16 @@
     document.cookie = NAVPATH + "=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/";
   }
 
-  // Clearing it once, as the reference opens, is not enough, and this is the whole of
-  // the bug it took three attempts to place. An older page writes the entry back every
-  // time a tree link is clicked. The tree is right on that page, because the entry and
-  // the page agree, and wrong on every page reached from the content pane afterwards,
-  // because nothing there updates it. That is exactly what a reader sees: the tree
-  // follows a click in the tree, and ignores a click in the page.
+  // Clearing it once, as the reference opens, is not enough. An older page writes the entry
+  // back every time a tree link is clicked: the tree is right on that page, because the
+  // entry and the page agree, and wrong on every page reached from the content pane
+  // afterwards, because nothing there updates it. The tree would follow a click in the tree
+  // and ignore a click in the page.
   //
-  // So clear it on the way out of each page as well. The listener is on the capture
-  // phase of the frame's own document, which runs before the click reaches the link
-  // whose handler would store it, and it is installed as each page announces itself,
-  // which is the earliest this side can reach a document it did not load.
+  // So clear it on the way out of each page as well. The listener is on the capture phase
+  // of the frame's own document, which runs before the click reaches the link whose handler
+  // would store it, and it is installed as each page announces itself, the earliest this
+  // side can reach a document it did not load.
   function guardFrameDocument(frame) {
     var doc;
     try {
