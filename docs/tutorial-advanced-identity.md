@@ -25,7 +25,7 @@ flowchart LR
   P1["an OAuth2 provider"] --> S
   P2["an OIDC issuer"] --> S
   P3["your own login system"] --> S
-  S["the session<br/>(scope + normalized identity)"] --> CP["every connect point,<br/>every Caller check"]
+  S["<span style='color:#1a1a2e'>the session<br/>(scope + normalized identity)</span>"] --> CP["every connect point,<br/>every Caller check"]
   style S fill:#fde,stroke:#c39,color:#1a1a2e
 ```
 

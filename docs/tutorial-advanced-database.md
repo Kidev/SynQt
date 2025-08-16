@@ -463,9 +463,13 @@ system with a hole in it fails at startup instead.
   nowhere else.
 - An unverified connection to a real address is refused in a release build, by the
   adaptor, at startup.
-- `custom:` is a namespace: a lookup carrying it reaches your registrations only, so
+- `custom:` is a namespace. A lookup carrying it reaches your registrations only, so
   nothing you register can shadow `sqlite`, and a name that selects nothing stops the
   entity rather than degrading it.
+
+If you write one of these for a real engine, please
+[send it](tutorial-advanced.md#when-yours-works-send-it). A provider that works is one
+somebody else does not have to write.
 
 Next: [a cache of your own](tutorial-advanced-cache.md), where Qt has no driver, the
 engine has no transactions, and its `incr` refuses to create the counter you asked it to
