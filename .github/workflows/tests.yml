@@ -1,8 +1,8 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-# Run the deterministic checks (the synqt CLI, the synqtc contract generator, and the docs'
-# mermaid diagrams) on every push and pull request. The suites are pure Python and run across the
+# Run the deterministic checks (the synqt CLI, the synqtc contract generator, the docs' Pygments
+# lexers, and the docs' mermaid diagrams) on every push and pull request. The suites are pure Python and run across the
 # three desktop operating systems SynQt supports as native targets (Linux, macOS, Windows; see
 # docs/desktop.md): they drive the generators and CLI and assert on the emitted CMake, presets,
 # topology, and config, so they need no Qt build or display and run identically on all three
@@ -40,16 +40,16 @@ jobs:
           python-version: "3.11"
           cache: pip
 
-      - name: Install the CLI and contract generator (editable) plus test deps
+      - name: Install the CLI, contract generator, and docs lexers (editable) plus test deps
         # brotli lets the bundle-precompress test produce the .br copy (the CLI skips it gracefully
         # without the package, but the test asserts it, so install it here).
-        run: python -m pip install --upgrade pip && python -m pip install -e ./tools/synqt -e ./tools/synqtc pytest brotli
+        run: python -m pip install --upgrade pip && python -m pip install -e ./tools/synqt -e ./tools/synqtc -e ./tools/pygments-synqt pytest brotli
 
       - name: Confirm openssl is available (the mesh-CA tests use it)
         run: openssl version
 
       - name: Run the test suites
-        run: python -m pytest tools/synqt/tests tools/synqtc/tests -q
+        run: python -m pytest tools/synqt/tests tools/synqtc/tests tools/pygments-synqt/tests -q
 
   mermaid:
     # One runner: the diagrams are the same text everywhere, and this parses them rather than
