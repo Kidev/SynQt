@@ -437,7 +437,9 @@ QVariantMap OAuthBackend::normalizeIdentity(const IdentityProviderConfig &provid
         const QByteArray emailsBody{httpGet(provider.emailsUrl, flow->token(), nullptr)};
         const QJsonDocument emailsDoc{QJsonDocument::fromJson(emailsBody)};
         if (emailsDoc.isArray()) {
-            const QJsonArray emails{emailsDoc.array()};
+            // Copy initialized, not braced: QJsonArray's initializer_list constructor
+            // would take this array as a single element (see Topology::topologyFromJson).
+            const QJsonArray emails = emailsDoc.array();
             for (const QJsonValue &value : emails) {
                 const QJsonObject entry{value.toObject()};
                 if (entry.value(QStringLiteral("primary")).toBool()

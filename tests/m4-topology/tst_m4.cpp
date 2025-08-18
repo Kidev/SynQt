@@ -15,6 +15,8 @@
 
 #include <QHostAddress>
 #include <QIODevice>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QQmlEngine>
 #include <QRemoteObjectDynamicReplica>
 #include <QRemoteObjectNode>
@@ -84,6 +86,50 @@ private slots:
         QCOMPARE(EntityRuntime::accessorName(QStringLiteral("database")),
                  QStringLiteral("Database"));
         QCOMPARE(EntityRuntime::accessorName(QStringLiteral("web")), QStringLiteral("Web"));
+    }
+
+    // Every list in a resolved topology.json must survive the parse. It is the one
+    // input a generated entity main() has, and a list that comes back empty costs the
+    // entity its connect points while it still reports itself up: `QJsonArray a{...}`
+    // takes the array as its single element instead of copying it, so the schema and
+    // the connect points parsed as one unreadable entry each. Guarded here because the
+    // rest of this suite builds its Topology in C++ and never reads the JSON.
+    void topologyFromJsonKeepsEveryList()
+    {
+        // Delimited R"json(...)json": the SQL below ends in `)"`, which would close a
+        // bare raw string in the middle of the literal.
+        const QByteArray json{R"json({
+            "entity": "database",
+            "credentials": {"ca": "ca.crt", "cert": "database.crt", "key": "database.key"},
+            "blueprint": "persistence",
+            "schema": ["CREATE TABLE grants (sub TEXT)", "CREATE INDEX i ON grants (sub)"],
+            "connect_points": [{
+                "name": "access",
+                "contract": "Access",
+                "owner": "database",
+                "consumers": ["web", "jobs"],
+                "server": "database/Access.qml",
+                "instance": "per_peer",
+                "endpoint": {"transport": "mtls", "host": "127.0.0.1", "port": 9440}
+            }]
+        })json"};
+        const Topology topology{
+            topologyFromJson(QJsonDocument::fromJson(json).object())};
+
+        QCOMPARE(topology.entity, QStringLiteral("database"));
+        QCOMPARE(topology.credentials.certPath, QStringLiteral("database.crt"));
+        QCOMPARE(topology.schema.size(), 2);
+        QCOMPARE(topology.schema.at(0), QStringLiteral("CREATE TABLE grants (sub TEXT)"));
+        QCOMPARE(topology.connectPoints.size(), 1);
+
+        const ConnectPointConfig &access{topology.connectPoints.at(0)};
+        QCOMPARE(access.name, QStringLiteral("access"));
+        QCOMPARE(access.contract, QStringLiteral("Access"));
+        QCOMPARE(access.serverFile, QStringLiteral("database/Access.qml"));
+        QVERIFY(access.instance == ConnectPointInstance::PerPeer);
+        QCOMPARE(access.consumers, QStringList({QStringLiteral("web"), QStringLiteral("jobs")}));
+        QVERIFY(access.endpoint.mode == MeshTransportMode::MutualTls);
+        QCOMPARE(access.endpoint.port, static_cast<quint16>(9440));
     }
 
     void twoServiceTopology()
