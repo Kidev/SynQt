@@ -25,6 +25,9 @@ theme:
   # overrides/partials/nav.html: drops the unclickable "SynQt" text label from the
   # top of the left nav drawer (Material's stock partial puts the site name there
   # as plain text next to the logo link, not as a link itself).
+  # overrides/partials/footer.html: labels the previous and next links with the
+  # section title when the page they point at is called "Overview", so the last
+  # page of a tutorial offers the next tutorial by name.
   custom_dir: overrides
   features:
     - navigation.instant
