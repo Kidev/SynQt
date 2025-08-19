@@ -231,7 +231,3 @@ under-scoped visitor's machine.
   page shows real content before its connect points arrive. Leave its parameters untyped.
 - A delivered page's `scope:` protects its markup, not its data. Data confidentiality is
   the owner-side check on the connect point, as always.
-
-Next: [Lighter and live](tutorial-remote-pages-live.md) has three hands-on checks that make
-the weight saving and the live editing concrete, and shows why the browser can never reach
-the database.

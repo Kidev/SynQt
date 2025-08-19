@@ -316,8 +316,5 @@ Rectangle {
 ```
 
 Save, and if you are on your own guest list you can sign in and drift around eating
-pellets, your view gliding with you and any other players sliding smoothly nearby. Next
-you give the game an ending and a memory: [the round and the Hall of
-Fame](tutorial-multiplayer-rounds.md) adds a ten minute round and a database, and then
-[the last part](tutorial-multiplayer-run.md) adds interest management so the edge sends
-each player only what their camera can see.
+pellets, your view gliding with you and any other players sliding smoothly nearby. What
+the game still has no notion of is an ending, or a memory of who won.
