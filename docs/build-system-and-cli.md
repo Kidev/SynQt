@@ -109,7 +109,7 @@ synqt new <name>        # Scaffold a new project.
 synqt dev               # Build the entities, start them locally, watch and hot reload.
 synqt build             # Production build of every entity artifact.
 synqt serve             # Run the built entities, the edge serving the built client.
-synqt check             # Validate config and topology, lint QML and contracts.
+synqt check [--release] # Validate config and topology, lint QML and contracts.
 synqt test              # Build and run the project's test suite.
 synqt clean             # Remove build outputs (keeps the toolchain cache and the CA).
 synqt doctor            # Diagnose toolchain, ports, certificates, versions, topology.
@@ -141,6 +141,23 @@ always a question about which Qt and which Emscripten produced it, and the Pytho
 line names the interpreter and the directory the CLI is running from, which is what
 separates "the version I installed" from "the version on this PATH". `synqt doctor`
 opens with the same three lines, so a pasted doctor report carries them too.
+
+You do not have to remember to run it. `synqt build`, `synqt dev`, and `synqt serve`
+each run the [topology validation](project-layout-and-config.md#validation) first and
+refuse to continue if it fails, so a configuration that cannot be deployed is caught
+before anything is compiled or started rather than at the deployment. They run the
+topology half only, not the QML and contract lints, because those read every QML file in
+the project and `synqt dev` repeats the check on every hot reload; `synqt check` is still
+the command that runs everything.
+
+Some rules bind only a shipped artifact: a web edge must terminate TLS, a cross host mesh
+link must be mutual TLS, and a desktop client's `edge_url` must be `wss://`. Applying
+those to a localhost topology would reject a project that is working exactly as intended,
+so they are on automatically for `synqt build --release` and `synqt serve`, and available
+from `synqt check --release` when you want to ask the production question early. One rule
+goes the other way: a missing mesh certificate is only an error at the moment entities
+start, because certificates are issued from the CA and the CA private key is deliberately
+never on the machine that builds.
 
 `synqt check` also reports QML that `qmlformat` would reformat, when the project sets
 `check.qml_format: true` (`synqt new` does). It reports and never rewrites, and the

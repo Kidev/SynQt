@@ -191,6 +191,10 @@ side, the mesh (service to service) side, the public TLS, and its env file:
       serve_client: true      # serve the client bundle from this entity
       client_route: /
       sync_route: /sync       # the WebSocket upgrade path
+      # tls_terminated_upstream: true
+      #   Set this instead of the tls block below when a reverse proxy in front of the
+      #   edge terminates TLS and the edge listens on plaintext loopback. A release
+      #   build insists on one of the two, and will not assume either.
 
     mesh:                     # how other entities reach this one (service to service)
       transport: mtls         # mtls (the default on every link) or local (opt in)
@@ -277,6 +281,15 @@ Notes:
   protected, no network): an explicit opt in for co located, equally trusted
   entities, because a local socket identifies the connecting user, not the
   connecting entity (see [security](security.md)). It is never chosen implicitly.
+- The entity's `mesh` block says how other entities reach *this* entity, which is
+  what you write when a service moves to its own host: set `host` and `port` there
+  once and every connect point it owns follows. A connect point may override
+  `transport`, `host`, `port`, or `socket` for its own link, key by key, which is
+  how one entity can own a loopback link and a cross host link at the same time.
+  Anything neither of them says falls back to loopback on a port derived from the
+  connect point's position in the sorted list, so a single host project needs no
+  `mesh` block at all. A link whose resolved host is not this machine is a cross
+  host link, and `mesh.require_mtls_cross_host` governs it.
 - A client entity has no mesh section: it never listens and never participates in
   the mesh. It reaches exactly one web edge over wss. Its `targets` select how the
   same QML is packaged: `wasm` for the browser, `desktop` for a native
@@ -707,9 +720,11 @@ process environment, only on the relevant service entity.
 Before any build or run, the CLI validates the resolved configuration and fails
 fast. Non negotiable checks:
 
-- A production build (or `synqt serve` without `--dev`) with a web edge whose
-  `tls` is disabled is rejected. Likewise `require_mtls_cross_host` cannot be off
-  in release.
+- A production build (or `synqt serve`) with a web edge that neither carries a
+  `tls` block (`cert_file` and `key_file`) nor declares
+  `public.tls_terminated_upstream: true` is rejected: something has to terminate
+  TLS to the browser, and the configuration has to name which end. Likewise
+  `require_mtls_cross_host` cannot be off in release.
 - A connect point whose `contract`, `owner`, or `server` file does not exist is
   rejected. An `owner` or `consumer` that is not a declared entity is rejected.
 - A connect point reachable by the `client` entity whose `owner` lacks the

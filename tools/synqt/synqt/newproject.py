@@ -155,7 +155,14 @@ def scaffold(parent_dir: os.PathLike[str] | str, name: str, *,
 
     entities: List[Dict[str, Any]] = [
         {"name": "client", "kind": "client", "targets": ["wasm"]},
-        {"name": "web", "kind": "service", "capability": "web_edge"},
+        # The edge ships with TLS to the browser already configured, pointing at the
+        # conventional place for the certificate. `synqt dev` runs plaintext on localhost
+        # and ignores it; `synqt build --release` and `synqt serve` require either this or
+        # public.tls_terminated_upstream, so a new project meets that rule from its first
+        # release build rather than discovering it at the deployment.
+        {"name": "web", "kind": "service", "capability": "web_edge",
+         "tls": {"cert_file": "certs/web/fullchain.pem",
+                 "key_file": "certs/web/privkey.pem"}},
     ]
     for blueprint in blueprints or []:
         entities.append({"name": blueprint, "kind": "service", "blueprint": blueprint})
