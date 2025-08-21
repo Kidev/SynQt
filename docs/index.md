@@ -357,9 +357,7 @@ project:
   qt_version: 6.11.1
   origin_model: same_origin
 
-scopes:
-  order: [anonymous, user, moderator, admin]
-  default: anonymous
+scopes: { order: [anonymous, user, admin], default: anonymous }
 
 entities:
   - { name: client, kind: client, edge: web }
@@ -423,15 +421,12 @@ ApplicationWindow {
     visible: true
     title: "My app"
 
-    // The feed arrives when this browser connects, and again
-    // after a reconnect. Ask for it each time it does.
+    Feed.onDenied: reason => window.notice = reason
     onFeedReadyChanged: {
         if (window.feedReady) {
             Server.feed.load();
         }
     }
-
-    Feed.onDenied: reason => window.notice = reason
 
     Label {
         id: banner
@@ -454,6 +449,7 @@ ApplicationWindow {
 <li data-code="import SynQt" data-href="runtime-api/">Brings in the runtime accessors: Server, Session, Router, and the contracts this entity consumes.</li>
 <li data-code="ApplicationWindow" data-href="project-layout-and-config/">The client's Main.qml is the window. A root that is not a window builds fine and renders nothing.</li>
 <li data-code="Feed.onDenied" data-href="api/?p=classSynQt_1_1ConsumerBase.html">The contract's signal, handled where it arrives. No Connections block, no target to wire up.</li>
+<li data-code="onFeedReadyChanged" data-href="api/?p=classSynQt_1_1ServerAccessor.html">The feed arrives when this browser connects, and arrives again after a reconnect. Asking here covers both, and nothing asks before there is anything to ask.</li>
 <li data-code="Server.feed.ready" data-href="api/?p=classSynQt_1_1ConsumerBase.html">The framework's own: true once the edge is hosting this connect point for this browser. It goes false on a disconnect and true again on the reconnect.</li>
 <li data-code="Server.feed.loaded" data-href="programming-model/">The contract's property, pushed by the edge. Read-only here: a consumer can never write owner state.</li>
 <li data-code="model: Server.feed.rows" data-href="programming-model/">A live model. The edge replaces the rows and every open tab redraws itself.</li>
