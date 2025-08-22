@@ -110,6 +110,8 @@ synqt dev               # Build the entities, start them locally, watch and hot 
 synqt build             # Production build of every entity artifact.
 synqt serve             # Run the built entities, the edge serving the built client.
 synqt check [--release] # Validate config and topology, lint QML and contracts.
+                        # Every command below that reads a project also takes
+                        # --profile <name> (layer synqt.<name>.yaml over synqt.yaml).
 synqt test              # Build and run the project's test suite.
 synqt clean             # Remove build outputs (keeps the toolchain cache and the CA).
 synqt doctor            # Diagnose toolchain, ports, certificates, versions, topology.
@@ -176,6 +178,27 @@ target(s) to build or run; see [desktop clients](desktop.md)), `--verbose` (echo
 build command and stream its output, instead of the one line summary), and
 `--project-dir <path>` (act on a project other than the working directory; accepted by
 every command that reads a project, which is all of them except `new` and `providers`).
+
+`--profile <name>` layers `synqt.<name>.yaml` over `synqt.yaml` for that invocation, so
+one topology carries its production differences (the public port, the TLS files, a
+cross host database address) in a file next to it rather than in a second copy of the
+whole configuration:
+
+```cli
+synqt build --release --profile production
+synqt serve --profile production
+```
+
+`synqt dev`, `build`, `serve`, `check`, `doctor`, and the `synqt mesh` commands take it;
+`clean`, `test`, and the scaffolders do not, because they read no configuration or,
+in the scaffolders' case, write `synqt.yaml` back and would otherwise bake an overlay
+into the base file. `synqt dev` watches the profile file along with `synqt.yaml`, so
+editing it hot reloads like any other source. Above the profile sit the
+`SYNQT_<SECTION>_<KEY>` environment variables for CI and containers. The full order,
+what merges and what replaces, and the two limits that keep a layer from becoming a
+back door are in
+[configuration resolution order](project-layout-and-config.md#configuration-resolution-order).
+Every command that applies a layer says so in its output.
 
 `synqt build` takes two more: `--entity <name>` builds one entity rather than the whole
 system (an unknown name is an error, not an empty build), and `--threads single|multi`
