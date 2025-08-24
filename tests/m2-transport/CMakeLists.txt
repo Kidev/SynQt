@@ -36,3 +36,18 @@ target_link_libraries(tst_m2 PRIVATE
 )
 
 add_test(NAME m2 COMMAND tst_m2)
+
+# The transport-only unit cases from the test plan (framing, partial reads, large
+# messages, close handling). No contract and no QtRO node: the adapter is the subject,
+# and tst_m2 above already answers whether QtRO rides on it.
+qt_add_executable(tst_wstransport tst_wstransport.cpp)
+
+target_link_libraries(tst_wstransport PRIVATE
+    SynQtClient
+    Qt6::Core
+    Qt6::Network
+    Qt6::WebSockets
+    Qt6::Test
+)
+
+add_test(NAME wstransport COMMAND tst_wstransport)
