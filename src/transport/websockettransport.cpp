@@ -76,6 +76,11 @@ qint64 WebSocketTransport::readData(char *data, qint64 maxSize)
         return size;
     }
     std::memcpy(data, m_readBuffer.constData(), static_cast<size_t>(size));
+    // Erasing at the front is amortized constant, not a move of the remainder: Qt 6's
+    // QArrayDataPointer::erase advances the begin pointer for a range that starts at
+    // begin(), and the next append that needs room reclaims the gap. Draining a large
+    // frame in small reads therefore stays linear in the frame size. That is container
+    // behaviour rather than a documented promise, so tst_wstransport measures it.
     m_readBuffer.remove(0, size);
     return size;
 }
