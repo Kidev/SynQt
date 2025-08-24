@@ -8,7 +8,7 @@
 # object to the path given by --out and a readable summary to stderr. brotli is optional; if it is not
 # installed the brotli figures are reported as null rather than a wrong number.
 #
-#   measure-bundle.sh <bundle-dir> <label> --out <file.json>
+#   measure-bundle.sh <bundle-dir> <label> --out <file.json> [--qt-version 6.11.1]
 
 set -euo pipefail
 
@@ -16,12 +16,21 @@ BUNDLE_DIR="${1:?usage: measure-bundle.sh <bundle-dir> <label> --out <file.json>
 LABEL="${2:?missing label}"
 shift 2
 OUT=""
+QT_VERSION="6.11.1"
 while [ $# -gt 0 ]; do
     case "$1" in
         --out) OUT="$2"; shift 2 ;;
+        --qt-version) QT_VERSION="$2"; shift 2 ;;
         *) echo "measure-bundle: unknown arg $1" >&2; exit 2 ;;
     esac
 done
+
+# The same attribution every other harness records. A weight with no machine, no Qt, and no
+# date behind it cannot be compared against a later one, which is the only thing a baseline
+# is for.
+HOST_LABEL="$(. /etc/os-release 2>/dev/null && echo "${PRETTY_NAME:-$(uname -s)}" || uname -s)"
+ARCH="$(uname -m)"
+RECORDED="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 if [ ! -d "$BUNDLE_DIR" ]; then
     echo "measure-bundle: no such bundle dir: $BUNDLE_DIR" >&2
@@ -73,8 +82,12 @@ fi
 printf '%-28s %12s %12s %12s\n' "TOTAL" "$total_raw" "$total_gzip" "$brotli_summary" >&2
 
 files_json="$(IFS=,; echo "${entries[*]}")"
-json="$(printf '{"label":"%s","dir":"%s","files":[%s],"total_raw":%s,"total_gzip":%s,"total_brotli":%s}' \
-    "$LABEL" "$BUNDLE_DIR" "$files_json" "$total_raw" "$total_gzip" "$total_brotli_field")"
+json="$(printf '{"benchmark":"client-bundle","label":"%s","dir":"%s","host":"%s","arch":"%s",' \
+    "$LABEL" "$BUNDLE_DIR" "$HOST_LABEL" "$ARCH")"
+json="$json$(printf '"qt_version":"%s","recorded":"%s","files":[%s],' \
+    "$QT_VERSION" "$RECORDED" "$files_json")"
+json="$json$(printf '"total_raw":%s,"total_gzip":%s,"total_brotli":%s}' \
+    "$total_raw" "$total_gzip" "$total_brotli_field")"
 
 if [ -n "$OUT" ]; then
     printf '%s\n' "$json" > "$OUT"

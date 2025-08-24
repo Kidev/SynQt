@@ -1,0 +1,43 @@
+{
+  "arch": "x86_64",
+  "benchmark": "buildtime",
+  "configuration": "release",
+  "cpus": 32,
+  "host": "Arch Linux",
+  "latency": [
+    {
+      "contracts": 3,
+      "max": 98.9268510020338,
+      "mean": 92.57522580082878,
+      "min": 86.45945799798938,
+      "name": "contract_generation",
+      "p50": 93.38066500640707,
+      "p95": 98.9268510020338,
+      "p99": 98.9268510020338,
+      "samples": 10,
+      "unit": "ms"
+    }
+  ],
+  "path": "contract-generation-and-per-entity-build",
+  "project": "examples/gavel",
+  "qt_version": "6.11.1",
+  "recorded": "2026-07-28T01:36:57Z",
+  "sweep": [
+    {
+      "clean_s": 14.174,
+      "kind": "service",
+      "noop_s": 4.281,
+      "target": "web",
+      "touched_file": "Auction.qml",
+      "touched_s": 4.15
+    },
+    {
+      "clean_s": 12.743,
+      "kind": "service",
+      "noop_s": 3.367,
+      "target": "database",
+      "touched_file": "Ledger.qml",
+      "touched_s": 3.351
+    }
+  ]
+}

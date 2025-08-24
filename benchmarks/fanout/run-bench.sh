@@ -5,17 +5,20 @@
 # Build and run the edge fan-out baseline (M5), writing a JSON baseline under benchmarks/results/
 # keyed by hostname. Pinned Qt 6.11.1. Pass extra flags through to the harness, e.g.
 #   ./run-bench.sh --sizes 1,10,50,100,250 --ticks 400 --interest 16
+#
+# QT_HOST overrides the kit path and BENCH_OUT overrides where the baseline is written,
+# so CI can run this against its own kit without writing into benchmarks/results/.
 
 set -euo pipefail
 
-QT_HOST="/opt/Qt/6.11.1/gcc_64"
+QT_HOST="${QT_HOST:-/opt/Qt/6.11.1/gcc_64}"
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$REPO_ROOT"
 
 BUILD_DIR="build/bench-fanout"
 RESULTS_DIR="benchmarks/results"
 HOST_TAG="$(hostname | tr -c 'A-Za-z0-9_.-' '_')"
-OUT="${RESULTS_DIR}/fanout-${HOST_TAG}.json"
+OUT="${BENCH_OUT:-${RESULTS_DIR}/fanout-${HOST_TAG}.json}"
 
 echo "== configure + build =="
 cmake -S benchmarks/fanout -B "$BUILD_DIR" -G Ninja \

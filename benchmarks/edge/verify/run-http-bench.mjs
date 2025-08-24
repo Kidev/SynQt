@@ -197,7 +197,7 @@ async function main() {
         warmup_seconds: WARMUP_SECONDS,
         measure_seconds: MEASURE_SECONDS,
         query_count: QUERY_COUNT,
-        generated: new Date().toISOString(),
+        recorded: new Date().toISOString(),
         results
     };
 

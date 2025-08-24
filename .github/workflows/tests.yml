@@ -2,11 +2,17 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # Run the deterministic checks (the synqt CLI, the synqtc contract generator, the docs' Pygments
-# lexers, and the docs' mermaid diagrams) on every push and pull request. The suites are pure Python and run across the
+# lexers, the committed benchmark baselines, and the docs' mermaid diagrams) on every push and pull
+# request. The suites are pure Python and run across the
 # three desktop operating systems SynQt supports as native targets (Linux, macOS, Windows; see
 # docs/desktop.md): they drive the generators and CLI and assert on the emitted CMake, presets,
 # topology, and config, so they need no Qt build or display and run identically on all three
 # runners. The mesh-CA tests shell out to openssl, which ships on all three GitHub runner images.
+#
+# The benchmark suite here is the cheap half of the benchmark gate: it reads the committed
+# baselines under benchmarks/results/ and asserts the claims benchmarks/README.md makes about them
+# still hold. It measures nothing, so it is machine-independent and belongs on every push. The half
+# that actually runs the harnesses needs Qt and a quiet machine, and lives in benchmarks.yml.
 #
 # The heavier, platform-specific checks live elsewhere and are not duplicated here: the WASM
 # QtRO-over-WebSockets browser matrix is browser-matrix.yml, and the C++ ctest suites need a full
@@ -49,7 +55,9 @@ jobs:
         run: openssl version
 
       - name: Run the test suites
-        run: python -m pytest tools/synqt/tests tools/synqtc/tests tools/pygments-synqt/tests -q
+        run: >
+          python -m pytest tools/synqt/tests tools/synqtc/tests tools/pygments-synqt/tests
+          benchmarks/tests -q
 
   mermaid:
     # One runner: the diagrams are the same text everywhere, and this parses them rather than

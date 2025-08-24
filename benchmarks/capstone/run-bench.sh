@@ -7,6 +7,9 @@
 # many live connections, so it belongs on a real host, not the build sandbox. Pass extra flags
 # through to the harness, e.g.
 #   ./run-bench.sh --sizes 10,50,100,250,500 --hz 30 --seconds 8 --interest 16
+#
+# QT_HOST overrides the kit path and BENCH_OUT overrides where the baseline is written,
+# so CI can run this against its own kit without writing into benchmarks/results/.
 
 set -euo pipefail
 
@@ -17,7 +20,7 @@ cd "$REPO_ROOT"
 BUILD_DIR="build/bench-capstone"
 RESULTS_DIR="benchmarks/results"
 HOST_TAG="$(hostname | tr -c 'A-Za-z0-9_.-' '_')"
-OUT="${RESULTS_DIR}/capstone-${HOST_TAG}.json"
+OUT="${BENCH_OUT:-${RESULTS_DIR}/capstone-${HOST_TAG}.json}"
 
 echo "== configure + build =="
 cmake -S benchmarks/capstone -B "$BUILD_DIR" -G Ninja \
