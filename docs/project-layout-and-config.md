@@ -361,7 +361,10 @@ security:
 
   handshake_timeout_ms: 10000
   max_connections_per_ip: 20
-  max_message_bytes: 1048576      # reject oversized frames (DoS guard)
+  # Reject oversized frames (DoS guard). Also sets how much one connection may hold
+  # unread: the edge caps each browser socket's read buffer at four times this, and
+  # closes a connection that goes past it.
+  max_message_bytes: 1048576
 ```
 
 When `origin_model: split_origin`, the scaffold pre fills `allowed_origins` with

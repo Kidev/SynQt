@@ -54,6 +54,14 @@ namespace SynQt {
 
 namespace {
 
+// How many full-size frames one browser connection may have buffered but unread before
+// the edge stops paying for it. A frame is already capped at max_message_bytes; this
+// caps their sum, which that cap alone does not. Four is far above anything QtRO
+// produces (it drains the buffer synchronously on readyRead, so the steady state is one
+// frame) and it keeps the per-connection ceiling tied to the knob an operator already
+// tunes: with max_connections_global, the two bound the edge's total read memory.
+constexpr qint64 ReadBufferFrames{4};
+
 // The content type for a bundle file the build precompresses, or empty for anything
 // else. Empty means "no encoded variant to consider": the response falls through to
 // fromFile(), which determines the type itself.
@@ -1023,6 +1031,7 @@ void WebEdge::hostConnection(QWebSocket *socket)
     }
 
     WebSocketTransport *transport{new WebSocketTransport{socket, socket}};
+    transport->setReadBufferLimit(m_config.maxMessageBytes * ReadBufferFrames);
     transport->open(QIODevice::ReadWrite);
     node->addHostSideConnection(transport);
 }
