@@ -16,7 +16,7 @@ from pathlib import Path
 
 import yaml
 
-from synqt import appgen, check, clientbuild, doctor, newproject, presets, toolchain
+from synqt import check, clientbuild, doctor, maingen, newproject, presets, toolchain
 
 
 def _single():
@@ -105,7 +105,7 @@ class PresetTest(unittest.TestCase):
 class EdgeMainTest(unittest.TestCase):
     def _edge_main(self, config):
         edge = next(e for e in config["entities"] if e.get("capability") == "web_edge")
-        return appgen.render_edge_main(config, edge)
+        return maingen.render_edge_main(config, edge)
 
     def test_single_edge_leaves_isolation_off(self):
         self.assertIn("config.crossOriginIsolation = false;", self._edge_main(_single()))

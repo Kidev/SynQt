@@ -4,18 +4,10 @@
 
 """Write SynQt's loading page over a bare Qt WebAssembly build directory.
 
-`qt-cmake` generates a `<target>.html` from Qt's stock template: the Qt logo on the
-browser's default white. That page is fine for a Qt example and wrong for every page
-this project actually shows, so the raw WebAssembly spikes under `tests/` serve this
-instead. The markup and the CSS come from `synqt.appgen.render_client_shell`, the same
-renderer `synqt build` uses for a real app, so there is one loading page in the project
-and a change to its look cannot pass the browser tests while missing the product (or the
-other way round).
-
-Only the boot differs, and only because the product's boot has more to do: a real bundle
-is described by a `synqt-manifest.json` (byte counts for a true progress bar) and may be
-cached by a service worker, neither of which a spike build has. The boot written here is
-the same qtloader call with those two parts removed.
+The raw WebAssembly spikes under `tests/` use this instead of Qt's stock page. The markup
+and CSS come from `synqt.clientshell.render_client_shell`, the renderer `synqt build` uses.
+The boot is the same qtloader call without the manifest fetch and the service worker, which
+a spike build does not have.
 
     tools/wasm-shell.py --target m0-client --out build/m0-client
 """
@@ -29,12 +21,10 @@ from pathlib import Path
 _ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(_ROOT / "synqt"))
 
-from synqt import appgen  # noqa: E402  (after the path is set up)
+from synqt import clientshell  # noqa: E402  (after the path is set up)
 
-# Kept deliberately close to appgen's _BOOT_JS: same element ids, same qtLoad options,
-# same overlay handling. What is gone is the manifest fetch (the total comes from the
-# response's Content-Length here, since a spike is served uncompressed) and the service
-# worker registration.
+# Mirrors clientshell's _BOOT_JS (ids, qtLoad options, overlay), minus the manifest fetch
+# (the total comes from Content-Length) and the service worker.
 _SPIKE_BOOT_JS = """// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 // SPDX-License-Identifier: Apache-2.0
 
@@ -140,13 +130,11 @@ _SPIKE_BOOT_JS = """// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 
 def render(target: str, out_dir: Path) -> None:
     """Write index.html and synqt-boot.js for `target` into `out_dir`."""
-    # An empty config means every `build.loading` value falls back to its default, which
-    # is the point: this is what an app that has configured nothing looks like.
+    # An empty config: every `build.loading` value takes its default.
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "index.html").write_text(
-        appgen.render_client_shell("%s.js" % target, {}, out_dir), encoding="utf-8")
-    # Emscripten turns every dash in the target name into an underscore for the entry
-    # symbol (Qt's own generated page does the same).
+        clientshell.render_client_shell("%s.js" % target, {}, out_dir), encoding="utf-8")
+    # Emscripten turns dashes in the target name into underscores for the entry symbol.
     entry = "%s_entry" % target.replace("-", "_")
     (out_dir / "synqt-boot.js").write_text(
         _SPIKE_BOOT_JS.replace("TARGET", target).replace("ENTRY_FUNCTION", entry),

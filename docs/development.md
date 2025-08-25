@@ -68,10 +68,18 @@ browser.
   `newproject`, `build`, `run` (which covers `dev`, `serve`, and `test`), `check`,
   `doctor`, `clean`, `mesh`, and the `add` family (`addentity`, `addauth`, `addprovider`,
   `addcontract`). Supporting modules resolve and pin the toolchain (`toolchain`), generate
-  per entity CMake and mains from the topology (`appgen`), write per entity presets
+  the per entity CMake and mains from the topology (`appgen`), write per entity presets
   (`presets`), emit the per target license file (`licenses`), build the WebAssembly client
   (`clientbuild`), and write each service's `topology.json` (`topologywriter`). `cli.py`
   wires them to the argument parser.
+- Generation itself is split by what it emits, since the outputs share only the topology
+  they read: `appmodel` reads that topology (entities, connect points, scopes, routes,
+  views, the client's QML files) and refuses one it cannot read, `cmakegen` writes the
+  root `CMakeLists.txt`, `maingen` writes one `main.cpp` per entity, and `clientshell`
+  writes what the browser loads before the client does (`index.html`, `synqt-boot.js`,
+  the shell cache worker, the dev reload hook). `appgen` is the entry point that drives
+  them. `check` reads routes and views through `appmodel` too, so the check and the build
+  can never disagree about which file a route means.
 - [`tools/pygments-synqt`](https://github.com/Kidev/SynQt/tree/main/tools/pygments-synqt) is the Pygments lexer that colours SynQt flavoured QML in the
   documentation site, so a `Contract.onSignal` attached handler highlights the same way in
   the docs as it does in an editor.

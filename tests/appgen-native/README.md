@@ -25,7 +25,8 @@ It earned its place: the first time it ran it found three defects the string tes
    `QObject*` for `WebEdge::setContextObject` without including `<QQmlPropertyMap>`, so no
    mesh-consuming edge compiled.
 
-All three are fixed in `appgen.py` and pinned by new assertions in `test_tool.py`
+All three are fixed in the generator (`cmakegen.py` for the first, `maingen.py` for the other
+two) and pinned by new assertions in `test_tool.py`
 (`test_service_main_includes_qjsonobject_for_the_topology`,
 `test_root_cmake_guards_the_providers_subdirectory`, and the `<QQmlPropertyMap>` check in
 `test_edge_main_composes_entity_runtime_for_its_mesh_side`). This fixture is the end-to-end
