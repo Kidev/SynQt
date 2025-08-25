@@ -14,7 +14,11 @@ find_package(Qt6 6.11 REQUIRED COMPONENTS
     Core Network Qml RemoteObjects WebSockets HttpServer Test)
 qt_standard_project_setup()
 
-add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../../src/service" "${CMAKE_BINARY_DIR}/SynQtService")
+# Guarded: configured on its own, this suite is what pulls the runtime library in;
+# configured from the tree root, the root has already added it (see tests/CMakeLists.txt).
+if(NOT TARGET SynQtService)
+    add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../../src/service" "${CMAKE_BINARY_DIR}/SynQtService")
+endif()
 include("${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/SynQtContracts.cmake")
 
 set(M5_CERTS "${CMAKE_CURRENT_BINARY_DIR}/certs")

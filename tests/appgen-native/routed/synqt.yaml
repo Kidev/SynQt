@@ -19,6 +19,11 @@ scopes:
 build:
   # console.log reaches stderr, which is how the run below observes the router.
   client_logging: console
+  desktop:
+    # The run never reaches an edge (it renders each route offscreen and quits), but a
+    # desktop client has no served page to read its edge from, so `synqt check` requires
+    # one declared. A fixture that skipped it would be a project shape nobody can ship.
+    edge_url: wss://routed.synqt.test:9443/sync
 
 entities:
   - name: client

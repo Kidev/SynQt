@@ -3,16 +3,22 @@
 
 # Build and run the native C++ ctest suites (M1 through M9 plus the client-update,
 # consumer-facade, auction, arena, stall, provider, custom-provider, app-generator, desktop-client,
-# url-routing, and remote-pages fixtures). The suites list in the run step is the authority, and a
-# guard there fails the workflow if a runner on disk is missing from it. The pytest workflow covers
-# the pure-Python CLI and generator on all
-# three operating systems; this one covers the compiled framework, which needs the pinned Qt
-# 6.11.1 host kit and its add-on modules.
+# url-routing, and remote-pages fixtures) through tests/run-all.sh, the same command a developer
+# runs locally. The pytest workflow covers the pure-Python CLI and generator on all three
+# operating systems; this one covers the compiled framework, which needs the pinned Qt 6.11.1
+# host kit and its add-on modules.
 #
-# Two of these suites build what a tool emits rather than what the repository stores
+# This workflow keeps no list of suites. tests/CMakeLists.txt is the registry: it builds every
+# host-kit suite into one tree, names the few whose entry point is a generator rather than CMake,
+# and fails the configure step on a suite that is in neither group. A list a workflow keeps to
+# itself is a list that drifts, which is how tests/remote-pages reached 1849 lines and five
+# commits without CI ever running it.
+#
+# Three of these suites build what a tool emits rather than what the repository stores
 # (appgen-native compiles the generated entity mains, custom-provider compiles the scaffolded
-# provider skeletons). They are what catch a generator whose output no longer compiles, which
-# no test of the generated strings can.
+# provider skeletons, desktop-client packages the client QML as a native app). They are what
+# catch a generator whose output no longer compiles, which no test of the generated strings can,
+# and they are the three that run outside the shared tree.
 #
 # Qt comes from aqtinstall and is cached between runs, keyed on the operating system and the
 # module set. The desktop kit ships QtWebSockets, QtRemoteObjects, QtHttpServer, and QtNetworkAuth
@@ -319,103 +325,24 @@ jobs:
         env:
           QT_HOST: ${{ env.QT_ROOT }}/${{ env.QT_VERSION }}/${{ matrix.kit_dir }}
         run: |
-          # pipefail matters below: each suite is piped into tee to capture its log, and without
-          # it the `if` would test tee's exit status (always 0) and every failing suite would
-          # report PASS.
           set -u -o pipefail
-          suites="
-            tests/m1-contract/run-m1.sh
-            tests/m2-transport/run-m2.sh
-            tests/m3-mesh/run-m3.sh
-            tests/m4-topology/run-m4.sh
-            tests/m5-webedge/run-m5.sh
-            tests/m6-client/run-m6.sh
-            tests/m6-clientupdate/run-m6u.sh
-            tests/consumer-facade/run-consumer.sh
-            tests/m7-caller/run-m7.sh
-            tests/m8-auth/run-m8.sh
-            tests/m9-providers/run-m9.sh
-            tests/prov4-runtime/run-prov4.sh
-            tests/custom-provider/run-customprovider.sh
-            tests/fix1-auction/run-fix1.sh
-            tests/fix2-arena/run-fix2.sh
-            tests/fix3-stall/run-fix3.sh
-            tests/appgen-native/run-appgen-native.sh
-            tests/desktop-client/run-desktop-client.sh
-            tests/url-routing/run-urlrouting.sh
-            tests/remote-pages/run-remotepages.sh
-          "
-          # The list above is written out rather than globbed, because the order is the
-          # milestone order and a reviewer should be able to read what this workflow runs.
-          # The cost of that is drift: tests/remote-pages went 1849 lines and five commits
-          # without ever being named here, and nothing said so, because a hand-maintained
-          # list cannot report what is not in it. So compare it against what is on disk. A
-          # runner that belongs to another workflow's toolchain has no run-*.sh (m0-transport
-          # and wasm-quick3dphysics are driven from browser-matrix.yml and wasm-proofs.yml),
-          # which is why this glob is the right question to ask.
-          #
-          # Unquoted on purpose: word splitting collapses the list's newlines and indentation
-          # into single spaces, so the case below can match " $found " as a whole entry.
-          listed=" $(echo $suites) "
-          unlisted=""
-          for found in tests/*/run-*.sh; do
-            case "$listed" in
-              *" $found "*) ;;
-              *) unlisted="$unlisted $found" ;;
-            esac
-          done
-          if [ -n "$unlisted" ]; then
-            echo "::error::test suites exist but this workflow never runs them:$unlisted"
-            echo "add each to the suites list above (or delete the runner if it is dead)"
-            exit 1
-          fi
-
-          # m6-client's phases 2 and 3 need the WebAssembly kit and a browser, which this
-          # workflow does not install (browser-matrix.yml and wasm-proofs.yml own that
-          # toolchain). Pointing QT_WASM at a path that cannot exist makes the suite run its
-          # native half and announce the skip, rather than half-find a kit and fail obscurely.
-          export QT_WASM="$RUNNER_TEMP/no-wasm-kit-in-this-workflow"
 
           # Windows resolves a DLL through the executable's own directory and then PATH; it has
           # no RPATH, which is the only reason the other two columns need nothing here. A freshly
-          # linked tst_m1.exe sits in build/ and Qt6Core.dll sits in the kit's bin, so without
-          # this the loader finds nothing and the process dies before main(), and the runner
-          # blocks on the resulting error dialog instead of reporting it. That is exactly what
-          # happened: m1 printed "Start 1: m1" and hung for 78 minutes until the job was
+          # linked tst_m1.exe sits in the build tree and Qt6Core.dll sits in the kit's bin, so
+          # without this the loader finds nothing and the process dies before main(), and the
+          # runner blocks on the resulting error dialog instead of reporting it. That is exactly
+          # what happened: m1 printed "Start 1: m1" and hung for 78 minutes until the job was
           # cancelled, having compiled perfectly. The build itself was never affected because
           # linking reads the .lib import libraries, and repc.exe and qmlimportscanner.exe run
           # fine from inside the kit's bin, next to the DLLs they need.
           if [ "$RUNNER_OS" = "Windows" ]; then
             export PATH="$(cygpath -u "$QT_HOST")/bin:$PATH"
           fi
-          fail=0
-          failed=""
-          warned=""
-          for s in $suites; do
-            echo "::group::$s"
-            log="$RUNNER_TEMP/$(basename "$(dirname "$s")").log"
-            if bash "$s" 2>&1 | tee "$log"; then
-              echo "PASS $s"
-            else
-              echo "FAIL $s"
-              fail=1
-              failed="$failed $s"
-            fi
-            # A warning is a defect here, not decoration: the two this gate was built for were a
-            # real incomplete-linking report (SynQt libraries publicly link Qt modules that the
-            # consumer's scope could not resolve) and a Qt module missing from the kit. Both had
-            # been scrolling past in green builds for as long as the workflow has existed.
-            if grep -q "CMake Warning" "$log"; then
-              echo "::warning::$s produced CMake warnings"
-              warned="$warned $s"
-            fi
-            echo "::endgroup::"
-          done
-          if [ -n "$warned" ]; then
-            echo "::error::suites with CMake warnings:$warned"
-            fail=1
-          fi
-          if [ -n "$failed" ]; then
-            echo "::error::failing suites:$failed"
-          fi
-          exit "$fail"
+
+          # One tree, one ctest, then the suites whose entry point is a generator rather than
+          # CMake. tests/run-all.sh is the same command a developer runs locally, and
+          # tests/CMakeLists.txt is the registry it reads: a suite that is neither built nor
+          # explicitly accounted for fails the configure step, so this workflow no longer needs
+          # a list of its own to drift from. A CMake warning fails the run there too.
+          bash tests/run-all.sh

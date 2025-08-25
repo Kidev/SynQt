@@ -54,6 +54,11 @@ echo "== [1/4] Materialize gavel, mark the client a desktop target, run the tool
 rm -rf "$WORK"
 mkdir -p "$WORK"
 cp -r "$REPO_ROOT/examples/gavel" "$SRC"
+# The example is a working directory for whoever has run `synqt build` in it, and those
+# leftovers are gitignored, so a fresh clone never has them and a developer's checkout
+# does. Copying them in points the `host` preset at a CMakeCache built for another source
+# tree, which CMake refuses. Take the tracked sources, not the state.
+rm -rf "$SRC/build" "$SRC/CMakeUserPresets.json"
 
 PYTHONPATH="$REPO_ROOT/tools/synqt" python3 - "$SRC" "$REPO_ROOT" "$EDGE_URL" <<'PY'
 import sys
