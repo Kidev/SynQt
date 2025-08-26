@@ -57,3 +57,10 @@ target_link_libraries(tst_m8 PRIVATE
 )
 
 add_test(NAME m8 COMMAND tst_m8)
+
+# The env file behind every `env:` reference: it is what turns the NAME of a secret in
+# synqt.yaml into its value at startup, so its precedence rules are part of the security
+# story rather than a convenience. No contract, no certificates, no network.
+qt_add_executable(tst_envfile tst_envfile.cpp)
+target_link_libraries(tst_envfile PRIVATE SynQtService Qt6::Core Qt6::Test)
+add_test(NAME envfile COMMAND tst_envfile)

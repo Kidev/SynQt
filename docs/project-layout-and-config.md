@@ -85,8 +85,13 @@ A few conventions hold throughout the file:
   contains YAML significant characters; the examples quote values such as URLs and
   CSP strings where quoting aids readability, and leave the rest bare.
 - **Secrets are never literals here.** Any value that carries a credential is an
-  `env:` reference (for example `env:DB_PASSWORD`) resolved from the owning entity's
-  `.env` at run time, never written into `synqt.yaml`. Validation enforces this.
+  `env:` reference (for example `env:DB_PASSWORD`), never written into `synqt.yaml`.
+  Validation enforces this. The name is answered when the entity starts, from its own
+  environment: the entity's env file (`web/.env` for an entity in `web/`, or wherever
+  `env: {file: ...}` points) and then the project `.env`, most specific first, with
+  neither able to overwrite a variable the real environment already set. That last rule
+  is what lets an entity be deployed with a container secret, a systemd unit or a CI
+  secret store and no file on disk at all.
 - **Comments** use `#`, and are used liberally in the scaffolded file to explain
   each default in place.
 
@@ -184,6 +189,9 @@ side, the mesh (service to service) side, the public TLS, and its env file:
     kind: service
     path: web
     capability: web_edge      # serves a client bundle and faces the internet
+    identity: true            # serve the login routes here (the default wherever
+                              # the project declares an `identity` section; set it
+                              # to false on an edge that must not sign anyone in)
 
     public:                   # the internet facing side (delivery + browser wss)
       host: 0.0.0.0           # default: all interfaces; the only public bind in the system
@@ -356,21 +364,31 @@ security:
   allowed_origins: [self]
 
   # How the browser presents its session credential at the wss upgrade.
-  # "cookie" (httpOnly, recommended, ideal for same_origin) or "subprotocol".
+  # "cookie" is the httpOnly session cookie, and the only transport version 1
+  # implements; a subprotocol token is not built on either side of the link, and
+  # `synqt check` refuses the word rather than letting an edge accept it and keep
+  # reading the cookie.
   session_transport: cookie
 
   handshake_timeout_ms: 10000
   max_connections_per_ip: 20
+  max_connections_global: 1000
   # Reject oversized frames (DoS guard). Also sets how much one connection may hold
   # unread: the edge caps each browser socket's read buffer at four times this, and
   # closes a connection that goes past it.
   max_message_bytes: 1048576
 ```
 
+Every key here is carried into the edge by `synqt build`, and only the keys the
+project writes: what a project leaves out keeps the framework default, which is the
+safe one. The limits are whole numbers, and a limit of zero is refused rather than
+read as "no limit" (the caps are compared with `>=`, so zero would refuse the first
+connection).
+
 When `origin_model: split_origin`, the scaffold pre fills `allowed_origins` with
-the client origin and notes that cookie transport then needs `SameSite=None;
-Secure`, or that `session_transport` should be `subprotocol`. The origin check
-remains the anti hijacking control in both models.
+the client origin. The session cookie is then issued `SameSite=None; Secure`, which
+the edge derives from `origin_model` itself rather than from a second key that could
+disagree with it. The origin check remains the anti hijacking control in both models.
 
 ### `mesh` (service to service security)
 
@@ -409,7 +427,8 @@ identity:
                                   # no scoped connect point at all
   provider_entity: ""             # empty: identity handled in process at the edge (default)
                                   # or an entity name: a dedicated auth entity owns identity
-  flow: authorization_code        # server side OAuth2 with PKCE (on by default)
+  flow: authorization_code        # server side OAuth2 with PKCE, and the only flow
+                                  # version 1 implements; anything else is refused
   callback: /auth/callback
   login: /auth/login
   logout: /auth/logout
@@ -425,13 +444,32 @@ identity:
 
   session:
     cookie_name: synqt_session
-    same_site: lax                # lax for same_origin; none for split_origin
     ttl_minutes: 720
-    rotate: true                  # rotate the session id on privilege change
 
   mapping:
     hook: web/identity/map.qml    # optional QML returning a scope for an identity
 ```
+
+A provider named `github` or `google` may be written as just a name, a `client_id`
+and a `client_secret`: the endpoints, scopes and field mapping `synqt add auth`
+would have written are filled in underneath whatever the project spells out. Any
+other name needs its endpoints written, because there is nothing to fill in.
+
+`mapping` accepts either the nested `hook:` above or the file directly
+(`mapping: web/identity/map.qml`); both name the same QML.
+
+Two things once listed here are not settings, because they are not optional and a
+key that could contradict them would be a way to get them wrong. The session cookie's
+`SameSite` follows [`project.origin_model`](#project) (`Lax` for `same_origin`,
+`None; Secure` for `split_origin`), and the session id always rotates on a privilege
+change.
+
+The client secret is a name, never a value: it is read from the entity's environment
+when the edge starts, so it is in neither `synqt.yaml` nor the binary. Names are
+answered from the entity's own env file (`web/.env`) and then the project `.env`, and
+neither file overwrites a variable the real environment already set, so a container or
+secret store always outranks a file on disk. A deployment that sets its variables
+directly needs no file at all.
 
 ### `router` and `routes` (client navigation)
 
@@ -790,7 +828,18 @@ fast. Non negotiable checks:
   and `synqt check` flags every local link with a note that the calling entity is
   trusted by colocation on it, not authenticated by certificate.
 - An identity provider missing a required `client_secret` is rejected before the
-  edge starts, not at first login.
+  edge starts, not at first login. A literal one is rejected too: it must be an
+  `env:` reference, so the value stays out of `synqt.yaml` and out of the binary.
+- `scopes.default` must be one of `scopes.order`, or every new session would begin
+  holding a scope that satisfies no check at all.
+- A `security` limit (`handshake_timeout_ms`, the two connection caps,
+  `max_message_bytes`) that is not a whole number is rejected, and so is one that is
+  zero or less: the caps are compared with `>=`, so a cap of zero reads like "no
+  limit" and refuses the first connection.
+- `security.session_transport` and `identity.flow` are rejected unless they name
+  something this version implements (`cookie` and `authorization_code`). A setting
+  the edge cannot honor is refused rather than dropped, because an edge that quietly
+  runs a different one is indistinguishable from an edge that runs the one asked for.
 - A provider whose `name` is not available for the entity's `blueprint` family is
   rejected, naming the providers that are. A `custom:<Name>` is checked for shape
   only, since what an entity registers is known when it starts, not when it is

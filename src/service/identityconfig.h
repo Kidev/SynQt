@@ -52,7 +52,10 @@ struct IdentityProviderConfig
 struct IdentityConfig
 {
     bool enabled{false};
-    bool required{false};          ///< an unauthenticated browser cannot acquire scoped CPs
+    /// Whether an unauthenticated browser is refused at the upgrade is
+    /// `WebEdgeConfig::identityRequired`, which is where the check that reads it lives.
+    /// It is deliberately not repeated here: two fields for one decision is a way for the
+    /// generated edge to set the one nothing reads.
     QString providerEntity;        ///< empty: in-process at the edge
 
     QString loginRoute{QStringLiteral("/auth/login")};

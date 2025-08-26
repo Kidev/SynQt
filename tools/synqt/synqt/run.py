@@ -121,13 +121,18 @@ def serve(project_dir: os.PathLike[str] | str, *, profile: Optional[str] = None)
     env = launch_env(root)
     for name in order:
         # Ask for the deployed binary by name and let the suffix be resolved, rather than
-        # naming build/<entity>/<entity> directly: only Windows adds .exe, and looking for the
+        # naming build/<entity>/<entity> directly. Only Windows adds .exe, and looking for the
         # bare name there reports every entity of a perfectly good build as unbuilt.
         binary = _deployed_binary(root, name)
         if binary is None:
             missing.append(name)
             continue
-        subprocess.Popen([str(binary)], cwd=str(binary.parent), env=env)
+        # From the project root, like `synqt dev`, because every relative default a
+        # generated main carries is project-root relative. The bundle (build/client), the
+        # entity's topology (build/<entity>/topology.json), the public certificate and the
+        # env file, all spelled the way synqt.yaml spells them. Run from the deploy
+        # directory instead and the edge looks for the bundle under build/<entity>/.
+        subprocess.Popen([str(binary)], cwd=str(root), env=env)
         launched.append(name)
 
     if missing:

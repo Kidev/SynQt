@@ -76,6 +76,8 @@ qt_add_library(SynQtService STATIC
     connectpointhost.h
     entityruntime.cpp
     entityruntime.h
+    envfile.cpp
+    envfile.h
     sessionmanager.cpp
     sessionmanager.h
     caller.cpp

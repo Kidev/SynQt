@@ -86,8 +86,8 @@ a socket exists. The verifier, in order, rejecting on first failure:
    expands to the edge origin). A browser cannot forge Origin, so this is the
    primary defense against cross site WebSocket hijacking, and Qt's own guidance is
    that a browser facing server should validate the origin.
-2. Session credential check. The session cookie (or subprotocol token) must map to
-   a live, unexpired session.
+2. Session credential check. The session cookie must map to a live, unexpired
+   session.
 3. Scope precondition. If `identity.required`, an anonymous connection is rejected
    here, before any object exists.
 4. Rate and resource checks. Per IP and global connection caps.
@@ -103,9 +103,9 @@ relaxation to get wrong. This is the recommended deployment.
 
 Split origin (CDN). With `origin_model: split_origin`, the client is served
 from a different origin than the sync endpoint. Then `allowed_origins` must list
-the client origin explicitly, and either the session cookie becomes `SameSite=None;
-Secure` or `session_transport` switches to a subprotocol token the client obtained
-from the edge. The origin check remains the anti hijacking control. Widening
+the client origin explicitly, and the session cookie is issued `SameSite=None;
+Secure` (the edge derives that from `origin_model`, so there is no second setting
+to get out of step). The origin check remains the anti hijacking control. Widening
 allowed origins is a deliberate, reviewed act, not a default. A reverse proxy that
 fronts both the bundle and the sync path under one hostname gives CDN performance
 while keeping a single origin, and is the recommended way to get both.

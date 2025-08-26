@@ -24,6 +24,13 @@ cert generated at configure time, then `ctest`).
 The third hands-on check (client-as-consumer of the database `scores` fails `synqt check`) is
 in `tools/synqt/tests/test_examples.py`.
 
+Check 2 asserts the *runtime* half: this fixture sets `arena.scope` on the
+`WebEdgeConnectPoint` itself, which is what a hand-written edge does. The other half is that
+`synqt build` carries the declared `scope:` from `synqt.yaml` into the generated edge, and
+for a while it did not: the gate was real in the runtime and absent in every generated app.
+That half is pinned in `tools/synqt/tests/test_edge_policy.py`, and the two together are the
+whole check.
+
 This fixture also exercises two framework details the tutorials rely on: a generated Source
 now accepts non-visual QML children (the publish `Timer` inside `web/Arena.qml`), and the
 shared `World` is reached by name because it is a registered QML singleton type (not a

@@ -80,6 +80,12 @@ browser.
   the shell cache worker, the dev reload hook). `appgen` is the entry point that drives
   them. `check` reads routes and views through `appmodel` too, so the check and the build
   can never disagree about which file a route means.
+- The edge's browser-facing policy (the `security` block, `project.origin_model`, the
+  starting scope, the public bind and TLS, the `identity` block, and each connect point's
+  `scope`) is read by `appmodel` and emitted by `maingen` as one assignment per key the
+  project actually declared. Nothing declared gets a line, so the defaults stay where they
+  belong, in `WebEdgeConfig` and `IdentityConfig`, rather than being copied into Python
+  where they could drift out of step with the structs they fill.
 - [`tools/pygments-synqt`](https://github.com/Kidev/SynQt/tree/main/tools/pygments-synqt) is the Pygments lexer that colours SynQt flavoured QML in the
   documentation site, so a `Contract.onSignal` attached handler highlights the same way in
   the docs as it does in an editor.
