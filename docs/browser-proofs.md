@@ -25,6 +25,10 @@ harness probes for the engine, drives it when it launches, and skips it with a m
 when it is absent, so installing the engine is the only step needed to cover that column.
 `not targeted` means the proof is about something other than engine differences.
 
+The columns describe the harness, not continuous integration. WebKit is `opt in` because a
+developer machine may not have its runtime, and it is installed and driven on every
+scheduled run of [`browser-matrix.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/browser-matrix.yml) below, on Ubuntu and on macOS.
+
 WebKit is Safari's engine, and the closest stand in for Safari on a Linux or CI host.
 It answers the engine question; the last mile (Safari's own TLS stack and WebGL
 behavior) needs a run on macOS.
@@ -63,17 +67,24 @@ tests/m0-transport/verify/run-m0.sh    # the WebKit cases now run too
 
 ## In continuous integration
 
-[`browser-matrix.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/browser-matrix.yml) runs the transport harness across Chromium, Firefox, and WebKit.
+[`browser-matrix.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/browser-matrix.yml) runs the transport harness across Chromium, Firefox, and WebKit,
+weekly and on dispatch, on Ubuntu and on macOS. Weekly, because this is the only harness
+whose result depends on software that is not in this repository: the spike it drives is
+stable, and the browser engines are not. The harness floats Playwright, so each run
+resolves the engine builds that are current that day and prints their versions in its log,
+which is what makes a green run comparable to the next one.
+
 [`wasm-proofs.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/wasm-proofs.yml) runs the proofs that need a WebAssembly kit no other workflow
 installs: the multi threaded SharedArrayBuffer proof, Qt Quick 3D Physics on both kits,
-and a real `synqt build` of the arena client bundle. Both build a Qt module from source
-for the WebAssembly kit, which ships no QtRemoteObjects, so both are dispatched manually
-and on changes to what they cover rather than on every push.
+and a real `synqt build` of the arena client bundle. It is dispatched manually and on
+changes to what it covers. Both workflows build a Qt module from source for the
+WebAssembly kit, which ships no QtRemoteObjects, so neither runs on every push.
 
 ## Known limits
 
-- Safari itself runs only on macOS. WebKit covers the engine; a macOS pass covers
-  Safari's own specifics.
+- Safari itself is not driven anywhere. The weekly matrix runs WebKit on macOS, which
+  covers the engine on Safari's own platform, but Safari.app has its own TLS stack and
+  WebGL behavior and would need `safaridriver --enable` on a macOS runner to drive.
 - Sustained load and interactive sessions (the multi player capstone load test and the
   client frame time benchmark) need a normal host with a display, not a headless CI
   runner. [`benchmarks/README.md`](https://github.com/Kidev/SynQt/blob/main/benchmarks/README.md) marks which harnesses those are.
