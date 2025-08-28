@@ -29,6 +29,8 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List
 
+from . import appmodel
+
 # Mesh links start here and count up by sorted connect-point position. Well clear of the
 # edge's public/dev ports (8080/8443) and the usual engine ports (5432/3306/6379).
 MESH_PORT_BASE = 9440
@@ -230,6 +232,10 @@ def write(project_dir: os.PathLike[str] | str, config: Dict[str, Any]) -> List[s
     that reaches services over the mesh (its consumed side only). Returns the paths written
     (project-relative), so a connect-point change reflects in the wiring before launch."""
     root = Path(project_dir)
+    # The links `identity.provider_entity` implies are resolved like any other, so the auth
+    # entity listens where its edges dial and `synqt check` holds them to the same mesh
+    # rules. See appmodel.with_auth_connect_points.
+    config = appmodel.with_auth_connect_points(config)
     project_name = config.get("project", {}).get("name", "app")
     endpoints = resolve_endpoints(config, project_name)
     written: List[str] = []

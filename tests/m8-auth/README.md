@@ -41,6 +41,25 @@ browser only ever ends with an httpOnly session cookie.
 5. **devStubRefusedWithoutGate**: with the dev gate off, the dev stub provider is refused
    (403).
 
+## The promoted auth entity (`identity.provider_entity`)
+
+`providerEntityCentralizedLogin` and `providerEntityDistributedSessions` cover the shape
+where identity is not on the edge: an auth entity owns an `identity` and a `sessions`
+connect point (both `per_peer`, both over mutual TLS), each edge consumes them, and the
+edge holds no OAuth backend, no secret and no token; it only issues the session cookie.
+
+Those two connect points are framework contracts, not app contracts. They live in
+`src/service/contracts/{Identity,Session}.syn` and compile into `SynQtService`, which is
+what lets `identity.provider_entity: auth` be a single line in a project's `synqt.yaml`:
+the generated auth `main.cpp` registers the Sources out of the runtime library, and no app
+carries a `shared/Identity.syn`. This suite hosts them exactly as that generated main does.
+
+`auth/Identity.qml` and `auth/Session.qml` are the generator's own output, checked in here
+as the fixture. `tools/synqt/synqt/authentity.py` emits them and
+`tools/synqt/tests/test_provider_entity.py` compares the two, so the bridge that is proven
+over a real mesh link and the bridge a project gets cannot drift apart. Edit the generator,
+not these files.
+
 `synqt add auth` is tested in `tools/synqt/tests/test_addauth.py`: the scaffolded config is
 secure with no manual hardening (Authorization Code, the secret as an `env:` reference and a
 `.env.example` entry, the httpOnly/SameSite session cookie, the mapping hook), and it prints

@@ -34,12 +34,11 @@ endif()
 enable_testing()
 
 qt_add_executable(tst_m8 tst_m8.cpp)
-# The auth entity hosts the Session Source; the edges consume it as a dynamic Replica over
-# the mesh, so only the Source side is generated.
-synqt_add_contract(tst_m8 ROLE source SYN "${CMAKE_CURRENT_SOURCE_DIR}/shared/Session.syn")
-# The auth entity hosts the Identity Source (the centralized OAuth engine); the edges
-# consume it as a dynamic Replica over the mesh, so only the Source side is generated.
-synqt_add_contract(tst_m8 ROLE source SYN "${CMAKE_CURRENT_SOURCE_DIR}/shared/Identity.syn")
+# The Identity and Session Sources this suite hosts come from SynQtService: they are
+# framework contracts (src/service/contracts/), owned by the auth entity that
+# `identity.provider_entity` names, so the library carries them and the generated auth main
+# needs no app contract. This suite hosts them exactly as that generated main does, which is
+# what makes it the runtime proof behind the generator.
 target_compile_definitions(tst_m8 PRIVATE
     M8_SRCDIR="${CMAKE_CURRENT_SOURCE_DIR}"
     M8_CERT_DIR="${M8_CERTS}")

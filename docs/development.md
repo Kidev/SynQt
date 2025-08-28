@@ -75,11 +75,21 @@ browser.
 - Generation itself is split by what it emits, since the outputs share only the topology
   they read: `appmodel` reads that topology (entities, connect points, scopes, routes,
   views, the client's QML files) and refuses one it cannot read, `cmakegen` writes the
-  root `CMakeLists.txt`, `maingen` writes one `main.cpp` per entity, and `clientshell`
+  root `CMakeLists.txt`, `maingen` writes one `main.cpp` per entity, `clientshell`
   writes what the browser loads before the client does (`index.html`, `synqt-boot.js`,
-  the shell cache worker, the dev reload hook). `appgen` is the entry point that drives
-  them. `check` reads routes and views through `appmodel` too, so the check and the build
-  can never disagree about which file a route means.
+  the shell cache worker, the dev reload hook), and `authentity` writes the Source QML an
+  auth entity needs when `identity.provider_entity` promotes identity off the edge.
+  `appgen` is the entry point that drives them. `check` reads routes and views through
+  `appmodel` too, so the check and the build can never disagree about which file a route
+  means.
+- Two mesh connect points exist that no `synqt.yaml` declares: the `identity` and
+  `sessions` links `identity.provider_entity` implies. `appmodel.with_auth_connect_points`
+  appends them once at each entry point that reads the whole topology (generation, the
+  topology writer, validation), so the auth entity hosts them, each edge opens the consumer
+  link, and `synqt check` holds both to the same mesh rules as any declared link. Their
+  contracts live in `src/service/contracts/` and compile into `SynQtService`, which is why
+  they are marked `framework` and filtered back out wherever an app side
+  `shared/<Contract>.syn` would otherwise be reached for.
 - The edge's browser-facing policy (the `security` block, `project.origin_model`, the
   starting scope, the public bind and TLS, the `identity` block, and each connect point's
   `scope`) is read by `appmodel` and emitted by `maingen` as one assignment per key the

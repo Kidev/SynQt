@@ -160,6 +160,11 @@ QString EntityRuntime::errorString() const
     return m_errorString;
 }
 
+void EntityRuntime::setContextObject(const QString &name, QObject *object)
+{
+    m_entityContext.insert(name, object);
+}
+
 QList<ConnectPointHost *> EntityRuntime::ownedHosts() const
 {
     return m_ownedHosts;
@@ -206,6 +211,9 @@ bool EntityRuntime::start()
         for (auto it{m_blueprintContext.constBegin()}; it != m_blueprintContext.constEnd(); ++it) {
             host->setContextObject(it.key(), it.value());
         }
+        for (auto it{m_entityContext.constBegin()}; it != m_entityContext.constEnd(); ++it) {
+            host->setContextObject(it.key(), it.value());
+        }
         connect(host, &ConnectPointHost::connectionRefused, this,
                 [this, name = connectPoint.name](const QString &entity) {
                     emit connectionRefused(name, entity);
@@ -239,6 +247,16 @@ void EntityRuntime::openConsumerLink(const ConnectPointConfig &connectPoint)
                 const QString key{connectPoint.owner + QLatin1Char('/') + connectPoint.name};
                 m_consumedReplicas.insert(key, replica);
                 QQmlPropertyMap *map{accessorFor(accessorName(connectPoint.owner))};
+
+                // Announce the Replica once it can actually be connected to. A dynamic
+                // Replica has no signals or slots until it is initialized, so C++ that
+                // adopts one (the edge's IdentityProvider and SessionManager) has to wait
+                // for this rather than for the transport.
+                connect(replica, &QRemoteObjectDynamicReplica::initialized, this,
+                        [this, connectPoint, replica]() {
+                            emit consumedReplicaReady(connectPoint.owner, connectPoint.name,
+                                                      replica);
+                        });
 
                 // Expose the consumer facade (<Owner>.<name>) when the contract's consumer
                 // surface is registered, so a service reaches another entity through the

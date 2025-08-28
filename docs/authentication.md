@@ -198,9 +198,12 @@ and the two customizations either side of it.
   (`identity.session.ttl_minutes`).
 - Rotation. The session id is rotated when privilege changes (for example after a
   scope upgrade), preventing session fixation.
-- Refresh. When the provider issues a refresh token, the edge refreshes the access
-  token server side without involving the browser. Qt Network Authorization can
-  signal an approaching expiry and refresh automatically.
+- Refresh. When the provider issues a refresh token, the access token is renewed
+  server side without involving the browser, by whichever entity holds the tokens (the
+  edge, or the auth entity when `provider_entity` is set). Every
+  `identity.refresh.interval_seconds` (60 by default) it renews anything within
+  `identity.refresh.margin_seconds` (120) of expiring. Widen the margin for a provider
+  that issues short lived tokens; a non-positive interval turns the sweep off.
 - Expiry and revocation. A session expires at its TTL or can be revoked (logout, or
   an administrative action). A revoked or expired session fails the upgrade
   verifier; the client moves to `denied` and routes back to login rather than
@@ -222,6 +225,34 @@ state behind one internal service, and keeps the secrets in one place. The user
 facing flow is unchanged; only where the session state lives moves. Promoting to an
 auth entity is a configuration change, not a rewrite, because the edge already
 talks to identity through a connect point boundary.
+
+It is also literally one line, because everything the line implies is generated. Declare
+the entity, name it, and `synqt build` writes the two connect points (`identity` and
+`sessions`, `per_peer` so one edge's answer never reaches another), the Source QML that
+bridges each to its engine, and the entity's `main.cpp` holding the OAuth engine and the
+authoritative session store. Their contracts ship in the runtime library, so no project
+carries a `shared/Identity.syn` and none has to.
+
+```yaml
+entities:
+  - name: auth          # an ordinary service entity; it declares no connect points
+    kind: service
+
+identity:
+  provider_entity: auth
+  providers:
+    - name: github
+      client_id: your-client-id
+      client_secret: env:GITHUB_CLIENT_SECRET   # now the AUTH entity's .env, not the edge's
+```
+
+What moves is worth being precise about, because it is the reason to do this at all. The
+promoted edge is given provider *names* and nothing else: no client id, no provider
+endpoint, no client secret, and no token. It keeps the browser facing half (the login and
+callback routes, the origin and session checks, the cookie) and asks the auth entity over
+the mesh for every step that needs a secret. The scope mapping hook stays on the edge too:
+the auth entity establishes who someone is, and each edge decides what that means in its
+own system.
 
 ## What the developer is responsible for
 

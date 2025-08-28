@@ -1,0 +1,9 @@
+// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+// SPDX-License-Identifier: Apache-2.0
+
+// One ordinary browser-facing contract, so this fixture's edge is a real edge and its
+// generated CMake still resolves an app contract out of shared/. The promotion under test
+// is about the identity and sessions links, which no synqt.yaml declares.
+contract Greeting {
+    prop string message
+}
