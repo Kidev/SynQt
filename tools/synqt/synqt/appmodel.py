@@ -205,10 +205,21 @@ def default_scope(config: Dict[str, Any]) -> str:
 
 
 # The session credential the browser presents at the wss upgrade. Only the cookie is
-# implemented: the edge's verifier reads the Cookie header and nothing else, and neither
-# `SynClient` nor `WebEdge` speaks `Sec-WebSocket-Protocol`. Accepting the word here would
-# generate an edge that ignores it and keeps authenticating by cookie, which is the exact
-# failure mode this module exists to prevent, so it is refused instead of dropped.
+# implemented, and a subprotocol token is not a thing left to do: Qt 6.11 cannot answer the
+# handshake it would need.
+#
+# Carrying the session in `Sec-WebSocket-Protocol` requires the server to select one of the
+# offered subprotocols and echo it in the 101 response. On the QHttpServer upgrade path there
+# is no way to say which: `QHttpServerWebSocketUpgradeResponse::accept()` takes no arguments,
+# and the `QWebSocketServer` that writes the response is held in `QAbstractHttpServerPrivate`,
+# so `setSupportedSubprotocols()` cannot be reached. The upgrade then completes with nothing
+# negotiated, and the browsers disagree about what that means: Chromium 149 closes it (1006,
+# "Sent non-empty 'Sec-WebSocket-Protocol' header but no response was received") while
+# Firefox 151 opens it anyway.
+#
+# Both halves are measured, not assumed:
+# `tests/m5-webedge/tst_m5.cpp::theUpgradePathCannotNegotiateASubprotocol` pins the Qt half
+# and fails the day a Qt release makes this buildable.
 SESSION_TRANSPORTS = ("cookie",)
 
 
@@ -226,8 +237,10 @@ def session_transport(config: Dict[str, Any]) -> str:
         raise AppGenError(
             f"security.session_transport: {transport!r} is not supported; this version "
             "carries the session in the httpOnly cookie ('cookie'). A subprotocol token "
-            "is not implemented on either side of the link, so generating it would "
-            "produce an edge that authenticates by cookie anyway.")
+            "cannot be built on Qt 6.11: the edge's upgrade verifier has no way to select "
+            "the subprotocol it must echo, so Chromium refuses the handshake outright. "
+            "A native client that already holds a session presents it on the handshake "
+            "instead (SynClientConfig::sessionCookie).")
     return transport
 
 

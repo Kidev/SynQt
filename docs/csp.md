@@ -106,9 +106,9 @@ pairing. In this mode every subresource must be same-origin or carry
   TLS).
 - **`split_origin`**: the client is served from a different origin than the sync endpoint
   (a CDN, say). `allowed_origins` must then list the client origin explicitly, and the
-  session cookie is `SameSite=None; Secure` (or the subprotocol token when
-  `session_transport: subprotocol`). The origin check at the wss upgrade (not the CSP) is
-  the anti-CSWSH control in both models; the CSP `connect-src` still names the sync origin.
+  session cookie is `SameSite=None; Secure`. The origin check at the wss upgrade (not the
+  CSP) is the anti-CSWSH control in both models; the CSP `connect-src` still names the sync
+  origin.
 
 ## Widening the policy safely
 
