@@ -106,7 +106,15 @@ from a different origin than the sync endpoint. Then `allowed_origins` must list
 the client origin explicitly, and the session cookie is issued `SameSite=None;
 Secure` (the edge derives that from `origin_model`, so there is no second setting
 to get out of step). The origin check remains the anti hijacking control. Widening
-allowed origins is a deliberate, reviewed act, not a default. A reverse proxy that
+allowed origins is a deliberate, reviewed act, not a default.
+
+A browser arriving from a CDN has never made a request to the edge, so it has no session
+to present at the upgrade. The edge answers that with one narrow endpoint: `client_route`
+returns `204` and the session cookie to a credentialed cross origin fetch, and echoes back
+the requesting origin only when it is already an allowed origin, never a wildcard. It hands
+out nothing else. This is the only cross origin relaxation in the system, it exists solely
+because the credential has to start somewhere, and it is off entirely unless
+`public.serve_client: false` says a CDN is delivering the app. A reverse proxy that
 fronts both the bundle and the sync path under one hostname gives CDN performance
 while keeping a single origin, and is the recommended way to get both.
 

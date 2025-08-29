@@ -96,6 +96,14 @@ private:
     /// The bundle-document headers the shell shares with the client route: the session
     /// cookie the client presents at the wss upgrade, and index.html's cache terms.
     void stampShell(QHttpServerResponse &response);
+    /// Register everything that delivers the client bundle: the asset route and the
+    /// application-shell fallback. Called only when this edge is the app's origin
+    /// (`public.serve_client`), so a CDN-delivered app leaves the edge serving no files.
+    void registerBundleRoutes();
+    /// The answer to a cross-origin credential request: a session cookie and nothing else.
+    /// It is what lets a browser that loaded the app from a CDN reach the wss upgrade with
+    /// a credential, since the upgrade refuses a request that carries none.
+    QHttpServerResponse credentialResponse(const QHttpServerRequest &request);
     QStringList expandedAllowedOrigins() const;
     QByteArray issueSessionCookie();
     QByteArray sessionIdFromCookie(const QByteArray &cookieHeader) const;

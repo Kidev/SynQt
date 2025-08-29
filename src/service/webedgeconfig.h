@@ -66,6 +66,17 @@ struct WebEdgeConfig
     QString certFile;
     QString keyFile;
 
+    /// Whether this edge delivers the client bundle, or only the sync endpoint and the
+    /// login routes while a CDN delivers the bundle from another origin
+    /// (`public.serve_client: false`, which only makes sense with
+    /// `project.origin_model: split_origin`).
+    ///
+    /// It is not only a matter of which routes exist. A browser loading the app from a CDN
+    /// never touches this origin before the upgrade, so it would arrive with no session and
+    /// be refused; `clientRoute` therefore stays registered as a credential endpoint that
+    /// mints the session and answers the cross-origin fetch that asks for it.
+    bool serveClient{true};
+
     /// Origin and session model.
     QString originModel{QStringLiteral("same_origin")};
     QStringList allowedOrigins{QStringLiteral("self")};
