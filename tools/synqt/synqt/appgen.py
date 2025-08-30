@@ -32,12 +32,19 @@ import os
 from pathlib import Path
 from typing import Any, Dict, List
 
-from . import appmodel, authentity, cmakegen, maingen
+from . import appmodel, authentity, cmakegen, maingen, writer
 
 
 def generate(project_dir: os.PathLike[str] | str, config: Dict[str, Any], *,
              synqt_root: os.PathLike[str] | str | None = None) -> List[str]:
-    """Write the root CMakeLists and one main.cpp per entity. Returns the paths written."""
+    """Write the root CMakeLists and one main.cpp per entity.
+
+    Returns every path this generator owns, whether or not this run had to touch it: each
+    file is written only when its content changed (see :mod:`synqt.writer`), so the return
+    describes the app's generated surface rather than what the filesystem did. That
+    distinction is the point; a caller wanting the second one would be asking the wrong
+    question, since an unchanged file is exactly what makes a rebuild free.
+    """
     root = Path(project_dir)
     synqt_root = Path(synqt_root) if synqt_root else appmodel.framework_root()
     # `identity.provider_entity` implies two mesh links (the auth entity owns identity and
@@ -47,7 +54,8 @@ def generate(project_dir: os.PathLike[str] | str, config: Dict[str, Any], *,
     written: List[str] = []
 
     cmake_path = root / "CMakeLists.txt"
-    cmake_path.write_text(cmakegen.render_root_cmakelists(config, synqt_root, root))
+    writer.write_if_changed(cmake_path,
+                            cmakegen.render_root_cmakelists(config, synqt_root, root))
     written.append("CMakeLists.txt")
 
     for entity in appmodel.entities(config):
@@ -67,7 +75,7 @@ def generate(project_dir: os.PathLike[str] | str, config: Dict[str, Any], *,
             source = maingen.render_edge_main(config, entity, singletons)
         else:
             source = maingen.render_service_main(config, entity, singletons)
-        (entity_dir / "main.cpp").write_text(source)
+        writer.write_if_changed(entity_dir / "main.cpp", source)
         written.append(f"{name}/main.cpp")
 
         # The auth entity's Sources: one bridge per framework connect point it owns, from
@@ -78,7 +86,7 @@ def generate(project_dir: os.PathLike[str] | str, config: Dict[str, Any], *,
                 continue
             relative = connect_point.get("server")
             source_qml = authentity.render_source_qml(connect_point.get("contract", ""))
-            (root / relative).write_text(source_qml)
+            writer.write_if_changed(root / relative, source_qml)
             written.append(relative)
 
     return written
