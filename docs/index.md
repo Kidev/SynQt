@@ -355,7 +355,6 @@ that is a page of this guide or the class in the C++ reference.
 project:
   name: my-app
   qt_version: 6.11.1
-  origin_model: same_origin
 
 scopes: { order: [anonymous, user, admin], default: anonymous }
 
@@ -391,7 +390,6 @@ connect_points:
 
 <ul class="synqt-flow__glossary" hidden>
 <li data-code="qt_version" data-href="build-system-and-cli/">One version pins the whole toolchain: Qt, the Emscripten it is built against, and every entity built from them.</li>
-<li data-code="origin_model" data-href="security/">Whether the page and the sync endpoint share an origin. It decides the session cookie's flags and which origins may open a connection.</li>
 <li data-code="order: [anonymous" data-href="security/">The scope ladder. Every session sits on one rung, and a connect point can demand a minimum.</li>
 <li data-code="name: client" data-href="desktop/">The browser client, built to WebAssembly. The same QML also builds as a native app for Windows, macOS, and Linux, against this same edge.</li>
 <li data-code="capability: web_edge" data-href="entities/">The one entity allowed to face the internet, on the one public port. Nothing else gets one.</li>

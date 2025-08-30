@@ -96,27 +96,35 @@ Rejecting at upgrade, before a socket and before any QtRO state, keeps
 unauthenticated load off the object plane and closes the window where an attacker
 opens many sockets that consume resources before being rejected.
 
-Same origin by default. With `origin_model: same_origin`, the client and the
-sync endpoint share an origin, so the session cookie is same origin, the content
-security policy `connect-src 'self'` is sufficient, and there is no cross origin
-relaxation to get wrong. This is the recommended deployment.
+Same origin, by writing nothing. A project that declares no `origin_model` serves the
+client and the sync endpoint from one origin, so the session cookie is first party, the
+content security policy `connect-src 'self'` is sufficient, and there is no cross origin
+relaxation to get wrong. This is the deployment SynQt is built around.
 
-Split origin (CDN). With `origin_model: split_origin`, the client is served
-from a different origin than the sync endpoint. Then `allowed_origins` must list
-the client origin explicitly, and the session cookie is issued `SameSite=None;
-Secure` (the edge derives that from `origin_model`, so there is no second setting
-to get out of step). The origin check remains the anti hijacking control. Widening
-allowed origins is a deliberate, reviewed act, not a default.
+Split origin (CDN) is the exception, and it is opt in by hand. With
+`origin_model: split_origin` the client is served from a different origin than the sync
+endpoint, `allowed_origins` must list the client origin explicitly, and the session
+cookie is issued `SameSite=None; Secure` (the edge derives that from `origin_model`, so
+there is no second setting to get out of step). The origin check remains the anti
+hijacking control. Widening allowed origins is a deliberate, reviewed act, not a default.
 
-A browser arriving from a CDN has never made a request to the edge, so it has no session
-to present at the upgrade. The edge answers that with one narrow endpoint: `client_route`
-returns `204` and the session cookie to a credentialed cross origin fetch, and echoes back
-the requesting origin only when it is already an allowed origin, never a wildcard. It hands
-out nothing else. This is the only cross origin relaxation in the system, it exists solely
-because the credential has to start somewhere, and it is off entirely unless
-`public.serve_client: false` says a CDN is delivering the app. A reverse proxy that
-fronts both the bundle and the sync path under one hostname gives CDN performance
-while keeping a single origin, and is the recommended way to get both.
+That deployment also needs one narrow relaxation, because a browser arriving from a CDN
+has never made a request to the edge and so has no session to present at the upgrade.
+With `public.serve_client: false`, `client_route` returns `204` and the session cookie to
+a credentialed cross origin fetch, echoing back the requesting origin only when it is
+already an allowed origin, never a wildcard. It hands out nothing else. This is the only
+cross origin relaxation in the system, it exists solely because the credential has to
+start somewhere, and it is off entirely otherwise.
+
+The cost is a third party session cookie, which is measured rather than assumed:
+under third party cookie restriction the session cannot be obtained and the upgrade is
+refused, so the app loads and never connects, and the `Partitioned` (CHIPS) attribute
+does not repair it (it breaks login instead). The measurement and the full table are in
+[serving the client from another
+origin](project-layout-and-config.md#serving-the-client-from-another-origin). A reverse
+proxy, or a nearby node, that fronts both the bundle and the sync path under one
+hostname gives the same delivery win with none of this, and is the recommended way to
+get both.
 
 ## The entity to entity links (the mesh)
 
@@ -489,10 +497,10 @@ Browser link:
 
 - TLS enabled on the web edge with a real certificate; the edge refuses to start
   otherwise.
-- `origin_model` set correctly; `allowed_origins` lists exactly the origins that may
-  open the sync connection.
-- Session transport is the httpOnly Secure cookie (default) unless a split origin
-  deployment requires the documented alternative.
+- No `origin_model` declared unless a split origin deployment was chosen deliberately;
+  `allowed_origins` lists exactly the origins that may open the sync connection.
+- The session is the httpOnly Secure cookie. There is no alternative transport: the
+  subprotocol is refused for a toolkit reason recorded with the config keys.
 - CSP is the restrictive default; any widening is reviewed.
 - Cross origin isolation matches the threading mode.
 - The route table passes `synqt check`: no client route claims a path the edge

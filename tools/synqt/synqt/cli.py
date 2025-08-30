@@ -55,8 +55,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     new = sub.add_parser("new", help="scaffold a new project")
     new.add_argument("name")
-    new.add_argument("--origin-model", default="same_origin",
-                     choices=["same_origin", "split_origin"])
+    # No --origin-model. A scaffolded project is same-origin, which is the only shape whose
+    # session cookie is first-party and therefore the only one that keeps working as browsers
+    # wind down third-party cookies. `split_origin` still exists and is still validated, but
+    # reaching it takes a hand edit to synqt.yaml after reading what it costs; see the
+    # "Serving the client from another origin" section of docs/project-layout-and-config.md.
     new.add_argument("--auth", default=None, help="provider to prime auth for (e.g. github)")
     new.add_argument("--blueprint", action="append", dest="blueprints", default=[],
                      help="a starting blueprint entity (repeatable)")
@@ -216,8 +219,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         return 2
     try:
         if args.command == "new":
-            print(newproject.scaffold(args.parent_dir, args.name,
-                                      origin_model=args.origin_model, auth=args.auth,
+            print(newproject.scaffold(args.parent_dir, args.name, auth=args.auth,
                                       blueprints=args.blueprints))
         elif args.command == "providers":
             print(addentity.list_providers())

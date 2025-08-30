@@ -9,7 +9,6 @@ project:
   name: arena
   version: 0.1.0
   qt_version: 6.11.1
-  origin_model: same_origin
 
 # Signing in is not the same as being allowed in: only approved logins reach `player`
 # (web/identity/map.qml is the guest list), and the arena connect point requires it.
