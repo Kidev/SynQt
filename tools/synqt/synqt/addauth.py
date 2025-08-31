@@ -18,7 +18,13 @@ import os
 from pathlib import Path
 from typing import Any, Dict, List
 
-import yaml
+# PyYAML is imported inside scaffold(), the only function here that reads or writes
+# synqt.yaml. Everything else in this module is a table of literals, and appmodel reads
+# that table (identity_providers) rather than copying it, so a module-level import would
+# make PyYAML a hard requirement of the whole import graph beneath appmodel -- including
+# synqt.clientshell, which tools/wasm-shell.py runs straight out of a checkout with no
+# install. That is not hypothetical: it is what made every raw WebAssembly spike fail
+# with "could not render the SynQt loading shell" on a runner that had no PyYAML.
 
 
 class AddAuthError(Exception):
@@ -160,6 +166,8 @@ def scaffold(project_dir: os.PathLike[str] | str, provider: str, *, required: bo
 
     Refuses to clobber an existing ``identity`` section.
     """
+    import yaml  # deliberately local; see the note where the other imports are
+
     root = Path(project_dir)
     config_path = root / "synqt.yaml"
     config: Dict[str, Any] = {}
