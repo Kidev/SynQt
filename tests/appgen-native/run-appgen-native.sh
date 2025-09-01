@@ -237,17 +237,26 @@ case "$promoted_login" in
 esac
 
 # The redirect above carries a client id and an authorize URL the edge binary does not
-# contain. Both encodings are searched (`-el` is the UTF-16 a QStringLiteral compiles to; the
+# contain. Both encodings are searched (UTF-16 is what a QStringLiteral compiles to; the
 # narrow literal it was written as can survive too), because a check that looked at one of
 # them would report absence it never established.
-# Counted rather than `grep -q`, because this script runs under `set -o pipefail`: grep -q
-# exits at the first match and closes the pipe, `strings` dies of SIGPIPE, and the pipeline
-# reports failure for a search that succeeded. That failure mode is silent in both directions
-# here (an absent secret and a present one look alike), so the count is the whole point.
+#
+# A raw byte search in Python, not `strings`: the flag that selects the 16-bit encoding is
+# a GNU binutils extension, and Apple's `strings` rejects `-el` outright, so on macOS the
+# UTF-16 half of this search produced nothing at all and the gate failed a build that was
+# correct. (Windows has no `strings` to begin with; tests/desktop-client scans the same way
+# and for the same reason.) Searching bytes is also stricter than `strings`, which only
+# reports runs of printable characters above a minimum length.
 promoted_in_binary() {
-    local found
-    found="$({ strings -a -el "$1"; strings -a "$1"; } | grep -cF -- "$2" || true)"
-    [ "${found:-0}" -gt 0 ]
+    SYNQT_BIN="$1" SYNQT_NEEDLE="$2" python3 - <<'PY'
+import os
+import sys
+
+data = open(os.environ["SYNQT_BIN"], "rb").read()
+needle = os.environ["SYNQT_NEEDLE"]
+found = needle.encode("utf-8") in data or needle.encode("utf-16-le") in data
+sys.exit(0 if found else 1)
+PY
 }
 promoted_leak=0
 for needle in "Iv1.0123456789abcdef" "github.com/login/oauth" "$GITHUB_CLIENT_SECRET"; do
