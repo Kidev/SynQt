@@ -314,8 +314,15 @@ void tst_PageStore::storeWatchSurvivesAnAtomicReplace()
     replacePage(dir, QStringLiteral("Campaign.qml"),
                 "import QtQuick\nItem { objectName: \"first\" }");
     QVERIFY(changed.wait(5000));
-    QCOMPARE(changed.count(), 1);
-    QCOMPARE(changed.at(0).at(0).toString(), QStringLiteral("/c"));
+    // How many notifications one remove-and-rename produces is the operating system's
+    // business, not this store's: an unlink and a create arriving as two events is as
+    // correct as one. What is asserted is what the store promises -- every emission
+    // names the route, and the content behind it moved.
+    QVERIFY(changed.count() >= 1);
+    for (const QList<QVariant> &emission : changed) {
+        QCOMPARE(emission.at(0).toString(), QStringLiteral("/c"));
+    }
+    const qsizetype afterFirstCount{changed.count()};
     const QString afterFirst{store.hashFor(QStringLiteral("/c"))};
     QVERIFY(!afterFirst.isEmpty());
 
@@ -325,8 +332,8 @@ void tst_PageStore::storeWatchSurvivesAnAtomicReplace()
     replacePage(dir, QStringLiteral("Campaign.qml"),
                 "import QtQuick\nItem { objectName: \"second\" }");
     QVERIFY(changed.wait(5000));
-    QCOMPARE(changed.count(), 2);
-    QCOMPARE(changed.at(1).at(0).toString(), QStringLiteral("/c"));
+    QVERIFY(changed.count() > afterFirstCount);
+    QCOMPARE(changed.last().at(0).toString(), QStringLiteral("/c"));
     QVERIFY(store.hashFor(QStringLiteral("/c")) != afterFirst);
 }
 
