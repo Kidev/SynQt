@@ -193,8 +193,11 @@ jobs:
           docker run --rm -v "$PWD:/io" -w /io "$IMAGE" bash -euo pipefail -c '
             dnf install -y python3.12 python3.12-pip || dnf install -y python3.11 python3.11-pip
             if [ -x /usr/bin/python3.12 ]; then py=/usr/bin/python3.12; else py=/usr/bin/python3.11; fi
-            "$py" -m pip install --upgrade pip
-            "$py" -m pip install ./tools/synqt pyinstaller
+            # Root is the only user in this container and the environment is thrown away
+            # with it, so the pip advice about running as root does not apply here;
+            # silenced so that a warning in this log means something.
+            "$py" -m pip install --root-user-action=ignore --upgrade pip
+            "$py" -m pip install --root-user-action=ignore ./tools/synqt pyinstaller
             printf "import sys\nfrom synqt.cli import main\nif __name__ == \"__main__\":\n    sys.exit(main())\n" > synqt_entry.py
             "$py" -m PyInstaller --onefile --name synqt --collect-submodules synqt synqt_entry.py
             ./dist/synqt --help

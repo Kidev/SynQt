@@ -201,7 +201,19 @@ jobs:
       - name: Install Chromium for the headless driver
         # Every proof here drives Chromium: SharedArrayBuffer and cross-origin isolation are
         # what is being measured, and Chromium reports both faithfully headless.
-        run: npx --yes playwright install --with-deps chromium
+        #
+        # Installed from the harness directory, after its own npm install, so the browser is
+        # fetched by the same Playwright the script will then drive. Run from the repository
+        # root instead, npx resolves a Playwright of its own choosing and warns that project
+        # dependencies were never installed, which is a version skew waiting to happen, not
+        # just noise. browser-matrix.yml already does it this way.
+        env:
+          SCRIPT: ${{ matrix.script }}
+        run: |
+          set -euo pipefail
+          cd "$(dirname "$SCRIPT")"
+          npm install --no-audit --no-fund
+          npx playwright install --with-deps chromium
 
       - name: Run ${{ matrix.script }}
         env:
