@@ -76,7 +76,11 @@ client and the edge back on one site (see the load distribution note in
 
 Two sites resolve to loopback: `synqtcdn.test` delivers the client, `synqtedge.test`
 is the edge (Chromium via `--host-resolver-rules`, Firefox via
-`network.dns.localDomains`), sharing one throwaway certificate generated per run.
+`network.dns.localDomains`), sharing one certificate. The names and the certificate come
+from [the shared local test network](../local-network/README.md), which is also what maps
+them for WebKit, since WebKit has no resolver override of its own. Run
+`tests/local-network/local-network.sh hosts` once and the WebKit column stops skipping
+here too.
 
 They must be separate **registrable domains**. The first version of this rig used
 `cdn.synqt.test` and `app.synqt.test`, which are two names under one site, so no

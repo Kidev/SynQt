@@ -108,7 +108,7 @@ private slots:
         // (toInt() == 0) and "increment" is not yet on the metaobject. Comparing that
         // spurious 0 to the expected initial 0 would pass without ever waiting, and the
         // slot call below would then race the description and fail with "No such method"
-        // -- which is exactly what the slower macOS arm64 runner hit while the faster
+        // which is exactly what the slower macOS arm64 runner hit while the faster
         // Linux/Windows runners initialised in time. Gate on real initialisation first.
         auto *baseA{qobject_cast<QRemoteObjectReplica *>(replicaA)};
         auto *baseB{qobject_cast<QRemoteObjectReplica *>(replicaB)};
