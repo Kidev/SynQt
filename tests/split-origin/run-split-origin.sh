@@ -2,12 +2,7 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 #
-# Measure what a split-origin session cookie can rely on, and fail if the answer changes.
-#
-# This is a gate, not a printout. `project.origin_model: split_origin` is a hand-written
-# setting whose cost is a browser policy decision, so the three findings that justify the
-# documentation are asserted here. If a browser changes its mind, this test says so before
-# the docs go stale.
+# Assert the three findings about a split-origin session cookie that the docs rely on.
 
 set -euo pipefail
 
@@ -23,30 +18,14 @@ fi
 rm -rf "$WORK"
 mkdir -p "$WORK"
 
-# A throwaway server certificate covering both sites, generated per run and never committed.
-# `x509 -req -extfile` rather than `req -x509 -addext`, which has produced certificates with
-# duplicate extensions that some TLS stacks reject outright.
-cat > "$WORK/san.cnf" <<'EOF'
-[req]
-distinguished_name = dn
-[dn]
-[ext]
-subjectAltName = DNS:synqtcdn.test, DNS:synqtedge.test
-basicConstraints = CA:FALSE
-keyUsage = digitalSignature, keyEncipherment
-extendedKeyUsage = serverAuth
-EOF
-openssl req -x509 -newkey rsa:2048 -nodes -days 2 \
-    -keyout "$WORK/key.pem" -out "$WORK/cert.pem" \
-    -subj "/CN=synqtcdn.test" -config "$WORK/san.cnf" -extensions ext 2>/dev/null
+# The server certificate for both sites comes from the local test network.
+"$HERE/../local-network/local-network.sh" certs > /dev/null
+eval "$("$HERE/../local-network/local-network.sh" env)"
 
-SPLIT_ORIGIN_CERTS="$WORK" node "$HERE/measure.mjs" > "$WORK/report.json"
+SPLIT_ORIGIN_CERTS="$SYNQT_LOCAL_NETWORK_DIR" node "$HERE/measure.mjs" > "$WORK/report.json"
 cat "$WORK/report.json"
 
-# Also leave the report where a CI run can archive it. The gate's pass/fail says whether the
-# three documented findings still hold. It asserts nothing about WebKit, whose
-# numbers have no local baseline yet. So the numbers themselves have to be readable
-# afterwards, or the one engine this workflow exists to reach stays unread.
+# Leave the report for CI to archive; the WebKit numbers are reported, not asserted.
 mkdir -p "$(dirname "${BASH_SOURCE[0]}")/../../build"
 cp "$WORK/report.json" "$(dirname "${BASH_SOURCE[0]}")/../../build/split-origin-report.json"
 
@@ -76,9 +55,8 @@ elif "error" in report.get("webkit", {}):
     failures.append(f"webkit: {report['webkit']['error']}")
 
 if not failures:
-    # 1. The rig discriminates. A SameSite=Lax cookie must never ride a cross-site request;
-    #    if it does, the two hosts are not cross-site and nothing else here means
-    #    anything. This caught a first version that used two names under one domain.
+    # 1. A SameSite=Lax cookie must never ride a cross-site request, or the two hosts are not
+    #    cross-site.
     for engine in measured:
         for field in ("bootstrapRead", "upgrade", "afterLoginRead"):
             if cell(engine, "lax_control", field):
@@ -94,9 +72,8 @@ if not failures:
                 f"chromium-3pc-restricted: the unpartitioned cookie survived restriction "
                 f"({field}); split_origin may have stopped being fragile, so re-read the docs")
 
-    # 3. The reason the Partitioned attribute is not shipped. It rescues the bootstrap and
-    #    the upgrade but loses the login, because the OAuth callback sets the cookie under
-    #    the edge's own partition. If this ever passes, CHIPS becomes addable.
+    # 3. Partitioned rescues the bootstrap and the upgrade but loses the login. If this
+    #    ever passes, CHIPS becomes addable.
     if cell("chromium", "partitioned", "afterLoginRead"):
         failures.append(
             "chromium: a Partitioned cookie set at the callback was readable from the client "
