@@ -598,7 +598,19 @@ int main(int argc, char *argv[])
     client->router()->start();
 
     client->start();
-    return app.exec();
+    const int status{{app.exec()}};
+
+    // Tear the QML tree down here, while both the accessors and the engine are still
+    // alive. `Server`, `Session` and `Router` are context properties, so a root object
+    // that outlives them re-evaluates every binding naming one against a null object:
+    // harmless, but it prints a TypeError on every clean exit (`Cannot read property
+    // 'pageComponent' of null` from the Loader every client has). Deleting the roots
+    // first makes the order roots, accessors, engine, the one order in which nothing
+    // outlives what it points at. Each root removes itself from the engine's list as it
+    // goes, so the engine's own cleanup finds nothing left to do.
+    const QList<QObject *> roots{{engine.rootObjects()}};
+    qDeleteAll(roots);
+    return status;
 }}
 """
     return body

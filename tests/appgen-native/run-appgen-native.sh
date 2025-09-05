@@ -131,6 +131,17 @@ for expected in "SYNQT-ROUTE path=/ status=Ready view=Home(panel,dark)" \
         exit 1
     fi
 done
+# A clean run prints those three lines and nothing else. Every QML diagnostic names a file
+# and a line ("qrc:/qt/qml/Routed/Main.qml:45: TypeError: Cannot read property
+# 'pageComponent' of null"), which is the shape to look for. A generated main whose
+# accessors are context properties destroyed while the root object still holds bindings
+# on them prints exactly that on every clean exit. Nothing fails, so a phase that only
+# looks for the lines it wants cannot catch it.
+if grep -nE '\.qml:[0-9]+:' "$routed_log"; then
+    echo "  the routed client logged a QML diagnostic; a clean run reports only its routes"
+    echo "APPGEN-NATIVE GATE: NO-GO"
+    exit 1
+fi
 echo "  routed client : OK (every route resolved Ready, each to the view it names)"
 
 echo "== [5/5] Promoted identity: one line moves the OAuth engine off the edge =="
