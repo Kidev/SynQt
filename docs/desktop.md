@@ -56,8 +56,10 @@ endpoint** the browser uses; only who terminates the TLS differs.
 A browser client is served by the edge, so it learns the edge origin from the page
 it loaded: the runtime config is delivered with the bundle. A desktop client is
 not served by anyone; it must be told the edge's public URL. You provide it in
-[`[build.desktop]`](#configuration) (baked into the build) and it may be overridden
-at runtime for users who connect to their own deployment.
+[`build.desktop.edge_url`](#configuration), and it is compiled into the binary. An
+app that has to reach more than one deployment is therefore more than one build,
+which is the honest shape: the edge a client trusts is not a preference a user
+should be able to retarget.
 
 ### Signing in
 
@@ -83,7 +85,7 @@ gets back to the app:
    The session travels in the same header the browser uses, not in a WebSocket
    subprotocol. `security.session_transport: subprotocol` is refused, because Qt 6.11
    gives the edge no way to select the subprotocol it would have to echo; see
-   [`session_transport`](project-layout-and-config.md#security) for the measurement.
+   [`session_transport`](project-layout-and-config.md#security-browser-hardening-and-connection-gating) for the measurement.
 
 `Session.logout()` clears the stored token and calls the edge logout route, exactly
 as in the browser.
@@ -133,24 +135,33 @@ synqt build --client all           # both (the default when both are declared)
 
 The desktop client uses the **host desktop Qt kit**, the same kit the service
 entities already build against, so it needs no extra toolchain beyond what a SynQt
-project already resolves. A release desktop build runs the platform deployment step
-(`windeployqt` / `macdeployqt`, and a portable layout on Linux) to produce a
-self-contained bundle, and lands under `build/`:
+project already resolves. It lands under `build/`, in the folder for the platform
+it was built on:
 
 ```text
 build/
   client/                 # the WebAssembly bundle (served by the edge)
   client-desktop/
-    windows/              # the .exe and its deployed Qt runtime (installer optional)
-    macos/                # the .app bundle (.dmg optional)
-    linux/                # the binary and its deployed runtime (AppImage optional)
+    DEPLOY.txt            # the deployment step to run, for the platforms built here
+    windows/              # the .exe, plus its Qt runtime once deployed
+    macos/                # the binary, plus its Qt runtime once deployed
+    linux/                # the binary, plus its Qt runtime once deployed
   web/                    # the web edge, unchanged
   ...
 ```
 
 A desktop build is native, so it is produced per host platform: build the Windows
 app on Windows, the macOS app on macOS, the Linux app on Linux, or fan them out
-across a CI matrix. The WASM bundle, by contrast, builds anywhere.
+across a CI matrix. Only the host's own folder is filled by a given run. The WASM
+bundle, by contrast, builds anywhere.
+
+**The platform deployment step is yours to run.** `synqt build` produces the binary
+and its `THIRD-PARTY-LICENSES`, and writes a `DEPLOY.txt` naming what to run
+(`windeployqt`, `macdeployqt`, or a portable layout of binary plus Qt libraries on
+Linux). It is left out of the build because it is where signing identities, entitlements,
+notarization, and installer format live, none of which a framework can pick for you,
+and a half-deployed bundle that looks finished is worse than one that says what is
+missing.
 
 ## Developing against a desktop client
 
@@ -178,18 +189,17 @@ section when desktop is one of them:
 entities:
   - name: client
     kind: client
-    path: client
-    entry: client/Main.qml
-    edge: web
     targets: [wasm, desktop]   # default [wasm]; add "desktop" for a native build
 
 build:
   desktop:
     edge_url: wss://app.example.com/sync   # the public edge endpoint the app connects to
-    platforms: [windows, macos, linux]     # which desktop platforms to produce
-    app_name: My App                        # window title / bundle name
-    # icon, identifiers, and signing details are platform-specific and documented per platform
 ```
+
+`edge_url` is the whole section. There is no platform list (a run builds for its own
+host) and no application name (the client entity's name is it). Icons, bundle
+identifiers, and signing belong to the deployment step above, which is
+platform-specific and stays in the platform's own tooling.
 
 Validation (in addition to the [general rules](project-layout-and-config.md#validation)):
 

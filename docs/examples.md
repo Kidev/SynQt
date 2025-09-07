@@ -41,13 +41,9 @@ project:
 entities:
   - name: client
     kind: client
-    path: client
-    entry: client/Main.qml
-    edge: web
 
   - name: web
     kind: service
-    path: web
     capability: web_edge
     public:
       port: 8443
@@ -160,13 +156,9 @@ scopes:
 entities:
   - name: client
     kind: client
-    path: client
-    entry: client/Main.qml
-    edge: web
 
   - name: web
     kind: service
-    path: web
     capability: web_edge
     public:
       port: 8443
@@ -415,13 +407,9 @@ scopes:
 entities:
   - name: client
     kind: client
-    path: client
-    entry: client/Main.qml
-    edge: web
 
   - name: web
     kind: service
-    path: web
     capability: web_edge
     public:
       host: 0.0.0.0
@@ -438,7 +426,6 @@ entities:
 
   - name: database
     kind: service
-    path: database
     blueprint: persistence
     mesh:
       transport: mtls            # certificate identity: the database can trust Caller.entity

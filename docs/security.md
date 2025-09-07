@@ -271,34 +271,48 @@ with the registry rejected there is no discovery path either.
   reclaimed. (Qt's QWebSocketServer does enforce its own 10 second default, but
   that class is used only in the transport spike, never on the edge.) The
   verifier's early rejection compounds this.
-- Connection caps. Per IP and global caps on the browser link; per consumer caps on
-  mesh links.
-- Message size cap. `max_message_bytes` rejects oversized frames before they are
-  buffered, on both browser and mesh links.
+- Connection caps. `security.max_connections_per_ip` (20) and
+  `security.max_connections_global` (1000), applied inside the upgrade verifier, so
+  a connection over the cap is refused before a socket exists.
+- Message size cap. `security.max_message_bytes` (1 MiB) is set on each accepted
+  browser socket as both the message and the frame limit, so an oversized frame is
+  rejected as it arrives rather than after it is buffered.
 - Read buffer ceiling. Capping one frame does not cap their sum, so the transport
   also caps what one connection may hold unread: past the ceiling it discards the
   buffer and closes the connection, rather than letting a peer that sends faster
-  than anything reads decide how much memory the process allocates. On the browser
-  link the edge sets it to four times `max_message_bytes` per connection, so
-  tightening that one knob tightens both, and with the global connection cap the
-  two bound the edge's total read memory. A drained buffer also returns its
-  allocation instead of keeping it for the life of the connection.
+  than anything reads decide how much memory the process allocates. The edge sets it
+  to four times `max_message_bytes` per connection, so tightening that one knob
+  tightens both, and with the global connection cap the two bound the edge's total
+  read memory. A drained buffer also returns its allocation instead of keeping it
+  for the life of the connection.
+
+These four are browser link controls, and only the browser link has them. A mesh
+link has no connection cap, no message size cap, and no read buffer ceiling: its
+peer has already presented a certificate this project's own CA issued, so a peer in
+a position to exhaust an entity's memory is a peer that is already inside the trust
+boundary, and the answer to one is revocation and rotation rather than a quota. What
+does bound a mesh link is the topology itself, since an entity accepts connections
+only from the consumers its connect points name. If you run entities you do not
+fully trust in one mesh, that is the assumption to revisit first.
 - Heartbeat and reconnection. The QtRO heartbeat detects dead connections so their
   resources are reclaimed, and capped exponential backoff avoids hammering a
   recovering entity.
-- Input bounds. Slots validate and bound inputs (length, range, shape) before
-  acting, both for correctness and to prevent expensive client or peer driven work.
+- Input bounds. This one is yours. A slot's arguments arrive typed but not bounded,
+  so validate length, range, and shape before acting on them, both for correctness
+  and so that no caller can spend an owner's time or memory by asking for it. The
+  framework can guarantee that only declared slots are reachable and that only
+  declared fields come back; it cannot know that your `add(string text)` should
+  refuse a megabyte.
 - Database specifics. The persistence blueprint serializes writes and sets a busy
   timeout, so concurrent transactions cannot deadlock the entity (SQLite blocks
   under concurrent writers); see [entities](entities.md).
 
 Of the limits in this section, only the QtRO heartbeat and the per socket message
-size cap come from Qt APIs; the handshake timeout, the connection caps, the read
-buffer ceiling, and the input bounds are framework enforced, which is why each is
-part of the milestone that introduces its link rather than a later hardening pass.
-The ceiling lives in the transport rather than on the edge, so the client is held
-to it too: its peer is one edge rather than the open internet, but a client that
-buffers without bound is a browser tab that dies.
+size cap come from Qt APIs. The handshake timeout, the connection caps, and the read
+buffer ceiling have no equivalent on the QHttpServer upgrade path and are enforced
+by the framework itself. The ceiling lives in the transport rather than on the edge,
+so the client is held to it too: its peer is one edge rather than the open internet,
+but a client that buffers without bound is a browser tab that dies.
 
 Network and volumetric DoS belong to infrastructure in front of the edge and are
 out of scope for the framework.

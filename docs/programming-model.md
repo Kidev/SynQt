@@ -300,7 +300,7 @@ sets. Hierarchical is the default because it is the least surprising.
 On the client, session state is read only through `Session`:
 
 - `Session.scope`, `Session.hasScope(name)`.
-- `Session.state`: `connecting`, `connected`, `reconnecting`, `denied`, `offline`.
+- `Session.state`: `offline`, `connecting`, `connected`, `reconnecting`.
 - `Session.identity`: the authenticated identity, or null when anonymous.
 - `Session.login()` and `Session.logout()`.
 
@@ -349,19 +349,21 @@ edge on demand with `remote:`. A `remote:` route names a QML file the edge holds
 sends over the same `wss` link at navigation time, so a peripheral or often-changed
 page stays out of the bundle and changes without a client rebuild. Unlike a compiled
 in view, a delivered page's `scope` is enforced on the edge before delivery, so its
-markup never reaches an under scoped machine; the data it later reads is still
+markup never reaches an under scoped machine. The data it later reads is still
 governed by the connect point's own scope, as always. See
 [remote pages](remote-pages.md).
 
 ## Connection lifecycle and offline behavior
 
 Each link uses a QtRO heartbeat so a dropped connection is noticed promptly rather
-than only on the next send (QtRO disables the heartbeat by default; SynQt enables
+than only on the next send (QtRO disables the heartbeat by default, and SynQt enables
 it). On a browser disconnect, `Session.state` becomes `reconnecting` and the
-client retries with capped exponential backoff; replicas report not ready and QML
+client retries with capped exponential backoff. Replicas report not ready and QML
 can show cached values or an offline banner. A session the edge rejects (expired or
-revoked credential) moves to `denied`, and the client routes back through login.
-Service to service links reconnect the same way; an entity that loses a consumed
+revoked credential) is the same state, because the browser does not say why a
+handshake failed. What an app watches for there is `Session.isAuthenticated` going
+false and its scope-gated replicas being released.
+Service to service links reconnect the same way. An entity that loses a consumed
 connect point reports it as not ready and retries, so a transient database restart
 does not crash the edge.
 
