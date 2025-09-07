@@ -499,6 +499,31 @@ def _uniform_navigation_tree(html_dir):
     data.write_text(text, encoding="utf-8")
 
 
+def _name_the_page_outline(html_dir):
+    """Put a "Table of contents" label over the outline down the right of every page.
+
+    Doxygen emits the outline panel unlabelled and fills it from script, so the column of
+    links arrives with nothing saying what it is. The documentation site names the same
+    thing on every page, and this reference is read as part of that site, so it says the
+    same word in the same place. The label is written into the HTML rather than drawn
+    from CSS so it is real text: selectable, findable, and read out in order by a screen
+    reader.
+
+    It goes inside #page-nav-contents, ahead of the list, because that is the element
+    that scrolls; the label is pinned to the top of it (see #page-nav-title in
+    doxygen-synqt.css). navtree.js appends the list to the same element rather than
+    replacing its contents, so what is inserted here survives the script that fills the
+    panel, and stays first.
+    """
+    anchor = '<div id="page-nav-contents">'
+    labelled = '%s\n<div id="page-nav-title">Table of contents</div>' % anchor
+    for page in sorted(html_dir.rglob("*.html")):
+        text = page.read_text(encoding="utf-8")
+        if anchor not in text or 'id="page-nav-title"' in text:
+            continue
+        page.write_text(text.replace(anchor, labelled, 1), encoding="utf-8")
+
+
 def _fingerprint_assets(html_dir):
     """Append a content hash to every local stylesheet and script the pages reference.
 
@@ -596,5 +621,6 @@ def on_post_build(config, **kwargs):
     _uniform_navigation_tree(html_dir)
     _version_tree_data(html_dir)
     _dedupe_index_title(html_dir)
+    _name_the_page_outline(html_dir)
     _fingerprint_assets(html_dir)
     log.info("C++ API reference generated into %s", html_dir)
