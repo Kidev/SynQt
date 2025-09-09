@@ -446,6 +446,47 @@ private slots:
         QCOMPARE(asMysql->name(), QStringLiteral("mysql"));
     }
 
+    void liveSwapSqliteAndMysqlAreObservablyIdentical()
+    {
+        // The same masking claim as the postgres swap above, for the third relational
+        // engine. mysql was the one family member with no live proof: everything past its
+        // connect call was reached by nothing, so "the same Source works" was an assertion
+        // about mysql rather than a measurement of it.
+        SqliteProvider sqlite{sqliteConfig(dbFile(QStringLiteral("swap-mysql.db")))};
+        // Use `=`, not brace-init: QVariantList{aList} wraps the list as a single element.
+        const QVariantList sqliteRows = runItemsSource(
+            &sqlite,
+            QStringLiteral("CREATE TABLE items (id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                           "text TEXT NOT NULL, author TEXT NOT NULL)"));
+        QCOMPARE(sqliteRows.size(), 2);
+
+        if (!qEnvironmentVariableIsSet("SYNQT_TEST_MYSQL_HOST")) {
+            QSKIP("no live mysql/mariadb (set SYNQT_TEST_MYSQL_HOST/DB/USER/PASSWORD; "
+                  "see run-m9.sh)");
+        }
+        ProviderConfig my;
+        my.name = QStringLiteral("mysql");
+        my.host = qEnvironmentVariable("SYNQT_TEST_MYSQL_HOST");
+        my.port = qEnvironmentVariableIntValue("SYNQT_TEST_MYSQL_PORT");
+        my.database = qEnvironmentVariable("SYNQT_TEST_MYSQL_DB", QStringLiteral("synqt"));
+        my.user = qEnvironmentVariable("SYNQT_TEST_MYSQL_USER", QStringLiteral("synqt"));
+        my.password = qEnvironmentVariable("SYNQT_TEST_MYSQL_PASSWORD");
+        my.sslMode = qEnvironmentVariable("SYNQT_TEST_MYSQL_SSLMODE",
+                                          QStringLiteral("disable"));
+        my.release = false;  // a dev/CI engine over plaintext loopback is allowed
+        MysqlProvider mysql{my};
+        // AUTO_INCREMENT rather than AUTOINCREMENT, and an indexed key length: the schema is
+        // the engine's, which is the point. What must not differ is the Source above it.
+        const QVariantList mysqlRows = runItemsSource(
+            &mysql,
+            QStringLiteral("CREATE TABLE items (id INT AUTO_INCREMENT PRIMARY KEY, "
+                           "text VARCHAR(255) NOT NULL, author VARCHAR(255) NOT NULL)"));
+        if (mysqlRows.isEmpty()) {
+            QSKIP(qPrintable(QStringLiteral("mysql not reachable: %1").arg(m_lastSkip)));
+        }
+        QCOMPARE(mysqlRows, sqliteRows);
+    }
+
     void memoryCacheEvictsAndHonoursBound()
     {
         ProviderConfig config;

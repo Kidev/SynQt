@@ -190,7 +190,15 @@ jobs:
           case "${{ runner.os }}" in
             Linux)
               sudo apt-get update
-              sudo apt-get install -y libssl-dev libgl1-mesa-dev
+              # libhiredis-dev and libmongoc-dev are what compile the redis and mongodb
+              # providers in at all: src/providers/CMakeLists.txt looks for each and leaves
+              # the wrapper out when it is missing, so without these two the Linux column was
+              # not merely skipping their tests, it was building neither file. libpq-dev is
+              # for the QPSQL plugin's client library. All three are optional to the build
+              # and none of the other columns install them, which is the point: the engines
+              # below only run here.
+              sudo apt-get install -y libssl-dev libgl1-mesa-dev \
+                  libhiredis-dev libmongoc-dev libpq-dev
               ;;
             macOS)
               brew install openssl@3
@@ -320,6 +328,61 @@ jobs:
             cmake --build "$RUNNER_TEMP/$m-build"
             cmake --install "$RUNNER_TEMP/$m-build"
           done
+
+      # The provider family interfaces make one claim that cannot be checked without the real
+      # engine: that the same connect point Source, pointed at a different engine by config
+      # alone, behaves identically. tests/m9-providers already contains those proofs, gated on
+      # SYNQT_TEST_* naming a reachable server, and until now nothing in CI ever named one, so
+      # they had never run anywhere but on a developer's machine.
+      #
+      # Plain `docker run` rather than a job-level `services:` block, because services need a
+      # Linux runner and this job is also scheduled on macOS and Windows, where declaring them
+      # fails the whole job. Docker on the Linux runner is the same mechanism .run-for-me.sh
+      # uses locally, so the two paths do not drift.
+      #
+      # Best-effort on purpose: every failure here is swallowed and the SYNQT_TEST_* variables
+      # are exported only for an engine that answered. An engine that does not come up leaves
+      # the suite exactly as it is without this step, skipping cleanly, so the worst case is
+      # the coverage this step was meant to add and never a red build over infrastructure.
+      - name: Start throwaway engines for the live provider proofs (best effort)
+        if: matrix.label == 'linux'
+        shell: bash
+        run: |
+          set -u
+          docker run --rm -d --name synqt-pg -e POSTGRES_PASSWORD=synqt \
+              -e POSTGRES_USER=synqt -e POSTGRES_DB=synqt -p 5432:5432 postgres:16 || true
+          docker run --rm -d --name synqt-redis -p 6379:6379 redis:7 || true
+          docker run --rm -d --name synqt-mongo -p 27017:27017 mongo:7 || true
+
+          ready() {  # name, probe command
+            for _ in $(seq 1 30); do
+              if docker exec "$1" ${@:2} >/dev/null 2>&1; then return 0; fi
+              sleep 1
+            done
+            echo "::warning::$1 did not become ready; its live proof will skip"
+            return 1
+          }
+          if ready synqt-pg pg_isready -U synqt; then
+            {
+              echo "SYNQT_TEST_PG_HOST=127.0.0.1"
+              echo "SYNQT_TEST_PG_PORT=5432"
+              echo "SYNQT_TEST_PG_DB=synqt"
+              echo "SYNQT_TEST_PG_USER=synqt"
+              echo "SYNQT_TEST_PG_PASSWORD=synqt"
+            } >> "$GITHUB_ENV"
+          fi
+          if ready synqt-redis redis-cli ping; then
+            {
+              echo "SYNQT_TEST_REDIS_HOST=127.0.0.1"
+              echo "SYNQT_TEST_REDIS_PORT=6379"
+            } >> "$GITHUB_ENV"
+          fi
+          if ready synqt-mongo mongosh --quiet --eval 'db.runCommand({ping:1})'; then
+            {
+              echo "SYNQT_TEST_MONGO_URI=mongodb://127.0.0.1:27017"
+              echo "SYNQT_TEST_MONGO_DB=synqt"
+            } >> "$GITHUB_ENV"
+          fi
 
       - name: Run the native ctest suites
         shell: bash
