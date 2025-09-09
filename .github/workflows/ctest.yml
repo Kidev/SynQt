@@ -66,6 +66,7 @@ on:
       - "tests/**"
       - "cmake/**"
       - "tools/synqtc/**"
+      - "tools/coverage/**"
       - ".github/workflows/ctest.yml"
 
 concurrency:
@@ -346,3 +347,28 @@ jobs:
           # explicitly accounted for fails the configure step, so this workflow no longer needs
           # a list of its own to drift from. A CMake warning fails the run there too.
           bash tests/run-all.sh
+
+      # Linux only: gcov reads counters written by the compiler that produced them, so the
+      # figure is a property of one toolchain and measuring it on three would be three
+      # answers to one question. This is a second, instrumented build of the same tree, which
+      # is why it runs after the real suites rather than instead of them: a coverage build is
+      # Debug and unoptimized, and it is the ordinary build that has to stay green.
+      - name: Measure and enforce the C++ coverage floor
+        if: matrix.label == 'linux'
+        shell: bash
+        env:
+          QT_HOST: ${{ env.QT_ROOT }}/${{ env.QT_VERSION }}/${{ matrix.kit_dir }}
+          # The ratchet. Raise it when the number goes up; never lower it to make a branch
+          # green. docs/development.md says what the figure does and does not claim.
+          CXX_FLOOR: "75"
+          HALVES: cxx
+          BUILD_DIR: build/coverage
+        run: bash tests/run-coverage.sh
+
+      - name: Keep the coverage report
+        if: matrix.label == 'linux' && always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-cxx
+          path: build/coverage/coverage-cxx.json
+          if-no-files-found: ignore

@@ -29,6 +29,8 @@ qt_standard_project_setup()
 
 option(SYNQT_BUILD_TESTS "Build the host-kit test suites under tests/" ON)
 
+include(cmake/SynQtCoverage.cmake)
+
 # Leaves first, then the two runtimes. Each of these already guards its own dependencies
 # with `if(NOT TARGET ...)`, so the order decides only which directory scope creates a
 # target, never whether it is created twice. The same guard is what lets a suite be
@@ -38,6 +40,18 @@ add_subdirectory(src/consumer)
 add_subdirectory(src/providers)
 add_subdirectory(src/client)
 add_subdirectory(src/service)
+
+# From here rather than from each src/*/CMakeLists.txt, because coverage is a measurement
+# of the whole tree against the whole suite, and this is the only file that has all of it.
+# A suite configured standalone therefore builds uninstrumented, which is what you want
+# when you are debugging one milestone rather than measuring the set.
+synqt_enable_coverage(
+    SynQtTransport
+    SynQtConsumer
+    SynQtProviders
+    SynQtClient
+    SynQtService
+)
 
 if(SYNQT_BUILD_TESTS)
     enable_testing()

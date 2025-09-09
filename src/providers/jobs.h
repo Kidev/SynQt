@@ -4,9 +4,14 @@
 #ifndef SYNQT_JOBS_H
 #define SYNQT_JOBS_H
 
+#include <QHash>
 #include <QJSValue>
 #include <QList>
 #include <QObject>
+
+QT_BEGIN_NAMESPACE
+class QTimer;
+QT_END_NAMESPACE
 
 namespace SynQt {
 
@@ -38,6 +43,9 @@ private:
     int m_nextHandle{1};
     bool m_draining{false};
     QList<QJSValue> m_queue;
+    /// Handle to repeating timer, for cancel(). The timers are children of this object, and
+    /// this map is a member so it dies with them.
+    QHash<int, QTimer *> m_timers;
 };
 
 } // namespace SynQt

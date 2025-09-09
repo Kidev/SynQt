@@ -3,19 +3,9 @@
 
 #include "jobs.h"
 
-#include <QHash>
 #include <QTimer>
 
 namespace SynQt {
-
-namespace {
-// Handle -> timer, kept alive as children of the Jobs object.
-QHash<int, QTimer *> &timersFor(QObject *owner)
-{
-    static QHash<QObject *, QHash<int, QTimer *>> registry;
-    return registry[owner];
-}
-} // namespace
 
 Jobs::Jobs(int maxQueue, QObject *parent)
     : QObject{parent}
@@ -36,14 +26,14 @@ int Jobs::every(int intervalMs, const QJSValue &callback)
             job.call();
         }
     });
-    timersFor(this).insert(handle, timer);
+    m_timers.insert(handle, timer);
     timer->start();
     return handle;
 }
 
 void Jobs::cancel(int handle)
 {
-    if (QTimer *timer{timersFor(this).take(handle)}) {
+    if (QTimer *timer{m_timers.take(handle)}) {
         timer->stop();
         timer->deleteLater();
     }

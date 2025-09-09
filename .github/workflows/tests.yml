@@ -59,6 +59,37 @@ jobs:
           python -m pytest tools/synqt/tests tools/synqtc/tests tools/pygments-synqt/tests
           benchmarks/tests -q
 
+  coverage:
+    # One runner: coverage of pure Python is the same number everywhere, so measuring it on
+    # three would be three copies of one figure. It is a separate job from pytest so that a
+    # coverage floor can fail without hiding which platform a real test failure was on.
+    name: CLI coverage floor
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install the CLI (editable) plus test deps
+        run: >
+          python -m pip install --upgrade pip &&
+          python -m pip install -e ./tools/synqt pytest brotli coverage
+
+      - name: Confirm openssl is available (the mesh-CA tests use it)
+        run: openssl version
+
+      # The floor is a ratchet: raise it when the number goes up, never lower it to make a
+      # branch green. tests/run-coverage.sh runs this same gate locally, alongside the C++
+      # half that needs a Qt kit this job does not install.
+      - name: Measure and enforce the floor
+        working-directory: tools/synqt
+        run: |
+          python -m coverage run -m pytest tests -q
+          python -m coverage report --fail-under=89
+
   mermaid:
     # One runner: the diagrams are the same text everywhere, and this parses them rather than
     # rendering them. It is a separate job from pytest because nothing else here needs node.

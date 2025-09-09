@@ -41,6 +41,20 @@ Prerequisites for the whole tree are the union of what the suites need: a Qt 6.1
 kit including HttpServer and NetworkAuth, OpenSSL, and jwt-cpp 0.7.1 or newer. A single
 suite needs only its own share; its `run-*.sh` says so when something is missing.
 
+How much of the framework these suites reach:
+
+```sh
+QT_HOST=/opt/Qt/6.11.1/gcc_64 tests/run-coverage.sh
+```
+
+That builds a second, instrumented tree (`-DSYNQT_COVERAGE=ON`, Debug), runs the suites
+against it, and reports the C++ line coverage of `src/` and the branch coverage of the
+Python CLI. `HALVES=cxx` or `HALVES=py` runs one of the two, which is how each half runs in
+the CI job that already has what it needs. `CXX_FLOOR` and `PY_FLOOR` are the percentages
+below which it fails; they are a ratchet, so raise them when the number goes up and never
+lower them to make a branch green. The full story, including what the figure deliberately
+does not claim, is in the [developer guide](../docs/development.md).
+
 ## What is here
 
 [CMakeLists.txt](CMakeLists.txt) is the registry. A directory with a `CMakeLists.txt` or a
