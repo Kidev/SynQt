@@ -343,9 +343,16 @@ the N where per-session payload stops being flat (the honest single-edge ceiling
 ```
 
 It sustains a fixed-rate loop and many live connections, so it belongs on a normal host, not the
-build sandbox (which terminates sustained load); the harness is validated in-env at small scale
-(tick cadence held, snapshot rate tracks the target, payload flattens at k), and the committed
-baseline waits on a permissive runner.
+build sandbox (which terminates sustained load); the committed baseline was measured on one.
+
+The snapshot rate counts snapshots a player was handed, by the replica's own change signal.
+Subtracting the published tick instead would have been wrong in the direction that matters:
+the tick is the run's cumulative counter and QtRO coalesces property pushes, so one late
+update carrying a value 400 ticks newer subtracts the same as 400 delivered snapshots. The
+saturated end of the sweep therefore reported more throughput than the tick rate allows,
+draining the previous window's backlog and counting it as delivery. A player whose replica was
+not live for the whole window is excluded and counted in `players_not_counted`, so a healthy
+rate over a shrinking population cannot pass for a healthy run.
 
 ## remote-pages: the first-load weight of edge-delivered pages
 
@@ -439,12 +446,8 @@ fan-out `publish()` growth, the mesh transports, the sessions hot path, the pers
 providers, the client (bundle weight and frame time), the capstone load test, and the
 build-time report above. The runtime numbers are all committed.
 
-Two gaps remain, both about coverage rather than missing harnesses. The build-time report has
-not been run with `--include-client`, so the WASM/Emscripten client and qmlcachegen build
+One gap remains, and it is about coverage rather than a missing harness: the build-time report
+has not been run with `--include-client`, so the WASM/Emscripten client and qmlcachegen build
 times are not yet in the baseline (the flag exists and the path is the same; it needs the
-Emscripten kit and several minutes). And the two client frame-time baselines and the three
-bundle weights predate the metadata stamp every harness now writes, so they carry
-`"recorded": "unknown"` rather than a date; `check` reports that on every run until they are
-re-measured. Inventing a plausible timestamp for them would have turned a guess into a
-record, so they say what is true instead. See `docs/browser-proofs.md` for where the
-display-dependent runs happen.
+Emscripten kit and several minutes). Every other baseline now carries the date it was
+measured. See `docs/browser-proofs.md` for where the display-dependent runs happen.
