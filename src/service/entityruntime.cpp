@@ -12,6 +12,7 @@
 #include "cache.h"
 #include "cachefactory.h"
 #include "db.h"
+#include "docs.h"
 #include "documentfactory.h"
 #include "http.h"
 #include "icacheprovider.h"
@@ -134,8 +135,7 @@ bool EntityRuntime::buildBlueprintContext()
             qWarning("SynQt: document provider '%s' is not connected: %s",
                      qUtf8Printable(m_document->name()), qUtf8Printable(error));
         }
-        // The document family has no dedicated QML helper yet; the provider is held so a
-        // custom Source (or a future Docs helper) can reach it.
+        m_blueprintContext.insert(QStringLiteral("Docs"), new Docs{m_document.get(), this});
     } else if (blueprint == QLatin1String("gateway")) {
         m_network = new QNetworkAccessManager{this};
         const bool release{m_topology.provider.value(QStringLiteral("release"), true).toBool()};
@@ -196,7 +196,7 @@ QObject *EntityRuntime::consumedReplica(const QString &owner, const QString &con
 bool EntityRuntime::start()
 {
     // Build the blueprint backend once, so every owned Source is created with its helper
-    // (Db/Cache/Http/Jobs) already in context (a shared Source is created inside start()).
+    // (Db/Cache/Docs/Http/Jobs) already in context (a shared Source is created inside start()).
     // An entity that cannot serve its blueprint never reaches enableRemoting(): a consumer
     // being refused acquisition is a far better failure than one acquiring a Source whose
     // every call will fail.
@@ -212,6 +212,17 @@ bool EntityRuntime::start()
             host->setContextObject(it.key(), it.value());
         }
         for (auto it{m_entityContext.constBegin()}; it != m_entityContext.constEnd(); ++it) {
+            // The blueprint's helper wins. An entity contributing its own `Db` would leave
+            // every Source on it calling something other than the provider the config
+            // selected, and silently, because the name still resolves. Refusing the
+            // override and saying so is the only outcome that cannot look like it worked.
+            if (m_blueprintContext.contains(it.key())) {
+                qWarning("SynQt: entity '%s' contributed '%s', which its %s blueprint already "
+                         "provides; keeping the blueprint's helper",
+                         qUtf8Printable(m_topology.entity), qUtf8Printable(it.key()),
+                         qUtf8Printable(m_topology.blueprint));
+                continue;
+            }
             host->setContextObject(it.key(), it.value());
         }
         connect(host, &ConnectPointHost::connectionRefused, this,

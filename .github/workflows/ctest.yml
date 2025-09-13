@@ -423,7 +423,7 @@ jobs:
           QT_HOST: ${{ env.QT_ROOT }}/${{ env.QT_VERSION }}/${{ matrix.kit_dir }}
           # The ratchet. Raise it when the number goes up; never lower it to make a branch
           # green. docs/development.md says what the figure does and does not claim.
-          CXX_FLOOR: "75"
+          CXX_FLOOR: "78"
           HALVES: cxx
           BUILD_DIR: build/coverage
         run: bash tests/run-coverage.sh

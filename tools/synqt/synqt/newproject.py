@@ -17,7 +17,7 @@ from typing import Any, Dict, List, Optional
 
 import yaml
 
-from . import appgen, licenses, presets, toolchain
+from . import addentity, appgen, licenses, presets, toolchain
 
 QT_VERSION = toolchain.QT_VERSION
 
@@ -167,9 +167,6 @@ def scaffold(parent_dir: os.PathLike[str] | str, name: str, *,
          "tls": {"cert_file": "certs/web/fullchain.pem",
                  "key_file": "certs/web/privkey.pem"}},
     ]
-    for blueprint in blueprints or []:
-        entities.append({"name": blueprint, "kind": "service", "blueprint": blueprint})
-
     config = _config(name, entities)
     if auth:
         # Mark the edge so the license generator knows it links Network Authorization.
@@ -186,8 +183,18 @@ def scaffold(parent_dir: os.PathLike[str] | str, name: str, *,
     (root / ".env.example").write_text("# Entity secrets (env: references), never committed\n")
     _write_qmlformat_settings(root)
 
+    # A starting blueprint entity is scaffolded by `synqt add entity` itself, so the two
+    # paths cannot drift: same config block, same provider defaults, same folder and Source
+    # stub. It used to write a bare `{name, kind, blueprint}` here, which left a `synqt new
+    # --blueprint persistence` project with an entity that had no provider settings, no
+    # schema, and no Source at all, unlike the same entity added a command later. It runs
+    # after .env.example exists because an external provider appends its secret to it.
+    for blueprint in blueprints or []:
+        addentity.scaffold(root, blueprint, blueprint)
+    config = yaml.safe_load((root / "synqt.yaml").read_text())
+
     presets.write(root, config)
-    # The buildable app: the multi-binary CMakeLists and one main.cpp per entity, derived
+    # The buildable app. The multi-binary CMakeLists and one main.cpp per entity, derived
     # from the topology so the scaffold compiles as-is (client + edge, no connect points).
     appgen.generate(root, config)
 

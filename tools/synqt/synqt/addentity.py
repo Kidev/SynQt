@@ -67,6 +67,12 @@ class AddEntityError(Exception):
 
 
 def _source_stub(blueprint: str, name: str) -> str:
+    """The Source stub for a blueprint entity.
+
+    Written the way ``qmlformat`` would write it, using the project's own
+    ``.qmlformat.ini``, so a scaffolded project passes its own ``synqt check`` (the
+    ``check.qml_format`` rule) with nothing to reformat first.
+    """
     header = ("// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux\n"
               "// SPDX-License-Identifier: Apache-2.0\n\nimport QtQuick\nimport SynQt\n\n")
     if blueprint == "persistence":
@@ -75,27 +81,65 @@ def _source_stub(blueprint: str, name: str) -> str:
             "// (parameterized query/exec) and never names an engine.\n"
             "QtObject {\n"
             "    function insert(row) {\n"
-            "        if (Caller.entity !== \"web\") return;   // authorize the calling entity\n"
-            "        Db.exec(\"INSERT INTO items(text, author) VALUES(?, ?)\",\n"
-            "                [row.text, row.author]);\n"
+            "        if (Caller.entity !== \"web\") {\n"
+            "            return;   // authorize the calling entity\n"
+            "        }\n"
+            "        Db.exec(\"INSERT INTO items(text, author) VALUES(?, ?)\", "
+            "[row.text, row.author]);\n"
             "    }\n"
             "}\n")
     if blueprint == "cache":
-        return header + ("QtObject {\n"
-                         "    function put(key, value) { Cache.set(key, value, 300); }\n"
-                         "    function fetch(key) { return Cache.get(key); }\n"
-                         "}\n")
+        return header + (
+            "// Owner of a cache connect point. It calls the `Cache` helper only, so the\n"
+            "// entity works the same on the embedded store and on an external engine.\n"
+            "QtObject {\n"
+            "    function put(key, value) {\n"
+            "        Cache.set(key, value, 300);\n"
+            "    }\n"
+            "\n"
+            "    function fetch(key) {\n"
+            "        return Cache.get(key);\n"
+            "    }\n"
+            "}\n")
+    if blueprint == "document":
+        return header + (
+            "// Owner of a document connect point. It calls the `Docs` helper only\n"
+            "// (collection, filter and document as maps) and never names an engine. The\n"
+            "// filter is built here from a value, never forwarded whole from a caller: a\n"
+            "// filter map is the engine's query language the way a string is SQL's.\n"
+            "QtObject {\n"
+            "    function add(doc) {\n"
+            "        if (Caller.entity !== \"web\") {\n"
+            "            return;   // authorize the calling entity\n"
+            "        }\n"
+            "        Docs.insert(\"items\", doc);\n"
+            "    }\n"
+            "\n"
+            "    function byAuthor(author) {\n"
+            "        return Docs.find(\"items\", {\n"
+            "            \"author\": String(author)\n"
+            "        });\n"
+            "    }\n"
+            "}\n")
     if blueprint == "gateway":
         return header + (
             "// Outbound only by default: it consumes external HTTP through the `Http`\n"
             "// helper (TLS-verified, plaintext refused in release) and never touches sockets.\n"
             "QtObject {\n"
-            "    function upstream(url) { return Http.get(url); }\n"
+            "    function upstream(url) {\n"
+            "        return Http.get(url);\n"
+            "    }\n"
             "}\n")
     if blueprint == "jobs":
-        return header + ("QtObject {\n"
-                         "    Component.onCompleted: Jobs.every(60000, function(){ /* rollup */ });\n"
-                         "}\n")
+        return header + (
+            "// Owner of a jobs connect point. Scheduling and the bounded work queue belong\n"
+            "// to the `Jobs` helper, so there is no timer here to manage and nothing to deploy.\n"
+            "QtObject {\n"
+            "    // The rollup this entity exists to run, every minute, off the request path.\n"
+            "    Component.onCompleted: Jobs.every(60000, function () {\n"
+            "        console.log(\"rollup\");\n"
+            "    })\n"
+            "}\n")
     return header + "QtObject {\n}\n"
 
 

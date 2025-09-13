@@ -53,7 +53,7 @@ if(NOT TARGET SynQtConsumer)
     add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../consumer" "${CMAKE_BINARY_DIR}/SynQtConsumer")
 endif()
 
-# The provider layer (family interfaces, bundled providers, Db/Cache/Http/Jobs helpers).
+# The provider layer (family interfaces, bundled providers, Db/Cache/Docs/Http/Jobs helpers).
 # EntityRuntime injects the blueprint's helper into each owned Source; a service links this,
 # the client never does.
 if(NOT TARGET SynQtProviders)

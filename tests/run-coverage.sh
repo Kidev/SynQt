@@ -23,7 +23,7 @@ set -euo pipefail
 
 QT_HOST="${QT_HOST:-/opt/Qt/6.11.1/gcc_64}"
 BUILD_DIR="${BUILD_DIR:-build/coverage}"
-CXX_FLOOR="${CXX_FLOOR:-75}"
+CXX_FLOOR="${CXX_FLOOR:-78}"
 PY_FLOOR="${PY_FLOOR:-89}"
 HALVES="${HALVES:-both}"
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
