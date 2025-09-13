@@ -16,7 +16,7 @@
 #include <QByteArray>
 
 // The blob ceiling and ramp are baked at build time, because WebAssembly has no process
-// environment to read at runtime. Run-bench.sh sets them per sweep at configure time. Native runs
+// environment to read at runtime. run-bench.sh sets them per sweep at configure time. Native runs
 // may still override them through the environment for quick local checks.
 #ifndef SYNQT_BENCH_BLOBS_DEFAULT
 #define SYNQT_BENCH_BLOBS_DEFAULT 800
@@ -56,7 +56,8 @@ int main(int argc, char *argv[])
     QGuiApplication app{argc, argv};
 
     const int maxBlobs{envInt("SYNQT_BENCH_BLOBS", SYNQT_BENCH_BLOBS_DEFAULT)};
-    const double rampSeconds{envDouble("SYNQT_BENCH_RAMP", double(SYNQT_BENCH_RAMP_DEFAULT))};
+    const double rampSeconds{
+        envDouble("SYNQT_BENCH_RAMP", static_cast<double>(SYNQT_BENCH_RAMP_DEFAULT))};
 
     QQmlApplicationEngine engine;
 

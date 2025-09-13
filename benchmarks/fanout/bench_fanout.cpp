@@ -176,8 +176,8 @@ void rebuildSlice(QStandardItemModel *model, int rows, quint64 revision)
     for (int row{0}; row < rows; ++row) {
         const QModelIndex index{model->index(row, 0)};
         model->setData(index, row, Qt::UserRole);
-        model->setData(index, double(row) + double(revision), Qt::UserRole + 1);
-        model->setData(index, double(row) * 2.0 + double(revision), Qt::UserRole + 2);
+        model->setData(index, static_cast<double>(row) + static_cast<double>(revision), Qt::UserRole + 1);
+        model->setData(index, static_cast<double>(row) * 2.0 + static_cast<double>(revision), Qt::UserRole + 2);
     }
 }
 
