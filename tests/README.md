@@ -52,7 +52,9 @@ against it, and reports the C++ line coverage of `src/` and the branch coverage 
 Python CLI. `HALVES=cxx` or `HALVES=py` runs one of the two, which is how each half runs in
 the CI job that already has what it needs. `CXX_FLOOR` and `PY_FLOOR` are the percentages
 below which it fails; they are a ratchet, so raise them when the number goes up and never
-lower them to make a branch green. The full story, including what the figure deliberately
+lower them to make a branch green. `PY_FLOOR_NO_QT` is the Python floor for a machine with
+no Qt kit, where the `qmllint` and `qmlformat` tests skip and the suite honestly reaches
+less; the run prints which of the two it applied. The full story, including what the figure deliberately
 does not claim, is in the [developer guide](../docs/development.md).
 
 ## What is here
