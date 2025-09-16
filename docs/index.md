@@ -149,8 +149,9 @@ allow. Here the browser asks for some data, the web edge checks the database
 whether that caller is allowed, and only then fetches the data from the api and
 sends it back.
 
-Six files are that whole system: one configuration file, one contract, and one
-QML file per entity. Hover (or focus) any part of the diagram to read the file
+Seven files are that whole system: one configuration file, one contract, one
+QML file per entity, and the table the database keeps them in. Hover (or focus)
+any part of the diagram to read the file
 behind it, or pick the file out of the project tree beside it; it stays open
 until you move to another one. Hover any line of a file to see what that
 line does, and a line that ends in an arrow opens the page covering it, whether
@@ -544,7 +545,28 @@ AccessSource {
 <ul class="synqt-flow__glossary" hidden>
 <li data-code="AccessSource" data-href="entities/">The database owns this connect point, so it owns the rules for it too.</li>
 <li data-code="Caller.isEntityVerified" data-href="api/?p=classSynQt_1_1Caller.html">An entity, not a person, named by the certificate its link presented. Only the edge gets here, and the slot checks again.</li>
-<li data-code="Db.query" data-href="api/?p=classSynQt_1_1Db.html">Parameterized, always. The value goes in as a parameter, so it can never become SQL. The grants table itself comes from database/schema.sql, which the entity applies at startup.</li>
+<li data-code="Db.query" data-href="api/?p=classSynQt_1_1Db.html">Parameterized, always. The value goes in as a parameter, so it can never become SQL. The grants table itself comes from database/schema.sql, the next file.</li>
+</ul>
+
+</div>
+
+<div class="synqt-file" data-file="schema" markdown>
+<span class="synqt-file__name"><strong>schema</strong><span class="synqt-flow__path">database/schema.sql</span></span>
+
+```sql
+CREATE TABLE IF NOT EXISTS grants (
+    sub        TEXT PRIMARY KEY,
+    granted_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS grants_by_date
+    ON grants (granted_at);
+```
+
+<ul class="synqt-flow__glossary" hidden>
+<li data-code="CREATE TABLE IF NOT EXISTS grants" data-href="entities/">The only file here that is not QML, and the only place the shape of the stored data is written down. The persistence blueprint applies it at startup and extends it forward, never back.</li>
+<li data-code="sub" data-href="authentication/">The subject the identity provider issued, which is what a session carries and what the edge passes in. No name, no address: nothing here identifies a person.</li>
+<li data-code="CREATE INDEX IF NOT EXISTS grants_by_date" data-href="providers/">Both statements are written to run twice without complaining, because startup applies them to a database that may already have them.</li>
 </ul>
 
 </div>
@@ -606,6 +628,7 @@ UpstreamSource {
 <li class="synqt-tree__leaf synqt-tree__leaf--nested"><span class="synqt-tree__file" data-file="web" tabindex="0" role="button" aria-label="Show web/Feed.qml">Feed.qml</span></li>
 <li class="synqt-tree__dir synqt-tree__dir--nested">database</li>
 <li class="synqt-tree__leaf synqt-tree__leaf--nested"><span class="synqt-tree__file" data-file="database" tabindex="0" role="button" aria-label="Show database/Access.qml">Access.qml</span></li>
+<li class="synqt-tree__leaf synqt-tree__leaf--nested"><span class="synqt-tree__file" data-file="schema" tabindex="0" role="button" aria-label="Show database/schema.sql">schema.sql</span></li>
 <li class="synqt-tree__dir synqt-tree__dir--nested">api</li>
 <li class="synqt-tree__leaf synqt-tree__leaf--nested"><span class="synqt-tree__file" data-file="api" tabindex="0" role="button" aria-label="Show api/Upstream.qml">Upstream.qml</span></li>
 </ul>
