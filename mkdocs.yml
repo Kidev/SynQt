@@ -75,6 +75,10 @@ extra_javascript:
   # The home page's "What it looks like" project: the tree and diagram triggers, the
   # code glossary, and the explanation under the file being read.
   - javascripts/home-flow.js
+  # Draws the window's scrollbar from under the header down, the way the C++
+  # reference's own bar sits inside its frame, where the platform draws one that
+  # takes space. The document keeps scrolling; only the bar is ours.
+  - javascripts/scrollbar.js
 
 extra:
   generator: false
