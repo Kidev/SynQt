@@ -145,6 +145,12 @@
     DoxygenAwesomeInteractiveToc.init()
     DoxygenAwesomeTabs.init()
 </script>
+<!-- The documentation site's own scrollbar (docs/javascripts/scrollbar.js, copied here by
+     HTML_EXTRA_FILES), which draws the bar for the pane this layout scrolls: at the right
+     of the window rather than at the right of that pane, which is where the platform put
+     it, three hundred pixels short of the edge with the page outline beyond it. The site
+     loads the same file, so there is one bar and not two. -->
+<script type="text/javascript" src="$relpath^scrollbar.js"></script>
 $treeview
 $search
 $mathjax

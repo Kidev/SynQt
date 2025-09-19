@@ -73,13 +73,23 @@ that joins each page to the shell page above, and a
 [custom footer](https://github.com/Kidev/SynQt/blob/main/tools/docs-hooks/doxygen-footer.html)
 carrying the license instead of a generator credit.
 
+The brand layer carries this site's type scale as well as its colours, so a reference page
+is set in the same sizes as the page you arrived from rather than in the theme's own. These
+pages share the scrollbar outright. They load the site's
+[scrollbar stylesheet](https://github.com/Kidev/SynQt/blob/main/docs/stylesheets/scrollbar.css)
+and [script](https://github.com/Kidev/SynQt/blob/main/docs/javascripts/scrollbar.js), the
+same two files every other page loads, so there is one bar to keep looking right. It draws
+at the right of the window here too, which the platform's own could not do, because what
+scrolls on a reference page is the middle of three panels, so the native bar landed three
+hundred pixels short of the edge.
+
 The two navigation panels each have one job, which the hook enforces after Doxygen runs.
-The tree on the left lists pages and only pages: Doxygen also files a class's member
+The tree on the left lists pages and only pages. Doxygen would also file a class's member
 sections there, which are anchors in the page that class already occupies, so entries side
-by side in the tree meant two different things and the same content appeared in both
-panels. The outline on the right lists the sections of the page you are on, which is where
-those members are now. The hook also stops the tree from remembering a selection: Doxygen
-caches the last entry clicked and reselects it on every later page, which left the
+by side in the tree would mean two different things and the same content would appear in
+both panels. The outline on the right lists the sections of the page you are on, including
+those members. The hook also stops the tree from remembering a selection, because Doxygen
+caches the last entry clicked and reselects it on every later page, which leaves the
 highlight stuck on whatever was opened first.
 
 To generate it on its own, into `build/apidocs/html/index.html`:
