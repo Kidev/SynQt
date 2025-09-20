@@ -507,8 +507,8 @@ div.memproto table {
        offset is set here instead, to where the site's own contents label sits, level with
        the page title. It is the element's own `top` and not padding inside it, so that the
        label, which is pinned to the top of this box, has nothing above it that can scroll
-       into view behind it. That is what lets the label do its job with its own box rather
-       than with a halo around it; see #page-nav-title.
+       into view above its plate: padding here would have left a band of the list showing
+       over it, which is what the plate's fade had to cover before.
 
        The right inset is wider than the left because the window's scrollbar is drawn over
        that edge now (docs/javascripts/scrollbar.js), and because the site's own table of
@@ -525,29 +525,26 @@ div.memproto table {
 }
 
 /* The label over the list (tools/docs-hooks/doxygen.py, _name_the_page_outline), styled
-   as the site styles its own: quiet, bold, and pinned while the list scrolls under it.
+   as the site styles its own: quiet, bold, pinned while the list scrolls under it, and on
+   the same plate with the same soft edge fading out of it.
 
-   Being pinned is why it needs to be opaque, and what it is painted with is the page's own
-   background rather than a flat colour standing in for it. That page is a gradient, so a
-   flat colour cannot be the same as it anywhere but one line, and the theme's choice of
-   the darkest stop made the label a dark plate laid across a mid-blue panel. The
-   declaration below is the site's gradient itself, `fixed`, which means its positioning
-   area is the window and not this element: it paints the pixels the page paints there,
-   exactly, at every window size, and the label disappears into it. What is left visible is
-   the text, which is what a label is.
+   Being pinned is why it needs a plate at all, and the plate is the site's, colour
+   included. #1e2129 is Material's own dark background (`--md-default-bg-color`), which is
+   what the label on every other page of the site is drawn on and faded out with, over the
+   same 8.8px. It is not the colour of the page it sits on, on either side: the page is a
+   gradient there and no flat colour can be. That is the site's own look, and the point here
+   is that the two labels are the same object, so this reference takes it rather than
+   inventing a second one.
 
-   That in turn is why there is no soft halo around it and no gap under it. A halo is a
-   flat colour by definition, so an invisible label with one would have worn a visible ring
-   of the wrong colour. Instead the label covers what scrolls under it with its own box:
-   padding above and below it, and nothing above it inside the scroller at all
-   (#page-nav-contents is offset rather than padded). */
+   The plate is also why the list starts a line below the label rather than flush against
+   it, which is the same trade, for the same reason, that the site makes. */
 #page-nav-title {
     position: sticky;
     top: 0;
     z-index: 1;
-    padding: 15px 16px 12px 16px;
-    background-image: linear-gradient(165deg, #201335 0%, #232a5c 38%, #0d1224 100%);
-    background-attachment: fixed;
+    padding: 0 16px;
+    background: #1e2129;
+    box-shadow: 0 0 8.8px 8.8px #1e2129;
     color: rgba(226, 228, 233, 0.56);
     font-size: var(--toc-font-size);
     font-weight: 700;
