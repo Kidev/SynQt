@@ -557,14 +557,21 @@ def _name_the_page_outline(html_dir):
     from CSS so it is real text: selectable, findable, and read out in order by a screen
     reader.
 
-    It goes inside #page-nav-contents, ahead of the list, because that is the element
-    that scrolls; the label is pinned to the top of it (see #page-nav-title in
-    doxygen-synqt.css). navtree.js appends the list to the same element rather than
-    replacing its contents, so what is inserted here survives the script that fills the
-    panel, and stays first.
+    It goes in the panel, beside the element that scrolls (#page-nav-contents) rather than
+    inside it, and is placed over the top of it from CSS (see #page-nav-title in
+    doxygen-synqt.css). It was inside for a while, pinned to the top with `position:
+    sticky`, which is the obvious place for it and cost it its plate: a scrolling box
+    clips at its own edge, and the label sits exactly on that edge, so the soft glow the
+    site fades its own label out with was cut off square on the side facing the reader.
+    Out here nothing clips it. The list still scrolls under it and still disappears behind
+    it, because the plate is opaque and the box it scrolls in starts underneath.
+
+    Keeping the scrolling where the theme put it also keeps the theme's own behavior: it
+    scrolls #page-nav-contents itself to follow the content (navtree.js,
+    updateContentTop), which it could not do if the scrolling moved to the list.
     """
-    anchor = '<div id="page-nav-contents">'
-    labelled = '%s\n<div id="page-nav-title">Table of contents</div>' % anchor
+    anchor = '<div id="page-nav-tree">'
+    labelled = '<div id="page-nav-title">Table of contents</div>\n%s' % anchor
     for page in sorted(html_dir.rglob("*.html")):
         text = page.read_text(encoding="utf-8")
         if anchor not in text or 'id="page-nav-title"' in text:

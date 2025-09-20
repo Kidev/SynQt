@@ -141,9 +141,9 @@ div.header .title {
     color: rgba(226, 228, 233, 0.56);
     letter-spacing: -0.01em;
     line-height: 1.3;
-    /* The site leaves 44px under its heading. The theme leaves twelve, and taking the rule
-       off above lets even that collapse into the content's own top margin, so it is stated
-       here instead of inherited from a border that no longer exists. */
+    /* The site leaves 44px under its heading. The theme leaves twelve, and with the rule
+       removed above even that collapses into the content's own top margin, so it is stated
+       here. */
     margin-bottom: 44px;
 }
 
@@ -236,10 +236,9 @@ div.fragment .line span {
     border-bottom: none;
     /* Doxygen also draws a divider down the right of the title area, in its own light
        palette rather than in the separator colour. #top and #nav-tree already carry the
-       divider that separates the sidebar from the content, so this one was a second,
-       much brighter line drawn over the first for the height of the head alone: a short
-       pale streak that stopped level with the search box and looked like a rendering
-       fault. One divider, full height, in the palette the rest of the page uses. */
+       divider that separates the sidebar from the content, so this one would be a second,
+       much brighter line over the first for the height of the head alone. One divider, full
+       height, in the palette the rest of the page uses. */
     border-right: 0;
 }
 
@@ -256,10 +255,10 @@ div.fragment .line span {
 }
 
 /* doxygen-awesome-sidebar-only.css sizes the search box from --side-nav-fixed-width, so it
-   spans the whole sidebar width and then ignores the 12px inset the sidebar head sits at,
-   which pushed its right edge past the sidebar's own right border. Size it to the head
-   instead, borders included, so it sits inside the panel and the divider reads as the
-   sidebar's true right edge. */
+   spans the whole sidebar width and ignores the 12px inset the sidebar head sits at,
+   pushing its right edge past the sidebar's own right border. Size it to the head instead,
+   borders included, so it sits inside the panel and the divider reads as the sidebar's true
+   right edge. */
 #synqt-sidebar-head #MSearchBox {
     box-sizing: border-box;
     width: 100%;
@@ -316,10 +315,10 @@ div.fragment .line span {
     background: transparent;
 }
 
-/* Stock doxygen-awesome pulls the tree 1px to the right (`margin-right: -1px`) so its
-   border overlapped the old, wider layout's edge. With the sidebar inset removed above,
-   that 1px now overhangs #side-nav's edge and split the divider off it. Remove it so the
-   tree, its border, and the panel edge line up. */
+/* Stock doxygen-awesome pulls the tree 1px to the right (`margin-right: -1px`) to overlap a
+   wider layout's edge. With the sidebar inset removed above, that 1px overhangs #side-nav's
+   edge and splits the divider off it, so it is removed and the tree, its border and the
+   panel edge line up. */
 #nav-tree {
     margin-right: 0;
     /* And no scrollbar of its own, for the reason the page outline has none: this layout
@@ -431,31 +430,28 @@ div.memdoc {
 }
 
 /* The signature table carries the browser default 2px border-spacing, which pushes its
-   right edge a few pixels past the (overflow, auto) memproto box and floats a phantom
-   horizontal scrollbar under signatures that otherwise fit. Collapse the spacing. A
- long signature still scrolls, one that fits no longer pretends to. */
+   right edge a few pixels past the (overflow, auto) memproto box and shows a phantom
+   horizontal scrollbar under signatures that otherwise fit. Collapse the spacing: a long
+   signature still scrolls, and one that fits does not. */
 div.memproto table {
     border-spacing: 0;
 }
 
-/* The page outline. The table of contents down the right-hand side of every reference
-   page, which Doxygen 1.14 introduced as a resizable panel (#page-nav) and fills from
-   the headings on the page as you scroll (navtree.js, initPageToc).
+/* The page outline: the table of contents down the right-hand side of every reference page,
+   which Doxygen 1.14 draws as a resizable panel (#page-nav) and fills from the headings on
+   the page as you scroll (navtree.js, initPageToc).
 
-   Doxygen's own presentation for it is a panel. Its own opaque background, a divider
-   down its left edge, a drag handle to resize it, and its own scrollbar. Next to the
-   documentation site's table of contents, which is a plain list of links on the page
-   background, that reads as a second menu bolted to the side of the page rather than as
-   the contents of the one being read. The rules below take the panel apart and leave the
-   list, so the reference's table of contents is the site's table of contents
-   (docs/stylesheets/extra.css, .md-sidebar--secondary), same treatment, same sticky
-   label over it, same absence of a frame around it.
+   Doxygen presents it as a panel: its own opaque background, a divider down its left edge,
+   a drag handle to resize it, and its own scrollbar. Next to the documentation site's table
+   of contents, a plain list of links on the page background, that reads as a second menu
+   bolted to the page. The rules below take the panel apart and leave the list, so the
+   reference's table of contents is the site's (docs/stylesheets/extra.css,
+   .md-sidebar--secondary): same treatment, same sticky label over it, no frame around it.
 
-   What is kept is the tracking. The outline dims what has scrolled past and accents the
-   heading you are in, which is what the site's own table of contents does. What is not
-   kept is the bar Doxygen draws down the left of the range in view. Toned down to a
-   hairline it stopped reading as a menu selection and started reading as a stray line
-   next to two entries, which is worse. The accent already says where you are. */
+   What is kept is the tracking: the outline dims what has scrolled past and accents the
+   heading you are in, as the site's own table of contents does. The bar Doxygen draws down
+   the left of the range in view is dropped; as a hairline it reads as a stray line, and the
+   accent already says where you are. */
 #page-nav {
     background: transparent;
     border-left: 0;
@@ -471,21 +467,45 @@ div.memproto table {
    as a preference. The script writes the panel's width to a cookie on one page and reads
    it back on the next, and it sets the panel a pixel short of the column to leave room for
    the border the theme draws down its left edge (navtree.js, `rightPanelWidth-1`). That
-   border is taken off above, so the compensation became a loss: every page visited took
+   border is taken off above, so the compensation became a loss. Every page visited took
    another pixel off the outline, which is a layout that shifts on every navigation and,
    after a couple of hundred pages, a table of contents narrowed away to a sliver, in a
    cookie that follows the reader from visit to visit.
 
-   Pinning the width ends the round trip: the script reads back what it wrote, the stored
+   Pinning the width ends the round trip. The script reads back what it wrote, the stored
    width holds still, and a browser carrying a collapsed one from before is repaired by
    the next page it loads.
 
    The width is the sidebar's, so the two panels flanking the content are the same, and it
-   is unconditional: the narrow window is handled by the rule further down this file that
+   is unconditional. The narrow window is handled by the rule further down this file that
    drops the outline below 1200px, which is later in the source and equally `!important`,
-   so it wins wherever it applies. */
+   so it wins wherever it applies.
+
+   The content column is capped here too, and that is what puts the outline back beside the
+   text. The theme caps the text itself (`div.contents`, --content-maxwidth) and centers it
+   in whatever width the column happens to have, while the outline is pinned to the far
+   right of the window. On a wide screen those two are not the same place: at 2560px the
+   text ended around x=1840 and the table of contents started at 2250, four hundred pixels
+   of gradient apart, where every other page of the site keeps its contents column a few
+   tens of pixels from the text it belongs to. Capping the column to what the text can
+ use (the sidebar it clears, the text, and the text's own padding) and centering
+   the pair puts the same gap there at every width, and spends the width left over on the
+   margins either side, which is exactly what the site does with it. Below the cap there is
+   no free space to distribute, so this is the layout that was already there.
+
+   The cap adds up what the first column holds. The sidebar the pane clears with its own
+   left margin, the text at its cap, the padding `div.contents` carries either side, and
+   the 10px the pane reserves for its scrollbar (`scrollbar-gutter: stable`, below). A
+   pixel short and the text is capped by the column instead of by its own rule, which is
+   the same page a few pixels narrower. The sum is stated so it is not. */
 #container {
-    grid-template-columns: auto var(--side-nav-fixed-width) !important;
+    grid-template-columns:
+        minmax(0, calc(var(--side-nav-fixed-width) + var(--content-maxwidth)
+                       + 2 * var(--spacing-xlarge) + 10px))
+        var(--side-nav-fixed-width) !important;
+    /* Two jobs. It centers the pair, and it stops the first track stretching to fill the
+       window, which an `auto` or `minmax()` track does on its own while this is `normal`. */
+    justify-content: center;
 }
 
 #page-nav {
@@ -503,12 +523,12 @@ div.memproto table {
        added there would widen the element instead of insetting it, and the list would run
        off the edge of the panel it is meant to sit inside.
 
-       The theme positions this absolutely and offsets it from the top of the panel; the
+       The theme positions this absolutely and offsets it from the top of the panel. The
        offset is set here instead, to where the site's own contents label sits, level with
        the page title. It is the element's own `top` and not padding inside it, so that the
-       label, which is pinned to the top of this box, has nothing above it that can scroll
-       into view above its plate: padding here would have left a band of the list showing
-       over it, which is what the plate's fade had to cover before.
+       label sitting over this box has nothing above it that can scroll into view above its
+       plate: padding here would have left a band of the list showing over it, which is what
+       the plate's fade had to cover before.
 
        The right inset is wider than the left because the window's scrollbar is drawn over
        that edge now (docs/javascripts/scrollbar.js), and because the site's own table of
@@ -525,22 +545,31 @@ div.memproto table {
 }
 
 /* The label over the list (tools/docs-hooks/doxygen.py, _name_the_page_outline), styled
-   as the site styles its own: quiet, bold, pinned while the list scrolls under it, and on
-   the same plate with the same soft edge fading out of it.
+   as the site styles its own: quiet, bold, held still while the list scrolls under it, and
+   on the same plate with the same soft edge fading out of it.
 
-   Being pinned is why it needs a plate at all, and the plate is the site's, colour
+   Being held still is why it needs a plate at all, and the plate is the site's, colour
    included. #1e2129 is Material's own dark background (`--md-default-bg-color`), which is
    what the label on every other page of the site is drawn on and faded out with, over the
-   same 8.8px. It is not the colour of the page it sits on, on either side: the page is a
+   same 8.8px. It is not the colour of the page it sits on, on either side. The page is a
    gradient there and no flat colour can be. That is the site's own look, and the point here
    is that the two labels are the same object, so this reference takes it rather than
    inventing a second one.
 
    The plate is also why the list starts a line below the label rather than flush against
-   it, which is the same trade, for the same reason, that the site makes. */
+   it, which is the same trade, for the same reason, that the site makes.
+
+   It is placed here rather than pinned inside the list's own box, because that box scrolls
+   and a scrolling box clips at its edge: `position: sticky; top: 0` in there put the label
+   exactly on the clip, and cut the glow off square on the side facing the reader. Sitting
+   in the panel instead (which clips nothing) the plate fades out all round, as the site's
+   does. The offsets are the scrolling box's own insets, so the label and the entries under
+   it stay in one column. `top` is that box's, so the label covers its first line. */
 #page-nav-title {
-    position: sticky;
-    top: 0;
+    position: absolute;
+    top: 31px;
+    left: var(--spacing-large);
+    right: 32px;
     z-index: 1;
     padding: 0 16px;
     background: #1e2129;
@@ -554,12 +583,15 @@ div.memproto table {
 /* Only when the page has headings to list. Doxygen emits the panel on every page and
    fills it from script, so on a page with no sections (an index, a member list) the
    label would otherwise sit alone over an empty column. */
-#page-nav-contents:not(:has(ul.page-outline li)) #page-nav-title {
+#page-nav:not(:has(ul.page-outline li)) #page-nav-title {
     display: none;
 }
 
+/* The list starts under the label rather than at the top of the box it scrolls in, since
+   the label sits over that box rather than taking a line of it. The line it would take is
+   stated as the label's own line box, so the two move together if the contents size does. */
 #page-nav ul.page-outline {
-    margin: var(--spacing-medium) 0 var(--spacing-large) 0;
+    margin: calc(var(--spacing-medium) + var(--toc-font-size) * 1.3) 0 var(--spacing-large) 0;
 }
 
 /* Each entry is an indent spacer (span.arrow, which Doxygen widens inline by 16px per
@@ -590,12 +622,11 @@ div.memproto table {
 }
 
 /* One strength for every entry but the one you are in, which is how the site's table of
-   contents reads. The theme instead runs three. What is above the range on screen is
-   dimmed to the secondary colour, what is below it is at full strength, and the range
-   itself is accented. Two of those three are stated `!important` against selectors more
-   specific than the block above, which is why the entries stayed brighter than the site's
-   after the colours were harmonized, and why they are restated here rather than in it. The
-   accented entry is left alone. It is the one distinction the site draws too. */
+   contents reads. The theme runs three: above the range on screen dimmed to the secondary
+   colour, below it at full strength, and the range itself accented. Two of those three are
+   stated `!important` against selectors more specific than the block above, which is why
+   they are restated here rather than in it. The accented entry is left alone; it is the one
+   distinction the site draws too. */
 #page-nav ul.page-outline li a,
 #page-nav ul.page-outline li.vis ~ * a {
     color: var(--page-foreground-color) !important;
@@ -658,12 +689,11 @@ table.markdownTable td a {
     overflow-wrap: anywhere;
 }
 
-/* The footer strip carries two things side by side. The breadcrumb (an inline `ul`) and the
-   license note, floated right. The theme draws the top divider on the `ul`, but a block next
-   to a float shrinks to clear it, so that border stopped exactly where the license text
-   began and the note read as a detached fragment. Move the divider (and the transparent
-   backdrop over the gradient) onto the whole strip so one continuous line runs the full
-   width, under the breadcrumb and the license note alike. */
+/* The footer strip carries two things side by side: the breadcrumb (an inline `ul`) and the
+   license note, floated right. The theme draws the top divider on the `ul`, but a block
+   next to a float shrinks to clear it, so that border would stop where the license text
+   begins. The divider (and the transparent backdrop over the gradient) moves onto the whole
+   strip, so one continuous line runs the full width. */
 #nav-path {
     background: transparent;
     border-top: 1px solid var(--separator-color);
