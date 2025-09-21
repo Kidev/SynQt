@@ -74,7 +74,7 @@ Built and run by the tree, in milestone order:
 | [m3-mesh](m3-mesh) | The mesh: mutual TLS on every link, a wrong or missing certificate refused at the handshake, the opt-in local socket |
 | [m4-topology](m4-topology) | `EntityRuntime` and deny by default: an entity not on a consumer list is refused |
 | [m5-webedge](m5-webedge) | The edge: bundle and headers, the upgrade pipeline, and the resource limits on it |
-| [m6-client](m6-client) | The client runtime natively (`SynClient`, `Server`, `Session`, `Router`). Its WASM and browser phases need a kit this tree does not install; `run-m6.sh` runs them and says so when it cannot |
+| [m6-client](m6-client) | The client runtime natively (`SynClient`, `Server`, `Session`, `Router`), then the WASM client in every browser engine that installs. The browser phases need a kit this tree does not install; `run-m6.sh` runs them and says so when it cannot, and [wasm-proofs.yml](../.github/workflows/wasm-proofs.yml) installs the kit in CI |
 | [m6-clientupdate](m6-clientupdate) | The client update decision behind the QML `App` accessor |
 | [consumer-facade](consumer-facade) | `Contract.on<Signal>` attached handlers and the promise a returning slot gives back |
 | [m7-caller](m7-caller) | Sessions and `Caller`: expiry, rotation, scope gating, per-peer authorization, and the three-entity todo matrix |

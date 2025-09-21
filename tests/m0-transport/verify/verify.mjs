@@ -145,6 +145,17 @@ function stopEdge() {
     });
 }
 
+// Playwright reports a missing runtime as a message whose first line is blank (the readable
+// part is the banner under it), and a skip that prints no reason is indistinguishable from a
+// skip nobody can act on. Take the first line that says something.
+function firstLine(err) {
+    const line = String(err.message)
+        .split("\n")
+        .map((text) => text.replace(/[\u2500-\u257f]/g, "").trim())
+        .find((text) => /[a-z]/i.test(text) && !/^browserType\.launch:?$/.test(text));
+    return line || "the runtime would not launch and gave no reason";
+}
+
 function launchOptions(browserType) {
     const options = { headless, args: [] };
     if (browserType === chromium) {
@@ -319,7 +330,7 @@ async function main() {
             await probe.close();
             browsers.push([browserType, browserName]);
         } catch (err) {
-            console.log(`  skipping ${browserName}: ${String(err.message).split("\n")[0]}`);
+            console.log(`  skipping ${browserName}: ${firstLine(err)}`);
         }
     }
     // Which engine build ran, on every run and not only a failing one. This harness is the

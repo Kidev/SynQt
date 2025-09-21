@@ -11,6 +11,11 @@
 #   * physics-single / physics-multi -> tests/wasm-quick3dphysics/verify/run-phys*.sh:
 #     Qt Quick 3D Physics builds, links its bundled PhysX, and boots on WASM. The spec audit
 #     once recorded "does not work on WASM"; these are the evidence that it is too strong.
+#   * client-runtime -> tests/m6-client/run-m6.sh: the client runtime above the transport
+#     (SynClient, the Server accessor, the QML canvas, and the fan-out to a second tab) in
+#     every engine that installs. browser-matrix.yml proves the transport engine by engine;
+#     this proves what is built on it, and until now its browser phase ran on a dev box or
+#     nowhere, because it needs the same WebAssembly kit as the proofs above.
 #
 # Separate from browser-matrix.yml, which installs only the single-threaded kit for the M0
 # matrix. The multithread kit needs its own QtRemoteObjects source build (the prebuilt WASM
@@ -33,6 +38,7 @@ on:
       - "tests/m0-transport/verify/run-mt.sh"
       - "tests/m0-transport/verify/verify-mt.mjs"
       - "tests/wasm-quick3dphysics/**"
+      - "tests/m6-client/**"
       - "examples/arena/**"
       - "src/client/**"
       - "tools/synqt/synqt/clientbuild.py"
@@ -65,16 +71,31 @@ jobs:
             needs_qtremoteobjects: true
             qt_modules: qtwebsockets
             script: tests/m0-transport/verify/run-mt.sh
+            verify_dir: tests/m0-transport/verify
           - label: physics-single
             kit: wasm_singlethread
             needs_qtremoteobjects: false
             qt_modules: qtquick3d qtquick3dphysics qtshadertools
             script: tests/wasm-quick3dphysics/verify/run-phys.sh
+            verify_dir: tests/wasm-quick3dphysics/verify
           - label: physics-multi
             kit: wasm_multithread
             needs_qtremoteobjects: false
             qt_modules: qtquick3d qtquick3dphysics qtshadertools
             script: tests/wasm-quick3dphysics/verify/run-phys-mt.sh
+            verify_dir: tests/wasm-quick3dphysics/verify
+          - label: client-runtime
+            kit: wasm_singlethread
+            needs_qtremoteobjects: true
+            # The counter edge links SynQtService, which verifies ID-token signatures.
+            needs_jwt_cpp: true
+            qt_modules: qtwebsockets
+            # The one proof here whose claim is per-engine rather than per-kit: the browser
+            # runs the client runtime, not just the transport under it.
+            browsers: chromium firefox webkit
+            script: tests/m6-client/run-m6.sh
+            # The harness (and its package.json) sits a level below the run script here.
+            verify_dir: tests/m6-client/verify
     env:
       QT_VERSION: "6.11.1"
       EM_VERSION: "4.0.7"
@@ -138,10 +159,12 @@ jobs:
         if: steps.qt-cache.outputs.cache-hit != 'true'
         # The physics proof builds the identical scene natively as its correctness half (a
         # headless WASM canvas cannot be trusted to advance its frame loop); the M0 proof
-        # needs the native edge to talk to.
+        # needs the native edge to talk to, and the client-runtime proof's edge is a real M5
+        # web edge, which is why the HTTP server and the authorization module are here too.
         run: |
           python -m aqt install-qt linux desktop "$QT_VERSION" linux_gcc_64 \
-            -m qtwebsockets qtremoteobjects qtquick3d qtquick3dphysics qtshadertools \
+            -m qtwebsockets qtremoteobjects qthttpserver qtnetworkauth \
+              qtquick3d qtquick3dphysics qtshadertools \
             --outputdir "$QT_ROOT"
 
       - name: Install Qt WebAssembly kit (${{ matrix.kit }})
@@ -198,9 +221,22 @@ jobs:
           cmake --build "$RUNNER_TEMP/qtro-wasm"
           cmake --install "$RUNNER_TEMP/qtro-wasm"
 
-      - name: Install Chromium for the headless driver
-        # Every proof here drives Chromium: SharedArrayBuffer and cross-origin isolation are
-        # what is being measured, and Chromium reports both faithfully headless.
+      - name: Provide jwt-cpp headers
+        # Kept in step with the same step in ctest.yml and in the example-bundle job below:
+        # SynQtService verifies OIDC ID-token signatures with jwt-cpp (MIT, header-only), and
+        # without it the host configure dies on "jwt-cpp not found".
+        if: matrix.needs_jwt_cpp
+        shell: bash
+        run: |
+          set -eu
+          git clone --depth 1 --branch "$JWT_CPP_VERSION" https://github.com/Thalhammer/jwt-cpp \
+            "$RUNNER_TEMP/jwt-cpp"
+          echo "JWT_CPP_INCLUDE_DIR=$RUNNER_TEMP/jwt-cpp/include" >> "$GITHUB_ENV"
+
+      - name: Install the browser engines for the headless driver
+        # Most proofs here drive Chromium alone: SharedArrayBuffer and cross-origin isolation
+        # are what they measure, and Chromium reports both faithfully headless. A row that
+        # settles a per-engine question names the engines it needs instead.
         #
         # Installed from the harness directory, after its own npm install, so the browser is
         # fetched by the same Playwright the script will then drive. Run from the repository
@@ -208,12 +244,14 @@ jobs:
         # dependencies were never installed, which is a version skew waiting to happen, not
         # just noise. browser-matrix.yml already does it this way.
         env:
-          SCRIPT: ${{ matrix.script }}
+          VERIFY_DIR: ${{ matrix.verify_dir }}
+          BROWSERS: ${{ matrix.browsers || 'chromium' }}
         run: |
           set -euo pipefail
-          cd "$(dirname "$SCRIPT")"
+          cd "$VERIFY_DIR"
           npm install --no-audit --no-fund
-          npx playwright install --with-deps chromium
+          # shellcheck disable=SC2086 -- BROWSERS is a space-separated engine list by design
+          npx playwright install --with-deps $BROWSERS
 
       - name: Run ${{ matrix.script }}
         env:
