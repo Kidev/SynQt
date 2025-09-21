@@ -329,6 +329,54 @@ jobs:
             cmake --install "$RUNNER_TEMP/$m-build"
           done
 
+      # The mysql proof needs one thing more than an engine, and it is a licensing consequence:
+      # Qt's prebuilt QMYSQL plugin is linked against Oracle's libmysqlclient, which SynQt may
+      # not convey alongside the LGPLv3 Qt modules and which does not load against MariaDB
+      # Connector/C either (the versioned symbols are Oracle's). So the plugin is rebuilt here
+      # against Connector/C, which is the only build of it the provider can legally use. See
+      # tools/qmysql-plugin/build-qmysql-plugin.sh and docs/licensing.md.
+      #
+      # Cached because the build needs the Qt *source* tree, which is a large download to
+      # produce one small shared object. A stale cache degrades to a skip rather than a wrong
+      # result: tst_m9 checks the plugin by calling addDatabase(), so a plugin that will not
+      # load reports itself as such and sends you here.
+      - name: Cache the QMYSQL plugin built against Connector/C
+        if: matrix.label == 'linux'
+        id: qmysql-cache
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/synqt-qmysql
+          key: qmysql-${{ runner.os }}-${{ env.QT_VERSION }}-${{ hashFiles('tools/qmysql-plugin/build-qmysql-plugin.sh') }}
+
+      - name: Build the QMYSQL plugin against MariaDB Connector/C (best effort)
+        # Best effort for the same reason the engines below are: a plugin that fails to build
+        # leaves the live mysql proof skipping exactly as it does today, and that is not worth
+        # a red build. It warns rather than passing over in silence.
+        if: matrix.label == 'linux'
+        shell: bash
+        env:
+          QT_HOST: ${{ env.QT_ROOT }}/${{ env.QT_VERSION }}/${{ matrix.kit_dir }}
+          QT_SRC: ${{ env.QT_ROOT }}/${{ env.QT_VERSION }}/Src
+          CACHED: ${{ steps.qmysql-cache.outputs.cache-hit }}
+        run: |
+          set -u
+          # The runtime library is needed either way: a cached plugin still links against it.
+          sudo apt-get install -y libmariadb-dev || true
+          if [ "$CACHED" = "true" ] && [ -n "$(find "$HOME/.cache/synqt-qmysql" -name 'libqsqlmysql.so' 2>/dev/null)" ]; then
+            echo "QMYSQL plugin restored from cache"
+          else
+            if python -m aqt install-src linux "$QT_VERSION" --archives qtbase \
+                --outputdir "$QT_ROOT"; then
+              tools/qmysql-plugin/build-qmysql-plugin.sh ||
+                  echo "::warning::the QMYSQL plugin did not build; the live mysql proof will skip"
+            else
+              echo "::warning::the Qt sources did not install; the live mysql proof will skip"
+            fi
+          fi
+          if [ -n "$(find "$HOME/.cache/synqt-qmysql" -name 'libqsqlmysql.so' 2>/dev/null)" ]; then
+            echo "QT_PLUGIN_PATH=$HOME/.cache/synqt-qmysql" >> "$GITHUB_ENV"
+          fi
+
       # The provider family interfaces make one claim that cannot be checked without the real
       # engine: that the same connect point Source, pointed at a different engine by config
       # alone, behaves identically. tests/m9-providers already contains those proofs, gated on
@@ -353,6 +401,11 @@ jobs:
               -e POSTGRES_USER=synqt -e POSTGRES_DB=synqt -p 5432:5432 postgres:16 || true
           docker run --rm -d --name synqt-redis -p 6379:6379 redis:7 || true
           docker run --rm -d --name synqt-mongo -p 27017:27017 mongo:7 || true
+          # MariaDB, never Oracle's mysql image: the provider is built against Connector/C, and
+          # the server the proof runs against should be the one its users will run.
+          docker run --rm -d --name synqt-mysql -e MARIADB_ROOT_PASSWORD=synqt \
+              -e MARIADB_USER=synqt -e MARIADB_PASSWORD=synqt -e MARIADB_DATABASE=synqt \
+              -p 3306:3306 mariadb:11 || true
 
           ready() {  # name, probe command
             for _ in $(seq 1 30); do
@@ -381,6 +434,17 @@ jobs:
             {
               echo "SYNQT_TEST_MONGO_URI=mongodb://127.0.0.1:27017"
               echo "SYNQT_TEST_MONGO_DB=synqt"
+            } >> "$GITHUB_ENV"
+          fi
+          # healthcheck.sh ships in the mariadb image; --connect proves it answers a client
+          # connection rather than merely having started a process.
+          if ready synqt-mysql healthcheck.sh --connect; then
+            {
+              echo "SYNQT_TEST_MYSQL_HOST=127.0.0.1"
+              echo "SYNQT_TEST_MYSQL_PORT=3306"
+              echo "SYNQT_TEST_MYSQL_DB=synqt"
+              echo "SYNQT_TEST_MYSQL_USER=synqt"
+              echo "SYNQT_TEST_MYSQL_PASSWORD=synqt"
             } >> "$GITHUB_ENV"
           fi
 

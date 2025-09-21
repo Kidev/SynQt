@@ -20,25 +20,56 @@ bool isVerifiedSslMode(const QString &sslMode)
     return sslMode == QLatin1String("verify-ca") || sslMode == QLatin1String("verify-full");
 }
 
-// Map the portable sslmode names onto QMYSQL's SSL_MODE connect-option values.
-QString mysqlSslMode(const QString &sslMode)
-{
-    if (sslMode == QLatin1String("verify-full")) {
-        return QStringLiteral("VERIFY_IDENTITY");
-    }
-    if (sslMode == QLatin1String("verify-ca")) {
-        return QStringLiteral("VERIFY_CA");
-    }
-    if (sslMode == QLatin1String("require")) {
-        return QStringLiteral("REQUIRED");
-    }
-    if (sslMode == QLatin1String("disable")) {
-        return QStringLiteral("DISABLED");
-    }
-    return QStringLiteral("PREFERRED");
-}
-
 } // namespace
+
+// Qt's QMYSQL driver has no ssl-mode option in the build SynQt requires, and never had the
+// key this once emitted. Two separate facts, both from
+// qtbase/src/plugins/sqldrivers/mysql/qsql_mysql.cpp:
+//
+//   1. The option table has no "SSL_MODE" entry under any build. The key is
+//      "MYSQL_OPT_SSL_MODE", and an unknown key is reported as "Illegal connect option
+//      value" and then ignored.
+//   2. Even that key is compiled out when the plugin is built against MariaDB Connector/C
+//      (`#if ... && !defined(MARIADB_VERSION_ID)`), which is the only build SynQt may legally
+//      convey (see the class comment and docs/licensing.md).
+//
+// So a mode asked for through that option was silently dropped, and an entity configured for
+// verified TLS could have been speaking plaintext while every check above it read as satisfied.
+// What Connector/C does expose through Qt: naming a CA (SSL_CA) turns TLS on, and
+// MYSQL_OPT_SSL_VERIFY_SERVER_CERT decides whether the server certificate is checked (that
+// check covers the host name as well, so verify-ca is honoured at least as strictly as asked,
+// never more loosely). Anything this cannot express is refused rather than approximated.
+QString MysqlProvider::connectOptions(const ProviderConfig &config, QString *error)
+{
+    const QString mode{config.sslMode};
+    if (mode == QLatin1String("disable")) {
+        return QString{};
+    }
+    if (mode != QLatin1String("require") && !isVerifiedSslMode(mode)) {
+        if (error != nullptr) {
+            *error = QStringLiteral(
+                "sslmode '%1' is not one the mysql provider can enforce: use disable, "
+                "require, verify-ca or verify-full").arg(mode);
+        }
+        return QString{};
+    }
+    if (config.caCert.isEmpty()) {
+        if (error != nullptr) {
+            *error = QStringLiteral(
+                "sslmode '%1' needs a ca_cert: the QMYSQL driver built against MariaDB "
+                "Connector/C turns TLS on by being given a CA, and has no other option that "
+                "would (see docs/providers.md)").arg(mode);
+        }
+        return QString{};
+    }
+
+    QStringList options;
+    options.append(QStringLiteral("SSL_CA=%1").arg(config.caCert));
+    options.append(QStringLiteral("MYSQL_OPT_SSL_VERIFY_SERVER_CERT=%1")
+                       .arg(isVerifiedSslMode(mode) ? QStringLiteral("TRUE")
+                                                    : QStringLiteral("FALSE")));
+    return options.join(QLatin1Char(';'));
+}
 
 MysqlProvider::MysqlProvider(ProviderConfig config)
     : m_config{std::move(config)}
@@ -74,10 +105,22 @@ bool MysqlProvider::connect(QString *error)
         return false;
     }
 
+    // Resolved before a connection is opened, not inside the pool's factory, so a mode the
+    // driver cannot enforce is a refusal with a reason rather than a connection that quietly
+    // is not what was asked for.
+    QString optionsError;
+    const QString options{connectOptions(m_config, &optionsError)};
+    if (!optionsError.isEmpty()) {
+        if (error != nullptr) {
+            *error = optionsError;
+        }
+        return false;
+    }
+
     const ProviderConfig config{m_config};
     m_pool = std::make_unique<SqlConnectionPool>(
         QStringLiteral("QMYSQL"),
-        [config](QSqlDatabase &db) {
+        [config, options](QSqlDatabase &db) {
             db.setHostName(config.host);
             if (config.port > 0) {
                 db.setPort(config.port);
@@ -86,12 +129,7 @@ bool MysqlProvider::connect(QString *error)
             db.setUserName(config.user);
             db.setPassword(config.password);  // from the entity env only; never logged
 
-            QStringList options;
-            options.append(QStringLiteral("SSL_MODE=%1").arg(mysqlSslMode(config.sslMode)));
-            if (!config.caCert.isEmpty()) {
-                options.append(QStringLiteral("SSL_CA=%1").arg(config.caCert));
-            }
-            db.setConnectOptions(options.join(QLatin1Char(';')));
+            db.setConnectOptions(options);
         },
         m_config.poolSize);
 

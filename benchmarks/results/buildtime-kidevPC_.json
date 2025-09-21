@@ -7,13 +7,13 @@
   "latency": [
     {
       "contracts": 3,
-      "max": 98.68251800071448,
-      "mean": 92.12963699974352,
-      "min": 87.24000200163573,
+      "max": 113.80517299403436,
+      "mean": 100.13927889958723,
+      "min": 93.08769500057679,
       "name": "contract_generation",
-      "p50": 93.44694699393585,
-      "p95": 98.68251800071448,
-      "p99": 98.68251800071448,
+      "p50": 98.18081599951256,
+      "p95": 113.80517299403436,
+      "p99": 113.80517299403436,
       "samples": 10,
       "unit": "ms"
     }
@@ -21,23 +21,31 @@
   "path": "contract-generation-and-per-entity-build",
   "project": "examples/gavel",
   "qt_version": "6.11.1",
-  "recorded": "2026-07-28T12:12:25Z",
+  "recorded": "2026-07-31T21:39:10Z",
   "sweep": [
     {
-      "clean_s": 14.599,
+      "clean_s": 68.428,
+      "kind": "client",
+      "noop_s": 0.121,
+      "target": "client",
+      "touched_file": "Main.qml",
+      "touched_s": 52.9
+    },
+    {
+      "clean_s": 15.073,
       "kind": "service",
       "noop_s": 0.078,
       "target": "web",
       "touched_file": "Auction.qml",
-      "touched_s": 0.078
+      "touched_s": 0.079
     },
     {
-      "clean_s": 13.332,
+      "clean_s": 13.805,
       "kind": "service",
-      "noop_s": 0.078,
+      "noop_s": 0.086,
       "target": "database",
       "touched_file": "Ledger.qml",
-      "touched_s": 0.078
+      "touched_s": 0.089
     }
   ]
 }
