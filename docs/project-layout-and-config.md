@@ -423,13 +423,18 @@ word is refused at `synqt check`. The Qt half of that measurement is kept as a t
 Nothing needs it today. A browser holds the httpOnly cookie, and a native desktop client,
 which terminates its own TLS, presents its stored session on the handshake directly.
 
-### Serving the client from another origin
+### Serving the client from another origin (deprecated)
 
 This section is the exception to the rest of this document. Everything above assumes
 the client and the web edge share an origin, which is what you get by writing nothing.
-What follows is for putting the client on a separate origin, usually a CDN, and it is
-not a recommendation. It is written down because the capability is real and someone
-will need it; read the cost before you take it.
+What follows is for putting the client on a separate origin, usually a CDN.
+
+`split_origin` is **deprecated**. It still builds, `synqt check` still validates it,
+and a project already running it keeps working in the browsers it works in today;
+what `synqt check` now adds is a warning saying so, because the mode rests on a
+third party cookie and that is a browser policy decision going one way. Read the cost
+below and then read [what to do instead](#what-to-do-instead), which is where new
+projects should go and where existing ones can move without the client noticing.
 
 Two keys turn it on, both by hand:
 
@@ -481,9 +486,18 @@ bootstrap and the upgrade under restriction. It also breaks login everywhere, in
 browsers where the plain cookie still works, because the OAuth callback is a top level
 navigation onto the edge: the cookie is filed under the edge's own partition, and the
 client origin can never read it. That is measured, with the stored partition key
-visible, so the edge deliberately does not emit the attribute. Making CHIPS usable
-means changing the callback to hand the session back through the client context, which
-is a redesign rather than a flag, and it is not built.
+visible, so the edge deliberately does not emit the attribute.
+
+There is a repair for that half, and it is worth saying why it was not built, because
+it needs nothing from Qt and could have been. The callback could hand the session back
+through the client context: the edge redirects to the client origin with a one time
+code, and the page exchanges it there, so the cookie is filed under the client's
+partition and login works. It buys one engine. In the same measurement Firefox stored
+the `Partitioned` cookie with **no partition key**, meaning it did not apply CHIPS at
+all, so under restriction the mode still dies there whatever the callback does, and
+Safari, which restricts today, is not measured. A redesign that fixes Chromium and
+leaves Firefox and Safari where they were is not a fix for this, which is why the
+deprecation above is the answer instead.
 
 #### What to do instead
 
@@ -496,7 +510,10 @@ operational choice the client never sees, since it reaches everything through
 `Server` either way.
 
 That is the direction SynQt intends to grow, and it is why `split_origin` is not in
-the scaffold. If you need it today, you own the browser policy risk.
+the scaffold and is now deprecated. Several edges under one origin, fronted by
+whatever forwarder or CDN node the deployment already has, covers what split origin
+was reached for without putting a third party cookie in the critical path. If you
+need `split_origin` today it still runs, and you own the browser policy risk.
 
 ### `mesh` (service to service security)
 

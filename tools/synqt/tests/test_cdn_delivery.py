@@ -190,6 +190,26 @@ class SplitOriginIsNotOffered(unittest.TestCase):
         ok, messages = check.validate(cdn_config())
         self.assertTrue(ok, messages)
 
+    def test_split_origin_is_reported_as_deprecated(self):
+        # Deprecated and still buildable. The mode depends on a third-party cookie, which is
+        # a browser policy decision that is going one way, so a project running it should
+        # hear that from its own tooling rather than from an outage. It stays a warning
+        # because failing it would break a deployment that works in the browsers it targets.
+        ok, messages = check.validate(cdn_config())
+        self.assertTrue(ok, messages)
+        deprecations = [m for m in messages if "deprecated" in m and "split_origin" in m]
+        self.assertEqual(len(deprecations), 1, messages)
+        self.assertTrue(deprecations[0].startswith("warn:"), deprecations)
+
+    def test_a_same_origin_project_hears_nothing_about_split_origin(self):
+        # The default shape says nothing, because there is nothing to warn about: its cookie
+        # is first-party and no browser policy is coming for it.
+        config = cdn_config(project={"name": "app"})
+        del config["entities"][1]["public"]["serve_client"]
+        ok, messages = check.validate(config)
+        self.assertTrue(ok, messages)
+        self.assertFalse([m for m in messages if "split_origin" in m], messages)
+
 
 if __name__ == "__main__":
     unittest.main()
