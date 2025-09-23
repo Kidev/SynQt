@@ -205,7 +205,12 @@ void tst_SpaFallback::extensionlessBundleFileIsStillServed()
 void tst_SpaFallback::postToADeepLinkIsNotTheShell()
 {
     const QUrl url{QStringLiteral("http://127.0.0.1:%1/c/summer").arg(m_port)};
-    QNetworkReply *reply{m_network.post(QNetworkRequest{url}, QByteArray{"x"})};
+    // The content type is set for the same reason as in the sibling test below: what is
+    // under test is the method, and QNetworkAccessManager warns (then guesses
+    // x-www-form-urlencoded) when a POST body arrives without one.
+    QNetworkRequest request{url};
+    request.setHeader(QNetworkRequest::ContentTypeHeader, QByteArrayLiteral("text/plain"));
+    QNetworkReply *reply{m_network.post(request, QByteArray{"x"})};
     QSignalSpy finished{reply, &QNetworkReply::finished};
     finished.wait(5000);
     QCOMPARE(reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt(), 404);

@@ -69,7 +69,9 @@ QObject *ConnectPointHost::createSource(QObject *caller, QObject *parent, QStrin
         context->setContextProperty(it.key(), it.value());
     }
     QQmlComponent component{m_engine, QUrl::fromLocalFile(m_config.serverFile)};
-    QObject *source{component.create(context)};
+    // Asked before creating: create() on a component that failed to compile prints its own
+    // "Component is not ready" first, which says less than the error built below.
+    QObject *source{component.isReady() ? component.create(context) : nullptr};
     if (!source) {
         if (error) {
             *error = QStringLiteral("failed to load %1: %2")

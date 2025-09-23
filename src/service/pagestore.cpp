@@ -11,10 +11,27 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QTimer>
 
 #include <utility>
 
 namespace SynQt {
+
+namespace {
+
+/// How long the file has to stay quiet before it is read. Long enough that a truncate
+/// and the write behind it coalesce into one reload, short enough that an edit still
+/// reaches the browser as fast as the developer can look at it.
+constexpr int reloadQuietMs{100};
+
+/// How many reads a change is given before it is given up on. A file that was just
+/// written can be briefly unreadable: an atomic replace leaves the path missing between
+/// the unlink and the rename, and on Windows an indexer or a scanner holds a fresh file
+/// open for a moment. Retrying for two seconds turns that into a slightly late hot
+/// reload rather than an edit that never arrives.
+constexpr int reloadAttempts{20};
+
+} // namespace
 
 PageStore::PageStore(QString pagesDir, QObject *parent)
     : QObject{parent}
@@ -99,11 +116,17 @@ void PageStore::setWatching(bool watching)
     if (!watching) {
         delete m_watcher;
         m_watcher = nullptr;
+        delete m_reloadTimer;
+        m_reloadTimer = nullptr;
+        m_pending.clear();
         return;
     }
     if (m_watcher) {
         return;
     }
+    m_reloadTimer = new QTimer{this};
+    m_reloadTimer->setSingleShot(true);
+    connect(m_reloadTimer, &QTimer::timeout, this, &PageStore::flushPending);
     m_watcher = new QFileSystemWatcher{this};
     connect(m_watcher, &QFileSystemWatcher::fileChanged,
             this, &PageStore::onFileChanged);
@@ -118,21 +141,56 @@ void PageStore::onFileChanged(const QString &path)
     if (route.isEmpty()) {
         return;
     }
-    const bool reloaded{reload(route)};
-    // An atomic replace (write a sibling, rename over the watched path) can
-    // deliver this notification while the old inode is briefly gone, so
-    // reload() above may have failed; recovery below must run regardless.
-    if (m_watcher && !m_watcher->files().contains(path)) {
+    // Deliberately not read here. One edit is not one notification: an editor that
+    // truncates and then writes produces two, and reading between them hashes an empty
+    // file. Wait until the notifications stop, and let every further one push that wait
+    // back.
+    m_pending.insert(route, reloadAttempts);
+    if (m_reloadTimer) {
+        m_reloadTimer->start(reloadQuietMs);
+    }
+}
+
+void PageStore::flushPending()
+{
+    // Over a copy: the loop writes to m_pending, and a route dropped here must not
+    // invalidate the iteration.
+    const QStringList routes{m_pending.keys()};
+    for (const QString &route : routes) {
+        const QString path{QDir{m_pagesDir}.filePath(m_pages.value(route).file)};
+        const QString before{m_pages.value(route).hash};
+        if (reload(route)) {
+            m_pending.remove(route);
+            // An atomic replace (write a sibling, rename over the watched path) drops the
+            // watch with the old inode, so re-arm it on the file that is there now.
+            if (m_watcher && !m_watcher->files().contains(path)) {
+                m_watcher->addPath(path);
+            }
+            // Only when the content actually moved. A replace can be reported twice, and
+            // an unchanged hash tells every open tab to re-fetch a page it already holds.
+            if (m_pages.value(route).hash != before) {
+                emit pageChanged(route, m_pages.value(route).hash);
+            }
+            continue;
+        }
+        const int attemptsLeft{m_pending.value(route) - 1};
+        if (attemptsLeft > 0) {
+            m_pending.insert(route, attemptsLeft);
+            continue;
+        }
+        m_pending.remove(route);
         if (QFileInfo::exists(path)) {
-            m_watcher->addPath(path);
+            qWarning("SynQt: page file for route %s changed but could not be read; open "
+                     "tabs keep the version they have",
+                     qUtf8Printable(route));
         } else {
             qWarning("SynQt: page file for route %s is gone; its edits will "
                      "no longer reach open tabs until the dev server restarts",
                      qUtf8Printable(route));
         }
     }
-    if (reloaded) {
-        emit pageChanged(route, m_pages.value(route).hash);
+    if (!m_pending.isEmpty() && m_reloadTimer) {
+        m_reloadTimer->start(reloadQuietMs);
     }
 }
 

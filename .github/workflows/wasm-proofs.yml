@@ -161,10 +161,14 @@ jobs:
         # headless WASM canvas cannot be trusted to advance its frame loop); the M0 proof
         # needs the native edge to talk to, and the client-runtime proof's edge is a real M5
         # web edge, which is why the HTTP server and the authorization module are here too.
+        # qttasktree is not linked by anything here: Qt's own QmlAssetDownloaderPrivate
+        # declares it as a dependency, so without it every configure of a Qml-using project
+        # prints a find_package warning about a package nobody asked for (ctest.yml and
+        # benchmarks.yml install it for the same reason).
         run: |
           python -m aqt install-qt linux desktop "$QT_VERSION" linux_gcc_64 \
             -m qtwebsockets qtremoteobjects qthttpserver qtnetworkauth \
-              qtquick3d qtquick3dphysics qtshadertools \
+              qtquick3d qtquick3dphysics qtshadertools qttasktree \
             --outputdir "$QT_ROOT"
 
       - name: Install Qt WebAssembly kit (${{ matrix.kit }})

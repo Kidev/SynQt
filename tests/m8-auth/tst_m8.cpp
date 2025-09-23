@@ -33,6 +33,7 @@
 #include <QNetworkReply>
 #include <QNetworkRequest>
 #include <QQmlEngine>
+#include <QRegularExpression>
 #include <QRemoteObjectDynamicReplica>
 #include <QRemoteObjectNode>
 #include <QSslCertificate>
@@ -749,6 +750,29 @@ private slots:
         loop.exec();
         QCOMPARE(reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt(), 403);
         reply->deleteLater();
+    }
+
+    void brokenScopeMappingHookIsReported()
+    {
+        // A hook that does not compile silently means "no mapping", and no mapping means
+        // every authenticated session gets the default scope. That is a permissions change,
+        // so it has to be said out loud rather than left to a stray Qt warning. The edge
+        // still starts: a login that lands on the default scope beats an edge that is down.
+        QQmlEngine engine;
+        WebEdgeConfig config;
+        config.bundleDir = QStringLiteral(M8_SRCDIR "/bundle");
+        config.host = QStringLiteral("127.0.0.1");
+        config.port = 0;
+        config.identity.enabled = true;
+        config.identity.allowDevStub = true;
+        config.identity.mappingHook = QStringLiteral(M8_SRCDIR "/web/identity/broken.qml");
+        config.identity.providers = {stubProvider(m_stub->baseUrl())};
+
+        QTest::ignoreMessage(QtWarningMsg,
+                             QRegularExpression{QStringLiteral(
+                                 "identity mapping hook .*broken\\.qml failed to load")});
+        WebEdge edge{config, &engine};
+        QVERIFY2(edge.start(), qPrintable(edge.errorString()));
     }
 };
 

@@ -150,6 +150,17 @@ markdown_extensions:
   - toc:
       permalink: true
 
+# A link inside the docs that points at nothing is a broken page, so it fails the build
+# rather than scrolling past as an INFO line (which is what happened when a heading was
+# renamed and five links to its anchor went stale unnoticed). Only in-repo links are
+# raised: an absolute or external URL is nobody's to validate here. `mkdocs build
+# --strict` is what turns these warnings into a non-zero exit.
+validation:
+  omitted_files: warn
+  absolute_links: info
+  unrecognized_links: warn
+  anchors: warn
+
 nav:
   - Home: index.md
   - Tutorials:

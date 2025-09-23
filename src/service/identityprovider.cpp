@@ -100,9 +100,20 @@ IdentityProvider::IdentityProvider(IdentityConfig config, SessionManager *sessio
     if (!m_config.mappingHook.isEmpty() && m_engine) {
         m_mappingComponent = new QQmlComponent{
             m_engine, QUrl::fromLocalFile(m_config.mappingHook), this};
-        m_mapping = m_mappingComponent->create();
+        // Asked before creating: create() on a component that failed to compile prints
+        // its own "Component is not ready" and says nothing about which file or why.
+        m_mapping = m_mappingComponent->isReady() ? m_mappingComponent->create() : nullptr;
         if (m_mapping) {
             m_mapping->setParent(this);
+        } else {
+            // Loud, because the failure is quiet otherwise: without the hook every
+            // authenticated session gets the default scope, which is a permissions change
+            // nobody asked for. The hook's own file and QML diagnostic, nothing from the
+            // provider payload it would have read.
+            qWarning("SynQt: identity mapping hook %s failed to load: %s; every session "
+                     "gets the default scope until it does",
+                     qUtf8Printable(m_config.mappingHook),
+                     qUtf8Printable(m_mappingComponent->errorString()));
         }
     }
     // In-process mode owns the secret-bearing engine. In provider_entity mode the secret and
