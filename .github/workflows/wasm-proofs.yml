@@ -70,6 +70,9 @@ jobs:
             # QtRO is only needed by the M0 spike; the physics scene does not link it.
             needs_qtremoteobjects: true
             qt_modules: qtwebsockets
+            # Whether a page is cross-origin isolated, and whether SharedArrayBuffer is
+            # therefore granted, is each engine's own decision, so all three are driven.
+            browsers: chromium firefox webkit
             script: tests/m0-transport/verify/run-mt.sh
             verify_dir: tests/m0-transport/verify
           - label: physics-single

@@ -75,8 +75,9 @@ resolves the engine builds that are current that day and prints their versions i
 which is what makes a green run comparable to the next one.
 
 [`wasm-proofs.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/wasm-proofs.yml) runs the proofs that need a WebAssembly kit no other workflow
-installs: the multi threaded SharedArrayBuffer proof, Qt Quick 3D Physics on both kits,
-the client runtime in every engine, and a real `synqt build` of the arena client bundle. It is dispatched manually and on
+installs: the multi threaded SharedArrayBuffer proof and the client runtime, each in every
+engine, Qt Quick 3D Physics on both kits, and a real `synqt build` of the arena client
+bundle. It is dispatched manually and on
 changes to what it covers. Both workflows build a Qt module from source for the
 WebAssembly kit, which ships no QtRemoteObjects, so neither runs on every push.
 
