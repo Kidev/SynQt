@@ -26,13 +26,21 @@
 # this function would then echo the bare, extension-less path. That path works in bash (od, test)
 # but is a plain FileNotFoundError to any NATIVE Windows program, which has no exe magic: it cost
 # a CI round when a native Python step downstream tried to open the returned path and failed on a
-# binary that had linked perfectly. Preferring `$1.exe` returns the real filename; on Linux/macOS
+# binary that had linked perfectly. Preferring `$1.exe` returns the real filename. On Linux/macOS
 # there is no `.exe`, so it falls through to the bare name unchanged.
+#
+# The .app case is macOS's. The desktop client is a bundle (cmakegen sets MACOSX_BUNDLE, so the
+# macdeployqt hand-off in docs/desktop.md is possible at all), and the executable inside it is
+# what runs. Without this branch every assertion here reports MISSING on macOS for a client that
+# built and installed perfectly well, because the bare name is a directory there and `[ -f ]` on
+# a directory is false.
 native_exe_path() {
     if [ -f "$1.exe" ]; then
         printf '%s\n' "$1.exe"
     elif [ -f "$1" ]; then
         printf '%s\n' "$1"
+    elif [ -f "$1.app/Contents/MacOS/$(basename "$1")" ]; then
+        printf '%s\n' "$1.app/Contents/MacOS/$(basename "$1")"
     fi
 }
 
