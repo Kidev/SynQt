@@ -168,16 +168,20 @@ function firstLine(err) {
     return line || "the runtime would not launch and gave no reason";
 }
 
-function launchOptions() {
-    return {
-        headless,
-        args: [
+// Chromium's flags go to Chromium only. Firefox and WebKit take a different command line
+// and treat an unknown switch as a fatal argument error, so handing all three the same
+// list is how the two engines this proof exists to reach never launch at all.
+function launchOptions(browserType) {
+    const options = { headless, args: [] };
+    if (browserType === chromium) {
+        options.args.push(
             "--ignore-certificate-errors",
             "--use-gl=angle",
             "--use-angle=swiftshader",
             "--enable-unsafe-swiftshader"
-        ]
-    };
+        );
+    }
+    return options;
 }
 
 function newPageWithLogs(context, name) {

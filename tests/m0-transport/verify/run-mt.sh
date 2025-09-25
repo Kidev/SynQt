@@ -11,8 +11,23 @@
 
 set -euo pipefail
 
-QT_HOST="${QT_HOST:-/opt/Qt/6.11.1/gcc_64}"
+# The host kit builds the edge and provides the cross build's host tools. Its directory name
+# is the host's, not the target's, so defaulting to the Linux one makes this script fail on
+# macOS with a CMake error about a prefix that was never going to exist there.
+case "$(uname -s)" in
+Darwin) QT_HOST_DEFAULT=/opt/Qt/6.11.1/macos ;;
+*)      QT_HOST_DEFAULT=/opt/Qt/6.11.1/gcc_64 ;;
+esac
+
+QT_HOST="${QT_HOST:-$QT_HOST_DEFAULT}"
 QT_WASM_MT="${QT_WASM_MT:-/opt/Qt/6.11.1/wasm_multithread}"
+
+# A cross-compiled Qt cannot find its own host tools: the WASM kit is host-independent and
+# carries the path from Qt's own build machine. CI passes this in, so only a developer
+# running the script by hand meets the failure, and it reads as a missing Qt6 package rather
+# than as an unset variable. Default it to the host kit this script already resolved.
+export QT_HOST_PATH="${QT_HOST_PATH:-$QT_HOST}"
+
 REPO_ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 SPIKE="$REPO_ROOT/tests/m0-transport"
 cd "$REPO_ROOT"
