@@ -72,7 +72,13 @@ bundle change without you hand-editing the string:
     spawns its workers from the same-origin `client.js`, not from `blob:` URLs: served
     under a strict `worker-src 'self'`, the multi-threaded client still reached cross-origin
     isolation and started its whole pthread pool in both Chromium and Firefox, with no CSP
-    violation. The allowance stays because Emscripten's worker-spawning strategy is an
+    violation. That is no longer a one-off: the
+    [multi threaded proof](https://github.com/Kidev/SynQt/blob/main/tests/m0-transport/verify/verify-mt.mjs)
+    now serves its threaded bundle under this exact policy, `worker-src 'self'` with no
+    `blob:`, on every run and in every engine it can launch, and reports each engine's
+    security-policy violations by directive. So a future toolchain that starts needing
+    `blob:` shows up as a line in that run rather than as a mystery in production.
+    The allowance stays because Emscripten's worker-spawning strategy is an
     implementation detail that has varied across versions, and because dropping it buys
     almost nothing: creating a `blob:` worker already requires script execution, which
     `script-src` governs. If you set your own `worker-src`, `'self'` alone is enough for

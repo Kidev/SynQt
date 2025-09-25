@@ -343,11 +343,12 @@ handler:
   deliberate margin, not a present need: the pinned kit spawns its pthread workers
   from same origin URLs, and the real threaded bundle served under a strict
   `worker-src 'self'` stayed isolated, spawned every worker, and logged no violation
-  in Chromium and Firefox. It is kept because Safari could not be measured and a
-  future Emscripten could go back to `blob:` workers, and because it widens the
-  attack surface by almost nothing: constructing a `blob:` worker already requires
-  script execution, which `script-src` governs. See [CSP](csp.md) for the
-  measurement. The single threaded default needs none of this, one reason it is
+  in Chromium and Firefox, and the multi threaded proof now serves its bundle under
+  that strict policy on every run, in every engine it can launch, reporting any
+  violation by directive. It is kept because a future Emscripten could go back to
+  `blob:` workers, and because it widens the attack surface by almost nothing:
+  constructing a `blob:` worker already requires script execution, which `script-src`
+  governs. See [CSP](csp.md) for the measurement. The single threaded default needs none of this, one reason it is
   the default.
 - Transport and content headers. `Strict-Transport-Security`,
   `X-Content-Type-Options: nosniff`, and a minimal `Referrer-Policy`.

@@ -41,5 +41,10 @@ if(EMSCRIPTEN)
     # pure-virtual call), which is what decides whether this abort is the root of the
     # unresolved returning-slot reply or an independent benign startup abort. Diagnostic build
     # only; drop it once the cause is known (it adds runtime checks and bundle size).
-    target_link_options(m0-client PRIVATE "-sASSERTIONS=1")
+    # -lembind for the URL read in main.cpp, and DYNAMIC_EXECUTION=0 to drop the eval-based
+    # runtime entirely, which is what the generated client links with (cmakegen.py). Without
+    # it the bundle needs `script-src 'unsafe-eval'` and the spike could not be served under
+    # the policy the edge actually emits, so the multi-threaded proof would be measuring a
+    # page no SynQt app resembles.
+    target_link_options(m0-client PRIVATE "-sASSERTIONS=1" "-lembind" "-sDYNAMIC_EXECUTION=0")
 endif()

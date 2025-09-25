@@ -25,8 +25,9 @@ cookie is stored under the edge's own partition, and the client site can never r
 it back. Adding the attribute would trade a path that works today for one that fails
 today, so the edge does not emit it.
 
-Measured 2026-07-28, Chromium 149.0.7827.55 and Firefox 151.0 (the Playwright
-builds), on two separate registrable domains over TLS.
+Measured 2026-07-28 on the development machine (Chromium 149.0.7827.55 and Firefox
+151.0), and 2026-07-31 in CI, which adds WebKit 26.5 on Linux and macOS runners. All of
+it on two separate registrable domains over TLS, with the Playwright builds.
 
 | browser | cookie | bootstrap read | wss upgrade | login |
 |---|---|---|---|---|
@@ -36,6 +37,8 @@ builds), on two separate registrable domains over TLS.
 | Chromium, third-party cookies restricted | `+ Partitioned` | pass | pass | **fail** |
 | Firefox | `SameSite=None` | pass | pass | pass |
 | Firefox | `+ Partitioned` | pass | pass | pass |
+| WebKit | `SameSite=None` | **fail** | **fail** | see below |
+| WebKit | `+ Partitioned` | **fail** | **fail** | see below |
 | all three | `SameSite=Lax` (control) | fail | fail | fail |
 
 Two readings of that table are load bearing:
@@ -47,17 +50,25 @@ Two readings of that table are load bearing:
   apply CHIPS at all. Its "pass" in that row is the unpartitioned behavior wearing a
   different attribute, which is a second reason not to rely on the attribute yet.
 
-**Safari and WebKit are not measured in the table above.** There is no WebKit runtime
-on the development machine, and WebKit has neither a host resolver flag nor a DNS
-pref, so the rig reports it as skipped rather than passing it over in silence.
+**WebKit was inference until 2026-07-31, and is now measured.** There is no WebKit
+runtime on the development machine, and WebKit has neither a host resolver flag nor a
+DNS pref, so the rig reports it as skipped there rather than passing it over in
+silence. [`browser-matrix.yml`](../../.github/workflows/browser-matrix.yml) already
+installs WebKit for the M0 matrix, so it maps the two sites into `/etc/hosts` and runs
+this gate on a Linux and a macOS runner, and both agree:
 
-CI closes that: [`browser-matrix.yml`](../../.github/workflows/browser-matrix.yml)
-already installs WebKit for the M0 matrix, so it maps the two sites into `/etc/hosts`
-and runs this gate on Linux and macOS runners, where WebKit is measurable. Until that
-run has been read, the expectation below is inference and must not be quoted as
-measurement: Safari blocks third-party cookies by default, so it is *expected* to
-behave like the restricted Chromium rows, which would mean split-origin is already
-broken there today.
+- The cross-site half is dead. Neither the bootstrap read nor the `wss` upgrade sees
+  the session, with or without `Partitioned`. A cookie *is* stored (its partition key
+  is null, so this is not CHIPS at work); the client site simply cannot read it back.
+  That is the restricted-Chromium row, in WebKit's default configuration, today.
+- The login read is the one place the two runners disagreed: the cookie set during the
+  top-level navigation to the edge was readable from the client page afterwards on the
+  Linux runner and not on the macOS one. Nothing rests on which is right, because a
+  session that cannot be read by a cross-site fetch cannot reach the `wss` upgrade
+  either way, and that is the connection the whole mode exists to make.
+
+So split-origin is already broken in Safari's engine, not merely at risk from a policy
+that is coming. That is measurement now, not expectation.
 
 ## What would make split-origin durable
 
