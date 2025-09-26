@@ -4,12 +4,12 @@
 # C++ API reference
 
 The generated class and member reference for SynQt's C++ runtime lives at
-[**/api/**](api.md). It is produced by Doxygen from the
+[/api/](api.md). Doxygen produces it from the
 headers in [`src/`](https://github.com/Kidev/SynQt/tree/main/src), so it never drifts from the code.
 
 This is the reference for working on SynQt itself, or for extending it from C++ (a custom
 provider, a custom entity, embedding a runtime in an existing application). Building an
-application with SynQt needs none of it: everything an application touches is QML, and
+application with SynQt needs none of it. Everything an application touches is QML, and
 its reference is [runtime API](runtime-api.md).
 
 ## What is in it

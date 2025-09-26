@@ -147,7 +147,7 @@ if [ "$PLATFORM" = "macos" ]; then
         # so the artifact it installs is the undeployed one and that is what step 4 must boot;
         # deploying in place would mean the fixture asserts the boot of something the build never
         # produces. And macdeployqt ships only the platform plugin a released app needs (cocoa),
-        # so a deployed bundle cannot be booted with QT_QPA_PLATFORM=offscreen at all -- it
+        # so a deployed bundle cannot be booted with QT_QPA_PLATFORM=offscreen at all; it
         # aborts with "Could not find the Qt platform plugin", which is correct behaviour for a
         # deployed app and was, briefly, this fixture reporting a crash that was its own doing.
         PROBE="$WORK/deploy-probe"
@@ -166,7 +166,11 @@ from pathlib import Path
 from synqt import deploy
 
 root, out, kit = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3]
-print("   ", deploy.deploy_client(root, "client", out, {"host_qt": kit}, "macos"))
+# --unsigned is the fixture's choice, stated the way the CLI makes a caller state it. There is
+# no signing identity on a build machine, and a fixture that signed would be testing the
+# developer's keychain rather than SynQt.
+deploy.check_signing_choice("macos", None, True)
+print("   ", deploy.deploy_client(root, "client", out, {"host_qt": kit}, "macos", sign=None))
 PY
         # Self-contained is asserted structurally rather than by the kit rpath disappearing:
         # whether macdeployqt strips the original LC_RPATH or merely prepends its own has

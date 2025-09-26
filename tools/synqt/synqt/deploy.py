@@ -3,10 +3,10 @@
 
 """The platform deployment step for the native desktop client, run only when asked.
 
-`synqt build --client desktop` does not deploy. That is deliberate and documented
-(docs/desktop.md): signing identities, entitlements, notarization and installer format are not a
+`synqt build --client desktop` does not deploy. That is documented
+(docs/desktop.md). Signing identities, entitlements, notarization and installer format are not a
 framework's to choose, and a half-deployed bundle that looks finished is worse than one that says
-what is missing. What the build guarantees is that the step *can* be run -- on macOS that is why
+what is missing. What the build guarantees is that the step *can* be run. On macOS that is why
 the client is built as an .app bundle at all, since macdeployqt accepts nothing else.
 
 `--deploy` is the opt-in that runs it anyway, for the case where the developer wants a
@@ -53,23 +53,96 @@ def _run(command: List[str]) -> str:
     return result.stdout
 
 
+# What an unsigned binary costs, per platform. The three answers are
+# different, and collapsing them into one "unsigned is bad" message would be wrong twice: a
+# Windows build runs unsigned (with a SmartScreen interstitial) and a Linux one runs unsigned
+# with nothing to complain at all, because Linux has no binary code signing to begin with.
+REQUIRED = "required"
+RECOMMENDED = "recommended"
+NOT_APPLICABLE = "not-applicable"
+
+SIGNING_REQUIREMENT = {
+    "macos": REQUIRED,
+    "windows": RECOMMENDED,
+    "linux": NOT_APPLICABLE,
+}
+
+_UNSIGNED_CONSEQUENCE = {
+    "macos": ("Gatekeeper refuses an unsigned app on every machine but the one that built it, "
+              "so an unsigned macOS build is for local use only."),
+    "windows": ("An unsigned .exe runs, but SmartScreen shows an unrecognised-publisher "
+                "warning to everyone who downloads it."),
+    "linux": ("Linux has no binary code signing, so an unsigned tree is normal and fully "
+              "distributable. Signing happens at the package layer (a GPG-signed AppImage, "
+              "or your distribution's repository)."),
+}
+
+
+def signing_consequence(platform: str) -> str:
+    """One sentence on what shipping this platform unsigned means."""
+    return _UNSIGNED_CONSEQUENCE.get(platform, _UNSIGNED_CONSEQUENCE["linux"])
+
+
+def check_signing_choice(platform: str, sign: Optional[str], unsigned: bool) -> None:
+    """Reject a --deploy that has not said what it means to do about signing.
+
+    `--deploy` on its own producing an unsigned tree and mentioning it in a note is
+    the quiet outcome docs/desktop.md's whole position is against. The person who most needs to
+    know their app will not open on anyone else's Mac is the one who did not read the note.
+    Making the choice explicit costs one word and cannot be missed.
+    """
+    if sign and unsigned:
+        raise DeployError("--sign and --unsigned contradict each other; pass one.")
+    if not sign and not unsigned:
+        lead = {
+            "macos": "On macOS a distributable build must be signed.",
+            "windows": "On Windows a distributable build should be signed.",
+            "linux": "On Linux there is no binary signing to do.",
+        }.get(platform, "What signing means here depends on the platform.")
+        raise DeployError(
+            f"--deploy needs to know what to do about signing. {lead}\n"
+            f"       {signing_consequence(platform)}\n"
+            "       Pass --sign <identity> to sign it, or --unsigned to accept that it is not.")
+    if sign and SIGNING_REQUIREMENT.get(platform) == NOT_APPLICABLE:
+        raise DeployError(
+            "--sign has nothing to do on Linux: there is no binary code signing here.\n"
+            f"       {signing_consequence('linux')}\n"
+            "       Deploy with --unsigned, then sign the package you build from the tree.")
+
+
 def deploy_client(root: Path, name: str, out: Path, resolved: Dict[str, Any],
-                  platform: str) -> str:
+                  platform: str, *, sign: Optional[str] = None) -> str:
     """Deploy the installed desktop client in `out`. Returns a one-line note for the summary."""
     host_qt = resolved.get("host_qt")
     if platform == "macos":
         app = out / f"{name}.app"
         if not app.is_dir():
             raise DeployError(f"--deploy found no app bundle at {app}.")
-        _run([str(_tool(host_qt, "macdeployqt")), str(app), f"-qmldir={root}"])
-        return (f"deployed {app.name} with macdeployqt (unsigned; "
-                "add your signing identity before distributing)")
+        command = [str(_tool(host_qt, "macdeployqt")), str(app), f"-qmldir={root}"]
+        if sign:
+            # macdeployqt's own -codesign, rather than a codesign call here. A Qt app bundle
+            # holds frameworks and plugins that must each be signed before the bundle that
+            # contains them, and macdeployqt already walks exactly that tree. `codesign --deep`
+            # is Apple's own documented not-a-substitute for doing it properly.
+            command.append(f"-codesign={sign}")
+        _run(command)
+        if sign:
+            return (f"deployed and signed {app.name} as {sign!r}; notarize with "
+                    "`xcrun notarytool submit` before distributing")
+        return f"deployed {app.name} with macdeployqt, UNSIGNED (local use only)"
     if platform == "windows":
         exe = out / f"{name}.exe"
         if not exe.is_file():
             raise DeployError(f"--deploy found no executable at {exe}.")
         _run([str(_tool(host_qt, "windeployqt")), "--qmldir", str(root), str(exe)])
-        return f"deployed {exe.name} with windeployqt"
+        if sign:
+            # The identity is read as the certificate's subject name (signtool /n), which is
+            # the form that does not require knowing a thumbprint. Timestamped, or the
+            # signature expires with the certificate instead of outliving it.
+            _run(["signtool", "sign", "/fd", "sha256", "/n", sign,
+                  "/tr", "http://timestamp.digicert.com", "/td", "sha256", str(exe)])
+            return f"deployed and signed {exe.name} as {sign!r}"
+        return f"deployed {exe.name} with windeployqt, UNSIGNED (SmartScreen will warn)"
     return _deploy_linux(root, name, out, host_qt)
 
 
@@ -101,7 +174,7 @@ def _deploy_linux(root: Path, name: str, out: Path, host_qt: Optional[str]) -> s
         source = Path(target)
         # Both sides resolved before comparing. Resolving only the kit meant any symlink on
         # the way to it made every Qt library look like a system one, and the deployed tree
-        # came out with a launcher and no libraries at all -- a "success" that produces an
+        # came out with a launcher and no libraries at all: a "success" that produces an
         # app which cannot start. A symlinked /opt/Qt is enough to trigger it.
         try:
             real = source.resolve()
@@ -134,5 +207,7 @@ def _deploy_linux(root: Path, name: str, out: Path, host_qt: Optional[str]) -> s
         'export QT_PLUGIN_PATH="$here/plugins${QT_PLUGIN_PATH:+:$QT_PLUGIN_PATH}"\n'
         f'exec "$here/{name}" "$@"\n')
     launcher.chmod(launcher.stat().st_mode | 0o111)
+    # No "UNSIGNED" shouting here, unlike macOS and Windows: on Linux that is not a caveat,
+    # it is the normal state of every binary on the system.
     return (f"deployed {name} as a portable layout ({copied} Qt libraries, qml/ and plugins/); "
             f"launch through {launcher.name}")

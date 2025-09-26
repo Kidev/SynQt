@@ -69,13 +69,13 @@ ctest --test-dir build/m1-contract --output-on-failure
 
 ## Notes / findings
 
-- **repc + PODs across roles.** A rep containing a POD defines its `Q_GADGET` in both
-  the `_source.h` and `_replica.h`; a target that is both an owner and a consumer must
-  therefore use repc's *merged* header (POD emitted once). Real entities are owner-only
-  (`ROLE source`) or consumer-only (`ROLE replica`) and never hit this; only the
+- repc + PODs across roles. A rep containing a POD defines its `Q_GADGET` in both
+  the `_source.h` and `_replica.h`, so a target that is both an owner and a consumer must
+  use repc's merged header (POD emitted once). Real entities are owner-only
+  (`ROLE source`) or consumer-only (`ROLE replica`) and never hit this. Only the
   both-sided `tst_m1` uses `ROLE both`, which `synqt_add_contract` maps to
   `qt_add_repc_merged`. The Source helper and Replica sources include a stable
   `<stem>_rep.h` indirection the build points at the repc header for the role.
-- Slots on the generated helper are concrete no-ops so the QML type is instantiable;
-  dispatching a consumer slot call into the owner's QML implementation (with the
-  `Caller` accessor) is wired in M4/M7, not M1.
+- Slots on the generated helper are concrete no-ops so the QML type is instantiable.
+  Dispatching a consumer slot call into the owner's QML implementation (with the
+  `Caller` accessor) is wired in M4/M7 rather than M1.

@@ -38,19 +38,19 @@ its own foundation before it reports anything.
 
 ## The three layers
 
-**Names**, through `/etc/hosts`. It is the only mechanism that reaches every engine.
+Names, through `/etc/hosts`. It is the only mechanism that reaches every engine.
 Chromium takes `--host-resolver-rules` and Firefox takes `network.dns.localDomains`, but
 WebKit takes neither, and WebKit is Safari's engine, the one browser whose third-party
 cookie policy this project cannot afford to guess at.
 
-**Addresses**, through loopback aliases. Both sites answer on `127.0.0.1` today because
+Addresses, through loopback aliases. Both sites answer on `127.0.0.1` today because
 each rig binds one socket. Giving each site its own address buys real port 443 per origin
 (no `:8443` in a URL) and an edge that sees its clients as separate addresses, which is
 what makes its per-IP connection caps behave the way they will in production. Linux
-treats all of `127.0.0.0/8` as local already; macOS needs each address added to `lo0` by
+treats all of `127.0.0.0/8` as local already. macOS needs each address added to `lo0` by
 hand, which is what the `aliases` subcommand is for.
 
-**Trust**, through a development web CA. The alternative is
+Trust, through a development web CA. The alternative is
 `--ignore-certificate-errors`, which is a blunt instrument that also hides real
 certificate bugs, and which Safari does not have at all. The CA is issued into
 `~/.cache/synqt-local-network` (override with `SYNQT_LOCAL_NETWORK_DIR`), never into the
@@ -66,23 +66,21 @@ name-based question.
 
 The CA here signs server certificates for two fake websites so a browser will load them
 without a warning. It has nothing to do with the mesh certificate authority that
-authenticates entities to each other (`synqt mesh init`, `docs/security.md`), and the two
-must never be crossed: this key is issued by a test script, sits in a cache directory,
+authenticates entities to each other (`synqt mesh init`,
+[security](../../docs/security.md)), and the two must never be crossed. This key is
+issued by a test script, sits in a cache directory,
 and is trusted machine-wide while you are working. Nothing that authorizes an entity may
 ever chain to it.
 
-## What has actually been run
-
-Stated plainly, because a harness that looks tested and is not is worse than one that
-admits it.
+## What has been run
 
 | Subcommand | Linux | macOS |
 |---|---|---|
-| `certs` | run; chain verified with `openssl verify`, and the CA confirmed to carry exactly one `basicConstraints` | not run |
-| `hosts`, `unhosts` | logic round-tripped against a scratch file (`SYNQT_HOSTS_FILE`); run against the real `/etc/hosts` on every `browser-matrix` CI run | not run |
+| `certs` | run, chain verified with `openssl verify`, and the CA confirmed to carry exactly one `basicConstraints` | not run |
+| `hosts`, `unhosts` | logic round-tripped against a scratch file (`SYNQT_HOSTS_FILE`), and run against the real `/etc/hosts` on every `browser-matrix` CI run | not run |
 | `status`, `env` | run | not run |
-| `aliases`, `unaliases` | no-op by design, and reported as such | **written, never run** |
-| `trust`, `untrust` | **written, never run** (needs root) | **written, never run** |
+| `aliases`, `unaliases` | a no-op on Linux, and reported as such | written, never run |
+| `trust`, `untrust` | written, never run (needs root) | written, never run |
 
 The macOS column is what a VM or the `macos-15` runner is for. Until then, read every
 macOS line as an unverified claim.

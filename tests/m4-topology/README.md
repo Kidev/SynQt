@@ -21,33 +21,33 @@ topology finally wire together.
 | both entities come up | both `EntityRuntime::start()` succeed |
 | B acquires the Replica over the configured transport (mutual TLS) | `consumedReplica("a","thing")` becomes valid |
 | the live push property crosses | replica `value == 42` (set in A's QML) |
-| consumed connect points exposed by capitalized owner name | `accessor("A")` present; `accessorName("database") == "Database"` |
+| consumed connect points exposed by capitalized owner name | `accessor("A")` present, `accessorName("database") == "Database"` |
 | a third entity not on the consumer list is refused | `connectionRefused("thing","c")`, C's replica never valid |
 
 ## How it works
 
-- **`ConnectPointHost`** (owner side of one connect point): loads the authoritative
+- `ConnectPointHost` (owner side of one connect point) loads the authoritative
   Source from the entity's QML (`a/Thing.qml`, an `import SynQt; ThingSource { value:
   42 }`), calls `enableRemoting()` on a host node, and listens over the mesh
-  (`MeshServer`, mutual TLS by default). On each verified peer it enforces **deny by
-  default**: the connection is added to the host only if the calling entity is on this
-  connect point's consumer allowlist; any other peer is refused (the socket is aborted,
-  never added).
-- **`EntityRuntime`**: resolves owned vs consumed connect points from the topology,
+  (`MeshServer`, mutual TLS by default). On each verified peer it enforces deny by
+  default. The connection is added to the host only if the calling entity is on this
+  connect point's consumer allowlist, and any other peer is refused (the socket is
+  aborted, never added).
+- `EntityRuntime` resolves owned vs consumed connect points from the topology,
   starts a `ConnectPointHost` per owned one, and opens a `MeshClient` per consumed one,
   and only those, so an entity never even opens a link to an owner it does not
   consume from. Each acquired replica is exposed through a per-owner `QQmlPropertyMap`
   keyed by capitalized owner name (`Database.items` in QML).
 - Consumers acquire with `acquireDynamic` (a generic runtime has no compile-time
-  replica types); owners host QML Sources via the **dynamic** `enableRemoting(QObject*,
-  name)`. Both were verified to interoperate.
+  replica types), and owners host QML Sources via the dynamic `enableRemoting(QObject*,
+  name)`. The test verifies both interoperate.
 
 ## Deny by default, two ways
 
-1. **Structural (consumer side):** `EntityRuntime` opens links only for the connect
+1. Structural, on the consumer side. `EntityRuntime` opens links only for the connect
    points this entity consumes. It cannot reach an owner it does not consume from.
-2. **Enforced (owner side):** even though C presents a valid, CA-signed certificate
-   (so the *transport* accepts it), the `ConnectPointHost` refuses it because `c` is not
+2. Enforced, on the owner side. Even though C presents a valid, CA-signed certificate
+   (so the transport accepts it), the `ConnectPointHost` refuses it because `c` is not
    on `thing`'s consumer list. Authorization sits above authentication.
 
 ## How to run

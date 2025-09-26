@@ -15,7 +15,7 @@ means. Freezing that behind one interface would mean either an interface so wide
 guarantees nothing, or one so narrow it fits only what its author had in mind.
 
 So SynQt puts the seam somewhere else. It is not at the login system. It is at the
-**session**: a bounded, revocable, server-held record carrying a scope and a normalized
+session: a bounded, revocable, server-held record carrying a scope and a normalized
 identity. Everything upstream of that record is negotiable. Nothing downstream of it is,
 which is why a connect point's `scope:` and a slot's `Caller.hasScope()` work identically
 whoever signed the user in.
@@ -113,11 +113,11 @@ IdentityMapping {
 
 Three things about this hook are worth stating plainly.
 
-It runs **on the edge**, after a successful login, and nowhere else. Nothing in it is
+It runs on the edge, after a successful login, and nowhere else. Nothing in it is
 reachable from a browser, and the value it returns is written into a server-held session
 record the browser only ever sees as an opaque cookie.
 
-It is **synchronous**, and that constrains how it reaches data. The edge needs a scope
+It is synchronous, and that constrains how it reaches data. The edge needs a scope
 before it can create the session, so `scopeFor` returns a value rather than waiting for
 one, which means a slot call over the mesh is no use here: a returning slot gives you a
 promise, and a promise is not a scope. A pushed `prop` is the shape that works, because a
@@ -223,19 +223,19 @@ session fixation: a token someone held before signing in is not the token they h
 Four rules apply to this shape, and none of them is new. They are the same rules the rest
 of SynQt already runs on.
 
-**The check is on the owner.** `signIn` is a slot on the edge, so its body runs on the
+The check is on the owner. `signIn` is a slot on the edge, so its body runs on the
 edge. A client cannot call `setScope` and cannot reach `Directory.staff` at all: the
 directory's consumer list has one entry on it, and that entry is the edge.
 
-**The identity is normalized.** Fill `sub`, `login`, `name`, and `email`, because that is
+The identity is normalized. Fill `sub`, `login`, `name`, and `email`, because that is
 what every hook, every slot, and every example reads. `sub` is the stable one: an employee
 number, not a username somebody will change.
 
-**The credential is not data.** It arrives as a slot argument, is passed to the one entity
+The credential is not data. It arrives as a slot argument, is passed to the one entity
 that can verify it, and is never written anywhere. Not a property, not a model, not a log
 line, not a cache key.
 
-**Rate limiting is yours here.** An OAuth2 provider was absorbing brute force attempts on
+Rate limiting is yours here. An OAuth2 provider was absorbing brute force attempts on
 your behalf; a `signIn` slot is not. Count failures per session and per address on the
 edge and refuse past a threshold, in the same slot, before the mesh call.
 

@@ -45,7 +45,7 @@ export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // The predicate is awaited, so it may be sync or async. This matters: the Playwright cases
 // test an array they already hold, while the Safari cases have to ask the browser over
-// WebDriver and so can only answer with a promise -- and an un-awaited promise is truthy,
+// WebDriver and so can only answer with a promise, and an un-awaited promise is truthy,
 // which would make every wait here return true on its first attempt and every Safari case
 // pass without observing anything.
 export async function waitFor(predicate, timeoutMs, stepMs = 300) {

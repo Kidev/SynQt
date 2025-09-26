@@ -375,21 +375,29 @@ def desktop_platform() -> str:
     return toolchain.host_platform()
 
 
-def _deployed_note(root: Path, name: str, out: Path) -> str:
-    """The DEPLOY.txt body after `--deploy` has run: what is left, which is the signing."""
+def _deployed_note(root: Path, name: str, out: Path, sign: Optional[str]) -> str:
+    """The DEPLOY.txt body after `--deploy` has run: what, if anything, is still outstanding.
+
+    Split on whether it was signed, because the two states leave different work. A
+    single note covering both would have to hedge, and a hedged note about signing is one
+    nobody acts on.
+    """
     platform = desktop_platform()
-    signing = {
-        "macos": ("    codesign --deep --force --options runtime \\\n"
-                  "        --sign \"Developer ID Application: <you>\" \"%s\"\n\n"
-                  "then notarize with `xcrun notarytool submit`. Until it is signed, Gatekeeper\n"
-                  "refuses it on any machine but this one.\n" % (out / f"{name}.app")),
-        "windows": ("    signtool sign /fd sha256 /a \"%s\"\n" % (out / f"{name}.exe")),
-    }.get(platform,
-          "    Nothing further is required to run it; package with linuxdeploy or an\n"
-          "    AppImage recipe to ship a single file.\n")
-    return ("This tree was deployed by `synqt build --deploy`: Qt travels with the app and it\n"
-            "no longer depends on the kit it was built against.\n\n"
-            "What is left is signing, which SynQt does not do for you:\n\n" + signing)
+    header = ("This tree was deployed by `synqt build --deploy`: Qt travels with the app and\n"
+              "it no longer depends on the kit it was built against.\n\n")
+    if sign:
+        if platform == "macos":
+            return header + (
+                f"It was signed as {sign!r}. One step is left before you distribute it:\n\n"
+                "    xcrun notarytool submit --wait \\\n"
+                f'        --apple-id <you> --team-id <team> "{out / f"{name}.app"}"\n'
+                f'    xcrun stapler staple "{out / f"{name}.app"}"\n\n'
+                "Notarization needs credentials and a network round trip, so SynQt does not\n"
+                "run it. Without it, Gatekeeper still refuses the app on a machine that\n"
+                "downloaded it.\n")
+        return header + f"It was signed as {sign!r}. Nothing further is required.\n"
+    return header + ("It is UNSIGNED.\n\n    " + deploymod.signing_consequence(platform)
+                     + "\n\nRe-run with --sign <identity> when you are ready to distribute it.\n")
 
 
 def _deploy_note(root: Path, name: str, out: Path) -> str:
@@ -399,11 +407,12 @@ def _deploy_note(root: Path, name: str, out: Path) -> str:
     entitlements, notarization and installer format are not a framework's to choose, and a
     half-deployed bundle that looks finished is worse than one that says what is missing). That
     makes this note the whole hand-off, so it names the real path rather than the three tools
-    the developer might need, which is what it used to do: knowing that `macdeployqt` exists is
-    not the missing information, and the previous text did not even say which folder to run it in.
+    the developer might need. Knowing that `macdeployqt` exists is
+    not the missing information. Which folder to run it in is.
     """
     platform = desktop_platform()
-    header = ("The platform deploy step is not run by `synqt build` (docs/desktop.md); it is "
+    header = ("The platform deploy step is not run by `synqt build` "
+              "(https://synqt.org/desktop/); it is "
               "where\nsigning and notarization live. Until it runs, what is here links Qt from "
               "the kit it\nwas built against and runs only on a machine that has that kit.\n\n"
               "For this build, on %s:\n\n" % platform)
@@ -541,7 +550,7 @@ def build(project_dir: os.PathLike[str] | str, *, release: bool = True,
           client: str = "wasm", qt_license_mode: str = "open_source",
           entity: Optional[str] = None, threads: Optional[str] = None,
           verbose: bool = False, profile: Optional[str] = None,
-          deploy: bool = False) -> str:
+          deploy: bool = False, sign: Optional[str] = None) -> str:
     # Resolve to an absolute path: the cmake invocations below run with cwd set to the
     # project dir, so a relative --project-dir would otherwise be joined against itself.
     root = Path(project_dir).resolve()
@@ -600,9 +609,9 @@ def build(project_dir: os.PathLike[str] | str, *, release: bool = True,
                         # default position exists to avoid.
                         deploy_notes.append(
                             deploymod.deploy_client(root, name, out, resolved,
-                                                    desktop_platform()))
+                                                    desktop_platform(), sign=sign))
                         (out.parent / "DEPLOY.txt").write_text(
-                            _deployed_note(root, name, out))
+                            _deployed_note(root, name, out, sign))
                     else:
                         (out.parent / "DEPLOY.txt").write_text(_deploy_note(root, name, out))
                 produced.append(f"build/{folder}/ ({target})")
@@ -639,7 +648,7 @@ def build(project_dir: os.PathLike[str] | str, *, release: bool = True,
             notices.append(licenses.CLIENT_GPL_WARNING)
         if any(e.get("capability") == "web_edge" or e.get("web_edge") for e in selected):
             notices.append("Note: distributing the edge binary triggers GPLv3 (Qt HTTP "
-                           "Server / Network Authorization). See docs/licensing.md.")
+                           "Server / Network Authorization). See https://synqt.org/licensing/.")
         if notices:
             summary += [""] + notices
     return "\n".join(summary)

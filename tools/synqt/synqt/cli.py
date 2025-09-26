@@ -105,7 +105,19 @@ def build_parser() -> argparse.ArgumentParser:
             # never signs.
             p.add_argument("--deploy", action="store_true",
                            help="also run the platform deploy step on a desktop client "
-                                "(macdeployqt/windeployqt/portable layout); never signs")
+                                "(macdeployqt/windeployqt/portable layout); requires "
+                                "--sign or --unsigned")
+            # --deploy on its own is refused. What an unsigned build costs differs per
+            # platform (refused by Gatekeeper / warned about by SmartScreen / entirely
+            # normal on Linux), and the person who most needs to know their app will not
+            # open on anyone else's Mac is exactly the one who would not read a note about
+            # it. deploy.check_signing_choice says which applies here.
+            p.add_argument("--sign", default=None, metavar="IDENTITY",
+                           help="sign the deployed client with this identity (macOS: a "
+                                "codesign identity; Windows: the certificate subject name)")
+            p.add_argument("--unsigned", action="store_true",
+                           help="deploy without signing, accepting what that means on this "
+                                "platform")
             # Deliberately not on `dev`: dev re-reads synqt.yaml on every hot reload, so an
             # override held only in argv would be dropped mid-session, leaving a threaded
             # client served without the cross-origin isolation it needs (pitfall 13, and a
@@ -198,7 +210,7 @@ def _run_add(args: argparse.Namespace) -> int:
         message = addprovider.scaffold(args.project_dir, args.name, args.family)
     elif args.what == "contract":
         message = addcontract.scaffold_contract(args.project_dir, args.name)
-    else:  # connect-point
+    else: # connect-point
         consumers = [c for c in args.consumers.split(",") if c]
         message = addcontract.scaffold_connect_point(
             args.project_dir, args.name, owner=args.owner, consumers=consumers,
@@ -266,12 +278,26 @@ def main(argv: Optional[List[str]] = None) -> int:
             # release edge or a literal database password gets caught.
             if _fails_validation(args.project_dir, release=release, profile=args.profile):
                 return 1
+            # Checked before anything compiles. A --deploy that is going to be refused for
+            # not having said anything about signing should be refused in the first second,
+            # not after a full release build of every entity.
+            if getattr(args, "deploy", False):
+                try:
+                    deploymod.check_signing_choice(buildmod.desktop_platform(),
+                                                   args.sign, args.unsigned)
+                except deploymod.DeployError as err:
+                    print(f"error: {err}")
+                    return 1
+            elif getattr(args, "sign", None) or getattr(args, "unsigned", False):
+                print("error: --sign and --unsigned only mean something with --deploy.")
+                return 1
             try:
                 print(buildmod.build(args.project_dir, release=release, client=args.client,
                                      entity=getattr(args, "entity", None),
                                      threads=getattr(args, "threads", None),
                                      verbose=args.verbose, profile=args.profile,
-                                     deploy=getattr(args, "deploy", False)))
+                                     deploy=getattr(args, "deploy", False),
+                                     sign=getattr(args, "sign", None)))
             except deploymod.DeployError as err:
                 # The compile succeeded and only the opt-in deploy failed, so say which, or the
                 # reader spends their time looking for a build error that is not there.

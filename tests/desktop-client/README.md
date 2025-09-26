@@ -5,7 +5,7 @@
 
 The SynQt client is one QML app with two packagings: the browser WASM bundle and a native
 desktop executable built from the *same* QML and the same `SynClient` runtime (see
-`docs/desktop.md`). `tests/appgen-native` proves the generated **service/edge** mains compile,
+[desktop clients](../../docs/desktop.md)). `tests/appgen-native` proves the generated service/edge mains compile,
 and it builds the client target as a side effect, but it never drove the `synqt build --client
 desktop` tooling path, so the desktop-specific wiring (the host-preset build of the client, the
 install into `build/client-desktop/linux/`, and the baked-in edge URL) was unproven. This fixture
@@ -13,7 +13,7 @@ closes that gap.
 
 ## What it does
 
-Over the real three-entity **gavel** topology (client + web edge + persistence database, with
+Over the real three-entity gavel topology (client + web edge + persistence database, with
 connect points, `per_session`, identity, and a provider), it:
 
 1. marks the client `targets: [wasm, desktop]` and sets a distinctive `build.desktop.edge_url`;
@@ -21,7 +21,7 @@ connect points, `per_session`, identity, and a provider), it:
    which generates the client main/CMake, configures the `host` preset, compiles the client on
    the native kit, and installs it under `build/client-desktop/linux/`;
 3. asserts the installed binary is a native ELF executable;
-4. asserts the configured **edge URL is baked into the binary** (`SYNQT_EDGE_URL`; scanned in both
+4. asserts the configured edge URL is baked into the binary (`SYNQT_EDGE_URL`; scanned in both
    ASCII and UTF-16 because `QStringLiteral` stores it as UTF-16); a desktop client has no
    serving origin to read its edge from, so this must come from `build.desktop.edge_url`;
 5. boots the binary headless (`QT_QPA_PLATFORM=offscreen`, edge unreachable) and asserts it comes

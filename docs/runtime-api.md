@@ -51,7 +51,7 @@ Notes:
   whatever that edge entity is actually named. It is the client-side counterpart
   of addressing a service by its entity name (`Database.items`) elsewhere in the
   mesh.
-- A connect point appears on `Server` only once its Replica has been **acquired**.
+- A connect point appears on `Server` only once its Replica has been acquired.
   A connect point with a `scope` the session does not hold is never acquired, so
   `Server.<name>` is not live for an under-scoped user (see
   [Availability and lifecycle](#availability-and-lifecycle) below). Bindings to it
@@ -105,7 +105,7 @@ mapping hook receives, see [authentication](authentication.md#the-identity-objec
 | `identity.name` | string | the display name, when the provider has one. |
 | `identity.email` | string \| null | the verified email, or `null` when the provider withholds it. Always tolerate null. |
 
-`Session.login(provider?)` starts the login flow **at the edge**, so the browser
+`Session.login(provider?)` starts the login flow at the edge, so the browser
 never holds the client secret (see [pitfall: OAuth cannot run in the
 browser](authentication.md)). `provider` is optional; pass it when more than one
 identity provider is configured, otherwise the default (or only) provider is used.
@@ -193,8 +193,8 @@ for how a view is named and where its file goes.
 ### How a path is matched
 
 A route path is a sequence of segments, each either a literal or a `:name`
-parameter that captures. When two routes both match, **the one with more literal
-segments wins, whatever order they are declared in**: `/c/summary` beats
+parameter that captures. When two routes both match, the one with more literal
+segments wins, whatever order they are declared in: `/c/summary` beats
 `/c/:campaign` even when `/c/:campaign` comes first in `synqt.yaml`. Precedence is a
 property of the table, not of the order something happened to emit it in.
 
@@ -212,14 +212,14 @@ by [serving the application shell](security.md#deep-links-and-the-login-resume) 
 any path it does not answer itself.
 
 At that moment the session holds only the default scope, because the link to the
-edge has not opened yet. A **scope-gated** deep link therefore resolves `Forbidden`
+edge has not opened yet. A scope-gated deep link therefore resolves `Forbidden`
 at boot, and is resumed the moment the real scope arrives.
 
 The router re-resolves the current route on every scope change, in both directions:
 
-- **Gaining** scope (a sign-in) promotes a route that was refused, and then replays
+- Gaining scope (a sign-in) promotes a route that was refused, and then replays
   a remembered destination.
-- **Losing** scope (a sign-out, or an expired session) evicts the visitor from a
+- Losing scope (a sign-out, or an expired session) evicts the visitor from a
   page they may no longer see, instead of leaving them sitting on it. The address
   bar is corrected with it, so a refresh does not walk straight back into the
   redirect.
@@ -234,7 +234,7 @@ visitor who follows a link to `/admin`, signs in, and holds `admin` afterwards e
 up on `/admin`, not on the home page with no explanation.
 
 The remembered path is cleared by being read, whether or not it turned out to be
-usable, so a stale intent cannot steer a later visit. It is **not** cleared by
+usable, so a stale intent cannot steer a later visit. It is not cleared by
 navigating somewhere else: a visitor bounced off `/admin` who then browses to
 `/products` and signs in there is still taken to `/admin`. That is deliberate: the
 page they were refused is the one they asked for, and whatever they looked at while
@@ -245,7 +245,7 @@ visitor, so it is validated before anything acts on it. The rules, and why they 
 what they are, are in
 [deep links and the login resume](security.md#deep-links-and-the-login-resume).
 
-A route guard is a **redirect rule, not a secrecy mechanism**. The client is one
+A route guard is a redirect rule, not a secrecy mechanism. The client is one
 compiled bundle, so every view's QML ships to every visitor; guards steer
 navigation, while the data behind a privileged view still arrives only through
 scope-gated connect points the edge refuses to an under-scoped session. This is
@@ -380,10 +380,10 @@ each `.syn` construct lowers.
 
 There are two ways to emit a contract signal, and the difference is the audience:
 
-- **Calling the Source's signal** (`rejected(reason)`) delivers it to every
+- Calling the Source's signal (`rejected(reason)`) delivers it to every
   consumer of that Source instance. With a `shared` instance that is everyone;
   with a `per_session` instance there is only one consumer, so it is that session.
-- **`Caller.emit<Signal>(...)`** (`Caller.emitRejected(reason)`) delivers it to
+- `Caller.emit<Signal>(...)` (`Caller.emitRejected(reason)`) delivers it to
   the one caller currently in the slot. Use it to answer a specific request on a
   `shared` instance without notifying the others.
 
@@ -397,7 +397,7 @@ it stays correct if the instance later becomes `shared`.
 
 The framework, not your code, owns each accessor's lifecycle:
 
-- A **scope-gated** `Server.<name>` is acquired only when the session meets the
+- A scope-gated `Server.<name>` is acquired only when the session meets the
   connect point's `scope`. Below that scope the Replica is never handed over, so
   its slots cannot be called at all; the gate is enforced at acquisition, not by
   hiding buttons. On a scope upgrade (`Caller.setScope` after login) the newly

@@ -22,10 +22,10 @@ Now copy that URL, open a new tab, and paste it in.
 The page opens straight on the campaign. That is worth pulling apart, because two different
 pieces of the system cooperated to make it uneventful:
 
-- **The edge answered a path it does not know.** `/c/summer-sale` is a client route. The
+- The edge answered a path it does not know. `/c/summer-sale` is a client route. The
   edge has no handler for it, so it serves the application shell there, with the same CSP,
   the same session cookie, and the same cache terms as the root document.
-- **The client resolved the URL before it had a connection.** The router reads
+- The client resolved the URL before it had a connection. The router reads
   `window.location` at boot and matches it against the compiled route table, so the first
   frame it paints is the campaign, not the home page followed by a jump.
 
@@ -94,9 +94,9 @@ bar and press Enter.
 You land on `/`, the `router.fallback`. Two separate things refused you, and it is worth
 being clear about which did what:
 
-- **The router** matched `/members`, saw a `scope:` the session lacks, went to the fallback
+- The router matched `/members`, saw a `scope:` the session lacks, went to the fallback
   instead, and reported `Forbidden`. That is navigation.
-- **The edge** never delivered `Members.qml`. It checks a remote route's scope before it
+- The edge never delivered `Members.qml`. It checks a remote route's scope before it
   sends a byte, so an under-scoped fetch comes back with no markup, no content hash, and no
   seed. That is confidentiality.
 
@@ -123,17 +123,17 @@ can mint one at any scope for testing, and it is gated so it can never ship.
 <details class="solution" markdown>
 <summary>Solution</summary>
 
-A 404, not the app.
+A 404 rather than the app.
 
 The edge serves the application shell for a path it does not answer itself, which is what
-made Check 1 work. But a path whose **final segment contains a dot** is treated as a request
+made Check 1 work. But a path whose final segment contains a dot is treated as a request
 for an asset, and a missing asset has to fail as one. If the edge sent HTML with a 200 for
 `/bundle/client.js` after a bad deploy, the browser would report a module load error deep
-inside a script it could not parse, and the actual fact, that the file is not there, would
+inside a script it could not parse, and the fact that the file is not there would
 be nowhere in the message. One rule keeps that honest, and the cost is that a slug cannot
 contain a dot.
 
-The same boundary decides a few other things: only `GET` and `HEAD` get the shell, so a
+The same boundary decides a few other things. Only `GET` and `HEAD` get the shell, so a
 `POST` to an unknown URL fails visibly instead of being answered with a page. All of it is
 in [deep links and the login resume](security.md#deep-links-and-the-login-resume).
 

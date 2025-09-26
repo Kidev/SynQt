@@ -59,8 +59,8 @@ def _executable(directory: Path, name: str) -> Optional[Path]:
 
     The macOS desktop client is an .app bundle (cmakegen sets MACOSX_BUNDLE so the
     macdeployqt hand-off in docs/desktop.md is possible at all), and the thing to *run* is the
-    executable inside it, not the directory. Resolving that here keeps every caller -- `synqt
-    serve`, `synqt dev --desktop`, the deploy install -- working off one answer.
+    executable inside it, not the directory. Resolving that here keeps every caller (`synqt
+    serve`, `synqt dev --desktop`, the deploy install) working off one answer.
     """
     for suffix in ("", ".exe"):
         candidate = directory / f"{name}{suffix}"
@@ -126,7 +126,7 @@ def startup_order(config: Dict[str, Any]) -> List[str]:
     remaining = set(services)
     while remaining:
         ready = sorted(name for name in remaining if after[name] <= placed)
-        if not ready:  # a cycle: place the rest deterministically rather than hang
+        if not ready: # a cycle: place the rest deterministically rather than hang
             ready = sorted(remaining)
         for name in ready:
             ordered.append(name)

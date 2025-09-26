@@ -48,13 +48,13 @@ content hash from then on.
 A remote page is edge code, so changing it is an edge change, not a client rebuild. Two
 things follow, and both are visible with the tab still open.
 
-**Restyle the running page.** With `synqt dev` running and a campaign open in the tab, edit
+Restyle the running page. With `synqt dev` running and a campaign open in the tab, edit
 `web/pages/Campaign.qml`. Bump the headline's `font.pixelSize` from `24` to `40`, or change
 a color, and save. The open tab restyles. There is no `synqt build`, no new WebAssembly
 bundle, and no page reload of the client: the edge picked up the changed page, and the next
 time the tab shows that route it renders the new version. The compiled client never moved.
 
-**Add a brand-new campaign.** The client bundle knows about `/c/:campaign` as a pattern, but
+Add a brand-new campaign. The client bundle knows about `/c/:campaign` as a pattern, but
 it does not carry a list of concrete campaigns, and it does not need one. Create a new
 campaign by navigating to a slug that has never existed, say `/c/back-to-school`:
 

@@ -55,10 +55,10 @@ private slots:
     void fetchRefusalsCarryNoSeed();
     void fetchPrefersTheMoreLiteralRoute();
 
-    // Task 6b: the Pages connect point actually hosted by WebEdge. These construct
+    // Task 6b. The Pages connect point hosted by WebEdge. These construct
     // the real hosted Source (PagesEdgeSource) the way WebEdge::hostConnection()
-    // does -- a live session-bound Caller via Caller::forUser, then the Source
-    // built over it -- instead of calling PagesService directly, which is what
+    // does: a live session-bound Caller via Caller::forUser, then the Source
+    // built over it, instead of calling PagesService directly, which is what
     // every test above already covers.
     void hostedFetchRefusesAnUnderScopedCaller();
     void hostedFetchServesAnAuthorizedCaller();
@@ -345,8 +345,8 @@ void tst_PageStore::storeWatchSurvivesAnAtomicReplace()
              "the replace itself failed, so there was no change for the store to see");
     QVERIFY(changed.wait(5000));
     // How many notifications one remove-and-rename produces is the operating system's
-    // business, not this store's: an unlink and a create arriving as two events is as
-    // correct as one. What is asserted is what the store promises -- every emission
+    // business, not this store's. An unlink and a create arriving as two events is as
+    // correct as one. What is asserted is what the store promises: every emission
     // names the route, and the content behind it moved.
     QVERIFY(changed.count() >= 1);
     for (const QList<QVariant> &emission : changed) {
@@ -380,9 +380,9 @@ void tst_PageStore::storeReportsTheContentTheWriterFinishedWith()
 
     QSignalSpy changed{&store, &SynQt::PageStore::pageChanged};
 
-    // One edit, written the way an editor writes it: the file is truncated when it is
+    // One edit, written the way an editor writes it. The file is truncated when it is
     // opened and the content arrives afterwards. Read at the truncate and the page is
-    // empty, which is worse than a late reload -- every open tab would be told to fetch a
+    // empty, which is worse than a late reload. Every open tab would be told to fetch a
     // blank page. So the store waits for the writing to stop.
     QFile file{dir.filePath(QStringLiteral("Campaign.qml"))};
     QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Truncate));

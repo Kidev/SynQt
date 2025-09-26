@@ -13,16 +13,16 @@ It uses the [stall](../../examples/stall) storefront, whose two campaign pages
 the real `synqt build` path and weighs each client bundle with the shared
 [measure-bundle.sh](../client/measure-bundle.sh) (raw, gzip, and Brotli):
 
-- **remote** -- the example as written: the campaign pages are edge-delivered, so they are
+- remote, the example as written, where the campaign pages are edge-delivered, so they are
   not in the first-load bundle.
-- **compiled-in** -- the same example with those two routes rewritten to compiled-in `view:`
+- compiled-in, the same example with those two routes rewritten to compiled-in `view:`
   routes, so qmlcachegen compiles the pages into the client module and they ship on first
   load.
 
-The saving is the compiled-in weight minus the remote weight: the bytes a first-time visitor
+The saving is the compiled-in weight minus the remote weight, the bytes a first-time visitor
 does not download because the pages live on the edge. The two variants serve the same set of
-first-load files (the pages compile into the `.wasm`, they are not separate served assets),
-so the difference is in the compiled module bytes, not the file count.
+first-load files (the pages compile into the `.wasm` rather than being separate served assets),
+so the difference is in the compiled module bytes rather than the file count.
 
 ## What the baseline records
 

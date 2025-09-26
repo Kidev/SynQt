@@ -32,7 +32,7 @@ cd "$REPO_ROOT"
 # whenever it is not attached to a console: QPlainTestLogger::outputMessage() calls
 # OutputDebugStringA() and RETURNS, writing nothing to the stream
 # (qtbase/src/testlib/qplaintestlogger.cpp). ctest runs every test through a pipe, so
-# QtPrivate::shouldLogToStderr() is false there and the whole log disappears -- which is why
+# QtPrivate::shouldLogToStderr() is false there and the whole log disappears, which is why
 # every Windows failure this project has seen reported as "***Failed" with a blank capture,
 # and why re-running the binary by hand printed nothing either. The one documented override
 # is this variable (qtbase/src/corelib/global/qlogging.cpp). Export it for the suites and for
@@ -125,7 +125,7 @@ while read -r suite; do
     # CMake's file(WRITE) opens the stream in text mode, so on Windows the "\n" the
     # registry writes reaches this loop as "\r\n" and every suite name carries a trailing
     # carriage return. Bash keeps it, the glob below then matches nothing, and the failure
-    # reads as three suites whose run-*.sh does not exist -- on a checkout where all three
+    # reads as three suites whose run-*.sh does not exist, on a checkout where all three
     # are present. Strip it here rather than writing the file differently: the reader is
     # the side that knows it wants a line, and this costs nothing on the other platforms.
     suite="${suite%$'\r'}"

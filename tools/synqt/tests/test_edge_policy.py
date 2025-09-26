@@ -4,12 +4,12 @@
 """The declared browser-facing policy has to reach the generated edge.
 
 A knob that is documented, validated, and then dropped on the way to the binary is worse
-than one that does not exist: the project believes it set something. These tests pin the
-whole path -- the `security:` block, the origin model, the starting scope, the public bind
+than one that does not exist. The project believes it set something. These tests pin the
+whole path: the `security:` block, the origin model, the starting scope, the public bind
 and TLS, the `identity:` block and, most sharply, a connect point's `scope`, which is the
 barrier deciding whether that connect point is acquired for a session at all.
 
-The other half is what must NOT reach it: a client secret is only ever the name of an
+The other half is what must NOT reach it. A client secret is only ever the name of an
 environment variable here, never a literal in generated source, and a setting this version
 cannot honor is refused rather than silently replaced with the one it can.
 """

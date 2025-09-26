@@ -2,13 +2,8 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 #
-# The local test network: names, loopback addresses and a development web CA.
-#
-# Several things this project has to prove are browser policy questions rather than Qt
-# questions -- what a split-origin session cookie survives, whether a bundle served from
-# one origin can reach an edge on another -- and they can only be asked of a browser that
-# believes it is talking to two different sites. This is the shared plumbing for that, in
-# one place, so a harness that needs it does not grow its own.
+# The local test network: names, loopback addresses and a development web CA, for tests a
+# browser must see as two different sites.
 #
 #   tests/local-network/local-network.sh status     what is in place right now
 #   tests/local-network/local-network.sh certs      issue the CA and the server cert
@@ -18,20 +13,17 @@
 #   tests/local-network/local-network.sh untrust    remove it again (sudo)
 #   eval "$(tests/local-network/local-network.sh env)"
 #
-# `certs` and `env` need no privileges. Everything else edits the machine and says so.
-# See README.md for what each layer buys and which parts have been run.
+# `certs` and `env` need no privileges. See README.md.
 
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SITES_CONF="$HERE/sites.conf"
 
-# Outside the repository, because this directory holds a certificate authority private
-# key, and a key inside a checkout is a key one `git add -A` away from being published.
+# Outside the repository: this directory holds a CA private key.
 WORK="${SYNQT_LOCAL_NETWORK_DIR:-$HOME/.cache/synqt-local-network}"
 
-# The marker that makes the hosts edit reversible without a hand-written sed: every line
-# this script adds carries it, and `down` removes exactly the lines that carry it.
+# Every hosts line this script adds carries this marker; `down` removes exactly those.
 MARKER="# synqt-local-network"
 HOSTS_FILE="${SYNQT_HOSTS_FILE:-/etc/hosts}"
 
@@ -60,10 +52,7 @@ issue_certs() {
     chmod 700 "$WORK"
 
     if [ ! -f "$WORK/ca.pem" ]; then
-        # Two calls, never `req -x509 -addext`: that form has produced certificates
-        # carrying an extension twice, and macOS Secure Transport rejects such an anchor
-        # outright as malformed, which reads as "TLS is broken" rather than "the CA is".
-        # `x509 -req -extfile` is the authoritative form on every openssl and LibreSSL.
+        # Two calls, never `req -x509 -addext`, which can emit an extension twice.
         cat > "$WORK/ca.ext" <<'EOF'
 basicConstraints = critical, CA:TRUE, pathlen:0
 keyUsage = critical, keyCertSign, cRLSign
@@ -78,8 +67,7 @@ EOF
         echo "issued a development web CA at $WORK/ca.pem"
     fi
 
-    # One server certificate covering every site, reissued whenever the table changes, so
-    # adding a name to sites.conf is the only step needed to serve it.
+    # One server certificate for every site, reissued whenever sites.conf changes.
     local names present
     names="$(site_names | sed 's/^/DNS:/' | paste -sd, -)"
     present=""
@@ -107,9 +95,7 @@ EOF
 
 # names
 
-# Elevate only where the target needs it. /etc/hosts does. The scratch file
-# SYNQT_HOSTS_FILE points at in a test does not, and requiring a password to exercise the
-# logic is how the logic goes untested.
+# Elevate only for /etc/hosts, not for SYNQT_HOSTS_FILE in a test.
 elevation_for() {
     if [ -w "$1" ]; then
         echo ""
@@ -123,10 +109,7 @@ add_hosts() {
         echo "hosts entries are already present"
         return
     fi
-    # /etc/hosts is the only mechanism that reaches every engine. Chromium has
-    # --host-resolver-rules and Firefox has network.dns.localDomains, but WebKit has
-    # neither, and WebKit is Safari's engine. The one browser whose cookie policy this
-    # project cannot afford to guess at.
+    # /etc/hosts is the only mechanism WebKit honours.
     site_lines | $(elevation_for "$HOSTS_FILE") tee -a "$HOSTS_FILE" > /dev/null
     echo "mapped $(site_names | paste -sd' ' -) in $HOSTS_FILE"
 }
@@ -136,9 +119,7 @@ remove_hosts() {
         echo "no hosts entries to remove"
         return
     fi
-    # Filtered into a temporary file and copied back, rather than edited in place: an
-    # in-place rewrite of /etc/hosts that is interrupted leaves the machine with no
-    # loopback name at all.
+    # Filtered into a temporary file and copied back, never edited in place.
     local filtered
     filtered="$(mktemp)"
     grep -vF "$MARKER" "$HOSTS_FILE" > "$filtered"
@@ -150,9 +131,7 @@ remove_hosts() {
 # addresses
 
 add_aliases() {
-    # Linux treats the whole of 127.0.0.0/8 as local with no configuration, so this is a
-    # no-op there and is written for macOS, where every address past 127.0.0.1 has to be
-    # added to lo0 by hand and is forgotten on reboot.
+    # A no-op on Linux; macOS needs each address past 127.0.0.1 added to lo0.
     if [ "$(uname -s)" != "Darwin" ]; then
         echo "no aliases needed on $(uname -s): all of 127.0.0.0/8 is already local"
         return
@@ -208,10 +187,7 @@ trust_ca() {
         return 1
         ;;
     esac
-    # Firefox keeps its own store and reads no system anchor on Linux, so a system trust
-    # step leaves it out. Playwright drives a fresh profile per run and takes
-    # `ignoreHTTPSErrors` instead, which is why the harnesses here do not need this. A
-    # hand-driven Firefox does.
+    # Firefox ignores the system store on Linux; Playwright uses ignoreHTTPSErrors instead.
     echo "note: Firefox has its own certificate store. For a hand-driven Firefox, import"
     echo "      $WORK/ca.pem under Settings, Privacy and Security, Certificates."
 }
@@ -241,9 +217,7 @@ status() {
     echo "sites (from $(basename "$SITES_CONF")):"
     local name address resolved
     while read -r name address _; do
-        # Resolved through Python rather than getent or dscacheutil. Those are the glibc
-        # and the macOS answer to the same question, and a status command that dies on the
-        # host it was not written for is worse than useless.
+        # Resolved through Python, which works on every host.
         resolved="$(python3 -c 'import socket, sys
 try:
     print(socket.gethostbyname(sys.argv[1]))
@@ -267,8 +241,7 @@ except OSError:
 }
 
 print_env() {
-    # Consumed with `eval`, so every harness reads the same paths rather than rebuilding
-    # them from its own idea of where the work directory is.
+    # Consumed with `eval`, so every harness reads the same paths.
     echo "export SYNQT_LOCAL_NETWORK_DIR='$WORK'"
     echo "export SYNQT_LOCAL_NETWORK_CA='$WORK/ca.pem'"
     echo "export SYNQT_LOCAL_NETWORK_CERT='$WORK/cert.pem'"

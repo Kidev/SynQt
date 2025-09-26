@@ -199,7 +199,7 @@ fi
 # Resolve the two the byte search below reads, because it reads them from Python and Python
 # is a native Windows program with no MSYS exe magic: `out/web` is a path bash can stat and
 # run, and a plain FileNotFoundError to open(). Every needle then reports as absent, so the
-# leak check passes vacuously while the presence check fails -- which is how a correct build
+# leak check passes vacuously while the presence check fails, which is how a correct build
 # came back NO-GO with four tracebacks.
 promoted_web="$(native_exe_path "$PROMOTED/out/web")"
 promoted_auth="$(native_exe_path "$PROMOTED/out/auth")"
@@ -274,7 +274,7 @@ esac
 # reports runs of printable characters above a minimum length.
 #
 # An unreadable file is a hard error, not an answer. This search is asked both ways round --
-# "the edge must not contain it" and "the auth entity must" -- so a path that cannot be opened
+# "the edge must not contain it" and "the auth entity must", so a path that cannot be opened
 # would otherwise read as absence and quietly satisfy half the checks it was given.
 promoted_in_binary() {
     if [ ! -f "$1" ]; then

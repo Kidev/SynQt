@@ -11,7 +11,7 @@
 # it at install time. Qt resolves it at configure time from the EMSDK environment variable
 # instead, so a shell that has not activated an emsdk configures against a Windows path that
 # cannot exist and dies with "Cannot find the toolchain file Emscripten.cmake" followed by "No
-# CMAKE_CXX_COMPILER could be found" -- which reads like a missing compiler rather than like an
+# CMAKE_CXX_COMPILER could be found", which reads like a missing compiler rather than like an
 # unsourced environment.
 #
 # CI activates emsdk in its own step before calling these scripts, so only a developer running

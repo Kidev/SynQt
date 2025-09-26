@@ -340,17 +340,17 @@ public:
 Here is where an adaptor stops being transcription. Memcached and `ICacheProvider` do not
 agree about counters, and there are exactly three gaps.
 
-**It will not create the counter.** `incr` on a key that does not exist returns
+It will not create the counter. `incr` on a key that does not exist returns
 `NOT_FOUND`; it does not start at zero. The interface promises to return the new value, so
 "the key was missing" is not an answer you may pass upwards. The fix is `add`, which
 stores only if the key is still absent, so the race with another entity doing the same
 thing at the same moment resolves rather than corrupting: whoever loses the `add` simply
 increments what the winner created.
 
-**It only counts up.** Memcached has `incr` and a separate `decr`, and `by` in the
+It only counts up. Memcached has `incr` and a separate `decr`, and `by` in the
 interface is signed. Pick the command from the sign.
 
-**It floors at zero.** `decr` past zero gives zero, not a negative number, and there is
+It floors at zero. `decr` past zero gives zero, not a negative number, and there is
 nothing you can do about that from outside the engine. So say so, in the code, where
 someone reaching for a counter that goes negative will read it. Documenting a limitation
 is a real fix; hiding it behind a read-modify-write that is no longer atomic is not.

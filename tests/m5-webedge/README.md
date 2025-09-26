@@ -5,47 +5,48 @@
 
 `WebEdge` ([`src/service/webedge.*`](../../src/service)) is the only internet-facing
 entity. On `QHttpServer` it serves the client bundle with the browser-hardening
-headers, accepts the browser's WebSocket through the upgrade verifier (**rejecting bad
-requests before a socket exists**), and hands accepted sockets to a QtRO host so the
+headers, accepts the browser's WebSocket through the upgrade verifier (rejecting bad
+requests before a socket exists), and hands accepted sockets to a QtRO host so the
 browser can acquire the edge's connect points. The public TLS, the computed
 CSP/COOP/COEP, the upgrade checks, and the resource limits all ship here.
 
 ## Verdict
 
-**PASS.** Every clause of the M5 build guide, verified by `tst_m5` **over real TLS**:
+**PASS.** Every clause of the M5 build guide, verified by `tst_m5` over real TLS:
 
 | clause | test |
 |--------|------|
 | serves the bundle with the CSP, wss origin in `connect-src` always | `bundleHeadersDefault` |
 | COOP `same-origin` + COEP `require-corp` + `worker-src 'self' blob:` under cross-origin isolation | `bundleHeadersCrossOriginIsolated` |
 | accepts an authorized upgrade and exposes its connect points | `authorizedUpgradeExposesConnectPoint` (acquires `greeting`, `value == 7`) |
-| rejects an upgrade from a disallowed origin **before a socket exists** | `disallowedOriginRejectedBeforeSocket` |
+| rejects an upgrade from a disallowed origin before a socket exists | `disallowedOriginRejectedBeforeSocket` |
 | closes a connection that stalls its upgrade past `handshake_timeout_ms` | `stalledUpgradeClosed` |
 | rejects an oversized frame | `oversizedFrameRejected` |
 
 ## The pipeline
 
-**Headers** (stamped via `addAfterRequestHandler`, computed not raw): CSP with the
-sync endpoint's explicit `wss://host:port` appended to `connect-src` **always**;
-COOP/COEP and `worker-src 'self' blob:` **only** under `crossOriginIsolation`; HSTS
-(TLS), `X-Content-Type-Options: nosniff`, `Referrer-Policy`. An httpOnly session cookie
+Headers are stamped via `addAfterRequestHandler` and computed rather than copied from
+config. The CSP always has the sync endpoint's explicit `wss://host:port` appended to
+`connect-src`. COOP/COEP and `worker-src 'self' blob:` are emitted only under
+`crossOriginIsolation`. HSTS (TLS), `X-Content-Type-Options: nosniff` and
+`Referrer-Policy` are always present. An httpOnly session cookie
 (`SameSite=Lax` for same_origin, `SameSite=None; Secure` for split_origin) is issued on
 the page load so the browser has a credential to present at the upgrade.
 
-**Upgrade verifier** (`addWebSocketUpgradeVerifier`, run with the full request before a
-socket exists; reject on first failure): (1) origin in `allowed_origins` (`self` => edge
-origin); the primary anti-CSWSH control; (2) session cookie maps to a live session;
-(3) scope precondition (anonymous rejected iff `identity_required`); (4) per-IP and
-global connection caps.
+The upgrade verifier (`addWebSocketUpgradeVerifier`) runs with the full request before a
+socket exists and rejects on the first failure. It checks, in order, that the origin is in
+`allowed_origins` (`self` means the edge origin), which is the primary anti-CSWSH control,
+that the session cookie maps to a live session, the scope precondition (anonymous is
+rejected exactly when `identity_required`), and the per-IP and global connection caps.
 
-**Self-enforced resource limits** (the QHttpServer path has none built in): a
-**handshake timeout** per pending connection; each accepted socket is tracked at
+The edge enforces its own resource limits, because the QHttpServer path has none built
+in. Each pending connection has a handshake timeout. Each accepted socket is tracked at
 `QSslServer::startedEncryptionHandshake` (keyed by `{peer address, port}`) and aborted
-if it does not present a complete upgrade request within `handshake_timeout_ms`; the
+if it does not present a complete upgrade request within `handshake_timeout_ms`, and the
 verifier cancels that timer by the same key. Frames are capped with
 `setMaxAllowedIncomingMessageSize/FrameSize` on every accepted `QWebSocket`.
 
-**Accepted upgrades** are wrapped in the M2 `SynQt::WebSocketTransport` (host-side) and
+Accepted upgrades are wrapped in the M2 `SynQt::WebSocketTransport` (host-side) and
 added to a `QRemoteObjectHost`, so the browser acquires the edge's connect points
 (Sources loaded from the edge's QML, as in M4).
 
@@ -70,8 +71,8 @@ So the test asserts all three parts together, and the third is the one that matt
 edge serves no bundle file and no shell for a deep link (both would be a staler copy of
 what the CDN owns), its client route answers a credentialed cross origin request with
 `204`, a session cookie, and an `Access-Control-Allow-Origin` echoing that exact origin
-only when it is already allowed, and **the session it issued then passes the wss upgrade
-and acquires a connect point**.
+only when it is already allowed, and the session it issued then passes the wss upgrade
+and acquires a connect point.
 
 Mutation-checked both ways: registering the bundle routes unconditionally fails the 404
 half, and echoing any origin instead of an allowed one fails the refusal half.
@@ -106,10 +107,10 @@ the transport has become buildable.
 
 ## Notes / scope
 
-- Decisions: M5 uses a **minimal proto-session** (a cookie token in an in-memory store);
+- Decisions: M5 uses a minimal proto-session (a cookie token in an in-memory store);
   the full `SessionManager` (expiry, revocation, rotation) and
-  per-connect-point **scope gating** land in **M7**, and OAuth login in **M8**. The
-  acceptance test runs over **real TLS**; plaintext (`synqt dev`) is implemented too.
+  per-connect-point scope gating land in M7, and OAuth login in M8. The
+  acceptance test runs over real TLS; plaintext (`synqt dev`) is implemented too.
 - The `WebSocketTransport` adapter is shared with the client runtime; the same source
   is compiled into `SynQtService` so the edge can wrap accepted browser sockets without
   a service->client library dependency.

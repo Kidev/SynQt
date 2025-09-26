@@ -55,17 +55,17 @@ the read buffer would break, and they would break quietly: small messages would 
 working while large ones lost bytes. `tst_wstransport` is the adapter on its own, over a
 real loopback pair, with no QtRO node on either end:
 
-- **Framing**: one binary message per write, one `readyRead` per message, and a byte
+- Framing: one binary message per write, one `readyRead` per message, and a byte
   stream on the far side (QtRO frames its own protocol inside that stream).
-- **Partial reads**: a consumer that takes less than has arrived keeps the remainder in
+- Partial reads: a consumer that takes less than has arrived keeps the remainder in
   order, and `bytesAvailable()` keeps telling it the truth. Run both buffered (how QtRO
   opens the device) and unbuffered, which is what puts a short read on the adapter's own
   `readData` instead of on the QIODevice buffer above it. A second case reads part of the
   buffer, receives more, and reads the rest, so a front erase and a back append meet over
   the same unread bytes.
-- **Large messages**: 4 MiB, whole and byte-exact; and 200 messages back to back in both
+- Large messages: 4 MiB, whole and byte-exact; and 200 messages back to back in both
   directions at once, still in order.
-- **Drain cost**: 16 MiB buffered and read out 1 KiB at a time, on a clock. This is the
+- Drain cost: 16 MiB buffered and read out 1 KiB at a time, on a clock. This is the
   one case that measures rather than compares, and it guards something the code relies on
   without being promised it. `readData` erases from the front of the read buffer on every
   call, which looks quadratic and is not: Qt 6's `QArrayDataPointer::erase` advances the
@@ -74,7 +74,7 @@ real loopback pair, with no QtRO node on either end:
   capacity is preserved, so the property is real but unpromised. It measures 1 to 2 ms
   against a 2000 ms budget; a genuinely quadratic drain would move about 128 GiB and take
   tens of seconds, and the loop gives up at the budget so the failure is fast.
-- **The read-buffer ceiling**: the buffer is the one place in the transport where a remote
+- The read-buffer ceiling: the buffer is the one place in the transport where a remote
   party decides how much memory is allocated, and nothing drains it but a consumer that
   calls `read()`. `setReadBufferLimit()` caps it (64 MiB by default, on without being asked
   for; the edge tightens it to four times `max_message_bytes` per connection, since a
@@ -84,7 +84,7 @@ real loopback pair, with no QtRO node on either end:
   degraded, and a dropped connection is something the client's reconnect path already
   handles. Tested at the boundary in both directions, because a cap that fires one frame
   early looks like it works while killing connections that did nothing wrong.
-- **Giving the memory back**: `remove()` preserves capacity, so a connection that once
+- Giving the memory back: `remove()` preserves capacity, so a connection that once
   carried one large frame would hold that allocation until it closed. The device releases
   it when the buffer empties, and never otherwise, so the release cannot copy anything.
   Capacity is not visible from outside the class and widening the API to see it would be
@@ -93,7 +93,7 @@ real loopback pair, with no QtRO node on either end:
   in `/proc/self/statm`. It checks that the buffer is visible arriving before concluding
   anything about it leaving. Linux only, since that is where the measurement lives; the
   behaviour is not platform specific.
-- **Close handling**: `close()` closes the socket under it and both ends learn of it;
+- Close handling: `close()` closes the socket under it and both ends learn of it;
   bytes already buffered survive the peer disconnecting; and a socket destroyed before
   the device leaves the device answering safely rather than reaching through a dangling
   pointer.
