@@ -14,8 +14,8 @@ from typing import Any, Dict, List, Optional
 
 from . import (addauth, addcontract, addentity, addprovider, appmodel,
                build as buildmod, check as checkmod, clientbuild,
-               config as configmod, doctor, mesh, newproject, run as runmod,
-               version as versionmod)
+               config as configmod, deploy as deploymod, doctor, mesh, newproject,
+               run as runmod, version as versionmod)
 
 
 def _load_config(project_dir: str, profile: Optional[str] = None) -> Dict[str, Any]:
@@ -98,6 +98,14 @@ def build_parser() -> argparse.ArgumentParser:
         if name == "build":
             p.add_argument("--entity", default=None,
                            help="build one entity instead of every one")
+            # Off by default, and that default is the documented position (docs/desktop.md):
+            # signing and notarization are not a framework's to choose, so the build produces
+            # an artifact the platform step can be run against and names the command. This is
+            # the opt-in for wanting the deployed tree from the one command anyway. It still
+            # never signs.
+            p.add_argument("--deploy", action="store_true",
+                           help="also run the platform deploy step on a desktop client "
+                                "(macdeployqt/windeployqt/portable layout); never signs")
             # Deliberately not on `dev`: dev re-reads synqt.yaml on every hot reload, so an
             # override held only in argv would be dropped mid-session, leaving a threaded
             # client served without the cross-origin isolation it needs (pitfall 13, and a
@@ -258,10 +266,17 @@ def main(argv: Optional[List[str]] = None) -> int:
             # release edge or a literal database password gets caught.
             if _fails_validation(args.project_dir, release=release, profile=args.profile):
                 return 1
-            print(buildmod.build(args.project_dir, release=release, client=args.client,
-                                 entity=getattr(args, "entity", None),
-                                 threads=getattr(args, "threads", None),
-                                 verbose=args.verbose, profile=args.profile))
+            try:
+                print(buildmod.build(args.project_dir, release=release, client=args.client,
+                                     entity=getattr(args, "entity", None),
+                                     threads=getattr(args, "threads", None),
+                                     verbose=args.verbose, profile=args.profile,
+                                     deploy=getattr(args, "deploy", False)))
+            except deploymod.DeployError as err:
+                # The compile succeeded and only the opt-in deploy failed, so say which, or the
+                # reader spends their time looking for a build error that is not there.
+                print(f"error: --deploy: {err}")
+                return 1
             if args.command == "dev":
                 print()
                 print(runmod.dev(args.project_dir, port=args.port,
