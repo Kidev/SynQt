@@ -27,6 +27,16 @@ both plaintext `ws` and real `wss`.
 Verified both headed on a real display (`DISPLAY=:0`) and headless; the archived
 headless run is `build/m0-verify.log`.
 
+One caveat, and it is a Qt-side one rather than a SynQt one. In Firefox on GitHub's hosted
+Ubuntu runner, and nowhere else measured, a returning slot's reply arrives and decodes
+correctly but `QRemoteObjectPendingCallWatcher::finished` never fires, because QtRO emits it
+over a `Qt::QueuedConnection` whose posted events are not drained there. The spike carries a
+250 ms poll that resolves the reply from `QRemoteObjectPendingCall`'s own state when the
+watcher has not, and logs `(via poll fallback)` whenever it does, so the workaround is never
+silent: grep a run log for that string to see whether it is still happening. The full
+investigation, written up for upstream, with the environment, the evidence trail and the
+ruled-out set, is in [`FIREFOX-LINUX.md`](FIREFOX-LINUX.md).
+
 Safari / WebKit. Two different proofs, because WebKit is Safari's engine but not Safari.
 
 `verify.mjs` drives Playwright's headless WebKit as the in-env proxy: the browser list probes

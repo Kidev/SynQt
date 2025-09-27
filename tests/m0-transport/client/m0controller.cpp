@@ -45,20 +45,21 @@ M0Controller::M0Controller(const QUrl &edgeUrl, QObject *parent)
         }
     });
 
-    // Poll-fallback for the firefox-on-WASM reply path (CONFIRMED in CI): notifyAboutReply
-    // (replica.cpp) sets error=NoError and returnValue SYNCHRONOUSLY from the socket read callback,
-    // so isFinished() flips the instant the reply frame is processed, independent of the watcher's
-    // finished() signal, which QtRO fires over a Qt::QueuedConnection (qremoteobjectpendingcall.cpp
-    // 32-34) that needs the posted-event pump to drain. On firefox-WASM in CI that pump is starved,
-    // so the watcher never fires though the reply data is present and correct. This timer resolves
-    // the reply from its own state when the watcher has not, so a starved queued signal cannot
-    // strand the fourth direction. It is logged "(via poll fallback)" so the workaround is always
-    // visible, never silent; on every engine where the watcher fires it is a no-op.
+    // Poll fallback for the Firefox-on-WASM reply path: notifyAboutReply (replica.cpp) sets
+    // error=NoError and returnValue SYNCHRONOUSLY from the socket read callback, so
+    // isFinished() flips the instant the reply frame is processed, independent of the
+    // watcher's finished() signal, which QtRO fires over a Qt::QueuedConnection
+    // (qremoteobjectpendingcall.cpp) that needs the posted-event pump. Where that pump is
+    // starved, the watcher never fires though the reply data is present. This timer
+    // resolves the reply from its own state when the watcher has not. It logs "(via poll
+    // fallback)" so the workaround is always visible, and is a no-op on every engine where
+    // the watcher fires. The investigation, including what was ruled out, is in
+    // tests/m0-transport/FIREFOX-LINUX.md.
     m_replyPollTimer = new QTimer{this};
     m_replyPollTimer->setInterval(250);
     connect(m_replyPollTimer, &QTimer::timeout, this, [this]() {
         // A default-constructed reply reports error==InvalidMessage, so isFinished() stays false
-        // until a real reply resolves it; no separate "has a call been issued" guard is needed.
+        // until a real reply resolves it. No separate "has a call been issued" guard is needed.
         if (!m_lastReply.isEmpty() || !m_pendingReply.isFinished()
             || m_pendingReply.error() != QRemoteObjectPendingCall::NoError) {
             return;
