@@ -150,7 +150,7 @@ five commits without ever running.
 | [`fix1-auction`](https://github.com/Kidev/SynQt/tree/main/tests/fix1-auction)           | The auction tutorial as an acceptance fixture. |
 | [`fix2-arena`](https://github.com/Kidev/SynQt/tree/main/tests/fix2-arena)             | The multiplayer arena tutorial as an acceptance fixture. |
 | [`appgen-native`](https://github.com/Kidev/SynQt/tree/main/tests/appgen-native)          | The generated CMake and mains actually compile for every entity. |
-| [`desktop-client`](https://github.com/Kidev/SynQt/tree/main/tests/desktop-client)         | The native desktop client target compiles, installs, and boots. |
+| [`desktop-client`](https://github.com/Kidev/SynQt/tree/main/tests/desktop-client)         | The native desktop client target compiles, installs, boots, and, once deployed with `--deploy`, carries its own Qt rather than the host's. |
 | [`fix3-stall`](https://github.com/Kidev/SynQt/tree/main/tests/fix3-stall)             | Edge delivered pages end to end, seeded by the production per connection `Caller`. |
 | [`url-routing`](https://github.com/Kidev/SynQt/tree/main/tests/url-routing)            | The route table and the single page application fallback. |
 | [`remote-pages`](https://github.com/Kidev/SynQt/tree/main/tests/remote-pages)           | The framework's own `Pages` connect point and its page store. |

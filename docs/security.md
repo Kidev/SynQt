@@ -511,6 +511,9 @@ contract signal deliberately sends it (for example a user facing rejection reaso
 
 ## Security checklist (use before every deploy)
 
+For the mechanics of the deployment these items apply to, see [deploying a SynQt
+system](deploying.md).
+
 Browser link:
 
 - TLS enabled on the web edge with a real certificate; the edge refuses to start

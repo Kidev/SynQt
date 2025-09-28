@@ -1,17 +1,25 @@
 # SPDX-FileCopyrightText: 2026 The SynQt Authors
 # SPDX-License-Identifier: Apache-2.0
 
+# What GitHub counts as this repository's languages.
+#
+# Only genuinely third-party code is vendored. The test suites and the benchmark
+# harnesses under tests/ and benchmarks/ used to be marked vendored too, which was
+# wrong on the facts (every file there carries this project's own copyright) and
+# wrong in effect: it removed far more C++ than Python, so the language bar reported
+# a Qt framework as a Python project.
+
 tools/docs-hooks/doxygen-awesome/** linguist-vendored
 
+# The documentation site: its Markdown, its theme overrides, its CSS and its build
+# hooks are the site, not the framework.
 docs/**                 linguist-documentation
 overrides/**            linguist-documentation
 deploy/get.synqt.org/** linguist-documentation
 tools/docs-hooks/**     linguist-documentation
 tools/pygments-synqt/** linguist-documentation
 
-tests/**              linguist-vendored
-benchmarks/**         linguist-vendored
-tools/synqt/tests/**  linguist-vendored
-tools/synqtc/tests/** linguist-vendored
-tests/**/*.qml        -linguist-vendored
-benchmarks/**/*.qml   -linguist-vendored
+# A bare .h is ambiguous to GitHub (C, C++ or Objective-C, decided by heuristic on
+# the contents). Every header here is C++, so say so rather than let the answer
+# depend on which files happen to name a class.
+*.h linguist-language=C++

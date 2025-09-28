@@ -198,6 +198,7 @@ nav:
       - Runtime API reference: runtime-api.md
       - Project layout and config: project-layout-and-config.md
       - Build system and CLI: build-system-and-cli.md
+      - Deploying: deploying.md
       - Desktop clients: desktop.md
       - Security: security.md
       - Content-Security-Policy: csp.md

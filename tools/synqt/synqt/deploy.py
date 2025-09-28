@@ -222,9 +222,9 @@ def _dynamic_needs(path: Path) -> List[str]:
             if fields is None:
                 continue
             kind, offset, vaddr, _paddr, filesz, _memsz, _flags, _align = fields
-        if kind == 1:  # PT_LOAD
+        if kind == 1: # PT_LOAD
             loads.append((vaddr, offset, filesz))
-        elif kind == 2:  # PT_DYNAMIC
+        elif kind == 2: # PT_DYNAMIC
             dynamic = (offset, filesz)
     if dynamic is None:
         return []
@@ -245,11 +245,11 @@ def _dynamic_needs(path: Path) -> List[str]:
         if entry is None:
             break
         tag, value = entry
-        if tag == 0:  # DT_NULL
+        if tag == 0: # DT_NULL
             break
-        if tag == 1:  # DT_NEEDED, an offset into the string table
+        if tag == 1: # DT_NEEDED, an offset into the string table
             needed.append(value)
-        elif tag == 5:  # DT_STRTAB
+        elif tag == 5: # DT_STRTAB
             strtab = value
         position += tag_size
     if strtab is None:

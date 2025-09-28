@@ -291,10 +291,12 @@ Entities are independent binaries, so deployment is flexible:
   database sits on its own host on a private network, reachable only by the entities
   that consume it.
 
-Each entity is supervised by your process manager. The CLI can emit a process
-manifest (the set of binaries, their order, and their health checks) so an
-orchestrator brings the system up in dependency order: owners before the consumers
-that need them, with consumers retrying until their owners are ready.
+Each entity is supervised by your process manager. Every build writes
+`build/process-manifest.json` for it: the binaries, the order to start them in, the
+certificate and key each expects, and which single entity binds to a public interface.
+The order is owners before the consumers that need them, though a consumer retries until
+its owner is ready either way. [Deploying a SynQt system](deploying.md) walks the rest of
+the path.
 
 ## Why this is safer than bolting on third party services
 
