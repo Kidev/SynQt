@@ -107,6 +107,8 @@ injected into every owned connect point Source by the entity runtime: `Db` for
 persistence, `Docs` for document, `Cache` for cache (and, outside the provider
 families, `Http` for a gateway and `Jobs` for a jobs entity). The helper forwards to
 whichever provider the config selected, which is why the Source never names an engine.
+Every member of every helper is listed under [the blueprint
+helpers](runtime-api.md#service-the-blueprint-helpers).
 
 ## Bundled providers, and how honest each one is
 

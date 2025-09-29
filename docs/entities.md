@@ -127,7 +127,8 @@ ItemsSource {
     id: items
 
     function insert(row) {
-        if (Caller.entity !== "web") return            // authorize the calling entity
+        // Authorize the calling entity, and only on a name a certificate proved.
+        if (!Caller.isEntityVerified || Caller.entity !== "web") return
         Db.exec("INSERT INTO items(text, author, owner_sub) VALUES(?, ?, ?)",
                 [row.text, row.author, row.ownerSub])   // parameterized
         items.reload()
@@ -180,7 +181,8 @@ policy, in the spirit of QCache), with optional periodic persistence to disk so 
 restart does not lose everything. No separate cache server is run.
 
 Contract shape (illustrative): `get(string key)`, `set(string key, var value, int
-ttlSeconds)`, `remove(string key)`, `incr(string key)`. The cache entity authorizes
+ttlSeconds)`, `del(string key)`, `incr(string key)`, matching the `Cache` helper the
+blueprint injects ([runtime API](runtime-api.md#cache-ephemeral-key-value)). The cache entity authorizes
 the calling entity and bounds value sizes and key counts to prevent memory
 exhaustion.
 
