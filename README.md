@@ -85,7 +85,8 @@ entity's connect points, and the whole security model around them, identical.
   consume. A database is never reachable from the browser and never faces the
   internet.
 
-Read [security](https://synqt.org/security/) before deploying.
+Read [security](https://synqt.org/security/) before deploying, and
+[deploying a SynQt system](https://synqt.org/deploying/) when you do.
 
 ## Where to go next
 
