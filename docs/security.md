@@ -166,13 +166,17 @@ local link, and a connect point that authorizes by `Caller.entity` should stay o
 the default mutual TLS transport unless every process running as that user on that
 host is trusted as much as the entities themselves.
 
-The difference is readable from inside a slot rather than only from the config, so a
-privileged action can refuse it rather than inherit it. [`Caller.isEntityVerified`](runtime-api.md#service-caller)
-is true when the name came from a verified certificate and false when it came from
-colocation, which is why the framework's own examples spell the check
-`if (!Caller.isEntityVerified || Caller.entity !== "web")`. Authorizing on
-`Caller.entity` alone is a link the deployment can weaken later without the slot
-noticing; authorizing on both is not.
+This is the only reason a second check exists, and it is worth being precise about
+when you need it. On every other topology `Caller.entity` is complete on its own: the
+framework decides the name from a verified certificate, the caller never asserts it,
+and no amount of defensive coding in a slot adds anything. So write
+`if (Caller.entity !== "web")` and stop. What a local link changes is who decides:
+the name then comes from the connect point's own consumer list, and the operating
+system vouches only for the peer's user. [`Caller.isEntityVerified`](runtime-api.md#service-caller)
+is false exactly there, so a slot that must not be reachable by colocation even in a
+deployment that opted into it can say
+`if (!Caller.isEntityVerified || Caller.entity !== "web")`. On a mesh with no local
+link that condition is dead code, and writing it everywhere buys nothing.
 
 Authorization by entity. Once the calling entity is known (by verified
 certificate on the default mutual TLS links; by colocation only on an opt in

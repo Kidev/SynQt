@@ -127,8 +127,7 @@ ItemsSource {
     id: items
 
     function insert(row) {
-        // Authorize the calling entity, and only on a name a certificate proved.
-        if (!Caller.isEntityVerified || Caller.entity !== "web") return
+        if (Caller.entity !== "web") return            // authorize the calling entity
         Db.exec("INSERT INTO items(text, author, owner_sub) VALUES(?, ?, ?)",
                 [row.text, row.author, row.ownerSub])   // parameterized
         items.reload()

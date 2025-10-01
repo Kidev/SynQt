@@ -306,8 +306,8 @@ without any ambient global.
 | `Caller.setScope(scope)` | `isUser` | action | set the session's scope. Used by the identity flow after login; rotates the session id on privilege change. |
 | `Caller.emit<Signal>(...)` | `isUser` | action | emit a contract signal back to **this one caller** (see [targeting](#emitting-a-signal-to-one-caller-versus-all)). |
 | `Caller.id` | `isUser` | string | the session id (also `Client.id`). |
-| `Caller.entity` | `isEntity` | string | the calling entity's name. On the default mutual-TLS links it is taken from the certificate the handshake verified. On an opt-in `transport: local` link there is no certificate and the name is trusted by colocation instead, so check `isEntityVerified` before authorizing on it. |
-| `Caller.isEntityVerified` | `isEntity` | bool | whether `Caller.entity` was proven by a certificate. True on every mutual-TLS link, false on a `transport: local` link, where the OS identifies the connecting *user* and any process running as that user can present itself as any entity. Authorize a privileged action on this, never on `isEntity` alone. |
+| `Caller.entity` | `isEntity` | string | the calling entity's authenticated name, taken from the certificate its mutual-TLS link verified. Authorizing on this alone is correct and complete on every mesh topology except one: see `isEntityVerified`. |
+| `Caller.isEntityVerified` | `isEntity` | bool | whether the name was proven by a certificate. True on every mutual-TLS link, which is every link unless the project wrote `transport: local`. False on a local socket link, where the framework supplies the name from the connect point's own consumer list and the operating system confirms only the peer's *user*. Only a topology that has a local link ever needs to read this. |
 
 Two authorizations at two boundaries, from the [end-to-end
 example](programming-model.md#a-connect-point-implementation-end-to-end): the edge
@@ -322,8 +322,7 @@ function add(text) {
 
 // database/Items.qml: the database authorizes the calling entity
 function insert(row) {
-    // Only the edge may write, and only a certificate may say so.
-    if (!Caller.isEntityVerified || Caller.entity !== "web") return
+    if (Caller.entity !== "web") return    // only the edge may write
     Db.exec("INSERT INTO items(text, owner_sub) VALUES(?,?)", [row.text, row.ownerSub])
 }
 ```
@@ -331,11 +330,11 @@ function insert(row) {
 !!! warning "Two identity systems, never conflated"
     `Caller.isUser` (a browser session, identified by login and scope) and
     `Caller.isEntity` (a service, identified by certificate) are separate systems.
-    `Caller.entity` is certificate-authenticated on every mesh link by default, and
-    `Caller.isEntityVerified` is how a slot asks whether it really was: the one
-    transport that answers no is the opt-in local socket, where the name is trusted
-    by colocation. A user-supplied value is never an entity identity. See
-    [security](security.md).
+    `Caller.entity` is certificate-authenticated on every mesh link, which is what
+    makes the one check above complete: the framework, not the caller, decides the
+    name. A user-supplied value is never an entity identity. The single exception is
+    a link the project explicitly moved to `transport: local`; `isEntityVerified` is
+    how a slot refuses that. See [security](security.md).
 
 Outside a call that originated from a consumer (for example an owner-side timer
 mutating shared state), there is no caller. The owner simply writes the Source and
