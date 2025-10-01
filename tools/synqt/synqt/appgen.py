@@ -58,6 +58,19 @@ def generate(project_dir: os.PathLike[str] | str, config: Dict[str, Any], *,
                             cmakegen.render_root_cmakelists(config, synqt_root, root))
     written.append("CMakeLists.txt")
 
+    # The test runner, whenever the project has tests to run. It lands under build/ rather
+    # than in the source tree because it is generated and never hand edited, and the CMake
+    # above points the target at exactly this path.
+    if appmodel.test_qml_files(root):
+        generated = root / "build" / "generated"
+        generated.mkdir(parents=True, exist_ok=True)
+        writer.write_if_changed(generated / "tests_main.cpp",
+                                maingen.render_tests_main(config))
+        written.append("build/generated/tests_main.cpp")
+        writer.write_if_changed(generated / "CMakeLists.txt",
+                                cmakegen.render_tests_cmakelists(config))
+        written.append("build/generated/CMakeLists.txt")
+
     for entity in appmodel.entities(config):
         name = entity.get("name")
         if not name:

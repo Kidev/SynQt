@@ -154,6 +154,7 @@ five commits without ever running.
 | [`fix3-stall`](https://github.com/Kidev/SynQt/tree/main/tests/fix3-stall)             | Edge delivered pages end to end, seeded by the production per connection `Caller`. |
 | [`url-routing`](https://github.com/Kidev/SynQt/tree/main/tests/url-routing)            | The route table and the single page application fallback. |
 | [`remote-pages`](https://github.com/Kidev/SynQt/tree/main/tests/remote-pages)           | The framework's own `Pages` connect point and its page store. |
+| [`entity-test`](https://github.com/Kidev/SynQt/tree/main/tests/entity-test)            | The `SynQt.Test` harness an application's own QML tests use, driven against a Source written the way an application writes one. |
 | [`wasm-quick3dphysics`](https://github.com/Kidev/SynQt/tree/main/tests/wasm-quick3dphysics)    | Qt Quick 3D Physics builds and loads on the WebAssembly kit. |
 
 To run everything, point `QT_HOST` at your Qt 6.11.1 host kit and run the tree:

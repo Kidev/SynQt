@@ -109,6 +109,31 @@ def contracts_of(points: List[Dict[str, Any]]) -> List[str]:
     return seen
 
 
+def all_contracts(config: Dict[str, Any]) -> List[str]:
+    """Every contract named anywhere in the topology, owner side.
+
+    What `synqt test` generates a Source half for. A test drives an owner, and any connect
+    point in the project may be the one under test, so the test target carries them all
+    rather than trying to guess which entity a `tests/tst_*.qml` file is about.
+    """
+    return contracts_of(list(config.get("connect_points", []) or []))
+
+
+def test_qml_files(project_dir: Optional[Path]) -> List[str]:
+    """The application's own QML test files, `tests/tst_*.qml`, by name.
+
+    Qt Quick Test discovers them by directory at run time, so this list decides only
+    whether there is a test target to build at all, and what `synqt test` reports when
+    there is not.
+    """
+    if project_dir is None:
+        return []
+    tests_dir = Path(project_dir) / "tests"
+    if not tests_dir.is_dir():
+        return []
+    return sorted(path.name for path in tests_dir.glob("tst_*.qml"))
+
+
 # scopes
 
 def scope_vocab(config: Dict[str, Any]) -> List[str]:

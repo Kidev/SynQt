@@ -42,16 +42,23 @@ synqt doctor
 ## Create and run a project
 
 ```cli
-synqt new my-app
+synqt create
 ```
 
-`synqt new` asks a few questions as it scaffolds the project:
+`synqt create` asks a short, security relevant set of questions and scaffolds the
+project from the answers:
 
-- Same origin for the client and the web edge, or split across two origins? Same
-  origin is the simplest and safest setup, and the recommended default.
-- Add authentication now? It can always be added later with `synqt add auth`.
-- Starting entities beyond the client and edge (a database, a cache, a gateway)?
-  These can also be added later with `synqt add entity`.
+- What is the project called?
+- Add authentication now? None is the default; `synqt add auth` adds it later.
+- Starting entities beyond the client and edge (a database, a cache, a document
+  store, a gateway, a jobs runner)? `synqt add entity` adds one later.
+
+Every one of those is also a flag on [`synqt new`](build-system-and-cli.md#scaffolding-a-project-synqt-new-and-synqt-create),
+which is the same scaffolder without the questions and the one to use in a script:
+
+```cli
+synqt new my-app --auth github --blueprint persistence
+```
 
 > [!NOTE]
 > A SynQt project is a set of entities, each in its own folder. A new project

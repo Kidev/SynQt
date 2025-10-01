@@ -40,6 +40,8 @@ add_subdirectory(src/consumer)
 add_subdirectory(src/providers)
 add_subdirectory(src/client)
 add_subdirectory(src/service)
+# After src/service: the harness links it, and this is the scope that creates the target.
+add_subdirectory(src/testing)
 
 # From here rather than from each src/*/CMakeLists.txt, because coverage is a measurement
 # of the whole tree against the whole suite, and this is the only file that has all of it.
@@ -51,6 +53,7 @@ synqt_enable_coverage(
     SynQtProviders
     SynQtClient
     SynQtService
+    SynQtTesting
 )
 
 if(SYNQT_BUILD_TESTS)
