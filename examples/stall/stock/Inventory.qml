@@ -7,10 +7,7 @@ import SynQt
 // The authoritative stock on the database entity. It authorizes the CALLING ENTITY, not a
 // user: only the web edge (Caller.entity === "web") may restock, and it proves which entity
 // it is with the certificate its mesh link presented. Any other entity (even one on the
-// connect point's consumer allowlist) is refused here in the slot. This is a per_peer
-// instance over mutual TLS, so it also requires Caller.isEntityVerified: the name is
-// certificate-verified, never a colocation-trusted local-socket peer that merely presents
-// "web".
+// connect point's consumer allowlist) is refused here in the slot.
 //
 // The Db helper (parameterized query/exec, so a value can never become SQL) backs the
 // durable store when the persistence blueprint provisions it (schema.sql); this in-memory
@@ -22,8 +19,8 @@ InventorySource {
     property var store: []
 
     function restock(sku, title, price) {
-        if (!Caller.isEntityVerified || Caller.entity !== "web") {
-            return;   // the database refuses any caller other than the verified edge
+        if (Caller.entity !== "web") {
+            return;   // the database refuses any caller other than the edge
         }
         inventory.store.push({ sku: sku, title: title, price: price });
         inventory.setItems(inventory.store);

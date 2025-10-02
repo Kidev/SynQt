@@ -59,7 +59,7 @@ sends the fresh seed even when the page body itself is unchanged (a `notModified
 `web/Catalog.qml` owns the browser-facing `offers` model and fills it from the database's
 `itemStocked` signal with `setOffers`, which keeps only the declared roles, so the internal
 `sku` the database keys on never crosses to the browser. `stock/Inventory.qml` owns the
-durable stock and authorizes the calling entity itself: only the verified web edge
-(`Caller.entity === "web"`, `Caller.isEntityVerified`) may `restock`. The `catalog` connect
+durable stock and authorizes the calling entity itself: only the web edge
+(`Caller.entity === "web"`) may `restock`. The `catalog` connect
 point is `shared` (one live list for every browser); the `inventory` connect point is
 `per_peer` over mutual TLS, reachable only by the edge.

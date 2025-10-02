@@ -6,15 +6,14 @@ import SynQt
 
 // The permanent scores on the database entity (docs/tutorial-multiplayer-rounds.md). Only
 // the edge may write (Caller.entity === "web"); it proves which entity it is with the
-// certificate its mesh link presented, so the slot requires Caller.isEntityVerified; a
-// colocation-trusted local peer presenting "web" would not pass. Parameters are always
-// passed separately, so no value can become SQL.
+// certificate its mesh link presented. Parameters are always passed separately, so no
+// value can become SQL.
 ScoresSource {
     id: scores
 
     function award(sub, name) {
-        if (!Caller.isEntityVerified || Caller.entity !== "web") {
-            return;   // only the verified edge may write
+        if (Caller.entity !== "web") {
+            return;   // only the edge may write
         }
         // One row per champion, keyed by their stable GitHub sub. First point inserts; later
         // points increment.
@@ -25,7 +24,7 @@ ScoresSource {
     }
 
     function top() {
-        if (!Caller.isEntityVerified || Caller.entity !== "web") {
+        if (Caller.entity !== "web") {
             return [];
         }
         return Db.query("SELECT name, points FROM champions " +
