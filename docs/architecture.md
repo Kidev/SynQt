@@ -125,18 +125,18 @@ without hiding that it is asynchronous.
 
 ```mermaid
 flowchart LR
-  subgraph browser["<span style='color:#1a1a2e'>client entity (browser, WASM), untrusted</span>"]
-    ui["<span style='color:#1a1a2e'>QML UI</span>"]
-    rtodo["<span style='color:#1a1a2e'>Server.todo<br/>Replica</span>"]
+  subgraph browser["client entity (browser, WASM), untrusted"]
+    ui["QML UI"]
+    rtodo["Server.todo<br/>Replica"]
     ui --- rtodo
   end
 
-  subgraph edge["<span style='color:#1a1a2e'>web edge entity (native), the only internet-facing entity</span>"]
+  subgraph edge["web edge entity (native), the only internet-facing entity"]
     stodo["<span style='color:#1a1a2e'>Todo Source<br/>authoritative owner</span>"]
     rusers["<span style='color:#1a1a2e'>Database.users<br/>Replica</span>"]
   end
 
-  subgraph db["<span style='color:#1a1a2e'>database entity (native), internal only</span>"]
+  subgraph db["database entity (native), internal only"]
     susers["<span style='color:#1a1a2e'>Users Source<br/>authoritative owner</span>"]
   end
 
@@ -147,14 +147,9 @@ flowchart LR
   susers ==>|"plane B mutual TLS: properties + signals"| rusers
   rusers -->|"plane B mutual TLS: slots"| susers
 
-  style ui fill:#fff,stroke:#999
-  style rtodo fill:#fff,stroke:#999
-  style stodo fill:#fff,stroke:#c39
-  style rusers fill:#fff,stroke:#c39
-  style susers fill:#fff,stroke:#39c
-  style edge fill:#fde,stroke:#c39,color:#1a1a2e
-  style db fill:#def,stroke:#39c,color:#1a1a2e
-  style browser fill:#eee,stroke:#999,color:#1a1a2e
+  style stodo fill:#fde,stroke:#c39,color:#1a1a2e
+  style rusers fill:#fde,stroke:#c39,color:#1a1a2e
+  style susers fill:#def,stroke:#39c,color:#1a1a2e
 ```
 
 In the graph: thick arrows are owner to consumer (properties and signals), thin
