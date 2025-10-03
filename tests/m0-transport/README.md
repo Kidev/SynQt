@@ -24,18 +24,27 @@ both plaintext `ws` and real `wss`.
 | chromium / reconnect (edge restart) | n/a | n/a | n/a | n/a | PASS |
 | firefox / reconnect (edge restart)  | n/a | n/a | n/a | n/a | PASS |
 
-Verified both headed on a real display (`DISPLAY=:0`) and headless; the archived
-headless run is `build/m0-verify.log`.
+Verified both headed on a real display (`DISPLAY=:0`) and headless, and on every
+push by [browser-matrix.yml](../../.github/workflows/browser-matrix.yml).
 
-One caveat, and it is a Qt-side one rather than a SynQt one. In Firefox on GitHub's hosted
+One caveat, on the Qt side rather than SynQt's. In Firefox on GitHub's hosted
 Ubuntu runner, and nowhere else measured, a returning slot's reply arrives and decodes
 correctly but `QRemoteObjectPendingCallWatcher::finished` never fires, because QtRO emits it
 over a `Qt::QueuedConnection` whose posted events are not drained there. The spike carries a
 250 ms poll that resolves the reply from `QRemoteObjectPendingCall`'s own state when the
-watcher has not, and logs `(via poll fallback)` whenever it does, so the workaround is never
-silent: grep a run log for that string to see whether it is still happening. The full
-investigation, written up for upstream, with the environment, the evidence trail and the
-ruled-out set, is in [`FIREFOX-LINUX.md`](FIREFOX-LINUX.md).
+watcher has not, and logs `(via poll fallback)` whenever it does. Grep a run log for that
+string to see whether it is still happening. The full investigation, written up for
+upstream, with the environment, the evidence trail and the ruled-out set, is in
+[`FIREFOX-LINUX.md`](FIREFOX-LINUX.md).
+
+The caveat has a reproduction and a fix, both off the runner.
+[`verify/verify-pump.mjs`](verify/verify-pump.mjs) starves the single browser timeout Qt's
+WASM event dispatcher arms to deliver posted events, which is enough to produce the same
+failure in every engine on any machine, and
+[`qt-patches/`](qt-patches/README.md) holds a four-line change to
+`QEventDispatcherWasm::onTimer()` that makes it recoverable, with a script that puts it on an
+installed kit and a before-and-after measurement. The poll fallback stays until that lands in
+a Qt release, because CI builds against a stock Qt.
 
 Safari / WebKit. Two different proofs, because WebKit is Safari's engine but not Safari.
 
