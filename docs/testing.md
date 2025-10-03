@@ -132,7 +132,7 @@ door in `Caller` for the harness to use: it reaches it the same way a transport 
 
 The consequence worth relying on: a slot cannot pass here and fail in production because
 the test stubbed the authorization. It can still fail for a reason the harness does not
-model, and there are three:
+model, and there are four:
 
 - **The transport.** The harness calls slots directly, so nothing here proves a contract
   replicates, a model reaches a browser, or a link comes up. Those are the framework's
@@ -141,6 +141,32 @@ model, and there are three:
   by the consumer allowlist, not by a slot, and `synqt check` is what answers it.
 - **The engine.** A statement that works on SQLite may not on PostgreSQL. Testing the
   slot's logic is not testing your SQL against the engine you deploy.
+- **The entity next door.** One Source is loaded on its own, so the accessors for
+  consumed entities are absent. A slot that calls `Database.ledger.recordWinner(...)`
+  fails with `Database is not defined`.
+
+That last one is a limit, not a defect, and it is worth saying why the accessor is absent
+rather than stubbed. A stub would have to invent what the other entity returns, and a test
+that passes against an invented answer is worse than no test. So the harness stays out of
+it and the missing name reports itself. What to do instead: test the callee's slot in its
+own file, where its rules are real, and leave the call between them to `synqt check` (which
+decides whether it is allowed at all) and to a running system.
+
+Split a slot that both decides and delegates, and both halves become testable:
+
+```qml
+function closeLot(nextItem) {
+    if (!Caller.hasScope("admin")) {          // testable here
+        Caller.emitBidRejected("Only the auctioneer can close a lot.");
+        return;
+    }
+    Database.ledger.recordWinner(...);        // not testable here
+}
+```
+
+A test that drives `closeLot` as an under-scoped caller never reaches the second half and
+passes. One that drives it as an admin does reach it, and needs the branch left out of the
+test, or the slot split so the decision is a function of its own.
 
 ## Running them
 
