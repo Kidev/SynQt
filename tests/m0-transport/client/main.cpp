@@ -9,6 +9,7 @@
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QString>
+#include <QTimer>
 #include <QUrl>
 #include <QtGlobal>
 
@@ -25,15 +26,14 @@
 
 namespace {
 
-// The b70743f run proved the serial-id diagnostic needs its own console path: enabling
-// qt.remoteobjects.debug printed nothing at all, on every browser, because WASM routes
-// qInfo/qWarning to the browser console but drops category qCDebug at debug level, so QtRO's
-// "serial id" lines never reached the CI log. Install a message handler that forwards through
-// emscripten_console_log (a direct JS console.log the verify harness captures) instead of the
-// default WASM handler. Keep the log focused and the single-threaded event loop unperturbed:
-// forward the spike's own "M0 " markers and every non-debug message verbatim, and of QtRO's debug
-// flood forward only the two lines that carry the reply serial, tagged "M0 QTRO " so they sit
-// beside the existing "M0 echo sent" / "M0 rx frame bytes" markers and stay greppable.
+// WASM routes qInfo/qWarning to the browser console but drops category qCDebug at debug
+// level, so enabling qt.remoteobjects.debug alone prints nothing. This message handler
+// forwards through emscripten_console_log (a direct JS console.log the verify harness
+// captures) instead of the default WASM handler. To keep the log focused and the
+// single-threaded event loop unperturbed, it forwards the spike's own "M0 " markers and
+// every non-debug message verbatim, and from QtRO's debug output only the two lines that
+// carry the reply serial, tagged "M0 QTRO " so they sit beside the "M0 echo sent" / "M0 rx
+// frame bytes" markers.
 void m0MessageHandler(QtMsgType type, const QMessageLogContext &, const QString &msg)
 {
     const bool isSerialTrace{msg.contains(QLatin1String("serial id"))};
@@ -85,28 +85,22 @@ QUrl resolveEdgeUrl()
 
 int main(int argc, char *argv[])
 {
-    // Diagnostic for the firefox-on-CI reply=false split (see tests/m0-transport/README.md
-    // and the frame-size instrument). The frame-size logging already proved the 69-byte
-    // reply frame ARRIVES at the client, yet the returning-slot PendingCall never resolves
-    // (watcher `finished` never fires, no error). The next question is where inside QtRO it
-    // dies, and QtRO answers it itself at debug level (with no rebuild of the kit) through
-    // two lines under the qt.remoteobjects category that carry the serial the client SENT and
-    // the serial each reply ACKs:
+    // Diagnostic for the Firefox-on-CI reply path (see tests/m0-transport/README.md and the
+    // frame-size instrument), where the reply frame arrives at the client and the
+    // returning-slot PendingCall never resolves. QtRO reports where a reply goes through two
+    // lines under the qt.remoteobjects category, carrying the serial the client SENT and the
+    // serial each reply ACKs:
     //   "Sent InvokePacket with serial id: N"                         (uplink invoke)
     //   "<name> Received InvokeReplyPacket ack'ing serial id: M"      (the reply dispatched)
-    // These land in the CI log (tagged "M0 QTRO ...") next to the "M0 echo sent" / "M0 rx frame
-    // bytes=69" markers, but ONLY via the custom handler below: the b70743f run proved that
-    // enabling the category alone prints nothing on WASM, because the platform drops category
-    // qCDebug at debug level while carrying qInfo/qWarning. The handler re-routes through
-    // emscripten_console_log so the lines reach the harness. Reading rule for the next
-    // run, in the failing firefox-ws window:
-    //   * no "Received InvokeReplyPacket" line despite an rx=69 frame -> the read loop never
-    //     classifies the frame as a reply (framing/dispatch miss. Enable .io next);
+    // They reach the log (tagged "M0 QTRO ...") only through the handler above. Reading them
+    // in a failing window:
+    //   * no "Received InvokeReplyPacket" line despite an rx frame -> the read loop never
+    //     classifies the frame as a reply (framing or dispatch; enable .io next);
     //   * M == 0 -> the reply decodes to the heartbeat serial and is dropped by the
-    //     ackedSerialId==0 branch of notifyAboutReply (serial corruption to 0);
-    //   * M != any sent N -> serial mismatch/corruption on the wire;
-    //   * M == a sent N -> it is in m_pendingCalls and the watcher/emit path is the culprit.
-    // The .io category (per-read framing) is intentionally left off here to keep perturbation low.
+    //     ackedSerialId==0 branch of notifyAboutReply;
+    //   * M != any sent N -> serial mismatch or corruption on the wire;
+    //   * M == a sent N -> it is in m_pendingCalls and the watcher/emit path is at fault.
+    // The .io category (per-read framing) stays off to keep perturbation low.
     qInstallMessageHandler(m0MessageHandler);
     QLoggingCategory::setFilterRules(QStringLiteral(
         "qt.remoteobjects.debug=true\nqt.remoteobjects.warning=true"));
@@ -115,6 +109,27 @@ int main(int argc, char *argv[])
     const QUrl edgeUrl{resolveEdgeUrl()};
     qInfo().noquote()
         << QStringLiteral("M0 client starting url=%1").arg(edgeUrl.toString());
+
+#if defined(M0_POSTED_EVENT_PUMP)
+    // The application-side answer to the defect the Qt patch in qt-patches/ addresses, so
+    // the two can be measured against each other. Qt for WebAssembly delivers posted events
+    // from one chain of zero-delay browser callbacks, armed by wakeUp() when an event is
+    // posted and never re-armed while it waits, so a callback the browser drops takes the
+    // event with it. A QTimer is delivered by a different mechanism
+    // (QTimerInfoList::activateTimers uses sendEvent), so it still arrives, and sweeping
+    // the posted queue from one gives delivery a second path.
+    //
+    // Unfiltered. A filtered sweep that passes only QEvent::MetaCall breaks reconnect on
+    // Firefox: draining one event type from a queue that holds several reorders them, and
+    // DeferredDelete in particular has to stay where it is. Unfiltered, this is the same
+    // sweep QEventDispatcherWasm itself performs.
+    QTimer *postedEventPump{new QTimer{&app}};
+    postedEventPump->setInterval(50);
+    QObject::connect(postedEventPump, &QTimer::timeout, &app, []() {
+        QCoreApplication::sendPostedEvents();
+    });
+    postedEventPump->start();
+#endif
 
     M0Controller *controller{new M0Controller{edgeUrl, &app}};
 

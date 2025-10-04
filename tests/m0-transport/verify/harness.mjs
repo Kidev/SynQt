@@ -20,7 +20,11 @@ import { fileURLToPath } from "node:url";
 
 export const here = path.dirname(fileURLToPath(import.meta.url));
 export const repoRoot = path.resolve(here, "../../..");
-export const clientDir = path.join(repoRoot, "build/m0-client");
+// M0_CLIENT_DIR points the harness at a second build of the same client, which is how two
+// builds that differ in one compile option get measured by one driver against one edge.
+export const clientDir = process.env.M0_CLIENT_DIR
+    ? path.resolve(process.env.M0_CLIENT_DIR)
+    : path.join(repoRoot, "build/m0-client");
 export const edgeBin = path.join(repoRoot, "build/m0-edge/m0-edge");
 export const certFile = path.join(repoRoot, "build/certs/cert.pem");
 export const keyFile = path.join(repoRoot, "build/certs/key.pem");

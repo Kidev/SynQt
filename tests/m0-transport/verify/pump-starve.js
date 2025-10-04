@@ -28,7 +28,14 @@
 (function () {
     const nativeSetTimeout = window.setTimeout.bind(window);
     const profiles = new Map();
-    const observe = new URL(window.location.href).searchParams.get("starve") === "observe";
+    const mode = new URL(window.location.href).searchParams.get("starve");
+    const observe = mode === "observe";
+    // "once" drops a single wakeup and then gets out of the way, which is the question of
+    // whether one dropped browser callback is a hiccup or a permanent wedge. It is permanent:
+    // the arm that was dropped still returned a live timer id, so QWasmTimer::hasTimeout()
+    // reads true forever after and wakeUp() never arms another. That is why this failure does
+    // not need a systematic cause to look systematic.
+    const once = mode === "once";
     let starving = false;
     let dropped = 0;
     let sawIntervalTimer = false;
@@ -73,7 +80,8 @@
         // the native timer by mistake would stop the clock rather than the pump, and the case
         // would report "never reached a state worth measuring" rather than pass for the wrong
         // reason.
-        if (starving && isZeroDelay && profile.nonzero === 0 && sawIntervalTimer) {
+        if (starving && isZeroDelay && profile.nonzero === 0 && sawIntervalTimer
+                && !(once && dropped > 0)) {
             dropped += 1;
             if (dropped <= 3 || dropped % 50 === 0) {
                 console.log("M0PUMP dropped Qt wakeup timeout, total=" + dropped);
@@ -91,7 +99,7 @@
         return dropped;
     };
 
-    if (new URL(window.location.href).searchParams.get("starve") === "load") {
+    if (mode === "load" || once) {
         window.__m0StarvePump();
     }
 })();

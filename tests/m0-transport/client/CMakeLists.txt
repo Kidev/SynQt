@@ -23,6 +23,14 @@ qt_add_qml_module(m0-client
 
 target_include_directories(m0-client PRIVATE ../shared ${CMAKE_CURRENT_BINARY_DIR})
 
+# The application-side mitigation for the posted-event stall, off by default so the spike keeps
+# measuring what a plain Qt client does. See main.cpp, and qt-patches/README.md for the same
+# fix made inside Qt instead. Turn it on with -DM0_POSTED_EVENT_PUMP=ON to run the comparison.
+option(M0_POSTED_EVENT_PUMP "Sweep the posted event queue from a QTimer (WASM mitigation)" OFF)
+if(M0_POSTED_EVENT_PUMP)
+    target_compile_definitions(m0-client PRIVATE M0_POSTED_EVENT_PUMP)
+endif()
+
 target_link_libraries(m0-client PRIVATE
     Qt6::Core
     Qt6::Network
