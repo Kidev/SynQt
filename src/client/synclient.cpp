@@ -5,6 +5,7 @@
 
 #include "clientupdate.h"
 #include "consumerbase.h"
+#include "deletesoon.h"
 #include "promise.h"
 #include "qmlpalette.h"
 #include "remotepageloader.h"
@@ -195,7 +196,7 @@ void SynClient::start()
     QNetworkReply *reply{m_network->get(request)};
     connect(reply, &QNetworkReply::finished, this, [this, reply]() {
         m_sessionCookie = reply->rawHeader("Set-Cookie").split(';').value(0).trimmed();
-        reply->deleteLater();
+        deleteSoon(reply);
         connectToEdge();
     });
 #endif
@@ -280,15 +281,15 @@ void SynClient::teardown()
     if (m_socket) {
         m_socket->disconnect(this);
         m_socket->abort();
-        m_socket->deleteLater();
+        deleteSoon(m_socket);
         m_socket = nullptr;
     }
     if (m_transport) {
-        m_transport->deleteLater();
+        deleteSoon(m_transport);
         m_transport = nullptr;
     }
     if (m_node) {
-        m_node->deleteLater();  // deletes the replicas it parents
+        deleteSoon(m_node);  // deletes the replicas it parents
         m_node = nullptr;
     }
 }

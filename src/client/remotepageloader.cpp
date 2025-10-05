@@ -3,6 +3,8 @@
 
 #include "remotepageloader.h"
 
+#include "deletesoon.h"
+
 #include <QQmlComponent>
 #include <QQmlEngine>
 #include <QUrl>
@@ -25,9 +27,8 @@ RemotePageLoader::Outcome RemotePageLoader::deliver(const QString &route,
                                                     const QString &hash, QString *reason)
 {
     const auto cached{m_pages.constFind(route)};
-    // cached->component is a QPointer: a null value here means the cache miss it looks
-    // like, even if something outside this class already freed what used to be there,
-    // rather than confirming a component that no longer exists as still current.
+    // cached->component is a QPointer: null means a cache miss, even if something outside
+    // this class freed the component.
     if (cached != m_pages.constEnd() && cached->hash == hash && cached->component) {
         return Outcome::NotModified;
     }
@@ -40,8 +41,8 @@ RemotePageLoader::Outcome RemotePageLoader::deliver(const QString &route,
         return Outcome::Rejected;
     }
 
-    // A stable, route-derived URL so error messages name the page and relative resolution
-    // has something to resolve against.
+    // A stable URL derived from the route, so error messages name the page and relative
+    // resolution works.
     const QUrl url{QStringLiteral("synqt://page%1").arg(route)};
     auto *component{new QQmlComponent{m_engine, this}};
     component->setData(source.toUtf8(), url);
@@ -49,14 +50,14 @@ RemotePageLoader::Outcome RemotePageLoader::deliver(const QString &route,
         if (reason) {
             *reason = component->errorString();
         }
-        component->deleteLater();
+        deleteSoon(component);
         return Outcome::Failed;
     }
 
     QQmlComponent *previous{cached != m_pages.constEnd() ? cached->component : nullptr};
     m_pages.insert(route, CachedPage{hash, component});
     if (previous) {
-        previous->deleteLater();
+        deleteSoon(previous);
     }
     return Outcome::Ready;
 }
@@ -78,7 +79,7 @@ void RemotePageLoader::invalidate(const QString &route)
         return;
     }
     if (cached->component) {
-        cached->component->deleteLater();
+        deleteSoon(cached->component);
     }
     m_pages.remove(route);
 }
@@ -87,7 +88,7 @@ void RemotePageLoader::clear()
 {
     for (const CachedPage &page : std::as_const(m_pages)) {
         if (page.component) {
-            page.component->deleteLater();
+            deleteSoon(page.component);
         }
     }
     m_pages.clear();

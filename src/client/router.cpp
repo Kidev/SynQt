@@ -4,6 +4,7 @@
 #include "router.h"
 
 #include "browserhistory.h"
+#include "deletesoon.h"
 #include "remotepageloader.h"
 #include "resumepath.h"
 #include "session.h"
@@ -586,7 +587,7 @@ void Router::setPageComponent(QQmlComponent *component, PageStatus status,
     if (previous && previous != component && previousWasOurs) {
         // Outlive the signal so a binding reading the old component during
         // delivery does not read freed memory.
-        previous->deleteLater();
+        deleteSoon(previous);
     }
 }
 

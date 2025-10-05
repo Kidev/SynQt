@@ -23,6 +23,8 @@ qt_add_library(SynQtConsumer STATIC
     consumerbase.h
     consumerfactory.cpp
     consumerfactory.h
+    deletesoon.cpp
+    deletesoon.h
     promise.cpp
     promise.h
 )

@@ -3,6 +3,8 @@
 
 #include "promise.h"
 
+#include "deletesoon.h"
+
 #include <QJSEngine>
 #include <QTimer>
 
@@ -28,7 +30,7 @@ Promise::Promise(const QRemoteObjectPendingCall &call, QJSEngine *engine, QObjec
     connect(watcher, &QRemoteObjectPendingCallWatcher::finished, this,
             [this](QRemoteObjectPendingCallWatcher *finished) {
                 settleFromCall(*finished);
-                finished->deleteLater();
+                deleteSoon(finished);
             });
 
 #ifdef Q_OS_WASM
