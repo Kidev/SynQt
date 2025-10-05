@@ -31,6 +31,18 @@ if(M0_POSTED_EVENT_PUMP)
     target_compile_definitions(m0-client PRIVATE M0_POSTED_EVENT_PUMP)
 endif()
 
+# The other application-side mitigation, and the only one that needs no change to Qt and no
+# change to the application: link with asyncify. QEventDispatcherWasm has two entirely
+# different shapes depending on qstdweb::haveAsyncify(), which is a runtime probe of the
+# Emscripten runtime (`typeof Asyncify !== "undefined"`), not a Qt build option, so an
+# application can select the other shape on its own. Without asyncify the main thread cannot
+# block, so exec() returns to the browser and processEvents() runs only when the wakeup timer
+# fires. With asyncify the main thread suspends inside processEvents() and any registered
+# event handler at all resumes it, after which sendAllEvents() sweeps the posted queue again.
+# That gives posted events a second delivery path that no single dropped callback can take
+# away. Measured with verify/verify-pump.mjs; see qt-patches/README.md.
+option(M0_ASYNCIFY "Link the client with asyncify (WASM mitigation)" OFF)
+
 target_link_libraries(m0-client PRIVATE
     Qt6::Core
     Qt6::Network
@@ -55,4 +67,12 @@ if(EMSCRIPTEN)
     # the policy the edge actually emits, so the multi-threaded proof would be measuring a
     # page no SynQt app resembles.
     target_link_options(m0-client PRIVATE "-sASSERTIONS=1" "-lembind" "-sDYNAMIC_EXECUTION=0")
+
+    if(M0_ASYNCIFY)
+        # -Os is Emscripten's own recommendation for asyncify builds, and the stack size is
+        # raised because the suspend point sits under the whole Qt event-dispatch stack, which
+        # is far deeper than the 4 KB default asyncify reserves.
+        target_link_options(m0-client PRIVATE
+            "-sASYNCIFY" "-sASYNCIFY_STACK_SIZE=131072" "-Os")
+    endif()
 endif()
