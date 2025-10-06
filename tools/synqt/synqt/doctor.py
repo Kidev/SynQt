@@ -50,6 +50,9 @@ def report(project_dir: os.PathLike[str] | str,
     if threads == "multi":
         lines.append("    - the multi-threaded client runs only where cross-origin isolation "
                      "is available; the edge serves the headers automatically.")
+    if clientbuild.client_asyncify(config):
+        lines.append("    - asyncify is on (build.client_asyncify): the main thread can block, "
+                     "and the bundle is roughly a third larger over the wire.")
 
     # Where the client sends diagnostic output (build.client_logging).
     logging_mode = str((config.get("build") or {}).get("client_logging") or "").lower()
