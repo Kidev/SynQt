@@ -481,6 +481,11 @@ QByteArray WebEdge::issueSessionCookie()
     return cookie;
 }
 
+bool WebEdge::presentsLiveSession(const QHttpServerRequest &request) const
+{
+    return m_sessionManager->isLive(sessionIdFromCookie(request.value("Cookie")));
+}
+
 QByteArray WebEdge::sessionIdFromCookie(const QByteArray &cookieHeader) const
 {
     const QByteArray prefix{m_config.cookieName.toUtf8() + "="};
@@ -526,8 +531,12 @@ void WebEdge::stampResponse(const QHttpServerRequest &request, QHttpServerRespon
     }
 
     // Issue an (anonymous) session on the page load, so the browser has a credential to
-    // present at the wss upgrade.
-    if (request.url().path() == m_config.clientRoute) {
+    // present at the wss upgrade. Only for a browser that arrives without a live one: a
+    // page load is not a new visitor. Re-issuing unconditionally would replace the
+    // credential a visitor has just signed in with (the OAuth callback redirects onto
+    // this very route, so the landing load would sign them straight back out), and would
+    // let one browser mint an unbounded number of sessions by reloading.
+    if (request.url().path() == m_config.clientRoute && !presentsLiveSession(request)) {
         headers.append(QHttpHeaders::WellKnownHeader::SetCookie, issueSessionCookie());
     }
     response.setHeaders(std::move(headers));
@@ -594,15 +603,15 @@ QHttpServerResponse WebEdge::shellOrNotFound(const QString &path,
     }
     const QString index{QDir{m_config.bundleDir}.filePath(QStringLiteral("index.html"))};
     if (auto notModified{notModifiedFor(request, etagFor(index))}) {
-        stampShell(*notModified);
+        stampShell(*notModified, request);
         return std::move(*notModified);
     }
     QHttpServerResponse response{QHttpServerResponse::fromFile(index)};
-    stampShell(response);
+    stampShell(response, request);
     return response;
 }
 
-void WebEdge::stampShell(QHttpServerResponse &response)
+void WebEdge::stampShell(QHttpServerResponse &response, const QHttpServerRequest &request)
 {
     // A deep link is a cold visitor's first page load just as often as "/" is, so it
     // has to leave with the same two things the client route's response leaves with.
@@ -623,7 +632,12 @@ void WebEdge::stampShell(QHttpServerResponse &response)
     }
     headers.append(QHttpHeaders::WellKnownHeader::CacheControl,
                    QByteArrayLiteral("no-cache"));
-    headers.append(QHttpHeaders::WellKnownHeader::SetCookie, issueSessionCookie());
+    // On the same terms as the client route (see stampResponse): only a browser arriving
+    // without a live session is given one, so a refresh deep in the app never replaces
+    // the credential the visitor signed in with.
+    if (!presentsLiveSession(request)) {
+        headers.append(QHttpHeaders::WellKnownHeader::SetCookie, issueSessionCookie());
+    }
     response.setHeaders(std::move(headers));
 }
 
@@ -942,16 +956,13 @@ QHttpServerWebSocketUpgradeResponse WebEdge::verifyUpgrade(const QHttpServerRequ
             403, QByteArrayLiteral("origin not allowed"));
     }
 
-    // 2. Session credential: the cookie must map to a live session. Stash the verified id
-    //    by peer so the accepted socket (whose headers are not re-readable) can be bound
-    //    to its session when it is hosted.
+    // 2. Session credential: the cookie must map to a live session.
     const QByteArray sessionId{sessionIdFromCookie(request.value("Cookie"))};
     if (!m_sessionManager->isLive(sessionId)) {
         emit upgradeRejected(QStringLiteral("no valid session"));
         return QHttpServerWebSocketUpgradeResponse::deny(
             401, QByteArrayLiteral("no valid session"));
     }
-    m_pendingSessions.insert(key, sessionId);
 
     // 3. Scope precondition: an anonymous connection is rejected when identity is
     //    required (per-connect-point scope gating lands with sessions in M7).
@@ -970,8 +981,31 @@ QHttpServerWebSocketUpgradeResponse WebEdge::verifyUpgrade(const QHttpServerRequ
             503, QByteArrayLiteral("too many connections"));
     }
 
+    // Accepted: stash the verified id by peer so the accepted socket (whose headers are
+    // not re-readable) can be bound to its session when it is hosted. Last, after every
+    // check, so a refused upgrade leaves nothing behind.
+    rememberVerifiedSession(key, sessionId);
     emit upgradeAccepted(key);
     return QHttpServerWebSocketUpgradeResponse::accept();
+}
+
+void WebEdge::rememberVerifiedSession(const QString &peer, const QByteArray &sessionId)
+{
+    const qint64 now{QDateTime::currentMSecsSinceEpoch()};
+    // An accepted upgrade is hosted in the same event-loop turn it is accepted in, so
+    // anything still here after the handshake window belongs to a socket that never
+    // arrived (the peer hung up between the 101 and the first frame). Nothing else would
+    // ever remove it, and a peer can repeat that as often as it likes, so the sweep is
+    // what keeps the map bounded by the accept rate rather than by the uptime.
+    const qint64 staleAfter{qMax(m_config.handshakeTimeoutMs, 1000)};
+    for (auto it{m_pendingSessions.begin()}; it != m_pendingSessions.end();) {
+        if (now - it->verifiedMs > staleAfter) {
+            it = m_pendingSessions.erase(it);
+        } else {
+            ++it;
+        }
+    }
+    m_pendingSessions.insert(peer, VerifiedSession{sessionId, now});
 }
 
 QObject *WebEdge::createSource(const WebEdgeConnectPoint &connectPoint, QObject *caller,
@@ -1032,7 +1066,7 @@ void WebEdge::hostConnection(QWebSocket *socket)
     // Identify the session behind this socket: the id the verifier stashed for this peer
     // (the accepted socket's handshake headers are not re-readable server-side).
     const QString key{peerKey(socket->peerAddress().toString(), socket->peerPort())};
-    const QByteArray sessionId{m_pendingSessions.take(key)};
+    const QByteArray sessionId{m_pendingSessions.take(key).id};
 
     // One QtRO host node per connection. per_session Sources are minted fresh with a
     // Caller bound to this session; shared Sources are the single instances, hosted here
