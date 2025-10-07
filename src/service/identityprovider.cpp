@@ -278,6 +278,15 @@ void IdentityProvider::releaseRemoteTokens(const QByteArray &sessionId)
     }
 }
 
+void IdentityProvider::forgetSession(const QByteArray &sessionId)
+{
+    if (m_backend) {
+        m_backend->releaseTokens(QString::fromLatin1(sessionId));
+    } else {
+        releaseRemoteTokens(sessionId);
+    }
+}
+
 QVariantMap IdentityProvider::tokensForSession(const QByteArray &sessionId) const
 {
     if (m_backend) {

@@ -7,6 +7,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QMetaObject>
+#include <QTimer>
 #include <QUuid>
 
 #include <utility>
@@ -34,11 +35,25 @@ QVariantMap identityFromJson(const QString &json)
 
 } // namespace
 
+namespace {
+
+/// How often the expiry sweep runs. Well under any sane TTL, and idle work either way:
+/// the sweep only drains the front of an ordered queue, so a quiet edge pays one
+/// comparison a minute.
+constexpr int kSweepIntervalMs{60 * 1000};
+
+} // namespace
+
 SessionManager::SessionManager(QString defaultScope, int ttlMinutes, QObject *parent)
     : QObject{parent}
     , m_defaultScope{std::move(defaultScope)}
     , m_ttlMs{static_cast<qint64>(ttlMinutes) * 60 * 1000}
 {
+    if (m_ttlMs > 0) {
+        m_sweepTimer = new QTimer{this};
+        connect(m_sweepTimer, &QTimer::timeout, this, [this]() { purgeExpired(); });
+        m_sweepTimer->start(kSweepIntervalMs);
+    }
 }
 
 void SessionManager::emitUpsert(const SessionRecord &record)
@@ -222,6 +237,9 @@ void SessionManager::purgeExpired()
         const auto it{m_sessions.find(id)};
         if (it != m_sessions.end() && it->createdMs == createdMs) {
             m_sessions.erase(it);
+            // Local only (see sessionExpired): what an expired session was still holding
+            // here goes with it, and nothing is told about it anywhere else.
+            emit sessionExpired(QString::fromLatin1(id));
         }
     }
 }

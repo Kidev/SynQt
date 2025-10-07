@@ -738,6 +738,10 @@ bool WebEdge::start()
         cookie.secure = m_config.usesTls();
         m_identity = new IdentityProvider{m_config.identity, m_sessionManager, m_engine,
                                           httpOrigin(), cookie, this};
+        // A session that runs out of time takes its server-side tokens with it. Logging
+        // out already released them; almost nobody logs out.
+        connect(m_sessionManager, &SessionManager::sessionExpired, m_identity,
+                [this](const QString &token) { m_identity->forgetSession(token.toLatin1()); });
         m_httpServer->route(m_config.identity.loginRoute,
                             [this](const QHttpServerRequest &request) {
             return m_identity->handleLogin(request);

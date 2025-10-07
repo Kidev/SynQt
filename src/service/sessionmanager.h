@@ -15,6 +15,10 @@
 #include <deque>
 #include <utility>
 
+QT_BEGIN_NAMESPACE
+class QTimer;
+QT_END_NAMESPACE
+
 namespace SynQt {
 
 /// One browser user's session on the edge: the opaque credential the browser presents
@@ -81,6 +85,16 @@ signals:
                          const QString &identityJson, double createdMs);
     void sessionRemoved(const QString &token);
 
+    /// A session reclaimed because its time-to-live ran out, on this entity.
+    ///
+    /// Deliberately not sessionRemoved: that one is the table change the auth entity
+    /// forwards to every edge, and an expiry is not a change anyone needs to be told
+    /// about (every holder of the record reaches the same verdict from the same
+    /// createdMs). What it is good for is releasing what an expired session was still
+    /// holding here, which is how the edge stops keeping a signed-out user's OAuth
+    /// tokens for as long as the process runs.
+    void sessionExpired(const QString &token);
+
 private:
     QByteArray newToken() const;
     void trackExpiry(const SessionRecord &record);
@@ -91,12 +105,21 @@ private:
     /// Insertion-ordered {createdMs, id} hints that make purgeExpired() amortized O(1): a
     /// fixed TTL means sessions expire in creation order, so the purge only drains the front
     /// while it is past the TTL instead of scanning the whole table on every create. Entries
-    /// are hints, not truth; an id that was rotated (setScope) or overwritten (applyUpsert)
+    /// are hints, not truth. An id that was rotated (setScope) or overwritten (applyUpsert)
     /// leaves a stale entry whose recorded createdMs no longer matches the map, and the purge
     /// drops it. Only maintained when m_ttlMs > 0 (with no TTL there is nothing to
     /// reclaim). lookup()/isLive() re-check the TTL themselves, so a lagging queue never
-    /// returns an expired session; it only defers reclaiming its memory.
+    /// returns an expired session. It only defers reclaiming its memory.
     std::deque<std::pair<qint64, QByteArray>> m_expiryQueue;
+    /// Sweeps the queue on a timer as well as on every create.
+    ///
+    /// Creating a session is the natural moment to reclaim one, but it is not a moment
+    /// that arrives on a quiet edge: a browser that already holds a live session is not
+    /// given another one (webedge.cpp), so an edge whose visitors have all gone home
+    /// would keep every expired record, and whatever hangs off it, until someone new
+    /// arrives. lookup() never returns an expired session either way; this is about the
+    /// memory, and about the tokens released with the record.
+    QTimer *m_sweepTimer{nullptr};
     QString m_defaultScope;
     qint64 m_ttlMs;
     QPointer<QObject> m_remote; ///< the Session Replica when this is an edge cache

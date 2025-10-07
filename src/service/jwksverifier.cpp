@@ -21,6 +21,11 @@ namespace SynQt {
 
 namespace {
 
+/// The floor on refetching one provider's key set. A rotation is a rare event and a
+/// stream of tokens naming keys that do not exist is not, so the refetch a rotation needs
+/// must not be a request an unverified token can ask for at will.
+constexpr qint64 kMinRefetchMs{5 * 60 * 1000};
+
 QByteArray decodeBase64Url(const QString &segment)
 {
     return QByteArray::fromBase64(segment.toUtf8(), QByteArray::Base64UrlEncoding);
@@ -71,10 +76,24 @@ JwksVerifier::JwksVerifier(QNetworkAccessManager *network, QObject *parent)
 {
 }
 
-bool JwksVerifier::ensureJwks(const QUrl &jwksUrl, QString *error)
+bool JwksVerifier::ensureJwks(const QUrl &jwksUrl, QString *error, bool force)
 {
-    if (m_jwksCache.contains(jwksUrl.toString())) {
-        return true;
+    const auto cached{m_jwksCache.constFind(jwksUrl.toString())};
+    const qint64 now{QDateTime::currentMSecsSinceEpoch()};
+    if (cached != m_jwksCache.constEnd()
+        && (!force || now - cached->fetchedMs < kMinRefetchMs)) {
+        // Held, and either good enough or refetched too recently to try again. The rate
+        // limit is what stops a stream of tokens naming keys that do not exist from
+        // turning into a stream of requests to the provider.
+        return !force;
+    }
+    if (!isSecureIdentityEndpoint(jwksUrl)) {
+        // The keys every ID token is trusted against; over http, whoever is on the path
+        // chooses who your users are.
+        if (error) {
+            *error = QStringLiteral("refusing to fetch JWKS over a plaintext connection");
+        }
+        return false;
     }
     QNetworkReply *reply{m_network->get(QNetworkRequest{jwksUrl})};
     QEventLoop loop;
@@ -88,7 +107,7 @@ bool JwksVerifier::ensureJwks(const QUrl &jwksUrl, QString *error)
         reply->deleteLater();
         return false;
     }
-    m_jwksCache.insert(jwksUrl.toString(), reply->readAll());
+    m_jwksCache.insert(jwksUrl.toString(), CachedJwks{reply->readAll(), now});
     reply->deleteLater();
     return true;
 }
@@ -118,8 +137,15 @@ QVariantMap JwksVerifier::verify(const QString &idToken, const IdentityProviderC
     if (!ensureJwks(provider.jwksUrl, error)) {
         return {};
     }
-    const QJsonObject jwk{selectKey(m_jwksCache.value(provider.jwksUrl.toString()),
-                                    header.value(QStringLiteral("kid")).toString())};
+    const QString kid{header.value(QStringLiteral("kid")).toString()};
+    QJsonObject jwk{selectKey(m_jwksCache.value(provider.jwksUrl.toString()).json, kid)};
+    if (jwk.isEmpty() && ensureJwks(provider.jwksUrl, error, true)) {
+        // The key set on hand does not contain this token's key. The ordinary reason is a
+        // rotation: the provider signed with a key it published after this set was
+        // fetched. Fetch once more (rate limited inside ensureJwks) and look again, or the
+        // first rotation would end every login until the edge restarts.
+        jwk = selectKey(m_jwksCache.value(provider.jwksUrl.toString()).json, kid);
+    }
     if (jwk.isEmpty() || jwk.value(QStringLiteral("kty")).toString() != QLatin1String("RSA")) {
         return fail(QStringLiteral("no matching RSA signing key in JWKS"));
     }
