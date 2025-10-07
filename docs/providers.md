@@ -168,6 +168,18 @@ without it rather than opening the plaintext connection the driver would otherwi
 have given you. The certificate check that CA enables covers the host name too, so
 `verify-ca` is honoured at least as strictly as `verify-full`, never more loosely.
 
+The document and cache providers ask for TLS in their own engine's terms, and each
+checks that it got it. `tls: true` on the `redis` provider upgrades the connection
+before anything is sent, verifying the server against `ca_cert` (or the system trust
+store when no CA is named); a build without `hiredis_ssl`, or a server that offers no
+TLS, is a refused connection with a reason, never a plaintext one. `tls: true` on the
+`mongodb` provider is checked against the connection string the driver is actually
+handed: a `uri` that does not enable TLS is refused, and so is one that turns the
+certificate check back off with `tlsInsecure`, `tlsAllowInvalidCertificates` or
+`tlsAllowInvalidHostnames`. The rule behind both is that a flag is not a setting: what
+the entity claims and what goes on the wire have to be the same thing, or the claim is
+worse than nothing.
+
 Document and cache providers wrap an external client library, because Qt has no
 official MongoDB or Redis module. The MongoDB provider wraps the MongoDB C client;
 the Redis provider wraps a Redis client (or speaks RESP over Qt Network). These
