@@ -6,22 +6,31 @@
 
 #include <QHostAddress>
 #include <QObject>
+#include <QSslCertificate>
+#include <QSslKey>
 #include <QString>
 
 QT_BEGIN_NAMESPACE
 class QIODevice;
 class QLocalSocket;
-class QSslCertificate;
-class QSslKey;
 class QSslSocket;
+class QTimer;
 QT_END_NAMESPACE
 
 namespace SynQt {
 
-/// The consumer side of a mesh link: it connects to an owner and, once the transport
-/// is up, emits the QIODevice for the entity runtime to hand to a QtRO node with
-/// addClientSideConnection(). Mutual TLS is the default; the local socket is an
-/// explicit opt-in.
+/// The consumer side of a mesh link. It connects to an owner and, once the transport is up,
+/// emits the QIODevice for the entity runtime to hand to a QtRO node with
+/// addClientSideConnection(). Mutual TLS is the default; the local socket is an explicit
+/// opt-in.
+///
+/// The link is kept up. A failed first attempt and a dropped link both retry with a capped
+/// exponential backoff until the owner answers, and each success emits connected() again with
+/// a fresh device, so restarting a service does not strand its consumers.
+///
+/// Ownership of an emitted device passes to whoever takes it. Reparent it (the entity runtime
+/// parents it to the node it hands it to), and it is freed with that owner when the link is
+/// replaced. A device nobody took stays this object's and is freed here.
 class MeshClient : public QObject
 {
     Q_OBJECT
@@ -39,18 +48,45 @@ public:
                           const QSslCertificate &localCertificate,
                           const QSslKey &localKey);
 
-    /// Local socket (explicit opt-in). No certificate; trust is by colocation.
+    /// Local socket (explicit opt-in). No certificate. Trust is by colocation.
     bool connectLocal(const QString &socketName);
 
     QIODevice *device() const;
+
+    /// Stop retrying. The link stays as it is. Nothing is torn down.
+    void stop();
 
 signals:
     void connected(QIODevice *device);
     void errorOccurred(const QString &reason);
 
 private:
+    /// How a dropped or refused link is retried. The first attempt comes quickly, so a
+    /// service restarting under a deploy is barely noticed, and repeated failure backs off
+    /// to a rate that neither floods a listener nor an operator's logs.
+    static constexpr int ReconnectBaseMs{500};
+    static constexpr int ReconnectMaxMs{10000};
+
+    void openMutualTls();
+    void openLocal();
+    void scheduleRetry();
+    /// Free the current socket if this client still holds it (nobody took the connection).
+    void retireUnusedSocket();
+
     QSslSocket *m_sslSocket{nullptr};
     QLocalSocket *m_localSocket{nullptr};
+    QTimer *m_retryTimer{nullptr};
+    int m_backoffMs{ReconnectBaseMs};
+    bool m_retrying{true};
+
+    /// What a retry needs to open the link again.
+    QHostAddress m_address;
+    quint16 m_port{0};
+    QString m_ownerEntity;
+    QSslCertificate m_caCertificate;
+    QSslCertificate m_localCertificate;
+    QSslKey m_localKey;
+    QString m_socketName;
 };
 
 } // namespace SynQt

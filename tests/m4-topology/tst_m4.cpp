@@ -26,6 +26,8 @@
 #include <QSslSocket>
 #include <QTest>
 
+#include <memory>
+
 using namespace SynQt;
 
 namespace {
@@ -189,6 +191,56 @@ private slots:
         if (rogueReplica) {
             QVERIFY(!rogueReplica->isReplicaValid());
         }
+    }
+
+    // Restarting a service is an ordinary operation: a deploy, a crash, a machine
+    // rebooting. Its consumers have to find it again on their own, or the only way to
+    // update one entity is to restart the whole system in dependency order.
+    void aRestartedOwnerIsFoundAgain()
+    {
+        Topology topologyA;
+        topologyA.entity = QStringLiteral("a");
+        topologyA.credentials = credentialsFor(QStringLiteral("a"));
+        topologyA.connectPoints = {thingConnectPoint(0)};
+
+        QQmlEngine engineA;
+        auto runtimeA{std::make_unique<EntityRuntime>(topologyA, &engineA)};
+        QVERIFY2(runtimeA->start(), qPrintable(runtimeA->errorString()));
+        const quint16 port{portOf(*runtimeA, QStringLiteral("thing"))};
+        QVERIFY(port != 0);
+
+        Topology topologyB;
+        topologyB.entity = QStringLiteral("b");
+        topologyB.credentials = credentialsFor(QStringLiteral("b"));
+        topologyB.connectPoints = {thingConnectPoint(port)};
+
+        QQmlEngine engineB;
+        EntityRuntime runtimeB{topologyB, &engineB};
+        QVERIFY2(runtimeB.start(), qPrintable(runtimeB.errorString()));
+
+        QObject *replica{nullptr};
+        QTRY_VERIFY((replica = runtimeB.consumedReplica(QStringLiteral("a"),
+                                                        QStringLiteral("thing"))) != nullptr);
+        QTRY_COMPARE(replica->property("value").toInt(), 42);
+
+        // The owner goes away, taking the link with it.
+        QSignalSpy readySpy{&runtimeB, &EntityRuntime::consumedReplicaReady};
+        QObject *const before{replica};
+        runtimeA.reset();
+        QTest::qWait(200);
+
+        // The owner comes back on the address its consumers were configured with, and B
+        // reconnects by itself: a fresh Replica, announced again, carrying the state.
+        // Nothing on B was restarted, reconfigured or told about any of it.
+        topologyA.connectPoints = {thingConnectPoint(port)};
+        auto restarted{std::make_unique<EntityRuntime>(topologyA, &engineA)};
+        QVERIFY2(restarted->start(), qPrintable(restarted->errorString()));
+
+        QTRY_VERIFY_WITH_TIMEOUT(readySpy.count() >= 1, 20000);
+        QObject *fresh{runtimeB.consumedReplica(QStringLiteral("a"), QStringLiteral("thing"))};
+        QVERIFY(fresh != nullptr);
+        QVERIFY2(fresh != before, "a reconnect is a new Replica, not the stale one");
+        QTRY_COMPARE(fresh->property("value").toInt(), 42);
     }
 };
 
