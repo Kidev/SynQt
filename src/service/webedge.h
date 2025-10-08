@@ -106,6 +106,12 @@ private:
     QHttpServerResponse credentialResponse(const QHttpServerRequest &request);
     QStringList expandedAllowedOrigins() const;
     QByteArray issueSessionCookie();
+    /// The Set-Cookie this page load needs, or empty when it needs none: empty for a
+    /// browser already holding a live session, the rotated id for one whose session was
+    /// re-keyed by a scope change under it, and a fresh session for everyone else.
+    QByteArray sessionCookieFor(const QHttpServerRequest &request);
+    /// The session cookie for a token, with this project's origin-model attributes.
+    QByteArray cookieFor(const QByteArray &token);
     QByteArray sessionIdFromCookie(const QByteArray &cookieHeader) const;
     /// Whether this request already carries a session this edge holds. What decides
     /// whether a page load is given a credential or left with the one it has.

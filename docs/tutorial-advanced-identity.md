@@ -219,6 +219,10 @@ AuthSource {
 
 `Caller.setScope()` rotates the session id as it raises the scope, which is what closes
 session fixation: a token someone held before signing in is not the token they hold after.
+The open connection carries on with the new id, and the browser is still holding the old
+one in a cookie that no slot call can rewrite, so the edge hands it the replacement on the
+next page load. Nothing to write: a visitor whose scope you raised keeps it across a
+refresh, and the id they had before it is refused from the moment it is rotated away.
 
 Four rules apply to this shape, and none of them is new. They are the same rules the rest
 of SynQt already runs on.
