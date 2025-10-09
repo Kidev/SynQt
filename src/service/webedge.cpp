@@ -500,11 +500,6 @@ QByteArray WebEdge::cookieFor(const QByteArray &token)
     return cookie;
 }
 
-bool WebEdge::presentsLiveSession(const QHttpServerRequest &request) const
-{
-    return m_sessionManager->isLive(sessionIdFromCookie(request.value("Cookie")));
-}
-
 QByteArray WebEdge::sessionIdFromCookie(const QByteArray &cookieHeader) const
 {
     const QByteArray prefix{m_config.cookieName.toUtf8() + "="};
