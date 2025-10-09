@@ -172,7 +172,10 @@ The document and cache providers ask for TLS in their own engine's terms, and ea
 checks that it got it. `tls: true` on the `redis` provider upgrades the connection
 before anything is sent, verifying the server against `ca_cert` (or the system trust
 store when no CA is named); a build without `hiredis_ssl`, or a server that offers no
-TLS, is a refused connection with a reason, never a plaintext one. `tls: true` on the
+TLS, is a refused connection with a reason, never a plaintext one. `tls` defaults to
+true, so a development engine you started on this machine with no certificate is the
+one case that needs a line: write `tls: false` next to it, which the release build then
+refuses to accept for anything but a loopback host. `tls: true` on the
 `mongodb` provider is checked against the connection string the driver is actually
 handed: a `uri` that does not enable TLS is refused, and so is one that turns the
 certificate check back off with `tlsInsecure`, `tlsAllowInvalidCertificates` or
