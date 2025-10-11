@@ -473,6 +473,14 @@ a delivered page may import, enforced by the client's `QmlPalette` at run time (
 that imports anything else is refused, not rendered). It bounds what an edge-delivered
 page can reach inside the client. Keep it as small as the pages actually need.
 
+Because it is a boundary, the client reads a page exactly as the QML engine's lexer does:
+comments and string literals are removed before anything is judged, a statement ends at a
+semicolon as well as at a line break, every terminator the engine honors counts (a lone
+carriage return, and a leading byte order mark the engine skips), and the `import` keyword
+may not appear anywhere the check did not approve. The last rule is what makes this hold
+under a page written to defeat it: an import the check cannot account for is refused
+without reasoning about how it got there.
+
 Accepted risk: a delivered page reaches the client accessors. A delivered page can
 still reach `Server`, `Session`, `Router`, and `App`, the same context the compiled-in
 views have. This is deliberate, and it is not a new exposure: the entity that can send

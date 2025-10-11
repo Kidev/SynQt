@@ -11,23 +11,23 @@ namespace SynQt {
 
 /// What a delivered page may import.
 ///
-/// A delivered page is code, and the client's engine will run it. The
-/// palette is the boundary the project declares: exactly the modules
-/// listed, nothing else. It is checked before a QQmlComponent is built,
-/// because a page that has already been instantiated has already had its
-/// effect.
+/// A delivered page is code the client's engine will run. The palette is the boundary the
+/// project declares: exactly the modules listed. It is checked before a QQmlComponent is
+/// built.
 ///
-/// The check is strict. A declared module does not admit its
-/// submodules, since a palette that widens itself is not a boundary.
-/// Relative and JavaScript imports are refused outright: a delivered page
-/// may name declared modules and nothing on a path. Imports are only
-/// honored in the header, so an import buried below the first real token
-/// cannot slip past a reader that stops early.
+/// A declared module does not admit its submodules. Relative and JavaScript imports are
+/// refused. Imports are honored only in the header, so one buried below the first real token
+/// is refused.
 ///
-/// The palette limits which types a page may instantiate, not which
-/// accessors it may reach: a delivered page can still see Server, Session,
-/// Router, and App. That is accepted, because an edge that can send a
-/// malicious page can equally ship a malicious bundle. See
+/// A page is read the way the engine's lexer reads it: comments and string literals are
+/// removed first, a statement ends at a semicolon or any line terminator the lexer honors (a
+/// lone "\r" included, and a leading byte order mark is skipped), and the keyword may not
+/// appear anywhere the scan did not approve, so an import this class cannot account for is
+/// refused.
+///
+/// The palette limits which types a page may instantiate, not which accessors it may reach:
+/// a delivered page can still see Server, Session, Router and App, since an edge that can
+/// send a malicious page can equally ship a malicious bundle. See
 /// https://synqt.org/security/.
 class QmlPalette
 {

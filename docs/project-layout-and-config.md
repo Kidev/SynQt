@@ -1127,9 +1127,12 @@ Two of those deserve a note:
 
 - The palette rule is a build-time convenience, not the security boundary. The
   client's own `QmlPalette` is what enforces the palette on a delivered page at run
-  time, and it is stricter than this scan: it strips comments first and refuses any
-  quoted (path) import outright. A page this scan waves through on a comment-obscured
-  or quoted import is still refused by the client, just later than you would like.
+  time, and it is stricter than this scan: it reads the page the way the QML lexer
+  does, so it strips comments and string literals first, ends a statement at a
+  semicolon as well as at a line break, honors a lone carriage return and a leading
+  byte order mark, and refuses any quoted (path) import outright. A page this scan
+  waves through on any of those is still refused by the client, just later than you
+  would like.
 - The shadow rule and the "sets both" rule guard opposite mistakes. A `remote:` at
   the same path as a *separate* `view:` route is a shadow the edge could never win
   (the compiled-in half is kept), and is reported here. A single route that sets both

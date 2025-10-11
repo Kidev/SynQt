@@ -964,7 +964,11 @@ def _imports_of(qml_file: os.PathLike[str] | str) -> List[str]:
     later than a developer would like. Every import this scan does flag as
     palette-violating is one `QmlPalette` would refuse too.
     """
-    text = Path(qml_file).read_text(encoding="utf-8", errors="replace")
+    # utf-8-sig, not utf-8: a page saved with a byte order mark keeps it as the first
+    # character of the first line, and the regex below would not match through it. The
+    # QML lexer skips the mark and imports what follows, so this scan must not be the
+    # one place where a page's first import goes unread.
+    text = Path(qml_file).read_text(encoding="utf-8-sig", errors="replace")
     modules: List[str] = []
     for line in text.splitlines():
         match = _REMOTE_PAGE_IMPORT.match(line)
