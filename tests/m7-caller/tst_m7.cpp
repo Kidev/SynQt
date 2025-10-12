@@ -286,10 +286,12 @@ private slots:
         // ItemsSource insert checks Caller.entity === "web", so its write is a no-op.
         MeshClient reporter;
         QRemoteObjectNode reporterNode;
-        QRemoteObjectDynamicReplica *reporterItems{nullptr};
+        // Owned, and declared after the node so it is destroyed before it (acquireDynamic
+        // hands the caller a Replica to keep).
+        std::unique_ptr<QRemoteObjectDynamicReplica> reporterItems;
         connect(&reporter, &MeshClient::connected, &reporterNode, [&](QIODevice *device) {
             reporterNode.addClientSideConnection(device);
-            reporterItems = reporterNode.acquireDynamic(QStringLiteral("items"));
+            reporterItems.reset(reporterNode.acquireDynamic(QStringLiteral("items")));
         });
         QVERIFY(reporter.connectMutualTls(
             QHostAddress::LocalHost, m_itemsPort, QStringLiteral("database"),
@@ -298,7 +300,7 @@ private slots:
             loadPrivateKey(QStringLiteral(M7_CERT_DIR "/reporter.key"))));
 
         QTRY_VERIFY(reporterItems && reporterItems->isReplicaValid());
-        QVERIFY(QMetaObject::invokeMethod(reporterItems, "insert",
+        QVERIFY(QMetaObject::invokeMethod(reporterItems.get(), "insert",
                                           Q_ARG(QString, QStringLiteral("smuggled")),
                                           Q_ARG(QString, QStringLiteral("r@x")),
                                           Q_ARG(QString, QStringLiteral("reporter"))));
@@ -314,10 +316,10 @@ private slots:
 
         MeshClient other;
         QRemoteObjectNode otherNode;
-        QRemoteObjectDynamicReplica *otherItems{nullptr};
+        std::unique_ptr<QRemoteObjectDynamicReplica> otherItems;
         connect(&other, &MeshClient::connected, &otherNode, [&](QIODevice *device) {
             otherNode.addClientSideConnection(device);
-            otherItems = otherNode.acquireDynamic(QStringLiteral("items"));
+            otherItems.reset(otherNode.acquireDynamic(QStringLiteral("items")));
         });
         other.connectMutualTls(
             QHostAddress::LocalHost, m_itemsPort, QStringLiteral("database"),

@@ -584,6 +584,10 @@ private slots:
             connect(client, &MeshClient::connected, node, [node, sessions](QIODevice *device) {
                 node->addClientSideConnection(device);
                 QRemoteObjectDynamicReplica *replica{node->acquireDynamic(QStringLiteral("sessions"))};
+                // Owned by the node, which meshScope destroys after the cache above: the
+                // receiver goes first, the Replica second, which is the order this Replica
+                // needs (it frees a metaobject the receiver is connected through).
+                replica->setParent(node);
                 connect(replica, &QRemoteObjectDynamicReplica::initialized, sessions,
                         [sessions, replica]() { sessions->attachRemote(replica); });
             });
@@ -714,6 +718,9 @@ private slots:
         connect(client, &MeshClient::connected, node, [node, provider](QIODevice *device) {
             node->addClientSideConnection(device);
             QRemoteObjectDynamicReplica *replica{node->acquireDynamic(QStringLiteral("identity"))};
+            // Owned by the node, which outlives the edge holding the receiver (edge is a
+            // later stack object than meshScope, so it is destroyed first).
+            replica->setParent(node);
             connect(replica, &QRemoteObjectDynamicReplica::initialized, provider,
                     [provider, replica]() { provider->attachRemote(replica); });
         });

@@ -278,10 +278,12 @@ private slots:
 
         MeshClient auditor;
         QRemoteObjectNode auditorNode;
-        QRemoteObjectDynamicReplica *auditorLedger{nullptr};
+        // Owned, and declared after the node so it is destroyed before it (acquireDynamic
+        // hands the caller a Replica to keep).
+        std::unique_ptr<QRemoteObjectDynamicReplica> auditorLedger;
         connect(&auditor, &MeshClient::connected, &auditorNode, [&](QIODevice *device) {
             auditorNode.addClientSideConnection(device);
-            auditorLedger = auditorNode.acquireDynamic(QStringLiteral("ledger"));
+            auditorLedger.reset(auditorNode.acquireDynamic(QStringLiteral("ledger")));
         });
         QVERIFY(auditor.connectMutualTls(
             QHostAddress::LocalHost, m_ledgerPort, QStringLiteral("database"),
@@ -290,7 +292,7 @@ private slots:
             loadPrivateKey(QStringLiteral(FIX1_CERT_DIR "/auditor.key"))));
 
         QTRY_VERIFY(auditorLedger && auditorLedger->isReplicaValid());
-        QVERIFY(QMetaObject::invokeMethod(auditorLedger, "recordWinner",
+        QVERIFY(QMetaObject::invokeMethod(auditorLedger.get(), "recordWinner",
                                           Q_ARG(QString, QStringLiteral("smuggled lot")),
                                           Q_ARG(QString, QStringLiteral("impostor")),
                                           Q_ARG(int, 1000000)));

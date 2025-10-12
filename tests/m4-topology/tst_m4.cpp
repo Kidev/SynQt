@@ -173,10 +173,13 @@ private slots:
         QSignalSpy refusedSpy{&runtimeA, &EntityRuntime::connectionRefused};
         MeshClient rogue;
         QRemoteObjectNode rogueNode;
-        QRemoteObjectDynamicReplica *rogueReplica{nullptr};
+        // Owned, and declared after the node so it is destroyed before it: acquireDynamic
+        // hands the caller a Replica to keep, and a Replica outliving its node is the
+        // ordering that frees a metaobject under a live connection.
+        std::unique_ptr<QRemoteObjectDynamicReplica> rogueReplica;
         connect(&rogue, &MeshClient::connected, &rogueNode, [&](QIODevice *device) {
             rogueNode.addClientSideConnection(device);
-            rogueReplica = rogueNode.acquireDynamic(QStringLiteral("thing"));
+            rogueReplica.reset(rogueNode.acquireDynamic(QStringLiteral("thing")));
         });
         rogue.connectMutualTls(QHostAddress::LocalHost, port, QStringLiteral("a"),
                                loadCertificate(QStringLiteral(M4_CERT_DIR "/ca.crt")),
