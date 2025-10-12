@@ -155,6 +155,7 @@ five commits without ever running.
 | [`url-routing`](https://github.com/Kidev/SynQt/tree/main/tests/url-routing)            | The route table and the single page application fallback. |
 | [`remote-pages`](https://github.com/Kidev/SynQt/tree/main/tests/remote-pages)           | The framework's own `Pages` connect point and its page store. |
 | [`entity-test`](https://github.com/Kidev/SynQt/tree/main/tests/entity-test)            | The `SynQt.Test` harness an application's own QML tests use, driven against a Source written the way an application writes one. |
+| [`memory`](https://github.com/Kidev/SynQt/tree/main/tests/memory)                 | What a repeated workload leaves behind: browser connections, page loads, sessions and mesh reconnects, each run many times over one long lived object, with the heap required to come back to where it started. Its `run-leakcheck.sh` runs the rest of the tree and the benchmarks under LeakSanitizer. |
 | [`wasm-quick3dphysics`](https://github.com/Kidev/SynQt/tree/main/tests/wasm-quick3dphysics)    | Qt Quick 3D Physics builds and loads on the WebAssembly kit. |
 | [`split-origin`](https://github.com/Kidev/SynQt/tree/main/tests/split-origin)           | What a third party session cookie survives in each engine, which is what makes `split_origin` a measurement rather than folklore. No Qt at all: two real sites and a browser. Run by [`browser-matrix.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/browser-matrix.yml). |
 
@@ -303,6 +304,47 @@ filesystem after a run, so a number is obtainable; it is deliberately not worth 
 coverage pipeline for a hundred lines whose failure mode (the address bar, the reconnect, the
 deep link) is what those two workflows assert directly, in every engine, which is a stronger
 statement than a percentage.
+
+### Memory
+
+A service entity runs for months. An object retained per browser connection, per request or
+per reconnect is a defect even when every one of those operations is correct, and it is one
+the suites above cannot see: the operation passes, the process exits, and whatever it kept
+goes back to the operating system with it. So memory is its own question, asked two ways.
+
+[`tests/memory`](https://github.com/Kidev/SynQt/tree/main/tests/memory) is the gate, and it
+runs with every other suite under `ctest`. Each test takes one long-lived object (a web
+edge, a session store, a consumer of a mesh link), runs the same cycle against it many
+times, and requires the heap to come back to where it started. It measures in bytes and
+warms up first, because the first pass through any path allocates what every later pass
+reuses; what it asserts is the difference between a warm system and the same warm system
+after doing the same work again.
+
+That shape is deliberate. Every leak this framework has actually had was perfectly
+reachable at the moment it mattered: a promise parented to a facade that lives as long as
+the connection, a node replaced but not retired on reconnect, a verifier map nothing ever
+removed from. A leak checker reports what is unreachable and would have called all three
+clean.
+
+The second way is the other half, and it runs on demand:
+
+```sh
+tests/memory/run-leakcheck.sh              # both passes
+tests/memory/run-leakcheck.sh --soak       # the fast half, no rebuild
+```
+
+The soak pass runs every suite in the tree at two `-repeat` counts and compares the peak
+resident set, which is a broad net for a path nobody wrote a steady-state test for. The
+sanitizer pass rebuilds the tree with AddressSanitizer, runs it again, and charges each
+leak LeakSanitizer reports to whoever allocated it: a record counts as ours when a frame of
+ours appears near the top of its stack, and only a direct record counts at all, since an
+indirect one names a child of a leaked root rather than a culprit. It fails the run on a
+record rooted in `src/`. Reports rooted in a suite are printed too and are worth fixing,
+but they are a fixture a test never freed, not a defect in what ships.
+
+Both passes name what they did not measure. A suite that will not run twice in one process
+is listed rather than dropped, and the benchmark harnesses that stand up whole systems are
+named as excluded from the soak instead of quietly halved.
 
 ## Benchmarks ([`benchmarks/`](https://github.com/Kidev/SynQt/tree/main/benchmarks))
 
