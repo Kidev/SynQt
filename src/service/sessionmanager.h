@@ -21,16 +21,20 @@ QT_END_NAMESPACE
 
 namespace SynQt {
 
-/// One browser user's session on the edge: the opaque credential the browser presents
+/// One browser user's session on the edge. The opaque credential the browser presents
 /// (the httpOnly cookie), the scope it was granted, and the normalized identity
-/// (empty while anonymous). The identity and scope are set by the login flow (M8); until
+/// (empty while anonymous). The identity and scope are set by the login flow (M8). Until
 /// then a session is created anonymous and may be elevated by the dev/test path.
 struct SessionRecord
 {
     QByteArray id;
     QString scope;
-    QVariantMap identity; ///< sub/login/name/email; empty == anonymous
+    QVariantMap identity; ///< sub/login/name/email. Empty == anonymous
     qint64 createdMs{0};
+    /// The credential this record replaced, when a scope change rotated it (see
+    /// rotationOf). Kept so that reclaiming this record also reclaims the hand-off
+    /// pointing at it, which otherwise outlives by minutes the session it names.
+    QByteArray rotatedFrom;
 };
 
 /// Owns the live sessions on the edge: creation, cookie/token lookup, scope elevation
@@ -119,6 +123,11 @@ private:
 
     QByteArray newToken() const;
     void trackExpiry(const SessionRecord &record);
+    /// Drop the hand-off that pointed at this record, now that the record is going. A
+    /// rotation names a session; once that session is revoked or expired the entry can
+    /// never do anything again, so keeping it for the rest of its grace period is holding
+    /// memory on behalf of nobody.
+    void dropRotationTo(const SessionRecord &record);
     void purgeExpired();
     void emitUpsert(const SessionRecord &record);
 
