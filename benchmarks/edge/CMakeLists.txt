@@ -4,8 +4,7 @@
 cmake_minimum_required(VERSION 3.21)
 project(SynQtEdgeBench LANGUAGES CXX)
 
-set(CMAKE_CXX_STANDARD 20)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
+include("${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/SynQtBuildFlags.cmake")
 
 find_package(Qt6 6.11 REQUIRED COMPONENTS Core HttpServer Sql)
 qt_standard_project_setup()

@@ -16,13 +16,13 @@ namespace SynQt {
 
 namespace {
 
-// Route one message to the browser console by severity (WASM) or stderr (desktop). The
-// browser-console path is what makes console.log visible in a release WASM build, where the
-// default handler does not surface. QtFatalMsg is emitted here as an error; Qt still aborts
-// after the handler returns, so fatal semantics are unchanged.
+// Route one message to the browser console by severity (WASM) or to stderr (desktop). The
+// browser console route is what makes console.log visible in a release WASM build.
+// QtFatalMsg is logged as an error; Qt still aborts after the handler returns.
 void routeToConsole(QtMsgType type, const QMessageLogContext &context, const QString &message)
 {
     Q_UNUSED(context)
+    Q_UNUSED(type)  // the severity only picks a console function, and only in the browser
     const QByteArray text{message.toUtf8()};
 #ifdef Q_OS_WASM
     switch (type) {
@@ -43,8 +43,8 @@ void routeToConsole(QtMsgType type, const QMessageLogContext &context, const QSt
 #endif
 }
 
-// Production: debug and info (QML console.log / console.info, qDebug) never reach the user;
-// warnings and above still route so real problems remain visible.
+// Production: debug and info (console.log, console.info, qDebug) are dropped; warnings and
+// above are routed.
 void dropDebug(QtMsgType type, const QMessageLogContext &context, const QString &message)
 {
     if (type == QtDebugMsg || type == QtInfoMsg) {

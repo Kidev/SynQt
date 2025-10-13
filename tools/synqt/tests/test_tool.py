@@ -295,6 +295,11 @@ class AppGenTest(unittest.TestCase):
         # The client also registers the consumer surface, so Server.counter is the facade
         # (returning-slot promises) and `Counter.on<Signal>` handlers resolve.
         self.assertIn("synqtRegisterCounterConsumers();", client_main)
+        # An application compiles under the rules the framework compiles under: the same
+        # file, included from the same root, rather than a copy of its contents that would
+        # drift the first time one of them changed.
+        self.assertIn('include("${SYNQT_ROOT}/cmake/SynQtBuildFlags.cmake")', cmake)
+        self.assertNotIn("CMAKE_CXX_STANDARD", cmake)
         edge_main = maingen.render_edge_main(config, config["entities"][1])
         self.assertIn("synqtRegisterCounterSources();", edge_main)
         self.assertIn("WebEdgeConnectPoint counter;", edge_main)

@@ -44,13 +44,14 @@ def render_root_cmakelists(config: Dict[str, Any], synqt_root: os.PathLike[str] 
     lines: List[str] = [_HEADER_CMAKE, "",
                         "cmake_minimum_required(VERSION 3.21)",
                         f"project({name} LANGUAGES CXX)", "",
-                        "set(CMAKE_CXX_STANDARD 17)",
-                        "set(CMAKE_CXX_STANDARD_REQUIRED ON)",
                         'set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")', "",
                         "# The SynQt framework source tree (src/ runtime libraries + cmake/ helpers).",
                         "# Baked at scaffold time; override with -DSYNQT_ROOT=... to point at another checkout.",
                         f'set(SYNQT_ROOT "{Path(synqt_root).as_posix()}" '
                         'CACHE PATH "SynQt framework source root")',
+                        "# The language version, the warnings that stop the build, and what release is",
+                        "# allowed to strip: the same file the framework compiles itself with.",
+                        'include("${SYNQT_ROOT}/cmake/SynQtBuildFlags.cmake")',
                         'include("${SYNQT_ROOT}/cmake/SynQtContracts.cmake")', "",
                         f"find_package(Qt6 {qt_version} REQUIRED COMPONENTS "
                         "Core Gui Qml Quick QuickControls2 Network RemoteObjects WebSockets)",

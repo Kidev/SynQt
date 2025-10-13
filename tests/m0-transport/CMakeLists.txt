@@ -10,8 +10,7 @@
 cmake_minimum_required(VERSION 3.21)
 project(synqt_m0_transport LANGUAGES CXX)
 
-set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
+include("${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/SynQtBuildFlags.cmake")
 
 # Land artifacts directly in the binary dir root so the verify harness can find
 # build/m0-edge/m0-edge and build/m0-client/m0-client.html without guessing.

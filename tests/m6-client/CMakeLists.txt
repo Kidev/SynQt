@@ -8,8 +8,7 @@
 cmake_minimum_required(VERSION 3.21)
 project(synqt_m6_client LANGUAGES CXX)
 
-set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
+include("${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/SynQtBuildFlags.cmake")
 
 find_package(Qt6 6.11 REQUIRED COMPONENTS
     Core Network Qml RemoteObjects WebSockets HttpServer Test)
