@@ -19,7 +19,7 @@
 # Qt 6.11.1 build (and, for several, a display, generated certs, or the WASM kit), which the
 # per-entity CMake projects build on demand rather than in this fast cross-OS gate.
 
-name: Run the Python test suites
+name: "[TEST] Run the Python test suites"
 
 on:
   push:

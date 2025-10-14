@@ -6,7 +6,7 @@
 # as a byte for byte copy of install.sh. This guard fails the build if the two
 # ever drift apart, so a change to one is never silently published without the
 # other.
-name: Check the get.synqt.org installer
+name: "[RELEASE] Check the get.synqt.org installer"
 
 on:
   push:

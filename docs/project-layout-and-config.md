@@ -524,8 +524,9 @@ release time guarantee that cross host links are mutual TLS.
 
 ```yaml
 mesh:
-  ca_cert: synqt/mesh/ca.pem        # the project private CA certificate
-  # Per entity certs and keys are issued by the CLI into synqt/mesh/<entity>/.
+  ca_cert: synqt/mesh/ca.crt        # the project private CA certificate
+  # Per entity certs and keys are issued by the CLI as synqt/mesh/<entity>.crt
+  # and synqt/mesh/<entity>.key.
   # Each entity verifies peers against ca_cert with VerifyPeer (mutual TLS).
   require_mtls_cross_host: true      # cross host links must be mTLS; cannot be disabled in release
 ```

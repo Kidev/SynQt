@@ -22,7 +22,7 @@
 # a writable token, so a moved tag would be a write-access supply chain problem, not a
 # broken build. Nothing from the pull request head is checked out or run by this workflow.
 
-name: Check the contributor license agreement
+name: "[CONTRIB] Check the contributor license agreement"
 
 on:
   # The contributor agrees by commenting on their pull request.

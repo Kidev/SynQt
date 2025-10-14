@@ -29,7 +29,7 @@
 # dev box; the aqtinstall arch/module names and the per-OS Qt install directory are the most
 # likely first-run adjustments.
 
-name: Run the browser matrix (Chromium, Firefox, WebKit)
+name: "[TEST] Run the browser matrix (Chromium, Firefox, WebKit)"
 
 on:
   workflow_dispatch:

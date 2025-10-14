@@ -40,7 +40,7 @@
 # kits; remote-pages needs the WASM kit and a full `synqt build`. Their baselines are
 # still validated by tests.yml, and docs/browser-proofs.md records where they are run.
 
-name: Run the benchmark harnesses
+name: "[BENCH] Run the benchmark harnesses"
 
 on:
   workflow_dispatch:

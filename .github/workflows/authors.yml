@@ -23,7 +23,7 @@
 # loudly at the push, which is the intended outcome; it must not fail quietly and leave
 # AUTHORS stale.
 
-name: Update AUTHORS when a pull request lands
+name: "[CONTRIB] Update AUTHORS when a pull request lands"
 
 on:
   pull_request_target:

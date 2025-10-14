@@ -351,7 +351,11 @@ the connection, a node replaced but not retired on reconnect, a verifier map not
 removed from. A leak checker reports what is unreachable and would have called all three
 clean.
 
-The second way is the other half, and it runs on demand:
+The second way is the other half. It runs on demand, and in CI through
+[`leaks.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/leaks.yml): weekly,
+on dispatch, and on any push that touches `src/` or the harness. It is not on every push
+because the sanitizer pass rebuilds the whole tree instrumented and then runs every suite
+several times slower.
 
 ```sh
 tests/memory/run-leakcheck.sh              # both passes
@@ -439,8 +443,13 @@ provisions the pinned Qt kit through aqtinstall and runs the native C++ suites;
 [`wasm-proofs.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/wasm-proofs.yml) runs the proofs needing a WebAssembly kit no other workflow installs (the
 multi-threaded SharedArrayBuffer proof, Qt Quick 3D Physics on both kits, the client
 runtime driven in all three engines against a real web edge, and a real `synqt build` of
-the arena's client bundle); [`release.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/release.yml) freezes and publishes the CLI; and
+the arena's client bundle); [`leaks.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/leaks.yml) runs both halves of
+[`tests/memory/run-leakcheck.sh`](https://github.com/Kidev/SynQt/blob/main/tests/memory/run-leakcheck.sh) over the whole tree;
+[`release.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/release.yml) freezes and publishes the CLI; and
 [`docs.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/docs.yml) publishes this site.
+
+Every workflow name carries a tag so the checks list groups by purpose: `[TEST]`, `[BENCH]`,
+`[DOCS]`, `[RELEASE]`, `[CONTRIB]`.
 
 Neither [`browser-matrix.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/browser-matrix.yml) nor [`wasm-proofs.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/wasm-proofs.yml) runs on every push: each builds a Qt
 module from source for the WebAssembly kit (which ships no QtRemoteObjects, see

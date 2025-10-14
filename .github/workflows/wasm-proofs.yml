@@ -29,7 +29,7 @@
 # NOTE: authored for GitHub's runners and not validated on the Arch dev box (same caveat as
 # browser-matrix.yml). The aqtinstall module names are the most likely first-run adjustment.
 
-name: Verify the WebAssembly client proofs
+name: "[TEST] Verify the WebAssembly client proofs"
 
 on:
   workflow_dispatch:
