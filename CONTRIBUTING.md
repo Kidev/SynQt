@@ -65,20 +65,30 @@ everywhere, without exception:
 2. Always use brace (uniform) initialization (`int a{0}`), which also rejects
    narrowing.
 3. Never use a C-style cast. Every conversion is an explicit `static_cast<T>(x)`
-   (or `qobject_cast` for QObjects; `reinterpret_cast` or `const_cast` only at a C API
+   (or `qobject_cast` for QObjects, and `reinterpret_cast` or `const_cast` only at a C API
    boundary). This one departs from the Qt wiki, which permits the constructor form
-   `int(myFloat)` for built in types: `T(x)` on a single expression is *defined* to be
+   `int(myFloat)` for built in types. `T(x)` on a single expression is defined to be
    equivalent to `(T)x`, so it is a C-style cast in different syntax, with the same
    power to silently become a `reinterpret_cast` or strip `const`, and
    `-Wold-style-cast` does not see it. Use `static_cast` even where the conversion is a
    no op on your platform (`static_cast<qint64>(size())` is a real widening on a 32 bit
    target).
 
-Also: no exceptions and no RTTI (`dynamic_cast`/`typeid`); `Q_OBJECT` in every QObject
-subclass; `override` (not `virtual`) when reimplementing; keep lines under 100 columns.
+Also, no exceptions and no RTTI (`dynamic_cast`/`typeid`), `Q_OBJECT` in every QObject
+subclass, `override` (never `virtual`) when reimplementing, and lines under 100 columns.
+
+The language is C++20, and warnings are errors, `-Wall -Wextra -Werror` for GCC and
+Clang, `/W4 /WX /permissive-` for MSVC and `clang-cl`. Both come from
+[cmake/SynQtBuildFlags.cmake](cmake/SynQtBuildFlags.cmake), which every `CMakeLists.txt`
+here includes and which `synqt build` writes into the CMake it generates for an
+application. Rule 2 above matters more than it looks because of this. A narrowing
+conversion inside brace initialization is a hard error under Clang and MSVC and only a
+warning under GCC, so `int index{string.indexOf(...)}` compiles on Linux and breaks the
+macOS and Windows columns. Building the tree once with `-DCMAKE_CXX_COMPILER=clang++`
+catches that whole class locally.
 
 Document a class or a member with a `///` block directly above its declaration, or a
-member with a `///<` comment after it: those reach the
+member with a `///<` comment after it. Those reach the
 [generated C++ reference](https://synqt.org/api/), whose conventions and local build are
 described in [docs/api-reference.md](docs/api-reference.md). A plain `//` comment stays a
 note to the next reader of that line, which is the right choice for a remark about one
