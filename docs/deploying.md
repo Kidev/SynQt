@@ -6,6 +6,11 @@ real TLS to the browser, and something that keeps the processes running. This pa
 the whole path once, in order, for a system with a web edge and a database entity.
 Nothing here is specific to a hosting provider.
 
+This is the reference, written to be read during a deploy. If you would rather do it once
+with the reasoning attached, [Shipping it](tutorial-ship.md) takes the auction from the
+tutorial onto two hosts and covers the same ground, plus the pipeline, the release and
+the rollback.
+
 The one shape to have in mind first: **a SynQt deployment is a project directory, not a
 bare binary.** Every entity binary resolves its runtime files relative to the directory
 it is started from, exactly as they are spelled in `synqt.yaml`: its topology under

@@ -298,5 +298,7 @@ SynQt. From here, the reference documents go deeper on every piece you used. A g
 next read is [the programming model](programming-model.md), which formalizes
 everything you just did by hand. Before the app grows much further, [testing your
 app](testing.md) is how the rules you checked by hand keep being checked. When the
-question becomes how to put the thing on a server rather than what to build next, it
-is [deploying a SynQt system](deploying.md).
+question becomes how to put the thing on a server rather than what to build next,
+[Shipping it](tutorial-ship.md) walks this same auction onto real hosts, with a
+pipeline and certificates of its own, and [deploying a SynQt
+system](deploying.md) is the ordered checklist to keep open while you do it.
