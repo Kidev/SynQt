@@ -38,7 +38,10 @@ public:
 
     /// Declare a page. file is relative to the pages directory; scope is the
     /// minimum session scope, empty for a page any session may fetch.
-    void addPage(const QString &route, const QString &file, const QString &scope);
+    /// Declare a page. `graphics` is the requirement the build decided ("accelerated" or
+    /// empty); the store carries it into the route table and never computes one.
+    void addPage(const QString &route, const QString &file, const QString &scope,
+                 const QString &graphics = QString{});
 
     bool hasRoute(const QString &route) const;
     QString scopeFor(const QString &route) const;
@@ -65,6 +68,7 @@ private:
         QString scope;
         QString hash;
         QString source;
+        QString graphics;
     };
 
     bool reload(const QString &route);

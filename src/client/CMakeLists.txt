@@ -33,6 +33,11 @@ qt_add_library(SynQtClient STATIC
     browserhistory.h
     clientupdate.cpp
     clientupdate.h
+    graphics.cpp
+    graphics.h
+    graphicsnotice.h
+    graphicsprobe.cpp
+    graphicsprobe.h
     qmlpalette.cpp
     qmlpalette.h
     remotepageloader.cpp

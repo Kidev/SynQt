@@ -41,11 +41,13 @@ PageStore::PageStore(QString pagesDir, QObject *parent)
 
 PageStore::~PageStore() = default;
 
-void PageStore::addPage(const QString &route, const QString &file, const QString &scope)
+void PageStore::addPage(const QString &route, const QString &file, const QString &scope,
+                        const QString &graphics)
 {
     Page page{};
     page.file = file;
     page.scope = scope;
+    page.graphics = graphics;
     m_pages.insert(route, page);
     m_routeByFile.insert(QDir{m_pagesDir}.filePath(file), route);
     if (!reload(route)) {
@@ -101,6 +103,11 @@ QString PageStore::routeTableJson() const
         QJsonObject entry{};
         entry.insert(QStringLiteral("path"), iterator.key());
         entry.insert(QStringLiteral("scope"), iterator.value().scope);
+        // Only when it says something. A page with no requirement leaves the table byte
+        // for byte what it was before this existed.
+        if (!iterator.value().graphics.isEmpty()) {
+            entry.insert(QStringLiteral("graphics"), iterator.value().graphics);
+        }
         table.append(entry);
     }
     return QString::fromUtf8(QJsonDocument{table}.toJson(QJsonDocument::Compact));

@@ -32,7 +32,7 @@ import os
 from pathlib import Path
 from typing import Any, Dict, List
 
-from . import appmodel, authentity, cmakegen, maingen, writer
+from . import appmodel, authentity, cmakegen, graphics as graphicsmod, maingen, writer
 
 
 def generate(project_dir: os.PathLike[str] | str, config: Dict[str, Any], *,
@@ -51,6 +51,10 @@ def generate(project_dir: os.PathLike[str] | str, config: Dict[str, Any], *,
     # sessions; every edge consumes them). Expanded once here so the CMake, every main.cpp
     # and the Source QML below all see the same topology.
     config = appmodel.with_auth_connect_points(config)
+    # Resolved once, here, so the client's route table and the edge's page list are
+    # generated from one decision. What the scan concluded is reported by `synqt check`
+    # (check.lint_graphics), which runs the same resolution.
+    config, _ = graphicsmod.resolve(config, root)
     written: List[str] = []
 
     cmake_path = root / "CMakeLists.txt"

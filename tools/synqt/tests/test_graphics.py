@@ -174,3 +174,93 @@ def test_lint_is_silent_when_every_route_is_plain(tmp_path):
     config = {"entities": [{"name": "web", "capability": "web_edge"}],
               "routes": [{"path": "/", "view": "Home.qml"}]}
     assert check.lint_graphics(config, root) == []
+
+
+# What the generators emit
+
+
+def _config(routes):
+    return {"project": {"name": "app"},
+            "entities": [{"name": "client", "kind": "client"},
+                         {"name": "web", "capability": "web_edge"}],
+            "routes": routes}
+
+
+def test_a_plain_route_emits_the_literal_it_always_did(tmp_path):
+    from synqt import maingen
+    root = _project(tmp_path)
+    (root / "client" / "Home.qml").write_text("import QtQuick\nItem {}")
+    config, _ = graphics.resolve(_config([{"path": "/", "view": "Home.qml"}]), root)
+    rendered = maingen.render_client_main(config, "app")
+    assert "GraphicsRequirement" not in rendered
+
+
+def test_an_accelerated_route_carries_the_requirement(tmp_path):
+    from synqt import maingen
+    root = _project(tmp_path)
+    (root / "client" / "Arena.qml").write_text("import QtQuick3D\nView3D {}")
+    config, _ = graphics.resolve(_config([{"path": "/arena", "view": "Arena.qml"}]), root)
+    rendered = maingen.render_client_main(config, "app")
+    assert "GraphicsRequirement::Accelerated" in rendered
+
+
+def test_an_accelerated_remote_page_carries_it_to_the_edge(tmp_path):
+    from synqt import maingen
+    root = _project(tmp_path)
+    (root / "web" / "pages" / "Tour.qml").write_text("import QtQuick3D\nView3D {}")
+    config, _ = graphics.resolve(_config([{"path": "/tour", "remote": "Tour.qml"}]), root)
+    edge = config["entities"][1]
+    rendered = maingen.render_edge_main(config, edge, [])
+    assert 'graphics = QStringLiteral("accelerated")' in rendered
+
+
+def test_a_plain_remote_page_emits_no_graphics_line(tmp_path):
+    from synqt import maingen
+    root = _project(tmp_path)
+    (root / "web" / "pages" / "Tour.qml").write_text("import QtQuick\nItem {}")
+    config, _ = graphics.resolve(_config([{"path": "/tour", "remote": "Tour.qml"}]), root)
+    edge = config["entities"][1]
+    rendered = maingen.render_edge_main(config, edge, [])
+    assert ".graphics" not in rendered
+
+
+def test_the_generated_client_selects_the_backend_before_the_application(tmp_path):
+    from synqt import maingen
+    root = _project(tmp_path)
+    (root / "client" / "Home.qml").write_text("import QtQuick\nItem {}")
+    config, _ = graphics.resolve(_config([{"path": "/", "view": "Home.qml"}]), root)
+    rendered = maingen.render_client_main(config, "app")
+    select = rendered.index("GraphicsProbe::selectBackend()")
+    application = rendered.index("QGuiApplication app")
+    assert select < application
+
+
+def test_the_generated_client_exposes_the_graphics_accessor(tmp_path):
+    from synqt import maingen
+    root = _project(tmp_path)
+    (root / "client" / "Home.qml").write_text("import QtQuick\nItem {}")
+    config, _ = graphics.resolve(_config([{"path": "/", "view": "Home.qml"}]), root)
+    rendered = maingen.render_client_main(config, "app")
+    assert 'setContextProperty(QStringLiteral("Graphics")' in rendered
+    assert "graphics.installWatcher()" in rendered
+    assert "graphics.attachTo(" in rendered
+
+
+def test_no_notice_override_emits_no_line(tmp_path):
+    from synqt import maingen
+    root = _project(tmp_path)
+    (root / "client" / "Home.qml").write_text("import QtQuick\nItem {}")
+    config, _ = graphics.resolve(_config([{"path": "/", "view": "Home.qml"}]), root)
+    # attachTo() always reads the field; what must be absent is the assignment.
+    assert "config.graphicsNoticeUrl = " not in maingen.render_client_main(config, "app")
+
+
+def test_a_notice_override_becomes_a_module_url(tmp_path):
+    from synqt import maingen
+    root = _project(tmp_path)
+    (root / "client" / "Home.qml").write_text("import QtQuick\nItem {}")
+    base = _config([{"path": "/", "view": "Home.qml"}])
+    base["client"] = {"graphics_notice": "MyNotice.qml"}
+    config, _ = graphics.resolve(base, root)
+    rendered = maingen.render_client_main(config, "app")
+    assert 'config.graphicsNoticeUrl = QStringLiteral("qrc:/qt/qml/app/MyNotice.qml")' in rendered

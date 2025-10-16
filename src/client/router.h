@@ -30,7 +30,7 @@ class Session;
 /// Scope-gated navigation over the route table, and the browser's address bar
 /// (see the [runtime API reference](https://synqt.org/runtime-api/)).
 ///
-/// A route guard is a redirect rule, NOT a secrecy mechanism: a compiled-in
+/// A route guard is only a redirect rule and keeps nothing secret: a compiled-in
 /// view ships to every visitor, so a guard only steers navigation, while the
 /// data behind a privileged view still arrives only through scope-gated
 /// connect points the edge refuses to an under-scoped session.
@@ -59,6 +59,10 @@ public:
         Forbidden,
         NotFound,
         Error,
+        /// The route needs an accelerated scene graph and this client has a raster one.
+        /// Like Forbidden, it is a guard rather than a failure. The page exists and this
+        /// browser cannot draw it.
+        Unsupported,
     };
     Q_ENUM(PageStatus)
 
@@ -124,20 +128,15 @@ protected:
         RouteConfig config;
     };
 
-    /// Hook for a page this class cannot build itself. Plan A's default (kept
-    /// for OverridingRouter-style subclasses in the url-routing regression
-    /// suite) returns false. Here it starts a fetch through the loader and
-    /// reports Loading.
+    /// Hook for a page this class cannot build itself. Starts a fetch through the loader and
+    /// reports Loading; returns false when there is no loader. Virtual so a test can stand in.
     virtual bool resolveRemote(const QString &path, const RouteConfig &route);
 
     /// Table lookup, most-literal-first. Returns nullptr when nothing matches.
     const Route *lookup(const QString &path, QVariantMap *parameters) const;
 
-    /// Who is responsible for freeing a component passed to setPageComponent.
-    /// A RemotePageLoader owns and frees its own cached components (keyed by
-    /// content hash, reused across visits); Router must never delete one of
-    /// those itself, or the next visit to the same page hands out a freed
-    /// pointer (and invalidate()/replace-on-deliver double-frees it).
+    /// Who frees a component passed to setPageComponent. A RemotePageLoader owns its cached
+    /// components (keyed by content hash); Router must never delete one.
     enum class ComponentOwnership {
         Router, ///< this Router (or an override) built it. Freed on replacement
         Loader, ///< a RemotePageLoader owns it. Never freed here
@@ -163,14 +162,8 @@ private:
 
     void navigate(const QString &pathWithQuery, bool push);
 
-    /// queryChanged reports whether navigate() replaced the query with a
-    /// different one. It has to be threaded in because query's NOTIFY signal
-    /// is pathChanged. Without it a same-route navigation carrying new query
-    /// data would change query and notify nobody.
-    ///
-    /// path is taken by value, not by reference: the scope-change re-resolve
-    /// calls this with m_path itself, and resolve() assigns m_path inside, so
-    /// a reference parameter would alias the very member it overwrites.
+    /// queryChanged reports whether navigate() replaced the query, since query's NOTIFY is
+    /// pathChanged. `path` is taken by value: the scope-change re-resolve passes m_path itself.
     void resolve(QString path, bool queryChanged);
     void setPageUrl(const QString &componentUrl, PageStatus status);
 
@@ -185,12 +178,9 @@ private:
     QVariantMap m_query;
     QQmlComponent *m_pageComponent{nullptr};
 
-    /// Where m_pageComponent was loaded from, unset when it did not come from
-    /// a URL (an override supplied it). Navigating to the same URL reuses the
-    /// component instead of rebuilding it. Optional rather than an empty
-    /// string because "" is a real key here (a route with no compiled-in
-    /// view), and aliasing the two would let an override's page survive a
-    /// redirect that is supposed to replace it.
+    /// Where m_pageComponent was loaded from, unset when an override supplied it, so navigating to
+    /// the same URL reuses the component. Optional because "" is a real key (a route with no
+    /// compiled-in view).
     std::optional<QString> m_pageUrl;
     PageStatus m_pageStatus{NotFound};
 
