@@ -15,8 +15,10 @@
 #include "websockettransport.h"
 
 #include <QCryptographicHash>
+#include <QDateTime>
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -55,7 +57,7 @@ private slots:
     void fetchRefusalsCarryNoSeed();
     void fetchPrefersTheMoreLiteralRoute();
 
-    // Task 6b. The Pages connect point hosted by WebEdge. These construct
+    // The Pages connect point hosted by WebEdge. These construct
     // the real hosted Source (PagesEdgeSource) the way WebEdge::hostConnection()
     // does: a live session-bound Caller via Caller::forUser, then the Source
     // built over it, instead of calling PagesService directly, which is what
@@ -67,7 +69,7 @@ private slots:
     void edgeWithNoPagesHostsNoPagesConnectPoint();
     void edgeWithPagesHostsAReachablePagesConnectPoint();
 
-    // Task 7b: the app-facing seed hook, built by WebEdge from each page's `seed:` and
+    // The app-facing seed hook, built by WebEdge from each page's `seed:` and
     // dispatched through the one provider installed on the shared PagesService.
     void edgeSeedsAPageFromItsHook();
     void edgeSeedHookReadsTheCaller();
@@ -93,9 +95,37 @@ void tst_PageStore::contractLowersToAUsablePod()
 
 namespace {
 
+// Make a write to path a change QFileSystemWatcher is able to report.
+//
+// The Windows engine compares neither content nor size. It keeps the QFileInfo it stat'ed
+// when the path was added, re-stats on every notification, and reports a change only when
+// the owner, group, permissions or modification time moved (qfilesystemwatcher_win_p.h,
+// PathInfo::operator!=). A modification time has the system clock's granularity, one timer
+// tick of about 15 ms, so a page rewritten inside one tick of its creation leaves both
+// stamps equal and Qt delivers nothing. Nobody editing a file saves twice inside one tick,
+// so this is a fixture concern.
+//
+// So move the stamp forward when the write did not. A second is far past any clock
+// granularity and still inside the store's quiet window.
+void moveTheModificationStamp(const QString &path, const QDateTime &before)
+{
+    if (!before.isValid() || QFileInfo{path}.lastModified() != before) {
+        return;
+    }
+    QFile file{path};
+    if (!file.open(QIODevice::ReadWrite)) {
+        qWarning("could not restamp %s: %s", qPrintable(path), qPrintable(file.errorString()));
+        return;
+    }
+    file.setFileTime(before.addSecs(1), QFileDevice::FileModificationTime);
+    file.close();
+}
+
 QString writePage(const QDir &dir, const QString &name, const QByteArray &body)
 {
-    QFile file{dir.filePath(name)};
+    const QString path{dir.filePath(name)};
+    const QDateTime before{QFileInfo{path}.lastModified()};
+    QFile file{path};
     if (!file.open(QIODevice::WriteOnly)) {
         // Silence here buys a five-second wait for a change that was never written, and
         // a failure that names the wait rather than the cause.
@@ -105,30 +135,34 @@ QString writePage(const QDir &dir, const QString &name, const QByteArray &body)
     }
     file.write(body);
     file.close();
+    moveTheModificationStamp(path, before);
     return name;
 }
 
-// Replace name with new content under a fresh inode. Write a sibling temp
-// file, then rename it over the watched path. Unlike writePage's in-place
-// truncate (same inode), this is what a real editor's atomic save does, and
-// it is what drops a naive QFileSystemWatcher watch.
+// Replace name with new content under a fresh inode: write a sibling temp file, then rename
+// it over the watched path. Unlike writePage's in-place truncate (same inode), this is a
+// real editor's atomic save, and it drops a naive QFileSystemWatcher watch.
 //
 // Windows will not unlink or rename over a file another process holds open, and on a CI
 // image an indexer or a scanner opens a freshly written file for a moment. Qt reports that
-// as a plain false, so ignoring the return value leaves the old content in place and the
-// watcher has nothing to report. Retry for a moment, which is what an editor's atomic save
-// does too, and say so rather than pretend the replace happened.
+// as a plain false, so retry briefly, as an editor's atomic save does, and fail loudly if
+// the replace never happens.
 bool replacePage(const QDir &dir, const QString &name, const QByteArray &body)
 {
+    const QString target{dir.filePath(name)};
+    const QDateTime before{QFileInfo{target}.lastModified()};
     const QString temporaryName{name + QStringLiteral(".tmp")};
     if (writePage(dir, temporaryName, body).isEmpty()) {
         return false;
     }
-    const QString target{dir.filePath(name)};
     const QString temporary{dir.filePath(temporaryName)};
+    // A rename carries the sibling's modification time onto the watched path, so the
+    // one-tick collision above applies here too: stamp the sibling before it takes the
+    // name, while it is still a file of its own.
+    moveTheModificationStamp(temporary, before);
     constexpr int attempts{40};
     for (int attempt{0}; attempt < attempts; ++attempt) {
-        // Split rather than chained: a remove that succeeded must not be retried, or the
+        // Split rather than chained. A remove that succeeded must not be retried, or the
         // next pass fails on a file that is already gone and never reaches the rename.
         if (!QFile::exists(target) || QFile::remove(target)) {
             if (QFile::rename(temporary, target)) {
@@ -142,14 +176,12 @@ bool replacePage(const QDir &dir, const QString &name, const QByteArray &body)
 }
 
 // A Caller built the way a real accepted connection gets one: a live session
-// (SynQt::SessionManager::createSession()) bound to a Caller via
-// SynQt::Caller::forUser(), exactly as WebEdge::hostConnection() does. Also
-// installs the scope order the same way WebEdge::hostConnection() does
-// (webedge.cpp:732), so fetchPageFor()'s hasScope() checks rank scopes
-// hierarchically here too, rather than only ever exercising the
-// exact-string-equality branch. Test-only. A bare, unbound Caller has no
-// session and cannot authorize anything for real, so this composes only the
-// existing production API rather than widening Caller itself for testing.
+// (SynQt::SessionManager::createSession()) bound to a Caller via SynQt::Caller::forUser(),
+// as WebEdge::hostConnection() does. It also installs the scope order the same way, so
+// fetchPageFor()'s hasScope() checks rank scopes hierarchically here too, rather than only
+// exercising the exact-match branch. A bare Caller has no session and cannot authorize
+// anything, so this composes the existing production API rather than widening Caller for
+// testing.
 SynQt::Caller *scopedCaller(SynQt::SessionManager &sessions, const QString &scope,
                             QObject *parent)
 {
@@ -421,7 +453,7 @@ void tst_PageStore::storeIgnoresARewriteThatChangesNothing()
 
     QSignalSpy changed{&store, &SynQt::PageStore::pageChanged};
 
-    // Saving a file without editing it is a notification, not a change. Relaying it would
+    // Saving a file without editing it changes nothing. Relaying it would
     // make every open tab re-fetch a page it already has, byte for byte.
     writePage(dir, QStringLiteral("Campaign.qml"), "import QtQuick\nItem {}");
     QVERIFY2(!changed.wait(1000), "an unchanged file was reported as a change");
@@ -559,14 +591,13 @@ void tst_PageStore::fetchSeedsThePageWhenAProviderIsSet()
 
 void tst_PageStore::fetchSeedsANotModifiedReplyForTheRequestedParameters()
 {
-    // A page's hash is the hash of the page FILE, so every parameterization of one
-    // route shares it. A visitor who reads "/c/summer-sale" and then navigates to
-    // "/c/black-friday" sends the first page's hash along with the second path: the
-    // reply is notModified, and the client keeps its previous seed on an
-    // empty one (router.cpp). A notModified carrying no seed would therefore paint
-    // black-friday with the summer-sale seed. Only the bulky qml payload is worth
-    // skipping on a cache hit. The seed is small and parameter-dependent, so it must
-    // always describe the request that was made.
+    // A page's hash is the hash of the page FILE, so every parameterization of one route
+    // shares it. A visitor who reads "/c/summer-sale" and then navigates to
+    // "/c/black-friday" sends the first page's hash with the second path: the reply is
+    // notModified, and the client keeps its previous seed on an empty one (router.cpp). A
+    // notModified without a seed would paint black-friday with the summer-sale seed. Only
+    // the bulky qml payload is worth skipping on a cache hit; the seed is small and
+    // parameter-dependent, so it always describes the request that was made.
     QTemporaryDir pages{};
     writePage(QDir{pages.path()}, QStringLiteral("C.qml"), "import QtQuick\nItem {}");
     SynQt::PageStore store{pages.path()};
@@ -782,9 +813,9 @@ void tst_PageStore::hostedPageChangedRelaysToTheSource()
     SynQt::PagesEdgeSource source{&store, &service, caller, this};
     caller->setSource(&source);
 
-    // Two spies, because this test has two halves and a bare timeout does not say which
-    // one broke. The store noticing the file, and the Source relaying what the store
-    // emitted. This one timed out on a Windows runner once with nothing to go on.
+    // Two spies, because this test has two halves (the store noticing the file, and the
+    // Source relaying what the store emitted) and a bare timeout does not say which one
+    // broke.
     QSignalSpy storeChanged{&store, &SynQt::PageStore::pageChanged};
     QSignalSpy changed{&source, &SynQt::PagesEdgeSource::pageChanged};
     writePage(dir, QStringLiteral("C.qml"),
@@ -1037,7 +1068,7 @@ void tst_PageStore::edgeLogsAHookWithNoSeedFunctionOnlyOnce()
 {
     // A hook whose seedFor is missing is reachable from the browser. A client can ask
     // for that page in a loop. If each failed request logged, the edge's log would grow
-    // without bound on demand, which is a denial of service with extra steps. The hook
+    // without bound on demand, which is a denial of service. The hook
     // is checked once, when it is built, and then is not there.
     QTemporaryDir bundle{};
     QTemporaryDir pages{};
