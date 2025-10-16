@@ -1,15 +1,14 @@
 // SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 // SPDX-License-Identifier: Apache-2.0
 
-// The parts of the M0 proof that are not about a particular browser driver: serving the built
-// client, running the native edge, and deciding from the page's own log lines whether all four
-// QtRO directions worked.
+// The parts of the M0 proof that are not about a particular browser driver: serving the
+// built client, running the native edge, and deciding from the page's own log lines whether
+// all four QtRO directions worked.
 //
-// Split out when real Safari joined the matrix. Safari cannot be driven by Playwright and its
-// WebDriver exposes no console log, so it needs a different driver (verify-safari.mjs) but must
-// reach exactly the same verdict from exactly the same sentinels. Two copies of `analyze` would
-// be two definitions of what passing means, and the one that drifted would be the one nobody
-// re-read.
+// Shared because Safari cannot be driven by Playwright and its WebDriver exposes no console
+// log, so it needs a different driver (verify-safari.mjs) that must reach exactly the same
+// verdict from the same sentinels. Two copies of `analyze` would be two definitions of what
+// passing means.
 
 import http from "node:http";
 import fs from "node:fs";
@@ -238,16 +237,17 @@ export function pageUrl(scheme, port) {
 
 // What the page said, for a case that failed.
 //
-// Every one of these lines was already being collected and then dropped on the floor: a
-// failure reported five booleans and a counter array, which say which path did not work and
-// nothing whatsoever about why. That is not enough to act on. Firefox-on-Linux has failed
-// here with reply=false through two rounds of investigation, and each round had to start by
-// guessing what the page had done, because the one artefact that knew was discarded at the
-// moment it became interesting. The console carries the client's own account (M0 slot error,
-// M0 socket error=..., PAGEERROR ...), so print it where it is needed.
+// Five booleans and a counter array say which path did not work and nothing about why. The
+// console carries the client's own account (M0 slot error, M0 socket error=..., PAGEERROR
+// ...), so it is printed where it is needed.
 export function dumpEvidence(logs) {
-    const interesting = (logs || []).filter(
-        (line) => /^(M0|PAGEERROR|CSPVIOLATION)/.test(line));
+    // Every line, with nothing filtered. Keeping only lines beginning with a
+    // sentinel throws away the ones that name a cause. Qt says why it is about to call
+    // qFatal in ordinary warnings ("Failed to create RHI", "Failed to initialize graphics
+    // backend for OpenGL"), and the abort that follows reaches the harness as a bare
+    // "PAGEERROR Aborted()" with nothing attached to it. Keeping only the sentinels turns a
+    // named cause into an unexplained abort.
+    const interesting = logs || [];
     // The frame-size instrument (M0 rx frame bytes=N) emits ~1-2 lines/sec, so a 25-line tail
     // would scroll the early reply frame out of view. The whole session is what makes the
     // "did the reply frame reach the client" question answerable, so show all of it on failure.

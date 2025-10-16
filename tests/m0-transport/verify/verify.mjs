@@ -45,6 +45,34 @@ function launchOptions(browserType) {
     return options;
 }
 
+// What the engine will give Qt Quick to draw with, asked of the engine itself on a blank
+// page, and empty when it has nothing.
+//
+// The M0 client is an ApplicationWindow, and Qt Quick has no software fallback on
+// WebAssembly: with no WebGL context the scene graph cannot be created and QSGRenderLoop
+// ends that with qFatal, which is emscripten's abort(). That is not confined to drawing.
+// abort() sets emscripten's ABORT flag, and callUserCallback then returns without running
+// anything, so every callback queued through emscripten_async_call is dropped from that
+// moment on. That is the first of the two hops in QEventDispatcherWasm::wakeUp(), so the
+// client keeps its socket, its timers and its property pushes and never delivers another
+// posted event -- and the one path here that rides a posted event is the returning slot's
+// reply (QRemoteObjectPendingCallWatcher::finished is QtRO's lone queued connection). A
+// machine with no GL therefore produces exactly "reply=false while everything else works",
+// which is the signature this matrix chased for months. Ask the engine first, and say so.
+async function graphicsRenderer(browser) {
+    const page = await browser.newPage();
+    try {
+        await page.goto("about:blank");
+        return await page.evaluate(() => {
+            const canvas = document.createElement("canvas");
+            const context = canvas.getContext("webgl2") || canvas.getContext("webgl");
+            return context ? String(context.getParameter(context.RENDERER)) : "";
+        });
+    } finally {
+        await page.close();
+    }
+}
+
 function newPageWithLogs(context, name) {
     return context.newPage().then((page) => {
         const logs = [];
@@ -136,13 +164,29 @@ async function main() {
     const browsers = [];
     const engineVersions = {};
     for (const [browserType, browserName] of candidateBrowsers) {
+        let probe = null;
         try {
-            const probe = await browserType.launch(launchOptions(browserType));
-            engineVersions[browserName] = probe.version();
-            await probe.close();
-            browsers.push([browserType, browserName]);
+            probe = await browserType.launch(launchOptions(browserType));
         } catch (err) {
             console.log(`  skipping ${browserName}: ${firstLine(err)}`);
+            continue;
+        }
+        try {
+            engineVersions[browserName] = probe.version();
+            // A runtime that launches but hands out no WebGL context cannot start this
+            // client at all, so it has nothing to say about the transport. Dropped with its
+            // reason, the same way a missing runtime is, because the fix is to install a
+            // rasteriser on the machine and not to change anything here.
+            const renderer = await graphicsRenderer(probe);
+            if (!renderer) {
+                console.log(`  skipping ${browserName}: no WebGL context, so the Qt Quick `
+                            + "client cannot start (install Mesa's software rasteriser)");
+                continue;
+            }
+            engineVersions[browserName] += ` on ${renderer}`;
+            browsers.push([browserType, browserName]);
+        } finally {
+            await probe.close();
         }
     }
     // Which engine build ran, on every run and not only a failing one. This harness is the
@@ -154,6 +198,11 @@ async function main() {
         .map(([, name]) => `${name} ${engineVersions[name]}`)
         .join(", ");
     console.log(`  engines: ${engineList}`);
+    // With every candidate dropped there is no gate, only an empty summary that reads like a
+    // pass. Say what happened instead.
+    if (browsers.length === 0) {
+        throw new Error("no browser engine here can run the client, so nothing was proven");
+    }
     const ranWebkit = browsers.some(([, name]) => name === "webkit");
     const schemes = [
         ["ws", WS_PORT],

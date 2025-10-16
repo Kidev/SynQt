@@ -103,12 +103,24 @@ jobs:
         # libgl1-mesa-dev pulls the libglvnd dev files, covering CMake's OPENGL_opengl_LIBRARY,
         # OPENGL_glx_LIBRARY, and OPENGL_INCLUDE_DIR. macOS has OpenGL in the SDK and needs
         # none of this, which is why only the Linux column ever failed here.
+        #
+        # The rasteriser and the GLX and EGL runtimes are for the browsers rather than for
+        # the build. The M0 client is an ApplicationWindow, so it needs a WebGL context to
+        # start its scene graph, and only Chromium brings a rasteriser of its own; Firefox
+        # and WebKit take the machine's GL and get nothing on a runner where Mesa is absent.
+        # A WASM client that cannot create the context does not just fail to draw: Qt ends
+        # it with qFatal, which is emscripten's abort(), which sets ABORT, after which every
+        # callback queued through emscripten_async_call is dropped -- the first hop of
+        # QEventDispatcherWasm::wakeUp(). The socket, the timers and the property pushes
+        # carry on and posted events never arrive again, which is the shape of the Firefox
+        # stall this matrix has been carrying (tests/m0-transport/FIREFOX-LINUX.md).
         if: runner.os == 'Linux'
         shell: bash
         run: |
           set -eu
           sudo apt-get update
-          sudo apt-get install -y libgl1-mesa-dev
+          sudo apt-get install -y libgl1-mesa-dev libgl1-mesa-dri \
+            libglx-mesa0 libegl1 libegl-mesa0 libgbm1
 
       - name: Cache the Qt kit
         # The whole kit tree, kits plus the QtRemoteObjects we build from source into the WASM
@@ -218,6 +230,11 @@ jobs:
           # run-m0.sh configures the client through the wasm kit's qt-cmake, which needs the
           # host tools named (see the QtRemoteObjects build step).
           QT_HOST_PATH: ${{ github.workspace }}/Qt/${{ env.QT_VERSION }}/${{ matrix.qt_host_dir }}
+          # No GPU here, so say so rather than letting each engine find out for itself.
+          # Measured on a workstation forced to llvmpipe this way: headless Firefox hands out
+          # a WebGL 2.0 context with no preferences set, so Mesa's software rasteriser is
+          # all the browsers ever needed. Harmless on macOS, which ignores it.
+          LIBGL_ALWAYS_SOFTWARE: "1"
         run: |
           source "$HOME/emsdk/emsdk_env.sh"
           tests/m0-transport/verify/run-m0.sh
