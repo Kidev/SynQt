@@ -3,12 +3,12 @@
 
 /* The home page's "What it looks like" project.
  *
- * The section is one small system, drawn three times: a project tree of its seven files,
+ * The section is one small system, drawn three times: a project tree of its nine files,
  * a diagram of the mesh those files build, with a file behind every part of it (the
- * configuration behind the cog, the contract behind the link the browser and the edge
- * share, one QML file behind each entity), and a file view showing exactly one of those
+ * configuration behind the cog, one contract behind each of the three links, one QML
+ * file behind each entity), and a file view showing exactly one of those
  * files at a time. Pointing at a file in either the tree or the diagram opens it, and
- * lights it in the other, so the two are one set of triggers over the same seven files.
+ * lights it in the other, so the two are one set of triggers over the same nine files.
  * A file stays until another is pointed at, so the reader can move the pointer into the
  * file and read it, and it takes a moment's dwell to open, so a pointer crossing the
  * section on its way elsewhere does not leaf through every file behind it. The
