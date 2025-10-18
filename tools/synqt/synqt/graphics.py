@@ -53,7 +53,7 @@ ACCELERATED_TYPES = frozenset({
     "ShaderEffect",
 })
 
-_BYTE_ORDER_MARK = "﻿"
+_BYTE_ORDER_MARK = "\ufeff"
 
 
 def _stripped(source: str) -> str:

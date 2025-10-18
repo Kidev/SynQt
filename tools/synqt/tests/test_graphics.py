@@ -39,7 +39,7 @@ def test_semicolon_ends_a_statement():
 
 
 def test_byte_order_mark_is_skipped():
-    assert graphics.scan_source("﻿import QtQuick3D\nView3D {}") is True
+    assert graphics.scan_source("\ufeffimport QtQuick3D\nView3D {}") is True
 
 
 def test_import_keyword_must_stand_alone():
@@ -264,3 +264,20 @@ def test_a_notice_override_becomes_a_module_url(tmp_path):
     config, _ = graphics.resolve(base, root)
     rendered = maingen.render_client_main(config, "app")
     assert 'config.graphicsNoticeUrl = QStringLiteral("qrc:/qt/qml/app/MyNotice.qml")' in rendered
+
+
+def test_lint_refuses_a_notice_that_is_not_there(tmp_path):
+    from synqt import check
+    root = _project(tmp_path)
+    config = {"entities": [{"name": "web", "capability": "web_edge"}],
+              "client": {"graphics_notice": "Missing.qml"}, "routes": []}
+    assert any(m.startswith("error:") for m in check.lint_graphics(config, root))
+
+
+def test_lint_accepts_a_notice_that_is_there(tmp_path):
+    from synqt import check
+    root = _project(tmp_path)
+    (root / "client" / "MyNotice.qml").write_text("import QtQuick\nItem {}")
+    config = {"entities": [{"name": "web", "capability": "web_edge"}],
+              "client": {"graphics_notice": "MyNotice.qml"}, "routes": []}
+    assert check.lint_graphics(config, root) == []
