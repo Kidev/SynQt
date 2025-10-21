@@ -1,0 +1,13 @@
+# SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+# SPDX-License-Identifier: Apache-2.0
+
+# The sdist has to carry the in-tree build backend that builds it. `backend-path = ["."]`
+# in pyproject.toml points at a module setuptools does not otherwise know about (it is not
+# part of the `synqt` package), so without this line `pip install` of the sdist fails with
+# "Cannot find module '_build_backend'" before it compiles anything.
+include _build_backend.py
+
+# The tests are the CLI's own suite, not part of the installed package, and they are run
+# from a checkout. Keeping them out of the sdist keeps it to what building it needs.
+prune tests
+global-exclude __pycache__ *.py[cod]

@@ -27,12 +27,13 @@ cd my-app
 synqt dev
 ```
 
-On Windows, in PowerShell: `irm https://get.synqt.org/install.ps1 | iex`.
+On Windows, in PowerShell: `irm https://get.synqt.org/install.ps1 | iex`. If you already
+have Python, `pipx install synqt` gets you the same CLI from PyPI.
 
-That one binary is all you install by hand. The first build downloads and pins the
-rest of the toolchain (the Qt SDK and the Emscripten compiler) into the project, so
-every machine gets the same versions. Full walkthrough in
-[getting started](https://synqt.org/getting-started/).
+The CLI pins the rest of the toolchain (the Qt SDK and the Emscripten compiler) to one
+version per project, and `synqt doctor` prints the exact `aqt` and `emsdk` commands
+that install whatever is missing, so every machine gets the same versions. Full
+walkthrough in [getting started](https://synqt.org/getting-started/).
 
 ## What a system looks like
 

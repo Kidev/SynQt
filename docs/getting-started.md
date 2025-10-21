@@ -21,12 +21,26 @@ The installer drops a single `synqt` binary on your `PATH`. Confirm it is there:
 synqt --version
 ```
 
+> [!TIP]
+> If you already have Python and would rather manage `synqt` with it, the same CLI is on
+> PyPI:
+>
+> ```cli
+> pipx install synqt
+> ```
+>
+> `pip install synqt` works too. `pipx` is the suggestion because this is an application
+> rather than a library. Both installs are cut from the same tag and behave identically.
+> The rest of this page reads the same either way.
+
 > [!NOTE]
-> That one binary is all you install by hand. The first time you build a project,
-> `synqt` downloads and pins the rest of the toolchain it needs (the Qt SDK and the
-> Emscripten compiler that turns your QML into WebAssembly) into the project, so
-> every machine and every teammate gets the exact same versions. You never install
-> Qt or Emscripten yourself.
+> `synqt` pins the rest of the toolchain (the Qt SDK and the Emscripten compiler that
+> turns your QML into WebAssembly) to one version per project, so every machine and
+> every teammate compiles against the exact same versions. It does not download that
+> toolchain itself. `synqt doctor` names each missing piece and prints the exact `aqt`
+> and `emsdk` command that installs it into the project's `synqt/toolchain/`
+> directory. A Qt already installed under `/opt/Qt`, `~/Qt` or `QTDIR` at the pinned
+> version is found and used as it is.
 
 Now check your machine is ready:
 
