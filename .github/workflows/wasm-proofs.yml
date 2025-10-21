@@ -45,6 +45,12 @@ on:
       - "tools/synqt/synqt/build.py"
       - ".github/workflows/wasm-proofs.yml"
 
+# Nothing here writes to the repository: every job checks the tree out, builds it, and
+# uploads its artifacts, which needs no token at all. Stating that here means the run keeps
+# a read-only token whatever the repository or organisation default happens to be.
+permissions:
+  contents: read
+
 concurrency:
   group: wasm-proofs-${{ github.ref }}
   cancel-in-progress: true
