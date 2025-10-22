@@ -131,6 +131,10 @@ synqt add provider <name> --family <fam>         # Scaffold a provider for a fam
 
 synqt providers         # List available providers per blueprint family.
 synqt mesh ...          # Certificate authority and entity certificates.
+
+synqt docker init       # Generate the Dockerfile, compose file, and container profile.
+synqt docker up         # Build the images and start one container per entity.
+synqt docker down       # Stop them (--volumes also discards the CA and engine data).
 ```
 
 `synqt --version` (or `-V`) answers in three lines:

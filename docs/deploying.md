@@ -11,6 +11,11 @@ with the reasoning attached, [Shipping it](tutorial-ship.md) takes the auction f
 tutorial onto two hosts and covers the same ground, plus the pipeline, the release and
 the rollback.
 
+[Running in containers](docker.md) is a different question with a similar shape, and it is
+worth saying which is which. That page gets a system running on a machine that has nothing
+installed, with a certificate authority created and discarded inside the compose project.
+This page is about a system somebody else depends on.
+
 The one shape to have in mind first: **a SynQt deployment is a project directory, not a
 bare binary.** Every entity binary resolves its runtime files relative to the directory
 it is started from, exactly as they are spelled in `synqt.yaml`: its topology under

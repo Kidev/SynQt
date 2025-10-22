@@ -72,6 +72,15 @@ browser.
   (`presets`), emit the per target license file (`licenses`), build the WebAssembly client
   (`clientbuild`), and write each service's `topology.json` (`topologywriter`). `cli.py`
   wires them to the argument parser.
+- `docker` is the `synqt docker` family, and it generates rather than runs: a Dockerfile,
+  a compose file, an entrypoint, a `.dockerignore`, and the `synqt.docker.yaml` profile
+  that pins each entity to an address on the container network. Addresses and not service
+  names, because a mesh endpoint is read into a `QHostAddress`. The one arrangement in
+  there worth knowing before reading it: an engine container shares its entity's network
+  namespace and holds that entity's address, so the entity reaches its engine over
+  loopback and an external provider's release-time refusal of an unverified connection is
+  satisfied honestly rather than switched off. See
+  [running in containers](docker.md#engines).
 - Generation itself is split by what it emits, since the outputs share only the topology
   they read: `appmodel` reads that topology (entities, connect points, scopes, routes,
   views, the client's QML files) and refuses one it cannot read, `cmakegen` writes the

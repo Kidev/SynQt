@@ -205,6 +205,7 @@ nav:
       - Project layout and config: project-layout-and-config.md
       - Build system and CLI: build-system-and-cli.md
       - Testing your app: testing.md
+      - Running in containers: docker.md
       - Deploying: deploying.md
       - Desktop clients: desktop.md
       - Security: security.md
