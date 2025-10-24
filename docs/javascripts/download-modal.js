@@ -29,6 +29,10 @@
   var INSTALL_PS_URL = "https://get.synqt.org/install.ps1";
   var ONELINER_SH = "curl -fsSL https://get.synqt.org/install.sh | sh";
   var ONELINER_PS = "irm https://get.synqt.org/install.ps1 | iex";
+  // The same CLI, published as a wheel from the same tag as the binaries above
+  // (tools/synqt/pyproject.toml), for anyone who already manages tools with Python.
+  var ONELINER_PIP = "pipx install synqt";
+  var PYPI_URL = "https://pypi.org/project/synqt/";
 
   var API_LATEST = "https://api.github.com/repos/" + OWNER + "/" + REPO + "/releases/latest";
   // Written by source-facts.js from the header's repository facts (see that file).
@@ -170,6 +174,9 @@
       '  <p class="synqt-dl__sublabel">Windows (PowerShell):</p>' +
       '  <pre class="synqt-dl__pre"><button class="synqt-dl__copy" type="button">copy</button><code>' + ONELINER_PS + "</code></pre>" +
       '  <p class="synqt-dl__warn"><strong>Read a script before you pipe it to a shell.</strong> Either of these downloads a release, extracts it, and copies one binary into a bin directory, and nothing else. Read <a href="' + INSTALL_SH_URL + '" target="_blank" rel="noopener">install.sh</a> or <a href="' + INSTALL_PS_URL + '" target="_blank" rel="noopener">install.ps1</a> yourself before you run it.</p>' +
+      '  <p class="synqt-dl__label">Or, if you already have Python, from PyPI.</p>' +
+      '  <pre class="synqt-dl__pre"><button class="synqt-dl__copy" type="button">copy</button><code>' + ONELINER_PIP + "</code></pre>" +
+      '  <p class="synqt-dl__sublabel synqt-dl__last">Any platform, and the same CLI: the wheel is cut from the same tag as the downloads above. <code>pip install synqt</code> works too; pipx is the suggestion only because this is an application rather than a library. See <a href="' + PYPI_URL + '" target="_blank" rel="noopener">synqt on PyPI</a>.</p>' +
       "</div>";
 
     document.body.appendChild(modal);
