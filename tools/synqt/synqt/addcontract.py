@@ -17,8 +17,8 @@ _CONTRACT_TEMPLATE = """// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumar
 // A SynQt contract: the typed shape of what may cross a connect point. Only declared
 // model roles ever reach a consumer; props are READPUSH (consumers read, cannot set).
 contract {name} {{
-    prop int count                    // owner writes, consumers read
-    model rows(id, text)              // only these roles cross to consumers
+    prop int count                       // owner writes, consumers read
+    model rows(int id, string text)      // only these roles cross to consumers
     slot add(string text)             // a consumer -> owner request; authorize Caller
     signal changed()                  // the owner notifies consumers
 }}

@@ -111,7 +111,7 @@ and the generated Source exposes `set<Model>` to publish rows (see
 ```syn
 // shared/Items.syn
 contract Items {
-    model rows(text, author)          // only these roles cross to consumers
+    model rows(string text, string author)   // only these roles cross to consumers
     slot insert(ItemRow row)
 }
 

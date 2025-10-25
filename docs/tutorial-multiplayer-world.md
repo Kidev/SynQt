@@ -17,9 +17,10 @@ the map, a request to aim somewhere, and an event when one blob eats another. Cr
 //   slot   : a request from a browser to the edge
 //   signal : the edge telling browsers something happened
 contract Arena {
-    model blobs(id, name, x, y, mass, online)   // every player, for drawing
-    model board(name, mass)                       // the live leaderboard, biggest first
-    model pellets(id, x, y)                       // food scattered on the map
+    // Every player, for drawing.
+    model blobs(string id, string name, real x, real y, real mass, bool online)
+    model board(string name, real mass)           // the live leaderboard, biggest first
+    model pellets(string id, real x, real y)      // food scattered on the map
     slot steer(real x, real y)                    // "I am aiming at this spot" (a goal)
     slot real ping()                              // the edge clock in ms, for latency
     signal eaten(string prey, string predator)    // one blob swallowed another

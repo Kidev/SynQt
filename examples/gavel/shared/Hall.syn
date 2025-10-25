@@ -5,5 +5,7 @@
 // (docs/tutorial-hall-of-fame.md). The edge fills it from the database and mirrors it to
 // every browser. Only these three roles cross the wire.
 contract Hall {
-    model winners(item, winner, amount)   // a live list the browser watches
+    // A live list the browser watches. Every role is typed, so a row that does not
+    // match is refused where it is published rather than serialized.
+    model winners(string item, string winner, int amount)
 }

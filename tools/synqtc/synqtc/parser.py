@@ -13,7 +13,7 @@ Grammar (whitespace and ``//`` or ``/* */`` comments are insignificant)::
               | 'slot'   [TYPE] IDENT '(' [param (',' param)*] ')'
     record   := 'record' IDENT '(' [param (',' param)*] ')'
     param    := TYPE IDENT
-    role     := IDENT
+    role     := TYPE IDENT
     TYPE     := IDENT
 
 The parser is deliberately strict: anything it cannot read is a :class:`SynError`
@@ -28,7 +28,7 @@ from dataclasses import dataclass
 from typing import List, Optional
 
 from .errors import SynError
-from .model import Contract, Model, Param, Prop, Record, Signal, Slot, SynFile
+from .model import Contract, Model, Param, Prop, Record, Role, Signal, Slot, SynFile
 from .types import cpp_type
 
 KEYWORDS = {"contract", "record", "prop", "model", "signal", "slot"}
@@ -175,16 +175,26 @@ class Parser:
     def _parse_model(self, keyword: Token) -> Model:
         name = self._expect_name("model name")
         self._expect("(", "'(' to open the model's role list")
-        roles: List[str] = []
+        roles: List[Role] = []
         if self._peek().kind != ")":
-            roles.append(self._expect_name("a model role").value)
+            roles.append(self._parse_role())
             while self._peek().kind == ",":
                 self._next()
-                roles.append(self._expect_name("a model role").value)
+                roles.append(self._parse_role())
         self._expect(")", "')' to close the role list")
         if not roles:
             raise self._error(f"model '{name.value}' must declare at least one role", name)
         return Model(name=name.value, roles=roles, line=keyword.line, col=keyword.col)
+
+    def _parse_role(self) -> Role:
+        type_token = self._expect("ident", "a model role type")
+        name = self._expect_name("a model role name")
+        return Role(
+            type=type_token.value,
+            name=name.value,
+            line=type_token.line,
+            col=type_token.col,
+        )
 
     def _parse_signal(self, keyword: Token) -> Signal:
         name = self._expect_name("signal name")
@@ -276,6 +286,9 @@ def _validate(syn: SynFile, path: str) -> None:
             names.add(member_name)
         for prop in contract.props:
             resolve(prop.type, prop.line, prop.col)
+        for model in contract.models:
+            for role in model.roles:
+                resolve(role.type, role.line, role.col)
         for signal in contract.signals:
             for param in signal.params:
                 resolve(param.type, param.line, param.col)

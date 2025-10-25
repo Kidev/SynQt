@@ -80,10 +80,11 @@ model, and the round event to `shared/Arena.syn` (it already carries `board` fro
 ```syn
 contract Arena {
     prop real roundEndsAt                         // edge clock (ms) when the round ends
-    model blobs(id, name, x, y, mass, online)     // players in view, for drawing
-    model board(name, mass)                       // the live leaderboard, biggest first
-    model pellets(id, x, y)                       // food in view
-    model champions(name, points)                 // all-time Hall of Fame, from the DB
+    // Players in view, for drawing.
+    model blobs(string id, string name, real x, real y, real mass, bool online)
+    model board(string name, real mass)           // the live leaderboard, biggest first
+    model pellets(string id, real x, real y)      // food in view
+    model champions(string name, int points)      // all-time Hall of Fame, from the DB
     slot steer(real x, real y)
     slot real ping()
     signal eaten(string prey, string predator)

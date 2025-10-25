@@ -6,7 +6,7 @@
 // sends back to the one caller, and both slot shapes.
 contract Ledger {
     prop int highBid
-    model winners(item, winner, amount)
+    model winners(string item, string winner, int amount)
     slot placeBid(int amount, string bidder)
     slot bool recordWinner(string item, string winner, int amount)
     slot forwardToDatabase(string item)
