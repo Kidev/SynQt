@@ -14,8 +14,9 @@ produces and never compute one, so there is nothing to drift.
 
 The scan reads QML the way the QML lexer does, which a line-based scan gets wrong: "\\r"
 alone ends a statement, ";" ends one too, a leading byte order mark is skipped, and comments
-and string literals hold no imports. `src/client/qmlpalette.cpp` documents the same rules on
-the C++ side, where they guard which imports a delivered page may use.
+and string literals hold no imports. Those rules live in `qmlscan`, so everything here that
+reads QML reads it the same way. `src/client/qmlpalette.cpp` documents them on the C++ side,
+where they guard which imports a delivered page may use.
 """
 
 from __future__ import annotations
@@ -23,6 +24,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+
+from synqt import qmlscan
 
 # What a route may declare, and what the scan returns.
 ACCELERATED = "accelerated"
@@ -52,43 +55,6 @@ ACCELERATED_IMPORTS = frozenset({
 ACCELERATED_TYPES = frozenset({
     "ShaderEffect",
 })
-
-_BYTE_ORDER_MARK = "\ufeff"
-
-
-def _stripped(source: str) -> str:
-    """The source with comments gone, string literals emptied, every line terminator the
-    lexer honors written as "\\n", and the byte order mark dropped."""
-    body: List[str] = []
-    index = 0
-    size = len(source)
-    while index < size:
-        character = source[index]
-        if character == _BYTE_ORDER_MARK:
-            index += 1
-            continue
-        if character == "\r":
-            body.append("\n")
-            index += 2 if source[index + 1:index + 2] == "\n" else 1
-            continue
-        if character in ("\"", "'", "`"):
-            quote = character
-            index += 1
-            while index < size and source[index] != quote:
-                index += 2 if source[index] == "\\" else 1
-            index += 1
-            continue
-        if character == "/" and source[index + 1:index + 2] == "/":
-            while index < size and source[index] not in ("\n", "\r"):
-                index += 1
-            continue
-        if character == "/" and source[index + 1:index + 2] == "*":
-            end = source.find("*/", index + 2)
-            index = size if end < 0 else end + 2
-            continue
-        body.append(character)
-        index += 1
-    return "".join(body)
 
 
 def _statements(body: str) -> List[str]:
@@ -135,7 +101,7 @@ def _imported_modules(body: str) -> List[str]:
 
 def scan_source(source: str) -> bool:
     """True when this QML needs the accelerated pipeline."""
-    body = _stripped(source)
+    body = qmlscan.stripped(source)
     for module in _imported_modules(body):
         if module in ACCELERATED_IMPORTS:
             return True
