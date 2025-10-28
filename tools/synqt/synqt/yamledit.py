@@ -74,7 +74,7 @@ def append_item(text: str, list_path: str, item: Dict[str, Any], *,
         rendered += [" " * indent + key + ":"]
         rendered += _render_item(item, indent + 2)
         at = _trimmed_end(lines, parent.start, parent.end)
-        return _join(lines[:at] + rendered + lines[at:])
+        return _join(lines[:at] + _spaced(lines, at, indent, rendered) + lines[at:])
 
     block = _block_at(lines, key_line)
     items = _list_items(lines, block, list_path)
@@ -169,11 +169,22 @@ def _is_empty_flow(inline: str) -> bool:
 
 
 def _end_of_block(lines: List[str], start: int, parent_indent: int) -> int:
-    """One past the last line indented deeper than `parent_indent`."""
+    """One past the last line belonging to the key at `parent_indent`.
+
+    Deeper lines belong to it, and so does a sequence entry written at the key's own
+    indent: YAML allows a list to sit level with the key that names it, and PyYAML's
+    dumper writes it that way, so the files this project generates are full of it.
+    """
     index = start
     while index < len(lines):
         line = lines[index]
-        if not _is_skippable(line) and _indent_of(line) <= parent_indent:
+        if _is_skippable(line):
+            index += 1
+            continue
+        indent = _indent_of(line)
+        if indent < parent_indent:
+            break
+        if indent == parent_indent and not line.lstrip().startswith("- "):
             break
         index += 1
     return index

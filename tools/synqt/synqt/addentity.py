@@ -18,6 +18,8 @@ from typing import Any, Dict, List, Optional
 
 import yaml
 
+from synqt import yamledit
+
 # Family -> the providers bundled for it (default first). This is the list the C++ family
 # factories accept, and the only place it is written down: `synqt add entity` offers these
 # and `synqt check` validates a provider.name against them. Anything else needs a custom
@@ -178,13 +180,16 @@ def scaffold(project_dir: os.PathLike[str] | str, name: str, blueprint: str,
     config: Dict[str, Any] = {}
     if config_path.exists():
         config = yaml.safe_load(config_path.read_text()) or {}
-    entities: List[Dict[str, Any]] = config.setdefault("entities", [])
+    entities: List[Dict[str, Any]] = config.get("entities") or []
     if any(isinstance(e, dict) and e.get("name") == name for e in entities):
         raise AddEntityError(f"an entity named '{name}' already exists")
 
     block = entity_block(name, blueprint, provider)
-    entities.append(block)
-    config_path.write_text(yaml.safe_dump(config, sort_keys=False))
+    # Spliced into the text rather than dumped over it: the file is the author's, and one
+    # added entity is not a reason to lose their comments and their formatting.
+    if not config_path.exists():
+        config_path.write_text("entities: []\n")
+    config_path.write_text(yamledit.append_item(config_path.read_text(), "entities", block))
 
     # The entity folder + a Source stub; persistence gets a schema file too.
     entity_dir = root / name

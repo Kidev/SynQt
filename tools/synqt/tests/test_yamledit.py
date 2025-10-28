@@ -64,6 +64,40 @@ def test_append_reaches_a_nested_list():
         "github", "google"]
 
 
+DUMPED = """\
+project:
+  name: app
+entities:
+- name: client
+  kind: client
+- name: web
+  kind: service
+connect_points:
+- name: auction
+  owner: web
+"""
+
+
+def test_a_list_level_with_its_key_is_the_shape_pyyaml_writes():
+    """`synqt new` dumps its first synqt.yaml with PyYAML, which puts sequence entries at
+    the same indent as the key naming them. Every generated project starts that way, so an
+    editor that only understood the indented form would break on all of them.
+    """
+    out = yamledit.append_item(DUMPED, "entities", {"name": "api", "kind": "service"})
+    assert [e["name"] for e in yaml.safe_load(out)["entities"]] == [
+        "client", "web", "api"]
+    assert yaml.safe_load(out)["connect_points"][0]["name"] == "auction"
+
+
+def test_the_dumped_shape_patches_and_removes_too():
+    out = yamledit.patch_item(DUMPED, "entities", "web", {"capability": "web_edge"})
+    out = yamledit.remove_item(out, "entities", "client")
+    loaded = yaml.safe_load(out)
+    assert [e["name"] for e in loaded["entities"]] == ["web"]
+    assert loaded["entities"][0]["capability"] == "web_edge"
+    assert loaded["project"]["name"] == "app"
+
+
 def test_patch_changes_one_field_and_nothing_else():
     out = yamledit.patch_item(SAMPLE, "connect_points", "auction",
                               {"consumers": ["client", "api"]})
