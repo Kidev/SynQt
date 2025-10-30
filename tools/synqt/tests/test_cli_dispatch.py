@@ -162,11 +162,22 @@ class TestAdd:
     def test_add_entity_defaults_to_the_plain_service_blueprint(self, tmp_path, monkeypatch):
         seen = {}
         monkeypatch.setattr(addentity, "scaffold",
-                            lambda project_dir, name, blueprint, provider=None:
-                            seen.update(name=name, blueprint=blueprint, provider=provider)
-                            or "entity added")
+                            lambda project_dir, name, blueprint, provider=None, source=None:
+                            seen.update(name=name, blueprint=blueprint, provider=provider,
+                                        source=source) or "entity added")
         assert _run(["add", "entity", "jobs", "--project-dir", str(tmp_path)])[0] == 0
-        assert seen == {"name": "jobs", "blueprint": "service", "provider": None}
+        assert seen == {"name": "jobs", "blueprint": "service", "provider": None,
+                        "source": None}
+
+    def test_add_entity_passes_the_source_name_through_when_it_is_given(self, tmp_path,
+                                                                       monkeypatch):
+        seen = {}
+        monkeypatch.setattr(addentity, "scaffold",
+                            lambda project_dir, name, blueprint, provider=None, source=None:
+                            seen.update(source=source) or "entity added")
+        assert _run(["add", "entity", "jobs", "--source", "Rollups",
+                     "--project-dir", str(tmp_path)])[0] == 0
+        assert seen == {"source": "Rollups"}
 
     def test_add_provider_requires_and_forwards_a_family(self, tmp_path, monkeypatch):
         seen = {}

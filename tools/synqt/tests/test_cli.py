@@ -292,6 +292,41 @@ class ClientRootLintTest(unittest.TestCase):
         self.assertFalse(ok)
 
 
+class ConnectPointSourceLintTest(unittest.TestCase):
+    """A connect point with no Source on its owner, or one rooted at the wrong type, is a
+    point the entity cannot host. It fails at start-up, long after the point was added, so
+    it is caught here the way a non-window client root is.
+    """
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+        newproject.scaffold(self.root.parent, self.root.name)
+        addcontract.scaffold_connect_point(self.root, "items", owner="client",
+                                           consumers=["client"], contract="Items")
+        self.config = yaml.safe_load((self.root / "synqt.yaml").read_text())
+        self.source = self.root / "client" / "Items.qml"
+
+    def test_the_source_the_scaffolder_wrote_lints_clean(self):
+        self.assertEqual(check.lint_connect_point_sources(self.config, self.root), [])
+
+    def test_a_missing_source_is_an_error_that_names_the_file(self):
+        self.source.unlink()
+        messages = check.lint_connect_point_sources(self.config, self.root)
+        self.assertTrue(any(m.startswith("error:") and "client/Items.qml" in m
+                            for m in messages), messages)
+
+    def test_a_root_that_is_not_the_contract_source_is_an_error(self):
+        self.source.write_text("import QtQuick\n\nQtObject {\n}\n")
+        messages = check.lint_connect_point_sources(self.config, self.root)
+        self.assertTrue(any(m.startswith("error:") and "ItemsSource" in m
+                            for m in messages), messages)
+
+    def test_a_point_that_names_its_own_server_file_is_looked_for_there(self):
+        self.source.rename(self.root / "client" / "Elsewhere.qml")
+        self.config["connect_points"][0]["server"] = "client/Elsewhere.qml"
+        self.assertEqual(check.lint_connect_point_sources(self.config, self.root), [])
+
+
 class ProviderNameValidationTest(unittest.TestCase):
     """A provider.name that selects nothing is a config error, and config errors belong to
     `synqt check`. Left to the runtime the entity refuses to start, which is correct but

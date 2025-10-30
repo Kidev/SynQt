@@ -22,8 +22,7 @@ def test_comments_and_line_terminators_match_the_lexer():
 
 
 def test_byte_order_mark_is_skipped():
-    # Written as an escape, not the character itself. Every tracked file here is ASCII,
-    # and an invisible byte order mark in the test about byte order marks reads as a typo.
+    # Written as an escape, so the file stays ASCII.
     assert qmlscan.stripped("\ufeffItem {}") == "Item {}"
 
 
@@ -97,3 +96,26 @@ def test_an_unterminated_string_ends_at_the_end_of_the_file():
 def test_every_kind_the_tokenizer_emits_is_declared():
     source = 'a . "s" 1 1.5 true null'
     assert set(_kinds(source)) <= set(qmlscan.KINDS)
+
+
+def test_the_root_type_is_the_name_in_front_of_the_first_brace():
+    assert qmlscan.root_type("import QtQuick\n\nItemsSource {\n    id: root\n}\n") \
+        == "ItemsSource"
+
+
+def test_a_dotted_root_type_comes_back_whole():
+    assert qmlscan.root_type("import QtQuick\n\nQtQuick.Item {\n}\n") == "QtQuick.Item"
+
+
+def test_a_root_type_named_in_a_comment_is_not_the_root():
+    source = "// ItemsSource is what this should be.\nimport QtQuick\n\nQtObject {\n}\n"
+    assert qmlscan.root_type(source) == "QtObject"
+
+
+def test_a_pragma_and_a_carriage_return_import_do_not_hide_the_root():
+    """A lone `\\r` ends a line for the QML lexer; the root object is still found."""
+    assert qmlscan.root_type("pragma Singleton\rimport QtQuick\rWorld {\r}\r") == "World"
+
+
+def test_a_file_with_no_object_in_it_has_no_root_type():
+    assert qmlscan.root_type("pragma Singleton\nimport QtQuick\n") is None

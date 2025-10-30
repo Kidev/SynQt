@@ -27,7 +27,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-from . import addentity, check as checkmod, config as configmod
+from . import addcontract, addentity, appmodel, check as checkmod, config as configmod
 from . import designdoc, yamledit
 
 # Copied into the working tree and compared afterwards: everything else is build output, a
@@ -75,6 +75,7 @@ def compute(project_dir: os.PathLike[str] | str, document: Dict[str, Any], *,
     """The change set `document` implies for the project at `project_dir`."""
     root = Path(project_dir)
     current = designdoc.read(root, profile=profile)
+    base = configmod.load(root, profile=profile)
     stale = bool(document.get("sourceHash")) and \
         document["sourceHash"] != current["sourceHash"]
 
@@ -82,10 +83,9 @@ def compute(project_dir: os.PathLike[str] | str, document: Dict[str, Any], *,
     with tempfile.TemporaryDirectory(prefix="synqt-design-") as scratch:
         work = Path(scratch) / root.name
         _mirror(root, work)
-        removed = _apply(work, current, wanted, reasons)
+        removed = _apply(work, current, wanted, reasons, base)
         changes = _changes(root, work, removed, reasons)
 
-    base = configmod.load(root, profile=profile)
     ok, findings = checkmod.validate(designdoc.to_config(wanted, base=base),
                                      project_dir=root)
     return Plan(changes=tuple(changes), findings=tuple(findings), ok=ok,
@@ -137,10 +137,10 @@ def _mirror(root: Path, work: Path) -> None:
 
 
 def _apply(work: Path, current: Dict[str, Any], wanted: Dict[str, Any],
-           reasons: Dict[str, List[str]]) -> Set[str]:
+           reasons: Dict[str, List[str]], base: Dict[str, Any]) -> Set[str]:
     """Make the working copy look like `wanted`. Returns the directories taken out whole."""
     removed = _apply_entities(work, current, wanted, reasons)
-    _apply_links(work, current, wanted, reasons)
+    _apply_links(work, current, wanted, reasons, base)
     return removed
 
 
@@ -203,12 +203,15 @@ def _scaffold_entity(work: Path, entity: Dict[str, Any]) -> None:
 
 
 def _apply_links(work: Path, current: Dict[str, Any], wanted: Dict[str, Any],
-                 reasons: Dict[str, List[str]]) -> None:
+                 reasons: Dict[str, List[str]], base: Dict[str, Any]) -> None:
     was = _by_name(current["links"])
     now = _by_name(wanted["links"])
+    points = {str(point.get("name")): point for point in appmodel.connect_points(base)}
+    alive = {entity["name"] for entity in wanted["entities"]}
 
     for name, link in now.items():
         _write_contract(work, link, was.get(name), reasons)
+        _write_source(work, link, points, alive, reasons)
         if name not in was:
             block = {key: _link_field(link, key) for key in _LINK_FIELDS
                      if _link_field(link, key) is not None}
@@ -257,6 +260,28 @@ def _write_contract(work: Path, link: Dict[str, Any], was: Optional[Dict[str, An
           if source.exists() else f"the {contract} contract is new")
     source.parent.mkdir(parents=True, exist_ok=True)
     source.write_text(designdoc.render_contract(contract, members), encoding="utf-8")
+
+
+def _write_source(work: Path, link: Dict[str, Any], points: Dict[str, Dict[str, Any]],
+                  alive: Set[str], reasons: Dict[str, List[str]]) -> None:
+    """Give a link an owner-side Source file when it has none.
+
+    A connect point is two halves: the contract that says what may cross it, and the QML on
+    the owner that implements it. Drawing the link is the whole gesture in the editor, so
+    the second half is written here as an empty Source rather than left as an entity that
+    fails to start. It is only ever created, never rewritten: what somebody has already
+    implemented is theirs.
+    """
+    contract, owner = link.get("contract"), link.get("owner")
+    if not contract or owner not in alive:
+        return
+    point = points.get(link["name"]) or {}
+    relative = str(point.get("server") or addcontract.source_path(owner, contract))
+    if (work / relative).exists():
+        return
+    _note(reasons, relative,
+          f"'{link['name']}' had no Source on {owner}, so this one is empty")
+    addcontract.write_source(work, owner, contract, point=link["name"], path=relative)
 
 
 def _patch(work: Path, list_path: str, name: str, was: Dict[str, Any],

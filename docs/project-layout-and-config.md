@@ -1043,7 +1043,12 @@ fast. Non negotiable checks:
   TLS to the browser, and the configuration has to name which end. Likewise
   `require_mtls_cross_host` cannot be off in release.
 - A connect point whose `contract`, `owner`, or `server` file does not exist is
-  rejected. An `owner` or `consumer` that is not a declared entity is rejected.
+  rejected. An `owner` or `consumer` that is not a declared entity is rejected. The
+  `server` file (`<owner>/<Contract>.qml` when the point does not name one) must also
+  be rooted at `<Contract>Source`: it is the owner-side half of the point, and an
+  owner with nothing to host it with fails at start-up rather than at build time.
+  `synqt add connect-point` writes that file, empty, along with the point, so the
+  usual way to meet this rule is not to notice it.
 - A connect point reachable by the `client` entity whose `owner` lacks the
   `web_edge` capability is rejected (the browser can only reach a web edge).
 - A connect point `scope` not in `scopes.order` is rejected.

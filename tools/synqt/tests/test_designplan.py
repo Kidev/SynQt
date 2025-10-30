@@ -63,7 +63,7 @@ def test_adding_an_entity_creates_what_add_entity_creates(tmp_path):
                                  "x": 400, "y": 40})
     plan = designplan.compute(project, document)
     created = {c.path for c in plan.changes if c.action == "create"}
-    assert "cache/Items.qml" in created
+    assert "cache/Entries.qml" in created
     assert any(c.path == "synqt.yaml" and c.action == "edit" for c in plan.changes)
     config = next(c for c in plan.changes if c.path == "synqt.yaml")
     assert "blueprint: cache" in config.after
@@ -81,6 +81,42 @@ def test_adding_a_link_creates_its_contract(tmp_path):
     contract = next(c for c in plan.changes if c.path == "shared/Prices.syn")
     assert contract.action == "create"
     assert "prop real spot" in contract.after
+
+
+def test_a_new_link_gets_an_empty_source_on_its_owner(tmp_path):
+    """Drawing a link is the whole gesture, so both halves of a connect point come out of
+    it: the contract that says what may cross, and the QML on the owner that implements it.
+    Leaving the second to be remembered is how a drawn topology fails at start-up.
+    """
+    project = _copy(tmp_path, "gavel")
+    document = designdoc.read(project)
+    document["links"].append({
+        "id": "new", "name": "prices", "contract": "Prices", "owner": "web",
+        "consumers": ["client"], "instance": "shared", "members": []})
+    plan = designplan.compute(project, document)
+    source = next(c for c in plan.changes if c.path == "web/Prices.qml")
+    assert source.action == "create"
+    assert "PricesSource {" in source.after
+    assert "prices" in source.reason
+
+
+def test_a_source_the_project_already_has_is_left_where_it_is(tmp_path):
+    project = _copy(tmp_path, "gavel")
+    document = designdoc.read(project)
+    auction = next(l for l in document["links"] if l["name"] == "auction")
+    auction["consumers"] = list(auction["consumers"])
+    plan = designplan.compute(project, document)
+    assert not [c for c in plan.changes if c.path.endswith("Auction.qml")]
+
+
+def test_a_link_owned_by_an_entity_being_deleted_grows_no_source(tmp_path):
+    """The owner is on its way out, so writing its Source would put back part of the
+    directory the same plan is taking away."""
+    project = _copy(tmp_path, "gavel")
+    document = designdoc.read(project)
+    document["entities"] = [e for e in document["entities"] if e["name"] != "database"]
+    plan = designplan.compute(project, document)
+    assert [c.path for c in plan.changes if c.path.startswith("database")] == ["database"]
 
 
 def test_changing_a_contract_member_rewrites_only_that_contract(tmp_path):
@@ -303,7 +339,7 @@ def test_the_summary_names_every_change_that_was_made(tmp_path):
                                  "blueprint": "jobs", "x": 400, "y": 40})
     summary = designplan.execute(project, designplan.compute(project, document))
     assert "synqt.yaml" in summary
-    assert "api/Items.qml" in summary
+    assert "api/Schedule.qml" in summary
 
 
 def test_pointing_a_link_at_a_different_contract_retires_the_old_one(tmp_path):
