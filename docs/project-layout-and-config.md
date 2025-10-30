@@ -1050,7 +1050,19 @@ fast. Non negotiable checks:
   `synqt add connect-point` writes that file, empty, along with the point, so the
   usual way to meet this rule is not to notice it.
 - A connect point reachable by the `client` entity whose `owner` lacks the
-  `web_edge` capability is rejected (the browser can only reach a web edge).
+  `web_edge` capability is rejected (the browser can only reach a web edge). So is a
+  `client` entity in a project that declares no `web_edge` entity at all: a browser
+  reaches a web edge or it reaches nothing, so that client has no address to open.
+- A connect point that lists its own `owner` among its `consumers` is rejected. The
+  owner holds the Source and does not acquire a replica of what it already has, and
+  the entry only makes the consumer list look wider than it is.
+- A name declared twice, whether an entity or a connect point, is rejected. Both are
+  keyed by name, so the second declaration replaces the first rather than colliding
+  with it, and a consumer list narrowed on the first would disappear without a word.
+- An `instance` that is not `shared`, `per_session`, or `per_peer` is rejected.
+  Anything the generator does not recognise is built as a single shared Source, so a
+  misspelled `per_session` would hand every caller the instance it existed to keep
+  apart.
 - A connect point `scope` not in `scopes.order` is rejected.
 - `client_threads: multi` without cross origin isolation is rejected (the CLI
   offers to set it).

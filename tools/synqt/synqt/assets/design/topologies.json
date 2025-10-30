@@ -1,0 +1,178 @@
+{
+  "_": [
+    "SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux",
+    "SPDX-License-Identifier: Apache-2.0",
+    "",
+    "One topology per rule the editor paints, each the smallest project that breaks it.",
+    "Read by both validators: the browser's rules.js must produce the named rule, and",
+    "`synqt check` must reach the same verdict at the same level. A rule the page knows",
+    "and the command line does not would teach somebody that the editor is the authority,",
+    "and it is not: the build reads synqt.yaml.",
+    "",
+    "'why' is what the rule is for, in the words the page shows. Keep it a sentence."
+  ],
+  "cases": [
+    {
+      "id": "client-reaches-the-database",
+      "rule": "client-consumes-non-edge",
+      "level": "error",
+      "why": "The browser holds no mesh certificate and cannot route to the mesh, so a client can only consume a connect point owned by a web edge.",
+      "document": {
+        "version": 1,
+        "project": "rules",
+        "entities": [
+          {"name": "client", "kind": "client"},
+          {"name": "web", "kind": "service", "capability": "web_edge"},
+          {"name": "database", "kind": "service", "blueprint": "persistence"}
+        ],
+        "links": [
+          {"name": "ledger", "contract": "Ledger", "owner": "database",
+           "consumers": ["web", "client"], "instance": "shared"}
+        ]
+      }
+    },
+    {
+      "id": "owner-that-is-not-there",
+      "rule": "unknown-owner",
+      "level": "error",
+      "why": "Nothing would host this connect point: the entity named as its owner is not in the project.",
+      "document": {
+        "version": 1,
+        "project": "rules",
+        "entities": [
+          {"name": "client", "kind": "client"},
+          {"name": "web", "kind": "service", "capability": "web_edge"}
+        ],
+        "links": [
+          {"name": "ledger", "contract": "Ledger", "owner": "records",
+           "consumers": ["web"], "instance": "shared"}
+        ]
+      }
+    },
+    {
+      "id": "consumer-that-is-not-there",
+      "rule": "unknown-consumer",
+      "level": "error",
+      "why": "The consumer list is the authorization, and a name that matches no entity is usually one that was meant to match something.",
+      "document": {
+        "version": 1,
+        "project": "rules",
+        "entities": [
+          {"name": "client", "kind": "client"},
+          {"name": "web", "kind": "service", "capability": "web_edge"}
+        ],
+        "links": [
+          {"name": "ledger", "contract": "Ledger", "owner": "web",
+           "consumers": ["reports"], "instance": "shared"}
+        ]
+      }
+    },
+    {
+      "id": "owner-listed-among-its-consumers",
+      "rule": "owner-is-its-own-consumer",
+      "level": "error",
+      "why": "The owner holds the Source. It does not open a link to itself to acquire a replica of what it already has, and listing it only makes the consumer list look wider than it is.",
+      "document": {
+        "version": 1,
+        "project": "rules",
+        "entities": [
+          {"name": "client", "kind": "client"},
+          {"name": "web", "kind": "service", "capability": "web_edge"}
+        ],
+        "links": [
+          {"name": "ledger", "contract": "Ledger", "owner": "web",
+           "consumers": ["web"], "instance": "shared"}
+        ]
+      }
+    },
+    {
+      "id": "two-entities-one-name",
+      "rule": "duplicate-entity-name",
+      "level": "error",
+      "why": "Entities are keyed by name, so the second declaration replaces the first rather than colliding with it. Half the file would describe an entity that is never built.",
+      "document": {
+        "version": 1,
+        "project": "rules",
+        "entities": [
+          {"name": "client", "kind": "client"},
+          {"name": "web", "kind": "service", "capability": "web_edge"},
+          {"name": "web", "kind": "service", "blueprint": "jobs"}
+        ],
+        "links": []
+      }
+    },
+    {
+      "id": "two-links-one-name",
+      "rule": "duplicate-link-name",
+      "level": "error",
+      "why": "Connect points are keyed by name too, so the second silently takes over the first, owner and consumer list together. A narrower consumer list can disappear this way.",
+      "document": {
+        "version": 1,
+        "project": "rules",
+        "entities": [
+          {"name": "client", "kind": "client"},
+          {"name": "web", "kind": "service", "capability": "web_edge"},
+          {"name": "database", "kind": "service", "blueprint": "persistence"}
+        ],
+        "links": [
+          {"name": "ledger", "contract": "Ledger", "owner": "database",
+           "consumers": ["web"], "instance": "shared"},
+          {"name": "ledger", "contract": "Bids", "owner": "web",
+           "consumers": ["client"], "instance": "shared"}
+        ]
+      }
+    },
+    {
+      "id": "instance-that-is-not-a-mode",
+      "rule": "invalid-instance",
+      "level": "error",
+      "why": "Anything the generator does not recognise is built as one shared Source, so a misspelled per_session hands every caller the instance it existed to keep apart.",
+      "document": {
+        "version": 1,
+        "project": "rules",
+        "entities": [
+          {"name": "client", "kind": "client"},
+          {"name": "web", "kind": "service", "capability": "web_edge"}
+        ],
+        "links": [
+          {"name": "ledger", "contract": "Ledger", "owner": "web",
+           "consumers": ["client"], "instance": "per_user"}
+        ]
+      }
+    },
+    {
+      "id": "client-with-nothing-to-connect-to",
+      "rule": "no-web-edge-for-client",
+      "level": "error",
+      "why": "A client connects out to a web edge and to nothing else. Without one in the project there is no address for it to open, so it is a client that cannot run.",
+      "document": {
+        "version": 1,
+        "project": "rules",
+        "entities": [
+          {"name": "client", "kind": "client"},
+          {"name": "database", "kind": "service", "blueprint": "persistence"}
+        ],
+        "links": []
+      }
+    },
+    {
+      "id": "link-on-a-local-socket",
+      "rule": "local-transport-declared",
+      "level": "warn",
+      "why": "A local socket is a legitimate same-host fast path, but the operating system identifies the connecting user, not the entity, so any process running as that user can present any entity name.",
+      "document": {
+        "version": 1,
+        "project": "rules",
+        "entities": [
+          {"name": "client", "kind": "client"},
+          {"name": "web", "kind": "service", "capability": "web_edge"},
+          {"name": "database", "kind": "service", "blueprint": "persistence"}
+        ],
+        "links": [
+          {"name": "ledger", "contract": "Ledger", "owner": "database",
+           "consumers": ["web"], "instance": "shared", "transport": "local"}
+        ]
+      }
+    }
+  ]
+}

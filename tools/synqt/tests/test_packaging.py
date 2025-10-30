@@ -1,15 +1,12 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-"""What a published `synqt` has to be. The distribution metadata, and the framework sources
-it carries so that an install with no SynQt checkout anywhere can still scaffold a project.
-
-The wheel is built by CI, so these are the properties that can be asserted without building
-one: that pyproject.toml says what the release depends on it saying, and that
-`appmodel.framework_root` resolves the three roots in the order that makes a checkout win
-over a packaged copy and makes a copy that will not outlive the process lose to an error.
+"""What a published `synqt` has to be: the distribution metadata, and the framework sources it
+carries so an install without a checkout can scaffold. Also the order in which
+`appmodel.framework_root` resolves its three roots.
 """
 
+import glob
 import sys
 from pathlib import Path
 
@@ -70,9 +67,22 @@ def test_readme_ships_and_is_the_one_pypi_renders():
 
 
 def test_package_data_covers_the_assets_and_the_vendored_framework():
+    """package-data covers every asset in the tree, plus the vendored framework (checked by
+    name: the backend creates it at build time).
+    """
     patterns = _pyproject()["tool"]["setuptools"]["package-data"]["synqt"]
-    assert "assets/*.svg" in patterns
     assert "framework/**/*" in patterns
+    package = PROJECT / "synqt"
+    # Expanded as setuptools expands it (`**` differs between glob and fnmatch).
+    packaged = {Path(found).resolve() for pattern in patterns
+                for found in glob.glob(str(package / pattern), recursive=True)}
+    assets = [path for path in sorted((package / "assets").rglob("*"))
+              if path.is_file() and "__pycache__" not in path.parts]
+    assert assets, "no assets at all, which is not a passing state"
+    for path in assets:
+        assert path.resolve() in packaged, \
+            (f"{path.relative_to(package).as_posix()} matches no package-data pattern, so "
+             "an installed synqt lacks it")
 
 
 def test_the_build_backend_is_in_tree_and_shipped_in_the_sdist():
@@ -80,8 +90,7 @@ def test_the_build_backend_is_in_tree_and_shipped_in_the_sdist():
     assert config["build-system"]["build-backend"] == "_build_backend"
     assert config["build-system"]["backend-path"] == ["."]
     assert (PROJECT / "_build_backend.py").is_file()
-    # Without this line pip cannot build the sdist it downloaded. Backend-path names a
-    # module that is not part of the `synqt` package, so setuptools does not ship it by default.
+    # backend-path names a module outside the package, so the sdist must include it.
     assert "include _build_backend.py" in (PROJECT / "MANIFEST.in").read_text()
 
 
@@ -124,8 +133,7 @@ def test_framework_root_falls_back_to_the_packaged_copy(tmp_path, monkeypatch):
 
 
 def test_framework_root_refuses_a_copy_that_dies_with_the_process(tmp_path, monkeypatch):
-    """A one-file frozen binary unpacks into a directory it deletes on exit, and `synqt new`
-    writes the resolved root into the project's CMakeLists.txt for every later build."""
+    """A one-file frozen binary's data directory is deleted on exit, so it is never the root."""
     extraction = tmp_path / "_MEI12345"
     package = extraction / "synqt"
     package.mkdir(parents=True)
@@ -140,8 +148,7 @@ def test_framework_root_refuses_a_copy_that_dies_with_the_process(tmp_path, monk
 
 
 def test_framework_root_accepts_a_one_directory_freeze(tmp_path, monkeypatch):
-    """The same check must not reject a one-directory freeze, which unpacks next to its own
-    executable and stays there."""
+    """A one-directory freeze is accepted."""
     extraction = tmp_path / "synqt-app"
     package = extraction / "synqt"
     package.mkdir(parents=True)

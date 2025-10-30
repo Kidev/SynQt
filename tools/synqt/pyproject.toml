@@ -1,16 +1,11 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-# The packaging metadata for the `synqt` distribution on PyPI.
-#
-# `synqt` is published two ways and they are the same code. A frozen single-file binary per
-# operating system (get.synqt.org, built by .github/workflows/release.yml) and this wheel,
-# for anyone who would rather `pipx install synqt`. Both are cut from one tag by that one
-# workflow, so a version that exists in one place exists in the other.
+# The `synqt` distribution on PyPI. release.yml builds it from the same tag as the frozen
+# binaries.
 
 [build-system]
-# setuptools 77 is the floor for PEP 639: the `license = "Apache-2.0"` expression and
-# `license-files` below are errors on anything older.
+# setuptools 77 for PEP 639 license metadata.
 requires = ["setuptools>=77"]
 build-backend = "_build_backend"
 backend-path = ["."]
@@ -27,9 +22,7 @@ maintainers = [{ name = "Alexandre 'kidev' Poumaroux" }]
 keywords = ["qt", "qml", "webassembly", "wasm", "framework", "cli", "web", "qt6"]
 dependencies = ["PyYAML>=6.0"]
 
-# One version, read out of the module that already holds it (synqt/_version.py), so the
-# release workflow stamps a tag in exactly one place and the wheel, `synqt --version` and
-# `synqt doctor` cannot disagree about what was built.
+# The version lives in synqt/_version.py only.
 dynamic = ["version"]
 
 classifiers = [
@@ -71,31 +64,21 @@ packages = ["synqt"]
 version = { attr = "synqt._version.__version__" }
 
 [tool.setuptools.package-data]
-# `assets/` is the default client loading-page logo and favicon: without them an installed
-# synqt renders no loading page at all. `framework/` is the vendored src/ and cmake/ that
-# the generated CMake resolves under SYNQT_ROOT; _build_backend.py puts it there at build
-# time and it is git-ignored in a checkout.
-synqt = ["assets/*.svg", "framework/**/*"]
+# `assets/` holds the loading page and the design editor. `framework/` is the vendored src/
+# and cmake/, written by _build_backend.py.
+synqt = ["assets/**/*", "framework/**/*"]
 
-# Coverage for the CLI, measured over the package and nothing else. Branch coverage is on
-# because most of this tool is decisions about a configuration file, and a line-only figure
-# calls a half-taken `if` covered. Run it through tests/run-coverage.sh, or directly:
-#
-#     cd tools/synqt && python3 -m coverage run -m pytest tests && python3 -m coverage report
+# Branch coverage of the package. Run through tests/run-coverage.sh.
 [tool.coverage.run]
 source = ["synqt"]
 branch = true
-# The assets and the vendored framework are data, and _version.py is three lines the
-# release job rewrites.
 omit = ["synqt/assets/*", "synqt/framework/*", "synqt/_version.py"]
 
 [tool.coverage.report]
 show_missing = true
 skip_covered = false
 exclude_also = [
-    # Lines that exist to be unreachable. A defensive branch that fires only on a broken
-    # install is not something to write a test for. Excluding it keeps the number about
-    # code that has a reachable path rather than about how many guards were written.
+    # Defensive branches reachable only on a broken install.
     "raise NotImplementedError",
     "if TYPE_CHECKING:",
     "if __name__ == .__main__.:",
