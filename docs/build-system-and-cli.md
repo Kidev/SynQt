@@ -107,6 +107,7 @@ Rules the tooling enforces:
 ```cli
 synqt new <name>        # Scaffold a new project, every answer a flag.
 synqt create            # Scaffold a new project, asking the questions instead.
+synqt design            # Edit the topology as a graph, in a browser on this machine.
 synqt dev               # Build the entities, start them locally, watch and hot reload.
 synqt build             # Production build of every entity artifact.
 synqt build --deploy --sign <identity>   # ... and run the platform deploy step on a
@@ -152,6 +153,22 @@ accessors). A `Cache.qml` of your own would shadow the `Cache` helper wherever t
 calls it, so the name is refused rather than debugged later. `synqt check` holds the same
 line from the other end: every connect point must have its Source file, and that file must
 be rooted at `<Contract>Source`.
+
+`synqt design` opens the same project as a graph: entities as nodes, connect points as
+the links between them, and a panel for what each one carries. It is the visual half of
+the commands above it, not a separate model of the project, so drawing a connect point
+runs the same scaffolder `synqt add connect-point` runs. Nothing is written while you
+draw. When you are ready, the editor shows the whole change set as a diff, file by file
+with a reason on each, and only then does Apply write it. The topology rules are live as
+you work, so a link the deployment would refuse goes red on the canvas rather than in a
+build four steps later. A project that does not check out still opens: an invalid
+topology is what you came to fix.
+
+The editor is served on the loopback address only, on port 8181 (`--port` moves it, which
+is worth doing only if something else is already there), behind a token minted for that
+run and carried in the fragment of the URL it prints. A browser never sends a fragment to
+a server, so the token stays out of every log, and it is worth nothing once the command
+stops. `--no-open` prints the URL instead of opening a browser. Ctrl-C stops it.
 
 `synqt --version` (or `-V`) answers in three lines:
 
