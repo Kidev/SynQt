@@ -5,9 +5,17 @@
 
 from __future__ import annotations
 
+import shutil
 import textwrap
+from pathlib import Path
 
-from synqt import infer
+import pytest
+import yaml
+
+from synqt import config as configmod
+from synqt import designdoc, designplan, infer
+
+EXAMPLES = Path(__file__).resolve().parents[3] / "examples"
 
 OWNER = """\
 import QtQuick
@@ -233,3 +241,111 @@ def test_a_type_proven_on_one_end_wins_over_a_guess_on_the_other(tmp_path):
     # which says nothing. A guess never overrules a declaration.
     reserve = _member(_edge(edges, "auction").members, "reserve")
     assert (reserve.type, reserve.certain) == ("real", True)
+
+
+def _names(members, kind):
+    return {m.name for m in members if m.kind == kind}
+
+
+def _example(name):
+    config = yaml.safe_load((EXAMPLES / name / "synqt.yaml").read_text(encoding="utf-8"))
+    return {edge.point: edge for edge in infer.collect(EXAMPLES / name, config)}
+
+
+def _copy(tmp_path, name):
+    """One of the shipped examples, on its own, without whatever it has been built into."""
+    project = tmp_path / name
+    shutil.copytree(EXAMPLES / name, project, ignore=shutil.ignore_patterns("build"))
+    return project
+
+
+def test_gavel_is_rediscovered_from_its_qml():
+    edges = _example("gavel")
+    assert set(edges) == {"auction", "hall", "ledger"}
+    assert edges["ledger"].owner == "database"
+    assert edges["ledger"].consumers == ("web",)
+    assert "recordWinner" in _names(edges["ledger"].members, "slot")
+    assert {"placeBid", "closeLot"} <= _names(edges["auction"].members, "slot")
+    assert "highBid" in _names(edges["auction"].members, "prop")
+    assert "bidRejected" in _names(edges["auction"].members, "signal")
+
+
+def test_arena_is_rediscovered_from_its_qml():
+    edges = _example("arena")
+    assert set(edges) == {"arena", "scores"}
+    assert {"steer", "ping"} <= _names(edges["arena"].members, "slot")
+    assert {"blobs", "pellets", "board", "champions"} <= _names(edges["arena"].members,
+                                                                "model")
+    assert {"award", "top"} <= _names(edges["scores"].members, "slot")
+
+
+def test_what_the_scan_cannot_prove_is_marked_rather_than_asserted():
+    # arena's `award(w.id, w.name)` passes expressions, not literals: the types are guesses.
+    edges = _example("arena")
+    award = _member(edges["scores"].members, "award")
+    assert award.certain is False
+    assert "check this type" in infer.render_syn(edges["scores"])
+
+
+def test_a_rendered_contract_parses_as_a_contract():
+    config = yaml.safe_load((EXAMPLES / "gavel" / "synqt.yaml").read_text(encoding="utf-8"))
+    edges = infer.collect(EXAMPLES / "gavel", config)
+    for edge in edges:
+        assert designdoc.parse_from_text(infer.render_syn(edge), edge.contract)
+
+
+def test_every_rendered_member_says_which_file_it_came_from():
+    rendered = infer.render_syn(_example("gavel")["auction"])
+    assert "web/Auction.qml:" in rendered
+    assert "client/Main.qml:" in rendered
+
+
+def test_write_refuses_an_existing_contract_without_force(tmp_path):
+    project = _copy(tmp_path, "gavel")
+    config = yaml.safe_load((project / "synqt.yaml").read_text(encoding="utf-8"))
+    edges = infer.collect(project, config)
+    # gavel already has its contracts written. Overwriting a hand-written file with a
+    # guess is the one thing this command must never do without being told to.
+    with pytest.raises(infer.InferError) as caught:
+        infer.write(project, edges)
+    assert "shared/Auction.syn" in str(caught.value)
+    assert "--force" in str(caught.value)
+
+    written = infer.write(project, edges, force=True)
+    assert "shared/Auction.syn" in written
+    assert designdoc.parse_contract(project / "shared" / "Auction.syn")
+
+
+def test_write_creates_the_contracts_that_were_never_written(tmp_path):
+    project = _copy(tmp_path, "gavel")
+    config = yaml.safe_load((project / "synqt.yaml").read_text(encoding="utf-8"))
+    for existing in (project / "shared").glob("*.syn"):
+        existing.unlink()
+    written = infer.write(project, infer.collect(project, config))
+    assert sorted(written) == ["shared/Auction.syn", "shared/Hall.syn",
+                               "shared/Ledger.syn"]
+    assert designdoc.parse_contract(project / "shared" / "Hall.syn")
+
+
+def test_the_json_output_is_a_design_document(tmp_path):
+    project = _copy(tmp_path, "gavel")
+    config = configmod.load(project)
+    document = infer.to_document(infer.collect(project, config), config)
+    assert document["version"] == designdoc.VERSION
+    assert {entity["name"] for entity in document["entities"]} == {"client", "web",
+                                                                   "database"}
+    assert {link["name"] for link in document["links"]} == {"auction", "hall", "ledger"}
+
+    # The editor's own shape, so the same document the inference produces is one the
+    # planner can be handed: what it reports is the drift between the two.
+    plan = designplan.compute(project, document)
+    assert plan.ok, "\n".join(plan.findings)
+    assert all(change.path.startswith("shared/") for change in plan.changes)
+
+
+def test_the_report_names_the_link_and_what_is_left_to_check(tmp_path):
+    project = _copy(tmp_path, "gavel")
+    config = yaml.safe_load((project / "synqt.yaml").read_text(encoding="utf-8"))
+    report = infer.report(infer.collect(project, config))
+    assert "auction" in report and "web" in report and "client" in report
+    assert "check this type" in report
