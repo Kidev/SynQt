@@ -99,6 +99,11 @@ hooks:
   # Appends a content hash to the extra_css and extra_javascript references above, so a
   # deploy can never pair this page's new script with a reader's cached stylesheet.
   - tools/docs-hooks/assets.py
+  # Publishes the design editor at /designer/, copied from the directory `synqt design`
+  # serves out of the installed package, so the page docs/designer.md describes is the
+  # one the command opens. It refuses to publish an asset that names another host: this
+  # copy is static, so no header goes over it to refuse the fetch at run time.
+  - tools/docs-hooks/designer.py
 
 # What `mkdocs serve` rebuilds on. It watches this file and docs/ by itself, and nothing
 # else: everything the site is also built from has to be named here or an edit to it is
@@ -111,6 +116,8 @@ watch:
   - src
   - Doxyfile
   - tools/docs-hooks
+  # The design editor itself, which the hook above copies to /designer/.
+  - tools/synqt/synqt/assets/design
 
 plugins:
   - search
@@ -204,6 +211,7 @@ nav:
       - Runtime API reference: runtime-api.md
       - Project layout and config: project-layout-and-config.md
       - Build system and CLI: build-system-and-cli.md
+      - The visual editor: designer.md
       - Testing your app: testing.md
       - Running in containers: docker.md
       - Deploying: deploying.md
