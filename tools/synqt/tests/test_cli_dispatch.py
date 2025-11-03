@@ -113,13 +113,26 @@ class TestSimpleCommands:
     def test_check_passes_the_release_flag_through(self, tmp_path, monkeypatch):
         seen = {}
 
-        def check_project(project_dir, release=False, profile=None):
-            seen.update(release=release, profile=profile)
+        def check_project(project_dir, release=False, types="auto", profile=None):
+            seen.update(release=release, types=types, profile=profile)
             return True, ["ok"]
 
         monkeypatch.setattr(checkmod, "check_project", check_project)
         assert _run(["check", "--project-dir", str(tmp_path), "--release"])[0] == 0
         assert seen["release"] is True
+        assert seen["types"] == "auto"
+
+    def test_check_passes_the_type_backend_through(self, tmp_path, monkeypatch):
+        seen = {}
+
+        def check_project(project_dir, release=False, types="auto", profile=None):
+            seen.update(types=types)
+            return True, ["ok"]
+
+        monkeypatch.setattr(checkmod, "check_project", check_project)
+        assert _run(["check", "--project-dir", str(tmp_path),
+                     "--types", "heuristic"])[0] == 0
+        assert seen["types"] == "heuristic"
 
     def test_test_returns_whatever_the_runner_returns(self, tmp_path, monkeypatch):
         monkeypatch.setattr(runmod, "test", lambda project_dir: 3)

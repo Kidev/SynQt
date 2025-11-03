@@ -123,6 +123,18 @@ def test_the_project_reads_back_the_contract_behind_every_link(server):
     assert ledger["members"]
 
 
+def test_infer_reads_the_contracts_back_out_of_the_qml(server):
+    base, project = server
+    before = (project / "shared" / "Auction.syn").read_text()
+    body = _json(_post(f"{base}/api/infer", {}))
+    auction = next(link for link in body["document"]["links"] if link["name"] == "auction")
+    assert {member["name"] for member in auction["members"]} >= {"itemName", "placeBid"}
+    assert body["document"]["sourceHash"] == designdoc.source_hash(project)
+    assert body["typedBy"] in ("ts", "heuristic")
+    # It reads and answers. Writing a contract is what applying a change set does.
+    assert (project / "shared" / "Auction.syn").read_text() == before
+
+
 # The guard
 
 

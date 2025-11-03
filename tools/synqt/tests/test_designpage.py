@@ -132,6 +132,17 @@ def test_nothing_the_page_asks_for_is_missing():
         assert (DESIGN / name).is_file(), f"index.html or a module asks for {name}"
 
 
+def test_every_control_the_script_reaches_for_is_in_the_page():
+    """design.js finds every control by id and attaches every listener, so one it names
+    that the page does not have is a control nobody notices is missing until a browser
+    quietly does nothing with it."""
+    ids = set(re.findall(r'id="([^"]+)"', _text("index.html")))
+    named = re.findall(r'getElementById\("([^"]+)"\)', _text("design.js"))
+    assert named
+    for name in named:
+        assert name in ids, f"design.js reaches for #{name} and the page has no such id"
+
+
 def test_the_page_never_builds_code_out_of_text():
     """`eval` and `new Function` are refused by the policy, and would be worth refusing
     anyway: everything on this page is a document, and none of it is code to run."""
