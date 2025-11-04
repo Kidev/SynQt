@@ -92,4 +92,5 @@ close the tab and the drawing is gone. Download it first.
 See [build system and CLI](build-system-and-cli.md#the-synqt-command-line-tool) for the
 command, [project layout and config](project-layout-and-config.md) for what the file it
 writes means, and [getting started](getting-started.md) for the shortest path from an empty
-directory to something running.
+directory to something running. The [developer guide](development.md#adding-a-rule-to-the-visual-editor)
+covers the editor from the other side, including what moves when a rule is added to it.
