@@ -100,7 +100,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
+          - os: ubuntu-24.04
             label: linux
             aqt_host: linux
             aqt_arch: linux_gcc_64
@@ -134,7 +134,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
@@ -161,7 +161,7 @@ jobs:
           echo "python3 -> $(python3 --version) with pyyaml"
 
       - name: Install build tools (CMake + Ninja)
-        uses: lukka/get-cmake@latest
+        uses: lukka/get-cmake@v4.4.2
 
       - name: Put MSVC on PATH (Windows)
         # The run scripts configure with -G Ninja on every platform, which keeps one build

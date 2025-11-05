@@ -46,7 +46,7 @@ jobs:
     name: Regenerate AUTHORS
     # Closing a pull request without merging is not a contribution.
     if: github.event_name == 'workflow_dispatch' || github.event.pull_request.merged == true
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Check out main
         uses: actions/checkout@v7

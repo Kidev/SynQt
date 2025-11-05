@@ -49,7 +49,7 @@ concurrency:
 jobs:
   cla:
     name: CLA
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Run on pull request events, and on comments only when they are on a pull request
     # (issue_comment fires for plain issues too, where there is nothing to gate).
     if: >-

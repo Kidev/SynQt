@@ -59,7 +59,7 @@ env:
 jobs:
   leaks:
     name: leaks (linux)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # An instrumented rebuild of the whole tree plus three passes over every suite. This is
     # the blast radius of a hang, not the expected cost.
     timeout-minutes: 90
@@ -72,7 +72,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
@@ -80,7 +80,7 @@ jobs:
         run: python -m pip install --upgrade pip && python -m pip install pyyaml
 
       - name: Install build tools (CMake + Ninja)
-        uses: lukka/get-cmake@latest
+        uses: lukka/get-cmake@v4.4.2
 
       - name: Install the native dependencies Qt needs to configure
         # The same set the Linux ctest column installs, for the same reasons given there:

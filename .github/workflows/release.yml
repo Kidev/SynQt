@@ -68,7 +68,7 @@ jobs:
   # starting, and `release` waits on it, which is the precise claim, that drift blocks
   # publishing rather than blocking the builds. A dry run exercises it like everything else.
   installer:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
       - name: index.html must be identical to install.sh
@@ -81,7 +81,7 @@ jobs:
   # Resolve the next version from the latest tag and the chosen bump. Inputs are passed through
   # the environment, never interpolated into the script, so a crafted suffix cannot inject shell.
   version:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       version: ${{ steps.compute.outputs.version }}
       tag: ${{ steps.compute.outputs.tag }}
@@ -148,7 +148,7 @@ jobs:
       # cannot express is not an error: the GitHub release and the frozen binaries still
       # happen, and only the PyPI job steps aside, saying so. The value is passed through the
       # environment for the reason the step above gives, since it carries the free-form suffix.
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
@@ -309,7 +309,7 @@ jobs:
             os_tag: macos
             arch_tag: arm64
             ext: tar.gz
-          - os: windows-latest
+          - os: windows-2025
             os_tag: windows
             arch_tag: x86_64
             ext: zip
@@ -325,7 +325,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: pip
@@ -429,13 +429,13 @@ jobs:
   # that publishes. This job runs on a dry run too, so a dry run proves the packaging.
   build-pypi:
     needs: version
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
@@ -516,7 +516,7 @@ jobs:
   release:
     needs: [installer, version, build-linux, build-native, build-pypi]
     if: ${{ !inputs.dry_run }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write # create the tag and publish the release
     steps:
@@ -556,7 +556,7 @@ jobs:
   publish-pypi:
     needs: [version, build-pypi, release]
     if: ${{ !inputs.dry_run && needs.version.outputs.pypi == 'true' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment:
       name: pypi
       url: https://pypi.org/p/synqt
