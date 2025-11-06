@@ -170,6 +170,7 @@ validation:
 
 nav:
   - Home: index.md
+  - Quick start: quick-start.md
   - Tutorials:
       - Getting started: getting-started.md
       - The auction:
@@ -211,7 +212,6 @@ nav:
       - Runtime API reference: runtime-api.md
       - Project layout and config: project-layout-and-config.md
       - Build system and CLI: build-system-and-cli.md
-      - The visual editor: designer.md
       - Testing your app: testing.md
       - Running in containers: docker.md
       - Deploying: deploying.md
@@ -220,14 +220,25 @@ nav:
       - Content-Security-Policy: csp.md
       - Examples: examples.md
       - Licensing: licensing.md
-  - Contributing:
-      - Developer guide: development.md
-      - C++ API reference: api-reference.md
-      - Browser coverage: browser-proofs.md
+      - Contributing:
+          - Developer guide: development.md
+          - C++ API reference: api-reference.md
+          - Browser coverage: browser-proofs.md
   # Straight into the generated Doxygen reference, so it is one click from every page
   # rather than one click behind the page that introduces it. A real page of this site
   # (docs/api.md), not an absolute link out of it: the reference is shown in a frame on
   # that page, so this tab behaves like every other one, keeps its active state, and does
   # not reload the header on the way in.
   - C++ reference: api.md
+  # The design editor itself, published at this URL by tools/docs-hooks/designer.py rather
+  # than written as a page. It must stay a URL nothing here builds to: the hook refuses a
+  # site where a page claims it, because a page there would be overwritten and its entry in
+  # sitemap.xml would make instant navigation swap the editor into this shell.
+  - Draw your app: /designer/
   - Download: https://get.synqt.org/
+
+# The guide to the editor. Not in the nav because the tab above goes to the editor itself,
+# which is what somebody looking for it wants; the guide is linked from the quick start,
+# from Getting started, and from the editor's own page.
+not_in_nav: |
+  visual-editor.md

@@ -122,23 +122,30 @@ def test_the_page_holds_no_inline_script_style_or_handler():
 
 
 def test_the_page_loads_nothing_from_anywhere_else():
-    # The SVG namespace is the one URL that is not an address: it names the vocabulary the
-    # canvas is drawn in and nothing ever fetches it.
-    for name in ("index.html", "design.css", "design.js", "canvas.js", "inspector.js",
-                 "project.js", "rules.js", "zip.js"):
-        body = _text(name).replace("http://www.w3.org/2000/svg", "")
+    # Every file in the directory rather than a list of them: a list is what falls behind
+    # the first time the editor gains a module, and the file it missed is the one nobody
+    # looked at. The SVG namespace is the one URL here that is not an address: it names the
+    # vocabulary the canvas is drawn in and nothing ever fetches it.
+    for path in sorted(DESIGN.iterdir()):
+        if not path.is_file():
+            continue
+        body = _text(path.name).replace("http://www.w3.org/2000/svg", "")
         assert not re.search(r"""["'(]https?://""", body), \
-            f"{name} names an outside URL, which the page's policy refuses to fetch"
+            f"{path.name} names an outside URL, which the page's policy refuses to fetch"
 
 
 def test_nothing_the_page_asks_for_is_missing():
     page = _text("index.html")
     named = set(re.findall(r'(?:src|href)="([^"]+)"', page))
-    imported = set()
-    for name in ("design.js", "canvas.js", "inspector.js", "project.js", "zip.js"):
-        imported |= set(re.findall(r'from "\./([^"]+)"', _text(name)))
-    assert named and imported
-    for name in named | imported:
+    asked = set()
+    for path in sorted(DESIGN.glob("*.js")):
+        body = _text(path.name)
+        asked |= set(re.findall(r'from "\./([^"]+)"', body))
+        # What the page fetches at run time, which is an asset it has to ship just as much
+        # as one it imports.
+        asked |= set(re.findall(r'fetch\("([^"/:]+\.[a-z]+)"\)', body))
+    assert named and asked
+    for name in named | asked:
         assert (DESIGN / name).is_file(), f"index.html or a module asks for {name}"
 
 
@@ -156,8 +163,8 @@ def test_every_control_the_script_reaches_for_is_in_the_page():
 def test_the_page_never_builds_code_out_of_text():
     """`eval` and `new Function` are refused by the policy, and would be worth refusing
     anyway: everything on this page is a document, and none of it is code to run."""
-    for name in ("design.js", "canvas.js", "inspector.js", "project.js", "zip.js",
-                 "rules.js"):
+    for path in sorted(DESIGN.glob("*.js")):
+        name = path.name
         body = _text(name)
         assert not re.search(r"\beval\s*\(", body), f"{name} calls eval"
         assert "new Function" not in body, f"{name} builds a function out of text"
@@ -196,6 +203,72 @@ def test_the_download_is_a_zip_holding_the_configuration_and_every_contract(rend
                                   "gavel/shared/Records.syn"]
     for file in rendered["files"]:
         assert archive.read(file["name"]).decode("utf-8") == file["text"]
+
+
+# The projects a link can open cold
+
+
+@pytest.fixture(scope="module")
+def examples():
+    return json.loads(_text("examples.json"))["examples"]
+
+
+def test_every_example_is_a_project_the_real_check_passes(examples):
+    """An example is opened, edited and downloaded exactly like something drawn by hand,
+    so one that does not pass `synqt check` is a broken canvas handed to a first-time
+    reader with the rules already red."""
+    assert examples
+    for name, document in examples.items():
+        rendered = _node(f"""
+            import {{ projectFiles }} from {_module('project.js')};
+            process.stdout.write(JSON.stringify(projectFiles({json.dumps(document)})));
+        """)
+        config = yaml.safe_load(next(file["text"] for file in rendered
+                                     if file["name"].endswith("synqt.yaml")))
+        ok, messages = checkmod.validate(config)
+        assert ok, f"example '{name}': {messages}"
+
+
+def test_every_example_contract_parses_as_the_members_it_declares(examples):
+    for name, document in examples.items():
+        rendered = _node(f"""
+            import {{ projectFiles }} from {_module('project.js')};
+            process.stdout.write(JSON.stringify(projectFiles({json.dumps(document)})));
+        """)
+        for link in document["links"]:
+            source = next(file["text"] for file in rendered
+                          if file["name"].endswith(f"/{link['contract']}.syn"))
+            assert designdoc.parse_from_text(source, link["contract"]) == link["members"], \
+                f"example '{name}', contract {link['contract']}"
+
+
+def test_the_home_pages_project_is_the_one_the_home_page_reads():
+    """The button under "What it looks like" opens this example, so the two have to be one
+    system. The page is markdown with the configuration and the contracts written out in
+    full, which is what makes this checkable rather than a promise in a comment."""
+    home = Path(__file__).resolve().parents[3] / "docs" / "index.md"
+    if not home.is_file():                       # the tests, without the repository
+        pytest.skip("the documentation is not beside these tests")
+    page = home.read_text(encoding="utf-8")
+    feed = json.loads(_text("examples.json"))["examples"]["feed"]
+
+    shown = yaml.safe_load(re.search(r"```yaml\n(project:.*?)```", page, re.S).group(1))
+    assert [entity["name"] for entity in shown["entities"]] == \
+        [entity["name"] for entity in feed["entities"]]
+    assert [point["name"] for point in shown["connect_points"]] == \
+        [link["name"] for link in feed["links"]]
+    for point, link in zip(shown["connect_points"], feed["links"]):
+        assert point["contract"] == link["contract"]
+        assert point["owner"] == link["owner"]
+        assert point["consumers"] == link["consumers"]
+        assert point["instance"] == link["instance"]
+
+    for link in feed["links"]:
+        source = re.search(rf"```syn\n(contract {link['contract']} \{{.*?\}})\n```",
+                           page, re.S)
+        assert source, f"the home page no longer shows contract {link['contract']}"
+        assert designdoc.parse_from_text(source.group(1), link["contract"]) == \
+            link["members"]
 
 
 if __name__ == "__main__":
