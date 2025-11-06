@@ -292,12 +292,22 @@ int main(int argc, char *argv[])
         Distribution contended;
         contended.name = QStringLiteral("sqlite_write_contended");
         contended.samples.reserve(contendedRows);
+        // The safety claim is that the busy-timeout retry always wins the lock in the end,
+        // so count the writes it gave up on rather than inferring them from a wall clock. A
+        // statement that outlasts QSQLITE_BUSY_TIMEOUT comes back SQLITE_BUSY, which the
+        // provider reports as a failed DbResult; anything else is a write that got through,
+        // however long it waited for its turn.
+        int abandoned{0};
         for (int i{0}; i < contendedRows; ++i) {
             QElapsedTimer clock;
             clock.start();
-            db.exec(QStringLiteral("INSERT INTO bench (k, v) VALUES (?, ?)"),
-                    {QStringLiteral("main-%1").arg(i), i});
+            const DbResult written{db.exec(
+                QStringLiteral("INSERT INTO bench (k, v) VALUES (?, ?)"),
+                {QStringLiteral("main-%1").arg(i), i})};
             contended.samples.append(clock.nsecsElapsed() / 1.0e6);
+            if (!written.ok) {
+                ++abandoned;
+            }
         }
         stop.store(true, std::memory_order_relaxed);
         competitor.join();
@@ -309,11 +319,23 @@ int main(int argc, char *argv[])
         rivalCount.value = static_cast<double>(competitorWrites.load());
         scalars.append(rivalCount);
 
-        const double busyTimeoutMs{5000.0};
-        out << "contended writer: max latency "
+        Scalar givenUp;
+        givenUp.name = QStringLiteral("sqlite_contended_writes_abandoned");
+        givenUp.unit = QStringLiteral("rows");
+        givenUp.value = static_cast<double>(abandoned);
+        scalars.append(givenUp);
+
+        Scalar attempted;
+        attempted.name = QStringLiteral("sqlite_contended_writes_attempted");
+        attempted.unit = QStringLiteral("rows");
+        attempted.value = static_cast<double>(contendedRows);
+        scalars.append(attempted);
+
+        out << "contended writer: " << abandoned << " of " << contendedRows
+            << " writes abandoned, max latency "
             << QString::number(contended.max(), 'f', 3) << " ms "
-            << (contended.max() < busyTimeoutMs ? "(bounded, no deadlock)"
-                                                : "(EXCEEDED BUSY TIMEOUT)")
+            << (abandoned == 0 ? "(every write got its turn)"
+                               : "(THE BUSY TIMEOUT FIRED)")
             << Qt::endl;
     }
     db.disconnect();
