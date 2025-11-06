@@ -16,10 +16,19 @@
   </head>
   <body>
     <header class="bar">
-      <span class="bar__mark">SynQt</span>
-      <span class="bar__project" id="project">reading the project</span>
+      <img class="bar__mark" src="synqt.svg" alt="SynQt" width="284" height="150">
+      <span class="bar__project" id="project" hidden></span>
       <span class="bar__verdict" id="verdict"></span>
       <span class="bar__gap"></span>
+      <button type="button" class="button button--icon" id="show-diagram"
+              aria-pressed="false" title="Show the diagram of this project">
+        <span class="button__icon" id="icon-diagram"></span>Diagram
+      </button>
+      <button type="button" class="button button--icon" id="show-project"
+              aria-pressed="false" title="Show the files this project is made of">
+        <span class="button__icon" id="icon-project"></span>Files
+      </button>
+      <span class="bar__rule"></span>
       <button type="button" class="button" id="infer">Infer from the sources</button>
       <button type="button" class="button" id="review">Review changes</button>
       <button type="button" class="button button--go" id="apply" disabled>Apply</button>
@@ -28,26 +37,60 @@
     <main class="work">
       <aside class="rail">
         <h2 class="rail__title">Add an entity</h2>
+        <p class="rail__hint">Drag one onto the canvas, or click to drop it in its column.</p>
         <div class="palette" id="palette"></div>
         <h2 class="rail__title">What the rules say</h2>
         <ul class="findings" id="findings"></ul>
       </aside>
 
       <section class="stage">
-        <svg class="canvas" id="canvas" xmlns="http://www.w3.org/2000/svg">
-          <!-- Links first so a line passes under a node rather than across it, and the
-               half-drawn one between them so it does the same. -->
-          <g id="viewport">
-            <g id="links"></g>
-            <g id="ghost"></g>
-            <g id="nodes"></g>
-          </g>
-        </svg>
-        <p class="stage__hint" id="hint"></p>
+        <div class="stage__canvas">
+          <svg class="canvas" id="canvas" xmlns="http://www.w3.org/2000/svg">
+            <!-- Links first so a line passes under a node rather than across it, and the
+                 half-drawn one between them so it does the same. -->
+            <g id="viewport">
+              <g id="links"></g>
+              <g id="ghost"></g>
+              <g id="nodes"></g>
+            </g>
+          </svg>
+          <p class="stage__hint" id="hint"></p>
+        </div>
+
+        <!-- The two panes that look at the project rather than edit it. Both are hidden
+             until asked for, and both are redrawn from the document on every change, so
+             what they show is never a snapshot of an older design. -->
+        <section class="dock" id="dock" hidden>
+          <header class="dock__bar">
+            <button type="button" class="tab" id="tab-diagram">Diagram</button>
+            <button type="button" class="tab" id="tab-project">Files</button>
+            <span class="bar__gap"></span>
+            <button type="button" class="button" id="dock-close">Hide</button>
+          </header>
+          <div class="dock__pane" id="pane-diagram">
+            <svg class="preview" id="preview" xmlns="http://www.w3.org/2000/svg">
+              <g id="preview-viewport">
+                <g id="preview-links"></g>
+                <g id="preview-nodes"></g>
+              </g>
+            </svg>
+          </div>
+          <div class="dock__pane" id="pane-project" hidden>
+            <ul class="tree" id="tree"></ul>
+            <div class="source">
+              <p class="source__name" id="source-name"></p>
+              <pre class="source__text" id="source-text"></pre>
+            </div>
+          </div>
+        </section>
       </section>
 
       <aside class="inspector" id="inspector"></aside>
     </main>
+
+    <!-- What a right click opens, over whatever it was opened on. Filled by design.js and
+         positioned at the pointer; it holds nothing until then. -->
+    <ul class="menu" id="menu" hidden></ul>
 
     <section class="sheet" id="sheet" hidden>
       <header class="sheet__bar">

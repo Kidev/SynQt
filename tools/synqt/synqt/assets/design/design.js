@@ -15,7 +15,7 @@
 // becomes a download of the project it would have written.
 
 import { findings as ruleFindings } from "./rules.js";
-import { draw, element, entityAt, roleOf } from "./canvas.js";
+import { ROLE_HELP, draw, element, entityAt, glyphSvg, roleOf } from "./canvas.js";
 import { inspect } from "./inspector.js";
 import { projectFiles } from "./project.js";
 import { zipBytes } from "./zip.js";
@@ -32,6 +32,9 @@ const ZOOM_RANGE = [0.35, 2.4];
 // Far enough that a click with a shaking hand is still a click and not a drag.
 const DRAG_SLOP = 3;
 
+// The palette rows. `help` is the tooltip on the row and the line the panel shows once one
+// is on the canvas, and it comes from canvas.js so the row, the node and the panel are one
+// answer rather than three.
 const PALETTE = [
     {label: "Client", role: "client", base: "client",
      make: () => ({kind: "client", targets: ["wasm"]})},
@@ -49,7 +52,13 @@ const PALETTE = [
      make: () => ({kind: "service", blueprint: "jobs"})},
     {label: "Service", role: "service", base: "service",
      make: () => ({kind: "service"})},
-];
+].map((item) => ({...item, help: ROLE_HELP[item.role]}));
+
+// Small line-drawn marks for the two panes, in the same 16-unit box the entity glyphs use.
+const BUTTON_GLYPHS = {
+    diagram: ["M 2,4 h 5 v 4 h -5 z", "M 9,8 h 5 v 4 h -5 z", "M 4.5,8 v 5 h 4.5"],
+    project: ["M 2,3 h 4.5 l 1.2,2 h 6.3 v 8 h -12 z"],
+};
 
 const state = {
     design: {version: 1, project: "", sourceHash: "", entities: [], links: []},
@@ -59,11 +68,15 @@ const state = {
     plan: null,
     backend: true,
     token: "",
+    // Which of the two panes is open, if either, and which file the Files pane is reading.
+    pane: "",
+    reading: "",
 };
 
 const view = {x: 0, y: 0, k: 1};
 
 const page = {
+    stage: document.querySelector(".stage"),
     canvas: document.getElementById("canvas"),
     viewport: document.getElementById("viewport"),
     links: document.getElementById("links"),
@@ -78,6 +91,24 @@ const page = {
     infer: document.getElementById("infer"),
     review: document.getElementById("review"),
     apply: document.getElementById("apply"),
+    showDiagram: document.getElementById("show-diagram"),
+    showProject: document.getElementById("show-project"),
+    iconDiagram: document.getElementById("icon-diagram"),
+    iconProject: document.getElementById("icon-project"),
+    dock: document.getElementById("dock"),
+    dockClose: document.getElementById("dock-close"),
+    tabDiagram: document.getElementById("tab-diagram"),
+    tabProject: document.getElementById("tab-project"),
+    paneDiagram: document.getElementById("pane-diagram"),
+    paneProject: document.getElementById("pane-project"),
+    preview: document.getElementById("preview"),
+    previewViewport: document.getElementById("preview-viewport"),
+    previewLinks: document.getElementById("preview-links"),
+    previewNodes: document.getElementById("preview-nodes"),
+    tree: document.getElementById("tree"),
+    sourceName: document.getElementById("source-name"),
+    sourceText: document.getElementById("source-text"),
+    menu: document.getElementById("menu"),
     sheet: document.getElementById("sheet"),
     sheetTitle: document.getElementById("sheet-title"),
     sheetGit: document.getElementById("sheet-git"),
@@ -213,8 +244,7 @@ function renderVerdict() {
 // Drawing
 
 function applyView() {
-    page.viewport.setAttribute("transform",
-                               `translate(${view.x},${view.y}) scale(${view.k})`);
+    page.viewport.setAttribute("transform", transformOf(view));
 }
 
 function validateLive() {
@@ -238,6 +268,227 @@ function redraw() {
          {problems: state.problems, selected: state.selected});
     renderFindings();
     renderVerdict();
+    renderPane();
+}
+
+// The two panes
+
+// The view that shows all of `design` inside `svg`. Two callers want it: the canvas, whose
+// view somebody then pans and zooms away from, and the preview, which has no view of its
+// own because it is only ever asked to show the whole thing.
+function fitOf(svg, design) {
+    const entities = design.entities || [];
+    const box = svg.getBoundingClientRect();
+    if (!entities.length || !box.width || !box.height) {
+        return {x: 0, y: 0, k: 1};
+    }
+    const pad = 110;
+    const left = Math.min(...entities.map((entity) => entity.x || 0)) - pad;
+    const right = Math.max(...entities.map((entity) => entity.x || 0)) + pad;
+    const top = Math.min(...entities.map((entity) => entity.y || 0)) - pad;
+    const bottom = Math.max(...entities.map((entity) => entity.y || 0)) + pad;
+    const scale = Math.min(box.width / (right - left), box.height / (bottom - top), 1.2);
+    const k = Math.min(Math.max(scale, ZOOM_RANGE[0]), ZOOM_RANGE[1]);
+    return {
+        k,
+        x: ((box.width - ((right - left) * k)) / 2) - (left * k),
+        y: ((box.height - ((bottom - top) * k)) / 2) - (top * k),
+    };
+}
+
+function transformOf(at) {
+    return `translate(${at.x},${at.y}) scale(${at.k})`;
+}
+
+function renderDiagram() {
+    draw({links: page.previewLinks, nodes: page.previewNodes}, state.design,
+         {problems: state.problems, selected: null, plain: true});
+    page.previewViewport.setAttribute("transform",
+                                      transformOf(fitOf(page.preview, state.design)));
+}
+
+// The files this design would be, as a tree. Rendered from projectFiles, which is what the
+// download holds and what the server writes, so the tree is never a description of the
+// project written separately from the project.
+function renderProject() {
+    const files = projectFiles(state.design);
+    page.tree.replaceChildren();
+    if (!files.length) {
+        const empty = document.createElement("li");
+        empty.className = "tree__empty";
+        empty.textContent = "Nothing yet. Add an entity.";
+        page.tree.append(empty);
+        page.sourceName.textContent = "";
+        page.sourceText.textContent = "";
+        return;
+    }
+    // The project directory is the first segment of every name and says nothing here, so
+    // the tree is grouped by what comes after it.
+    const folders = new Map();
+    for (const file of files) {
+        const parts = file.name.split("/").slice(1);
+        const folder = parts.length > 1 ? parts.slice(0, -1).join("/") : "";
+        folders.set(folder, [...(folders.get(folder) || []), {file, leaf: parts.at(-1)}]);
+    }
+    if (!files.some((file) => file.name === state.reading)) {
+        state.reading = files[0].name;
+    }
+    for (const [folder, held] of [...folders].sort(([a], [b]) => a.localeCompare(b))) {
+        if (folder) {
+            const row = document.createElement("li");
+            row.className = "tree__dir";
+            row.textContent = `${folder}/`;
+            page.tree.append(row);
+        }
+        for (const {file, leaf} of [...held].sort((a, b) => a.leaf.localeCompare(b.leaf))) {
+            const row = document.createElement("li");
+            const button = document.createElement("button");
+            button.type = "button";
+            button.className = "tree__file"
+                + (file.name === state.reading ? " is-open" : "");
+            button.textContent = leaf;
+            button.addEventListener("click", () => {
+                state.reading = file.name;
+                renderProject();
+            });
+            row.append(button);
+            page.tree.append(row);
+        }
+    }
+    const open = files.find((file) => file.name === state.reading) || files[0];
+    page.sourceName.textContent = open.name;
+    page.sourceText.textContent = open.text;
+}
+
+function renderPane() {
+    if (state.pane === "diagram") {
+        renderDiagram();
+    } else if (state.pane === "project") {
+        renderProject();
+    }
+}
+
+function showPane(which) {
+    state.pane = state.pane === which ? "" : which;
+    page.dock.hidden = !state.pane;
+    page.paneDiagram.hidden = state.pane !== "diagram";
+    page.paneProject.hidden = state.pane !== "project";
+    for (const [name, tab, toggle] of [["diagram", page.tabDiagram, page.showDiagram],
+                                       ["project", page.tabProject, page.showProject]]) {
+        tab.classList.toggle("is-open", state.pane === name);
+        toggle.setAttribute("aria-pressed", String(state.pane === name));
+    }
+    // The canvas lost or gained height, so the view that fitted it no longer does.
+    fit();
+    renderPane();
+}
+
+// What a right click opens
+
+function closeMenu() {
+    page.menu.hidden = true;
+    page.menu.replaceChildren();
+}
+
+function menuItem(label, act, danger) {
+    const row = document.createElement("li");
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `menu__item${danger ? " menu__item--danger" : ""}`;
+    button.textContent = label;
+    button.addEventListener("click", () => {
+        closeMenu();
+        act();
+    });
+    row.append(button);
+    return row;
+}
+
+function openMenu(at, what, items) {
+    page.menu.replaceChildren();
+    if (what) {
+        const heading = document.createElement("li");
+        heading.className = "menu__what";
+        heading.textContent = what;
+        page.menu.append(heading);
+    }
+    for (const item of items) {
+        page.menu.append(menuItem(item.label, item.act, item.danger));
+    }
+    page.menu.hidden = false;
+    // Placed after it is shown, so its measured size is the size it will have. Nudged back
+    // inside the window rather than allowed to open off the edge of it.
+    const box = page.menu.getBoundingClientRect();
+    const x = Math.min(at.x, window.innerWidth - box.width - 8);
+    const y = Math.min(at.y, window.innerHeight - box.height - 8);
+    page.menu.style.left = `${Math.max(8, x)}px`;
+    page.menu.style.top = `${Math.max(8, y)}px`;
+}
+
+function renameFrom(kind, name, what) {
+    const wanted = window.prompt(`Rename ${what}`, name);
+    if (wanted === null || wanted === name) {
+        return;
+    }
+    const trimmed = wanted.trim();
+    if (!trimmed) {
+        say(`A ${what} needs a name.`, "error");
+        return;
+    }
+    const held = kind === "entity" ? state.design.entities : state.design.links;
+    const target = held.find((one) => one.name === name);
+    if (!target) {
+        return;
+    }
+    if (held.some((one) => one !== target && one.name === trimmed)) {
+        say(`There is already something called '${trimmed}'.`, "error");
+        return;
+    }
+    if (kind === "entity") {
+        for (const link of state.design.links) {
+            if (link.owner === name) {
+                link.owner = trimmed;
+            }
+            link.consumers = (link.consumers || [])
+                .map((consumer) => (consumer === name ? trimmed : consumer));
+        }
+    }
+    target.name = trimmed;
+    touched();
+    select({kind, name: trimmed});
+}
+
+function onContextMenu(event) {
+    const held = event.target.closest("[data-entity]");
+    const link = event.target.closest("[data-link]");
+    const at = {x: event.clientX, y: event.clientY};
+    event.preventDefault();
+
+    if (held) {
+        const entity = entityNamed(held.dataset.entity);
+        select({kind: "entity", name: entity.name});
+        openMenu(at, entity.name, [
+            {label: "Edit", act: () => page.inspector.scrollIntoView({block: "nearest"})},
+            {label: "Rename", act: () => renameFrom("entity", entity.name, "entity")},
+            {label: "Delete", act: () => removeEntity(entity), danger: true},
+        ]);
+        return;
+    }
+    if (link) {
+        const found = (state.design.links || [])
+            .find((one) => one.name === link.dataset.link);
+        select({kind: "link", name: found.name});
+        openMenu(at, found.name, [
+            {label: "Edit", act: () => page.inspector.scrollIntoView({block: "nearest"})},
+            {label: "Rename", act: () => renameFrom("link", found.name, "connect point")},
+            {label: "Delete", act: () => removeLink(found), danger: true},
+        ]);
+        return;
+    }
+    openMenu(at, "", [
+        {label: "Fit to the window", act: () => fit()},
+        {label: "Clear the selection", act: () => select(null)},
+    ]);
 }
 
 function renderInspector() {
@@ -275,24 +526,7 @@ function select(what) {
 }
 
 function fit() {
-    const entities = state.design.entities || [];
-    const box = page.canvas.getBoundingClientRect();
-    if (!entities.length || !box.width) {
-        view.x = 0;
-        view.y = 0;
-        view.k = 1;
-        applyView();
-        return;
-    }
-    const pad = 110;
-    const left = Math.min(...entities.map((entity) => entity.x || 0)) - pad;
-    const right = Math.max(...entities.map((entity) => entity.x || 0)) + pad;
-    const top = Math.min(...entities.map((entity) => entity.y || 0)) - pad;
-    const bottom = Math.max(...entities.map((entity) => entity.y || 0)) + pad;
-    const scale = Math.min(box.width / (right - left), box.height / (bottom - top), 1.2);
-    view.k = Math.min(Math.max(scale, ZOOM_RANGE[0]), ZOOM_RANGE[1]);
-    view.x = ((box.width - ((right - left) * view.k)) / 2) - (left * view.k);
-    view.y = ((box.height - ((bottom - top) * view.k)) / 2) - (top * view.k);
+    Object.assign(view, fitOf(page.canvas, state.design));
     applyView();
 }
 
@@ -301,14 +535,19 @@ function fit() {
 function adopt(design) {
     state.design = {
         version: design.version || 1,
-        project: design.project || "app",
+        project: design.project || "",
         sourceHash: design.sourceHash || "",
         entities: design.entities || [],
         links: design.links || [],
     };
     state.selected = null;
+    // No name, no label. `synqt design` always has a project to name; the copy on the site
+    // starts on a blank canvas, and a stand-in name there is something to correct rather
+    // than something to read.
     page.project.textContent = state.design.project;
-    document.title = `${state.design.project} - SynQt design`;
+    page.project.hidden = !state.design.project;
+    document.title = state.design.project ? `${state.design.project} - SynQt design`
+                                          : "SynQt design";
     touched();
     redraw();
     renderInspector();
@@ -343,9 +582,12 @@ function place(role) {
     };
 }
 
-function addEntity(item) {
+// `at` is where the pointer let go, when one was dragged rather than clicked. Without it
+// the entity lands in its column, which is the arrangement the whole page reads in; with
+// it, it lands where somebody put it, which is the point of having dragged it there.
+function addEntity(item, at) {
     const taken = new Set((state.design.entities || []).map((entity) => entity.name));
-    const spot = place(item.role);
+    const spot = at || place(item.role);
     const entity = {
         id: "",
         name: unique(item.base, taken),
@@ -678,12 +920,58 @@ function buildPalette() {
         const button = document.createElement("button");
         button.type = "button";
         button.className = "palette__item";
-        const swatch = document.createElement("span");
-        swatch.className = `palette__swatch palette__swatch--${item.role}`;
-        button.append(swatch, document.createTextNode(item.label));
+        button.draggable = true;
+        button.title = item.help;
+        button.dataset.role = item.role;
+        const mark = document.createElement("span");
+        mark.className = `palette__glyph palette__glyph--${item.role}`;
+        mark.append(glyphSvg(item.role));
+        button.append(mark, document.createTextNode(item.label));
+        // Click still adds one, in its column. Dragging is the shortcut, not the only way
+        // in: a keyboard reaches the button and a pointer that never drags still works.
         button.addEventListener("click", () => addEntity(item));
+        button.addEventListener("dragstart", (event) => {
+            event.dataTransfer.setData("text/plain", item.role);
+            event.dataTransfer.effectAllowed = "copy";
+            button.classList.add("is-dragging");
+        });
+        button.addEventListener("dragend", () => {
+            button.classList.remove("is-dragging");
+            page.stage.classList.remove("is-target");
+        });
         page.palette.append(button);
     }
+}
+
+function buttonGlyph(into, name) {
+    const svg = element("svg", {viewBox: "0 0 16 16", "aria-hidden": "true",
+                                focusable: "false"});
+    for (const d of BUTTON_GLYPHS[name]) {
+        svg.append(element("path", {d, "stroke-width": 1.3, "stroke-linejoin": "round",
+                                    "stroke-linecap": "round"}));
+    }
+    into.append(svg);
+}
+
+function onDragOver(event) {
+    if (![...event.dataTransfer.types].includes("text/plain")) {
+        return;
+    }
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+    page.stage.classList.add("is-target");
+}
+
+function onDrop(event) {
+    const role = event.dataTransfer.getData("text/plain");
+    const item = PALETTE.find((one) => one.role === role);
+    page.stage.classList.remove("is-target");
+    if (!item) {
+        return;
+    }
+    event.preventDefault();
+    const at = pointAt(event);
+    addEntity(item, {x: Math.round(at.local.x), y: Math.round(at.local.y)});
 }
 
 async function goOffline(reason) {
@@ -695,7 +983,7 @@ async function goOffline(reason) {
     page.apply.textContent = "Download";
     page.apply.disabled = false;
     const example = await exampleNamed(fromHash("example"));
-    adopt(example || {version: 1, project: "app", entities: [], links: []});
+    adopt(example || {version: 1, project: "", entities: [], links: []});
     if (example) {
         fit();
         say("This is the project the home page reads. Move anything, add anything, and "
@@ -736,16 +1024,46 @@ function wire() {
     page.canvas.addEventListener("pointerup", onUp);
     page.canvas.addEventListener("pointercancel", onUp);
     page.canvas.addEventListener("wheel", onWheel, {passive: false});
+    page.canvas.addEventListener("contextmenu", onContextMenu);
+    page.canvas.addEventListener("dragover", onDragOver);
+    page.canvas.addEventListener("dragleave", () => {
+        page.stage.classList.remove("is-target");
+    });
+    page.canvas.addEventListener("drop", onDrop);
     page.infer.addEventListener("click", () => inferContracts());
     page.review.addEventListener("click", () => review());
     page.apply.addEventListener("click", () => applyPlan());
+    page.showDiagram.addEventListener("click", () => showPane("diagram"));
+    page.showProject.addEventListener("click", () => showPane("project"));
+    page.tabDiagram.addEventListener("click", () => showPane("diagram"));
+    page.tabProject.addEventListener("click", () => showPane("project"));
+    page.dockClose.addEventListener("click", () => showPane(state.pane));
     page.sheetClose.addEventListener("click", () => {
         page.sheet.hidden = true;
     });
-    window.addEventListener("resize", () => fit());
+    // The menu closes on anything that is not a choice from it: another click, a key, a
+    // scroll, a resize. Captured, so it goes before whatever the click was for.
+    window.addEventListener("pointerdown", (event) => {
+        if (!page.menu.hidden && !event.target.closest(".menu")) {
+            closeMenu();
+        }
+    }, true);
+    window.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") {
+            closeMenu();
+        }
+    });
+    window.addEventListener("blur", () => closeMenu());
+    window.addEventListener("resize", () => {
+        closeMenu();
+        fit();
+        renderPane();
+    });
 }
 
 buildPalette();
+buttonGlyph(page.iconDiagram, "diagram");
+buttonGlyph(page.iconProject, "project");
 wire();
 renderInspector();
 load();
