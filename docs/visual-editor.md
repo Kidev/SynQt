@@ -34,36 +34,89 @@ you write yourself. Each row carries the glyph the canvas draws that entity with
 one says what that kind of entity is for and when you would reach for it; the same line
 appears in the panel once one is on the canvas.
 
-Drag a row onto the canvas to put an entity where you dropped it, or click it to drop one in
-the column it belongs in. The columns say something: the browser on the left, the edge it
-reaches in the middle, and everything it must not reach on the right.
+Drag a row onto the canvas to put an entity where you dropped it. Dragging is the only way
+one arrives, so an entity is always somewhere you chose rather than somewhere a column had
+room.
+
+The boxes behind the nodes are the three sides of a system, and they are drawn from what each
+entity is rather than from where it sits: the browser, the one entity facing the internet,
+and the mesh, which nothing outside can reach. Under each node is the file that entity is,
+which is what you open next: `client/Main`, `web/Feed`, `database/Access`.
+
+Hovering anything says the rest. An entity's card gives what it is, what can reach it, the
+connect points it owns and consumes, and its files; a connect point's gives its owner, its
+consumers, how it is carried, and every member that crosses it. Anything the rules have
+against it is on the same card.
 
 A connect point is drawn from the entity that **owns** it to the one that **consumes** it.
 Drag the handle on the owner's rim and drop the line on the consumer. That direction is the
-whole meaning of the line, so it is the thing the canvas asks you to say first.
+whole meaning of the line, so it is the thing the canvas asks you to say first, it is drawn
+as a filled cap on the owner and an arrowhead on the consumer, and the point is named for it:
+dropping a line from `web` onto `client` gives you `webToClient`, carrying the `WebToClient`
+contract in `shared/WebToClient.syn`, implemented in `web/WebToClient.qml`. Rename it to
+whatever it actually carries the moment you know; nothing depends on the name it arrived with.
 
 Selecting a node or a line opens the panel on the right, which is where the rest lives: an
-entity's blueprint and provider, a connect point's name and contract, its consumer list, and
-what crosses it. The consumer list is the authorization, not a hint; an entity that is not
-on it is refused the replica. [Security](security.md) is where that is spelled out.
+entity's provider, a connect point's name and contract, its consumer list, and what crosses
+it. The consumer list is the authorization, not a hint; an entity that is not on it is
+refused the replica. [Security](security.md) is where that is spelled out.
+
+What an entity **is** the panel states and does not offer. A database is a database because
+that is the row it was dragged from, and everything drawn against it since means what it
+means because of that; turning one into a client in a drop-down would keep the name, the
+place and the connect points while changing the thing underneath them. Delete it and drag
+the one you wanted.
 
 Right-clicking a node or a line opens the same three things over it: edit, rename, delete.
 Renaming an entity carries the new name into every connect point that referred to the old
 one, and deleting one takes the connect points it owned with it.
 
-## Two ways to look at what you have drawn
+## The same project as text
 
-Two buttons in the bar open a pane under the canvas, and both are rebuilt from the drawing on
-every edit, so neither can be showing an older design than the canvas above it.
+**Files** in the bar opens the project this drawing is, under the canvas: `synqt.yaml`, one
+contract per connect point under `shared/`, and the QML of every entity, each named by its
+path. It is rebuilt from the drawing on every edit, so it can never be showing an older
+design than the canvas above it.
 
-**Diagram** is the same picture without the handles, always fitted to the pane. It is the
-drawing to read rather than the one to edit, which is what you want when the question is
-whether the shape is right.
+The configuration and the contracts are written from the drawing, so they are read here and
+edited on the canvas. **The QML is the other way round: you type into it, and what you type
+is the design.**
 
-**Files** is the project this drawing would be: `synqt.yaml`, one contract per connect point
-under `shared/`, and the owner-side QML that hosts each one. Pick a file to read it. The QML
-is the same empty Source the CLI writes for the same gesture, rooted at the right type and
-carrying the note about authorizing the caller, so what you read here is what lands on disk.
+Declare a property, a signal or a function in a connect point's Source and it becomes a
+member of that contract, exactly as if you had added it in the panel:
+
+```qml
+FeedSource {
+    id: root
+
+    property bool loaded
+    signal denied(reason: string)
+    function load(id: int): bool {
+    }
+}
+```
+
+Reach for something another entity owns, and the connect point that would have to carry it
+is drawn for you, with the entity that owns it, you on its consumer list, and the member you
+reached for:
+
+```qml
+// in client/Main.qml
+property int score: Server.game.score
+```
+
+draws `game`, owned by the web edge, consumed by the client, carrying `prop var score`. This
+is [`synqt infer`](#reading-the-contracts-back) as you type, and it works on the copy on this
+site too, where there is no CLI behind the page at all. A member nothing gave a type to comes
+back `var` for you to name.
+
+Reading is additive. A declaration adds or corrects a member; a member with no declaration is
+left alone, because half-typed text is not an instruction to delete a contract. Removing a
+member is the panel's `x`. A model is the one kind only the panel can add: QML has no
+declaration form for one.
+
+Putting the caret on a line points the canvas at what that line is about, so a file you are
+reading and the drawing stay on the same subject.
 
 ## The rules are live
 

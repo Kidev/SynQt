@@ -27,6 +27,7 @@
   --error: #ff6b6b;
   --warn: #ffb347;
   --shadow: rgba(0, 0, 0, .45);
+  --zone: rgba(106, 91, 153, .1);
 
   --bar-height: 3rem;
   --rail-width: 14rem;
@@ -52,6 +53,7 @@
     --error: #c62828;
     --warn: #a35c00;
     --shadow: rgba(32, 19, 53, .16);
+    --zone: rgba(176, 168, 208, .18);
   }
 }
 
@@ -232,6 +234,8 @@ h2 {
   gap: .25rem;
 }
 
+/* A row is dragged onto the canvas and nothing else, so it is shaped like something to pick
+   up rather than something to press. The grab cursor is the whole affordance. */
 .palette__item {
   display: flex;
   align-items: center;
@@ -239,12 +243,10 @@ h2 {
   padding: .35rem .5rem;
   border: 1px solid transparent;
   border-radius: .25rem;
-  background: none;
   color: var(--ink);
-  font: inherit;
   font-size: 13px;
-  text-align: left;
-  cursor: pointer;
+  cursor: grab;
+  user-select: none;
 }
 
 .palette__item:hover {
@@ -389,6 +391,55 @@ h2 {
   color: var(--error);
 }
 
+/* The boxes. Which side of the wire an entity is on is the thing that decides what can reach
+   it, and it was previously only readable by knowing that the left column meant browser. Now
+   it is drawn. Each box is the hull of what is in it, so an entity dragged out of its
+   neighbours drags the box with it rather than changing what the box means. */
+
+.zone__box {
+  fill: var(--zone);
+  stroke: var(--line);
+  stroke-width: 1;
+  stroke-dasharray: 5 5;
+  pointer-events: none;
+}
+
+.zone__title {
+  fill: var(--ink-dim);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  pointer-events: none;
+}
+
+.zone__note {
+  fill: var(--ink-dim);
+  font-family: var(--text);
+  font-size: 10px;
+  opacity: .8;
+  pointer-events: none;
+}
+
+/* The one box that is a boundary rather than a grouping: everything inside it is reachable
+   from outside the system, and nothing in the other two is. */
+.zone--internet .zone__box {
+  stroke: var(--edge);
+  stroke-dasharray: none;
+}
+
+.zone--internet .zone__title {
+  fill: var(--edge);
+}
+
+.zone--browser .zone__box {
+  stroke: var(--client);
+}
+
+.zone--browser .zone__title {
+  fill: var(--client);
+}
+
 /* Nodes. The glyph inside each takes its colour from the group, so one class per role
    colours the disc, its rim and its icon together. */
 
@@ -421,12 +472,12 @@ h2 {
   font-size: 12px;
 }
 
-.node__kind {
+/* The file under the name, because that is what somebody opens next. What the entity *is*
+   the panel states and the tooltip repeats; this line is the more useful of the two here. */
+.node__file {
   fill: var(--ink-dim);
   font-family: var(--mono);
-  font-size: 9px;
-  letter-spacing: .06em;
-  text-transform: uppercase;
+  font-size: 9.5px;
 }
 
 /* The handle you pull a link out of. Invisible until the pointer is over the node, so a
@@ -485,6 +536,14 @@ h2 {
   fill: var(--line);
 }
 
+/* The owner's end. A cap here and an arrowhead there is the whole of "who decides", and it
+   reads without hovering anything. */
+.link__owns {
+  fill: var(--line);
+  stroke: none;
+  pointer-events: none;
+}
+
 /* Wide, transparent, and the only part that answers a click, so a 1.5px line does not have
    to be hit exactly. `pointer-events: all` rather than relying on the fill: it says the band
    catches the pointer without asking anything about how it is painted. */
@@ -518,7 +577,8 @@ h2 {
   stroke-dasharray: none;
 }
 
-.link.is-selected .link__head {
+.link.is-selected .link__head,
+.link.is-selected .link__owns {
   fill: var(--accent);
 }
 
@@ -530,7 +590,8 @@ h2 {
   stroke: var(--error);
 }
 
-.link.is-error .link__head {
+.link.is-error .link__head,
+.link.is-error .link__owns {
   fill: var(--error);
 }
 
@@ -605,6 +666,15 @@ h2 {
   font-size: 11px;
   line-height: 1.4;
   color: var(--ink-dim);
+}
+
+/* A fact about the entity rather than a control over it. Deliberately not styled as a
+   disabled input: a greyed-out drop-down reads as something that will become editable. */
+.field__fixed {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--ink);
 }
 
 input[type="text"],
@@ -769,17 +839,17 @@ select:focus {
   white-space: pre;
 }
 
-/* The two panes under the canvas
+/* The files pane under the canvas
 
-   Both look at the project rather than edit it, and both are rebuilt from the document on
-   every change, so neither can be showing an older design than the canvas above it. One
-   dock holds them because they answer the same question from two sides: what have I drawn,
-   and what would that be on disk. */
+   The same project the canvas draws, seen as the text it would be. Rebuilt from the document
+   on every change, so it cannot be showing an older design than the canvas above it, and the
+   QML in it is typed into rather than read. A property declared here is a member of a
+   contract, which is why this is a pane and not a preview. */
 
 .dock {
   display: grid;
   grid-template-rows: auto 1fr;
-  height: 38vh;
+  height: 40vh;
   min-height: 0;
   background: var(--panel);
   border-top: 1px solid var(--line);
@@ -797,60 +867,21 @@ select:focus {
   border-bottom: 1px solid var(--line);
 }
 
-.tab {
-  padding: .3rem .7rem;
-  border: 1px solid transparent;
-  border-radius: .25rem;
-  background: none;
+.dock__title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .08em;
+  text-transform: uppercase;
   color: var(--ink-dim);
-  font: inherit;
-  font-size: 12px;
-  cursor: pointer;
 }
 
-.tab:hover {
-  color: var(--ink);
-}
-
-.tab.is-open {
-  color: var(--accent);
-  border-color: var(--line);
-  background: var(--panel-high);
-}
-
+/* The tree on the left, the file being read on the right. The same arrangement the guide's
+   front page uses for the same job. */
 .dock__pane {
   min-height: 0;
   overflow: hidden;
-}
-
-.dock__pane[hidden] {
-  display: none;
-}
-
-/* The diagram: the same drawing as the canvas, without the handles that only mean
-   something where it can be edited, and always fitted rather than wherever the canvas
-   happens to be scrolled to. */
-#pane-diagram {
-  background:
-    radial-gradient(circle at 1px 1px, var(--line) 1px, transparent 0) 0 0 / 32px 32px,
-    var(--page);
-}
-
-.preview {
-  width: 100%;
-  height: 100%;
-  display: block;
-}
-
-.preview .node {
-  cursor: default;
-}
-
-/* The files: the tree on the left, the file being read on the right. The same arrangement
-   the guide's front page uses for the same job. */
-#pane-project {
   display: grid;
-  grid-template-columns: 15rem 1fr;
+  grid-template-columns: 17rem 1fr;
 }
 
 .tree {
@@ -863,20 +894,16 @@ select:focus {
   font-size: 12px;
 }
 
-.tree__dir {
-  padding: .2rem 1rem;
-  color: var(--ink-dim);
-}
-
 .tree__file {
   display: block;
   width: 100%;
-  padding: .2rem 1rem .2rem 1.75rem;
+  padding: .2rem 1rem;
   border: none;
   background: none;
   color: var(--ink);
   font: inherit;
   text-align: left;
+  white-space: nowrap;
   cursor: pointer;
 }
 
@@ -897,7 +924,7 @@ select:focus {
 
 .source {
   display: grid;
-  grid-template-rows: auto 1fr;
+  grid-template-rows: auto 1fr auto;
   min-width: 0;
   min-height: 0;
 }
@@ -911,15 +938,200 @@ select:focus {
   color: var(--ink-dim);
 }
 
-.source__text {
+.source__note {
+  margin: 0;
+  padding: .35rem .75rem;
+  border-top: 1px solid var(--line);
+  font-size: 11px;
+  color: var(--ink-dim);
+}
+
+/* Two layers in one box. Every property that decides where a glyph lands is set on both, so
+   the caret in the transparent textarea sits exactly on the coloured word behind it; a font,
+   a size, a line height or a padding set on one of them alone is how these drift apart.
+
+   The textarea is the one that scrolls and the painted copy is dragged along by hand. The
+   obvious arrangement, one scrolling box holding both, does not work: an absolutely
+   positioned child of a scroll container scrolls away with the content while its `height:
+   100%` still resolves against the visible frame, so the two layers come apart the moment a
+   file is longer than the pane. */
+.source__view {
+  position: relative;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--page);
+}
+
+.source__paint,
+.source__input {
+  position: absolute;
+  inset: 0;
   margin: 0;
   padding: .75rem;
-  overflow: auto;
-  background: var(--page);
+  border: 0;
   font-family: var(--mono);
   font-size: 12px;
   line-height: 1.45;
+  tab-size: 4;
   white-space: pre;
+  overflow-wrap: normal;
+}
+
+.source__paint {
+  overflow: hidden;
+  color: var(--ink);
+  pointer-events: none;
+}
+
+.source__input {
+  resize: none;
+  overflow: auto;
+  background: transparent;
+  color: transparent;
+  caret-color: var(--accent);
+}
+
+.source__input:focus {
+  outline: none;
+}
+
+.source__input[hidden] {
+  display: none;
+}
+
+/* The selection is the one thing the transparent layer still has to paint, since the layer
+   behind it cannot know what is selected. */
+.source__input::selection {
+  background: var(--accent);
+  color: var(--page);
+}
+
+.tok--comment {
+  color: var(--ink-dim);
+  font-style: italic;
+}
+
+.tok--keyword {
+  color: var(--accent);
+}
+
+.tok--type {
+  color: var(--client);
+}
+
+.tok--string {
+  color: var(--warn);
+}
+
+.tok--number {
+  color: var(--warn);
+}
+
+.tok--member {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+/* What hovering the canvas opens
+
+   Its own thing rather than the browser's <title> tooltip, because what is worth saying about
+   an entity is a structure: what it is, what can reach it, what it owns, what it consumes and
+   what the rules have against it. A native tooltip can only be a paragraph, it arrives after a
+   delay nobody chose, and it cannot be coloured, so half of the above would have gone unread.
+   It never answers the pointer itself: this is something to read, not something to hit. */
+
+.tip {
+  position: fixed;
+  z-index: 12;
+  max-width: 22rem;
+  padding: .6rem .7rem;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: .35rem;
+  box-shadow: 0 6px 20px var(--shadow);
+  font-size: 12px;
+  line-height: 1.4;
+  pointer-events: none;
+}
+
+.tip[hidden] {
+  display: none;
+}
+
+.tip__head {
+  display: flex;
+  align-items: center;
+  gap: .4rem;
+  margin-bottom: .45rem;
+  padding-bottom: .35rem;
+  border-bottom: 1px solid var(--line);
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--service);
+}
+
+.tip__head svg {
+  flex: none;
+  width: 1.1rem;
+  height: 1.1rem;
+}
+
+.tip__head--client {
+  color: var(--client);
+}
+
+.tip__head--edge {
+  color: var(--edge);
+}
+
+.tip__head--link {
+  color: var(--accent);
+}
+
+.tip__row {
+  display: grid;
+  grid-template-columns: 6.5rem 1fr;
+  gap: .5rem;
+  margin-bottom: .15rem;
+}
+
+.tip__label {
+  color: var(--ink-dim);
+}
+
+.tip__value {
+  font-family: var(--mono);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.tip__members {
+  margin-top: .45rem;
+  padding-top: .35rem;
+  border-top: 1px solid var(--line);
+}
+
+.tip__member {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink);
+}
+
+.tip__help {
+  margin: .45rem 0 0;
+  color: var(--ink-dim);
+}
+
+.tip__finding {
+  margin: .45rem 0 0;
+  padding-left: .5rem;
+  border-left: 2px solid var(--warn);
+  color: var(--warn);
+}
+
+.tip__finding--error {
+  border-left-color: var(--error);
+  color: var(--error);
 }
 
 /* What a right click opens */

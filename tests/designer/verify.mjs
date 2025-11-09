@@ -123,6 +123,40 @@ async function discCentre(page, name) {
     return { x: box.x + (box.width / 2), y: box.y + (box.height / 2) };
 }
 
+// Dragging is the only way an entity reaches the canvas, so it is the only way this test can
+// put one there. `dragTo` is the HTML5 drag the page listens for, not a synthesised click.
+async function dropEntity(page, label, at) {
+    await page.locator(".palette__item", { hasText: label })
+        .dragTo(page.locator("#canvas"), { targetPosition: at });
+}
+
+// Type `line` in just above the file's closing brace, which is where a declaration goes. The
+// caret starts at the end of the file, which is past that brace, so it walks back one line
+// first; typing at the end would put the declaration outside the object it belongs to.
+async function typeIntoRootBlock(page, line) {
+    const typing = page.locator("#source-input");
+    await typing.click();
+    await typing.press("Control+End");
+    await typing.press("ArrowUp");
+    await typing.press("Home");
+    await typing.type(line);
+}
+
+// Open a file in the pane and wait for it to hold `wanted`, saying what it held instead when
+// it never does: a timeout that only said "timed out" would throw away the file that is the
+// whole answer.
+async function openAndWaitFor(page, file, wanted) {
+    await page.locator(".tree__file", { hasText: file }).click();
+    try {
+        await page.waitForFunction(
+            (text) => document.getElementById("source-paint").textContent.includes(text),
+            wanted, { timeout: 15000 });
+    } catch (error) {
+        const held = await page.locator("#source-paint").textContent();
+        throw new Error(`${file} never held "${wanted}". It held:\n${held}`);
+    }
+}
+
 // A connect point is drawn from the owner's rim to the consumer's disc, and the direction is
 // its meaning, so this is the one interaction the page has that a keyboard cannot reach.
 async function dragLink(page, fromEntity, toEntity) {
@@ -142,7 +176,10 @@ async function editorOverAProject() {
     const project = await copyProject();
     const { proc, url } = await startEditor(project);
     const browser = await chromium.launch({ headless });
-    const page = await browser.newPage();
+    // Wide enough that an entity dropped below the three already there is still somewhere a
+    // pointer can reach. The canvas is the middle column, with the palette and the panel
+    // taking a fixed width off either side of it.
+    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
     const problems = [];
     page.on("pageerror", (error) => problems.push(String(error)));
     page.on("console", (message) => {
@@ -159,13 +196,19 @@ async function editorOverAProject() {
 
         // Add a service, and connect it to the edge: the service owns the point, the edge
         // consumes it. Dropped the other way round the page would draw a different project.
-        await page.locator(".palette__item", { hasText: "Service" }).click();
+        await dropEntity(page, "Service", { x: 430, y: 560 });
         await page.waitForSelector('[data-entity="service"]');
         await dragLink(page, "service", "web");
         await page.waitForFunction(
             () => document.querySelectorAll("[data-link]").length === 4);
 
+        // A new point is named for the direction it runs, so this one arrives as
+        // `serviceToWeb`. Renamed here to what it actually carries, which is the gesture the
+        // name is a starting point for.
         const inspector = page.locator("#inspector");
+        check(await inspector.locator("input[type=text]").first().inputValue()
+              === "serviceToWeb",
+              "a new connect point is named for the direction it runs");
         await inspector.locator("input[type=text]").first().fill("audit");
         await inspector.locator("input[type=text]").nth(1).fill("Audit");
 
@@ -284,7 +327,7 @@ async function theCopyOnTheSite() {
         check(await page.locator("#apply").isEnabled(), "Apply became the download");
 
         // It is still an editor: the palette works and the rules paint.
-        await page.locator(".palette__item", { hasText: "Client" }).click();
+        await dropEntity(page, "Client", { x: 300, y: 300 });
         await page.waitForSelector('[data-entity="client"]');
         const verdict = await page.locator("#verdict").textContent();
         check(/problem/.test(verdict),
@@ -330,27 +373,90 @@ async function theProjectALinkHandsYou() {
         check(Boolean(await page.locator(".palette__item").first().getAttribute("title")),
               "and says what that kind of entity is for");
 
-        await page.click("#show-diagram");
-        await page.waitForSelector("#preview-nodes [data-entity]");
-        check(await page.locator("#preview-nodes [data-entity]").count() === 4,
-              "the diagram pane draws the same entities as the canvas");
-        check(await page.locator("#preview-nodes [data-rim]").count() === 0,
-              "without the handle you drag a link out of, which it has no use for");
+        // Which side of the wire each entity is on, drawn rather than left to be worked out
+        // from which column it landed in.
+        check(await page.locator("#zones .zone").count() === 3,
+              "the browser, the entity facing the internet and the mesh are three boxes");
+        check((await page.locator("#zones .zone--internet .zone__title").textContent())
+              === "faces the internet",
+              "and the one that faces the internet says so");
 
         await page.click("#show-project");
         await page.waitForSelector(".tree__file");
         const named = await page.locator(".tree__file").allTextContents();
-        check(named.includes("synqt.yaml") && named.includes("Feed.syn")
-              && named.includes("Feed.qml"),
-              `the files pane holds the configuration, the contracts and the QML `
-              + `(${named.join(", ")})`);
-        await page.locator(".tree__file", { hasText: "Feed.qml" }).click();
-        const source = await page.locator("#source-text").textContent();
+        // Whole paths, and every entity present. The client used to contribute no file at
+        // all, so the one entity a reader looks for first was the one missing.
+        const wanted = ["synqt.yaml", "shared/Feed.syn", "client/Main.qml", "web/Feed.qml",
+                        "database/Access.qml", "api/Upstream.qml"];
+        const missing = wanted.filter((name) => !named.includes(name));
+        check(missing.length === 0,
+              missing.length ? `the files pane is missing ${missing.join(", ")}; it names `
+                               + named.join(", ")
+                             : "the files pane names every file by its path");
+
+        await page.locator(".tree__file", { hasText: "web/Feed.qml" }).click();
+        const source = await page.locator("#source-paint").textContent();
         check(source.includes("FeedSource {"),
               "and reading one shows the Source the owner would host");
+        check(!source.includes("SPDX-License-Identifier"),
+              "without the licence notice, which is on every file and read by nobody");
+        check(await page.locator("#source-paint .tok--keyword").count() > 0,
+              "coloured as the QML it is");
+
+        // Typing a declaration into a Source is the same gesture as adding a member in the
+        // panel, which is the whole reason the pane is a textarea and not a preview.
+        check(await page.locator("#source-input").isVisible(),
+              "a Source is typed into rather than read");
+        await typeIntoRootBlock(page, "    property string headline\n");
+        await openAndWaitFor(page, "shared/Feed.syn", "prop string headline");
+        check(true, "a property typed into a Source becomes a member of its contract");
+
+        // Putting the caret on a line points the canvas at what that line is about, which is
+        // how somebody reading a file finds the thing they are reading in the drawing.
+        await page.locator(".tree__file", { hasText: "web/Feed.qml" }).click();
+        await page.locator("#source-input").click();
+        await page.locator("#source-input").press("Control+End");
+        await page.locator("#source-input").press("ArrowUp");
+        await page.locator("#source-input").press("ArrowUp");
+        await page.waitForSelector("[data-link='feed'].is-selected");
+        check(true, "the line the caret is on selects what it declares, out on the canvas");
+
+        // Reaching into another entity draws the connect point it would need. This is what
+        // `synqt infer` does over a project, done here on one file while it is being typed:
+        // `Server` is the client's alias for the edge, so the edge is what ends up owning it.
+        await page.locator(".tree__file", { hasText: "client/Main.qml" }).click();
+        await typeIntoRootBlock(page, "    property int seen: Server.tally.total\n");
+        await page.waitForSelector("[data-link='tally']");
+        check(true, "reaching into another entity draws the connect point that would carry it");
+        const paths = await page.locator(".tree__file").allTextContents();
+        check(paths.includes("shared/Tally.syn") && paths.includes("web/Tally.qml"),
+              `with the two files it needs (${paths.join(", ")})`);
+        await openAndWaitFor(page, "shared/Tally.syn", "prop var total");
+        check(true, "and the member it reached for, with the type nothing gave away");
+
+        // A file longer than the pane is the ordinary case, and the coloured copy is a
+        // separate layer from the one holding the caret, so the two have to move together.
+        await page.locator(".tree__file", { hasText: "client/Main.qml" }).click();
+        const scrolled = await page.evaluate(() => {
+            const input = document.getElementById("source-input");
+            const paint = document.getElementById("source-paint");
+            input.scrollTop = input.scrollHeight;
+            input.dispatchEvent(new Event("scroll"));
+            return {moved: input.scrollTop, painted: paint.scrollTop};
+        });
+        check(scrolled.moved > 0 && scrolled.painted === scrolled.moved,
+              `the coloured copy scrolls with the caret (${scrolled.painted} of `
+              + `${scrolled.moved})`);
 
         await page.click("#dock-close");
-        check(await page.locator("#dock").isHidden(), "both panes hide again");
+        check(await page.locator("#dock").isHidden(), "the pane hides again");
+
+        // The tooltip is the page's own, so it can say what a native one cannot.
+        await page.locator("#nodes [data-entity='database']").hover();
+        await page.waitForSelector("#tip:not([hidden])");
+        const tip = await page.locator("#tip").textContent();
+        check(tip.includes("database") && tip.includes("consumer lists"),
+              `hovering an entity says what can reach it (${tip.slice(0, 80)})`);
 
         await page.locator("#nodes [data-entity='web']").click({ button: "right" });
         await page.waitForSelector(".menu__item");

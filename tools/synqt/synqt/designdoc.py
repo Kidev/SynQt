@@ -202,9 +202,23 @@ def parse_contract(path: os.PathLike[str] | str) -> List[Dict[str, Any]]:
     return parse_from_text(source.read_text(encoding="utf-8"), source.stem)
 
 
+def _read_text(path: Path) -> str:
+    """A source file's text, or "" where there is not one yet.
+
+    Never an error. The editor shows a project as the files it is made of, and a connect point
+    drawn a moment ago legitimately has no Source on disk. So does a project somebody has half
+    scaffolded by hand. An empty string is "nothing written here", which is what the pane says.
+    """
+    try:
+        return path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return ""
+
+
 def _link(point: Dict[str, Any], root: Path) -> Dict[str, Any]:
     contract = str(point.get("contract") or "")
     name = str(point.get("name") or "")
+    owner = str(point.get("owner") or "")
     members: List[Dict[str, Any]] = []
     source = root / "shared" / f"{contract}.syn"
     # A link drawn before its contract has been written is an ordinary state in the editor,
@@ -215,15 +229,23 @@ def _link(point: Dict[str, Any], root: Path) -> Dict[str, Any]:
             members = parse_contract(source)
         except DesignDocError as error:
             raise DesignDocError(f"shared/{contract}.syn: {error}") from error
+    # The owner-side QML, carried in the document because the editor's files pane shows the
+    # project as it is rather than as it would be scaffolded. Reading a Source that somebody
+    # has already implemented and showing them an empty stub instead would be the pane
+    # describing a different project from the one on the disk under it.
+    server = str(point.get("server") or "")
+    relative = server or (f"{owner}/{contract}.qml" if owner and contract else "")
     return {
         "id": name,
         "name": name,
         "contract": contract,
-        "owner": str(point.get("owner") or ""),
+        "owner": owner,
         "consumers": [str(consumer) for consumer in (point.get("consumers") or [])],
         "instance": str(point.get("instance") or "shared"),
         "transport": str(point.get("transport") or ""),
         "members": members,
+        "server": server,
+        "qml": _read_text(root / relative) if relative else "",
     }
 
 
@@ -253,6 +275,11 @@ def read(project_dir: os.PathLike[str] | str, *,
     config = configmod.load(root, profile=profile)
     name = project_name(config, root.name)
     entities = entities_of(config, places=_stored_places(root))
+    for entity in entities:
+        # A client's window, for the same reason a connect point's Source is carried: it is
+        # the file that entity is, and the pane has to show the one on disk.
+        if entity["kind"] == "client":
+            entity["qml"] = _read_text(root / entity["name"] / "Main.qml")
     return {
         "version": VERSION,
         "project": name,

@@ -23,10 +23,6 @@
       <span class="bar__project" id="project" hidden></span>
       <span class="bar__verdict" id="verdict"></span>
       <span class="bar__gap"></span>
-      <button type="button" class="button button--icon" id="show-diagram"
-              aria-pressed="false" title="Show the diagram of this project">
-        <span class="button__icon" id="icon-diagram"></span>Diagram
-      </button>
       <button type="button" class="button button--icon" id="show-project"
               aria-pressed="false" title="Show the files this project is made of">
         <span class="button__icon" id="icon-project"></span>Files
@@ -40,7 +36,7 @@
     <main class="work">
       <aside class="rail">
         <h2 class="rail__title">Add an entity</h2>
-        <p class="rail__hint">Drag one onto the canvas, or click to drop it in its column.</p>
+        <p class="rail__hint">Drag one onto the canvas, where you want it.</p>
         <div class="palette" id="palette"></div>
         <h2 class="rail__title">What the rules say</h2>
         <ul class="findings" id="findings"></ul>
@@ -49,9 +45,11 @@
       <section class="stage">
         <div class="stage__canvas">
           <svg class="canvas" id="canvas" xmlns="http://www.w3.org/2000/svg">
-            <!-- Links first so a line passes under a node rather than across it, and the
-                 half-drawn one between them so it does the same. -->
+            <!-- The boxes behind everything, then the links, so a line passes under a node
+                 rather than across it, and the half-drawn one between them so it does the
+                 same. -->
             <g id="viewport">
+              <g id="zones"></g>
               <g id="links"></g>
               <g id="ghost"></g>
               <g id="nodes"></g>
@@ -60,29 +58,28 @@
           <p class="stage__hint" id="hint"></p>
         </div>
 
-        <!-- The two panes that look at the project rather than edit it. Both are hidden
-             until asked for, and both are redrawn from the document on every change, so
-             what they show is never a snapshot of an older design. -->
+        <!-- The same project as text. Redrawn from the document on every change, so it is
+             never a snapshot of an older design, and the QML in it is typed into rather
+             than read: what a Source declares is what its contract holds. -->
         <section class="dock" id="dock" hidden>
           <header class="dock__bar">
-            <button type="button" class="tab" id="tab-diagram">Diagram</button>
-            <button type="button" class="tab" id="tab-project">Files</button>
+            <span class="dock__title">Files</span>
             <span class="bar__gap"></span>
             <button type="button" class="button" id="dock-close">Hide</button>
           </header>
-          <div class="dock__pane" id="pane-diagram">
-            <svg class="preview" id="preview" xmlns="http://www.w3.org/2000/svg">
-              <g id="preview-viewport">
-                <g id="preview-links"></g>
-                <g id="preview-nodes"></g>
-              </g>
-            </svg>
-          </div>
-          <div class="dock__pane" id="pane-project" hidden>
+          <div class="dock__pane">
             <ul class="tree" id="tree"></ul>
             <div class="source">
               <p class="source__name" id="source-name"></p>
-              <pre class="source__text" id="source-text"></pre>
+              <!-- One layer painted and one layer typed into, sharing a box and a font: the
+                   textarea on top is transparent apart from its caret, and the coloured copy
+                   behind it is what anyone actually reads. -->
+              <div class="source__view">
+                <pre class="source__paint" id="source-paint"></pre>
+                <textarea class="source__input" id="source-input" spellcheck="false"
+                          autocomplete="off" autocapitalize="off" wrap="off"></textarea>
+              </div>
+              <p class="source__note" id="source-note"></p>
             </div>
           </div>
         </section>
@@ -91,8 +88,11 @@
       <aside class="inspector" id="inspector"></aside>
     </main>
 
-    <!-- What a right click opens, over whatever it was opened on. Filled by design.js and
-         positioned at the pointer; it holds nothing until then. -->
+    <!-- What hovering something on the canvas opens, over whatever it was opened on. Filled
+         by design.js and positioned at the pointer; it holds nothing until then. -->
+    <div class="tip" id="tip" hidden></div>
+
+    <!-- What a right click opens. -->
     <ul class="menu" id="menu" hidden></ul>
 
     <section class="sheet" id="sheet" hidden>

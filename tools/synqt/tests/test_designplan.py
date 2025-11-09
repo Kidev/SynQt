@@ -55,6 +55,61 @@ def test_moving_a_node_on_the_canvas_is_not_a_change_to_the_project(tmp_path):
     assert designplan.compute(project, document).changes == ()
 
 
+def test_the_document_carries_the_qml_that_is_actually_on_disk(tmp_path):
+    """The editor's files pane shows the project as it is, so a Source somebody has already
+    implemented has to arrive as what they wrote and not as the stub it started life as."""
+    project = _copy(tmp_path, "gavel")
+    document = designdoc.read(project)
+    auction = next(link for link in document["links"] if link["name"] == "auction")
+    assert auction["qml"] == (project / "web" / "Auction.qml").read_text(encoding="utf-8")
+    assert "AuctionSource {" in auction["qml"]
+
+
+def test_qml_the_editor_only_read_is_not_written_back(tmp_path):
+    """The whole hazard of carrying a copy of every file: somebody edits `web/Auction.qml`
+    in their own editor while this page is open, and applying anything at all reverts it to
+    what the page read when it loaded. Only text the page marked as typed is text to write.
+    """
+    project = _copy(tmp_path, "gavel")
+    document = designdoc.read(project)
+    theirs = (project / "web" / "Auction.qml").read_text(encoding="utf-8")
+    (project / "web" / "Auction.qml").write_text(
+        theirs.replace("id: auction", "id: auction\n\n    property int mine"),
+        encoding="utf-8")
+    assert designplan.compute(project, document).changes == ()
+
+
+def test_qml_typed_into_the_editor_is_written(tmp_path):
+    project = _copy(tmp_path, "gavel")
+    document = designdoc.read(project)
+    auction = next(link for link in document["links"] if link["name"] == "auction")
+    auction["qml"] = auction["qml"].replace(
+        "id: auction", "id: auction\n\n    property int drawn")
+    auction["qmlEdited"] = True
+    plan = designplan.compute(project, document)
+    written = next(change for change in plan.changes if change.path == "web/Auction.qml")
+    assert written.action == "edit"
+    assert "property int drawn" in written.after
+    assert "was edited" in written.reason
+
+
+def test_a_client_drawn_in_the_editor_gets_the_file_it_cannot_start_without(tmp_path):
+    """`engine.loadFromModule(uri, "Main")` is what the generated client main.cpp does, so a
+    client with no Main.qml builds, loads, logs nothing and renders a blank page. Adding one
+    in the editor must not produce that, an entity in synqt.yaml with an empty
+    directory beside it."""
+    project = _copy(tmp_path, "gavel")
+    document = designdoc.read(project)
+    document["entities"].append({"id": "kiosk", "name": "kiosk", "kind": "client",
+                                 "capability": "", "blueprint": "", "provider": "",
+                                 "targets": ["wasm"], "identity": False, "x": 40, "y": 300})
+    plan = designplan.compute(project, document)
+    created = {change.path for change in plan.changes if change.action == "create"}
+    assert "kiosk/Main.qml" in created
+    window = next(change for change in plan.changes if change.path == "kiosk/Main.qml")
+    assert "ApplicationWindow {" in window.after
+
+
 def test_adding_an_entity_creates_what_add_entity_creates(tmp_path):
     project = _copy(tmp_path, "gavel")
     document = designdoc.read(project)

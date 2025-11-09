@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // The editor: one design document, the canvas that draws it, the panel that edits it, the
-// request that reads it back out of the project's own QML, and the two that turn it into
-// files.
+// files pane that is the same project seen as text, the request that reads it back out of the
+// project's own QML, and the two that turn it into files.
 //
 // Nothing here writes to the project. Editing changes a document held in this tab; Review
 // asks the server what applying it would do and shows the diff; Apply names the change set
@@ -11,13 +11,20 @@
 // paints while you drag are rules.js, a subset of `synqt check` that the suite holds to the
 // same verdicts, and the verdict that decides is the one the server returns.
 //
+// The canvas and the files pane are two views of one document and neither is a copy: typing a
+// property into an owner's Source adds the member the panel would have added, and reaching
+// for something another entity owns draws the connect point that would have had to exist. A
+// design cannot be drawn one way and written another, because there is only one of it.
+//
 // Run with no server behind it (the copy on synqt.org) the page still edits, and Apply
 // becomes a download of the project it would have written.
 
 import { findings as ruleFindings } from "./rules.js";
-import { ROLE_HELP, draw, element, entityAt, glyphSvg, roleOf } from "./canvas.js";
+import { ROLE_HELP, describe, draw, element, entityAt, extent, glyphSvg,
+         roleOf } from "./canvas.js";
 import { inspect } from "./inspector.js";
-import { projectFiles } from "./project.js";
+import { entityFiles, projectFiles } from "./project.js";
+import { declarations, references, runsFor, withoutNotice } from "./source.js";
 import { zipBytes } from "./zip.js";
 
 // The three columns a topology reads in, the same ones designdoc.py lays a project out in:
@@ -54,11 +61,9 @@ const PALETTE = [
      make: () => ({kind: "service"})},
 ].map((item) => ({...item, help: ROLE_HELP[item.role]}));
 
-// Small line-drawn marks for the two panes, in the same 16-unit box the entity glyphs use.
-const BUTTON_GLYPHS = {
-    diagram: ["M 2,4 h 5 v 4 h -5 z", "M 9,8 h 5 v 4 h -5 z", "M 4.5,8 v 5 h 4.5"],
-    project: ["M 2,3 h 4.5 l 1.2,2 h 6.3 v 8 h -12 z"],
-};
+// A small line-drawn mark for the pane's button, in the same 16-unit box the entity glyphs
+// use.
+const FOLDER_GLYPH = ["M 2,3 h 4.5 l 1.2,2 h 6.3 v 8 h -12 z"];
 
 const state = {
     design: {version: 1, project: "", sourceHash: "", entities: [], links: []},
@@ -68,8 +73,8 @@ const state = {
     plan: null,
     backend: true,
     token: "",
-    // Which of the two panes is open, if either, and which file the Files pane is reading.
-    pane: "",
+    // Whether the files pane is open, and which file it is reading.
+    files: false,
     reading: "",
 };
 
@@ -79,6 +84,7 @@ const page = {
     stage: document.querySelector(".stage"),
     canvas: document.getElementById("canvas"),
     viewport: document.getElementById("viewport"),
+    zones: document.getElementById("zones"),
     links: document.getElementById("links"),
     nodes: document.getElementById("nodes"),
     ghost: document.getElementById("ghost"),
@@ -91,23 +97,16 @@ const page = {
     infer: document.getElementById("infer"),
     review: document.getElementById("review"),
     apply: document.getElementById("apply"),
-    showDiagram: document.getElementById("show-diagram"),
     showProject: document.getElementById("show-project"),
-    iconDiagram: document.getElementById("icon-diagram"),
     iconProject: document.getElementById("icon-project"),
     dock: document.getElementById("dock"),
     dockClose: document.getElementById("dock-close"),
-    tabDiagram: document.getElementById("tab-diagram"),
-    tabProject: document.getElementById("tab-project"),
-    paneDiagram: document.getElementById("pane-diagram"),
-    paneProject: document.getElementById("pane-project"),
-    preview: document.getElementById("preview"),
-    previewViewport: document.getElementById("preview-viewport"),
-    previewLinks: document.getElementById("preview-links"),
-    previewNodes: document.getElementById("preview-nodes"),
     tree: document.getElementById("tree"),
     sourceName: document.getElementById("source-name"),
-    sourceText: document.getElementById("source-text"),
+    sourceNote: document.getElementById("source-note"),
+    sourcePaint: document.getElementById("source-paint"),
+    sourceInput: document.getElementById("source-input"),
+    tip: document.getElementById("tip"),
     menu: document.getElementById("menu"),
     sheet: document.getElementById("sheet"),
     sheetTitle: document.getElementById("sheet-title"),
@@ -215,7 +214,7 @@ function renderFindings() {
     if (!state.found.length) {
         page.findings.append(quiet(state.design.entities.length
             ? "Nothing in the way. Review the changes when you are ready."
-            : "An empty project. Add an entity to start."));
+            : "An empty project. Drag an entity onto the canvas to start."));
         return;
     }
     for (const item of state.found) {
@@ -264,29 +263,32 @@ function validateLive() {
 
 function redraw() {
     validateLive();
-    draw({links: page.links, nodes: page.nodes}, state.design,
-         {problems: state.problems, selected: state.selected});
+    draw({zones: page.zones, links: page.links, nodes: page.nodes}, state.design,
+         {problems: state.problems, selected: state.selected,
+          filesOf: (entity) => entityFiles(state.design, entity)});
     renderFindings();
     renderVerdict();
-    renderPane();
+    if (state.files) {
+        renderProject();
+    }
 }
 
-// The two panes
+// The files pane
 
-// The view that shows all of `design` inside `svg`. Two callers want it: the canvas, whose
-// view somebody then pans and zooms away from, and the preview, which has no view of its
-// own because it is only ever asked to show the whole thing.
+// The view that shows all of `design` inside `svg`, boxes and all: what the fit has to hold is
+// everything the drawing says, and a box hanging off the edge of the window is the part that
+// says what can reach what.
 function fitOf(svg, design) {
-    const entities = design.entities || [];
+    const held = extent(design);
     const box = svg.getBoundingClientRect();
-    if (!entities.length || !box.width || !box.height) {
+    if (!held || !box.width || !box.height) {
         return {x: 0, y: 0, k: 1};
     }
-    const pad = 110;
-    const left = Math.min(...entities.map((entity) => entity.x || 0)) - pad;
-    const right = Math.max(...entities.map((entity) => entity.x || 0)) + pad;
-    const top = Math.min(...entities.map((entity) => entity.y || 0)) - pad;
-    const bottom = Math.max(...entities.map((entity) => entity.y || 0)) + pad;
+    const pad = 30;
+    const left = held.left - pad;
+    const right = held.right + pad;
+    const top = held.top - pad;
+    const bottom = held.bottom + pad;
     const scale = Math.min(box.width / (right - left), box.height / (bottom - top), 1.2);
     const k = Math.min(Math.max(scale, ZOOM_RANGE[0]), ZOOM_RANGE[1]);
     return {
@@ -300,87 +302,465 @@ function transformOf(at) {
     return `translate(${at.x},${at.y}) scale(${at.k})`;
 }
 
-function renderDiagram() {
-    draw({links: page.previewLinks, nodes: page.previewNodes}, state.design,
-         {problems: state.problems, selected: null, plain: true});
-    page.previewViewport.setAttribute("transform",
-                                      transformOf(fitOf(page.preview, state.design)));
+// The project directory is the first segment of every name and says nothing in a tree that is
+// already inside it.
+function inProject(name) {
+    return String(name).split("/").slice(1).join("/");
 }
 
-// The files this design would be, as a tree. Rendered from projectFiles, which is what the
-// download holds and what the server writes, so the tree is never a description of the
-// project written separately from the project.
+// Whether this file is one the pane lets somebody type into. QML is: it is the entity's own
+// code, and what it declares is what the contract holds. The configuration and the contracts
+// are not, because both are written from the document and typing into either would be typing
+// into a rendering of something else.
+function editable(file) {
+    return file.name.endsWith(".qml");
+}
+
+function paint(file) {
+    page.sourcePaint.replaceChildren();
+    // The notice is on every file and nobody reads it twice; it is taken off here and stays
+    // on everywhere the file is actually written.
+    const shown = withoutNotice(file.text);
+    for (const run of runsFor(file.name, shown)) {
+        if (!run.kind) {
+            page.sourcePaint.append(document.createTextNode(run.text));
+            continue;
+        }
+        const span = document.createElement("span");
+        span.className = `tok tok--${run.kind}`;
+        span.textContent = run.text;
+        page.sourcePaint.append(span);
+    }
+    // A trailing newline in a <pre> is not painted, so a caret on the last line of the
+    // textarea would sit past the end of what is behind it.
+    page.sourcePaint.append(document.createTextNode("\n"));
+    return shown;
+}
+
+// The files this design would be, as a tree of whole paths. Rendered from projectFiles, which
+// is what the download holds and what the server writes, so the tree is never a description
+// of the project written separately from the project.
 function renderProject() {
     const files = projectFiles(state.design);
     page.tree.replaceChildren();
     if (!files.length) {
         const empty = document.createElement("li");
         empty.className = "tree__empty";
-        empty.textContent = "Nothing yet. Add an entity.";
+        empty.textContent = "Nothing yet. Drag an entity onto the canvas.";
         page.tree.append(empty);
         page.sourceName.textContent = "";
-        page.sourceText.textContent = "";
+        page.sourceNote.textContent = "";
+        page.sourcePaint.replaceChildren();
+        page.sourceInput.value = "";
+        page.sourceInput.hidden = true;
         return;
-    }
-    // The project directory is the first segment of every name and says nothing here, so
-    // the tree is grouped by what comes after it.
-    const folders = new Map();
-    for (const file of files) {
-        const parts = file.name.split("/").slice(1);
-        const folder = parts.length > 1 ? parts.slice(0, -1).join("/") : "";
-        folders.set(folder, [...(folders.get(folder) || []), {file, leaf: parts.at(-1)}]);
     }
     if (!files.some((file) => file.name === state.reading)) {
         state.reading = files[0].name;
     }
-    for (const [folder, held] of [...folders].sort(([a], [b]) => a.localeCompare(b))) {
-        if (folder) {
-            const row = document.createElement("li");
-            row.className = "tree__dir";
-            row.textContent = `${folder}/`;
-            page.tree.append(row);
-        }
-        for (const {file, leaf} of [...held].sort((a, b) => a.leaf.localeCompare(b.leaf))) {
-            const row = document.createElement("li");
-            const button = document.createElement("button");
-            button.type = "button";
-            button.className = "tree__file"
-                + (file.name === state.reading ? " is-open" : "");
-            button.textContent = leaf;
-            button.addEventListener("click", () => {
-                state.reading = file.name;
-                renderProject();
-            });
-            row.append(button);
-            page.tree.append(row);
-        }
+    for (const file of files) {
+        const row = document.createElement("li");
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "tree__file" + (file.name === state.reading ? " is-open" : "");
+        // The whole path, not a folder heading and a bare leaf: `web/Feed.qml` is what the
+        // guide's tree calls it, what the diff calls it and what somebody opens in an editor.
+        button.textContent = inProject(file.name);
+        button.addEventListener("click", () => {
+            state.reading = file.name;
+            renderProject();
+        });
+        row.append(button);
+        page.tree.append(row);
     }
     const open = files.find((file) => file.name === state.reading) || files[0];
-    page.sourceName.textContent = open.name;
-    page.sourceText.textContent = open.text;
+    page.sourceName.textContent = inProject(open.name);
+    const shown = paint(open);
+    if (editable(open)) {
+        page.sourceInput.hidden = false;
+        page.sourceInput.readOnly = false;
+        if (page.sourceInput.value !== shown) {
+            page.sourceInput.value = shown;
+        }
+        page.sourceNote.textContent = open.link
+            ? "A property, a signal or a function you declare here becomes a member of this "
+              + "connect point's contract."
+            : "Reach for something another entity owns and the connect point that would "
+              + "carry it is drawn for you.";
+    } else {
+        page.sourceInput.hidden = true;
+        page.sourceInput.value = "";
+        page.sourceNote.textContent = "Written from the design. Edit it on the canvas or in "
+            + "the panel.";
+    }
 }
 
-function renderPane() {
-    if (state.pane === "diagram") {
-        renderDiagram();
-    } else if (state.pane === "project") {
+function showFiles(open) {
+    state.files = open === undefined ? !state.files : open;
+    page.dock.hidden = !state.files;
+    page.showProject.setAttribute("aria-pressed", String(state.files));
+    // The canvas lost or gained height, so the view that fitted it no longer does.
+    fit();
+    if (state.files) {
         renderProject();
     }
 }
 
-function showPane(which) {
-    state.pane = state.pane === which ? "" : which;
-    page.dock.hidden = !state.pane;
-    page.paneDiagram.hidden = state.pane !== "diagram";
-    page.paneProject.hidden = state.pane !== "project";
-    for (const [name, tab, toggle] of [["diagram", page.tabDiagram, page.showDiagram],
-                                       ["project", page.tabProject, page.showProject]]) {
-        tab.classList.toggle("is-open", state.pane === name);
-        toggle.setAttribute("aria-pressed", String(state.pane === name));
+// Reading a file back
+
+// The entity a project-relative path belongs to: its first segment is the entity's directory,
+// which is the one thing about the layout that is not a convention.
+function entityOf(name) {
+    const owner = inProject(name).split("/")[0];
+    return (state.design.entities || []).find((entity) => entity.name === owner) || null;
+}
+
+// The entity an accessor in somebody's QML names. `Server` is the client's alias for the edge
+// it reaches. Everything else is an owner's own name capitalised, which is what the runtime
+// registers it as.
+function ownerNamed(accessor, consumer) {
+    const entities = state.design.entities || [];
+    if (accessor === "Server") {
+        return entities.find((entity) => roleOf(entity) === "edge") || null;
     }
-    // The canvas lost or gained height, so the view that fitted it no longer does.
-    fit();
-    renderPane();
+    const found = entities.find((entity) => capitalised(entity.name) === accessor);
+    return found && found !== consumer ? found : null;
+}
+
+// What one QML file says, folded into the document.
+//
+// Additive. A declaration that is there adds or corrects a member, and a member with no
+// declaration is left alone, because half-typed text is not an instruction to delete somebody's
+// contract, and a model has no declaration form to be missing in the first place. Removing is
+// what the x button in the panel is for.
+function absorb(file, text) {
+    const entity = entityOf(file.name);
+    if (!entity) {
+        return "";
+    }
+    const said = [];
+    if (file.link) {
+        const link = (state.design.links || []).find((one) => one.name === file.link);
+        if (link) {
+            said.push(...absorbMembers(link, declarations(text)));
+        }
+    }
+    said.push(...absorbReferences(entity, references(text)));
+    return said.join(" ");
+}
+
+function absorbMembers(link, declared) {
+    const said = [];
+    link.members = link.members || [];
+    for (const one of declared) {
+        const already = link.members.find((member) => member.name === one.name);
+        if (!already) {
+            link.members.push({kind: one.kind, name: one.name, type: one.type,
+                               params: one.params, roles: []});
+            said.push(`'${one.name}' is now part of the ${link.contract} contract.`);
+            continue;
+        }
+        if (already.kind === "model") {
+            continue;               // no QML declares one, so no QML gets to redefine one
+        }
+        already.kind = one.kind;
+        already.type = one.type;
+        already.params = one.params;
+    }
+    return said;
+}
+
+function absorbReferences(consumer, found) {
+    const said = [];
+    for (const one of found) {
+        const owner = ownerNamed(one.accessor, consumer);
+        if (!owner) {
+            continue;
+        }
+        let link = (state.design.links || []).find((held) => held.name === one.point);
+        if (!link) {
+            link = {id: one.point, name: one.point, contract: capitalised(one.point),
+                    owner: owner.name, consumers: [], instance: "shared", transport: "",
+                    members: []};
+            state.design.links.push(link);
+            said.push(`'${consumer.name}' reaches ${one.accessor}.${one.point}, so `
+                      + `'${owner.name}' now owns a '${one.point}' connect point.`);
+        }
+        if (link.owner === consumer.name) {
+            continue;               // an entity reaching its own point needs nothing drawn
+        }
+        if (!(link.consumers || []).includes(consumer.name)) {
+            link.consumers = [...(link.consumers || []), consumer.name];
+            said.push(`'${consumer.name}' is now a consumer of '${link.name}'.`);
+        }
+        if (!(link.members || []).some((member) => member.name === one.member)) {
+            link.members = [...(link.members || []),
+                            one.call ? {kind: "slot", name: one.member, type: "",
+                                        params: [], roles: []}
+                                     : {kind: "prop", name: one.member, type: "var",
+                                        params: [], roles: []}];
+            said.push(`'${one.member}' was added to ${link.contract}; say what type it is.`);
+        }
+    }
+    return said;
+}
+
+// Where the caret is, as a thing on the canvas. A declaration line points at the member it
+// declares, a line reaching into another entity points at the connect point it would use, and
+// a member line in a contract points at the link that carries it.
+function focusOf(file, line) {
+    if (file.name.endsWith(".qml")) {
+        const text = withoutNotice(file.text);
+        if (file.link) {
+            const declared = declarations(text).find((one) => one.line === line);
+            if (declared) {
+                return {kind: "link", name: file.link, member: declared.name};
+            }
+        }
+        const reached = references(text).find((one) => one.line === line);
+        if (reached) {
+            return {kind: "link", name: reached.point, member: reached.member};
+        }
+        const entity = entityOf(file.name);
+        return entity ? {kind: "entity", name: entity.name} : null;
+    }
+    if (file.name.endsWith(".syn")) {
+        const contract = file.name.replace(/^.*\/|\.syn$/g, "");
+        const link = (state.design.links || [])
+            .find((one) => one.contract === contract);
+        if (!link) {
+            return null;
+        }
+        // The contract's members are the lines inside its braces, in order, so the line the
+        // caret is on counts down to the member it belongs to.
+        const body = withoutNotice(file.text).split("\n");
+        const opened = body.findIndex((one) => /^\s*contract\s/.test(one));
+        const at = line - opened - 1;
+        const member = (link.members || [])[at];
+        return {kind: "link", name: link.name, member: member ? member.name : ""};
+    }
+    // The configuration: whichever `- name:` this line is under, and whether that block is in
+    // the entity list or the connect point list.
+    const lines = withoutNotice(file.text).split("\n");
+    let named = "";
+    let inLinks = false;
+    for (let at = 0; at <= line && at < lines.length; at += 1) {
+        if (/^connect_points:/.test(lines[at])) {
+            inLinks = true;
+        } else if (/^[a-z_]+:/.test(lines[at])) {
+            inLinks = false;
+        }
+        const found = lines[at].match(/^\s*-\s+name:\s*(\S+)/);
+        if (found) {
+            named = found[1];
+        }
+    }
+    return named ? {kind: inLinks ? "link" : "entity", name: named} : null;
+}
+
+function focusFromCaret() {
+    const files = projectFiles(state.design);
+    const open = files.find((file) => file.name === state.reading);
+    if (!open) {
+        return;
+    }
+    const before = editable(open)
+        ? page.sourceInput.value.slice(0, page.sourceInput.selectionStart)
+        : "";
+    const found = focusOf(open, before.split("\n").length - 1);
+    if (!found) {
+        return;
+    }
+    const held = (found.kind === "link" ? state.design.links : state.design.entities)
+        .some((one) => one.name === found.name);
+    if (held) {
+        select({kind: found.kind, name: found.name});
+    }
+}
+
+function onSourceInput() {
+    const files = projectFiles(state.design);
+    const open = files.find((file) => file.name === state.reading);
+    if (!open || !editable(open)) {
+        return;
+    }
+    const text = page.sourceInput.value;
+    // Stored with the notice back on: what is on disk and what the download holds carries it,
+    // and only the pane ever shows a file without one.
+    const notice = open.text.slice(0, open.text.length - withoutNotice(open.text).length);
+    const whole = notice + text;
+    // `qmlEdited` is what tells the server this text was typed here rather than read from the
+    // disk a moment ago. Without it, a file somebody changed in their own editor since this
+    // page loaded would be written back to what it said then, and the design would have
+    // quietly reverted work nobody asked it to touch.
+    const held = open.link
+        ? (state.design.links || []).find((one) => one.name === open.link)
+        : entityOf(open.name);
+    if (held) {
+        held.qml = whole;
+        held.qmlEdited = true;
+    }
+    const said = absorb({...open, text: whole}, text);
+    touched();
+    // The whole page, tree included, because a reference that drew a connect point added
+    // two files to it. The caret survives. The pane only writes into the textarea when what it
+    // holds differs from the file, and what it holds is what was typed.
+    redraw();
+    renderInspector();
+    if (said) {
+        say(said);
+    }
+}
+
+// The tooltip
+
+function tipRow(label, value) {
+    const row = document.createElement("div");
+    row.className = "tip__row";
+    const name = document.createElement("span");
+    name.className = "tip__label";
+    name.textContent = label;
+    const said = document.createElement("span");
+    said.className = "tip__value";
+    said.textContent = value;
+    row.append(name, said);
+    return row;
+}
+
+function memberText(member) {
+    // Chosen by kind, not by which list happens to be there: an empty array is truthy, so
+    // `member.params || member.roles` picks the empty params of a model every time and its
+    // roles, the only thing a model has, never get written.
+    const held = member.kind === "model" ? member.roles : member.params;
+    const parts = (held || []).map((part) => `${part.type} ${part.name}`).join(", ");
+    if (member.kind === "prop") {
+        return `prop ${member.type} ${member.name}`;
+    }
+    if (member.kind === "model") {
+        return `model ${member.name}(${parts})`;
+    }
+    if (member.kind === "signal") {
+        return `signal ${member.name}(${parts})`;
+    }
+    return `slot ${member.type ? member.type + " " : ""}${member.name}(${parts})`;
+}
+
+function tipFor(what) {
+    const box = document.createElement("div");
+    if (what.kind === "entity") {
+        const entity = entityNamed(what.name);
+        if (!entity) {
+            return null;
+        }
+        const role = roleOf(entity);
+        const head = document.createElement("div");
+        head.className = `tip__head tip__head--${role}`;
+        head.append(glyphSvg(role));
+        const title = document.createElement("span");
+        title.textContent = entity.name;
+        head.append(title);
+        box.append(head);
+        box.append(tipRow("is", describe(entity)));
+        box.append(tipRow("reachable from",
+                          role === "client" ? "the person using it"
+                          : (role === "edge" ? "the internet, and only over TLS"
+                                             : "the entities on its consumer lists, and "
+                                               + "nothing else")));
+        const owns = (state.design.links || [])
+            .filter((link) => link.owner === entity.name);
+        box.append(tipRow("owns", owns.length
+            ? owns.map((link) => link.name).join(", ") : "no connect point yet"));
+        const uses = (state.design.links || [])
+            .filter((link) => (link.consumers || []).includes(entity.name));
+        box.append(tipRow("consumes", uses.length
+            ? uses.map((link) => `${link.name} (${link.owner})`).join(", ") : "nothing"));
+        const files = entityFiles(state.design, entity);
+        box.append(tipRow("files", files.length
+            ? files.map((file) => file.name).join(", ") : "none yet"));
+        box.append(tipHelp(ROLE_HELP[role]));
+        box.append(...tipFindings(state.problems.entities.get(entity.name) || []));
+        return box;
+    }
+    const link = (state.design.links || []).find((one) => one.name === what.name);
+    if (!link) {
+        return null;
+    }
+    const head = document.createElement("div");
+    head.className = "tip__head tip__head--link";
+    const title = document.createElement("span");
+    title.textContent = `${link.name}: ${link.contract || "no contract yet"}`;
+    head.append(title);
+    box.append(head);
+    box.append(tipRow("owned by", `${link.owner || "nobody"}, which decides`));
+    box.append(tipRow("consumed by", (link.consumers || []).join(", ")
+        || "nobody yet, so nothing can acquire it"));
+    box.append(tipRow("instance", link.instance || "shared"));
+    box.append(tipRow("carried over", link.transport === "local"
+        ? "a local socket: the caller is trusted by colocation, not authenticated"
+        : "mutual TLS, verified against the project CA"));
+    const members = link.members || [];
+    if (members.length) {
+        const list = document.createElement("div");
+        list.className = "tip__members";
+        for (const member of members) {
+            const row = document.createElement("div");
+            row.className = "tip__member";
+            row.textContent = memberText(member);
+            list.append(row);
+        }
+        box.append(list);
+    } else {
+        box.append(tipHelp("Nothing crosses it yet. Nothing undeclared ever will."));
+    }
+    box.append(...tipFindings(state.problems.links.get(link.name) || []));
+    return box;
+}
+
+function tipHelp(text) {
+    const note = document.createElement("p");
+    note.className = "tip__help";
+    note.textContent = text;
+    return note;
+}
+
+function tipFindings(found) {
+    return found.map((item) => {
+        const row = document.createElement("p");
+        row.className = `tip__finding tip__finding--${item.level}`;
+        row.textContent = item.message;
+        return row;
+    });
+}
+
+function showTip(what, at) {
+    const body = tipFor(what);
+    if (!body) {
+        hideTip();
+        return;
+    }
+    page.tip.replaceChildren(body);
+    page.tip.hidden = false;
+    // Placed after it is shown, so its measured size is the size it will have, and flipped to
+    // the other side of the pointer rather than allowed to open off the edge of the window.
+    const box = page.tip.getBoundingClientRect();
+    const x = at.x + 18 + box.width > window.innerWidth ? at.x - 18 - box.width : at.x + 18;
+    const y = Math.min(at.y + 12, window.innerHeight - box.height - 8);
+    page.tip.style.left = `${Math.max(8, x)}px`;
+    page.tip.style.top = `${Math.max(8, y)}px`;
+}
+
+function hideTip() {
+    page.tip.hidden = true;
+    page.tip.replaceChildren();
+}
+
+function whatIsUnder(target) {
+    const entity = target.closest ? target.closest("[data-entity]") : null;
+    if (entity) {
+        return {kind: "entity", name: entity.dataset.entity};
+    }
+    const link = target.closest ? target.closest("[data-link]") : null;
+    return link ? {kind: "link", name: link.dataset.link} : null;
 }
 
 // What a right click opens
@@ -459,13 +839,13 @@ function renameFrom(kind, name, what) {
 }
 
 function onContextMenu(event) {
-    const held = event.target.closest("[data-entity]");
-    const link = event.target.closest("[data-link]");
+    const under = whatIsUnder(event.target);
     const at = {x: event.clientX, y: event.clientY};
     event.preventDefault();
+    hideTip();
 
-    if (held) {
-        const entity = entityNamed(held.dataset.entity);
+    if (under && under.kind === "entity") {
+        const entity = entityNamed(under.name);
         select({kind: "entity", name: entity.name});
         openMenu(at, entity.name, [
             {label: "Edit", act: () => page.inspector.scrollIntoView({block: "nearest"})},
@@ -474,9 +854,9 @@ function onContextMenu(event) {
         ]);
         return;
     }
-    if (link) {
+    if (under) {
         const found = (state.design.links || [])
-            .find((one) => one.name === link.dataset.link);
+            .find((one) => one.name === under.name);
         select({kind: "link", name: found.name});
         openMenu(at, found.name, [
             {label: "Edit", act: () => page.inspector.scrollIntoView({block: "nearest"})},
@@ -582,9 +962,9 @@ function place(role) {
     };
 }
 
-// `at` is where the pointer let go, when one was dragged rather than clicked. Without it
-// the entity lands in its column, which is the arrangement the whole page reads in; with
-// it, it lands where somebody put it, which is the point of having dragged it there.
+// `at` is where the pointer let go. Without it the entity lands in its column, which is the
+// arrangement the whole page reads in; with it, it lands where somebody put it, which is the
+// point of having dragged it there.
 function addEntity(item, at) {
     const taken = new Set((state.design.entities || []).map((entity) => entity.name));
     const spot = at || place(item.role);
@@ -613,9 +993,13 @@ function capitalised(name) {
     return name ? name[0].toUpperCase() + name.slice(1) : name;
 }
 
+// A connect point is named for the direction it runs, because the direction is the thing
+// people get wrong: `webToClient` is owned by the edge and consumed by the browser, and the
+// contract and the file it writes say the same. Rename it to whatever it carries the moment
+// you know; nothing here depends on the name it arrived with.
 function addLink(owner, consumer) {
     const taken = new Set((state.design.links || []).map((link) => link.name));
-    const name = unique("link", taken);
+    const name = unique(`${owner.name}To${capitalised(consumer.name)}`, taken);
     const link = {
         id: name,
         name,
@@ -629,8 +1013,9 @@ function addLink(owner, consumer) {
     state.design.links.push(link);
     touched();
     select({kind: "link", name});
-    say(`'${owner.name}' now owns '${name}' and '${consumer.name}' consumes it. Name it, `
-        + "name its contract, and say what crosses it.");
+    say(`'${owner.name}' now owns '${name}' and '${consumer.name}' consumes it. That writes `
+        + `shared/${link.contract}.syn and ${owner.name}/${link.contract}.qml. Say what `
+        + "crosses it.");
 }
 
 function removeEntity(entity) {
@@ -674,6 +1059,7 @@ function onDown(event) {
     if (event.button !== 0) {
         return;
     }
+    hideTip();
     const at = pointAt(event);
     const rim = event.target.closest("[data-rim]");
     const held = event.target.closest("[data-entity]");
@@ -704,6 +1090,12 @@ function onDown(event) {
 
 function onMove(event) {
     if (!drag) {
+        const under = whatIsUnder(event.target);
+        if (under) {
+            showTip(under, {x: event.clientX, y: event.clientY});
+        } else {
+            hideTip();
+        }
         return;
     }
     const at = pointAt(event);
@@ -775,6 +1167,7 @@ function onUp(event) {
 
 function onWheel(event) {
     event.preventDefault();
+    hideTip();
     const at = pointAt(event);
     const wanted = view.k * Math.exp(-event.deltaY * 0.0015);
     const next = Math.min(Math.max(wanted, ZOOM_RANGE[0]), ZOOM_RANGE[1]);
@@ -915,38 +1308,37 @@ function download() {
 
 // Starting up
 
+// Dragging is the only way an entity reaches the canvas, so that where it lands is always
+// somewhere somebody chose. A click that dropped one into a column would put it wherever the
+// column had room, which is a different arrangement from the one being drawn.
 function buildPalette() {
     for (const item of PALETTE) {
-        const button = document.createElement("button");
-        button.type = "button";
-        button.className = "palette__item";
-        button.draggable = true;
-        button.title = item.help;
-        button.dataset.role = item.role;
+        const row = document.createElement("div");
+        row.className = "palette__item";
+        row.draggable = true;
+        row.title = item.help;
+        row.dataset.role = item.role;
         const mark = document.createElement("span");
         mark.className = `palette__glyph palette__glyph--${item.role}`;
         mark.append(glyphSvg(item.role));
-        button.append(mark, document.createTextNode(item.label));
-        // Click still adds one, in its column. Dragging is the shortcut, not the only way
-        // in: a keyboard reaches the button and a pointer that never drags still works.
-        button.addEventListener("click", () => addEntity(item));
-        button.addEventListener("dragstart", (event) => {
+        row.append(mark, document.createTextNode(item.label));
+        row.addEventListener("dragstart", (event) => {
             event.dataTransfer.setData("text/plain", item.role);
             event.dataTransfer.effectAllowed = "copy";
-            button.classList.add("is-dragging");
+            row.classList.add("is-dragging");
         });
-        button.addEventListener("dragend", () => {
-            button.classList.remove("is-dragging");
+        row.addEventListener("dragend", () => {
+            row.classList.remove("is-dragging");
             page.stage.classList.remove("is-target");
         });
-        page.palette.append(button);
+        page.palette.append(row);
     }
 }
 
-function buttonGlyph(into, name) {
+function folderGlyph(into) {
     const svg = element("svg", {viewBox: "0 0 16 16", "aria-hidden": "true",
                                 focusable: "false"});
-    for (const d of BUTTON_GLYPHS[name]) {
+    for (const d of FOLDER_GLYPH) {
         svg.append(element("path", {d, "stroke-width": 1.3, "stroke-linejoin": "round",
                                     "stroke-linecap": "round"}));
     }
@@ -1023,6 +1415,7 @@ function wire() {
     page.canvas.addEventListener("pointermove", onMove);
     page.canvas.addEventListener("pointerup", onUp);
     page.canvas.addEventListener("pointercancel", onUp);
+    page.canvas.addEventListener("pointerleave", hideTip);
     page.canvas.addEventListener("wheel", onWheel, {passive: false});
     page.canvas.addEventListener("contextmenu", onContextMenu);
     page.canvas.addEventListener("dragover", onDragOver);
@@ -1033,11 +1426,19 @@ function wire() {
     page.infer.addEventListener("click", () => inferContracts());
     page.review.addEventListener("click", () => review());
     page.apply.addEventListener("click", () => applyPlan());
-    page.showDiagram.addEventListener("click", () => showPane("diagram"));
-    page.showProject.addEventListener("click", () => showPane("project"));
-    page.tabDiagram.addEventListener("click", () => showPane("diagram"));
-    page.tabProject.addEventListener("click", () => showPane("project"));
-    page.dockClose.addEventListener("click", () => showPane(state.pane));
+    page.showProject.addEventListener("click", () => showFiles());
+    page.dockClose.addEventListener("click", () => showFiles(false));
+    // The textarea is the layer that scrolls; the painted copy behind it is dragged along by
+    // hand, because a file longer than the pane is the ordinary case and two layers that
+    // scroll independently are two layers nobody can read.
+    page.sourceInput.addEventListener("scroll", () => {
+        page.sourcePaint.scrollTop = page.sourceInput.scrollTop;
+        page.sourcePaint.scrollLeft = page.sourceInput.scrollLeft;
+    });
+    page.sourceInput.addEventListener("input", onSourceInput);
+    for (const when of ["click", "keyup"]) {
+        page.sourceInput.addEventListener(when, focusFromCaret);
+    }
     page.sheetClose.addEventListener("click", () => {
         page.sheet.hidden = true;
     });
@@ -1051,19 +1452,25 @@ function wire() {
     window.addEventListener("keydown", (event) => {
         if (event.key === "Escape") {
             closeMenu();
+            hideTip();
         }
     });
-    window.addEventListener("blur", () => closeMenu());
+    window.addEventListener("blur", () => {
+        closeMenu();
+        hideTip();
+    });
     window.addEventListener("resize", () => {
         closeMenu();
+        hideTip();
         fit();
-        renderPane();
+        if (state.files) {
+            renderProject();
+        }
     });
 }
 
 buildPalette();
-buttonGlyph(page.iconDiagram, "diagram");
-buttonGlyph(page.iconProject, "project");
+folderGlyph(page.iconProject);
 wire();
 renderInspector();
 load();

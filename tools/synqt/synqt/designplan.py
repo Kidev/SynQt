@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from . import addcontract, addentity, appmodel, check as checkmod, config as configmod
-from . import designdoc, yamledit
+from . import designdoc, newproject, yamledit
 
 # Copied into the working tree and compared afterwards: everything else is build output, a
 # repository, or the editor's own layout file, and none of it is the project's source.
@@ -188,6 +188,8 @@ def _apply_entities(work: Path, current: Dict[str, Any], wanted: Dict[str, Any],
             continue
         _patch(work, "entities", name, was[name], entity, _ENTITY_FIELDS,
                _entity_field, reasons)
+        if (entity.get("kind") or "service") == "client":
+            _write_client_main(work, entity, reasons)
 
     for name in was:
         if name in now:
@@ -210,7 +212,14 @@ def _scaffold_entity(work: Path, entity: Dict[str, Any]) -> None:
     written into .env.example, or the two ways into a project drift apart.
     """
     blueprint = entity.get("blueprint") or ""
-    if blueprint in addentity.BLUEPRINTS:
+    if (entity.get("kind") or "service") == "client":
+        # The one file a client cannot start without, written by the same helper `synqt new`
+        # calls. Without it the entity is on the canvas, is in synqt.yaml, and has an empty
+        # directory: the build succeeds and the browser shows nothing.
+        block = {"name": entity["name"], "kind": "client"}
+        _edit_config(work, lambda text: yamledit.append_item(text, "entities", block))
+        newproject.write_client_main(work, entity["name"])
+    elif blueprint in addentity.BLUEPRINTS:
         try:
             addentity.scaffold(work, entity["name"], blueprint,
                                entity.get("provider") or None)
@@ -290,24 +299,68 @@ def _write_contract(work: Path, link: Dict[str, Any], was: Optional[Dict[str, An
 
 def _write_source(work: Path, link: Dict[str, Any], points: Dict[str, Dict[str, Any]],
                   alive: Set[str], reasons: Dict[str, List[str]]) -> None:
-    """Give a link an owner-side Source file when it has none.
+    """Give a link an owner-side Source file: the one that was edited, or an empty one.
 
     A connect point is two halves: the contract that says what may cross it, and the QML on
-    the owner that implements it. Drawing the link is the whole gesture in the editor, so
-    the second half is written here as an empty Source rather than left as an entity that
-    fails to start. It is only ever created, never rewritten: what somebody has already
-    implemented is theirs.
+    the owner that implements it. Drawing the link is the whole gesture in the editor, so the
+    second half is written here rather than left as an entity that fails to start.
+
+    A file nobody typed into is only ever created, never rewritten: what somebody has already
+    implemented is theirs, and the document carrying a copy of it is not a reason to write
+    that copy back over it. That is what ``qmlEdited`` marks, and why it is not enough for the
+    document's copy to merely differ from the disk's: the same page holds a copy read when it
+    loaded, and a file changed in somebody's own editor since then would otherwise be reverted
+    to what it said at that moment.
     """
     contract, owner = link.get("contract"), link.get("owner")
     if not contract or owner not in alive:
         return
     point = points.get(link["name"]) or {}
-    relative = str(point.get("server") or addcontract.source_path(owner, contract))
-    if (work / relative).exists():
+    relative = str(link.get("server") or point.get("server")
+                   or addcontract.source_path(owner, contract))
+    target = work / relative
+    edited = _edited_qml(link)
+    if target.exists():
+        if edited is not None and edited != _text_of(target):
+            _note(reasons, relative, f"the Source for '{link['name']}' was edited")
+            target.write_text(edited, encoding="utf-8")
+        return
+    members = link.get("members") or []
+    if edited is not None:
+        _note(reasons, relative, f"the Source for '{link['name']}' was written here")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(edited, encoding="utf-8")
         return
     _note(reasons, relative,
-          f"'{link['name']}' had no Source on {owner}, so this one is empty")
-    addcontract.write_source(work, owner, contract, point=link["name"], path=relative)
+          f"'{link['name']}' had no Source on {owner}, so this one declares what the "
+          "contract says and implements none of it" if members
+          else f"'{link['name']}' had no Source on {owner}, so this one is empty")
+    addcontract.write_source(work, owner, contract, point=link["name"], path=relative,
+                             members=members)
+
+
+def _edited_qml(item: Dict[str, Any]) -> Optional[str]:
+    """The QML somebody typed into this item in the editor, or None if nobody did.
+
+    The document carries every QML file it draws so the editor can show the project as it is,
+    which means most of what arrives here is a copy of what is already on the disk. Only text
+    the page marked as typed is text to write.
+    """
+    text = item.get("qml")
+    return text if item.get("qmlEdited") and isinstance(text, str) and text else None
+
+
+def _write_client_main(work: Path, entity: Dict[str, Any],
+                       reasons: Dict[str, List[str]]) -> None:
+    """Write a client's Main.qml when the editor holds one somebody typed into."""
+    relative = f"{entity['name']}/Main.qml"
+    target = work / relative
+    edited = _edited_qml(entity)
+    if edited is None or (target.exists() and edited == _text_of(target)):
+        return
+    _note(reasons, relative, f"the window for '{entity['name']}' was edited")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(edited, encoding="utf-8")
 
 
 def _patch(work: Path, list_path: str, name: str, was: Dict[str, Any],

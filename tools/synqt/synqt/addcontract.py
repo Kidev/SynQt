@@ -32,14 +32,14 @@ _SOURCE_TEMPLATE = """// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumarou
 import QtQuick
 import SynQt
 
-// Owner of the "{point}" connect point, and empty for now. Its props, models and signals
-// are the ones declared in shared/{contract}.syn, and nothing undeclared ever reaches a
-// consumer. A slot a consumer calls arrives here with `Caller` set to whoever called it:
-// authorize that caller first, then act. This file is where the rule lives; a check in a
-// consumer's UI is a courtesy, not a guard.
+// Owner of the "{point}" connect point. Its props, models and signals are the ones declared
+// in shared/{contract}.syn, and nothing undeclared ever reaches a consumer. A slot a consumer
+// calls arrives here with `Caller` set to whoever called it: authorize that caller first,
+// then act. This file is where the rule lives; a check in a consumer's UI is a courtesy, not
+// a guard.
 {contract}Source {{
     id: root
-}}
+{declared}}}
 """
 
 # The names SynQt itself puts in the QML scope an entity's own files are resolved in: the
@@ -87,13 +87,52 @@ def source_path(owner: str, contract: str) -> str:
     return f"{owner}/{contract}.qml"
 
 
-def source_stub(contract: str, point: str) -> str:
-    """An empty owner-side Source: the right root type, and nothing in it yet."""
-    return _SOURCE_TEMPLATE.format(contract=contract, point=point)
+def _declaration(member: Dict[str, Any]) -> str:
+    """One contract member as the QML line that declares it.
+
+    The annotated spelling for parameters and return types (`amount: int`), which is what the
+    QML coding conventions ask for and what the editor's own reader expects to find when it
+    reads the file back.
+    """
+    kind = member.get("kind")
+    name = member.get("name") or ""
+    params = ", ".join(f"{p.get('name')}: {p.get('type')}"
+                       for p in member.get("params") or [])
+    if kind == "prop":
+        return f"    property {member.get('type') or 'var'} {name}"
+    if kind == "signal":
+        return f"    signal {name}({params})"
+    returns = f": {member['type']}" if member.get("type") else ""
+    return f"    function {name}({params}){returns} {{\n    }}"
+
+
+def declarations_for(members: Optional[List[Dict[str, Any]]]) -> str:
+    """The declarations a contract's members are written as inside the owner's Source.
+
+    A model is skipped, and can only be skipped: `model rows(int id, string title)` has no QML
+    declaration form, so putting a line there for one would put something in the file that QML
+    would refuse to load. It reaches consumers through the generated Source helper either way.
+    """
+    return "\n".join(_declaration(member) for member in members or []
+                     if member.get("kind") != "model" and member.get("name"))
+
+
+def source_stub(contract: str, point: str,
+                members: Optional[List[Dict[str, Any]]] = None) -> str:
+    """An owner-side Source: the right root type, declaring whatever the contract says.
+
+    A point drawn with its members already named gets a file that declares them, so the
+    contract and the QML that implements it agree from the moment both are written rather
+    than after somebody has copied one into the other.
+    """
+    declared = declarations_for(members)
+    return _SOURCE_TEMPLATE.format(contract=contract, point=point,
+                                   declared=f"\n{declared}\n" if declared else "")
 
 
 def write_source(project_dir: os.PathLike[str] | str, owner: str, contract: str, *,
-                 point: str, path: Optional[str] = None) -> Optional[str]:
+                 point: str, path: Optional[str] = None,
+                 members: Optional[List[Dict[str, Any]]] = None) -> Optional[str]:
     """Write the owner-side Source for a connect point, unless there is one already.
 
     Returns the project-relative path when it wrote one, and None when the file was there
@@ -106,7 +145,7 @@ def write_source(project_dir: os.PathLike[str] | str, owner: str, contract: str,
     if target.exists():
         return None
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(source_stub(contract, point), encoding="utf-8")
+    target.write_text(source_stub(contract, point, members), encoding="utf-8")
     return relative
 
 

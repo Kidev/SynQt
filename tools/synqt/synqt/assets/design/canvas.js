@@ -8,6 +8,19 @@
 // lock and the contract the two share. What a reader recognises from the drawing there they
 // can point at here.
 //
+// Three things the drawing states rather than leaves to be worked out, because getting any
+// of them wrong is how a system ends up insecure:
+//
+// * which side of the wire an entity is on, drawn as the box it sits in. One box is the
+//   browser, one is the entity facing the internet, and one is the mesh nothing outside can
+//   reach. Dragging a database into the middle box does not make it reachable. The boxes are
+//   drawn from what each entity *is*, so an entity that has wandered out of its box is the
+//   drawing telling you the arrangement no longer reads left to right.
+// * who owns what, drawn as a filled cap at the owner's end of every link and an arrowhead
+//   at the consumer's. The owner is the entity that decides. A consumer only ever asks.
+// * what each entity's QML is called, written under its name, because that is the file
+//   somebody opens next.
+//
 // Everything is rebuilt from the document on every change rather than patched in place. A
 // mesh is tens of nodes, not thousands, and a drawing that is a function of the document
 // cannot fall out of step with it.
@@ -15,6 +28,31 @@
 const SVG = "http://www.w3.org/2000/svg";
 
 export const NODE_RADIUS = 26;
+
+// How far a zone's edge sits from the discs inside it. Wider below, because a node carries
+// two lines of writing under it and the box has to hold them too.
+const ZONE_PAD = {x: 66, top: 58, bottom: 74};
+
+// The three sides of a system, in the order a request travels. `of` is the question each box
+// answers about an entity, and the order here is the order they are drawn and read.
+const ZONES = [
+    {name: "browser", title: "the browser",
+     note: "holds no secret, no certificate",
+     of: (role) => role === "client"},
+    {name: "internet", title: "faces the internet",
+     note: "terminates TLS, runs sign-in",
+     of: (role) => role === "edge"},
+    {name: "mesh", title: "the mesh",
+     note: "mutual TLS, no browser reaches it",
+     of: (role) => role !== "client" && role !== "edge"},
+];
+
+// Roughly how wide the writing in a zone's corner is, per character, at the sizes the two
+// lines are set in. Estimated rather than measured: measuring means laying the text out and
+// reading it back for every zone on every redraw, and what this is for is making sure a box
+// is not narrower than its own label, where being a little too wide costs nothing.
+const TITLE_WIDTH = 7.6;
+const NOTE_WIDTH = 5.2;
 
 // Where the pointer still counts as being on a node when a link is dropped: a little wider
 // than the disc, so a drop that lands just off the edge is the link somebody meant to draw.
@@ -162,16 +200,6 @@ export function glyphSvg(role) {
     return svg;
 }
 
-function titled(group, lines) {
-    const title = element("title");
-    // A blank line is kept, an absent one is not: the separator between what a thing is and
-    // what it is for is deliberate, and `undefined` from a caller is not.
-    title.textContent = lines.filter((line) => line !== undefined && line !== null)
-        .join("\n").trim();
-    group.append(title);
-    return group;
-}
-
 function classes(base, {selected, level}) {
     const out = [base];
     if (selected) {
@@ -183,7 +211,10 @@ function classes(base, {selected, level}) {
     return out.join(" ");
 }
 
-function describe(entity) {
+// What an entity is, spelled out: the words synqt.yaml uses for it, in the order it writes
+// them. The panel states this and the tooltip repeats it; the node itself has better use for
+// its second line.
+export function describe(entity) {
     const parts = [entity.kind || "service"];
     if (entity.capability) {
         parts.push(entity.capability);
@@ -197,7 +228,18 @@ function describe(entity) {
     return parts.join(" / ");
 }
 
-function node(entity, {selected, level, messages, plain}) {
+// The file under an entity's name: the one somebody opens next. A client's is always
+// `Main.qml`; a service's is the Source for the point it owns, and where it owns several the
+// first is named and the rest are counted, because a node is a disc and not a list.
+function caption(files) {
+    if (!files.length) {
+        return "";
+    }
+    const first = files[0].name.replace(/\.qml$/, "");
+    return files.length > 1 ? `${first} +${files.length - 1}` : first;
+}
+
+function node(entity, {selected, level, files}) {
     const group = element("g", {
         // The role is a class as well as a glyph, so a client disc is the green a client
         // is everywhere else on this page and in the guide's drawing.
@@ -213,25 +255,73 @@ function node(entity, {selected, level, messages, plain}) {
     name.textContent = entity.name;
     group.append(name);
 
-    const kind = element("text", {class: "node__kind", y: NODE_RADIUS + 28,
+    const file = element("text", {class: "node__file", y: NODE_RADIUS + 29,
                                   "text-anchor": "middle"});
-    kind.textContent = describe(entity);
-    group.append(kind);
+    file.textContent = caption(files);
+    group.append(file);
 
     // The handle a link is pulled out of, with a mark on it so it reads as somewhere to
-    // start rather than as part of the drawing. The preview has none: nothing is dragged
-    // there, and a handle offering a gesture that does nothing is worse than no handle.
-    if (!plain) {
-        const rim = element("circle", {class: "node__rim", cx: NODE_RADIUS, cy: 0, r: 7});
-        rim.dataset.rim = entity.name;
-        group.append(rim);
-        group.append(element("path", {class: "node__rim-mark",
-                                      d: `M ${NODE_RADIUS - 3},0 H ${NODE_RADIUS + 3} `
-                                         + `M ${NODE_RADIUS},-3 V 3`}));
-    }
+    // start rather than as part of the drawing.
+    const rim = element("circle", {class: "node__rim", cx: NODE_RADIUS, cy: 0, r: 7});
+    rim.dataset.rim = entity.name;
+    group.append(rim);
+    group.append(element("path", {class: "node__rim-mark",
+                                  d: `M ${NODE_RADIUS - 3},0 H ${NODE_RADIUS + 3} `
+                                     + `M ${NODE_RADIUS},-3 V 3`}));
+    return group;
+}
 
-    return titled(group, [entity.name, describe(entity), "",
-                          ROLE_HELP[roleOf(entity)], ...messages]);
+// Where the box around a group of entities goes. Sized to what is in it, so it is a statement
+// about those entities rather than a region of the canvas somebody could drag something into
+// and change what it means, and never narrower than the two lines written in its corner.
+function zoneBox(shape, entities) {
+    const left = Math.min(...entities.map((entity) => entity.x || 0)) - ZONE_PAD.x;
+    const top = Math.min(...entities.map((entity) => entity.y || 0)) - ZONE_PAD.top;
+    const wanted = Math.max(24 + (shape.title.length * TITLE_WIDTH),
+                            24 + (shape.note.length * NOTE_WIDTH));
+    const right = Math.max(Math.max(...entities.map((entity) => entity.x || 0)) + ZONE_PAD.x,
+                           left + wanted);
+    return {
+        left,
+        top,
+        right,
+        bottom: Math.max(...entities.map((entity) => entity.y || 0)) + ZONE_PAD.bottom,
+    };
+}
+
+// The box itself, drawn behind everything.
+function zone(shape, entities) {
+    const {left, top, right, bottom} = zoneBox(shape, entities);
+    const group = element("g", {class: `zone zone--${shape.name}`});
+    group.append(element("rect", {class: "zone__box", x: left, y: top,
+                                  width: right - left, height: bottom - top, rx: 14}));
+    const title = element("text", {class: "zone__title", x: left + 12, y: top + 18});
+    title.textContent = shape.title;
+    group.append(title);
+    const note = element("text", {class: "zone__note", x: left + 12, y: top + 32});
+    note.textContent = shape.note;
+    group.append(note);
+    return group;
+}
+
+// Everything the drawing occupies, boxes included. What fits the canvas to the design: fitting
+// to the discs alone left a box hanging off the edge of the window, which is exactly the part
+// of the drawing that says what can reach what.
+export function extent(design) {
+    const entities = design.entities || [];
+    if (!entities.length) {
+        return null;
+    }
+    const boxes = ZONES
+        .map((shape) => [shape, entities.filter((entity) => shape.of(roleOf(entity)))])
+        .filter(([, inside]) => inside.length)
+        .map(([shape, inside]) => zoneBox(shape, inside));
+    return {
+        left: Math.min(...boxes.map((box) => box.left)),
+        right: Math.max(...boxes.map((box) => box.right)),
+        top: Math.min(...boxes.map((box) => box.top)),
+        bottom: Math.max(...boxes.map((box) => box.bottom)),
+    };
 }
 
 // The two ends of a link, trimmed to the rims of the discs it runs between, and shifted
@@ -296,6 +386,10 @@ function line(link, from, to, options) {
         transform: `translate(${edge.x1},${edge.y1}) rotate(${angle})`,
     }));
 
+    // The two ends say which way round the link is without anyone hovering it: a filled cap
+    // on the entity that owns the connect point and decides, an arrowhead on the one that
+    // consumes it and can only ask.
+    group.append(element("circle", {class: "link__owns", cx: edge.x1, cy: edge.y1, r: 3.4}));
     group.append(element("path", {
         class: "link__head",
         d: "M 0,0 L -9,4 L -9,-4 Z",
@@ -316,14 +410,7 @@ function line(link, from, to, options) {
     group.append(label);
     group.append(lock(link, middle));
     group.append(contractGlyph({x: middle.x - (across.x * 20), y: middle.y - (across.y * 20)}));
-
-    const consumers = (link.consumers || []).join(", ") || "nobody yet";
-    return titled(group, [
-        `${link.name}: ${link.contract || "no contract yet"}`,
-        `${link.owner || "nobody"} -> ${consumers}`,
-        `instance: ${link.instance || "shared"}`,
-        ...options.messages,
-    ]);
+    return group;
 }
 
 // A link nobody consumes yet, drawn as a stub off its owner so it is on the canvas and can
@@ -342,21 +429,24 @@ function levelOf(messages) {
     return messages.some((message) => message.level === "warn") ? "warn" : "";
 }
 
-function textOf(messages) {
-    return messages.map((message) => message.message);
-}
-
-// Draw `design` into `layers`, which are the two groups the page keeps for links and nodes.
-// `problems` maps an entity or link name to the findings against it, `selected` is what the
-// inspector has open.
-// `plain` draws the same picture without the affordances that only make sense where it can
-// be edited, which is what the preview pane shows.
-export function draw(layers, design, {problems, selected, plain}) {
+// Draw `design` into `layers`, which are the three groups the page keeps for the zones, the
+// links and the nodes. `problems` maps an entity or link name to the findings against it,
+// `selected` is what the inspector has open, and `filesOf` answers what one entity's QML is
+// called, so the caption under a node and the name in the Files pane are one answer.
+export function draw(layers, design, {problems, selected, filesOf}) {
+    layers.zones.replaceChildren();
     layers.links.replaceChildren();
     layers.nodes.replaceChildren();
 
     const entities = design.entities || [];
     const byName = new Map(entities.map((entity) => [entity.name, entity]));
+
+    for (const shape of ZONES) {
+        const inside = entities.filter((entity) => shape.of(roleOf(entity)));
+        if (inside.length) {
+            layers.zones.append(zone(shape, inside));
+        }
+    }
 
     // Worked out in two passes, because where a line goes depends on how many other lines
     // run between the same two entities: an edge that owns three connect points a browser
@@ -367,7 +457,6 @@ export function draw(layers, design, {problems, selected, plain}) {
         const options = {
             selected: selected && selected.kind === "link" && selected.name === link.name,
             level: levelOf(found),
-            messages: textOf(found),
         };
         const owner = byName.get(link.owner);
         if (!owner) {
@@ -405,8 +494,7 @@ export function draw(layers, design, {problems, selected, plain}) {
         layers.nodes.append(node(entity, {
             selected: selected && selected.kind === "entity" && selected.name === entity.name,
             level: levelOf(found),
-            messages: textOf(found),
-            plain,
+            files: filesOf ? filesOf(entity) : [],
         }));
     }
 }

@@ -16,8 +16,16 @@
 // quietly drop them; on a real project the original is on disk, and the server is what
 // edits it.
 //
+// Every entity in the document has a directory here, and every directory has something in
+// it: a client's is `Main.qml`, because the generated client main.cpp loads the QML module's
+// `Main` and nothing else, and a service's holds the Source for each connect point it owns.
+// An entity with no files would be an entity that is on the canvas, is in synqt.yaml, and
+// cannot be found anywhere in the project it belongs to.
+//
 // Pure functions over the document, no DOM: the suite renders a project with node and hands
 // it to `synqt check`, which is what stops this drifting from what `synqt new` writes.
+
+import { declarationsFor } from "./source.js";
 
 // The Qt this project pins, matching synqt/toolchain.py. The suite asserts the two agree,
 // because a browser with no CLI behind it has nothing to ask.
@@ -143,18 +151,56 @@ export function sourcePath(owner, contract) {
     return `${owner}/${contract}.qml`;
 }
 
-export function sourceQml(contract, point) {
+export function sourceQml(contract, point, members) {
+    const declared = declarationsFor(members);
     return `${CONTRACT_HEADER}
 import QtQuick
 import SynQt
 
-// Owner of the "${point}" connect point, and empty for now. Its props, models and signals
-// are the ones declared in shared/${contract}.syn, and nothing undeclared ever reaches a
-// consumer. A slot a consumer calls arrives here with \`Caller\` set to whoever called it:
-// authorize that caller first, then act. This file is where the rule lives; a check in a
-// consumer's UI is a courtesy, not a guard.
+// Owner of the "${point}" connect point. Its props, models and signals are the ones declared
+// in shared/${contract}.syn, and nothing undeclared ever reaches a consumer. A slot a consumer
+// calls arrives here with \`Caller\` set to whoever called it: authorize that caller first,
+// then act. This file is where the rule lives; a check in a consumer's UI is a courtesy, not
+// a guard.
 ${contract}Source {
     id: root
+${declared ? "\n" + declared + "\n" : ""}}
+`;
+}
+
+// The client's one entry point. The generated client main.cpp does
+// `engine.loadFromModule(uri, "Main")`, so this file is the root object and its name is not a
+// preference: a client whose window lives in a differently named file builds, loads, logs
+// nothing and renders a blank page. It is the same file `synqt new` writes, and the suite
+// asserts the two are byte for byte the same.
+export function clientMain() {
+    return `${CONTRACT_HEADER}
+import QtQuick
+import QtQuick.Controls
+
+ApplicationWindow {
+    id: window
+
+    visible: true
+    width: 360
+    height: 240
+    title: "SynQt app"
+
+    // Surfaces the connection state to the browser console. A boot sentinel \`synqt dev\`
+    // (and the browser end-to-end check) watch for. Invisible. Harmless in the shipped app.
+    Item {
+        property string status: "state=" + Session.state
+        onStatusChanged: console.log("SynQt client: " + status)
+        Component.onCompleted: console.log("SynQt client booted")
+    }
+
+    Label {
+        anchors.centerIn: parent
+        // On one line, because the scaffold ships with check.qml_format on, and
+        // qmlformat reflows a wrapped expression, so a hand-wrapped ternary here would
+        // report the new project as unformatted on its very first \`synqt check\`.
+        text: Session.state === "connected" ? "Connected" : "Connecting..."
+    }
 }
 `;
 }
@@ -169,15 +215,39 @@ export function renderContract(name, members) {
     return `${lines.join("\n")}\n`;
 }
 
+// Where each entity's own QML lives, in the order the tree reads: the client's window first,
+// then one Source per connect point the entity owns. A `qml` written on the link wins over
+// the generated one, because that is what the editor stores when somebody types into the
+// Source pane; the download then holds what they wrote rather than the stub it started from.
+export function entityFiles(design, entity) {
+    const files = [];
+    if ((entity.kind || "service") === "client") {
+        files.push({name: `${entity.name}/Main.qml`, text: entity.qml || clientMain(),
+                    owner: entity.name});
+        return files;
+    }
+    const seen = new Set();
+    for (const link of design.links || []) {
+        const contract = String(link.contract || "");
+        if (link.owner !== entity.name || !contract) {
+            continue;
+        }
+        const relative = link.server || sourcePath(entity.name, contract);
+        if (seen.has(relative)) {
+            continue;
+        }
+        seen.add(relative);
+        files.push({name: relative,
+                    text: link.qml || sourceQml(contract, link.name, link.members),
+                    owner: entity.name, link: link.name});
+    }
+    return files;
+}
+
 // Every file the download holds, each under a directory named after the project: the
-// configuration, one contract per link that names one, and the owner-side QML that hosts
-// each connect point. A link whose contract has no members yet still gets both files,
-// because the connect point already refers to them and an entity with a connect point and
-// no Source for it does not start.
-//
-// A `qml` written on the link wins over the empty one. That is what the editor stores when
-// somebody types into the Source pane, so the download holds what they wrote rather than
-// the stub it started from.
+// configuration, one contract per link that names one, and the QML of every entity. A link
+// whose contract has no members yet still gets both files, because the connect point already
+// refers to them and an entity with a connect point and no Source for it does not start.
 export function projectFiles(design) {
     const root = String(design.project || "app");
     const files = [{name: `${root}/synqt.yaml`, text: renderYaml(design)}];
@@ -191,20 +261,11 @@ export function projectFiles(design) {
         files.push({name: `${root}/shared/${contract}.syn`,
                     text: renderContract(contract, link.members)});
     }
-    const sources = new Set();
-    for (const link of design.links || []) {
-        const contract = String(link.contract || "");
-        const owner = String(link.owner || "");
-        if (!contract || !owner) {
-            continue;
+    for (const entity of design.entities || []) {
+        for (const file of entityFiles(design, entity)) {
+            files.push({name: `${root}/${file.name}`, text: file.text,
+                        owner: file.owner, link: file.link});
         }
-        const relative = link.server || sourcePath(owner, contract);
-        if (sources.has(relative)) {
-            continue;
-        }
-        sources.add(relative);
-        files.push({name: `${root}/${relative}`,
-                    text: link.qml || sourceQml(contract, link.name)});
     }
     return files;
 }

@@ -19,10 +19,25 @@ const TYPES = ["int", "string", "bool", "real", "float", "double", "var"];
 
 const KINDS = ["prop", "model", "signal", "slot"];
 
-// The blueprints an entity may be built from, and the three that take a data provider
-// (addentity.BLUEPRINTS). A gateway and a jobs entity have no engine behind them.
-const BLUEPRINTS = ["persistence", "cache", "document", "gateway", "jobs", "service"];
+// The three blueprints that take a data provider (addentity.BLUEPRINTS). A gateway and a
+// jobs entity have no engine behind them, so neither is offered one.
 const PROVIDER_FAMILIES = new Set(["persistence", "cache", "document"]);
+
+// What each kind of entity is called in one line, for the panel to state rather than offer.
+// An entity is whichever palette row it was dragged from and stays that: turning a database
+// into a client in a drop-down would keep the name, the position and the connect points
+// while changing what the thing fundamentally is, and everything drawn against it would
+// silently mean something else. Delete it and drag the one you wanted.
+const KIND_LABELS = {
+    client: "Client, built to WebAssembly and to a native desktop app",
+    edge: "Web edge, the one entity facing the internet",
+    persistence: "Persistence entity, a database behind a provider",
+    cache: "Cache entity, a bounded store that forgets",
+    document: "Document entity, records with no fixed columns",
+    gateway: "Gateway entity, where the system calls somebody else's",
+    jobs: "Jobs entity, work on a timer with nothing listening",
+    service: "Service entity, your own logic in its own binary",
+};
 
 const TARGETS = ["wasm", "desktop"];
 
@@ -101,32 +116,19 @@ function renameEntity(design, entity, wanted) {
 }
 
 function entityPanel(design, entity, actions) {
+    const role = roleOf(entity);
     const panel = document.createDocumentFragment();
     panel.append(tag("h2", {class: "inspector__title"}, entity.name || "this entity"));
-    // What this kind of entity is for, which changes as the fields below change it: pick
-    // `cache` under Blueprint and the line becomes the one about a store that forgets.
-    panel.append(tag("p", {class: "inspector__help"}, ROLE_HELP[roleOf(entity)]));
+    panel.append(tag("p", {class: "inspector__help"}, ROLE_HELP[role]));
 
     panel.append(field("Name", text(entity.name, (value) => {
         renameEntity(design, entity, value);
         actions.rename("entity", value);
     })));
 
-    panel.append(field("Kind", choice(["client", "service"], entity.kind || "service",
-                                      (value) => {
-        entity.kind = value;
-        if (value === "client") {
-            entity.capability = "";
-            entity.blueprint = "";
-            entity.provider = "";
-            entity.identity = false;
-            entity.targets = entity.targets && entity.targets.length
-                ? entity.targets : ["wasm"];
-        } else {
-            entity.targets = [];
-        }
-        actions.rebuild();
-    })));
+    // Stated, not offered. What an entity is was decided when it was dragged off the
+    // palette, and everything drawn since means what it means because of that.
+    panel.append(field("Kind", tag("p", {class: "field__fixed"}, KIND_LABELS[role])));
 
     if ((entity.kind || "service") === "client") {
         const targets = tag("div");
@@ -146,44 +148,21 @@ function entityPanel(design, entity, actions) {
         panel.append(field("Targets", targets));
         panel.append(note("The browser bundle, a native desktop app from the same QML, or "
                           + "both. Either way it holds no secret and no mesh certificate."));
-    } else {
-        panel.append(field("Capability", choice(["", "web_edge"], entity.capability,
-                                                (value) => {
-            entity.capability = value;
-            if (value === "web_edge") {
-                entity.blueprint = "";
-                entity.provider = "";
-            }
-            actions.rebuild();
-        }, "none (a mesh service)")));
-
-        if (entity.capability === "web_edge") {
-            panel.append(check("Runs the sign-in flow", Boolean(entity.identity), (on) => {
-                entity.identity = on;
-                actions.changed();
-            }));
-            panel.append(note("The one entity the browser can reach. Everything else is "
-                              + "behind it, on the mesh."));
-        } else {
-            panel.append(field("Blueprint", choice(["", ...BLUEPRINTS], entity.blueprint,
-                                                   (value) => {
-                entity.blueprint = value;
-                if (!PROVIDER_FAMILIES.has(value)) {
-                    entity.provider = "";
-                }
-                actions.rebuild();
-            }, "none (write it yourself)")));
-
-            if (PROVIDER_FAMILIES.has(entity.blueprint)) {
-                panel.append(field("Provider", text(entity.provider, (value) => {
-                    entity.provider = value;
-                    actions.changed();
-                }, "sqlite")));
-                panel.append(note("The engine behind the blueprint. Its credentials come "
-                                  + "from this entity's own environment and never from "
-                                  + "here."));
-            }
-        }
+    } else if (role === "edge") {
+        panel.append(check("Runs the sign-in flow", Boolean(entity.identity), (on) => {
+            entity.identity = on;
+            actions.changed();
+        }));
+        panel.append(note("The one entity the browser can reach. Everything else is "
+                          + "behind it, on the mesh."));
+    } else if (PROVIDER_FAMILIES.has(entity.blueprint)) {
+        panel.append(field("Provider", text(entity.provider, (value) => {
+            entity.provider = value;
+            actions.changed();
+        }, "sqlite")));
+        panel.append(note("The engine behind the blueprint, swapped with this one value. "
+                          + "Its credentials come from this entity's own environment and "
+                          + "never from here."));
     }
 
     const actionsRow = tag("div", {class: "inspector__actions"});
@@ -304,6 +283,9 @@ function membersPanel(link, actions) {
         link.members.push({kind: "prop", name: "", type: "int", params: [], roles: []});
         actions.rebuild();
     }));
+    box.append(note("Typing a property, a signal or a function into the owner's Source in "
+                    + "the Files pane adds it here too. A model is the one kind only this "
+                    + "panel can add: QML has no declaration form for one."));
     return box;
 }
 
@@ -399,4 +381,4 @@ export function inspect(host, design, selected, actions) {
     }
 }
 
-export { TYPES, BLUEPRINTS, PROVIDER_FAMILIES };
+export { TYPES, PROVIDER_FAMILIES };

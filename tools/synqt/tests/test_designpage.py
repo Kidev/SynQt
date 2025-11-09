@@ -31,7 +31,7 @@ import pytest
 import yaml
 
 from synqt import check as checkmod
-from synqt import addcontract, designdoc, toolchain
+from synqt import addcontract, designdoc, newproject, toolchain
 
 DESIGN = Path(checkmod.__file__).parent / "assets" / "design"
 
@@ -205,17 +205,106 @@ def test_the_downloaded_source_is_the_one_the_cli_would_have_written(rendered):
         relative = addcontract.source_path(link["owner"], link["contract"])
         written = next(file["text"] for file in rendered["files"]
                        if file["name"] == f"gavel/{relative}")
-        assert written == addcontract.source_stub(link["contract"], link["name"])
+        assert written == addcontract.source_stub(link["contract"], link["name"],
+                                                  link["members"])
+
+
+def test_a_source_declares_the_members_the_contract_carries(rendered):
+    """A Source that declared nothing was a file somebody had to copy the contract into by
+    hand, in a different spelling, with the compiler no help until they had. The declarations
+    are what the editor reads back out of the file, so the two agreeing on the way in is what
+    makes reading it again a no-op rather than a second opinion."""
+    written = next(file["text"] for file in rendered["files"]
+                   if file["name"] == "gavel/web/Auction.qml")
+    assert "property int highest" in written
+    assert "signal outbid(who: string)" in written
+    assert "function placeBid(amount: int): bool {" in written
+    # The one member kind with no QML form. Inventing a line for it would put something in
+    # the file that QML would refuse to load.
+    assert "bids" not in written
+
+
+def test_a_client_gets_the_one_file_it_cannot_start_without(rendered):
+    """`engine.loadFromModule(uri, "Main")` is what the generated client main.cpp does, so a
+    client with no Main.qml builds, loads, logs nothing and renders a blank page. The page
+    used to write no file at all for a client, which is also why one never appeared in the
+    files pane."""
+    written = next(file["text"] for file in rendered["files"]
+                   if file["name"] == "gavel/client/Main.qml")
+    assert written == newproject._MAIN_QML
+
+
+def test_every_entity_has_a_directory_with_something_in_it(rendered):
+    """An entity on the canvas that contributes no file is an entity nobody can find in the
+    project it belongs to."""
+    for entity in DOCUMENT["entities"]:
+        assert any(file["name"].startswith(f"gavel/{entity['name']}/")
+                   for file in rendered["files"]), entity["name"]
 
 
 def test_the_download_is_a_zip_holding_the_configuration_and_every_contract(rendered):
     archive = zipfile.ZipFile(io.BytesIO(base64.b64decode(rendered["zip"])))
     assert archive.testzip() is None
     assert archive.namelist() == ["gavel/synqt.yaml", "gavel/shared/Auction.syn",
-                                  "gavel/shared/Records.syn", "gavel/web/Auction.qml",
-                                  "gavel/database/Records.qml"]
+                                  "gavel/shared/Records.syn", "gavel/client/Main.qml",
+                                  "gavel/web/Auction.qml", "gavel/database/Records.qml"]
     for file in rendered["files"]:
         assert archive.read(file["name"]).decode("utf-8") == file["text"]
+
+
+# The reader behind the files pane
+
+
+def _read(script):
+    return _node(f"""
+        import {{ declarations, references, withoutNotice }} from {_module('source.js')};
+        {script}
+    """)
+
+
+def test_a_source_reads_back_as_the_contract_it_was_written_from(rendered):
+    """The round trip the pane depends on: the members go into the file as declarations, and
+    typing in that file is how they come back. If reading a freshly written Source produced
+    anything other than what was written, every keystroke in the pane would be arguing with
+    the panel about what the contract says."""
+    written = next(file["text"] for file in rendered["files"]
+                   if file["name"] == "gavel/web/Auction.qml")
+    read = _read(f"""
+        const text = {json.dumps(written)};
+        process.stdout.write(JSON.stringify(declarations(withoutNotice(text))));
+    """)
+    drawn = [member for member in DOCUMENT["links"][0]["members"]
+             if member["kind"] != "model"]
+    assert [(one["kind"], one["name"], one["type"]) for one in read] == \
+        [(one["kind"], one["name"], one["type"]) for one in drawn]
+    assert [one["params"] for one in read] == [one["params"] for one in drawn]
+
+
+def test_the_client_window_declares_nothing_and_is_not_read_as_if_it_did():
+    """`synqt new` writes a window with a property in it, and that property belongs to the
+    window rather than to any contract. Only a connect point's Source is read for members;
+    this is the file that proves the pane knows the difference."""
+    read = _read(f"""
+        const text = {json.dumps(newproject._MAIN_QML)};
+        process.stdout.write(JSON.stringify(references(withoutNotice(text))));
+    """)
+    assert read == []
+
+
+def test_reaching_into_another_entity_is_read_as_the_connect_point_it_needs():
+    """What `synqt infer` does over a whole project, on one file, so the hosted copy behaves
+    the same as the local one. `Math.max` in the same file is not an entity called Math."""
+    read = _read("""
+        const text = [
+            "Button {",
+            "    text: Server.auction.highest",
+            "    onClicked: Server.auction.placeBid(Math.max(1, 2))",
+            "}",
+        ].join("\\n");
+        process.stdout.write(JSON.stringify(references(text)));
+    """)
+    assert [(one["accessor"], one["point"], one["member"], one["call"]) for one in read] == \
+        [("Server", "auction", "highest", False), ("Server", "auction", "placeBid", True)]
 
 
 # The projects a link can open cold

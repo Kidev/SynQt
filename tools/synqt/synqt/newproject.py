@@ -116,6 +116,23 @@ ApplicationWindow {
 """
 
 
+def write_client_main(project_dir: os.PathLike[str] | str, name: str) -> Optional[str]:
+    """Give a client entity the one file it cannot start without, unless it has one.
+
+    The generated client main.cpp does `engine.loadFromModule(uri, "Main")`, so `Main.qml` is
+    the root object and its name is not a choice. A client with no such file builds, loads,
+    logs nothing and renders a blank page, which is why it is written with the entity rather
+    than left to be remembered: `synqt new` writes it, and so does a client drawn in the
+    editor. Returns the project-relative path when it wrote one.
+    """
+    target = Path(project_dir) / name / "Main.qml"
+    if target.exists():
+        return None
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(_MAIN_QML, encoding="utf-8")
+    return f"{name}/Main.qml"
+
+
 class NewProjectError(Exception):
     """A scaffolding error surfaced to the CLI (no traceback for the user)."""
 
@@ -175,7 +192,7 @@ def scaffold(parent_dir: os.PathLike[str] | str, name: str, *,
 
     for folder in ("client", "web", "shared"):
         (root / folder).mkdir(exist_ok=True)
-    (root / "client" / "Main.qml").write_text(_MAIN_QML)
+    write_client_main(root, "client")
 
     (root / ".gitignore").write_text(
         "# SynQt: never commit mesh private keys, the toolchain cache, or build outputs\n"
