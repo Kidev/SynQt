@@ -20,8 +20,8 @@
 // becomes a download of the project it would have written.
 
 import { findings as ruleFindings } from "./rules.js";
-import { ROLE_HELP, describe, draw, element, entityAt, extent, glyphSvg,
-         roleOf } from "./canvas.js";
+import { NODE_RADIUS, ROLE_HELP, describe, draw, element, entityAt, extent, glyphSvg,
+         nearestFreeSlot, roleOf, slotIndex, turnsToward } from "./canvas.js";
 import { inspect } from "./inspector.js";
 import { entityFiles, entityQmlPath, projectFiles } from "./project.js";
 import { declarations, references, runsFor, withoutNotice } from "./source.js";
@@ -956,6 +956,9 @@ function onContextMenu(event) {
         openMenu(at, found.name, [
             {label: "Edit", act: () => page.inspector.scrollIntoView({block: "nearest"})},
             {label: "Rename", act: () => renameFrom("link", found.name, "connect point")},
+            ...((found.consumers || []).length
+                ? [{label: "Disconnect the consumer", act: () => disconnectLink(found)}]
+                : []),
             {label: "Delete", act: () => removeLink(found), danger: true},
         ]);
         return;
@@ -1105,9 +1108,16 @@ function capitalised(name) {
 // people get wrong: `webToClient` is owned by the edge and consumed by the browser, and the
 // contract and the file it writes say the same. Rename it to whatever it carries the moment
 // you know; nothing here depends on the name it arrived with.
-function addLink(owner, consumer) {
+// `toward` is where the link was headed when it was drawn, which is the slot it takes on its
+// owner's rim: a link pulled to the left leaves from the left. It is the drop point rather
+// than the consumer's centre, because a link dropped on empty canvas has no consumer yet.
+function addLink(owner, consumer, toward) {
     const taken = new Set((state.design.links || []).map((link) => link.name));
     const name = unique(`${owner.name}To${capitalised(consumer.name)}`, taken);
+    const seats = slotIndex(state.design);
+    const held = (state.design.links || [])
+        .filter((link) => link.owner === owner.name)
+        .map((link) => seats.get(link.name));
     const link = {
         id: name,
         name,
@@ -1117,6 +1127,7 @@ function addLink(owner, consumer) {
         instance: "shared",
         transport: "",
         members: [],
+        slot: nearestFreeSlot(held, turnsToward(owner, toward || consumer)),
     };
     state.design.links.push(link);
     touched();
@@ -1133,7 +1144,7 @@ function offerEntity(owner, spot, at) {
     openMenu(at, `Consumer for '${owner.name}'`, PALETTE.map((item) => ({
         label: item.label,
         act: () => {
-            addLink(owner, addEntity(item, spot));
+            addLink(owner, addEntity(item, spot), spot);
         },
     })));
 }
@@ -1153,11 +1164,24 @@ function removeEntity(entity) {
         : `Removed '${name}'.`);
 }
 
+// Take the line away and leave the connect point. What the owner has agreed to say outlives
+// whoever was listening to it, so the contract stays on the slot it was drawn on, as the stub
+// a connect point with no consumers has always been drawn as. Freeing that slot takes
+// deleting the connect point itself, below.
+function disconnectLink(link) {
+    link.consumers = [];
+    touched();
+    select({kind: "link", name: link.name});
+    say(`'${link.name}' is still there and still ${link.owner}'s; nothing consumes it now. `
+        + "Drop a line on it again, or delete it to give the slot back.");
+}
+
 function removeLink(link) {
     state.design.links = state.design.links.filter((one) => one !== link);
     touched();
     select(null);
-    say(`Removed '${link.name}'. The contract file it named is left where it is.`);
+    say(`Removed '${link.name}', and its slot on '${link.owner}' is free again. The contract `
+        + "file it named is left where it is.");
 }
 
 // The canvas, under the pointer
@@ -1242,8 +1266,38 @@ function onDown(event) {
     page.canvas.classList.add("is-panning");
 }
 
+// Which entity the pointer is near enough to be reaching for, if any. Its node shows its free
+// slots. Every other node shows none.
+//
+// This is a class toggled on nodes that are already drawn, never a redraw. The drawing is
+// rebuilt from the document on every change, and rebuilding it on every pointer move would
+// both cost more than it is worth and replace the element between a click and its partner,
+// which is how the canvas lost double-click the first time.
+function showSlotsNear(at) {
+    const reach = NODE_RADIUS * 2.4;
+    let nearest = null;
+    let closest = reach;
+    for (const entity of state.design.entities || []) {
+        const apart = Math.hypot(at.local.x - (entity.x || 0), at.local.y - (entity.y || 0));
+        if (apart <= closest) {
+            closest = apart;
+            nearest = entity.name;
+        }
+    }
+    for (const group of page.nodes.querySelectorAll("[data-entity]")) {
+        group.classList.toggle("is-near", group.dataset.entity === nearest);
+    }
+}
+
+function clearSlotsNear() {
+    for (const group of page.nodes.querySelectorAll(".is-near")) {
+        group.classList.remove("is-near");
+    }
+}
+
 function onMove(event) {
     if (!drag) {
+        showSlotsNear(pointAt(event));
         const under = whatIsUnder(event.target);
         if (under) {
             showTip(under, {x: event.clientX, y: event.clientY});
@@ -1299,7 +1353,7 @@ function onUp(event) {
         const at = pointAt(event);
         const target = entityAt(state.design, at.local);
         if (target && target !== finished.from) {
-            addLink(finished.from, target);
+            addLink(finished.from, target, at.local);
             return;
         }
         if (target) {
@@ -1610,7 +1664,10 @@ function wire() {
     page.canvas.addEventListener("pointermove", onMove);
     page.canvas.addEventListener("pointerup", onUp);
     page.canvas.addEventListener("pointercancel", onUp);
-    page.canvas.addEventListener("pointerleave", hideTip);
+    page.canvas.addEventListener("pointerleave", () => {
+        hideTip();
+        clearSlotsNear();
+    });
     page.canvas.addEventListener("wheel", onWheel, {passive: false});
     page.canvas.addEventListener("contextmenu", onContextMenu);
     page.canvas.addEventListener("dragover", onDragOver);

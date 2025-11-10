@@ -469,29 +469,49 @@ h2 {
 
 /* The handle you pull a link out of. Invisible until the pointer is over the node, so a
    resting canvas is the mesh and nothing else. */
-.node__rim {
-  fill: var(--panel);
-  stroke: currentColor;
-  stroke-width: 1.2;
-  opacity: 0;
+/* The free slots on an entity's rim. A dash across the stroke at each one, shown only while
+   the pointer is near that entity, so a canvas nobody is reaching into is a canvas of discs.
+   The grab line is wider than the mark and invisible, because a dash quiet enough to sit
+   behind the drawing is not a dash a pointer can hit. */
+.node__slot-grab {
+  stroke: transparent;
+  stroke-width: 11;
+  stroke-linecap: round;
   cursor: crosshair;
+  pointer-events: none;
 }
 
-.node:hover .node__rim,
-.node.is-selected .node__rim {
-  opacity: 1;
-}
-
-.node__rim-mark {
+.node__slot {
   stroke: currentColor;
-  stroke-width: 1.2;
+  stroke-width: 2.4;
+  stroke-linecap: round;
   pointer-events: none;
   opacity: 0;
+  transition: opacity 120ms ease-out;
 }
 
-.node:hover .node__rim-mark,
-.node.is-selected .node__rim-mark {
-  opacity: 1;
+/* Thinner as the ring grows, so sixteen or sixty-four of them read as a dial rather than as
+   a fence around the entity. */
+.node__slot--16 {
+  stroke-width: 2;
+}
+
+.node__slot--32 {
+  stroke-width: 1.6;
+}
+
+.node__slot--64 {
+  stroke-width: 1.2;
+}
+
+.node.is-near .node__slot,
+.node.is-selected .node__slot {
+  opacity: 0.72;
+}
+
+.node.is-near .node__slot-grab,
+.node.is-selected .node__slot-grab {
+  pointer-events: stroke;
 }
 
 .node.is-selected .node__disc {
@@ -543,10 +563,32 @@ h2 {
 }
 
 .link__lock,
+/* The contract, on the slot its link was pulled from. It sits on the canvas colour rather
+   than on nothing, so the line it starts leaves the badge instead of running through it. */
 .link__doc {
   stroke: var(--ink-dim);
   fill: none;
   pointer-events: none;
+}
+
+.link__doc-box {
+  fill: var(--page);
+  stroke-width: 1.1;
+}
+
+.link__doc-lines {
+  stroke-width: 0.9;
+  stroke-linecap: round;
+}
+
+/* The badge's own verdict, which is about what crosses the link and not about the link. A
+   badge and a line can disagree, and when they do both say so. */
+.link__doc.is-error {
+  stroke: var(--error);
+}
+
+.link__doc.is-warn {
+  stroke: var(--warn);
 }
 
 .link__lock-body {

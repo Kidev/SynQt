@@ -91,13 +91,21 @@ def source_hash(project_dir: os.PathLike[str] | str) -> str:
 
 
 def write_layout(project_dir: os.PathLike[str] | str, document: Dict[str, Any]) -> None:
-    """Store just the coordinates of `document`, keyed by entity name."""
+    """Store where `document` was arranged. Entity coordinates, and each link's rim slot.
+
+    Both are the drawing and not the deployment, which is why they live here and not in
+    synqt.yaml. A slot is where on its owner's rim a connect point was drawn. Moving it
+    changes nothing about what is built, and a reader of synqt.yaml should never have to
+    wonder what a number like that means.
+    """
     places = {str(entity.get("name") or ""): {"x": entity.get("x", 0), "y": entity.get("y", 0)}
               for entity in document.get("entities", [])}
+    seats = {str(link.get("name") or ""): {"slot": int(link.get("slot") or 0)}
+             for link in document.get("links", []) if link.get("slot") is not None}
     path = layout_path(project_dir)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps({"version": VERSION, "entities": places}, indent=2) + "\n",
-                    encoding="utf-8")
+    path.write_text(json.dumps({"version": VERSION, "entities": places, "links": seats},
+                               indent=2) + "\n", encoding="utf-8")
 
 
 def _stored_places(project_dir: Path) -> Dict[str, Dict[str, Any]]:
@@ -112,6 +120,19 @@ def _stored_places(project_dir: Path) -> Dict[str, Dict[str, Any]]:
         raise DesignDocError(f"{path} is not readable JSON: {error}") from error
     places = stored.get("entities") if isinstance(stored, dict) else None
     return places if isinstance(places, dict) else {}
+
+
+def _stored_seats(project_dir: Path) -> Dict[str, Dict[str, Any]]:
+    """The rim slot each link was last drawn on, keyed by connect point name."""
+    path = layout_path(project_dir)
+    if not path.exists():
+        return {}
+    try:
+        stored = json.loads(path.read_text(encoding="utf-8"))
+    except ValueError as error:
+        raise DesignDocError(f"{path} is not readable JSON: {error}") from error
+    seats = stored.get("links") if isinstance(stored, dict) else None
+    return seats if isinstance(seats, dict) else {}
 
 
 def _column(entity: Dict[str, Any]) -> int:
@@ -216,7 +237,8 @@ def _read_text(path: Path) -> str:
         return ""
 
 
-def _link(point: Dict[str, Any], root: Path) -> Dict[str, Any]:
+def _link(point: Dict[str, Any], root: Path,
+          seats: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
     contract = str(point.get("contract") or "")
     name = str(point.get("name") or "")
     owner = str(point.get("owner") or "")
@@ -236,9 +258,15 @@ def _link(point: Dict[str, Any], root: Path) -> Dict[str, Any]:
     # describing a different project from the one on the disk under it.
     server = str(point.get("server") or "")
     relative = server or (f"{owner}/{contract}.qml" if owner and contract else "")
+    seat = seats.get(name)
+    slot = seat.get("slot") if isinstance(seat, dict) else None
     return {
         "id": name,
         "name": name,
+        # No slot means the drawing has not placed this one yet, and the canvas puts it on
+        # the first free position rather than inventing a number here, where there is nothing
+        # to tell which positions its owner already has taken.
+        "slot": int(slot) if isinstance(slot, int) else None,
         "contract": contract,
         "owner": owner,
         "consumers": [str(consumer) for consumer in (point.get("consumers") or [])],
@@ -276,6 +304,7 @@ def read(project_dir: os.PathLike[str] | str, *,
     config = configmod.load(root, profile=profile)
     name = project_name(config, root.name)
     entities = entities_of(config, places=_stored_places(root))
+    seats = _stored_seats(root)
     for entity in entities:
         # The entity's own file, for the same reason a connect point's Source is carried: it
         # is the file that entity is, and the pane has to show the one on disk rather than a
@@ -287,7 +316,7 @@ def read(project_dir: os.PathLike[str] | str, *,
         "project": name,
         "sourceHash": source_hash(root),
         "entities": entities,
-        "links": [_link(point, root) for point in appmodel.connect_points(config)],
+        "links": [_link(point, root, seats) for point in appmodel.connect_points(config)],
     }
 
 

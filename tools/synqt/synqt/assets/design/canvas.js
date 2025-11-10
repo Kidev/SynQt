@@ -214,8 +214,76 @@ export function glyphSvg(role) {
     return svg;
 }
 
-// The four sides of a disc a link can be pulled out of, as unit directions.
-const HANDLES = [{x: 1, y: 0}, {x: -1, y: 0}, {x: 0, y: -1}, {x: 0, y: 1}];
+// Where a link is pulled out of, and where the contract it made then lives.
+//
+// A slot is an index into a canonical ring of SLOT_RING positions, never into the ring being
+// drawn. A ring of eight uses every eighth index, a ring of sixteen every fourth, so when an
+// owner outgrows its ring and the ring doubles, every contract already on the rim keeps the
+// index it had and stays exactly where it was put. Storing the index in the ring drawn would
+// mean renumbering on every doubling, and renumbering is the whole drawing sliding sideways
+// the first time somebody adds a ninth connect point.
+//
+// The ring always has a free slot in it. One that filled exactly would leave an entity with
+// nowhere to start the next link from, which is the affordance disappearing at the moment it
+// is reached for.
+export const SLOT_RING = 64;
+const SMALLEST_RING = 8;
+
+export function ringSize(taken) {
+    let size = SMALLEST_RING;
+    while (size < SLOT_RING && taken >= size) {
+        size *= 2;
+    }
+    return size;
+}
+
+// How far apart two neighbouring slots of a ring of `size` are, in canonical indices.
+export function slotStep(size) {
+    return SLOT_RING / size;
+}
+
+export function slotsOf(size) {
+    const step = slotStep(size);
+    return Array.from({length: size}, (ignored, index) => index * step);
+}
+
+// Slot 0 is at the top and the ring runs clockwise, which is how the mock reads and how
+// anybody describes a position on a dial.
+export function slotPoint(slot, radius) {
+    const angle = ((slot / SLOT_RING) * 2 * Math.PI) - (Math.PI / 2);
+    return {x: radius * Math.cos(angle), y: radius * Math.sin(angle)};
+}
+
+// The direction from one point to another as a fraction of a turn clockwise from the top,
+// which is the same measure a slot index is in.
+export function turnsToward(from, to) {
+    const angle = Math.atan2((to.y || 0) - (from.y || 0), (to.x || 0) - (from.x || 0));
+    return ((((angle + (Math.PI / 2)) / (2 * Math.PI)) % 1) + 1) % 1;
+}
+
+// The free slot nearest the direction a link was pulled in, so a link dragged to the left
+// leaves from the left. Distance is measured the short way round, because the ring wraps and
+// a direction short of the top is next to the top, not most of a turn from it.
+export function nearestFreeSlot(taken, turns) {
+    const held = new Set(taken);
+    const size = ringSize(held.size);
+    const wanted = turns * SLOT_RING;
+    const half = SLOT_RING / 2;
+    let best = null;
+    let closest = Infinity;
+    for (const slot of slotsOf(size)) {
+        if (held.has(slot)) {
+            continue;
+        }
+        const apart = Math.abs((((slot - wanted) % SLOT_RING) + SLOT_RING + half) % SLOT_RING
+                               - half);
+        if (apart < closest) {
+            closest = apart;
+            best = slot;
+        }
+    }
+    return best;
+}
 
 function classes(base, {selected, level}) {
     const out = [base];
@@ -259,7 +327,14 @@ function caption(files) {
     return shown.length > 1 ? `${first} +${shown.length - 1}` : first;
 }
 
-function node(entity, {selected, level, files}) {
+// How far a rim dash reaches either side of the rim. Small, and smaller still as the ring
+// grows: the width is a class, so a ring of 64 is a dotted circle rather than a picket fence.
+const SLOT_DASH = 5;
+
+// How far past the rim a contract's badge sits, measured to its middle.
+const BADGE_REACH = 9;
+
+function node(entity, {selected, level, files, taken}) {
     const group = element("g", {
         // The role is a class as well as a glyph, so a client disc is the green a client
         // is everywhere else on this page and in the guide's drawing.
@@ -280,21 +355,29 @@ function node(entity, {selected, level, files}) {
     file.textContent = caption(files);
     group.append(file);
 
-    // The handles a link is pulled out of, one on each side, each with a mark on it so it
-    // reads as somewhere to start rather than as part of the drawing. Four rather than one,
-    // because the entity you want to reach is as often to the left or below as it is to the
-    // right, and a single handle on the right means every link starts by dragging away from
-    // where it is going.
-    for (const side of HANDLES) {
-        const handle = element("circle", {class: "node__rim", cx: side.x * NODE_RADIUS,
-                                          cy: side.y * NODE_RADIUS, r: 7});
-        handle.dataset.rim = entity.name;
-        group.append(handle);
-        const cx = side.x * NODE_RADIUS;
-        const cy = side.y * NODE_RADIUS;
-        group.append(element("path", {class: "node__rim-mark",
-                                      d: `M ${cx - 3},${cy} H ${cx + 3} `
-                                         + `M ${cx},${cy - 3} V ${cy + 3}`}));
+    // The slots a link is pulled out of: every free one on the ring, drawn as a short dash
+    // across the rim. Every one rather than the nearest, because the entity being reached for
+    // is as often to the left or below as to the right, and they are quiet enough that a ring
+    // of them reads as a dial rather than as sixteen things asking to be clicked. They are
+    // invisible until the pointer is near (the `is-near` class the page puts on this group),
+    // so an entity nobody is reaching for is a disc.
+    const size = ringSize(taken.length);
+    const held = new Set(taken);
+    for (const slot of slotsOf(size)) {
+        if (held.has(slot)) {
+            continue;               // a contract lives there. The badge is drawn on the link
+        }
+        const inner = slotPoint(slot, NODE_RADIUS - SLOT_DASH);
+        const outer = slotPoint(slot, NODE_RADIUS + SLOT_DASH);
+        // The hit target is its own wider line under the visible one, so a dash thin enough
+        // to be quiet is still something a pointer can find.
+        const grab = element("line", {class: "node__slot-grab", x1: inner.x, y1: inner.y,
+                                      x2: outer.x, y2: outer.y});
+        grab.dataset.rim = entity.name;
+        grab.dataset.slot = String(slot);
+        group.append(grab);
+        group.append(element("line", {class: `node__slot node__slot--${size}`,
+                                      x1: inner.x, y1: inner.y, x2: outer.x, y2: outer.y}));
     }
     return group;
 }
@@ -368,7 +451,10 @@ export function extent(design) {
 // along their whole length rather than only at the middle, and gives each one room for its
 // own name. A link's two ends leave and arrive along the curve's own direction, so the cap and
 // the arrowhead sit square on the discs however far the line bows.
-function ends(from, to, offset) {
+// `leaves` moves the owner's end of the line off the rim point the geometry would pick and
+// onto the slot the contract sits on, so a link leaves from its own badge rather than from
+// wherever the two centres happen to line up.
+function ends(from, to, offset, leaves) {
     const ax = from.x || 0;
     const ay = from.y || 0;
     const bx = to.x || 0;
@@ -381,8 +467,8 @@ function ends(from, to, offset) {
     const cy = ((ay + by) / 2) + (ux * bow);
     const out = Math.hypot(cx - ax, cy - ay) || 1;
     const into = Math.hypot(cx - bx, cy - by) || 1;
-    const x1 = ax + (((cx - ax) / out) * NODE_RADIUS);
-    const y1 = ay + (((cy - ay) / out) * NODE_RADIUS);
+    const x1 = leaves ? leaves.x : ax + (((cx - ax) / out) * NODE_RADIUS);
+    const y1 = leaves ? leaves.y : ay + (((cy - ay) / out) * NODE_RADIUS);
     const x2 = bx + (((cx - bx) / into) * NODE_RADIUS);
     const y2 = by + (((cy - by) / into) * NODE_RADIUS);
     return {
@@ -418,12 +504,19 @@ function lock(link, at) {
     return group;
 }
 
-function contractGlyph(at) {
-    const group = element("g", {class: "link__doc",
-                                transform: `translate(${at.x},${at.y}) scale(1.1)`});
-    group.append(element("rect", {x: -4, y: -5, width: 8, height: 10, rx: 1,
-                                  "stroke-width": 0.9}));
-    group.append(element("path", {d: "M -2,-1.5 H 2 M -2,1 H 2", "stroke-width": 0.9}));
+// The contract, drawn on the slot its link was pulled from and never hidden: the free slots
+// come and go with the pointer, but what an entity has already agreed to say is part of the
+// drawing. `level` is the verdict on the contract alone, which is not the verdict on the
+// link: a contract with nothing in it is not the same complaint as a consumer that cannot
+// reach its owner, and the two are drawn separately so both are legible at once.
+function contractBadge(link, at, level) {
+    const group = element("g", {class: `link__doc${level ? ` is-${level}` : ""}`,
+                                transform: `translate(${at.x},${at.y})`});
+    group.dataset.contract = link.name;
+    group.append(element("rect", {class: "link__doc-box", x: -5, y: -6.5, width: 10,
+                                  height: 13, rx: 2}));
+    group.append(element("path", {class: "link__doc-lines",
+                                  d: "M -2.5,-3 H 2.5 M -2.5,0 H 2.5 M -2.5,3 H 2.5"}));
     return group;
 }
 
@@ -431,7 +524,10 @@ function line(link, from, to, options) {
     const group = element("g", {class: classes("link", options)});
     group.dataset.link = link.name;
 
-    const edge = ends(from, to, options.offset || 0);
+    // Where the contract sits on the owner, and therefore where the line starts.
+    const seat = slotPoint(options.slot || 0, NODE_RADIUS + BADGE_REACH);
+    const badgeAt = {x: (from.x || 0) + seat.x, y: (from.y || 0) + seat.y};
+    const edge = ends(from, to, options.offset || 0, badgeAt);
     const path = curve(edge);
     group.append(element("path", {class: "link__line", d: path}));
 
@@ -464,7 +560,7 @@ function line(link, from, to, options) {
     label.textContent = link.name;
     group.append(label);
     group.append(lock(link, middle));
-    group.append(contractGlyph({x: middle.x - (across.x * 20), y: middle.y - (across.y * 20)}));
+    group.append(contractBadge(link, badgeAt, options.contractLevel || ""));
     return group;
 }
 
@@ -484,6 +580,15 @@ function levelOf(messages) {
     return messages.some((message) => message.level === "warn") ? "warn" : "";
 }
 
+// A link carries two verdicts, not one. What crosses it is the contract's business (does it
+// carry anything, does a member it holds clash with another point's instancing). Who is at
+// each end and how they reach each other is the link's. A finding says which it is by its
+// `scope`, and anything that does not say is about the link, because the link is what the
+// rules were about before contracts had a mark of their own.
+function levelWithin(messages, scope) {
+    return levelOf(messages.filter((message) => (message.scope || "link") === scope));
+}
+
 // Draw `design` into `layers`, which are the three groups the page keeps for the zones, the
 // links and the nodes. `problems` maps an entity or link name to the findings against it,
 // `selected` is what the inspector has open, and `filesOf` answers what one entity's QML is
@@ -495,6 +600,7 @@ export function draw(layers, design, {problems, selected, filesOf}) {
 
     const entities = design.entities || [];
     const byName = new Map(entities.map((entity) => [entity.name, entity]));
+    const slots = slotIndex(design);
 
     for (const shape of ZONES) {
         const inside = entities.filter((entity) => shape.of(roleOf(entity)));
@@ -511,7 +617,9 @@ export function draw(layers, design, {problems, selected, filesOf}) {
         const found = problems.links.get(link.name) || [];
         const options = {
             selected: selected && selected.kind === "link" && selected.name === link.name,
-            level: levelOf(found),
+            level: levelWithin(found, "link"),
+            contractLevel: levelWithin(found, "contract"),
+            slot: slots.get(link.name) || 0,
         };
         const owner = byName.get(link.owner);
         if (!owner) {
@@ -535,8 +643,15 @@ export function draw(layers, design, {problems, selected, filesOf}) {
         lanes.set(pair, [...(lanes.get(pair) || []), item]);
     }
     for (const sharing of lanes.values()) {
-        sharing.forEach((item, index) => {
-            const offset = (index - ((sharing.length - 1) / 2)) * LANE_GAP;
+        // Bowed apart in the order their slots sit in, not in the order they were written.
+        // Two links leaving one owner already start apart, so a bow assigned by document
+        // order sends the lower one over the upper one and the pair crosses in mid-air for
+        // no reason a reader could name.
+        const spread = [...sharing]
+            .map((item) => ({item, side: sideOfSlot(item)}))
+            .sort((one, other) => one.side - other.side);
+        spread.forEach(({item}, index) => {
+            const offset = (index - ((spread.length - 1) / 2)) * LANE_GAP;
             const options = {...item.options, offset};
             layers.links.append(item.target
                 ? line(item.link, item.owner, item.target, options)
@@ -550,8 +665,49 @@ export function draw(layers, design, {problems, selected, filesOf}) {
             selected: selected && selected.kind === "entity" && selected.name === entity.name,
             level: levelOf(found),
             files: filesOf ? filesOf(entity) : [],
+            taken: (design.links || []).filter((link) => link.owner === entity.name)
+                .map((link) => slots.get(link.name)),
         }));
     }
+}
+
+// Which side of its own line a link's slot sits on, as a signed distance across it. This is
+// what orders the lanes: a link leaving the top of its owner should stay above one leaving
+// the bottom, all the way to the other end.
+function sideOfSlot(item) {
+    const to = item.target || {x: (item.owner.x || 0) + 1, y: item.owner.y || 0};
+    const span = Math.hypot((to.x || 0) - (item.owner.x || 0),
+                            (to.y || 0) - (item.owner.y || 0)) || 1;
+    const ux = ((to.x || 0) - (item.owner.x || 0)) / span;
+    const uy = ((to.y || 0) - (item.owner.y || 0)) / span;
+    const seat = slotPoint(item.options.slot || 0, NODE_RADIUS + BADGE_REACH);
+    return (seat.x * -uy) + (seat.y * ux);
+}
+
+// Which slot every link sits on, by link name. Worked out once for the whole document and
+// read by both the rim and the badge, so the dash the ring leaves out is the same position
+// the contract is drawn at. A link written before slots existed has none of its own and is
+// placed on the first one free, which keeps an older document readable without rewriting it.
+export function slotIndex(design) {
+    const byName = new Map((design.entities || []).map((entity) => [entity.name, entity]));
+    const byOwner = new Map();
+    const found = new Map();
+    for (const link of design.links || []) {
+        const held = byOwner.get(link.owner) || [];
+        // Where a link with no slot of its own is put. Toward the entity it runs to, which is
+        // where somebody dragging it would have put it. Starting them all at the top would
+        // send half of every existing project's links back across their own owner.
+        const owner = byName.get(link.owner);
+        const consumer = byName.get((link.consumers || [])[0]);
+        const toward = owner && consumer ? turnsToward(owner, consumer) : 0.25;
+        const slot = Number.isInteger(link.slot) && !held.includes(link.slot)
+            ? link.slot
+            : nearestFreeSlot(held, toward);
+        held.push(slot);
+        byOwner.set(link.owner, held);
+        found.set(link.name, slot);
+    }
+    return found;
 }
 
 // The entity under a point on the canvas, or null. Used when a link is dropped, where what
