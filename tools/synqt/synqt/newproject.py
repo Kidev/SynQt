@@ -133,6 +133,66 @@ def write_client_main(project_dir: os.PathLike[str] | str, name: str) -> Optiona
     return f"{name}/Main.qml"
 
 
+def entity_qml_path(name: str, kind: str) -> str:
+    """Where an entity's own QML lives: the file that entity *is*.
+
+    Distinct from a connect point's Source, which is one surface the entity exposes. A client's
+    own file is its window; every other entity's is a singleton named after it.
+    """
+    if kind == "client":
+        return f"{name}/Main.qml"
+    return f"{name}/{name[:1].upper()}{name[1:]}.qml"
+
+
+def entity_singleton(name: str) -> str:
+    """An entity's own QML: one object, alive as long as the entity is.
+
+    A singleton because there is one of this entity. Its Sources may be created per session or
+    per peer, so anything they share has to outlive any one of them, and a Source is the wrong
+    place to keep it. ``appmodel.discover_singletons`` finds this by its ``pragma Singleton``
+    and the generated main registers it under the entity's own QML module, so every Source the
+    entity owns reaches it by name.
+
+    Written the way ``qmlformat`` would write it, so a scaffolded project passes its own
+    ``synqt check`` with nothing to reformat first.
+    """
+    type_name = f"{name[:1].upper()}{name[1:]}"
+    return ("// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux\n"
+            "// SPDX-License-Identifier: Apache-2.0\n"
+            "\n"
+            "pragma Singleton\n"
+            "\n"
+            "import QtQuick\n"
+            "\n"
+            f"// The '{name}' entity itself: one of it, for as long as the entity runs. State\n"
+            "// that belongs to the whole entity goes here rather than in a Source, because a\n"
+            "// Source can be created per session or per peer and anything shared has to\n"
+            f"// outlive any one of them. Every Source this entity owns reaches it as "
+            f"`{type_name}`.\n"
+            "QtObject {\n"
+            "    id: root\n"
+            "}\n")
+
+
+def write_entity_qml(project_dir: os.PathLike[str] | str, name: str,
+                     kind: str = "service") -> Optional[str]:
+    """Give an entity its own file, unless it has one. Returns the path when it wrote one.
+
+    Every entity has one from the moment it exists, before it owns or consumes anything. An
+    entity that is in synqt.yaml with an empty directory beside it is an entity nobody can
+    open, and it was the state every plain service used to start in.
+    """
+    relative = entity_qml_path(name, kind)
+    target = Path(project_dir) / relative
+    if target.exists():
+        return None
+    if kind == "client":
+        return write_client_main(project_dir, name)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(entity_singleton(name), encoding="utf-8")
+    return relative
+
+
 class NewProjectError(Exception):
     """A scaffolding error surfaced to the CLI (no traceback for the user)."""
 
@@ -192,7 +252,8 @@ def scaffold(parent_dir: os.PathLike[str] | str, name: str, *,
 
     for folder in ("client", "web", "shared"):
         (root / folder).mkdir(exist_ok=True)
-    write_client_main(root, "client")
+    for entity in entities:
+        write_entity_qml(root, entity["name"], entity.get("kind", "service"))
 
     (root / ".gitignore").write_text(
         "# SynQt: never commit mesh private keys, the toolchain cache, or build outputs\n"

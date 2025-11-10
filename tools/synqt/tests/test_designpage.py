@@ -129,7 +129,11 @@ def test_the_page_loads_nothing_from_anywhere_else():
     for path in sorted(DESIGN.iterdir()):
         if not path.is_file():
             continue
-        body = _text(path.name).replace("http://www.w3.org/2000/svg", "")
+        # Read the way the publishing hook reads: not every asset is text (the favicon is an
+        # .ico), and a check that only looks at the ones that decode is a check with a hole
+        # in it exactly where a binary blob could carry a URL.
+        body = path.read_text(encoding="utf-8", errors="replace") \
+                   .replace("http://www.w3.org/2000/svg", "")
         assert not re.search(r"""["'(]https?://""", body), \
             f"{path.name} names an outside URL, which the page's policy refuses to fetch"
 
@@ -234,12 +238,25 @@ def test_a_client_gets_the_one_file_it_cannot_start_without(rendered):
     assert written == newproject._MAIN_QML
 
 
-def test_every_entity_has_a_directory_with_something_in_it(rendered):
+def test_every_entity_has_its_own_file_before_it_owns_anything(rendered):
     """An entity on the canvas that contributes no file is an entity nobody can find in the
-    project it belongs to."""
+    project it belongs to, which is what a plain service with no file of its own is until
+    somebody draws a connect point off it. Its own file is not one of its Sources. A Source is one surface the
+    entity exposes and may be created per session, and the entity is the thing that is there
+    once."""
     for entity in DOCUMENT["entities"]:
-        assert any(file["name"].startswith(f"gavel/{entity['name']}/")
-                   for file in rendered["files"]), entity["name"]
+        own = newproject.entity_qml_path(entity["name"], entity.get("kind", "service"))
+        assert any(file["name"] == f"gavel/{own}" for file in rendered["files"]), own
+
+
+def test_a_services_own_file_is_the_singleton_the_build_registers(rendered):
+    """`appmodel.discover_singletons` finds an entity's own QML by its `pragma Singleton` and
+    the generated main registers it under that entity's module. A file written without the
+    pragma would be a file the build ignores."""
+    written = next(file["text"] for file in rendered["files"]
+                   if file["name"] == "gavel/database/Database.qml")
+    assert written == newproject.entity_singleton("database")
+    assert "\npragma Singleton\n" in written
 
 
 def test_the_download_is_a_zip_holding_the_configuration_and_every_contract(rendered):
@@ -247,7 +264,9 @@ def test_the_download_is_a_zip_holding_the_configuration_and_every_contract(rend
     assert archive.testzip() is None
     assert archive.namelist() == ["gavel/synqt.yaml", "gavel/shared/Auction.syn",
                                   "gavel/shared/Records.syn", "gavel/client/Main.qml",
-                                  "gavel/web/Auction.qml", "gavel/database/Records.qml"]
+                                  "gavel/web/Web.qml", "gavel/web/Auction.qml",
+                                  "gavel/database/Database.qml",
+                                  "gavel/database/Records.qml"]
     for file in rendered["files"]:
         assert archive.read(file["name"]).decode("utf-8") == file["text"]
 

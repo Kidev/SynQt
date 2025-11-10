@@ -130,10 +130,19 @@ async function dropEntity(page, label, at) {
         .dragTo(page.locator("#canvas"), { targetPosition: at });
 }
 
+// A file is read-only until it is unlocked, which is the point of the lock: the pane holds
+// the entity's own code, and a stray keystroke over a file being read is not an edit.
+async function unlock(page) {
+    if ((await page.locator("#source-lock").getAttribute("aria-pressed")) !== "true") {
+        await page.locator("#source-lock").click();
+    }
+}
+
 // Type `line` in just above the file's closing brace, which is where a declaration goes. The
 // caret starts at the end of the file, which is past that brace, so it walks back one line
 // first; typing at the end would put the declaration outside the object it belongs to.
 async function typeIntoRootBlock(page, line) {
+    await unlock(page);
     const typing = page.locator("#source-input");
     await typing.click();
     await typing.press("Control+End");
@@ -142,11 +151,24 @@ async function typeIntoRootBlock(page, line) {
     await typing.type(line);
 }
 
+// The tree names each file by its leaf under a heading for the directory it is in, so this is
+// what opens one: the leaf, under the right folder.
+function fileRow(page, name) {
+    const parts = name.split("/");
+    const leaf = parts[parts.length - 1];
+    if (parts.length === 1) {
+        return page.locator(`.tree > li > .tree__file`, { hasText: leaf });
+    }
+    return page.locator("li.tree__folder")
+               .filter({ hasText: new RegExp(`^${parts[0]}/`) })
+               .locator(".tree__file", { hasText: leaf });
+}
+
 // Open a file in the pane and wait for it to hold `wanted`, saying what it held instead when
-// it never does: a timeout that only said "timed out" would throw away the file that is the
+// it never does. A timeout that only said "timed out" would throw away the file that is the
 // whole answer.
 async function openAndWaitFor(page, file, wanted) {
-    await page.locator(".tree__file", { hasText: file }).click();
+    await fileRow(page, file).click();
     try {
         await page.waitForFunction(
             (text) => document.getElementById("source-paint").textContent.includes(text),
@@ -157,15 +179,30 @@ async function openAndWaitFor(page, file, wanted) {
     }
 }
 
-// A connect point is drawn from the owner's rim to the consumer's disc, and the direction is
-// its meaning, so this is the one interaction the page has that a keyboard cannot reach.
-async function dragLink(page, fromEntity, toEntity) {
-    const rim = await page.locator(`[data-rim="${fromEntity}"]`).boundingBox();
+// A connect point is drawn from one of the owner's handles to the consumer's disc, and the
+// direction is its meaning, so this is the one interaction the page has that a keyboard cannot
+// reach. `handle` picks a side: right, left, top, bottom, in that order.
+async function dragLink(page, fromEntity, toEntity, handle = 0) {
+    const rim = await page.locator(`[data-rim="${fromEntity}"]`).nth(handle).boundingBox();
     const target = await discCentre(page, toEntity);
     const start = { x: rim.x + (rim.width / 2), y: rim.y + (rim.height / 2) };
     await page.mouse.move(start.x, start.y);
     await page.mouse.down();
-    // Through a point in between: the page treats a pointer that never travelled as a click.
+    // Through a point in between. The page treats a pointer that never travelled as a click.
+    await page.mouse.move((start.x + target.x) / 2, (start.y + target.y) / 2, { steps: 8 });
+    await page.mouse.move(target.x, target.y, { steps: 8 });
+    await page.mouse.up();
+}
+
+// The same gesture, let go over empty canvas. What the page answers with an offer to make the
+// entity that was being reached for.
+async function dragLinkToNowhere(page, fromEntity, at, handle = 0) {
+    const rim = await page.locator(`[data-rim="${fromEntity}"]`).nth(handle).boundingBox();
+    const canvas = await page.locator("#canvas").boundingBox();
+    const start = { x: rim.x + (rim.width / 2), y: rim.y + (rim.height / 2) };
+    const target = { x: canvas.x + at.x, y: canvas.y + at.y };
+    await page.mouse.move(start.x, start.y);
+    await page.mouse.down();
     await page.mouse.move((start.x + target.x) / 2, (start.y + target.y) / 2, { steps: 8 });
     await page.mouse.move(target.x, target.y, { steps: 8 });
     await page.mouse.up();
@@ -194,9 +231,9 @@ async function editorOverAProject() {
         check(await page.locator("[data-entity]").count() === 3,
               "the project on disk arrives as three entities on the canvas");
 
-        // Add a service, and connect it to the edge: the service owns the point, the edge
+        // Add a service, and connect it to the edge. The service owns the point, the edge
         // consumes it. Dropped the other way round the page would draw a different project.
-        await dropEntity(page, "Service", { x: 430, y: 560 });
+        await dropEntity(page, "Service", { x: 430, y: 400 });
         await page.waitForSelector('[data-entity="service"]');
         await dragLink(page, "service", "web");
         await page.waitForFunction(
@@ -251,6 +288,11 @@ async function editorOverAProject() {
                            : `shared/Audit.syn holds something else:\n${contract.trim()}`);
         check(fs.existsSync(path.join(project, "service/Audit.qml")),
               "the owner got the Source file the point needs");
+        // Its own file too, which is a different question: a Source is one surface an entity
+        // exposes, and the entity is the thing that is there once. A plain service used to
+        // arrive with an empty directory beside it.
+        check(fs.existsSync(path.join(project, "service/Service.qml")),
+              "and the file the entity itself is");
         check(problems.length === 0,
               `nothing on the page failed (${problems.join(" | ") || "no errors"})`);
     } finally {
@@ -267,9 +309,14 @@ const CONTENT_TYPES = {
     ".css": "text/css; charset=utf-8",
     ".js": "text/javascript; charset=utf-8",
     ".json": "application/json; charset=utf-8",
+    // The mark in the bar and the tab icon. Served as what they are, the way a real static
+    // host does. An <img> handed application/octet-stream is a broken image, and a broken
+    // image in the harness is a page nobody is looking at.
+    ".svg": "image/svg+xml",
+    ".ico": "image/vnd.microsoft.icon",
 };
 
-// The static host the documentation site is, near enough: it serves the files the hook
+// The static host the documentation site is, near enough. It serves the files the hook
 // copies and knows nothing about /api/, so the editor's first request is answered with a
 // 404 and the page has to turn itself into a drawing board on the strength of that.
 function serveAssets() {
@@ -327,7 +374,7 @@ async function theCopyOnTheSite() {
         check(await page.locator("#apply").isEnabled(), "Apply became the download");
 
         // It is still an editor: the palette works and the rules paint.
-        await dropEntity(page, "Client", { x: 300, y: 300 });
+        await dropEntity(page, "Client", { x: 300, y: 200 });
         await page.waitForSelector('[data-entity="client"]');
         const verdict = await page.locator("#verdict").textContent();
         check(/problem/.test(verdict),
@@ -378,23 +425,37 @@ async function theProjectALinkHandsYou() {
         check(await page.locator("#zones .zone").count() === 3,
               "the browser, the entity facing the internet and the mesh are three boxes");
         check((await page.locator("#zones .zone--internet .zone__title").textContent())
-              === "faces the internet",
+              === "Faces the internet",
               "and the one that faces the internet says so");
 
-        await page.click("#show-project");
+        // Every link is a curve, so that two entities talking both ways, or one owning
+        // several points another consumes, are lines somebody can tell apart.
+        check(await page.locator("#links path.link__line").count() === 3,
+              "the links are curves, not lines laid over each other");
+
+        // The pane is open with the page: the files are what is being designed, not a second
+        // opinion about it that has to be asked for.
         await page.waitForSelector(".tree__file");
+        check(!(await page.locator("#dock").evaluate(
+                  (dock) => dock.classList.contains("is-collapsed"))),
+              "the files pane is open without being asked for");
+        const folders = await page.locator(".tree__folder").evaluateAll(
+            (rows) => rows.map((row) => row.firstChild.textContent));
+        check(["client/", "web/", "database/", "api/", "shared/"]
+                  .every((name) => folders.includes(name)),
+              `the tree is directories, not one flat list (${folders.join(" ")})`);
         const named = await page.locator(".tree__file").allTextContents();
-        // Whole paths, and every entity present. The client used to contribute no file at
-        // all, so the one entity a reader looks for first was the one missing.
-        const wanted = ["synqt.yaml", "shared/Feed.syn", "client/Main.qml", "web/Feed.qml",
-                        "database/Access.qml", "api/Upstream.qml"];
+        // Every entity present, with its own file. A plain service used to contribute nothing
+        // at all until somebody drew a connect point off it.
+        const wanted = ["synqt.yaml", "Feed.syn", "Main.qml", "Feed.qml", "Web.qml",
+                        "Access.qml", "Database.qml", "Upstream.qml", "Api.qml"];
         const missing = wanted.filter((name) => !named.includes(name));
         check(missing.length === 0,
               missing.length ? `the files pane is missing ${missing.join(", ")}; it names `
                                + named.join(", ")
-                             : "the files pane names every file by its path");
+                             : "every entity has its own file, and every file its directory");
 
-        await page.locator(".tree__file", { hasText: "web/Feed.qml" }).click();
+        await fileRow(page, "web/Feed.qml").click();
         const source = await page.locator("#source-paint").textContent();
         check(source.includes("FeedSource {"),
               "and reading one shows the Source the owner would host");
@@ -403,17 +464,30 @@ async function theProjectALinkHandsYou() {
         check(await page.locator("#source-paint .tok--keyword").count() > 0,
               "coloured as the QML it is");
 
+        // Opening a file selects what it is on the canvas, and the reverse, so the two views
+        // never disagree about what is in hand.
+        await page.waitForSelector("[data-link='feed'].is-selected");
+        check(true, "opening a file selects what it is out on the canvas");
+        await page.locator("#nodes [data-entity='api']").click();
+        await page.waitForFunction(
+            () => document.getElementById("source-name").textContent === "api/Api.qml");
+        check(true, "and selecting an entity opens the file it is");
+
+        // Read-only until unlocked: the pane holds the entity's own code.
+        await fileRow(page, "web/Feed.qml").click();
+        check(await page.locator("#source-input").evaluate((box) => box.readOnly),
+              "a file opens read-only");
         // Typing a declaration into a Source is the same gesture as adding a member in the
         // panel, which is the whole reason the pane is a textarea and not a preview.
-        check(await page.locator("#source-input").isVisible(),
-              "a Source is typed into rather than read");
         await typeIntoRootBlock(page, "    property string headline\n");
         await openAndWaitFor(page, "shared/Feed.syn", "prop string headline");
-        check(true, "a property typed into a Source becomes a member of its contract");
+        check(true, "a property typed into an unlocked Source becomes a member of its "
+                    + "contract");
 
         // Putting the caret on a line points the canvas at what that line is about, which is
         // how somebody reading a file finds the thing they are reading in the drawing.
-        await page.locator(".tree__file", { hasText: "web/Feed.qml" }).click();
+        await fileRow(page, "web/Feed.qml").click();
+        await unlock(page);
         await page.locator("#source-input").click();
         await page.locator("#source-input").press("Control+End");
         await page.locator("#source-input").press("ArrowUp");
@@ -421,22 +495,39 @@ async function theProjectALinkHandsYou() {
         await page.waitForSelector("[data-link='feed'].is-selected");
         check(true, "the line the caret is on selects what it declares, out on the canvas");
 
+        // Undo is the browser's own, and it only stays the browser's if the pane never writes
+        // the box's value back over what was just typed into it: a programmatic write clears
+        // the undo stack. Pressed rather than called, because that is the gesture.
+        await unlock(page);
+        const typed = page.locator("#source-input");
+        await typed.click();
+        await typed.press("Control+End");
+        await typed.type("// undo me");
+        const undone = await page.evaluate(async () => {
+            const box = document.getElementById("source-input");
+            return {before: box.value.includes("// undo me")};
+        });
+        await typed.press("Control+z");
+        check(undone.before
+              && !(await typed.inputValue()).includes("// undo me"),
+              "and what was typed can be undone, the way any text box undoes");
+
         // Reaching into another entity draws the connect point it would need. This is what
         // `synqt infer` does over a project, done here on one file while it is being typed:
         // `Server` is the client's alias for the edge, so the edge is what ends up owning it.
-        await page.locator(".tree__file", { hasText: "client/Main.qml" }).click();
+        await fileRow(page, "client/Main.qml").click();
         await typeIntoRootBlock(page, "    property int seen: Server.tally.total\n");
         await page.waitForSelector("[data-link='tally']");
         check(true, "reaching into another entity draws the connect point that would carry it");
         const paths = await page.locator(".tree__file").allTextContents();
-        check(paths.includes("shared/Tally.syn") && paths.includes("web/Tally.qml"),
+        check(paths.includes("Tally.syn") && paths.includes("Tally.qml"),
               `with the two files it needs (${paths.join(", ")})`);
         await openAndWaitFor(page, "shared/Tally.syn", "prop var total");
         check(true, "and the member it reached for, with the type nothing gave away");
 
         // A file longer than the pane is the ordinary case, and the coloured copy is a
         // separate layer from the one holding the caret, so the two have to move together.
-        await page.locator(".tree__file", { hasText: "client/Main.qml" }).click();
+        await fileRow(page, "client/Main.qml").click();
         const scrolled = await page.evaluate(() => {
             const input = document.getElementById("source-input");
             const paint = document.getElementById("source-paint");
@@ -448,8 +539,38 @@ async function theProjectALinkHandsYou() {
               `the coloured copy scrolls with the caret (${scrolled.painted} of `
               + `${scrolled.moved})`);
 
-        await page.click("#dock-close");
-        check(await page.locator("#dock").isHidden(), "the pane hides again");
+        await page.click("#dock-toggle");
+        check(await page.locator("#dock").evaluate(
+                  (dock) => dock.classList.contains("is-collapsed")),
+              "hiding the pane leaves the bar it opens again from");
+        check(await page.locator("#dock-bar").isVisible()
+              && await page.locator("#dock-pane").isHidden(),
+              "which still names the file that was open");
+        await page.click("#dock-toggle");
+        await page.waitForSelector(".tree__file");
+
+        // A link dropped on empty canvas is somebody reaching for an entity that is not there
+        // yet, which is an offer rather than a mistake. Pulled off the *left* handle, which
+        // is the side a single handle on the right could never serve.
+        await dragLinkToNowhere(page, "database", { x: 90, y: 90 }, 1);
+        await page.waitForSelector(".menu__item");
+        await page.locator(".menu__item", { hasText: "Cache" }).click();
+        await page.waitForSelector("[data-entity='cache']");
+        check(await page.locator("#links > *").count() === 5,
+              "a link dropped on nothing offers to make the entity it was reaching for");
+
+        // Delete removes what is selected, and a double click renames it.
+        await page.locator("#nodes [data-entity='cache']").click();
+        await page.locator("#canvas").press("Delete");
+        await page.waitForFunction(
+            () => !document.querySelector("#nodes [data-entity='cache']"));
+        check(true, "Delete removes what is selected");
+
+        page.once("dialog", (dialog) => dialog.accept("upstream"));
+        await page.locator("#nodes [data-entity='api']").dblclick();
+        await page.waitForSelector("[data-entity='upstream']");
+        check(await page.locator("#nodes [data-entity='api']").count() === 0,
+              "and a double click renames it");
 
         // The tooltip is the page's own, so it can say what a native one cannot.
         await page.locator("#nodes [data-entity='database']").hover();

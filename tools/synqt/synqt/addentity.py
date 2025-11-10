@@ -18,7 +18,7 @@ from typing import Any, Dict, List, Optional
 
 import yaml
 
-from synqt import addcontract, yamledit
+from synqt import addcontract, newproject, yamledit
 
 # Family -> the providers bundled for it (default first). This is the list the C++ family
 # factories accept, and the only place it is written down: `synqt add entity` offers these
@@ -216,9 +216,12 @@ def scaffold(project_dir: os.PathLike[str] | str, name: str, blueprint: str,
         config_path.write_text("entities: []\n")
     config_path.write_text(yamledit.append_item(config_path.read_text(), "entities", block))
 
-    # The entity folder + a Source stub; persistence gets a schema file too.
+    # The entity folder, the entity's own file + a Source stub; persistence gets a schema file
+    # too. The two QML files answer different questions: the entity's own is what this entity
+    # is, and the Source is one surface it exposes.
     entity_dir = root / name
     entity_dir.mkdir(parents=True, exist_ok=True)
+    newproject.write_entity_qml(root, name)
     (entity_dir / f"{stub}.qml").write_text(_source_stub(blueprint, name))
     if blueprint == "persistence":
         (entity_dir / "schema.sql").write_text(

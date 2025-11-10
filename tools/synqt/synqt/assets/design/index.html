@@ -10,10 +10,14 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>SynQt design</title>
-    <!-- Named, because a browser that is not told asks for /favicon.ico and the server has
-         no such file to give it. The mark in the bar is the same drawing. -->
-    <link rel="icon" href="synqt.svg" type="image/svg+xml">
+    <!-- Brand first, the way every page of the site titles itself (overrides/main.html), so a
+         tab holding the editor sits beside the tabs holding the guide rather than sorting
+         somewhere else. -->
+    <title>SynQt - Design editor</title>
+    <!-- The same icon file the site is served with, so the two are one tab icon rather than
+         two. Named, because a browser that is not told asks for /favicon.ico and the server
+         has no such file to give it. -->
+    <link rel="icon" href="synqt.ico" sizes="any">
     <link rel="stylesheet" href="design.css">
     <script type="module" src="design.js"></script>
   </head>
@@ -23,11 +27,6 @@
       <span class="bar__project" id="project" hidden></span>
       <span class="bar__verdict" id="verdict"></span>
       <span class="bar__gap"></span>
-      <button type="button" class="button button--icon" id="show-project"
-              aria-pressed="false" title="Show the files this project is made of">
-        <span class="button__icon" id="icon-project"></span>Files
-      </button>
-      <span class="bar__rule"></span>
       <button type="button" class="button" id="infer">Infer from the sources</button>
       <button type="button" class="button" id="review">Review changes</button>
       <button type="button" class="button button--go" id="apply" disabled>Apply</button>
@@ -58,19 +57,30 @@
           <p class="stage__hint" id="hint"></p>
         </div>
 
-        <!-- The same project as text. Redrawn from the document on every change, so it is
-             never a snapshot of an older design, and the QML in it is typed into rather
-             than read: what a Source declares is what its contract holds. -->
-        <section class="dock" id="dock" hidden>
-          <header class="dock__bar">
+        <!-- The same project as text, open from the start: the files are what is being
+             designed, not a second opinion about it. Redrawn from the document on every
+             change, so it is never a snapshot of an older design, and the QML in it is typed
+             into rather than read: what a Source declares is what its contract holds. Hiding
+             it leaves the bar, which is what opens it again. -->
+        <section class="dock" id="dock">
+          <header class="dock__bar" id="dock-bar">
             <span class="dock__title">Files</span>
+            <span class="dock__open" id="dock-open"></span>
             <span class="bar__gap"></span>
-            <button type="button" class="button" id="dock-close">Hide</button>
+            <button type="button" class="button" id="dock-toggle"
+                    aria-expanded="true" aria-controls="dock-pane">Hide</button>
           </header>
-          <div class="dock__pane">
+          <div class="dock__pane" id="dock-pane">
             <ul class="tree" id="tree"></ul>
             <div class="source">
-              <p class="source__name" id="source-name"></p>
+              <div class="source__head">
+                <p class="source__name" id="source-name"></p>
+                <!-- Read-only until somebody says otherwise. The pane holds the entity's own
+                     code, and a stray keystroke over a file you were reading is not an edit
+                     anybody asked to make. -->
+                <button type="button" class="button button--lock" id="source-lock"
+                        aria-pressed="false"></button>
+              </div>
               <!-- One layer painted and one layer typed into, sharing a box and a font: the
                    textarea on top is transparent apart from its caret, and the coloured copy
                    behind it is what anyone actually reads. -->

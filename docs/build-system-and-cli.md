@@ -146,8 +146,11 @@ The two `add` commands that produce QML each write the file that goes with what 
 `synqt add connect-point` writes the owner-side Source, empty, at the path the runtime
 resolves (`<owner>/<Contract>.qml`, or whatever the point's `server:` names), because a
 connect point without one is a point the owner cannot host, and nothing says so until the
-entity starts. A file that is already there is never touched. `synqt add entity` writes
-its blueprint's Source stub, named after the blueprint (`Items` for persistence, `Entries`
+entity starts. A file that is already there is never touched. `synqt add entity` writes the
+entity's own file, `<name>/<Name>.qml`, a singleton where state belonging to the whole entity
+goes; every entity gets one, so none starts out as a directory with nothing in it. For a
+blueprint it also writes that blueprint's Source stub, named after the blueprint (`Items`
+for persistence, `Entries`
 for cache, `Documents` for document, `Upstream` for gateway, `Schedule` for jobs), and
 `--source <Name>` names it yourself. That name becomes a QML type, so it has to begin with
 a capital, and it may not be one of the names SynQt already uses for the helpers an

@@ -173,6 +173,24 @@
            "consumers": ["web"], "instance": "shared", "transport": "local"}
         ]
       }
+    },
+    {
+      "id": "the-client-owns-a-connect-point",
+      "rule": "client-owns-connect-point",
+      "level": "error",
+      "why": "An owner listens for consumers to acquire its Source, and a browser cannot listen: there is no WebSocket server under WebAssembly, so the client is always the one that connects out.",
+      "document": {
+        "version": 1,
+        "project": "rules",
+        "entities": [
+          {"name": "client", "kind": "client"},
+          {"name": "web", "kind": "service", "capability": "web_edge"}
+        ],
+        "links": [
+          {"name": "clientToWeb", "contract": "ClientToWeb", "owner": "client",
+           "consumers": ["web"], "instance": "shared"}
+        ]
+      }
     }
   ]
 }

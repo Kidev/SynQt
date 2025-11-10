@@ -23,7 +23,7 @@ import { findings as ruleFindings } from "./rules.js";
 import { ROLE_HELP, describe, draw, element, entityAt, extent, glyphSvg,
          roleOf } from "./canvas.js";
 import { inspect } from "./inspector.js";
-import { entityFiles, projectFiles } from "./project.js";
+import { entityFiles, entityQmlPath, projectFiles } from "./project.js";
 import { declarations, references, runsFor, withoutNotice } from "./source.js";
 import { zipBytes } from "./zip.js";
 
@@ -61,10 +61,6 @@ const PALETTE = [
      make: () => ({kind: "service"})},
 ].map((item) => ({...item, help: ROLE_HELP[item.role]}));
 
-// A small line-drawn mark for the pane's button, in the same 16-unit box the entity glyphs
-// use.
-const FOLDER_GLYPH = ["M 2,3 h 4.5 l 1.2,2 h 6.3 v 8 h -12 z"];
-
 const state = {
     design: {version: 1, project: "", sourceHash: "", entities: [], links: []},
     selected: null,
@@ -73,9 +69,14 @@ const state = {
     plan: null,
     backend: true,
     token: "",
-    // Whether the files pane is open, and which file it is reading.
-    files: false,
+    // Whether the files pane is open, which file it is reading, and whether that file has
+    // been unlocked. The pane opens with the page, because the files are what is being
+    // designed rather than a second opinion about it; the lock starts on, because reading a
+    // file is the common gesture and a keystroke over one you were reading is not an edit
+    // anybody asked for. Unlocking is per file: it does not carry to the next one opened.
+    files: true,
     reading: "",
+    unlocked: false,
 };
 
 const view = {x: 0, y: 0, k: 1};
@@ -97,12 +98,13 @@ const page = {
     infer: document.getElementById("infer"),
     review: document.getElementById("review"),
     apply: document.getElementById("apply"),
-    showProject: document.getElementById("show-project"),
-    iconProject: document.getElementById("icon-project"),
     dock: document.getElementById("dock"),
-    dockClose: document.getElementById("dock-close"),
+    dockBar: document.getElementById("dock-bar"),
+    dockToggle: document.getElementById("dock-toggle"),
+    dockOpen: document.getElementById("dock-open"),
     tree: document.getElementById("tree"),
     sourceName: document.getElementById("source-name"),
+    sourceLock: document.getElementById("source-lock"),
     sourceNote: document.getElementById("source-note"),
     sourcePaint: document.getElementById("source-paint"),
     sourceInput: document.getElementById("source-input"),
@@ -337,7 +339,77 @@ function paint(file) {
     return shown;
 }
 
-// The files this design would be, as a tree of whole paths. Rendered from projectFiles, which
+// What a file belongs to on the canvas, so that opening one selects it there. A Source belongs
+// to its connect point, an entity's own file to that entity, and a contract to whichever link
+// carries it; synqt.yaml belongs to the whole project and selects nothing.
+function holderOf(file) {
+    if (file.link) {
+        return {kind: "link", name: file.link};
+    }
+    if (file.owner) {
+        return {kind: "entity", name: file.owner};
+    }
+    if (file.name.endsWith(".syn")) {
+        const contract = file.name.replace(/^.*\/|\.syn$/g, "");
+        const link = (state.design.links || []).find((one) => one.contract === contract);
+        return link ? {kind: "link", name: link.name} : null;
+    }
+    return null;
+}
+
+// The other direction: the file that *is* whatever is selected on the canvas. Selecting an
+// entity opens its own file rather than one of its Sources, because that is the entity itself;
+// selecting a connect point opens the Source that implements it.
+function fileOf(what, files) {
+    if (!what) {
+        return "";
+    }
+    const found = what.kind === "link"
+        ? files.find((file) => file.link === what.name)
+        : files.find((file) => file.owner === what.name && !file.link)
+          || files.find((file) => file.owner === what.name);
+    return found ? found.name : "";
+}
+
+// Every file grouped under the directory it is in, in the order projectFiles lists them. The
+// first segment is the folder: `shared` and one per entity, which is the whole of a SynQt
+// project's shape.
+function foldersOf(files) {
+    const folders = [];
+    const byName = new Map();
+    for (const file of files) {
+        const parts = inProject(file.name).split("/");
+        const folder = parts.length > 1 ? parts[0] : "";
+        if (!byName.has(folder)) {
+            byName.set(folder, {name: folder, files: []});
+            folders.push(byName.get(folder));
+        }
+        byName.get(folder).files.push({...file, leaf: parts[parts.length - 1]});
+    }
+    return folders;
+}
+
+function treeRow(file, current) {
+    const row = document.createElement("li");
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "tree__file"
+        + (file.name === state.reading ? " is-open" : "")
+        + (current ? " is-current" : "");
+    button.textContent = file.leaf;
+    // Opening a file selects what it is out on the canvas, and does not drag the pane off the
+    // file that was just asked for: `follow` is what stops the two views chasing each other.
+    button.addEventListener("click", () => {
+        state.reading = file.name;
+        state.unlocked = false;
+        select(holderOf(file), false);
+        renderProject();
+    });
+    row.append(button);
+    return row;
+}
+
+// The files this design would be, as a tree of directories. Rendered from projectFiles, which
 // is what the download holds and what the server writes, so the tree is never a description
 // of the project written separately from the project.
 function renderProject() {
@@ -350,55 +422,78 @@ function renderProject() {
         page.tree.append(empty);
         page.sourceName.textContent = "";
         page.sourceNote.textContent = "";
+        page.dockOpen.textContent = "";
         page.sourcePaint.replaceChildren();
         page.sourceInput.value = "";
-        page.sourceInput.hidden = true;
+        page.sourceInput.readOnly = true;
+        renderLock(null);
         return;
     }
     if (!files.some((file) => file.name === state.reading)) {
         state.reading = files[0].name;
+        state.unlocked = false;
     }
-    for (const file of files) {
-        const row = document.createElement("li");
-        const button = document.createElement("button");
-        button.type = "button";
-        button.className = "tree__file" + (file.name === state.reading ? " is-open" : "");
-        // The whole path, not a folder heading and a bare leaf: `web/Feed.qml` is what the
-        // guide's tree calls it, what the diff calls it and what somebody opens in an editor.
-        button.textContent = inProject(file.name);
-        button.addEventListener("click", () => {
-            state.reading = file.name;
-            renderProject();
-        });
-        row.append(button);
-        page.tree.append(row);
+    const current = fileOf(state.selected, files);
+    for (const folder of foldersOf(files)) {
+        if (folder.name) {
+            const heading = document.createElement("li");
+            heading.className = "tree__folder";
+            heading.textContent = `${folder.name}/`;
+            page.tree.append(heading);
+            const leaves = document.createElement("ul");
+            leaves.className = "tree__leaves";
+            for (const file of folder.files) {
+                leaves.append(treeRow(file, file.name === current));
+            }
+            heading.append(leaves);
+            continue;
+        }
+        for (const file of folder.files) {
+            page.tree.append(treeRow(file, file.name === current));
+        }
     }
     const open = files.find((file) => file.name === state.reading) || files[0];
     page.sourceName.textContent = inProject(open.name);
+    page.dockOpen.textContent = inProject(open.name);
     const shown = paint(open);
-    if (editable(open)) {
-        page.sourceInput.hidden = false;
-        page.sourceInput.readOnly = false;
-        if (page.sourceInput.value !== shown) {
-            page.sourceInput.value = shown;
-        }
-        page.sourceNote.textContent = open.link
-            ? "A property, a signal or a function you declare here becomes a member of this "
-              + "connect point's contract."
-            : "Reach for something another entity owns and the connect point that would "
-              + "carry it is drawn for you.";
-    } else {
-        page.sourceInput.hidden = true;
-        page.sourceInput.value = "";
+    // The textarea is there for every file, locked or not: it is what makes a file selectable
+    // and copyable, and a read-only one still has to be readable that way.
+    page.sourceInput.readOnly = !editable(open) || !state.unlocked;
+    if (page.sourceInput.value !== shown) {
+        page.sourceInput.value = shown;
+    }
+    renderLock(open);
+    if (!editable(open)) {
         page.sourceNote.textContent = "Written from the design. Edit it on the canvas or in "
             + "the panel.";
+        return;
     }
+    page.sourceNote.textContent = open.link
+        ? "A property, a signal or a function you declare here becomes a member of this "
+          + "connect point's contract."
+        : "Reach for something another entity owns and the connect point that would carry "
+          + "it is drawn for you.";
 }
 
-function showFiles(open) {
+function renderLock(open) {
+    const canEdit = Boolean(open && editable(open));
+    page.sourceLock.disabled = !canEdit;
+    page.sourceLock.setAttribute("aria-pressed", String(canEdit && state.unlocked));
+    page.sourceLock.textContent = !canEdit ? "Written from the design"
+        : (state.unlocked ? "Editing" : "Read-only");
+    page.sourceLock.title = !canEdit
+        ? "This file is written from the design, so the design is where it is edited."
+        : (state.unlocked
+           ? "Lock it again. Changes are already in the design; nothing is written to the "
+             + "project until you apply a change set."
+           : "Unlock it to type into it.");
+}
+
+function showDock(open) {
     state.files = open === undefined ? !state.files : open;
-    page.dock.hidden = !state.files;
-    page.showProject.setAttribute("aria-pressed", String(state.files));
+    page.dock.classList.toggle("is-collapsed", !state.files);
+    page.dockToggle.textContent = state.files ? "Hide" : "Show";
+    page.dockToggle.setAttribute("aria-expanded", String(state.files));
     // The canvas lost or gained height, so the view that fitted it no longer does.
     fit();
     if (state.files) {
@@ -574,7 +669,7 @@ function focusFromCaret() {
     const held = (found.kind === "link" ? state.design.links : state.design.entities)
         .some((one) => one.name === found.name);
     if (held) {
-        select({kind: found.kind, name: found.name});
+        select({kind: found.kind, name: found.name}, false);
     }
 }
 
@@ -899,8 +994,19 @@ function touched() {
     page.apply.disabled = state.backend;
 }
 
-function select(what) {
+// `follow` opens the file of whatever was selected. On by default, because selecting something
+// on the canvas and having the pane still show an unrelated file is the two views disagreeing
+// about what is in hand. Off when the selection came *from* the pane (a file opened, a caret
+// moved), where following would drag the pane off the file that was asked for.
+function select(what, follow = true) {
     state.selected = what;
+    if (follow) {
+        const wanted = fileOf(what, projectFiles(state.design));
+        if (wanted && wanted !== state.reading) {
+            state.reading = wanted;
+            state.unlocked = false;
+        }
+    }
     redraw();
     renderInspector();
 }
@@ -926,8 +1032,9 @@ function adopt(design) {
     // than something to read.
     page.project.textContent = state.design.project;
     page.project.hidden = !state.design.project;
-    document.title = state.design.project ? `${state.design.project} - SynQt design`
-                                          : "SynQt design";
+    // Brand first, the way every page of the site titles itself.
+    document.title = state.design.project ? `SynQt - ${state.design.project}`
+                                          : "SynQt - Design editor";
     touched();
     redraw();
     renderInspector();
@@ -985,8 +1092,9 @@ function addEntity(item, at) {
     state.design.entities.push(entity);
     touched();
     select({kind: "entity", name: entity.name});
-    say(`Added '${entity.name}'. Drag the handle on its edge to another entity to connect `
-        + "them.");
+    say(`Added '${entity.name}', and ${entityQmlPath(entity)} with it. Drag a handle on its `
+        + "edge to another entity to connect them.");
+    return entity;
 }
 
 function capitalised(name) {
@@ -1018,6 +1126,18 @@ function addLink(owner, consumer) {
         + "crosses it.");
 }
 
+// What a link dropped on empty canvas opens: the palette again, at the point it was let go,
+// so the entity that was being reached for is made and connected in one gesture rather than
+// dragged from the rail and joined up afterwards.
+function offerEntity(owner, spot, at) {
+    openMenu(at, `Consumer for '${owner.name}'`, PALETTE.map((item) => ({
+        label: item.label,
+        act: () => {
+            addLink(owner, addEntity(item, spot));
+        },
+    })));
+}
+
 function removeEntity(entity) {
     const name = entity.name;
     state.design.entities = state.design.entities.filter((one) => one !== entity);
@@ -1044,6 +1164,29 @@ function removeLink(link) {
 
 let drag = null;
 
+// A double click on a node opens its rename, and whether one happened is worked out here
+// rather than left to the browser's `dblclick`. The first of the two clicks selects the node,
+// selecting redraws the canvas, and the element the second click lands on is not the one the
+// first hit. With one of the pair detached, the browser reports no double click at all.
+const DOUBLE_CLICK_MS = 400;
+const DOUBLE_CLICK_SLOP = 6;
+
+let lastClick = null;
+
+function isSecondClick(what, at) {
+    const now = Date.now();
+    const again = lastClick
+        && lastClick.kind === what.kind
+        && lastClick.name === what.name
+        && (now - lastClick.when) < DOUBLE_CLICK_MS
+        && Math.hypot(at.x - lastClick.x, at.y - lastClick.y) < DOUBLE_CLICK_SLOP;
+    // Cleared on the second, so three clicks are one double click and one single, never two
+    // renames in a row.
+    lastClick = again ? null
+                      : {kind: what.kind, name: what.name, when: now, x: at.x, y: at.y};
+    return Boolean(again);
+}
+
 function pointAt(event) {
     const box = page.canvas.getBoundingClientRect();
     const x = event.clientX - box.left;
@@ -1067,7 +1210,18 @@ function onDown(event) {
     page.canvas.setPointerCapture(event.pointerId);
 
     if (rim) {
-        drag = {mode: "link", from: entityNamed(rim.dataset.rim), at, moved: false};
+        const from = entityNamed(rim.dataset.rim);
+        // Drawn from the handle that was grabbed rather than from the middle of the disc, so
+        // a link pulled off the left of an entity leaves to the left. That is the whole point
+        // of there being a handle on each side.
+        drag = {
+            mode: "link",
+            from,
+            at,
+            moved: false,
+            start: {x: (from.x || 0) + Number(rim.getAttribute("cx")),
+                    y: (from.y || 0) + Number(rim.getAttribute("cy"))},
+        };
         return;
     }
     if (held) {
@@ -1115,8 +1269,8 @@ function onMove(event) {
     if (drag.mode === "link" && drag.from) {
         page.ghost.replaceChildren(element("line", {
             class: "ghost",
-            x1: drag.from.x || 0,
-            y1: drag.from.y || 0,
+            x1: drag.start.x,
+            y1: drag.start.y,
             x2: at.local.x,
             y2: at.local.y,
         }));
@@ -1144,20 +1298,39 @@ function onUp(event) {
     if (finished.mode === "link" && finished.from) {
         const at = pointAt(event);
         const target = entityAt(state.design, at.local);
-        if (!target || target === finished.from) {
-            say("A connect point runs from the entity that owns it to one that consumes "
-                + "it. Drop the line on the consumer.");
+        if (target && target !== finished.from) {
+            addLink(finished.from, target);
             return;
         }
-        addLink(finished.from, target);
+        if (target) {
+            say("A connect point runs from the entity that owns it to one that consumes it, "
+                + "so it needs two. Drop the line on another entity, or on empty canvas to "
+                + "make one there.");
+            return;
+        }
+        // A line dropped on empty canvas is somebody reaching for an entity that is not there
+        // yet, which is a thing to offer rather than a mistake to report. Whichever they pick
+        // is created where they let go and consumes the point in the same gesture.
+        offerEntity(finished.from, {x: Math.round(at.local.x), y: Math.round(at.local.y)},
+                    {x: event.clientX, y: event.clientY});
         return;
     }
     if (finished.mode === "entity") {
-        select({kind: "entity", name: finished.entity.name});
+        const what = {kind: "entity", name: finished.entity.name};
+        if (!finished.moved && isSecondClick(what, event)) {
+            renameFrom("entity", what.name, "entity");
+            return;
+        }
+        select(what);
         return;
     }
     if (finished.mode === "link-click") {
-        select({kind: "link", name: finished.name});
+        const what = {kind: "link", name: finished.name};
+        if (!finished.moved && isSecondClick(what, event)) {
+            renameFrom("link", what.name, "connect point");
+            return;
+        }
+        select(what);
         return;
     }
     if (finished.mode === "pan" && !finished.moved) {
@@ -1311,6 +1484,38 @@ function download() {
 // Dragging is the only way an entity reaches the canvas, so that where it lands is always
 // somewhere somebody chose. A click that dropped one into a column would put it wherever the
 // column had room, which is a different arrangement from the one being drawn.
+// Renaming from the canvas: the name is what everything else in the project refers to this by,
+// so a double click on it is the shortest way to the one gesture that changes all of them at
+// once. The same rename the panel and the right-click menu run.
+// Delete removes what is selected, which is what every other canvas does. Never while a field
+// or the files pane has the keystroke: there, Delete is a character.
+function onDeleteKey(event) {
+    if (event.key !== "Delete" && event.key !== "Backspace") {
+        return;
+    }
+    const focused = document.activeElement;
+    if (focused && (focused.isContentEditable
+                    || ["INPUT", "TEXTAREA", "SELECT"].includes(focused.tagName))) {
+        return;
+    }
+    if (!state.selected) {
+        return;
+    }
+    event.preventDefault();
+    const what = state.selected;
+    if (what.kind === "entity") {
+        const entity = entityNamed(what.name);
+        if (entity) {
+            removeEntity(entity);
+        }
+        return;
+    }
+    const link = (state.design.links || []).find((one) => one.name === what.name);
+    if (link) {
+        removeLink(link);
+    }
+}
+
 function buildPalette() {
     for (const item of PALETTE) {
         const row = document.createElement("div");
@@ -1333,16 +1538,6 @@ function buildPalette() {
         });
         page.palette.append(row);
     }
-}
-
-function folderGlyph(into) {
-    const svg = element("svg", {viewBox: "0 0 16 16", "aria-hidden": "true",
-                                focusable: "false"});
-    for (const d of FOLDER_GLYPH) {
-        svg.append(element("path", {d, "stroke-width": 1.3, "stroke-linejoin": "round",
-                                    "stroke-linecap": "round"}));
-    }
-    into.append(svg);
 }
 
 function onDragOver(event) {
@@ -1426,8 +1621,21 @@ function wire() {
     page.infer.addEventListener("click", () => inferContracts());
     page.review.addEventListener("click", () => review());
     page.apply.addEventListener("click", () => applyPlan());
-    page.showProject.addEventListener("click", () => showFiles());
-    page.dockClose.addEventListener("click", () => showFiles(false));
+    page.dockToggle.addEventListener("click", () => showDock());
+    // A collapsed pane is a strip along the bottom, and the whole strip opens it: a target
+    // that thin should not also be a target that small.
+    page.dockBar.addEventListener("click", (event) => {
+        if (!state.files && !event.target.closest("button")) {
+            showDock(true);
+        }
+    });
+    page.sourceLock.addEventListener("click", () => {
+        state.unlocked = !state.unlocked;
+        renderProject();
+        if (state.unlocked) {
+            page.sourceInput.focus();
+        }
+    });
     // The textarea is the layer that scrolls; the painted copy behind it is dragged along by
     // hand, because a file longer than the pane is the ordinary case and two layers that
     // scroll independently are two layers nobody can read.
@@ -1442,6 +1650,17 @@ function wire() {
     page.sheetClose.addEventListener("click", () => {
         page.sheet.hidden = true;
     });
+    // Press, hold and sweep is how a node is dragged and how a link is pulled out of one. It
+    // is also how a browser is asked to select text, and it will happily start at the canvas
+    // and run the selection out into the rest of the page. Refused here, while a drag is in
+    // hand, rather than on the pointerdown. Refusing a pointerdown suppresses the mouse
+    // events the browser makes out of it, which took the double click that renames an entity
+    // with it.
+    document.addEventListener("selectstart", (event) => {
+        if (drag) {
+            event.preventDefault();
+        }
+    });
     // The menu closes on anything that is not a choice from it: another click, a key, a
     // scroll, a resize. Captured, so it goes before whatever the click was for.
     window.addEventListener("pointerdown", (event) => {
@@ -1453,7 +1672,9 @@ function wire() {
         if (event.key === "Escape") {
             closeMenu();
             hideTip();
+            return;
         }
+        onDeleteKey(event);
     });
     window.addEventListener("blur", () => {
         closeMenu();
@@ -1470,7 +1691,7 @@ function wire() {
 }
 
 buildPalette();
-folderGlyph(page.iconProject);
 wire();
+showDock(true);
 renderInspector();
 load();

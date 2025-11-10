@@ -119,38 +119,6 @@ h2 {
   display: none;
 }
 
-/* A hairline between the panes' toggles and the three buttons that act on the project. */
-.bar__rule {
-  width: 1px;
-  align-self: stretch;
-  margin: .6rem .15rem;
-  background: var(--line);
-}
-
-.button--icon {
-  display: inline-flex;
-  align-items: center;
-  gap: .4rem;
-}
-
-.button--icon[aria-pressed="true"] {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
-.button__icon {
-  display: flex;
-  width: 1rem;
-  height: 1rem;
-}
-
-.button__icon svg {
-  width: 100%;
-  height: 100%;
-  stroke: currentColor;
-  fill: none;
-}
-
 .bar__gap {
   flex: 1;
 }
@@ -196,6 +164,19 @@ h2 {
 .button--danger {
   border-color: var(--error);
   color: var(--error);
+}
+
+/* The one control that changes what a keystroke over the pane means, so it says which of the
+   two states it is in rather than which one it would put you in. */
+.button--lock {
+  font-size: 11px;
+  padding: .2rem .55rem;
+  white-space: nowrap;
+}
+
+.button--lock[aria-pressed="true"] {
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 /* The three columns */
@@ -364,12 +345,18 @@ h2 {
     var(--page);
 }
 
+/* Nothing on the canvas is selectable text. Dragging a node or pulling a link out of one is a
+   click and a sweep, which is also how a browser is asked to select the writing under the
+   pointer: without this, dragging an entity across the canvas highlighted every label it
+   passed and left the drag fighting a selection nobody wanted. */
 .canvas {
   width: 100%;
   height: 100%;
   display: block;
   touch-action: none;
   cursor: grab;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .canvas.is-panning {
@@ -545,12 +532,14 @@ h2 {
 }
 
 /* Wide, transparent, and the only part that answers a click, so a 1.5px line does not have
-   to be hit exactly. `pointer-events: all` rather than relying on the fill: it says the band
-   catches the pointer without asking anything about how it is painted. */
+   to be hit exactly. It is the link's own curve drawn again at sixteen units wide;
+   `pointer-events: stroke` is what says the band catches the pointer without asking anything
+   about how it is painted, since a transparent stroke is painted with nothing. */
 .link__hit {
-  fill: transparent;
-  stroke: none;
-  pointer-events: all;
+  fill: none;
+  stroke: transparent;
+  stroke-width: 16;
+  pointer-events: stroke;
 }
 
 .link__lock,
@@ -855,16 +844,30 @@ select:focus {
   border-top: 1px solid var(--line);
 }
 
-.dock[hidden] {
+/* Hidden means collapsed to its own bar along the bottom, not gone. The pane is where the
+   project is, so the way back to it is the strip it left behind rather than a control
+   somewhere else on the page. The bar is also what names the file that is still open, so a
+   collapsed pane still says what you were reading. */
+.dock.is-collapsed {
+  grid-template-rows: auto;
+  height: auto;
+}
+
+.dock.is-collapsed .dock__pane {
   display: none;
 }
 
 .dock__bar {
   display: flex;
   align-items: center;
-  gap: .35rem;
+  gap: .5rem;
   padding: .35rem .75rem;
   border-bottom: 1px solid var(--line);
+}
+
+.dock.is-collapsed .dock__bar {
+  border-bottom: none;
+  cursor: pointer;
 }
 
 .dock__title {
@@ -873,6 +876,16 @@ select:focus {
   letter-spacing: .08em;
   text-transform: uppercase;
   color: var(--ink-dim);
+}
+
+/* The file the pane has open, named on the bar so a collapsed pane still says where it is. */
+.dock__open {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* The tree on the left, the file being read on the right. The same arrangement the guide's
@@ -894,10 +907,30 @@ select:focus {
   font-size: 12px;
 }
 
+/* A directory heading and the files under it, rather than one flat list of whole paths: a
+   project is entity directories plus `shared/`, and that shape is the first thing worth
+   knowing about it. The path is still what the file is called; it is the heading that says
+   the first segment now, once, instead of every row repeating it. */
+.tree__folder {
+  padding: .45rem 1rem .1rem;
+  color: var(--ink-dim);
+  font-weight: 600;
+}
+
+.tree__folder:first-child {
+  padding-top: 0;
+}
+
+.tree__leaves {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
 .tree__file {
   display: block;
   width: 100%;
-  padding: .2rem 1rem;
+  padding: .2rem 1rem .2rem 1.9rem;
   border: none;
   background: none;
   color: var(--ink);
@@ -916,6 +949,13 @@ select:focus {
   background: var(--panel-high);
 }
 
+/* The file of whatever is selected on the canvas. Selecting an entity opens its file and
+   opening a file selects its entity, so the two views never disagree about what is in hand;
+   this is the half of that the tree shows. */
+.tree__file.is-current {
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
 .tree__empty {
   padding: .5rem 1rem;
   color: var(--ink-dim);
@@ -929,10 +969,21 @@ select:focus {
   min-height: 0;
 }
 
+.source__head {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  padding: .3rem .75rem;
+  border-bottom: 1px solid var(--line);
+}
+
 .source__name {
   margin: 0;
-  padding: .4rem .75rem;
-  border-bottom: 1px solid var(--line);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-family: var(--mono);
   font-size: 11px;
   color: var(--ink-dim);

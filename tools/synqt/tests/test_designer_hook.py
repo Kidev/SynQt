@@ -125,7 +125,9 @@ def test_no_asset_references_an_external_host():
     for path in sorted(ASSETS.iterdir()):
         if not path.is_file():
             continue
-        text = path.read_text(encoding="utf-8").replace(SVG_NAMESPACE, "")
+        # Read the way the hook reads: not every asset is text (the favicon is an .ico), and
+        # a check that only looks at the ones that decode is a check with a hole in it.
+        text = path.read_text(encoding="utf-8", errors="replace").replace(SVG_NAMESPACE, "")
         assert "http://" not in text and "https://" not in text, \
             f"{path.name} names a host outside the origin the editor is served from"
 

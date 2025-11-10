@@ -114,6 +114,17 @@ def validate(config: Dict[str, Any], *, release: bool = False,
                 f"error: connect point '{name}' lists its owner '{owner}' as a consumer; an "
                 "entity holds its own Source and does not acquire a replica of it")
 
+        # An owner hosts the Source and listens for consumers to acquire it. A browser cannot
+        # listen: QWebSocketServer is not supported under WebAssembly, and the client is
+        # always the connector. A client that owns a connect point is a project that builds
+        # and then has nothing on the other end of the link, so it is refused here rather
+        # than discovered at run time.
+        if owner in clients:
+            messages.append(
+                f"error: connect point '{name}' is owned by the client entity '{owner}'; an "
+                "owner listens for consumers and a browser cannot listen, so a connect point "
+                "the client takes part in must be owned by a web_edge entity")
+
         # Anything unrecognised is read as 'shared' downstream (maingen), so a typo here
         # does not fail, it hands every caller the one Source that per_session existed to
         # keep apart. Which is the whole of interest management and half of the per-user

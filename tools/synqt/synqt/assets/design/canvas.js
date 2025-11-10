@@ -29,20 +29,27 @@ const SVG = "http://www.w3.org/2000/svg";
 
 export const NODE_RADIUS = 26;
 
-// How far a zone's edge sits from the discs inside it. Wider below, because a node carries
-// two lines of writing under it and the box has to hold them too.
-const ZONE_PAD = {x: 66, top: 58, bottom: 74};
+// How far a zone's edge sits from the discs inside it. The top pad is a band rather than a
+// margin: the two lines of writing live in it, so it has to clear the tallest disc as well as
+// the text, or the first node in a box sits on top of the box's own subtitle. The bottom is
+// the top less the height of the two lines under a node, which is what puts the discs in the
+// middle of the box rather than high in it.
+const ZONE_PAD = {x: 72, top: 84, bottom: 88};
+
+// Where the two lines in a box's corner sit inside that band.
+const ZONE_TITLE_Y = 22;
+const ZONE_NOTE_Y = 38;
 
 // The three sides of a system, in the order a request travels. `of` is the question each box
 // answers about an entity, and the order here is the order they are drawn and read.
 const ZONES = [
-    {name: "browser", title: "the browser",
+    {name: "browser", title: "The browser",
      note: "holds no secret, no certificate",
      of: (role) => role === "client"},
-    {name: "internet", title: "faces the internet",
+    {name: "internet", title: "Faces the internet",
      note: "terminates TLS, runs sign-in",
      of: (role) => role === "edge"},
-    {name: "mesh", title: "the mesh",
+    {name: "mesh", title: "The mesh",
      note: "mutual TLS, no browser reaches it",
      of: (role) => role !== "client" && role !== "edge"},
 ];
@@ -58,12 +65,19 @@ const NOTE_WIDTH = 5.2;
 // than the disc, so a drop that lands just off the edge is the link somebody meant to draw.
 const DROP_SLACK = 8;
 
-// How wide a link is to the pointer. A 1.5px line is not something to ask anyone to hit.
-const HIT_WIDTH = 16;
-
 // How far apart two links between the same pair of entities sit. Wider than HIT_WIDTH, so
 // each one answers a click of its own.
 const LANE_GAP = 26;
+
+// How far a link bows out of the straight line, per lane. Two entities that talk both ways,
+// or one entity owning three points another consumes, was previously several straight lines
+// laid side by side with their names competing for the same strip of canvas. Bowing them
+// apart separates the names as well as the lines, and it says which line is which end to end
+// rather than only in the middle.
+// Twice the lane gap, near enough. A quadratic passes half way to its control point, so this
+// is what puts the midpoints of neighbouring links far enough apart for each to carry its own
+// name, its lock and its contract mark without touching the next one's.
+const BOW = 4.4;
 
 // Each entity's permanent glyph, drawn in a box roughly 16 across and scaled up on use.
 // Explicit fill and stroke on every shape, never left to a CSS rule: a presentation
@@ -200,6 +214,9 @@ export function glyphSvg(role) {
     return svg;
 }
 
+// The four sides of a disc a link can be pulled out of, as unit directions.
+const HANDLES = [{x: 1, y: 0}, {x: -1, y: 0}, {x: 0, y: -1}, {x: 0, y: 1}];
+
 function classes(base, {selected, level}) {
     const out = [base];
     if (selected) {
@@ -228,15 +245,18 @@ export function describe(entity) {
     return parts.join(" / ");
 }
 
-// The file under an entity's name: the one somebody opens next. A client's is always
-// `Main.qml`; a service's is the Source for the point it owns, and where it owns several the
-// first is named and the rest are counted, because a node is a disc and not a list.
+// The file under an entity's name. The one somebody opens next. That is the Source for a
+// point it owns where it owns any, because that is where the behaviour is, and its own file
+// otherwise. Where there are several the first is named and the rest are counted, because a
+// node is a disc and not a list.
 function caption(files) {
     if (!files.length) {
         return "";
     }
-    const first = files[0].name.replace(/\.qml$/, "");
-    return files.length > 1 ? `${first} +${files.length - 1}` : first;
+    const sources = files.filter((file) => file.link);
+    const shown = sources.length ? sources : files;
+    const first = shown[0].name.replace(/\.qml$/, "");
+    return shown.length > 1 ? `${first} +${shown.length - 1}` : first;
 }
 
 function node(entity, {selected, level, files}) {
@@ -260,14 +280,22 @@ function node(entity, {selected, level, files}) {
     file.textContent = caption(files);
     group.append(file);
 
-    // The handle a link is pulled out of, with a mark on it so it reads as somewhere to
-    // start rather than as part of the drawing.
-    const rim = element("circle", {class: "node__rim", cx: NODE_RADIUS, cy: 0, r: 7});
-    rim.dataset.rim = entity.name;
-    group.append(rim);
-    group.append(element("path", {class: "node__rim-mark",
-                                  d: `M ${NODE_RADIUS - 3},0 H ${NODE_RADIUS + 3} `
-                                     + `M ${NODE_RADIUS},-3 V 3`}));
+    // The handles a link is pulled out of, one on each side, each with a mark on it so it
+    // reads as somewhere to start rather than as part of the drawing. Four rather than one,
+    // because the entity you want to reach is as often to the left or below as it is to the
+    // right, and a single handle on the right means every link starts by dragging away from
+    // where it is going.
+    for (const side of HANDLES) {
+        const handle = element("circle", {class: "node__rim", cx: side.x * NODE_RADIUS,
+                                          cy: side.y * NODE_RADIUS, r: 7});
+        handle.dataset.rim = entity.name;
+        group.append(handle);
+        const cx = side.x * NODE_RADIUS;
+        const cy = side.y * NODE_RADIUS;
+        group.append(element("path", {class: "node__rim-mark",
+                                      d: `M ${cx - 3},${cy} H ${cx + 3} `
+                                         + `M ${cx},${cy - 3} V ${cy + 3}`}));
+    }
     return group;
 }
 
@@ -275,17 +303,25 @@ function node(entity, {selected, level, files}) {
 // about those entities rather than a region of the canvas somebody could drag something into
 // and change what it means, and never narrower than the two lines written in its corner.
 function zoneBox(shape, entities) {
-    const left = Math.min(...entities.map((entity) => entity.x || 0)) - ZONE_PAD.x;
-    const top = Math.min(...entities.map((entity) => entity.y || 0)) - ZONE_PAD.top;
+    const xs = entities.map((entity) => entity.x || 0);
+    const ys = entities.map((entity) => entity.y || 0);
+    let left = Math.min(...xs) - ZONE_PAD.x;
+    let right = Math.max(...xs) + ZONE_PAD.x;
     const wanted = Math.max(24 + (shape.title.length * TITLE_WIDTH),
                             24 + (shape.note.length * NOTE_WIDTH));
-    const right = Math.max(Math.max(...entities.map((entity) => entity.x || 0)) + ZONE_PAD.x,
-                           left + wanted);
+    // Widened around the middle rather than off to the right. A box grown one way put its
+    // entity off to one side of it, which reads as an entity that has drifted out of place
+    // when nothing has moved: it is the label underneath that is wide.
+    if (right - left < wanted) {
+        const middle = (left + right) / 2;
+        left = middle - (wanted / 2);
+        right = middle + (wanted / 2);
+    }
     return {
         left,
-        top,
+        top: Math.min(...ys) - ZONE_PAD.top,
         right,
-        bottom: Math.max(...entities.map((entity) => entity.y || 0)) + ZONE_PAD.bottom,
+        bottom: Math.max(...ys) + ZONE_PAD.bottom,
     };
 }
 
@@ -295,10 +331,10 @@ function zone(shape, entities) {
     const group = element("g", {class: `zone zone--${shape.name}`});
     group.append(element("rect", {class: "zone__box", x: left, y: top,
                                   width: right - left, height: bottom - top, rx: 14}));
-    const title = element("text", {class: "zone__title", x: left + 12, y: top + 18});
+    const title = element("text", {class: "zone__title", x: left + 14, y: top + ZONE_TITLE_Y});
     title.textContent = shape.title;
     group.append(title);
-    const note = element("text", {class: "zone__note", x: left + 12, y: top + 32});
+    const note = element("text", {class: "zone__note", x: left + 14, y: top + ZONE_NOTE_Y});
     note.textContent = shape.note;
     group.append(note);
     return group;
@@ -324,25 +360,51 @@ export function extent(design) {
     };
 }
 
-// The two ends of a link, trimmed to the rims of the discs it runs between, and shifted
-// sideways by `offset` so that two connect points between the same pair of entities are two
-// lines rather than one line drawn twice.
+// The curve a link runs along, as one quadratic. The two ends on the rims of the discs it
+// joins, and a control point pushed `offset` sideways out of the straight line between them.
+//
+// A lane on its own has no offset and comes back as the straight line it always was. Two or
+// more sharing a pair bow away from each other in opposite directions, which separates them
+// along their whole length rather than only at the middle, and gives each one room for its
+// own name. A link's two ends leave and arrive along the curve's own direction, so the cap and
+// the arrowhead sit square on the discs however far the line bows.
 function ends(from, to, offset) {
-    const dx = (to.x || 0) - (from.x || 0);
-    const dy = (to.y || 0) - (from.y || 0);
-    const span = Math.hypot(dx, dy) || 1;
-    const ux = dx / span;
-    const uy = dy / span;
-    const shiftX = -uy * (offset || 0);
-    const shiftY = ux * (offset || 0);
+    const ax = from.x || 0;
+    const ay = from.y || 0;
+    const bx = to.x || 0;
+    const by = to.y || 0;
+    const span = Math.hypot(bx - ax, by - ay) || 1;
+    const ux = (bx - ax) / span;
+    const uy = (by - ay) / span;
+    const bow = (offset || 0) * BOW;
+    const cx = ((ax + bx) / 2) - (uy * bow);
+    const cy = ((ay + by) / 2) + (ux * bow);
+    const out = Math.hypot(cx - ax, cy - ay) || 1;
+    const into = Math.hypot(cx - bx, cy - by) || 1;
+    const x1 = ax + (((cx - ax) / out) * NODE_RADIUS);
+    const y1 = ay + (((cy - ay) / out) * NODE_RADIUS);
+    const x2 = bx + (((cx - bx) / into) * NODE_RADIUS);
+    const y2 = by + (((cy - by) / into) * NODE_RADIUS);
     return {
-        x1: (from.x || 0) + (ux * NODE_RADIUS) + shiftX,
-        y1: (from.y || 0) + (uy * NODE_RADIUS) + shiftY,
-        x2: (to.x || 0) - (ux * NODE_RADIUS) + shiftX,
-        y2: (to.y || 0) - (uy * NODE_RADIUS) + shiftY,
+        x1,
+        y1,
+        x2,
+        y2,
+        cx,
+        cy,
+        // A quadratic's midpoint is not the midpoint of its ends, and its direction there is
+        // the direction between them. Both are what the label, the lock and the contract mark
+        // are placed by.
+        mid: {x: (x1 + (2 * cx) + x2) / 4, y: (y1 + (2 * cy) + y2) / 4},
         ux,
         uy,
+        // Where the curve is heading as it arrives, which is where the arrowhead points.
+        head: (Math.atan2(y2 - cy, x2 - cx) * 180) / Math.PI,
     };
+}
+
+function curve(edge) {
+    return `M ${edge.x1},${edge.y1} Q ${edge.cx},${edge.cy} ${edge.x2},${edge.y2}`;
 }
 
 function lock(link, at) {
@@ -370,21 +432,14 @@ function line(link, from, to, options) {
     group.dataset.link = link.name;
 
     const edge = ends(from, to, options.offset || 0);
-    group.append(element("line", {class: "link__line", x1: edge.x1, y1: edge.y1,
-                                  x2: edge.x2, y2: edge.y2}));
+    const path = curve(edge);
+    group.append(element("path", {class: "link__line", d: path}));
 
-    const angle = (Math.atan2(edge.uy, edge.ux) * 180) / Math.PI;
-    // What answers a click, laid along the line as a band rather than as a wider stroke on
-    // the line itself: a stroke has no area of its own, so a link drawn straight across or
-    // straight down has a box of no height for anything that measures one.
-    group.append(element("rect", {
-        class: "link__hit",
-        x: 0,
-        y: -HIT_WIDTH / 2,
-        width: Math.hypot(edge.x2 - edge.x1, edge.y2 - edge.y1),
-        height: HIT_WIDTH,
-        transform: `translate(${edge.x1},${edge.y1}) rotate(${angle})`,
-    }));
+    // What answers a click: the same curve again, drawn wide and transparent. A stroke has no
+    // area for anything measuring a bounding box, which is why this used to be a rectangle
+    // laid along the line, but a curve has no rectangle to lay; `pointer-events: stroke` says
+    // the band catches the pointer without asking how it is painted.
+    group.append(element("path", {class: "link__hit", d: path}));
 
     // The two ends say which way round the link is without anyone hovering it: a filled cap
     // on the entity that owns the connect point and decides, an arrowhead on the one that
@@ -393,10 +448,10 @@ function line(link, from, to, options) {
     group.append(element("path", {
         class: "link__head",
         d: "M 0,0 L -9,4 L -9,-4 Z",
-        transform: `translate(${edge.x2},${edge.y2}) rotate(${angle})`,
+        transform: `translate(${edge.x2},${edge.y2}) rotate(${edge.head})`,
     }));
 
-    const middle = {x: (edge.x1 + edge.x2) / 2, y: (edge.y1 + edge.y2) / 2};
+    const middle = edge.mid;
     // The label above the line and the contract below it, measured across the line rather
     // than up the page, so neither lands on it whichever way the link runs.
     const across = {x: -edge.uy, y: edge.ux};

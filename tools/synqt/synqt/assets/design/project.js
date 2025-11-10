@@ -13,14 +13,15 @@
 // does not exist yet, rendered from the document alone. It never rewrites a synqt.yaml that
 // is already there. The document models a topology and its contracts and nothing else, so
 // rewriting a file that also holds scopes, security, TLS files and provider settings would
-// quietly drop them; on a real project the original is on disk, and the server is what
+// quietly drop them. On a real project the original is on disk, and the server is what
 // edits it.
 //
-// Every entity in the document has a directory here, and every directory has something in
-// it: a client's is `Main.qml`, because the generated client main.cpp loads the QML module's
-// `Main` and nothing else, and a service's holds the Source for each connect point it owns.
-// An entity with no files would be an entity that is on the canvas, is in synqt.yaml, and
-// cannot be found anywhere in the project it belongs to.
+// Every entity in the document has a directory here, and every directory has its own file
+// from the moment the entity exists: a client's is `Main.qml`, because the generated client
+// main.cpp loads the QML module's `Main` and nothing else, and every other entity's is a
+// `pragma Singleton` named after it. A Source per owned connect point follows. An entity with
+// no files would be an entity that is on the canvas, is in synqt.yaml, and cannot be found
+// anywhere in the project it belongs to.
 //
 // Pure functions over the document, no DOM: the suite renders a project with node and hands
 // it to `synqt check`, which is what stops this drifting from what `synqt new` writes.
@@ -215,17 +216,18 @@ export function renderContract(name, members) {
     return `${lines.join("\n")}\n`;
 }
 
-// Where each entity's own QML lives, in the order the tree reads: the client's window first,
-// then one Source per connect point the entity owns. A `qml` written on the link wins over
-// the generated one, because that is what the editor stores when somebody types into the
-// Source pane; the download then holds what they wrote rather than the stub it started from.
+// Where each entity's own QML lives, in the order the tree reads: its own file first, then one
+// Source per connect point it owns. A `qml` written on the entity or the link wins over the
+// generated one, because that is what the editor stores when somebody types into the pane; the
+// download then holds what they wrote rather than the stub it started from.
+//
+// Every entity has its own file from the moment it exists, before it owns or consumes
+// anything. An entity that is on the canvas and in synqt.yaml with an empty directory beside it
+// is an entity nobody can open, and it is the state every new one used to start in.
 export function entityFiles(design, entity) {
     const files = [];
-    if ((entity.kind || "service") === "client") {
-        files.push({name: `${entity.name}/Main.qml`, text: entity.qml || clientMain(),
-                    owner: entity.name});
-        return files;
-    }
+    const own = entityQmlPath(entity);
+    const sources = [];
     const seen = new Set();
     for (const link of design.links || []) {
         const contract = String(link.contract || "");
@@ -237,11 +239,60 @@ export function entityFiles(design, entity) {
             continue;
         }
         seen.add(relative);
-        files.push({name: relative,
-                    text: link.qml || sourceQml(contract, link.name, link.members),
-                    owner: entity.name, link: link.name});
+        sources.push({name: relative,
+                      text: link.qml || sourceQml(contract, link.name, link.members),
+                      owner: entity.name, link: link.name});
     }
+    // An entity named `web` that owns a `Web` contract writes its Source at the same path its
+    // own file would take. The Source wins: it is the one of the two with a connect point
+    // depending on it.
+    if (!seen.has(own)) {
+        files.push({name: own, text: entity.qml || entityQml(entity), owner: entity.name});
+    }
+    files.push(...sources);
     return files;
+}
+
+// The file an entity *is*, as opposed to the connect points it exposes. A client's is the
+// window; every other entity's is a `pragma Singleton` named after it, which is where state
+// that belongs to the whole entity goes and what its Sources reach for it by name.
+export function entityQmlPath(entity) {
+    if ((entity.kind || "service") === "client") {
+        return `${entity.name}/Main.qml`;
+    }
+    return `${entity.name}/${capitalised(entity.name)}.qml`;
+}
+
+export function entityQml(entity) {
+    if ((entity.kind || "service") === "client") {
+        return clientMain();
+    }
+    return entitySingleton(entity.name);
+}
+
+function capitalised(name) {
+    return name ? name[0].toUpperCase() + name.slice(1) : name;
+}
+
+// An entity's own QML. A singleton because there is one of this entity: its Sources may be
+// created per session or per peer, and anything they share has to outlive any one of them.
+// `synqt build` finds it by its `pragma Singleton` and registers it under the entity's own QML
+// module, so `${Name}.something` resolves inside every Source this entity owns.
+export function entitySingleton(name) {
+    const type = capitalised(name);
+    return `${CONTRACT_HEADER}
+pragma Singleton
+
+import QtQuick
+
+// The '${name}' entity itself: one of it, for as long as the entity runs. State
+// that belongs to the whole entity goes here rather than in a Source, because a
+// Source can be created per session or per peer and anything shared has to
+// outlive any one of them. Every Source this entity owns reaches it as \`${type}\`.
+QtObject {
+    id: root
+}
+`;
 }
 
 // Every file the download holds, each under a directory named after the project: the

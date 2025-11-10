@@ -25,12 +25,14 @@ my-app/
     assets/
 
   web/                    # the web edge entity (native), serves the client, faces the net
+    Web.qml               # the entity itself: a singleton, one of it while the entity runs
     Todo.qml              # a connect point implementation owned by web
     identity/             # optional identity hooks
     .env                  # secrets for this entity only
     .env.example
 
   database/               # added with: synqt add entity database (persistence blueprint)
+    Database.qml
     Items.qml
     schema.sql
     .env
@@ -189,6 +191,13 @@ entities address it by. There is no separate path key: `name: web` means the ent
 QML lives in `web/`, its secrets in `web/.env`, and its build output in `build/web/`.
 A client entity's window is `<name>/Main.qml`, always, which is why nothing declares
 an entry point either.
+
+Every other entity's own file is `<name>/<Name>.qml`, a `pragma Singleton` written when
+the entity is created. It is where state belonging to the whole entity goes, and every
+Source that entity owns reaches it by that name. It is not the same thing as a connect
+point's `server` file: a Source can be created per session or per peer, so anything
+shared between them has to outlive any one of them. An entity that has no use for one
+can delete it.
 
 A client entity:
 
@@ -1069,6 +1078,10 @@ fast. Non negotiable checks:
   A client built only for the `desktop` target is exempt, because it is not served by
   an edge and dials the one [`build.desktop.edge_url`](#builddesktop) names, which may
   belong to another deployment entirely; that key is required of it instead.
+- A connect point owned by a `client` entity is rejected. An owner hosts the Source and
+  listens for consumers to acquire it, and a browser cannot listen: there is no WebSocket
+  server under WebAssembly, so the client is always the side that connects out. A connect
+  point the client takes part in is owned by the web edge, whichever way the data flows.
 - A connect point that lists its own `owner` among its `consumers` is rejected. The
   owner holds the Source and does not acquire a replica of what it already has, and
   the entry only makes the consumer list look wider than it is.

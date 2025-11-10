@@ -38,10 +38,16 @@ Drag a row onto the canvas to put an entity where you dropped it. Dragging is th
 one arrives, so an entity is always somewhere you chose rather than somewhere a column had
 room.
 
+Every entity arrives with its own file, before it owns or consumes anything. A client's is its
+window, `client/Main.qml`; every other entity's is a singleton named after it, `web/Web.qml`,
+where state belonging to the whole entity goes. That file is separate from the Source of any
+connect point the entity owns, and for a good reason: a Source can be created per session or
+per peer, so anything shared between them has to outlive any one of them.
+
 The boxes behind the nodes are the three sides of a system, and they are drawn from what each
 entity is rather than from where it sits: the browser, the one entity facing the internet,
-and the mesh, which nothing outside can reach. Under each node is the file that entity is,
-which is what you open next: `client/Main`, `web/Feed`, `database/Access`.
+and the mesh, which nothing outside can reach. Under each node is the file to open next:
+`client/Main`, `web/Feed`, `database/Access`.
 
 Hovering anything says the rest. An entity's card gives what it is, what can reach it, the
 connect points it owns and consumes, and its files; a connect point's gives its owner, its
@@ -49,12 +55,20 @@ consumers, how it is carried, and every member that crosses it. Anything the rul
 against it is on the same card.
 
 A connect point is drawn from the entity that **owns** it to the one that **consumes** it.
-Drag the handle on the owner's rim and drop the line on the consumer. That direction is the
-whole meaning of the line, so it is the thing the canvas asks you to say first, it is drawn
-as a filled cap on the owner and an arrowhead on the consumer, and the point is named for it:
-dropping a line from `web` onto `client` gives you `webToClient`, carrying the `WebToClient`
-contract in `shared/WebToClient.syn`, implemented in `web/WebToClient.qml`. Rename it to
-whatever it actually carries the moment you know; nothing depends on the name it arrived with.
+Every node has a handle on each of its four sides; drag any of them and drop the line on the
+consumer. That direction is the whole meaning of the line, so it is the thing the canvas asks
+you to say first, it is drawn as a filled cap on the owner and an arrowhead on the consumer,
+and the point is named for it: dropping a line from `web` onto `client` gives you
+`webToClient`, carrying the `WebToClient` contract in `shared/WebToClient.syn`, implemented in
+`web/WebToClient.qml`. Rename it to whatever it actually carries the moment you know; nothing
+depends on the name it arrived with.
+
+Drop the line on empty canvas instead and the palette opens there: pick a kind and that entity
+is made where you let go, consuming the point in the same gesture.
+
+Where several connect points run between the same two entities, or two run in opposite
+directions, they bow apart into separate curves so each keeps its own name, its own lock and
+its own click.
 
 Selecting a node or a line opens the panel on the right, which is where the rest lives: an
 entity's provider, a connect point's name and contract, its consumer list, and what crosses
@@ -68,19 +82,26 @@ place and the connect points while changing the thing underneath them. Delete it
 the one you wanted.
 
 Right-clicking a node or a line opens the same three things over it: edit, rename, delete.
-Renaming an entity carries the new name into every connect point that referred to the old
-one, and deleting one takes the connect points it owned with it.
+Double-clicking one renames it and <kbd>Delete</kbd> removes what is selected. Renaming an
+entity carries the new name into every connect point that referred to the old one, and
+deleting one takes the connect points it owned with it.
 
 ## The same project as text
 
-**Files** in the bar opens the project this drawing is, under the canvas: `synqt.yaml`, one
-contract per connect point under `shared/`, and the QML of every entity, each named by its
-path. It is rebuilt from the drawing on every edit, so it can never be showing an older
-design than the canvas above it.
+The pane under the canvas is the project this drawing is, open from the start: `synqt.yaml`,
+one contract per connect point under `shared/`, and the QML of every entity, each under its own
+directory. It is rebuilt from the drawing on every edit, so it can never be showing an older
+design than the canvas above it. **Hide** collapses it to the strip along the bottom, which is
+also what opens it again.
+
+Selecting an entity or a connect point on the canvas opens its file, and opening a file selects
+what it is on the canvas, so the two views are never on different subjects.
 
 The configuration and the contracts are written from the drawing, so they are read here and
 edited on the canvas. **The QML is the other way round: you type into it, and what you type
-is the design.**
+is the design.** Every file opens read-only; the button beside its name unlocks the one you
+want to edit. There is no save: what you type is in the design as you type it, and the design
+still reaches the project only through the change set you review and apply.
 
 Declare a property, a signal or a function in a connect point's Source and it becomes a
 member of that contract, exactly as if you had added it in the panel:

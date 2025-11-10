@@ -188,8 +188,7 @@ def _apply_entities(work: Path, current: Dict[str, Any], wanted: Dict[str, Any],
             continue
         _patch(work, "entities", name, was[name], entity, _ENTITY_FIELDS,
                _entity_field, reasons)
-        if (entity.get("kind") or "service") == "client":
-            _write_client_main(work, entity, reasons)
+        _write_entity_qml(work, entity, reasons)
 
     for name in was:
         if name in now:
@@ -212,13 +211,13 @@ def _scaffold_entity(work: Path, entity: Dict[str, Any]) -> None:
     written into .env.example, or the two ways into a project drift apart.
     """
     blueprint = entity.get("blueprint") or ""
-    if (entity.get("kind") or "service") == "client":
+    kind = str(entity.get("kind") or "service")
+    if kind == "client":
         # The one file a client cannot start without, written by the same helper `synqt new`
         # calls. Without it the entity is on the canvas, is in synqt.yaml, and has an empty
         # directory: the build succeeds and the browser shows nothing.
         block = {"name": entity["name"], "kind": "client"}
         _edit_config(work, lambda text: yamledit.append_item(text, "entities", block))
-        newproject.write_client_main(work, entity["name"])
     elif blueprint in addentity.BLUEPRINTS:
         try:
             addentity.scaffold(work, entity["name"], blueprint,
@@ -226,8 +225,12 @@ def _scaffold_entity(work: Path, entity: Dict[str, Any]) -> None:
         except addentity.AddEntityError as error:
             raise DesignPlanError(f"'{entity['name']}': {error}") from error
     else:
-        block = {"name": entity["name"], "kind": entity.get("kind") or "service"}
+        block = {"name": entity["name"], "kind": kind}
         _edit_config(work, lambda text: yamledit.append_item(text, "entities", block))
+    # Every entity gets its own file, whichever of the three ways it arrived. `synqt add
+    # entity` writes one too, so an entity drawn here and one added from the command line are
+    # the same entity.
+    newproject.write_entity_qml(work, entity["name"], kind)
     fields = {key: _entity_field(entity, key) for key in _ENTITY_FIELDS
               if _entity_field(entity, key) is not None}
     fields.pop("blueprint", None)
@@ -350,15 +353,27 @@ def _edited_qml(item: Dict[str, Any]) -> Optional[str]:
     return text if item.get("qmlEdited") and isinstance(text, str) and text else None
 
 
-def _write_client_main(work: Path, entity: Dict[str, Any],
-                       reasons: Dict[str, List[str]]) -> None:
-    """Write a client's Main.qml when the editor holds one somebody typed into."""
-    relative = f"{entity['name']}/Main.qml"
+def _write_entity_qml(work: Path, entity: Dict[str, Any],
+                      reasons: Dict[str, List[str]]) -> None:
+    """Keep an entity's own file: write what was typed into it, or give it one if it has none.
+
+    An entity that already existed when the design was read has its file on disk, and most of
+    what arrives here is the copy the page read from it. Only text the page marked as typed is
+    text to write; see :func:`_edited_qml`.
+    """
+    kind = str(entity.get("kind") or "service")
+    relative = newproject.entity_qml_path(entity["name"], kind)
     target = work / relative
     edited = _edited_qml(entity)
-    if edited is None or (target.exists() and edited == _text_of(target)):
+    if edited is None:
+        # Not an edit but a gap: an entity that predates the file having existed at all, or
+        # one whose directory somebody emptied. Written fresh rather than left missing.
+        if newproject.write_entity_qml(work, entity["name"], kind):
+            _note(reasons, relative, f"'{entity['name']}' had no file of its own")
         return
-    _note(reasons, relative, f"the window for '{entity['name']}' was edited")
+    if target.exists() and edited == _text_of(target):
+        return
+    _note(reasons, relative, f"the QML for '{entity['name']}' was edited")
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(edited, encoding="utf-8")
 

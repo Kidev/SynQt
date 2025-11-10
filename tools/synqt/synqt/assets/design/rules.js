@@ -116,6 +116,20 @@ function linkFindings(design, link) {
                 + `project, so nothing would host it.`,
         });
     }
+    if (clients.has(owner)) {
+        // An owner hosts the Source and listens for consumers to acquire it. A browser cannot
+        // listen. There is no WebSocket server under WebAssembly, and the client is always the
+        // one that connects out. Easy to draw by mistake now that a link can be pulled off any
+        // side of a node, and impossible to build.
+        found.push({
+            rule: "client-owns-connect-point",
+            level: "error",
+            link: name,
+            entity: owner,
+            message: `'${owner}' is a client, so it cannot own '${name}': an owner listens for `
+                + `consumers and a browser cannot listen. Draw this one from the web edge.`,
+        });
+    }
     if (consumers.includes(owner)) {
         found.push({
             rule: "owner-is-its-own-consumer",

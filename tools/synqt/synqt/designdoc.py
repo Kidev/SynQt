@@ -31,6 +31,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from . import appmodel
 from . import config as configmod
+from . import newproject
 
 VERSION = 1
 
@@ -276,10 +277,11 @@ def read(project_dir: os.PathLike[str] | str, *,
     name = project_name(config, root.name)
     entities = entities_of(config, places=_stored_places(root))
     for entity in entities:
-        # A client's window, for the same reason a connect point's Source is carried: it is
-        # the file that entity is, and the pane has to show the one on disk.
-        if entity["kind"] == "client":
-            entity["qml"] = _read_text(root / entity["name"] / "Main.qml")
+        # The entity's own file, for the same reason a connect point's Source is carried: it
+        # is the file that entity is, and the pane has to show the one on disk rather than a
+        # stub rendered from the topology.
+        entity["qml"] = _read_text(
+            root / newproject.entity_qml_path(entity["name"], entity["kind"]))
     return {
         "version": VERSION,
         "project": name,
