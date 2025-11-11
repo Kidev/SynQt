@@ -114,6 +114,7 @@ const page = {
     gripDock: document.getElementById("grip-dock"),
     tip: document.getElementById("tip"),
     menu: document.getElementById("menu"),
+    picker: document.getElementById("picker"),
     sheet: document.getElementById("sheet"),
     sheetTitle: document.getElementById("sheet-title"),
     sheetGit: document.getElementById("sheet-git"),
@@ -992,6 +993,135 @@ function openMenu(at, what, items) {
     page.menu.style.top = `${Math.max(8, y)}px`;
 }
 
+// What crosses a link, ticked out of what its owner declares.
+//
+// The pool is the owner entity's own QML, which is where somebody writes a property, a signal
+// or a function in the first place. Ticking one puts it in the contract. Nothing is ticked to
+// begin with, so a member reaches a consumer because it was chosen and never because it
+// happened to be there. That is the same guarantee the generated rep carries (no undeclared
+// field crosses a connect point), said as a gesture instead of as a paragraph.
+function openPicker(link, at) {
+    const owner = entityNamed(link.owner);
+    const offered = owner ? declarations(owner.qml || "") : [];
+    page.picker.replaceChildren();
+
+    const head = document.createElement("header");
+    head.className = "picker__head";
+    head.textContent = `What crosses '${link.name}'`;
+    page.picker.append(head);
+
+    const note = document.createElement("p");
+    note.className = "picker__note";
+    note.textContent = offered.length
+        ? `Ticked members are what '${link.owner}' says to `
+          + `'${(link.consumers || []).join("', '") || "whoever consumes it"}'. `
+          + "Nothing else ever crosses."
+        : `'${link.owner}' declares nothing yet. Write a property, a signal or a function `
+          + `into ${owner ? entityQmlPath(owner) : `${link.owner}/`} below, and it will be `
+          + "here to tick.";
+    page.picker.append(note);
+
+    const list = document.createElement("ul");
+    list.className = "picker__list";
+    for (const member of offered) {
+        const row = document.createElement("li");
+        const label = document.createElement("label");
+        label.className = "picker__row";
+        const box = document.createElement("input");
+        box.type = "checkbox";
+        box.checked = (link.members || []).some((one) => one.name === member.name);
+        box.addEventListener("change", () => {
+            tickMember(link, member, box.checked);
+        });
+        const text = document.createElement("span");
+        text.className = "picker__member";
+        text.textContent = memberText(member);
+        label.append(box, text);
+        row.append(label);
+        list.append(row);
+    }
+    page.picker.append(list);
+
+    const foot = document.createElement("div");
+    foot.className = "picker__foot";
+
+    const add = document.createElement("button");
+    add.type = "button";
+    add.className = "button";
+    add.textContent = "Declare a member";
+    add.addEventListener("click", () => {
+        declareMember(link, at);
+    });
+    foot.append(add);
+
+    const done = document.createElement("button");
+    done.type = "button";
+    done.className = "button";
+    done.textContent = "Done";
+    done.addEventListener("click", closePicker);
+    foot.append(done);
+    page.picker.append(foot);
+
+    page.picker.hidden = false;
+    const box = page.picker.getBoundingClientRect();
+    const x = Math.min(at.x + 14, window.innerWidth - box.width - 8);
+    const y = Math.min(at.y, window.innerHeight - box.height - 8);
+    page.picker.style.left = `${Math.max(8, x)}px`;
+    page.picker.style.top = `${Math.max(8, y)}px`;
+}
+
+// Write one declaration into the owner's own QML, which is the same thing as typing it into
+// that file in the pane below: the entity is where a member lives, and a contract only ever
+// ticks from what is there. Refused rather than kept when the line is not one the reader can
+// see, so the file never holds something the picker cannot show back.
+function declareMember(link, at) {
+    const owner = entityNamed(link.owner);
+    if (!owner) {
+        return;
+    }
+    const wanted = window.prompt(`Declare a member on '${link.owner}'`,
+                                 "property string status");
+    if (wanted === null || !wanted.trim()) {
+        return;
+    }
+    const text = String(owner.qml || "");
+    const closes = text.lastIndexOf("}");
+    if (closes < 0) {
+        say(`'${entityQmlPath(owner)}' has no object in it to declare anything on.`, "error");
+        return;
+    }
+    const before = declarations(text).length;
+    const written = `${text.slice(0, closes)}    ${wanted.trim()}\n${text.slice(closes)}`;
+    if (declarations(written).length !== before + 1) {
+        say(`'${wanted.trim()}' is not a property, a signal or a function this page can `
+            + "read. Try 'property int count', 'signal changed(int to)' or "
+            + "'function reset()'.", "error");
+        return;
+    }
+    owner.qml = written;
+    touched();
+    openPicker(link, at);
+}
+
+function tickMember(link, member, wanted) {
+    const held = link.members || [];
+    if (!wanted) {
+        link.members = held.filter((one) => one.name !== member.name);
+    } else if (!held.some((one) => one.name === member.name)) {
+        // Without the line it was found on. That is where it sits in the owner's own file,
+        // and it is about to sit somewhere else in the contract.
+        const {line, ...carried} = member;
+        link.members = [...held, carried];
+    }
+    touched();
+    redraw();
+}
+
+function closePicker() {
+    page.picker.hidden = true;
+    page.picker.replaceChildren();
+}
+
 function renameFrom(kind, name, what) {
     const wanted = window.prompt(`Rename ${what}`, name);
     if (wanted === null || wanted === name) {
@@ -1046,6 +1176,7 @@ function onContextMenu(event) {
             .find((one) => one.name === under.name);
         select({kind: "link", name: found.name});
         openMenu(at, found.name, [
+            {label: "What crosses it", act: () => openPicker(found, at)},
             {label: "Edit", act: () => page.inspector.scrollIntoView({block: "nearest"})},
             {label: "Rename", act: () => renameFrom("link", found.name, "connect point")},
             ...((found.consumers || []).length
@@ -1208,7 +1339,7 @@ function capitalised(name) {
 // `toward` is where the link was headed when it was drawn, which is the slot it takes on its
 // owner's rim: a link pulled to the left leaves from the left. It is the drop point rather
 // than the consumer's centre, because a link dropped on empty canvas has no consumer yet.
-function addLink(owner, consumer, toward) {
+function addLink(owner, consumer, toward, at) {
     const taken = new Set((state.design.links || []).map((link) => link.name));
     const name = unique(`${owner.name}To${capitalised(consumer.name)}`, taken);
     const seats = slotIndex(state.design);
@@ -1232,6 +1363,12 @@ function addLink(owner, consumer, toward) {
     say(`'${owner.name}' now owns '${name}' and '${consumer.name}' consumes it. That writes `
         + `shared/${link.contract}.syn and ${owner.name}/${link.contract}.qml. Say what `
         + "crosses it.");
+    // Straight into the one question a new link asks. It opens on the link rather than
+    // waiting to be found in the panel, because a connect point that carries nothing is a
+    // connect point nobody finished.
+    if (at) {
+        openPicker(link, at);
+    }
 }
 
 // What a link dropped on empty canvas opens: the palette again, at the point it was let go,
@@ -1241,7 +1378,7 @@ function offerEntity(owner, spot, at) {
     openMenu(at, `Consumer for '${owner.name}'`, PALETTE.map((item) => ({
         label: item.label,
         act: () => {
-            addLink(owner, addEntity(item, spot), spot);
+            addLink(owner, addEntity(item, spot), spot, at);
         },
     })));
 }
@@ -1324,6 +1461,7 @@ function onDown(event) {
         return;
     }
     hideTip();
+    closePicker();
     const at = pointAt(event);
     const rim = event.target.closest("[data-rim]");
     const held = event.target.closest("[data-entity]");
@@ -1450,7 +1588,8 @@ function onUp(event) {
         const at = pointAt(event);
         const target = entityAt(state.design, at.local);
         if (target && target !== finished.from) {
-            addLink(finished.from, target, at.local);
+            addLink(finished.from, target, at.local,
+                    {x: event.clientX, y: event.clientY});
             return;
         }
         if (target) {

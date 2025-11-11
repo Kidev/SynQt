@@ -615,10 +615,17 @@ export function draw(layers, design, {problems, selected, filesOf}) {
     const wanted = [];
     for (const link of design.links || []) {
         const found = problems.links.get(link.name) || [];
+        // A contract that carries nothing is marked, and it is marked on the badge and not on
+        // the line, because nothing about who is at either end is wrong: there is just
+        // nothing to say to them yet. It is not a rule, either. `synqt check` reads a
+        // configuration, and what crosses a point lives in a .syn file beside it, so a rule
+        // here would be one the command line could not agree with. This is the drawing saying
+        // the point is unfinished, the same way a link with no consumer is drawn as a stub.
+        const carries = (link.members || []).length;
         const options = {
             selected: selected && selected.kind === "link" && selected.name === link.name,
             level: levelWithin(found, "link"),
-            contractLevel: levelWithin(found, "contract"),
+            contractLevel: levelWithin(found, "contract") || (carries ? "" : "warn"),
             slot: slots.get(link.name) || 0,
         };
         const owner = byName.get(link.owner);
