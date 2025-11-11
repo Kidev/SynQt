@@ -108,6 +108,10 @@ const page = {
     sourceNote: document.getElementById("source-note"),
     sourcePaint: document.getElementById("source-paint"),
     sourceInput: document.getElementById("source-input"),
+    work: document.querySelector(".work"),
+    gripRail: document.getElementById("grip-rail"),
+    gripInspector: document.getElementById("grip-inspector"),
+    gripDock: document.getElementById("grip-dock"),
     tip: document.getElementById("tip"),
     menu: document.getElementById("menu"),
     sheet: document.getElementById("sheet"),
@@ -483,12 +487,14 @@ function renderProject() {
           + "it is drawn for you.";
 }
 
+// The control names what pressing it does, not what the pane is doing: a button reading
+// "Read-only" beside a file leaves it to be guessed whether that is the state or the offer.
 function renderLock(open) {
     const canEdit = Boolean(open && editable(open));
     page.sourceLock.disabled = !canEdit;
     page.sourceLock.setAttribute("aria-pressed", String(canEdit && state.unlocked));
     page.sourceLock.textContent = !canEdit ? "Written from the design"
-        : (state.unlocked ? "Editing" : "Read-only");
+        : (state.unlocked ? "Lock" : "Edit");
     page.sourceLock.title = !canEdit
         ? "This file is written from the design, so the design is where it is edited."
         : (state.unlocked
@@ -497,10 +503,70 @@ function renderLock(open) {
            : "Unlock it to type into it.");
 }
 
+// The three seams, each named by the custom property it drags and how far that property is
+// allowed to travel. Written on the root, so one number decides both the column and where the
+// grip that sets it sits. They cannot come apart.
+const GRIPS = [
+    {of: "gripRail", property: "--rail-width", floor: 150, ceiling: 460,
+     measure: (at, box) => at.clientX - box.left},
+    {of: "gripInspector", property: "--inspector-width", floor: 220, ceiling: 640,
+     measure: (at, box) => box.right - at.clientX},
+    {of: "gripDock", property: "--dock-height", floor: 120, ceiling: 900,
+     measure: (at, box) => box.bottom - at.clientY},
+];
+
+function holdGrip(grip) {
+    const element_ = page[grip.of];
+    element_.addEventListener("pointerdown", (event) => {
+        if (event.button !== 0) {
+            return;
+        }
+        // Capture on the grip itself, so a drag that outruns the pointer keeps arriving here
+        // instead of being handed to whatever it happened to fly over.
+        element_.setPointerCapture(event.pointerId);
+        element_.classList.add("is-dragging");
+        page.work.classList.add("is-resizing");
+    });
+    element_.addEventListener("pointermove", (event) => {
+        if (!element_.hasPointerCapture(event.pointerId)) {
+            return;
+        }
+        const box = page.work.getBoundingClientRect();
+        const wanted = Math.round(grip.measure(event, box));
+        const size = Math.min(grip.ceiling, Math.max(grip.floor, wanted));
+        document.documentElement.style.setProperty(grip.property, `${size}px`);
+    });
+    for (const ending of ["pointerup", "pointercancel"]) {
+        element_.addEventListener(ending, (event) => {
+            if (element_.hasPointerCapture(event.pointerId)) {
+                element_.releasePointerCapture(event.pointerId);
+            }
+            element_.classList.remove("is-dragging");
+            page.work.classList.remove("is-resizing");
+            // The canvas is a different shape than it was, so what fitted it no longer does.
+            fit();
+        });
+    }
+}
+
+// A chevron rather than the words Hide and Show: the pane is beside it, so which way it will
+// go is the one thing nobody needs telling. The label stays, for anyone reading the page
+// through a screen reader, where the arrow is worth nothing.
+function chevron() {
+    const svg = element("svg", {class: "glyph", viewBox: "-10 -10 20 20",
+                                "aria-hidden": "true", focusable: "false"});
+    svg.append(element("path", {d: "M -5,-2 L 0,3 L 5,-2", fill: "none",
+                                stroke: "currentColor", "stroke-width": 2,
+                                "stroke-linecap": "round", "stroke-linejoin": "round"}));
+    return svg;
+}
+
 function showDock(open) {
     state.files = open === undefined ? !state.files : open;
     page.dock.classList.toggle("is-collapsed", !state.files);
-    page.dockToggle.textContent = state.files ? "Hide" : "Show";
+    page.dockToggle.replaceChildren(chevron());
+    page.dockToggle.setAttribute("aria-label", state.files ? "Collapse the files"
+                                                           : "Expand the files");
     page.dockToggle.setAttribute("aria-expanded", String(state.files));
     // The canvas lost or gained height, so the view that fitted it no longer does.
     fit();
@@ -750,6 +816,24 @@ function memberText(member) {
 
 function tipFor(what) {
     const box = document.createElement("div");
+    // A row in the rail is the entity it would add, so it says what the node on the canvas
+    // says, in the same box. A `title` attribute said the same words in the browser's own
+    // tooltip, which arrives a second late and looks like it belongs to a different program.
+    if (what.kind === "role") {
+        const item = PALETTE.find((one) => one.role === what.name);
+        if (!item) {
+            return null;
+        }
+        const head = document.createElement("div");
+        head.className = `tip__head tip__head--${item.role}`;
+        head.append(glyphSvg(item.role));
+        const title = document.createElement("span");
+        title.textContent = item.label;
+        head.append(title);
+        box.append(head);
+        box.append(tipHelp(item.help));
+        return box;
+    }
     if (what.kind === "entity") {
         const entity = entityNamed(what.name);
         if (!entity) {
@@ -1012,10 +1096,15 @@ function touched() {
 function select(what, follow = true) {
     state.selected = what;
     if (follow) {
+        // Picking something out on the canvas puts the pane back to reading, whether or not
+        // it changed which file is open. Unlocking is a thing somebody did to one file they
+        // had in hand, and having gone off to select something else, they no longer do.
+        // `follow` is false when the selection came *from* the pane, which is the caret
+        // moving while they type: re-locking there would take the file away mid-word.
+        state.unlocked = false;
         const wanted = fileOf(what, projectFiles(state.design));
         if (wanted && wanted !== state.reading) {
             state.reading = wanted;
-            state.unlocked = false;
         }
     }
     redraw();
@@ -1583,13 +1672,20 @@ function buildPalette() {
         const row = document.createElement("div");
         row.className = "palette__item";
         row.draggable = true;
-        row.title = item.help;
         row.dataset.role = item.role;
+        row.addEventListener("pointerenter", (event) => {
+            showTip({kind: "role", name: item.role}, {x: event.clientX, y: event.clientY});
+        });
+        row.addEventListener("pointermove", (event) => {
+            showTip({kind: "role", name: item.role}, {x: event.clientX, y: event.clientY});
+        });
+        row.addEventListener("pointerleave", hideTip);
         const mark = document.createElement("span");
         mark.className = `palette__glyph palette__glyph--${item.role}`;
         mark.append(glyphSvg(item.role));
         row.append(mark, document.createTextNode(item.label));
         row.addEventListener("dragstart", (event) => {
+            hideTip();
             event.dataTransfer.setData("text/plain", item.role);
             event.dataTransfer.effectAllowed = "copy";
             row.classList.add("is-dragging");
@@ -1757,6 +1853,9 @@ function wire() {
 
 buildPalette();
 wire();
+for (const grip of GRIPS) {
+    holdGrip(grip);
+}
 showDock(true);
 renderInspector();
 load();

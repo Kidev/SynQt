@@ -67,8 +67,9 @@
             <span class="dock__title">Files</span>
             <span class="dock__open" id="dock-open"></span>
             <span class="bar__gap"></span>
-            <button type="button" class="button" id="dock-toggle"
-                    aria-expanded="true" aria-controls="dock-pane">Hide</button>
+            <button type="button" class="button button--chevron" id="dock-toggle"
+                    aria-expanded="true" aria-controls="dock-pane"
+                    aria-label="Collapse the files"></button>
           </header>
           <div class="dock__pane" id="dock-pane">
             <ul class="tree" id="tree"></ul>
@@ -96,6 +97,16 @@
       </section>
 
       <aside class="inspector" id="inspector"></aside>
+
+      <!-- Where two panes meet, drawn as nothing and wider than it looks so the edge does not
+           have to be hit exactly. Each one drags the width or height its pane is laid out
+           from. -->
+      <div class="grip grip--rail" id="grip-rail" role="separator"
+           aria-orientation="vertical" aria-label="Resize the rail"></div>
+      <div class="grip grip--inspector" id="grip-inspector" role="separator"
+           aria-orientation="vertical" aria-label="Resize the panel"></div>
+      <div class="grip grip--dock" id="grip-dock" role="separator"
+           aria-orientation="horizontal" aria-label="Resize the files"></div>
     </main>
 
     <!-- What hovering something on the canvas opens, over whatever it was opened on. Filled
