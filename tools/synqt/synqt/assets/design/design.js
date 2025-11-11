@@ -246,6 +246,14 @@ function renderVerdict() {
 
 function applyView() {
     page.viewport.setAttribute("transform", transformOf(view));
+    // The grid is painted on the box the drawing sits in, which does not take the drawing's
+    // transform, so it has to be moved by hand or it stays still while the canvas slides over
+    // it. Three custom properties rather than a rebuilt background string: the browser reads
+    // them straight into the paint, and nothing here touches the SVG.
+    page.stage.style.setProperty("--grid-x", `${view.x}px`);
+    page.stage.style.setProperty("--grid-y", `${view.y}px`);
+    page.stage.style.setProperty("--grid-k", String(view.k));
+    page.stage.classList.toggle("is-far", view.k < 0.6);
 }
 
 function validateLive() {

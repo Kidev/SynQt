@@ -28,6 +28,8 @@
   --warn: #ffb347;
   --shadow: rgba(0, 0, 0, .45);
   --zone: rgba(106, 91, 153, .1);
+  --grid-dot: rgba(106, 91, 153, .3);
+  --grid-rule: rgba(106, 91, 153, .14);
 
   --bar-height: 3rem;
   --rail-width: 14rem;
@@ -54,6 +56,8 @@
     --warn: #a35c00;
     --shadow: rgba(32, 19, 53, .16);
     --zone: rgba(176, 168, 208, .18);
+    --grid-dot: rgba(176, 168, 208, .45);
+    --grid-rule: rgba(176, 168, 208, .3);
   }
 }
 
@@ -337,12 +341,38 @@ h2 {
   grid-template-rows: 1fr auto;
 }
 
+/* Where the paper's grid is measured from. design.js writes the first three from the view on
+   every pan and zoom, so the grid travels with the drawing instead of sitting still while the
+   canvas slides over it. */
+.stage {
+  --grid-x: 0px;
+  --grid-y: 0px;
+  --grid-k: 1;
+  --grid-fine: 32px;
+  --grid-coarse: 320px;
+}
+
+/* Far enough out that a 32px pitch would be eleven pixels of noise, the fine layer goes. */
+.stage.is-far {
+  --grid-dot: transparent;
+}
+
+/* Two layers, both quiet. A dot at every cell to give the eye a measure, and a rule at every
+   tenth so distance is readable without a full grid being drawn over the drawing. Neither is
+   content, so neither is drawn at the strength the lines of the drawing are. */
 .stage__canvas {
   position: relative;
   min-height: 0;
-  background:
-    radial-gradient(circle at 1px 1px, var(--line) 1px, transparent 0) 0 0 / 32px 32px,
-    var(--page);
+  background-color: var(--page);
+  background-image:
+    linear-gradient(to right, var(--grid-rule) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--grid-rule) 1px, transparent 1px),
+    radial-gradient(circle at 1px 1px, var(--grid-dot) 1px, transparent 0);
+  background-size:
+    calc(var(--grid-coarse) * var(--grid-k)) calc(var(--grid-coarse) * var(--grid-k)),
+    calc(var(--grid-coarse) * var(--grid-k)) calc(var(--grid-coarse) * var(--grid-k)),
+    calc(var(--grid-fine) * var(--grid-k)) calc(var(--grid-fine) * var(--grid-k));
+  background-position: var(--grid-x) var(--grid-y);
 }
 
 /* Nothing on the canvas is selectable text. Dragging a node or pulling a link out of one is a
