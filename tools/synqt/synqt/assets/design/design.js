@@ -565,6 +565,10 @@ function chevron() {
 function showDock(open) {
     state.files = open === undefined ? !state.files : open;
     page.dock.classList.toggle("is-collapsed", !state.files);
+    // The grip that drags the pane's height sits `--dock-height` up from the bottom, and a
+    // collapsed pane is not that tall. Rather than leave a seam floating over the canvas
+    // where no edge is, take it away with the pane it belongs to.
+    page.work.classList.toggle("is-docked", state.files);
     page.dockToggle.replaceChildren(chevron());
     page.dockToggle.setAttribute("aria-label", state.files ? "Collapse the files"
                                                            : "Expand the files");

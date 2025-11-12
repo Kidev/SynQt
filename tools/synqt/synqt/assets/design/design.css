@@ -257,8 +257,12 @@ h2 {
   cursor: row-resize;
 }
 
+.work:not(.is-docked) .grip--dock {
+  display: none;
+}
+
 /* Nothing under a grip should take the pointer while one is being dragged, or a fast drag
-   ends up selecting text in the pane it just crossed. */
+   ends up selecting text in the pane it crossed. */
 .work.is-resizing {
   user-select: none;
 }
