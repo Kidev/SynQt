@@ -23,6 +23,8 @@ import { findings as ruleFindings } from "./rules.js";
 import { NODE_RADIUS, ROLE_HELP, describe, draw, element, entityAt, extent, glyphSvg,
          nearestFreeSlot, roleOf, slotIndex, turnsToward } from "./canvas.js";
 import { inspect } from "./inspector.js";
+import { forgetDesign, keepDesign, keepPane, keptDesign,
+         readPanes } from "./keep.js";
 import { entityFiles, entityQmlPath, projectFiles } from "./project.js";
 import { declarations, references, runsFor, withoutNotice } from "./source.js";
 import { zipBytes } from "./zip.js";
@@ -95,6 +97,7 @@ const page = {
     project: document.getElementById("project"),
     verdict: document.getElementById("verdict"),
     hint: document.getElementById("hint"),
+    restart: document.getElementById("restart"),
     infer: document.getElementById("infer"),
     review: document.getElementById("review"),
     apply: document.getElementById("apply"),
@@ -536,6 +539,9 @@ function holdGrip(grip) {
         const wanted = Math.round(grip.measure(event, box));
         const size = Math.min(grip.ceiling, Math.max(grip.floor, wanted));
         document.documentElement.style.setProperty(grip.property, `${size}px`);
+        // Kept as a share of the window, so a layout arranged on one screen is the same
+        // layout on the next one rather than the same number of pixels on a different size.
+        keepPane(grip.property, size);
     });
     for (const ending of ["pointerup", "pointercancel"]) {
         element_.addEventListener(ending, (event) => {
@@ -1222,6 +1228,16 @@ function renderInspector() {
 function touched() {
     state.plan = null;
     page.apply.disabled = state.backend;
+    // On the drawing board there is nowhere else for this to live: no SynQt behind the page
+    // means the design exists only in this tab, and closing the tab has been enough to lose
+    // an afternoon's work. With `synqt design` serving the page the project on the disk is
+    // the truth and this would only be a second, staler copy of it.
+    if (!state.backend) {
+        keepDesign(state.design);
+        // The way out of a design this browser is holding, offered once there is one to be
+        // out of. On a blank canvas there is nothing to start over from.
+        page.restart.hidden = !(state.design.entities || []).length;
+    }
 }
 
 // `follow` opens the file of whatever was selected. On by default, because selecting something
@@ -1870,6 +1886,17 @@ async function goOffline(reason) {
     page.review.hidden = true;
     page.apply.textContent = "Download";
     page.apply.disabled = false;
+    // What was being drawn last time comes back first, unless this visit asked for a
+    // particular example by name, which is somebody saying what they want to look at.
+    const kept = fromHash("example") ? null : await keptDesign();
+    if (kept && (kept.entities || []).length) {
+        adopt(kept);
+        fit();
+        say("Picked up where you left off. This is kept in this browser and nowhere else; "
+            + "press Download to take it with you, or Start over to clear it.");
+        page.restart.hidden = false;
+        return;
+    }
     const example = await exampleNamed(fromHash("example"));
     adopt(example || {version: 1, project: "", entities: [], links: []});
     if (example) {
@@ -1907,6 +1934,19 @@ async function load() {
 }
 
 function wire() {
+    // Only ever on the drawing board, where it is the way out of a design this browser is
+    // holding. It clears the stored copy first, so a reload does not bring it straight back.
+    page.restart.addEventListener("click", async () => {
+        if (!window.confirm("Clear this design and start over? It is not stored anywhere "
+                            + "else, so this cannot be undone.")) {
+            return;
+        }
+        await forgetDesign();
+        adopt({version: 1, project: "", entities: [], links: []});
+        page.restart.hidden = true;
+        fit();
+        say("Cleared. Drag an entity out of the rail to begin.");
+    });
     page.canvas.addEventListener("pointerdown", onDown);
     page.canvas.addEventListener("pointermove", onMove);
     page.canvas.addEventListener("pointerup", onUp);
@@ -1998,6 +2038,9 @@ buildPalette();
 wire();
 for (const grip of GRIPS) {
     holdGrip(grip);
+}
+for (const [property, size] of Object.entries(readPanes())) {
+    document.documentElement.style.setProperty(property, `${size}px`);
 }
 showDock(true);
 renderInspector();
