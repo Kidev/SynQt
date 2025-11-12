@@ -146,7 +146,10 @@ class SourceHelperTest(unittest.TestCase):
         self.assertIn('QByteArrayLiteral("text")', source)
         self.assertIn('QByteArrayLiteral("author")', source)
         self.assertIn('QByteArrayLiteral("done")', source)
-        self.assertIn('qmlRegisterType<TodoSourceHelper>("SynQt", 1, 0, "TodoSource")', source)
+        # Registered under the contract's own name. The server file's location already says
+        # which side of the link it is, and an entity never consumes a contract it owns, so
+        # the bare name is free in every binary that has this helper in it.
+        self.assertIn('qmlRegisterType<TodoSourceHelper>("SynQt", 1, 0, "Todo")', source)
 
     def test_slots_are_concrete_overrides(self):
         syn = parse_text(TODO, stem="Todo")

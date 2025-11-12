@@ -80,7 +80,7 @@ public:
     QString defaultScope() const;
 
     /// Promote this manager to a dedicated auth entity: writes here (create/setScope/revoke)
-    /// are forwarded to the authoritative store behind the given Session Replica, and the
+    /// are forwarded to the authoritative store behind the given SessionStore Replica, and the
     /// authoritative store's echoed changes are applied back into the local read cache. The
     /// cache keeps lookup()/isLive() synchronous (as the upgrade verifier needs). See
     /// "Where identity runs" in [Authentication](https://synqt.org/authentication/).
@@ -161,7 +161,7 @@ private:
     QHash<QByteArray, Rotation> m_rotations;
     QString m_defaultScope;
     qint64 m_ttlMs;
-    QPointer<QObject> m_remote; ///< the Session Replica when this is an edge cache
+    QPointer<QObject> m_remote; ///< the SessionStore Replica when this is an edge cache
 };
 
 } // namespace SynQt

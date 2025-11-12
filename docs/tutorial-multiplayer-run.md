@@ -182,7 +182,7 @@ import SynQt
 
 // One instance per player session (see the config change below). It never simulates;
 // it reads the shared World and publishes only what THIS player can see.
-ArenaSource {
+Arena {
     id: arena
     property string mySub: ""
 

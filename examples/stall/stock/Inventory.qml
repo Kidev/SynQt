@@ -13,7 +13,7 @@ import SynQt
 // durable store when the persistence blueprint provisions it (schema.sql); this in-memory
 // seed keeps the connect-point contract identical while the SQLite provider is wired in,
 // and announces each item to the edge so the browser-facing Catalog fills itself.
-InventorySource {
+Inventory {
     id: inventory
 
     property var store: []

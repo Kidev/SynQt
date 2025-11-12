@@ -9,7 +9,7 @@ import SynQt
 // one on the connect point's consumer allowlist; is refused here in the slot. This is a
 // per_peer instance over mutual TLS, so Caller.entity is the name on the certificate the
 // handshake verified.
-ItemsSource {
+Items {
     id: items
 
     property var store: []

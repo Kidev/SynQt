@@ -8,7 +8,7 @@ import SynQt
 // browser must never reach the database directly, so the edge holds this live list and
 // fills it from the database's ledger. It mirrors the database's `winnerRecorded` signal
 // into the `winners` model with setWinners, which keeps only the declared roles.
-HallSource {
+Hall {
     id: hall
 
     property var winnerList: []       // server-side accumulator; only roles cross the wire

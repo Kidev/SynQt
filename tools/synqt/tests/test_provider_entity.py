@@ -57,7 +57,7 @@ class AuthConnectPoints(unittest.TestCase):
     def test_promotion_implies_an_identity_and_a_session_link(self):
         points = appmodel.auth_connect_points(promoted_config())
         self.assertEqual([point["name"] for point in points], ["identity", "sessions"])
-        self.assertEqual([point["contract"] for point in points], ["Identity", "Session"])
+        self.assertEqual([point["contract"] for point in points], ["Identity", "SessionStore"])
         for point in points:
             self.assertEqual(point["owner"], "auth")
             self.assertEqual(point["consumers"], ["web"])
@@ -123,7 +123,7 @@ class GeneratedCMake(unittest.TestCase):
         expanded = appmodel.with_auth_connect_points(promoted_config())
         cmake = cmakegen.render_root_cmakelists(expanded, "/synqt", None)
         self.assertNotIn("shared/Identity.syn", cmake)
-        self.assertNotIn("shared/Session.syn", cmake)
+        self.assertNotIn("shared/SessionStore.syn", cmake)
         self.assertIn("qt_add_executable(auth", cmake)
 
     def test_the_edge_still_compiles_its_own_contracts(self):
@@ -142,7 +142,7 @@ class AuthEntityMain(unittest.TestCase):
 
     def test_it_registers_the_framework_sources_from_the_runtime_library(self):
         self.assertIn("synqtRegisterIdentitySources();", self.source)
-        self.assertIn("synqtRegisterSessionSources();", self.source)
+        self.assertIn("synqtRegisterSessionStoreSources();", self.source)
 
     def test_it_builds_both_engines_and_hands_them_to_its_sources(self):
         self.assertIn("IdentityService identityEngine{identity};", self.source)
@@ -264,11 +264,11 @@ class SourceQmlBridges(unittest.TestCase):
 
     def test_each_bridge_forwards_to_the_context_object_its_main_installs(self):
         identity = authentity.render_source_qml("Identity")
-        self.assertIn("IdentitySource {", identity)
+        self.assertIn("Identity {", identity)
         self.assertIn("IdentityEngine.beginLogin(provider, redirectUri)", identity)
         self.assertIn("IdentityEngine.exchangeCode(state, code, redirectUri)", identity)
-        session = authentity.render_source_qml("Session")
-        self.assertIn("SessionSource {", session)
+        session = authentity.render_source_qml("SessionStore")
+        self.assertIn("SessionStore {", session)
         self.assertIn("Sessions.applyUpsert(token, scope, identityJson, createdMs)",
                       session)
 
@@ -279,7 +279,7 @@ class SourceQmlBridges(unittest.TestCase):
         """
         from pathlib import Path
         fixtures = Path(__file__).resolve().parents[3] / "tests" / "m8-auth" / "auth"
-        for contract, file_name in (("Identity", "Identity.qml"), ("Session", "Session.qml")):
+        for contract, file_name in (("Identity", "Identity.qml"), ("SessionStore", "SessionStore.qml")):
             with self.subTest(contract=contract):
                 self.assertEqual(authentity.render_source_qml(contract),
                                  (fixtures / file_name).read_text())

@@ -7,7 +7,7 @@
 import QtQuick
 import SynQt
 
-LedgerSource {
+Ledger {
     id: ledger
 
     highBid: 100

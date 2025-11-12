@@ -555,7 +555,7 @@ contract Upstream {
 import QtQuick
 import SynQt
 
-FeedSource {
+Feed {
     id: feed
 
     loaded: false
@@ -580,7 +580,7 @@ FeedSource {
 ```
 
 <ul class="synqt-flow__glossary" hidden>
-<li data-code="FeedSource" data-href="programming-model/">Generated from the contract: Feed is the consumer's side of it, FeedSource the owner's. Owning a connect point means writing its Source, and nothing else.</li>
+<li data-code="Feed" data-href="programming-model/">The contract itself. In the owner's binary it is the owner's side; in a consumer's it is the consumer's. They never meet, because an entity may not consume a point it owns. Owning one means writing its Source, and nothing else.</li>
 <li data-code="Caller.hasScope" data-href="api/?p=classSynQt_1_1Caller.html">Who is calling, established by the session the edge issued. A caller cannot claim a scope it lacks.</li>
 <li data-code="Caller.emitDenied" data-href="api/?p=classSynQt_1_1Caller.html">Answers this one caller, not everyone watching. The signal is the contract's, so the client already handles it.</li>
 <li data-code="Database.access.allows" data-href="api/?p=classSynQt_1_1EntityRuntime.html">A mesh call, shaped like a local one, over mutual TLS. The subject is the identity the edge holds, not a browser value.</li>
@@ -597,7 +597,7 @@ FeedSource {
 import QtQuick
 import SynQt
 
-AccessSource {
+Access {
     id: access
 
     function allows(sub) {
@@ -612,7 +612,7 @@ AccessSource {
 ```
 
 <ul class="synqt-flow__glossary" hidden>
-<li data-code="AccessSource" data-href="entities/">The database owns this connect point, so it owns the rules for it too.</li>
+<li data-code="Access" data-href="entities/">The database owns this connect point, so it owns the rules for it too.</li>
 <li data-code="Caller.entity" data-href="api/?p=classSynQt_1_1Caller.html">An entity, not a person, named by the certificate its link presented. Only the edge gets here, and the slot checks again.</li>
 <li data-code="Db.query" data-href="api/?p=classSynQt_1_1Db.html">Parameterized, always. The value goes in as a parameter, so it can never become SQL. The grants table itself comes from database/schema.sql, the next file.</li>
 </ul>
@@ -647,7 +647,7 @@ CREATE INDEX IF NOT EXISTS grants_by_date
 import QtQuick
 import SynQt
 
-UpstreamSource {
+Upstream {
     id: upstream
 
     property var cached: []
@@ -671,7 +671,7 @@ UpstreamSource {
 ```
 
 <ul class="synqt-flow__glossary" hidden>
-<li data-code="UpstreamSource" data-href="entities/">A gateway is an ordinary entity. What makes it a gateway is that it is the only one calling out.</li>
+<li data-code="Upstream" data-href="entities/">A gateway is an ordinary entity. What makes it a gateway is that it is the only one calling out.</li>
 <li data-code="return upstream.cached" data-href="providers/">A browser request never waits on a third party: it gets whatever the last poll brought back.</li>
 <li data-code="Timer" data-href="entities/">The poll. Plain QML, running in the entity, with nothing to schedule and nothing to deploy.</li>
 <li data-code="Http.get" data-href="api/?p=classSynQt_1_1Http.html">Verifies TLS and refuses plaintext in a release build, so gateway code never touches a socket.</li>

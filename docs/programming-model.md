@@ -108,14 +108,14 @@ The configurable parts that matter:
   feed). `per_session` means one Source per browser session (a private draft).
   `per_peer` means one Source per calling entity (useful when one service serves
   several others and must keep their state separate).
-- `server`. The file that implements the connect point. Its root element is
-  `<Contract>Source`, so `web/Todo.qml` opens with `TodoSource { ... }`. The suffix
-  is there because both ends of one contract are QML types in the same `SynQt`
-  module and cannot share a name: the plain `Todo` is the consumer side, the
-  attached handler type used for
-  [a connect point's signals](#handling-a-connect-points-signals), and `TodoSource`
-  is the owner side implementation. So a file whose root reads `TodoSource` is
-  unmistakably the authority for that connect point, not a consumer of it.
+- `server`. The file that implements the connect point, and its root element is the
+  contract itself: `web/Todo.qml` opens with `Todo { ... }`. Both ends of a contract are
+  QML types with that one name, and they never meet, because an entity may not consume a
+  connect point it owns. In an owner's binary `Todo` is the owner side; in a consumer's it
+  is the consumer side and the attached handler type used for
+  [a connect point's signals](#handling-a-connect-points-signals). Which one you are
+  looking at is answered by the file: a Source is the `server:` of a connect point its
+  entity owns.
 
 ## Reaching a connect point: accessors
 
@@ -245,7 +245,7 @@ delegating persistence to the database entity:
 import QtQuick
 import SynQt
 
-TodoSource {
+Todo {
     id: todo
 
     function add(text) {
@@ -274,7 +274,7 @@ the calling entity:
 import QtQuick
 import SynQt
 
-ItemsSource {
+Items {
     id: items
 
     function insert(row) {

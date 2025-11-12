@@ -93,7 +93,7 @@ class AddConnectPointTest(unittest.TestCase):
         message = addcontract.scaffold_connect_point(root, "prices", owner="api",
                                                      consumers=["web"], contract="Prices")
         source = (root / "api" / "Prices.qml").read_text()
-        self.assertIn("PricesSource {", source)
+        self.assertIn("Prices {", source)
         self.assertIn("SPDX-License-Identifier: Apache-2.0", source)
         self.assertIn("Caller", source)
         self.assertIn("api/Prices.qml", message)

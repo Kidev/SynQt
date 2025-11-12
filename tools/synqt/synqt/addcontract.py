@@ -37,7 +37,7 @@ import SynQt
 // calls arrives here with `Caller` set to whoever called it: authorize that caller first,
 // then act. This file is where the rule lives; a check in a consumer's UI is a courtesy, not
 // a guard.
-{contract}Source {{
+{contract} {{
     id: root
 {declared}}}
 """

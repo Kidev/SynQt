@@ -21,7 +21,7 @@
 #include "webedge.h"
 #include "webedgeconfig.h"
 
-#include "session_sourcehelper.h"   // synqtRegisterSessionSources()
+#include "sessionstore_sourcehelper.h"   // synqtRegisterSessionStoreSources()
 #include "identity_sourcehelper.h"  // synqtRegisterIdentitySources()
 
 #include <QEventLoop>
@@ -257,7 +257,7 @@ private:
 private slots:
     void initTestCase()
     {
-        synqtRegisterSessionSources();
+        synqtRegisterSessionStoreSources();
         synqtRegisterIdentitySources();
 
         // A browser keeps cookies across requests, so the login-state cookie set on the

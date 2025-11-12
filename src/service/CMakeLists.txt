@@ -61,7 +61,7 @@ if(NOT TARGET SynQtProviders)
 endif()
 
 # synqt_add_contract, for the framework's own connect points below (Pages, Identity,
-# Session): each is an ordinary contract owner, generated the same way an app's connect
+# SessionStore): each is an ordinary contract owner, generated the same way an app's connect
 # points are.
 include("${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/SynQtContracts.cmake")
 
@@ -124,7 +124,7 @@ target_include_directories(SynQtService SYSTEM PRIVATE "${JWT_CPP_INCLUDE_DIR}")
 # (e.g. a test constructing a PageResponse) finds it without generating and linking its
 # own duplicate copy of PagesSourceHelper/PagesCaller alongside this static library's.
 #
-# Identity and Session are the auth entity's two connect points, owned by the entity
+# Identity and SessionStore are the auth entity's two connect points, owned by the entity
 # `identity.provider_entity` names (docs/authentication.md "Where identity runs"). They are
 # framework contracts, not app contracts: no `synqt.yaml` declares them and no app carries a
 # `shared/Identity.syn`, so the auth entity's generated main calls the Source registration
@@ -133,7 +133,7 @@ target_include_directories(SynQtService SYSTEM PRIVATE "${JWT_CPP_INCLUDE_DIR}")
 synqt_add_contract(SynQtService ROLE source
     SYN "${CMAKE_CURRENT_SOURCE_DIR}/contracts/Pages.syn"
         "${CMAKE_CURRENT_SOURCE_DIR}/contracts/Identity.syn"
-        "${CMAKE_CURRENT_SOURCE_DIR}/contracts/Session.syn")
+        "${CMAKE_CURRENT_SOURCE_DIR}/contracts/SessionStore.syn")
 target_include_directories(SynQtService PUBLIC
     "${CMAKE_CURRENT_BINARY_DIR}/synqt_generated/SynQtService"
     "${CMAKE_CURRENT_BINARY_DIR}")

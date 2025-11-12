@@ -4,6 +4,6 @@
 // The authoritative Source for the "greeting" connect point, owned by the web edge.
 import SynQt
 
-GreetingSource {
+Greeting {
     value: 7
 }

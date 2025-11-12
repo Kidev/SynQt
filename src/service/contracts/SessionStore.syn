@@ -7,7 +7,7 @@
 // slots and keep a local read cache from the signals (so the upgrade verifier stays
 // synchronous). Row changes are announced as signals with scalar params, which replicate
 // reliably over the mesh; identity travels as a JSON string.
-contract Session {
+contract SessionStore {
     slot putSession(string token, string scope, string identityJson, real createdMs)
     slot removeSession(string token)
     signal sessionUpserted(string token, string scope, string identityJson, real createdMs)

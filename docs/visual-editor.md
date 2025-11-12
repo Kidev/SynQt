@@ -107,7 +107,7 @@ Declare a property, a signal or a function in a connect point's Source and it be
 member of that contract, exactly as if you had added it in the panel:
 
 ```qml
-FeedSource {
+Feed {
     id: root
 
     property bool loaded

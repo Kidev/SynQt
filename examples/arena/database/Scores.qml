@@ -8,7 +8,7 @@ import SynQt
 // the edge may write (Caller.entity === "web"); it proves which entity it is with the
 // certificate its mesh link presented. Parameters are always passed separately, so no
 // value can become SQL.
-ScoresSource {
+Scores {
     id: scores
 
     function award(sub, name) {

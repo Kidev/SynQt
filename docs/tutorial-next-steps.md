@@ -182,7 +182,7 @@ connect_points:
 import QtQuick
 import SynQt
 
-ProxySource {
+Proxy {
     id: proxy
     maxBid: 0
     function setMax(amount) {

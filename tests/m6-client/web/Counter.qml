@@ -4,7 +4,7 @@
 // The authoritative counter Source on the web edge. The edge is the only writer.
 import SynQt
 
-CounterSource {
+Counter {
     value: 0
 
     function increment() { value = value + 1 }

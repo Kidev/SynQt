@@ -21,7 +21,7 @@ OWNER = """\
 import QtQuick
 import SynQt
 
-AuctionSource {
+Auction {
     id: auction
 
     itemName: "a lasagna"

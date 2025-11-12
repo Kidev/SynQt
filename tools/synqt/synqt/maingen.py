@@ -1007,7 +1007,7 @@ def render_service_main(config: Dict[str, Any], entity: Dict[str, Any],
             f"{ttl}}};\n")
         auth_inject = (
             "\n    // The Sources bridge to these by name (auth/Identity.qml, "
-            "auth/Session.qml).\n"
+            "auth/SessionStore.qml).\n"
             '    runtime.setContextObject(QStringLiteral("IdentityEngine"), &identityEngine);\n'
             '    runtime.setContextObject(QStringLiteral("Sessions"), &sessions);\n')
     else:

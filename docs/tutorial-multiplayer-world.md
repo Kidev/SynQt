@@ -96,7 +96,7 @@ sends. Create `web/Arena.qml`:
 import QtQuick
 import SynQt
 
-ArenaSource {
+Arena {
     id: arena
 
     // Tuning

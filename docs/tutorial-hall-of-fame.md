@@ -52,7 +52,7 @@ Create `database/Ledger.qml`:
 import QtQuick
 import SynQt
 
-LedgerSource {
+Ledger {
     id: ledger
 
     function recordWinner(item, winner, amount) {
@@ -112,7 +112,7 @@ Create `web/Hall.qml`:
 import QtQuick
 import SynQt
 
-HallSource {
+Hall {
     id: hall
 
     function refresh() {

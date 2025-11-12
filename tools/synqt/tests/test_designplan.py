@@ -62,7 +62,7 @@ def test_the_document_carries_the_qml_that_is_actually_on_disk(tmp_path):
     document = designdoc.read(project)
     auction = next(link for link in document["links"] if link["name"] == "auction")
     assert auction["qml"] == (project / "web" / "Auction.qml").read_text(encoding="utf-8")
-    assert "AuctionSource {" in auction["qml"]
+    assert "Auction {" in auction["qml"]
 
 
 def test_qml_the_editor_only_read_is_not_written_back(tmp_path):
@@ -174,7 +174,7 @@ def test_a_new_link_gets_an_empty_source_on_its_owner(tmp_path):
     plan = designplan.compute(project, document)
     source = next(c for c in plan.changes if c.path == "web/Prices.qml")
     assert source.action == "create"
-    assert "PricesSource {" in source.after
+    assert "Prices {" in source.after
     assert "prices" in source.reason
 
 

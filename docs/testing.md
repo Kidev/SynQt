@@ -25,7 +25,7 @@ Given this edge Source:
 import QtQuick
 import SynQt
 
-AuctionSource {
+Auction {
     id: auction
 
     highBid: 100

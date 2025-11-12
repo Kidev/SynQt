@@ -1330,13 +1330,13 @@ def lint_connect_point_sources(config: Dict[str, Any],
         if not source.is_file():
             messages.append(
                 f"error: connect point '{name}': {relative} does not exist, so {owner} has "
-                f"nothing to host it with (write it, rooted at '{contract}Source')")
+                f"nothing to host it with (write it, rooted at '{contract}')")
             continue
         found = _qml_root_type(source.read_text(encoding="utf-8", errors="replace"))
-        if found is not None and found != f"{contract}Source":
+        if found is not None and found != contract:
             messages.append(
                 f"error: {relative}: the root object is '{found}', and a connect point "
-                f"carrying the {contract} contract has to be rooted at '{contract}Source' "
+                f"carrying the {contract} contract has to be rooted at '{contract}' "
                 f"for {owner} to host it")
     return messages
 

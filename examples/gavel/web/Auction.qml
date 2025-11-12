@@ -9,7 +9,7 @@ import SynQt
 // browser user who made the request: every rule that matters is enforced here, on the
 // owner, against that verified caller; never in the client UI. The bidder's name comes
 // from `Caller.identity`, which a caller cannot forge, not from an argument.
-AuctionSource {
+Auction {
     id: auction
 
     itemName: "A homemade lasagna, baked fresh this morning"

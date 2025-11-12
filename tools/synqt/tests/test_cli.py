@@ -315,10 +315,10 @@ class ConnectPointSourceLintTest(unittest.TestCase):
         self.assertTrue(any(m.startswith("error:") and "client/Items.qml" in m
                             for m in messages), messages)
 
-    def test_a_root_that_is_not_the_contract_source_is_an_error(self):
+    def test_a_root_that_is_not_the_contract_is_an_error(self):
         self.source.write_text("import QtQuick\n\nQtObject {\n}\n")
         messages = check.lint_connect_point_sources(self.config, self.root)
-        self.assertTrue(any(m.startswith("error:") and "ItemsSource" in m
+        self.assertTrue(any(m.startswith("error:") and "'Items'" in m
                             for m in messages), messages)
 
     def test_a_point_that_names_its_own_server_file_is_looked_for_there(self):

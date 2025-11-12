@@ -79,7 +79,7 @@ signals:
     ///
     /// The QML accessor (`<Owner>.<point>`) needs none of this, which is why it took a
     /// signal to add: C++ that adopts a Replica does. A generated edge uses it to attach
-    /// the auth entity's Identity and Session Replicas to its IdentityProvider and
+    /// the auth entity's Identity and SessionStore Replicas to its IdentityProvider and
     /// SessionManager. Emitted again after a reconnect, since that is a new Replica.
     void consumedReplicaReady(const QString &owner, const QString &connectPoint,
                               QObject *replica);

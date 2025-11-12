@@ -9,7 +9,7 @@ import SynQt
 // publishes only their slice. Because it reads Caller, it is a per_session Source: only an
 // approved player (scope "player") ever reaches it; the connect point's scope gate means an
 // under-scoped session never has this acquired at all.
-ArenaSource {
+Arena {
     id: arena
     property string mySub: ""
 

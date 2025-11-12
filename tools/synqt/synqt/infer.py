@@ -21,13 +21,17 @@ from __future__ import annotations
 import dataclasses
 import os
 import textwrap
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from . import designdoc, qmlscan, typebackend
 
-#: The root type of an owner file: `AuctionSource` implements the `Auction` contract.
-_SOURCE_SUFFIX = "Source"
+#: How an owner file is told from every other QML file in an entity, without reading the
+#: configuration: its root type is the type its own name declares. `web/Auction.qml` opens
+#: `Auction { ... }`, the contract it implements. Nothing else in a project does that: an
+#: entity's own file opens `QtObject`, a view opens an `Item`, a component opens whatever it
+#: draws with. The suffix this used to look for is gone, and it was never the thing that made
+#: the file an owner anyway.
 
 #: `Caller.emitBidRejected(...)` raises the `bidRejected` signal at one caller.
 _EMIT_PREFIX = "emit"
@@ -547,11 +551,11 @@ def scan_owner(relative_path: str, source: str,
                types: Optional["_Types"] = None) -> Tuple[str, List[Member]]:
     """The contract an owner file implements, and the members it shows.
 
-    The root type names the contract, so a file whose root is not a Source is not an owner
-    and comes back empty rather than half read.
+    The root type names the contract, so a file whose root does not name the file is not an
+    owner and comes back empty rather than half read.
     """
     root = qmlscan.root_type(source) or ""
-    if not root.endswith(_SOURCE_SUFFIX) or len(root) == len(_SOURCE_SUFFIX):
+    if not root or root != PurePosixPath(relative_path).stem:
         return "", []
 
     reading = _Reading(relative_path, source, types)
@@ -591,7 +595,7 @@ def scan_owner(relative_path: str, source: str,
     for member in raised:
         if member.name not in slots:
             _record(members, member)
-    return root[:-len(_SOURCE_SUFFIX)], members
+    return root, members
 
 
 def _root_identifier(tokens: Sequence[qmlscan.Token]) -> str:

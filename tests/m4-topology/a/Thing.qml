@@ -6,6 +6,6 @@
 // property the consumer reads.
 import SynQt
 
-ThingSource {
+Thing {
     value: 42
 }

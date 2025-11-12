@@ -9,7 +9,7 @@ import SynQt
 // the database's stock. It mirrors the database's `itemStocked` signal into the `offers`
 // model with setOffers, which keeps only the declared roles: the internal sku the database
 // keys on is dropped at this boundary and never reaches the browser.
-CatalogSource {
+Catalog {
     id: catalog
 
     property var offerList: []      // server-side accumulator; only roles cross the wire

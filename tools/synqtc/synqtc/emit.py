@@ -155,7 +155,10 @@ def _source_helper_class(contract: Contract, records, path) -> str:
     name = contract.name
     lines = [
         "// Owner-side helper: the QML type the connect point's server file derives",
-        f"// from (registered as \"{name}Source\"). Props and signals are inherited from",
+        f"// from (registered as \"{name}\", the contract's own name: the file is that",
+        "// point's server, so its location already says which side of the link it is on,",
+        "// and an entity never consumes a contract it owns, so the name is free here).",
+        "// Props and signals are inherited from",
         "// the generated Source; set<Model>(rows) publishes a model limited to its",
         "// declared roles, dropping any undeclared owner-only fields at the boundary.",
         f"class {name}SourceHelper : public {name}SimpleSource",
@@ -263,7 +266,7 @@ def emit_source_helper_source(syn: SynFile, lstem: str) -> str:
     out.append("{")
     for contract in syn.contracts:
         out.append(
-            f'    qmlRegisterType<{contract.name}SourceHelper>("SynQt", 1, 0, "{contract.name}Source");'
+            f'    qmlRegisterType<{contract.name}SourceHelper>("SynQt", 1, 0, "{contract.name}");'
         )
     # Install the typed Caller factory when the service runtime is present (same guard as the
     # subclass in the header), so forUser/forEntity mint the <Contract>Caller for this

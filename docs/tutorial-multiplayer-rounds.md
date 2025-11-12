@@ -33,7 +33,7 @@ Implement the database side in `database/Scores.qml`:
 import QtQuick
 import SynQt
 
-ScoresSource {
+Scores {
     id: scores
 
     function award(sub, name) {
@@ -100,7 +100,7 @@ crowning.
 ## Step 3: The edge runs the clock and mirrors the Hall
 
 Teach `web/Arena.qml` two new jobs: keep the champions list fresh from the database,
-and run the ten minute round. Add to the `ArenaSource`:
+and run the ten minute round. Add to the `Arena` Source:
 
 ```qml
     // Hall of Fame, mirrored from the database

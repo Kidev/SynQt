@@ -40,7 +40,7 @@ authoritative auction. Create `web/Auction.qml`:
 import QtQuick
 import SynQt
 
-AuctionSource {
+Auction {
     id: auction
 
     itemName: "A homemade lasagna, baked fresh this morning"

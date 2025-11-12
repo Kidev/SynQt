@@ -13,7 +13,7 @@ import SynQt
 // The Db helper (parameterized query/exec, so a value can never become SQL) backs the
 // durable store when the persistence blueprint provisions it; this in-memory store keeps
 // the connect-point contract identical while the tutorial's SQLite provider is wired in.
-LedgerSource {
+Ledger {
     id: ledger
 
     property var store: []

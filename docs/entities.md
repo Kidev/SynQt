@@ -123,7 +123,7 @@ record ItemRow(string text, string author, string ownerSub)
 import QtQuick
 import SynQt
 
-ItemsSource {
+Items {
     id: items
 
     function insert(row) {

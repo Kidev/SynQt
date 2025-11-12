@@ -495,7 +495,8 @@ def identity_refresh(config: Dict[str, Any]) -> Dict[str, Any]:
 AUTH_IDENTITY_POINT = "identity"
 AUTH_SESSION_POINT = "sessions"
 
-_AUTH_POINTS = ((AUTH_IDENTITY_POINT, "Identity"), (AUTH_SESSION_POINT, "Session"))
+_AUTH_POINTS = ((AUTH_IDENTITY_POINT, "Identity"),
+                (AUTH_SESSION_POINT, "SessionStore"))
 
 
 def provider_entity(config: Dict[str, Any]) -> str:

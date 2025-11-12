@@ -188,7 +188,7 @@ The edge's Source is where the session is actually issued:
 import QtQuick
 import SynQt
 
-AuthSource {
+Auth {
     id: auth
 
     ready: true

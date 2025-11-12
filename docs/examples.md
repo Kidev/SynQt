@@ -72,7 +72,7 @@ certificate, as Example 2 shows (see the
 import QtQuick
 import SynQt
 
-CounterSource {
+Counter {
     id: counter
     value: 0
 
@@ -227,7 +227,7 @@ IdentityMapping {
 import QtQuick
 import SynQt
 
-TodoSource {
+Todo {
     id: todo
     count: 0
 
@@ -494,7 +494,7 @@ ownership) but is absent from `Todo.items` roles, so it never reaches the browse
 import QtQuick
 import SynQt
 
-ItemsSource {
+Items {
     id: items
 
     function list() {
@@ -536,7 +536,7 @@ CREATE TABLE IF NOT EXISTS items (
 import QtQuick
 import SynQt
 
-TodoSource {
+Todo {
     id: todo
 
     // The last fetched internal rows (id and ownerSub included): edge memory only,

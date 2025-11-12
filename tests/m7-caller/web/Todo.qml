@@ -9,7 +9,7 @@ import SynQt
 // authorization, and publishes to the browser a model with no ownerSub role. The shared
 // item list lives in the database; every session's instance mirrors it from the database
 // signals, so all users see all items.
-TodoSource {
+Todo {
     id: todo
 
     property var itemList: []       // [{id,text,author,ownerSub}]; server-side only

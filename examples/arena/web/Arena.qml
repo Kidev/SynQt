@@ -8,7 +8,7 @@ import SynQt
 // it reads the shared World singleton and publishes only what THIS player can see, plus the
 // two global lists (the leaderboard and the Hall of Fame). Interest management: the edge
 // sends each player only their slice, so the payload stops growing with the whole arena.
-ArenaSource {
+Arena {
     id: arena
     property string mySub: ""
 
