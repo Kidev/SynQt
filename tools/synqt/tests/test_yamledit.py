@@ -225,11 +225,11 @@ def test_a_path_through_something_that_is_not_a_mapping_is_refused():
 
 def test_every_edit_leaves_a_document_that_parses_to_the_expected_object():
     out = yamledit.append_item(SAMPLE, "entities", {"name": "api", "kind": "service"})
-    out = yamledit.patch_item(out, "entities", "api", {"blueprint": "persistence"})
+    out = yamledit.patch_item(out, "entities", "api", {"blueprint": "relational"})
     out = yamledit.remove_item(out, "entities", "client")
     loaded = yaml.safe_load(out)
     assert [e["name"] for e in loaded["entities"]] == ["web", "api"]
-    assert loaded["entities"][-1]["blueprint"] == "persistence"
+    assert loaded["entities"][-1]["blueprint"] == "relational"
 
 
 def test_the_rest_of_the_document_is_byte_for_byte_what_it_was():

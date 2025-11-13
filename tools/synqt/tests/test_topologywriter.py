@@ -28,7 +28,7 @@ def _config():
         "entities": [
             {"name": "client", "kind": "client", "targets": ["wasm"]},
             {"name": "web", "kind": "service", "capability": "web_edge"},
-            {"name": "database", "kind": "service", "blueprint": "persistence",
+            {"name": "database", "kind": "service", "blueprint": "relational",
              "provider": {"name": "postgres", "host": "db.internal", "port": 5432,
                           "database": "shop", "user": "shop",
                           "password": "env:DB_PASSWORD", "sslmode": "verify-full"}},
@@ -94,7 +94,7 @@ class EntityTopologyTest(unittest.TestCase):
     def test_blueprint_and_provider_pass_through_with_secret_as_env_reference(self):
         topology = topologywriter.entity_topology(
             self.config, self.config["entities"][2], self.root, self.endpoints)
-        self.assertEqual(topology["blueprint"], "persistence")
+        self.assertEqual(topology["blueprint"], "relational")
         # The provider block is carried through; the secret stays an env: reference, never
         # resolved into the file.
         self.assertEqual(topology["provider"]["name"], "postgres")
@@ -166,12 +166,12 @@ class WriteTest(unittest.TestCase):
 
     def test_build_writes_topology_for_a_blueprint_entity(self):
         parent = Path(tempfile.mkdtemp())
-        newproject.scaffold(parent, "app", blueprints=["persistence"])
+        newproject.scaffold(parent, "app", blueprints=["relational"])
         root = parent / "app"
-        # Wire the edge to the persistence entity so there is a real mesh link.
+        # Wire the edge to the relational entity so there is a real mesh link.
         config = yaml.safe_load((root / "synqt.yaml").read_text())
         config["connect_points"] = [
-            {"name": "items", "owner": "persistence", "contract": "Items",
+            {"name": "items", "owner": "relational", "contract": "Items",
              "consumers": ["web"]}]
         (root / "synqt.yaml").write_text(yaml.safe_dump(config, sort_keys=False))
         # The declared contract has to exist on disk. Declaring `items` without writing
@@ -189,10 +189,10 @@ class WriteTest(unittest.TestCase):
             "}\n")
 
         buildmod.build(root, release=True, client="wasm")
-        topology_path = root / "build" / "persistence" / "topology.json"
+        topology_path = root / "build" / "relational" / "topology.json"
         self.assertTrue(topology_path.exists())
         topology = json.loads(topology_path.read_text())
-        self.assertEqual(topology["blueprint"], "persistence")
+        self.assertEqual(topology["blueprint"], "relational")
         self.assertEqual(topology["connect_points"][0]["name"], "items")
 
 

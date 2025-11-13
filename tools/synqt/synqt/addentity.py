@@ -25,7 +25,7 @@ from synqt import addcontract, newproject, yamledit
 # and `synqt check` validates a provider.name against them. Anything else needs a custom
 # provider registered with the ProviderRegistry and selected as custom:<Name>.
 PROVIDERS: Dict[str, List[str]] = {
-    "persistence": ["sqlite", "postgres", "mysql"],
+    "relational": ["sqlite", "postgres", "mysql"],
     "cache": ["memory", "redis"],
     "document": ["memory", "mongodb"],
 }
@@ -43,20 +43,20 @@ CUSTOM_PREFIX = "custom:"
 # instead. None of these may collide with addcontract.RESERVED_QML_NAMES, which is why the
 # cache entity's stub is Entries and not Cache.
 SOURCE_NAMES: Dict[str, str] = {
-    "persistence": "Items",
+    "relational": "Items",
     "cache": "Entries",
     "document": "Documents",
-    "gateway": "Upstream",
+    "api": "Upstream",
     "jobs": "Schedule",
     "service": "Items",
 }
 
 # Blueprint -> (family or None, default provider or None).
 BLUEPRINTS: Dict[str, Optional[str]] = {
-    "persistence": "persistence",
+    "relational": "relational",
     "cache": "cache",
     "document": "document",
-    "gateway": None,   # QHttpServer inbound (opt-in) + Http outbound; no data provider
+    "api": None,   # QHttpServer inbound (opt-in) + Http outbound; no data provider
     "jobs": None,      # timers + bounded queue; no data provider
     "service": None,   # a bare custom entity
 }
@@ -96,9 +96,9 @@ def _source_stub(blueprint: str, name: str) -> str:
     """
     header = ("// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux\n"
               "// SPDX-License-Identifier: Apache-2.0\n\nimport QtQuick\nimport SynQt\n\n")
-    if blueprint == "persistence":
+    if blueprint == "relational":
         return header + (
-            "// Owner of a persistence connect point. It calls the `Db` helper only\n"
+            "// Owner of a relational connect point. It calls the `Db` helper only\n"
             "// (parameterized query/exec) and never names an engine.\n"
             "QtObject {\n"
             "    function insert(row) {\n"
@@ -142,7 +142,7 @@ def _source_stub(blueprint: str, name: str) -> str:
             "        });\n"
             "    }\n"
             "}\n")
-    if blueprint == "gateway":
+    if blueprint == "api":
         return header + (
             "// Outbound only by default: it consumes external HTTP through the `Http`\n"
             "// helper (TLS-verified, plaintext refused in release) and never touches sockets.\n"
@@ -171,12 +171,12 @@ def entity_block(name: str, blueprint: str, provider: Optional[str]) -> Dict[str
         chosen = provider or PROVIDERS[family][0]
         if chosen in _EXTERNAL:
             block["provider"] = _EXTERNAL[chosen]["block"](name, _EXTERNAL[chosen]["secret_env"])
-        elif blueprint == "persistence":
+        elif blueprint == "relational":
             block["settings"] = {"file": f"{name}/data/app.db",
                                  "journal_mode": "wal", "busy_timeout_ms": 5000}
         else:
             block["provider"] = {"name": chosen}
-    if blueprint == "gateway":
+    if blueprint == "api":
         block["inbound"] = False  # opt-in, reviewed choice
     return block
 
@@ -216,14 +216,14 @@ def scaffold(project_dir: os.PathLike[str] | str, name: str, blueprint: str,
         config_path.write_text("entities: []\n")
     config_path.write_text(yamledit.append_item(config_path.read_text(), "entities", block))
 
-    # The entity folder, the entity's own file + a Source stub; persistence gets a schema file
+    # The entity folder, the entity's own file + a Source stub; relational gets a schema file
     # too. The two QML files answer different questions: the entity's own is what this entity
     # is, and the Source is one surface it exposes.
     entity_dir = root / name
     entity_dir.mkdir(parents=True, exist_ok=True)
     newproject.write_entity_qml(root, name)
     (entity_dir / f"{stub}.qml").write_text(_source_stub(blueprint, name))
-    if blueprint == "persistence":
+    if blueprint == "relational":
         (entity_dir / "schema.sql").write_text(
             "-- forward-only migrations, one statement per step\n"
             "CREATE TABLE items (id INTEGER PRIMARY KEY AUTOINCREMENT,\n"
@@ -265,5 +265,5 @@ def list_providers() -> str:
     lines = ["Available providers per family (default first):"]
     for family, providers in PROVIDERS.items():
         lines.append(f"  {family}: {', '.join(providers)}")
-    lines.append("  (blueprints: persistence, cache, document, gateway, jobs, service)")
+    lines.append("  (blueprints: relational, cache, document, api, jobs, service)")
     return "\n".join(lines)

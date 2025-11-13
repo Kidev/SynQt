@@ -13,7 +13,7 @@ survive a restart. That is a database's job, exactly as in
 [the Hall of Fame](tutorial-hall-of-fame.md). Add one:
 
 ```cli
-synqt add entity database --blueprint persistence
+synqt add entity database --blueprint relational
 ```
 
 Give it a contract, `shared/Scores.syn`. This is the database's API, used only by the

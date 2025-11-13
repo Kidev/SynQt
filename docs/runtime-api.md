@@ -501,7 +501,7 @@ That is what keeps one Source working across `memory` and `mongodb`.
 | `Cache.expire(key, ttlSeconds)` | - | set or replace the TTL on an existing key. |
 
 The cache is bounded and evicts. Anything that has to survive a restart or an
-eviction belongs in a persistence entity, not here.
+eviction belongs in a relational entity, not here.
 
 ### `Http`: outbound calls from a gateway
 

@@ -23,7 +23,7 @@
         "entities": [
           {"name": "client", "kind": "client"},
           {"name": "web", "kind": "service", "capability": "web_edge"},
-          {"name": "database", "kind": "service", "blueprint": "persistence"}
+          {"name": "database", "kind": "service", "blueprint": "relational"}
         ],
         "links": [
           {"name": "ledger", "contract": "Ledger", "owner": "database",
@@ -112,7 +112,7 @@
         "entities": [
           {"name": "client", "kind": "client"},
           {"name": "web", "kind": "service", "capability": "web_edge"},
-          {"name": "database", "kind": "service", "blueprint": "persistence"}
+          {"name": "database", "kind": "service", "blueprint": "relational"}
         ],
         "links": [
           {"name": "ledger", "contract": "Ledger", "owner": "database",
@@ -150,7 +150,7 @@
         "project": "rules",
         "entities": [
           {"name": "client", "kind": "client"},
-          {"name": "database", "kind": "service", "blueprint": "persistence"}
+          {"name": "database", "kind": "service", "blueprint": "relational"}
         ],
         "links": []
       }
@@ -166,7 +166,7 @@
         "entities": [
           {"name": "client", "kind": "client"},
           {"name": "web", "kind": "service", "capability": "web_edge"},
-          {"name": "database", "kind": "service", "blueprint": "persistence"}
+          {"name": "database", "kind": "service", "blueprint": "relational"}
         ],
         "links": [
           {"name": "ledger", "contract": "Ledger", "owner": "database",

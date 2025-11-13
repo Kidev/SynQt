@@ -96,7 +96,7 @@ const GLYPHS = {
         {tag: "path", d: "M -7,0 H 7", fill: "none", stroke: "currentColor",
          "stroke-width": 1.4},
     ],
-    persistence: [
+    relational: [
         {tag: "ellipse", cx: 0, cy: -4.5, rx: 6.5, ry: 2.2, fill: "currentColor"},
         {tag: "path", d: "M -6.5,-4.5 V 4.5 A 6.5,2.2 0 0 0 6.5,4.5 V -4.5", fill: "none",
          stroke: "currentColor", "stroke-width": 1.4},
@@ -115,7 +115,7 @@ const GLYPHS = {
         {tag: "rect", x: -6.5, y: 1.5, width: 13, height: 4.5, rx: 1, fill: "none",
          stroke: "currentColor", "stroke-width": 1.3},
     ],
-    gateway: [
+    api: [
         {tag: "path", d: "M -7,-3 H 4 M 0,-6.5 L 4,-3 L 0,0.5", fill: "none",
          stroke: "currentColor", "stroke-width": 1.4, "stroke-linecap": "round",
          "stroke-linejoin": "round"},
@@ -160,7 +160,7 @@ export const ROLE_HELP = {
     edge: "The one entity allowed to face the internet. It serves the client, terminates "
         + "TLS, runs sign-in, and is the only thing a browser can talk to. Everything a "
         + "client needs arrives through a connect point this owns.",
-    persistence: "A database entity. SQLite by default, with PostgreSQL or MySQL behind "
+    relational: "A database entity. SQLite by default, with PostgreSQL or MySQL behind "
         + "the same interface for one config value. Reachable only by the entities you "
         + "list, never by the browser; use it for anything that has to survive a restart.",
     cache: "A bounded key-value store that forgets. In-process memory by default, Redis "
@@ -169,7 +169,7 @@ export const ROLE_HELP = {
     document: "Storage for records with no fixed columns. Memory by default, MongoDB "
         + "behind the same interface. Use it where the shape is the caller's rather than "
         + "yours: event payloads, imported feeds, per-user settings.",
-    gateway: "Where the system talks to somebody else's. Outbound only unless you say "
+    api: "Where the system talks to somebody else's. Outbound only unless you say "
         + "otherwise, over verified TLS, with the third party's keys held here and nowhere "
         + "else. Use it to keep an upstream API out of every other entity.",
     jobs: "Work on a timer or a queue, with nothing listening on a port. Use it for what "

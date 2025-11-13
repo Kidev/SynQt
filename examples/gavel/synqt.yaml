@@ -49,7 +49,7 @@ entities:
 
   - name: database
     kind: service
-    blueprint: persistence
+    blueprint: relational
 
 connect_points:
   # The live auction: the edge is the single authority; the browser may watch and bid.

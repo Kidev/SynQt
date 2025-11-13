@@ -41,7 +41,7 @@ entities:
 
   - name: stock
     kind: service
-    blueprint: persistence
+    blueprint: relational
 
 connect_points:
   # The offers the browser watches: owned by the edge, filled from the database.

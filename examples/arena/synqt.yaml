@@ -52,7 +52,7 @@ entities:
 
   - name: database
     kind: service
-    blueprint: persistence
+    blueprint: relational
 
 connect_points:
   # The whole live world. per_session gives each player their own private view (interest

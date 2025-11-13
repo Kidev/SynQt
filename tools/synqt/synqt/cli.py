@@ -240,7 +240,7 @@ def build_parser() -> argparse.ArgumentParser:
     entity.add_argument("--blueprint", default="service"); entity.add_argument("--provider")
     entity.add_argument("--source", default="",
                         help="what to call the entity's Source stub (default: the "
-                             "blueprint's own, e.g. Items for persistence)")
+                             "blueprint's own, e.g. Items for relational)")
     provider = add_sub.add_parser("provider"); provider.add_argument("name")
     provider.add_argument("--family", required=True)
     contract = add_sub.add_parser("contract"); contract.add_argument("name")

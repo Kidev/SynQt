@@ -379,7 +379,7 @@ class AppGenTest(unittest.TestCase):
             "entities": [
                 {"name": "client", "kind": "client", "targets": ["wasm"]},
                 {"name": "web", "kind": "service", "capability": "web_edge"},
-                {"name": "database", "kind": "service", "blueprint": "persistence"},
+                {"name": "database", "kind": "service", "blueprint": "relational"},
             ],
             "connect_points": [
                 {"name": "auction", "contract": "Auction", "owner": "web",
@@ -411,7 +411,7 @@ class AppGenTest(unittest.TestCase):
             "project": {"name": "gavel", "qt_version": "6.11.1"},
             "scopes": {"order": ["anonymous", "user"]},
             "entities": [
-                {"name": "database", "kind": "service", "blueprint": "persistence"},
+                {"name": "database", "kind": "service", "blueprint": "relational"},
             ],
             "connect_points": [
                 {"name": "ledger", "contract": "Ledger", "owner": "database",
@@ -431,7 +431,7 @@ class AppGenTest(unittest.TestCase):
             "entities": [
                 {"name": "client", "kind": "client", "targets": ["wasm"]},
                 {"name": "web", "kind": "service", "capability": "web_edge"},
-                {"name": "database", "kind": "service", "blueprint": "persistence"},
+                {"name": "database", "kind": "service", "blueprint": "relational"},
             ],
             "connect_points": [],
         }

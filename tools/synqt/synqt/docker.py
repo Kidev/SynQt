@@ -1092,7 +1092,7 @@ def init(project_dir: os.PathLike[str] | str, config: Dict[str, Any], *,
             f"the web edge '{edge.get('name')}' is on an external provider, which this "
             "cannot containerize: the engine has to share the entity's network namespace to "
             "stay off the wire, and a shared namespace cannot publish the edge's public "
-            "port. Move the engine behind a persistence entity of its own, which is where "
+            "port. Move the engine behind a relational entity of its own, which is where "
             "it belongs regardless (see https://synqt.org/entities/).")
 
     addresses = mesh_addresses(config, subnet)

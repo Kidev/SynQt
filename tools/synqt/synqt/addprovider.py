@@ -9,16 +9,16 @@ import os
 from pathlib import Path
 
 FAMILY_INTERFACE = {
-    "persistence": ("IPersistenceProvider", "ipersistenceprovider.h"),
+    "relational": ("IPersistenceProvider", "ipersistenceprovider.h"),
     "cache": ("ICacheProvider", "icacheprovider.h"),
     "document": ("IDocumentProvider", "idocumentprovider.h"),
 }
 
 # Family -> the macro that registers a provider with the ProviderRegistry. Implementing the
-# interface only gets you a class; the registration is what makes provider.name able to
+# interface only gets you a class. The registration is what makes provider.name able to
 # select it, so the skeleton ships with it already written.
 FAMILY_REGISTER_MACRO = {
-    "persistence": "SYNQT_REGISTER_PERSISTENCE_PROVIDER",
+    "relational": "SYNQT_REGISTER_PERSISTENCE_PROVIDER",
     "cache": "SYNQT_REGISTER_CACHE_PROVIDER",
     "document": "SYNQT_REGISTER_DOCUMENT_PROVIDER",
 }
@@ -28,7 +28,7 @@ FAMILY_REGISTER_MACRO = {
 # would be worse than not compiling. Each one fails through the interface (never throws),
 # naming itself, so an unfinished provider is loud at the first call rather than mysterious.
 _OPERATIONS = {
-    "persistence": (
+    "relational": (
         "    DbResult query(const QString &sql, const QVariantList &params) override\n"
         "    {\n"
         "        // TODO: run the parameterized statement and map each row to a QVariantMap\n"
@@ -117,10 +117,10 @@ _OPERATIONS = {
         "    }\n"),
 }
 
-# The persistence family reports errors through DbResult and QString *error both, so its
+# The relational family reports errors through DbResult and QString *error both, so its
 # skeleton carries the two shapes of the same "not written yet" message.
 _HELPERS = {
-    "persistence": (
+    "relational": (
         "    // Until the operations above are written, every call says so through the\n"
         "    // interface. Errors are returned here, never thrown across the boundary.\n"
         "    QString notImplemented(const QString &operation) const\n"
@@ -140,7 +140,7 @@ _HELPERS = {
 }
 
 _INCLUDES = {
-    "persistence": "#include <QString>\n#include <QStringList>\n#include <QVariant>\n"
+    "relational": "#include <QString>\n#include <QStringList>\n#include <QVariant>\n"
                    "#include <QVariantList>\n",
     "cache": "#include <QString>\n#include <QVariant>\n",
     "document": "#include <QString>\n#include <QVariant>\n#include <QVariantList>\n"

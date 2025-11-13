@@ -46,7 +46,7 @@ DOCUMENT = {
          "provider": "", "targets": ["wasm"], "identity": False, "x": 40, "y": 40},
         {"name": "web", "kind": "service", "capability": "web_edge", "blueprint": "",
          "provider": "", "targets": [], "identity": True, "x": 360, "y": 40},
-        {"name": "database", "kind": "service", "capability": "", "blueprint": "persistence",
+        {"name": "database", "kind": "service", "capability": "", "blueprint": "relational",
          "provider": "sqlite", "targets": [], "identity": False, "x": 680, "y": 40},
     ],
     "links": [

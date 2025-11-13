@@ -91,7 +91,7 @@ EntityRuntime::~EntityRuntime() = default;
 bool EntityRuntime::buildBlueprintContext()
 {
     const QString blueprint{m_topology.blueprint};
-    if (blueprint == QLatin1String("persistence")) {
+    if (blueprint == QLatin1String("relational")) {
         m_persistence = makePersistenceProvider(providerConfigFromMap(m_topology.provider),
                                                 &m_errorString);
         if (m_persistence == nullptr) {
@@ -137,7 +137,7 @@ bool EntityRuntime::buildBlueprintContext()
                      qUtf8Printable(m_document->name()), qUtf8Printable(error));
         }
         m_blueprintContext.insert(QStringLiteral("Docs"), new Docs{m_document.get(), this});
-    } else if (blueprint == QLatin1String("gateway")) {
+    } else if (blueprint == QLatin1String("api")) {
         m_network = new QNetworkAccessManager{this};
         const bool release{m_topology.provider.value(QStringLiteral("release"), true).toBool()};
         m_blueprintContext.insert(QStringLiteral("Http"),

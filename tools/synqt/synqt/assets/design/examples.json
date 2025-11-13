@@ -18,9 +18,9 @@
       "entities": [
         {"name": "client", "kind": "client", "targets": ["wasm"], "x": 40, "y": 40},
         {"name": "web", "kind": "service", "capability": "web_edge", "x": 360, "y": 40},
-        {"name": "database", "kind": "service", "blueprint": "persistence",
+        {"name": "database", "kind": "service", "blueprint": "relational",
          "provider": "sqlite", "x": 680, "y": 40},
-        {"name": "api", "kind": "service", "blueprint": "gateway", "x": 680, "y": 200}
+        {"name": "api", "kind": "service", "blueprint": "api", "x": 680, "y": 200}
       ],
       "links": [
         {"name": "feed", "contract": "Feed", "owner": "web", "consumers": ["client"],

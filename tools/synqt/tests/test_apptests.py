@@ -22,7 +22,7 @@ CONFIG = {
     "entities": [
         {"name": "client", "kind": "client", "targets": ["wasm"]},
         {"name": "web", "kind": "service", "capability": "web_edge"},
-        {"name": "database", "kind": "service", "blueprint": "persistence"},
+        {"name": "database", "kind": "service", "blueprint": "relational"},
     ],
     "connect_points": [
         {"name": "auction", "contract": "Auction", "owner": "web",

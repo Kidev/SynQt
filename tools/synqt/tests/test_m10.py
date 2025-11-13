@@ -193,7 +193,7 @@ class LicenseTest(unittest.TestCase):
         edge = licenses.generate({"name": "web", "capability": "web_edge"})
         self.assertIn("Qt HTTP Server: GPL-3.0-only", edge)
         self.assertIn("Effective license of this entity artifact: GPL-3.0-only", edge)
-        db = licenses.generate({"name": "database", "kind": "service", "blueprint": "persistence"})
+        db = licenses.generate({"name": "database", "kind": "service", "blueprint": "relational"})
         self.assertIn("Qt Sql: LGPL-3.0-only", db)
         self.assertIn("Effective license of this entity artifact: LGPL-3.0-only", db)
 
@@ -207,7 +207,7 @@ class CheckTest(unittest.TestCase):
     def _base(self):
         return {"entities": [{"name": "client", "kind": "client"},
                              {"name": "web", "kind": "service", "capability": "web_edge"},
-                             {"name": "database", "kind": "service", "blueprint": "persistence"}]}
+                             {"name": "database", "kind": "service", "blueprint": "relational"}]}
 
     def test_client_consuming_a_non_edge_connect_point_fails(self):
         config = self._base()

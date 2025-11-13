@@ -37,13 +37,13 @@ class CreateError(Exception):
 # `service` (a bare custom entity), which is not a starting choice: it is what you add
 # once you know what it is for, and offering it here would be a question with no
 # information in it.
-_STARTING_BLUEPRINTS: Sequence[str] = ("persistence", "cache", "document", "gateway", "jobs")
+_STARTING_BLUEPRINTS: Sequence[str] = ("relational", "cache", "document", "api", "jobs")
 
 _BLUEPRINT_BLURB: Dict[str, str] = {
-    "persistence": "durable rows behind the edge (SQLite by default)",
+    "relational": "durable rows behind the edge (SQLite by default)",
     "cache": "bounded in-memory key-value, evicts under pressure",
     "document": "schemaless documents behind the edge",
-    "gateway": "outbound HTTP to third-party APIs, over verified TLS",
+    "api": "outbound HTTP to third-party APIs, over verified TLS",
     "jobs": "timers and a bounded background queue, internal only",
 }
 

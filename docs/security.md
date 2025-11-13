@@ -318,7 +318,7 @@ fully trust in one mesh, that is the assumption to revisit first.
   framework can guarantee that only declared slots are reachable and that only
   declared fields come back; it cannot know that your `add(string text)` should
   refuse a megabyte.
-- Database specifics. The persistence blueprint serializes writes and sets a busy
+- Database specifics. The relational blueprint serializes writes and sets a busy
   timeout, so concurrent transactions cannot deadlock the entity (SQLite blocks
   under concurrent writers); see [entities](entities.md).
 

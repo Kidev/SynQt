@@ -264,7 +264,7 @@ def scaffold(parent_dir: os.PathLike[str] | str, name: str, *,
     # A starting blueprint entity is scaffolded by `synqt add entity` itself, so the two
     # paths cannot drift: same config block, same provider defaults, same folder and Source
     # stub. It used to write a bare `{name, kind, blueprint}` here, which left a `synqt new
-    # --blueprint persistence` project with an entity that had no provider settings, no
+    # --blueprint relational` project with an entity that had no provider settings, no
     # schema, and no Source at all, unlike the same entity added a command later. It runs
     # after .env.example exists because an external provider appends its secret to it.
     for blueprint in blueprints or []:

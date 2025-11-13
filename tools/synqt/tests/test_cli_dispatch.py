@@ -79,18 +79,18 @@ class TestSimpleCommands:
 
         monkeypatch.setattr(newproject, "scaffold", scaffold)
         code, out, _ = _run(["new", "acme", "--parent-dir", str(tmp_path),
-                             "--auth", "github", "--blueprint", "persistence",
+                             "--auth", "github", "--blueprint", "relational",
                              "--blueprint", "cache"])
         assert code == 0
         assert "scaffolded" in out
         assert seen == {"parent_dir": str(tmp_path), "name": "acme", "auth": "github",
-                        "blueprints": ["persistence", "cache"]}
+                        "blueprints": ["relational", "cache"]}
 
     def test_providers_lists_them_without_needing_a_project(self, monkeypatch):
-        monkeypatch.setattr(addentity, "list_providers", lambda: "persistence: sqlite")
+        monkeypatch.setattr(addentity, "list_providers", lambda: "relational: sqlite")
         code, out, _ = _run(["providers"])
         assert code == 0
-        assert "persistence: sqlite" in out
+        assert "relational: sqlite" in out
 
     def test_doctor_reports_for_the_project_and_profile_given(self, tmp_path, monkeypatch):
         seen = {}

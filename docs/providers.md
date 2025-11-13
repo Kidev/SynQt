@@ -123,14 +123,14 @@ facts from the Qt SQL driver documentation drive SynQt's defaults:
 
 - SQLite is the in process database with the best test coverage and support on all
   platforms, and it is the one driver that is always usable straight out of a binary
-  Qt build. So SQLite is the default persistence provider: zero configuration, no
-  external engine, no extra build step.
-- The other relational drivers need two things SynQt cannot supply for you: the
+  Qt build. So SQLite is the default relational provider, with zero configuration, no
+  external engine, and no extra build step.
+- The other relational drivers need two things SynQt cannot supply for you, the
   engine's client library on the machine, and a driver plugin that loads against it.
   A binary Qt build ships more plugin files than SQLite (the pinned Linux kit also
   carries QPSQL, QMYSQL, QODBC, QOCI, QIBASE, and QMIMER), but a plugin file being
-  present is not the same as a plugin that loads: each is bound to the client library
-  it was built against. PostgreSQL usually just works, because the shipped QPSQL
+  present is not the same as a plugin that loads, because each is bound to the client
+  library it was built against. PostgreSQL usually works, because the shipped QPSQL
   loads against a normally installed libpq. MySQL does not, and the reason is the
   licensing one.
 
@@ -197,14 +197,14 @@ with none of this configured.
 
 ## Selecting a provider: graduated configuration
 
-Default. A persistence entity with no provider line uses the embedded SQLite
+Default. A relational entity with no provider line uses the embedded SQLite
 provider. This is the common case and needs nothing more.
 
 ```yaml
 entities:
   - name: database
     kind: service
-    blueprint: persistence         # provider defaults to sqlite (embedded)
+    blueprint: relational         # provider defaults to sqlite (embedded)
     settings:
       file: database/data/app.db
       journal_mode: wal
@@ -218,7 +218,7 @@ points, the contracts, and every consumer stay identical.
 entities:
   - name: database
     kind: service
-    blueprint: persistence
+    blueprint: relational
     provider:
       name: postgres
       host: db.internal            # a private address, not public
@@ -303,7 +303,7 @@ keeps the framework open ended.
 > [!TIP]
 > This section is the reference. For the same thing built step by step, with two complete
 > adaptors, see the [Advanced tutorials](tutorial-advanced.md):
-> [a database of your own](tutorial-advanced-database.md) puts a persistence entity in
+> [a database of your own](tutorial-advanced-database.md) puts a relational entity in
 > front of an engine reached through a Qt SQL driver, and
 > [a cache of your own](tutorial-advanced-cache.md) writes an engine's wire protocol by
 > hand where Qt has no driver at all.
@@ -349,7 +349,7 @@ not weaken its boundary for it.
 
 ```cli
 synqt providers                           # List available providers per family.
-synqt add entity db --blueprint persistence --provider postgres
+synqt add entity db --blueprint relational --provider postgres
                                            # Scaffold an entity with a chosen provider,
                                            # a provider config stub, and .env.example
                                            # entries for its secrets.

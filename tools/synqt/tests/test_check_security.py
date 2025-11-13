@@ -25,7 +25,7 @@ def base_config(**overrides):
             {"name": "client", "kind": "client", "path": "client"},
             {"name": "web", "kind": "service", "capability": "web_edge", "path": "web"},
             {"name": "database", "kind": "service", "path": "database",
-             "blueprint": "persistence"},
+             "blueprint": "relational"},
         ],
         "connect_points": [
             {"name": "app", "owner": "web", "consumers": ["client"], "contract": "App"},

@@ -31,7 +31,7 @@ my-app/
     .env                  # secrets for this entity only
     .env.example
 
-  database/               # added with: synqt add entity database (persistence blueprint)
+  database/               # added with: synqt add entity database (relational blueprint)
     Database.qml
     Items.qml
     schema.sql
@@ -263,7 +263,7 @@ under `settings`:
 ```yaml
   - name: database
     kind: service
-    blueprint: persistence    # official blueprint; see docs/entities.md
+    blueprint: relational    # official blueprint; see docs/entities.md
     # provider defaults to sqlite (embedded); no provider section needed for the default
     # no web_edge capability: never serves a client, never faces the internet
 
@@ -295,7 +295,7 @@ graduated path described in [providers](providers.md):
 ```yaml
   - name: database
     kind: service
-    blueprint: persistence
+    blueprint: relational
 
     provider:
       name: postgres          # masked behind this entity; consumers never know

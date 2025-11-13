@@ -50,9 +50,9 @@ def entity_modules(entity: Dict[str, Any], target: str = "wasm") -> List[str]:
     modules = ["Qt Core", "Qt Network", "Qt Qml", "Qt RemoteObjects", "Qt WebSockets"]
     if capability == "web_edge" or entity.get("web_edge"):
         modules += ["Qt Gui", "Qt HTTP Server"]
-    if blueprint == "persistence":
+    if blueprint == "relational":
         modules.append("Qt Sql")
-    if blueprint == "gateway" and entity.get("inbound"):
+    if blueprint == "api" and entity.get("inbound"):
         modules.append("Qt HTTP Server")
     # An entity that runs identity/login links Network Authorization (+ HTTP Server for its
     # callback routes when it is the edge or a dedicated auth entity).
@@ -73,7 +73,7 @@ def entity_third_party(entity: Dict[str, Any]) -> List[str]:
         libs += ["jwt-cpp", "picojson", "OpenSSL"]
     if provider == "mysql":
         libs.append("MariaDB Connector/C")
-    if provider in ("postgres", "mysql") or entity.get("blueprint") == "persistence":
+    if provider in ("postgres", "mysql") or entity.get("blueprint") == "relational":
         libs.append("OpenSSL")
     return sorted(set(libs))
 

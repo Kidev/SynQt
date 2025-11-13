@@ -33,7 +33,7 @@ BASE = {
     "scopes": {"order": ["anonymous", "user", "moderator"]},
     "entities": [
         {"name": "web", "kind": "service", "capability": "web_edge"},
-        {"name": "database", "kind": "service", "blueprint": "persistence",
+        {"name": "database", "kind": "service", "blueprint": "relational",
          "settings": {"path": "data/app.db"}},
         {"name": "client", "kind": "client", "targets": ["wasm"]},
     ],

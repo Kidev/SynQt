@@ -96,7 +96,7 @@ build/
 Each entity's QML is compiled into its binary, so a service directory is small: the
 binary, the `topology.json` it reads at startup, and its licenses. What does *not* move
 into `build/` is the data an
-entity owns: a persistence entity applies `database/schema.sql` and opens the file its
+entity owns: a relational entity applies `database/schema.sql` and opens the file its
 `settings` name (`database/data/app.db` by default), both relative to the project root
 and both still in the entity's own directory. Which is also why `synqt clean`, whose job
 is to remove build outputs, cannot take a database with it.

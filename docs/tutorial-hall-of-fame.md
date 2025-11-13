@@ -13,7 +13,7 @@ its own process, and it owns the durable data.
 ## Step 1: Add a database entity
 
 ```cli
-synqt add entity database --blueprint persistence
+synqt add entity database --blueprint relational
 ```
 
 This scaffolds a `database/` entity backed by an embedded engine (SQLite), with no

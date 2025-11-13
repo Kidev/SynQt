@@ -121,17 +121,17 @@ serves both ends of the connection.
 
 The engine shares its entity's network namespace, which is the one arrangement in here that
 does not read as obvious. An external provider refuses an unverified connection in release
-unless the engine is on loopback, and that refusal is right: a database password crossing a
-network in the clear is a database password on the network. Rather than switching the guard
+unless the engine is on loopback, and that refusal is right, because a database password
+crossing a network in the clear is a database password on the network. Rather than switching the guard
 off for the convenience of a quick start, the engine container holds its entity's address on
 the mesh network and the entity joins its namespace. The entity then reaches its engine at
 `127.0.0.1` for real, nothing about that link is on a wire, and nothing had to be relaxed to
 make it work. It also leaves the engine unreachable from every other container, which is
 stricter than the entities themselves manage.
 
-One topology this cannot express: a web edge that owns an engine of its own. A shared
+One topology this cannot express is a web edge that owns an engine of its own. A shared
 namespace cannot publish a port, so `synqt docker init` stops and says so. Move the engine
-behind a persistence entity, which is where it belongs regardless.
+behind a relational entity, which is where it belongs regardless.
 
 ## The image
 

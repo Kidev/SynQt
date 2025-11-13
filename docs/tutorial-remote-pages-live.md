@@ -112,7 +112,7 @@ entity (the browser can only reach a web edge)
 
 The check is not a style rule; it is a fact of the deployment. A browser can only physically
 reach a web edge, so a connect point a client consumes must be owned by a web edge. The
-`inventory` connect point is owned by `stock`, a `blueprint: persistence` database, which is
+`inventory` connect point is owned by `stock`, a `blueprint: relational` database, which is
 not a web edge, so the browser cannot reach it and the check refuses to build a topology that
 pretends otherwise. Revert the change before continuing.
 

@@ -16,7 +16,7 @@ from synqt import addprovider, cmakegen
 
 
 def _config(provider_name):
-    entity = {"name": "database", "kind": "service", "blueprint": "persistence"}
+    entity = {"name": "database", "kind": "service", "blueprint": "relational"}
     if provider_name is not None:
         entity["provider"] = {"name": provider_name}
     return {
@@ -44,7 +44,7 @@ def test_a_bundled_provider_pulls_in_nothing():
 def test_the_scaffolded_file_lands_where_the_glob_looks():
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
-        addprovider.scaffold(root, "SqlServer", "persistence")
+        addprovider.scaffold(root, "SqlServer", "relational")
         written = root / "providers" / "custom" / "sqlserverprovider.cpp"
         assert written.is_file()
         source = written.read_text()

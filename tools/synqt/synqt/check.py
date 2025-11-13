@@ -744,7 +744,7 @@ def _provider_messages(name: str, entity: Dict[str, Any]) -> List[str]:
     blueprint = entity.get("blueprint")
     family = addentity.BLUEPRINTS.get(blueprint) if blueprint else None
     if family is None:
-        # gateway and jobs carry a provider block for their own settings but select no
+        # api and jobs carry a provider block for their own settings but select no
         # engine; a bare service entity has no family at all.
         return [f"error: entity '{name}' sets provider.name '{selected}' but its blueprint "
                 f"('{blueprint or 'none'}') takes no data provider"]

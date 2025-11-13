@@ -19,9 +19,9 @@ const TYPES = ["int", "string", "bool", "real", "float", "double", "var"];
 
 const KINDS = ["prop", "model", "signal", "slot"];
 
-// The three blueprints that take a data provider (addentity.BLUEPRINTS). A gateway and a
+// The three blueprints that take a data provider (addentity.BLUEPRINTS). An api and a
 // jobs entity have no engine behind them, so neither is offered one.
-const PROVIDER_FAMILIES = new Set(["persistence", "cache", "document"]);
+const PROVIDER_FAMILIES = new Set(["relational", "cache", "document"]);
 
 // What each kind of entity is called in one line, for the panel to state rather than offer.
 // An entity is whichever palette row it was dragged from and stays that: turning a database
@@ -31,10 +31,10 @@ const PROVIDER_FAMILIES = new Set(["persistence", "cache", "document"]);
 const KIND_LABELS = {
     client: "Client, built to WebAssembly and to a native desktop app",
     edge: "Web edge, the one entity facing the internet",
-    persistence: "Persistence entity, a database behind a provider",
+    relational: "Relational entity, a database behind a provider",
     cache: "Cache entity, a bounded store that forgets",
     document: "Document entity, records with no fixed columns",
-    gateway: "Gateway entity, where the system calls somebody else's",
+    api: "API entity, where the system calls somebody else's",
     jobs: "Jobs entity, work on a timer with nothing listening",
     service: "Service entity, your own logic in its own binary",
 };

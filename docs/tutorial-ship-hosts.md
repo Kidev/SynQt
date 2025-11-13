@@ -66,7 +66,7 @@ which is compiled into the binary and is not on the host at all.
 **`synqt.yaml` travels** because the paths the entities use are the paths it spells. So
 does the profile, because the entity resolves the same layering the build did.
 
-**The data is not in `build/`.** A persistence entity opens the file its `settings` name,
+**The data is not in `build/`.** A relational entity opens the file its `settings` name,
 under its own directory, which is why `synqt clean` cannot take your database with it and
 why your backup job points at `database/data/` rather than at the build output.
 

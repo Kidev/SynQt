@@ -36,7 +36,7 @@ class AddEntityTest(unittest.TestCase):
                            "    capability: web_edge\n")
         (root / "synqt.yaml").write_text(written_by_hand)
 
-        addentity.scaffold(root, "db", "persistence")
+        addentity.scaffold(root, "db", "relational")
 
         text = (root / "synqt.yaml").read_text()
         self.assertIn("# Hand written, and it stays.", text)
@@ -44,14 +44,14 @@ class AddEntityTest(unittest.TestCase):
         self.assertTrue(text.startswith(written_by_hand.rstrip("\n")))
         entities = yaml.safe_load(text)["entities"]
         self.assertEqual([e["name"] for e in entities], ["web", "db"])
-        self.assertEqual(entities[1]["blueprint"], "persistence")
+        self.assertEqual(entities[1]["blueprint"], "relational")
         self.assertEqual(entities[1]["settings"]["journal_mode"], "wal")
 
-    def test_persistence_defaults_to_embedded_sqlite(self):
+    def test_relational_defaults_to_embedded_sqlite(self):
         root = self._project()
-        addentity.scaffold(root, "database", "persistence")
+        addentity.scaffold(root, "database", "relational")
         entity = yaml.safe_load((root / "synqt.yaml").read_text())["entities"][0]
-        self.assertEqual(entity["blueprint"], "persistence")
+        self.assertEqual(entity["blueprint"], "relational")
         self.assertNotIn("provider", entity)  # embedded default, no engine config
         self.assertEqual(entity["settings"]["journal_mode"], "wal")
         # The Source stub calls Db only, never an engine.
@@ -62,7 +62,7 @@ class AddEntityTest(unittest.TestCase):
 
     def test_external_provider_is_verified_tls_and_secret_is_env(self):
         root = self._project()
-        addentity.scaffold(root, "database", "persistence", provider="postgres")
+        addentity.scaffold(root, "database", "relational", provider="postgres")
         entity = yaml.safe_load((root / "synqt.yaml").read_text())["entities"][0]
         provider = entity["provider"]
         self.assertEqual(provider["name"], "postgres")
@@ -73,7 +73,7 @@ class AddEntityTest(unittest.TestCase):
 
     def test_gateway_is_outbound_only_by_default(self):
         root = self._project()
-        addentity.scaffold(root, "api", "gateway")
+        addentity.scaffold(root, "api", "api")
         entity = yaml.safe_load((root / "synqt.yaml").read_text())["entities"][0]
         self.assertFalse(entity["inbound"])  # inbound exposure is an explicit choice
         self.assertIn("Http.get", (root / "api" / "Upstream.qml").read_text())
@@ -100,8 +100,8 @@ class AddEntityTest(unittest.TestCase):
         family helper, and the engine is the provider's business. A stub that reached past
         its helper would teach the opposite on day one.
         """
-        helpers = {"persistence": "Db.", "cache": "Cache.", "document": "Docs.",
-                   "gateway": "Http.", "jobs": "Jobs."}
+        helpers = {"relational": "Db.", "cache": "Cache.", "document": "Docs.",
+                   "api": "Http.", "jobs": "Jobs."}
         engines = ("QSqlDatabase", "sqlite", "postgres", "mongo", "redis",
                    "QNetworkAccessManager", "QTimer")
         for blueprint, helper in helpers.items():
@@ -167,7 +167,7 @@ class AddEntityTest(unittest.TestCase):
 
     def test_custom_provider_skeleton(self):
         root = self._project()
-        addprovider.scaffold(root, "MyEngine", "persistence")
+        addprovider.scaffold(root, "MyEngine", "relational")
         skeleton = (root / "providers" / "custom" / "myengineprovider.cpp").read_text()
         self.assertIn("IPersistenceProvider", skeleton)
         self.assertIn("custom:MyEngine", skeleton)

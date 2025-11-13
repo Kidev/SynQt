@@ -19,14 +19,14 @@ from synqt import docker
 
 
 def _config(**overrides):
-    """A two-entity project: a client, a web edge, and a persistence entity."""
+    """A two-entity project: a client, a web edge, and a relational entity."""
     config = {
         "project": {"name": "shop"},
         "entities": [
             {"name": "client", "kind": "client", "edge": "web"},
             {"name": "web", "kind": "service", "capability": "web_edge",
              "public": {"port": 8443}},
-            {"name": "store", "kind": "service", "blueprint": "persistence"},
+            {"name": "store", "kind": "service", "blueprint": "relational"},
         ],
         "connect_points": [
             {"name": "feed", "contract": "Feed", "owner": "web", "consumers": ["client"]},
@@ -415,7 +415,7 @@ class InitTest(unittest.TestCase):
         config = _config()
         for entity in config["entities"]:
             if entity["name"] == "web":
-                entity["blueprint"] = "persistence"
+                entity["blueprint"] = "relational"
                 entity["provider"] = {"name": "postgres", "password": "env:DB_PASSWORD"}
         with tempfile.TemporaryDirectory() as tmp:
             root = self._project(tmp, config)

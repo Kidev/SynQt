@@ -147,7 +147,7 @@ class QmlFormatCheckTest(unittest.TestCase):
         # first check after `synqt new --blueprint <kind>` looks at.
         root = Path(tempfile.mkdtemp())
         newproject.scaffold(root.parent, root.name,
-                            blueprints=["persistence", "cache", "document", "gateway", "jobs"])
+                            blueprints=["relational", "cache", "document", "api", "jobs"])
         self.assertEqual(check.check_qml_format(root), [])
 
     def test_the_scaffold_opts_in_and_ships_the_settings(self):
@@ -355,20 +355,20 @@ class ProviderNameValidationTest(unittest.TestCase):
     def test_no_provider_name_is_accepted(self):
         # The embedded default needs no provider section at all.
         self.assertEqual(self._errors(
-            {"name": "db", "kind": "service", "blueprint": "persistence"}), [])
+            {"name": "db", "kind": "service", "blueprint": "relational"}), [])
         self.assertEqual(self._errors(
-            {"name": "db", "kind": "service", "blueprint": "persistence",
+            {"name": "db", "kind": "service", "blueprint": "relational",
              "settings": {"file": "db/app.db"}}), [])
 
     def test_a_provider_from_another_family_is_an_error(self):
-        # redis is a real provider, just not a persistence one.
-        errors = self._errors({"name": "db", "kind": "service", "blueprint": "persistence",
+        # redis is a real provider, just not a relational one.
+        errors = self._errors({"name": "db", "kind": "service", "blueprint": "relational",
                                "provider": {"name": "redis"}})
         self.assertTrue(errors)
         self.assertIn("sqlite", errors[0])  # names the ones that are
 
     def test_an_unknown_provider_is_an_error(self):
-        errors = self._errors({"name": "db", "kind": "service", "blueprint": "persistence",
+        errors = self._errors({"name": "db", "kind": "service", "blueprint": "relational",
                                "provider": {"name": "postgress"}})
         self.assertTrue(errors)
         self.assertIn("postgres", errors[0])
@@ -376,11 +376,11 @@ class ProviderNameValidationTest(unittest.TestCase):
     def test_a_custom_provider_is_accepted_on_shape(self):
         # What it is registered as is only knowable at run time; the factory reports a miss.
         self.assertEqual(self._errors(
-            {"name": "db", "kind": "service", "blueprint": "persistence",
+            {"name": "db", "kind": "service", "blueprint": "relational",
              "provider": {"name": "custom:MyEngine"}}), [])
 
     def test_a_bare_custom_prefix_is_an_error(self):
-        errors = self._errors({"name": "db", "kind": "service", "blueprint": "persistence",
+        errors = self._errors({"name": "db", "kind": "service", "blueprint": "relational",
                                "provider": {"name": "custom:"}})
         self.assertTrue(errors)
 
@@ -391,7 +391,7 @@ class ProviderNameValidationTest(unittest.TestCase):
 
     def test_a_bad_provider_fails_the_whole_check(self):
         ok, _ = check.validate(self._config(
-            {"name": "db", "kind": "service", "blueprint": "persistence",
+            {"name": "db", "kind": "service", "blueprint": "relational",
              "provider": {"name": "nosuchengine"}}))
         self.assertFalse(ok)
 
@@ -400,8 +400,11 @@ class ProviderNameValidationTest(unittest.TestCase):
         accepts. `odbc` was offered here for months with no OdbcProvider behind it, so
         scaffolding it produced an entity that could not start.
         """
+        # Keyed by the family the CLI names, which is the author's word. The file behind it
+        # keeps the interface's word: IPersistenceProvider is C++ nobody outside the
+        # providers meets.
         factories = {
-            "persistence": Path("src/providers/persistencefactory.cpp"),
+            "relational": Path("src/providers/persistencefactory.cpp"),
             "cache": Path("src/providers/cachefactory.cpp"),
             "document": Path("src/providers/documentfactory.cpp"),
         }
@@ -509,7 +512,7 @@ class DevLaunchTest(unittest.TestCase):
         newproject.scaffold(self.root.parent, self.root.name)
         config = yaml.safe_load((self.root / "synqt.yaml").read_text())
         config["entities"].append({"name": "database", "kind": "service",
-                                   "blueprint": "persistence"})
+                                   "blueprint": "relational"})
         config["entities"].append({"name": "auth", "kind": "service"})
         config["identity"] = {"provider_entity": "auth"}
         config["connect_points"] = [

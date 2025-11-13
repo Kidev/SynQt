@@ -17,7 +17,7 @@ Every `synqt build` produces one artifact per entity:
   clients](desktop.md).
 - Each service entity builds to a native binary for its target host, linking the
   SynQt service runtime and any blueprint backend (for example the SQLite driver
-  for a persistence entity).
+  for a relational entity).
 
 All artifacts consume the same generated contract layer from `shared/`, so a
 contract is identical across every entity that uses it. A version skew between two
@@ -334,8 +334,8 @@ so it behaves identically in a shell, in a Makefile and in CI:
 
 ```cli
 synqt new shop                                          # client and web edge only
-synqt new shop --auth github --blueprint persistence    # and an identity provider
-synqt new shop --blueprint persistence --blueprint cache  # --blueprint repeats
+synqt new shop --auth github --blueprint relational    # and an identity provider
+synqt new shop --blueprint relational --blueprint cache  # --blueprint repeats
 ```
 
 `synqt create` asks the same things out loud and then calls it:
@@ -441,7 +441,7 @@ Contributors building SynQt get:
 - The SynQt service runtime library (native): Qt Core, Network, WebSockets,
   RemoteObjects, plus HttpServer and NetworkAuth for the web edge capability (and
   the pinned `jwt-cpp` from vcpkg for ID token verification, since Qt has no JWT
-  API), plus Sql for the persistence blueprint. Linked per entity by what that
+  API), plus Sql for the relational blueprint. Linked per entity by what that
   entity needs.
 - The SynQt client runtime library (WebAssembly): Qt Core, Network, WebSockets,
   RemoteObjects, Qml, Quick. No HttpServer, NetworkAuth, or Sql: the client never

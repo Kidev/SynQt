@@ -29,7 +29,7 @@ def test_an_entity_carries_what_the_editor_draws_it_with():
     assert web["capability"] == "web_edge"
     assert web["identity"] is True
     database = next(e for e in document["entities"] if e["name"] == "database")
-    assert database["blueprint"] == "persistence"
+    assert database["blueprint"] == "relational"
     client = next(e for e in document["entities"] if e["name"] == "client")
     assert client["targets"] == ["wasm"]
 

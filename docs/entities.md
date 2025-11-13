@@ -185,8 +185,8 @@ blueprint injects ([runtime API](runtime-api.md#cache-ephemeral-key-value)). The
 the calling entity and bounds value sizes and key counts to prevent memory
 exhaustion.
 
-When to use it over the database: the cache is for data you can afford to lose and
-want fast. Anything that must survive a restart goes to the persistence entity.
+Use it over the database for data you can afford to lose and want fast. Anything that
+must survive a restart goes to the relational entity.
 
 ### Document
 
@@ -203,10 +203,10 @@ as an engine query string, which is what keeps a Source working across that swap
 
 When to use it over persistence: a document store buys you shape freedom, and gives
 up the relational guarantees (joins, foreign keys, a schema the engine enforces) the
-persistence blueprint is there for. Reach for it when the records really do differ
+relational blueprint is there for. Reach for it when the records really do differ
 from each other, not to skip writing a schema.
 
-Security: identical in kind to the persistence entity. No `web_edge` capability, a
+Security: identical in kind to the relational entity. No `web_edge` capability, a
 private or local only bind, the calling entity authorized in every slot, and its
 credentials in its own `.env`.
 

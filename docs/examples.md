@@ -426,7 +426,7 @@ entities:
 
   - name: database
     kind: service
-    blueprint: persistence
+    blueprint: relational
     mesh:
       transport: mtls            # certificate identity: the database can trust Caller.entity
       host: 127.0.0.1
@@ -633,7 +633,7 @@ bundle. A merchandiser changes a campaign, or adds a new one, without a client r
 ### Topology, `synqt.yaml`
 
 The entities are a `kind: client`, a `capability: web_edge`, and a
-`blueprint: persistence` database. The route table and the `router` block are
+`blueprint: relational` database. The route table and the `router` block are
 top-level keys:
 
 ```yaml

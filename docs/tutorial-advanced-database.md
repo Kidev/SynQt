@@ -3,7 +3,7 @@
 
 # A database of your own
 
-Goal: put a persistence entity in front of Microsoft SQL Server, which SynQt does not
+Goal: put a relational entity in front of Microsoft SQL Server, which SynQt does not
 bundle a provider for, without changing one line of the entity's QML or of any consumer.
 By the end, `provider.name: custom:SqlServer` will be all that separates the entity from
 the SQLite it started on.
@@ -269,7 +269,7 @@ private:
 ```
 
 That branch on `m_inTransaction` is the single most common bug in a hand-written
-persistence provider. A pool hands out whichever connection is free, and a transaction
+relational provider. A pool hands out whichever connection is free, and a transaction
 lives on one connection; take a fresh lease inside a transaction and the statement is
 committed independently while the transaction it was supposed to be part of rolls back
 around it. The symptom is half-written data that no test reproduces.
@@ -400,7 +400,7 @@ One block in `synqt.yaml`, and nothing else in the project changes:
 entities:
   - name: database
     kind: service
-    blueprint: persistence
+    blueprint: relational
     provider:
       name: custom:SqlServer
       host: sql.internal              # a private address, never public
