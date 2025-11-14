@@ -107,6 +107,59 @@ def qml_uri(project_name: str) -> str:
     return "".join(word[:1].upper() + word[1:] for word in words) or "App"
 
 
+# where things live
+
+# The folder an entity of each kind sits in. These are the words a developer uses, and they
+# are the same words `blueprint:` takes, so a project's tree and its configuration read the
+# same. Several entities of one kind share their folder, which is what a folder is for: a
+# project with two databases has one `db/relational/`, not two directories with one file each.
+# A plain `service` is the exception and gets a folder of its own name, because it is somebody
+# building their own kind of entity and there is no shared kind to put it with.
+FOLDERS: Dict[str, str] = {
+    "client": "client",
+    "web_edge": "web",
+    "relational": "db/relational",
+    "document": "db/document",
+    "cache": "cache",
+    "api": "api",
+    "jobs": "jobs",
+}
+
+#: Where every contract lives, under a mirror of the tree beside it: a contract goes in the
+#: folder its owner sits in, so `shared/api/` is everything the api entities can say.
+SHARED = "shared"
+
+
+def entity_dir(entity: Dict[str, Any]) -> str:
+    """The folder an entity's files live in, relative to the project root."""
+    if entity.get("kind") == "client":
+        return FOLDERS["client"]
+    if is_edge(entity):
+        return FOLDERS["web_edge"]
+    blueprint = str(entity.get("blueprint") or "")
+    return FOLDERS.get(blueprint) or str(entity.get("name") or "")
+
+
+def entity_dirs(config: Dict[str, Any]) -> Dict[str, str]:
+    """Every entity's folder, by entity name."""
+    return {str(entity.get("name") or ""): entity_dir(entity)
+            for entity in entities(config)}
+
+
+def shared_dir(entity: Dict[str, Any]) -> str:
+    """Where the contracts an entity speaks live."""
+    return f"{SHARED}/{entity_dir(entity)}"
+
+
+def contract_path(entity: Dict[str, Any], contract: str) -> str:
+    return f"{shared_dir(entity)}/{contract}.syn"
+
+
+def source_path(entity: Dict[str, Any], contract: str) -> str:
+    """Where the Source of a connect point this entity owns lives."""
+    return f"{entity_dir(entity)}/{contract}.qml"
+
+
 # entities and connect points
 
 def entities(config: Dict[str, Any]) -> List[Dict[str, Any]]:
