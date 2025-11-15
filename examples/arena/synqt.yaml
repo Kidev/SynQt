@@ -31,14 +31,14 @@ identity:
     - name: github
       client_id: your-client-id-from-github
       client_secret: env:GITHUB_CLIENT_SECRET
-  mapping: web/identity/map.qml
+  mapping: web/edge/identity/map.qml
 
 entities:
-  - name: client
+  - name: app
     kind: client
     targets: [wasm]
 
-  - name: web
+  - name: edge
     kind: service
     capability: web_edge
     identity: true
@@ -47,10 +47,10 @@ entities:
     # either this block or public.tls_terminated_upstream, so that nothing ships
     # reachable over http:// with nobody named as the one who was meant to stop it.
     tls:
-      cert_file: certs/web/fullchain.pem
-      key_file: certs/web/privkey.pem
+      cert_file: certs/edge/fullchain.pem
+      key_file: certs/edge/privkey.pem
 
-  - name: database
+  - name: records
     kind: service
     blueprint: relational
 
@@ -61,9 +61,8 @@ connect_points:
   # `arena` acquired for it, so steer, ping, and the roster are out of reach.
   - name: arena
     contract: Arena
-    owner: web
-    consumers: [client]
-    server: web/Arena.qml
+    owner: edge
+    consumers: [app]
     scope: player
     instance: per_session
 
@@ -72,7 +71,6 @@ connect_points:
   # edge). The edge mirrors the standings into the `arena` model everyone already watches.
   - name: scores
     contract: Scores
-    owner: database
-    consumers: [web]
-    server: database/Scores.qml
+    owner: records
+    consumers: [edge]
     instance: per_peer

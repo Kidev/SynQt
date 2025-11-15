@@ -25,7 +25,7 @@ import { NODE_RADIUS, ROLE_HELP, describe, draw, element, entityAt, extent, glyp
 import { inspect } from "./inspector.js";
 import { forgetDesign, keepDesign, keepPane, keptDesign,
          readPanes } from "./keep.js";
-import { entityFiles, entityQmlPath, projectFiles } from "./project.js";
+import { entityDir, entityFiles, entityQmlPath, projectFiles } from "./project.js";
 import { declarations, references, runsFor, withoutNotice } from "./source.js";
 import { zipBytes } from "./zip.js";
 
@@ -588,11 +588,21 @@ function showDock(open) {
 
 // Reading a file back
 
-// The entity a project-relative path belongs to: its first segment is the entity's directory,
-// which is the one thing about the layout that is not a convention.
+// The entity a project-relative path belongs to. Every file an entity is made of sits in the
+// entity's own folder, so this is the entity whose folder the path starts with. Matched
+// longest first, because one entity's folder is never a prefix of another's but a kind folder
+// is a prefix of every folder in it, and a match on the wrong length would find no entity.
 function entityOf(name) {
-    const owner = inProject(name).split("/")[0];
-    return (state.design.entities || []).find((entity) => entity.name === owner) || null;
+    const path = inProject(name);
+    let found = null;
+    for (const entity of state.design.entities || []) {
+        const folder = entityDir(entity) + "/";
+        if (path.startsWith(folder)
+            && (found === null || folder.length > entityDir(found).length + 1)) {
+            found = entity;
+        }
+    }
+    return found;
 }
 
 // The entity an accessor in somebody's QML names. `Server` is the client's alias for the edge

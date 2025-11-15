@@ -9,7 +9,7 @@ from pathlib import Path
 
 import yaml
 
-from synqt import addcontract, addentity, addprovider
+from synqt import addcontract, addentity, addprovider, appmodel
 
 
 class AddEntityTest(unittest.TestCase):
@@ -55,10 +55,10 @@ class AddEntityTest(unittest.TestCase):
         self.assertNotIn("provider", entity)  # embedded default, no engine config
         self.assertEqual(entity["settings"]["journal_mode"], "wal")
         # The Source stub calls Db only, never an engine.
-        source = (root / "database" / "Items.qml").read_text()
+        source = (root / "db/relational/database" / "Items.qml").read_text()
         self.assertIn("Db.exec", source)
         self.assertNotIn("QSqlDatabase", source)
-        self.assertTrue((root / "database" / "schema.sql").exists())
+        self.assertTrue((root / "db/relational/database" / "schema.sql").exists())
 
     def test_external_provider_is_verified_tls_and_secret_is_env(self):
         root = self._project()
@@ -76,7 +76,7 @@ class AddEntityTest(unittest.TestCase):
         addentity.scaffold(root, "api", "api")
         entity = yaml.safe_load((root / "synqt.yaml").read_text())["entities"][0]
         self.assertFalse(entity["inbound"])  # inbound exposure is an explicit choice
-        self.assertIn("Http.get", (root / "api" / "Upstream.qml").read_text())
+        self.assertIn("Http.get", (root / "api/api" / "Upstream.qml").read_text())
 
     def test_document_stub_calls_the_docs_helper_with_its_own_filter(self):
         root = self._project()
@@ -84,7 +84,7 @@ class AddEntityTest(unittest.TestCase):
         entity = yaml.safe_load((root / "synqt.yaml").read_text())["entities"][0]
         self.assertEqual(entity["blueprint"], "document")
         self.assertEqual(entity["provider"]["name"], "memory")  # embedded, nothing to install
-        source = (root / "notes" / "Documents.qml").read_text()
+        source = (root / "db/document/notes" / "Documents.qml").read_text()
         self.assertIn("Docs.insert", source)
         self.assertIn("Docs.find", source)
         # A filter map is the engine's query language, so the stub builds its own from a
@@ -109,7 +109,9 @@ class AddEntityTest(unittest.TestCase):
                 root = self._project()
                 addentity.scaffold(root, blueprint, blueprint)
                 stub = addentity.SOURCE_NAMES[blueprint]
-                source = (root / blueprint / f"{stub}.qml").read_text()
+                folder = appmodel.entity_dir({"name": blueprint, "kind": "service",
+                                              "blueprint": blueprint})
+                source = (root / folder / f"{stub}.qml").read_text()
                 self.assertIn(helper, source)
                 for other in set(helpers.values()) - {helper}:
                     self.assertNotIn(other, source)
@@ -123,11 +125,11 @@ class AddEntityTest(unittest.TestCase):
         """
         root = self._project()
         addentity.scaffold(root, "rollups", "jobs")
-        self.assertTrue((root / "rollups" / "Schedule.qml").exists())
+        self.assertTrue((root / "jobs/rollups" / "Schedule.qml").exists())
 
         addentity.scaffold(root, "billing", "jobs", source="Invoices")
-        self.assertTrue((root / "billing" / "Invoices.qml").exists())
-        self.assertFalse((root / "billing" / "Schedule.qml").exists())
+        self.assertTrue((root / "jobs/billing" / "Invoices.qml").exists())
+        self.assertFalse((root / "jobs/billing" / "Schedule.qml").exists())
 
     def test_the_message_names_the_file_it_wrote(self):
         root = self._project()
@@ -150,7 +152,7 @@ class AddEntityTest(unittest.TestCase):
             with self.subTest(name=refused):
                 with self.assertRaises(addentity.AddEntityError):
                     addentity.scaffold(root, "notes", "document", source=refused)
-        self.assertFalse((root / "notes").exists())
+        self.assertFalse((root / "db/document/notes").exists())
 
     def test_rejects_unknown_blueprint_and_wrong_provider(self):
         root = self._project()

@@ -25,7 +25,7 @@ import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from synqt import qmlscan
+from synqt import appmodel, qmlscan
 
 # What a route may declare, and what the scan returns.
 ACCELERATED = "accelerated"
@@ -128,10 +128,7 @@ def resolve(config: Dict[str, Any],
     routes = config.get("routes")
     if not isinstance(routes, list):
         return config, []
-    edges = [entity for entity in (config.get("entities") or [])
-             if isinstance(entity, dict)
-             and (entity.get("capability") == "web_edge" or entity.get("web_edge"))]
-    edge_name = edges[0].get("name", "web") if edges else "web"
+    client_dir, edge_dir = route_dirs(config, project_dir)
 
     resolved = dict(config)
     messages: List[str] = []
@@ -140,7 +137,7 @@ def resolve(config: Dict[str, Any],
         if not isinstance(route, dict):
             annotated.append(route)
             continue
-        requirement, findings = route_requirement(route, project_dir, edge_name)
+        requirement, findings = route_requirement(route, client_dir, edge_dir)
         messages += findings
         entry = dict(route)
         entry[RESOLVED_KEY] = requirement
@@ -149,33 +146,47 @@ def resolve(config: Dict[str, Any],
     return resolved, messages
 
 
+def route_dirs(config: Dict[str, Any],
+                project_dir: os.PathLike[str] | str) -> Tuple[Optional[Path], Optional[Path]]:
+    """The two folders a route can name a file in. The client's, and the edge's.
+
+    A route names a view the client compiles in or a page the edge delivers, and each of
+    those sits in its own entity's folder, so where to look is a question about the
+    topology rather than about the route.
+    """
+    root = Path(project_dir)
+    client = appmodel.client_entity(config)
+    edges = [entity for entity in appmodel.entities(config) if appmodel.is_edge(entity)]
+    return (root / appmodel.entity_dir(client) if client else None,
+            root / appmodel.entity_dir(edges[0]) if edges else None)
+
+
 def declared(route: Dict[str, Any]) -> Optional[str]:
     """The route's own `graphics:`, or None when it does not say."""
     value = route.get("graphics")
     return value.strip() if isinstance(value, str) and value.strip() else None
 
 
-def route_file(route: Dict[str, Any], project_dir: os.PathLike[str] | str,
-               edge_name: str) -> Optional[Path]:
-    """Where the route's QML lives: the client's compiled-in view, or the page the edge
-    delivers. None for a route that names neither."""
-    root = Path(project_dir)
+def route_file(route: Dict[str, Any], client_dir: Optional[Path],
+               edge_dir: Optional[Path]) -> Optional[Path]:
+    """Where the route's QML lives. The client's compiled-in view, or the page the edge
+    delivers. None for a route that names neither, or whose entity is not there."""
     view = route.get("view")
     if isinstance(view, str) and view.strip():
-        return root / "client" / view.strip()
+        return client_dir / view.strip() if client_dir is not None else None
     remote = route.get("remote")
     if isinstance(remote, str) and remote.strip():
-        return root / edge_name / "pages" / remote.strip()
+        return edge_dir / "pages" / remote.strip() if edge_dir is not None else None
     return None
 
 
-def route_requirement(route: Dict[str, Any], project_dir: os.PathLike[str] | str,
-                      edge_name: str) -> Tuple[str, List[str]]:
-    """This route's requirement and anything worth saying about how it was reached.
+def route_requirement(route: Dict[str, Any], client_dir: Optional[Path],
+                      edge_dir: Optional[Path]) -> Tuple[str, List[str]]:
+    """This route's requirement and any notes on how it was reached.
 
     A declaration always wins, including over a scan that disagrees with it, because the
-    author can see something the scan cannot: a Loader that pulls in a 3D scene, or a type
-    the list does not know. A disagreement is still worth a warning, since one of the two is
+    author can see something the scan cannot. A Loader that pulls in a 3D scene, or a type
+    the list does not know. A disagreement still gets a warning, since one of the two is
     wrong and only the author can say which.
     """
     path = route.get("path", "")
@@ -187,7 +198,7 @@ def route_requirement(route: Dict[str, Any], project_dir: os.PathLike[str] | str
             f"{ACCELERATED} or {ANY}")
         value = None
 
-    source_file = route_file(route, project_dir, edge_name)
+    source_file = route_file(route, client_dir, edge_dir)
     scanned: Optional[bool] = None
     if source_file is not None:
         try:

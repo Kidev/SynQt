@@ -237,27 +237,31 @@ def _read_text(path: Path) -> str:
         return ""
 
 
-def _link(point: Dict[str, Any], root: Path,
-          seats: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
+def _link(point: Dict[str, Any], root: Path, seats: Dict[str, Dict[str, Any]],
+          owners: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
     contract = str(point.get("contract") or "")
     name = str(point.get("name") or "")
     owner = str(point.get("owner") or "")
+    owning = owners.get(owner)
     members: List[Dict[str, Any]] = []
-    source = root / "shared" / f"{contract}.syn"
+    where = (appmodel.contract_path(owning, contract)
+             if owning is not None and contract else "")
+    source = root / where if where else None
     # A link drawn before its contract has been written is an ordinary state in the editor,
     # so a missing file is empty rather than an error. A file that is there and does not
     # parse is an error, and it names itself.
-    if contract and source.exists():
+    if source is not None and source.exists():
         try:
             members = parse_contract(source)
         except DesignDocError as error:
-            raise DesignDocError(f"shared/{contract}.syn: {error}") from error
+            raise DesignDocError(f"{where}: {error}") from error
     # The owner-side QML, carried in the document because the editor's files pane shows the
     # project as it is rather than as it would be scaffolded. Reading a Source that somebody
     # has already implemented and showing them an empty stub instead would be the pane
     # describing a different project from the one on the disk under it.
     server = str(point.get("server") or "")
-    relative = server or (f"{owner}/{contract}.qml" if owner and contract else "")
+    relative = server or (appmodel.source_path(owning, contract)
+                          if owning is not None and contract else "")
     seat = seats.get(name)
     slot = seat.get("slot") if isinstance(seat, dict) else None
     return {
@@ -305,18 +309,19 @@ def read(project_dir: os.PathLike[str] | str, *,
     name = project_name(config, root.name)
     entities = entities_of(config, places=_stored_places(root))
     seats = _stored_seats(root)
+    by_name = {str(entity.get("name") or ""): entity for entity in entities}
     for entity in entities:
         # The entity's own file, for the same reason a connect point's Source is carried: it
         # is the file that entity is, and the pane has to show the one on disk rather than a
         # stub rendered from the topology.
-        entity["qml"] = _read_text(
-            root / newproject.entity_qml_path(entity["name"], entity["kind"]))
+        entity["qml"] = _read_text(root / appmodel.entity_file_path(entity))
     return {
         "version": VERSION,
         "project": name,
         "sourceHash": source_hash(root),
         "entities": entities,
-        "links": [_link(point, root, seats) for point in appmodel.connect_points(config)],
+        "links": [_link(point, root, seats, by_name)
+                  for point in appmodel.connect_points(config)],
     }
 
 

@@ -24,6 +24,8 @@ import subprocess
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Set
 
+from . import appmodel
+
 
 class DeployError(Exception):
     """The deploy step could not run. Carries a message meant for the CLI's output."""
@@ -160,7 +162,7 @@ def deploy_client(root: Path, name: str, out: Path, resolved: Dict[str, Any],
                   "/tr", "http://timestamp.digicert.com", "/td", "sha256", str(exe)])
             return f"deployed and signed {exe.name} as {sign!r}"
         return f"deployed {exe.name} with windeployqt, UNSIGNED (SmartScreen will warn)"
-    return _deploy_linux(root, name, out, host_qt)
+    return _deploy_linux(root, name, out, host_qt, _client_dir(root, resolved))
 
 
 def _dynamic_needs(path: Path) -> List[str]:
@@ -390,7 +392,15 @@ def _plugin_dirs(reachable: Iterable[str], kit: Path) -> List[str]:
     return directories
 
 
-def _deploy_linux(root: Path, name: str, out: Path, host_qt: Optional[str]) -> str:
+def _client_dir(root: Path, resolved: Dict[str, Any]) -> Path:
+    """The client entity's own directory, or the project root when it has none yet."""
+    client = appmodel.client_entity(resolved)
+    folder = root / appmodel.entity_dir(client) if client else root
+    return folder if folder.is_dir() else root
+
+
+def _deploy_linux(root: Path, name: str, out: Path, host_qt: Optional[str],
+                  qml_root: Path) -> str:
     """The portable layout: Qt's libraries and QML modules beside the binary, plus a launcher.
 
     Linux has no official Qt deployment tool, so this does what windeployqt does, explicitly:
@@ -415,10 +425,10 @@ def _deploy_linux(root: Path, name: str, out: Path, host_qt: Optional[str]) -> s
     for stale in ("lib", "qml", "plugins"):
         shutil.rmtree(out / stale, ignore_errors=True)
 
-    # The client entity's own directory, not the project root: the root also holds every
+    # The client entity's own directory, not the project root. The root also holds every
     # service entity's QML and, in a tree that has been built, a build/ directory to walk.
     # Scanning those imports modules the client never loads and slows the scan on the way.
-    scan_root = root / name if (root / name).is_dir() else root
+    scan_root = qml_root
 
     shipped: List[Path] = [binary]
     modules = _qml_modules(scan_root, kit)

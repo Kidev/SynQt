@@ -205,10 +205,11 @@ class TestAdd:
 
     def test_add_contract_reaches_the_contract_scaffolder(self, tmp_path, monkeypatch):
         monkeypatch.setattr(addcontract, "scaffold_contract",
-                            lambda project_dir, name: f"contract {name}")
-        code, out, _ = _run(["add", "contract", "Todo", "--project-dir", str(tmp_path)])
+                            lambda project_dir, name, owner: f"contract {name} on {owner}")
+        code, out, _ = _run(["add", "contract", "Todo", "--owner", "edge",
+                             "--project-dir", str(tmp_path)])
         assert code == 0
-        assert "contract Todo" in out
+        assert "contract Todo on edge" in out
 
     def test_add_connect_point_splits_the_consumer_list(self, tmp_path, monkeypatch):
         seen = {}

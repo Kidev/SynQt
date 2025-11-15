@@ -36,7 +36,7 @@ def test_the_examples_have_no_drift(tmp_path):
 
 def test_a_slot_the_qml_calls_and_the_contract_lacks_is_an_error(tmp_path):
     project = _copy(tmp_path, "gavel")
-    main = project / "client" / "Main.qml"
+    main = project / "client" / "app" / "Main.qml"
     main.write_text(main.read_text().replace(
         "Server.auction.placeBid(", "Server.auction.placeBidNow("))
     messages = checkmod.lint_contract_drift(_config(project), project)
@@ -45,7 +45,7 @@ def test_a_slot_the_qml_calls_and_the_contract_lacks_is_an_error(tmp_path):
 
 def test_a_declared_member_nobody_uses_is_a_note(tmp_path):
     project = _copy(tmp_path, "gavel")
-    syn = project / "shared" / "Auction.syn"
+    syn = project / "web" / "edge" / "Auction.syn"
     syn.write_text(syn.read_text().replace("}", "    prop int unused\n}"))
     messages = checkmod.lint_contract_drift(_config(project), project)
     assert any(m.startswith("note:") and "unused" in m for m in messages)
@@ -53,10 +53,10 @@ def test_a_declared_member_nobody_uses_is_a_note(tmp_path):
 
 def test_dynamic_access_suppresses_the_unused_note_for_that_point(tmp_path):
     project = _copy(tmp_path, "gavel")
-    main = project / "client" / "Main.qml"
+    main = project / "client" / "app" / "Main.qml"
     main.write_text(main.read_text()
                     + "\nQtObject { property var v: Server[n].x }\n")
-    syn = project / "shared" / "Auction.syn"
+    syn = project / "web" / "edge" / "Auction.syn"
     syn.write_text(syn.read_text().replace("}", "    prop int unused\n}"))
     assert not any("unused" in m for m in
                    checkmod.lint_contract_drift(_config(project), project))
@@ -64,9 +64,9 @@ def test_dynamic_access_suppresses_the_unused_note_for_that_point(tmp_path):
 
 @pytest.mark.skipif(not typebackend.available(), reason="node and ts-morph are not here")
 def test_an_argument_of_the_wrong_type_at_a_connect_point_is_an_error(tmp_path):
-    # placeBid is declared `slot placeBid(int amount)`; the client hands it a string.
+    # placeBid is declared `slot placeBid(int amount)`. The client hands it a string.
     project = _copy(tmp_path, "gavel")
-    main = project / "client" / "Main.qml"
+    main = project / "client" / "app" / "Main.qml"
     main.write_text(main.read_text().replace(
         "Server.auction.placeBid(parseInt(amountField.text))",
         'Server.auction.placeBid("abc")'))
@@ -78,7 +78,7 @@ def test_an_argument_of_the_wrong_type_at_a_connect_point_is_an_error(tmp_path):
 def test_an_uncertain_argument_type_is_not_an_error(tmp_path):
     # The heuristic cannot type an expression, so it must stay silent rather than guess.
     project = _copy(tmp_path, "gavel")
-    main = project / "client" / "Main.qml"
+    main = project / "client" / "app" / "Main.qml"
     main.write_text(main.read_text().replace(
         "Server.auction.placeBid(parseInt(amountField.text))",
         "Server.auction.placeBid(somethingOpaque())"))
@@ -90,7 +90,7 @@ def test_an_uncertain_argument_type_is_not_an_error(tmp_path):
 def test_only_connect_point_calls_are_type_checked(tmp_path):
     # A plain QML call with a mistyped argument is nobody's business here.
     project = _copy(tmp_path, "gavel")
-    main = project / "client" / "Main.qml"
+    main = project / "client" / "app" / "Main.qml"
     main.write_text(main.read_text() + "\nQtObject {\n"
                     "    function local(n: int) { return n + 1; }\n"
                     '    Component.onCompleted: local("not a number")\n}\n')

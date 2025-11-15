@@ -61,7 +61,7 @@ def test_the_document_carries_the_qml_that_is_actually_on_disk(tmp_path):
     project = _copy(tmp_path, "gavel")
     document = designdoc.read(project)
     auction = next(link for link in document["links"] if link["name"] == "auction")
-    assert auction["qml"] == (project / "web" / "Auction.qml").read_text(encoding="utf-8")
+    assert auction["qml"] == (project / "web" / "edge" / "Auction.qml").read_text(encoding="utf-8")
     assert "Auction {" in auction["qml"]
 
 
@@ -72,8 +72,8 @@ def test_qml_the_editor_only_read_is_not_written_back(tmp_path):
     """
     project = _copy(tmp_path, "gavel")
     document = designdoc.read(project)
-    theirs = (project / "web" / "Auction.qml").read_text(encoding="utf-8")
-    (project / "web" / "Auction.qml").write_text(
+    theirs = (project / "web" / "edge" / "Auction.qml").read_text(encoding="utf-8")
+    (project / "web" / "edge" / "Auction.qml").write_text(
         theirs.replace("id: auction", "id: auction\n\n    property int mine"),
         encoding="utf-8")
     assert designplan.compute(project, document).changes == ()
@@ -87,7 +87,7 @@ def test_qml_typed_into_the_editor_is_written(tmp_path):
         "id: auction", "id: auction\n\n    property int drawn")
     auction["qmlEdited"] = True
     plan = designplan.compute(project, document)
-    written = next(change for change in plan.changes if change.path == "web/Auction.qml")
+    written = next(change for change in plan.changes if change.path == "web/edge/Auction.qml")
     assert written.action == "edit"
     assert "property int drawn" in written.after
     assert "was edited" in written.reason
@@ -105,8 +105,8 @@ def test_a_client_drawn_in_the_editor_gets_the_file_it_cannot_start_without(tmp_
                                  "targets": ["wasm"], "identity": False, "x": 40, "y": 300})
     plan = designplan.compute(project, document)
     created = {change.path for change in plan.changes if change.action == "create"}
-    assert "kiosk/Main.qml" in created
-    window = next(change for change in plan.changes if change.path == "kiosk/Main.qml")
+    assert "client/kiosk/Main.qml" in created
+    window = next(change for change in plan.changes if change.path == "client/kiosk/Main.qml")
     assert "ApplicationWindow {" in window.after
 
 
@@ -118,7 +118,7 @@ def test_adding_an_entity_creates_what_add_entity_creates(tmp_path):
                                  "x": 400, "y": 40})
     plan = designplan.compute(project, document)
     created = {c.path for c in plan.changes if c.action == "create"}
-    assert "cache/Entries.qml" in created
+    assert "cache/cache/Entries.qml" in created
     assert any(c.path == "synqt.yaml" and c.action == "edit" for c in plan.changes)
     config = next(c for c in plan.changes if c.path == "synqt.yaml")
     assert "blueprint: cache" in config.after
@@ -128,12 +128,12 @@ def test_adding_a_link_creates_its_contract(tmp_path):
     project = _copy(tmp_path, "gavel")
     document = designdoc.read(project)
     document["links"].append({
-        "id": "new", "name": "prices", "contract": "Prices", "owner": "web",
-        "consumers": ["client"], "instance": "shared",
+        "id": "new", "name": "prices", "contract": "Prices", "owner": "edge",
+        "consumers": ["app"], "instance": "shared",
         "members": [{"kind": "prop", "name": "spot", "type": "real",
                      "params": [], "roles": []}]})
     plan = designplan.compute(project, document)
-    contract = next(c for c in plan.changes if c.path == "shared/Prices.syn")
+    contract = next(c for c in plan.changes if c.path == "web/edge/Prices.syn")
     assert contract.action == "create"
     assert "prop real spot" in contract.after
 
@@ -146,8 +146,8 @@ def test_a_member_named_after_a_keyword_is_refused_rather_than_written(tmp_path)
     project = _copy(tmp_path, "gavel")
     document = designdoc.read(project)
     document["links"].append({
-        "id": "new", "name": "prices", "contract": "Prices", "owner": "web",
-        "consumers": ["client"], "instance": "shared",
+        "id": "new", "name": "prices", "contract": "Prices", "owner": "edge",
+        "consumers": ["app"], "instance": "shared",
         "members": [{"kind": "slot", "name": "record", "type": "",
                      "params": [{"type": "string", "name": "who"}], "roles": []}]})
     plan = designplan.compute(project, document)
@@ -156,7 +156,7 @@ def test_a_member_named_after_a_keyword_is_refused_rather_than_written(tmp_path)
                for message in plan.findings)
     with pytest.raises(designplan.DesignPlanError):
         designplan.execute(project, plan)
-    assert not (project / "shared" / "Prices.syn").exists()
+    assert not (project / "web" / "edge" / "Prices.syn").exists()
     # And the project it was drawn over still opens.
     assert designdoc.read(project)
 
@@ -169,10 +169,10 @@ def test_a_new_link_gets_an_empty_source_on_its_owner(tmp_path):
     project = _copy(tmp_path, "gavel")
     document = designdoc.read(project)
     document["links"].append({
-        "id": "new", "name": "prices", "contract": "Prices", "owner": "web",
-        "consumers": ["client"], "instance": "shared", "members": []})
+        "id": "new", "name": "prices", "contract": "Prices", "owner": "edge",
+        "consumers": ["app"], "instance": "shared", "members": []})
     plan = designplan.compute(project, document)
-    source = next(c for c in plan.changes if c.path == "web/Prices.qml")
+    source = next(c for c in plan.changes if c.path == "web/edge/Prices.qml")
     assert source.action == "create"
     assert "Prices {" in source.after
     assert "prices" in source.reason
@@ -192,9 +192,9 @@ def test_a_link_owned_by_an_entity_being_deleted_grows_no_source(tmp_path):
     directory the same plan is taking away."""
     project = _copy(tmp_path, "gavel")
     document = designdoc.read(project)
-    document["entities"] = [e for e in document["entities"] if e["name"] != "database"]
+    document["entities"] = [e for e in document["entities"] if e["name"] != "books"]
     plan = designplan.compute(project, document)
-    assert [c.path for c in plan.changes if c.path.startswith("database")] == ["database"]
+    assert [c.path for c in plan.changes if c.path.startswith("db/relational/books")] == ["db/relational/books"]
 
 
 def test_changing_a_contract_member_rewrites_only_that_contract(tmp_path):
@@ -204,23 +204,24 @@ def test_changing_a_contract_member_rewrites_only_that_contract(tmp_path):
     auction["members"].append({"kind": "prop", "name": "reserve", "type": "int",
                                "params": [], "roles": []})
     plan = designplan.compute(project, document)
-    assert [c.path for c in plan.changes] == ["shared/Auction.syn"]
+    assert [c.path for c in plan.changes] == ["web/edge/Auction.syn"]
     assert "prop int reserve" in plan.changes[0].after
 
 
 def test_deleting_an_entity_takes_its_points_its_directory_and_its_name_off_consumers(tmp_path):
     project = _copy(tmp_path, "gavel")
     document = designdoc.read(project)
-    document["entities"] = [e for e in document["entities"] if e["name"] != "database"]
-    document["links"] = [l for l in document["links"] if l["owner"] != "database"]
+    document["entities"] = [e for e in document["entities"] if e["name"] != "books"]
+    document["links"] = [l for l in document["links"] if l["owner"] != "books"]
     plan = designplan.compute(project, document)
     deleted = {c.path for c in plan.changes if c.action == "delete"}
-    assert "database" in deleted
-    assert "shared/Ledger.syn" in deleted
+    # The whole folder goes, contract included: an entity's contracts live in it now,
+    # so retiring the entity retires what it said.
+    assert "db/relational/books" in deleted
     assert all(c.reason for c in plan.changes)
     config = yaml.safe_load(
         next(c for c in plan.changes if c.path == "synqt.yaml").after)
-    assert [e["name"] for e in config["entities"]] == ["client", "web"]
+    assert [e["name"] for e in config["entities"]] == ["app", "edge"]
     assert [p["name"] for p in config["connect_points"]] == ["auction", "hall"]
 
 
@@ -228,13 +229,13 @@ def test_a_deleted_entity_is_dropped_from_a_link_that_still_names_it(tmp_path):
     project = _copy(tmp_path, "gavel")
     document = designdoc.read(project)
     # The client goes, but the two points it consumed stay behind still naming it.
-    document["entities"] = [e for e in document["entities"] if e["name"] != "client"]
+    document["entities"] = [e for e in document["entities"] if e["name"] != "app"]
     plan = designplan.compute(project, document)
     config = yaml.safe_load(
         next(c for c in plan.changes if c.path == "synqt.yaml").after)
-    assert all(e["name"] != "client" for e in config["entities"])
-    assert all("client" not in p["consumers"] for p in config["connect_points"])
-    assert any("client" in c.reason for c in plan.changes)
+    assert all(e["name"] != "app" for e in config["entities"])
+    assert all("app" not in p["consumers"] for p in config["connect_points"])
+    assert any("app" in c.reason for c in plan.changes)
 
 
 def test_clearing_a_field_takes_the_line_out_rather_than_writing_null(tmp_path):
@@ -243,7 +244,7 @@ def test_clearing_a_field_takes_the_line_out_rather_than_writing_null(tmp_path):
     """
     project = _copy(tmp_path, "gavel")
     document = designdoc.read(project)
-    next(e for e in document["entities"] if e["name"] == "web")["capability"] = ""
+    next(e for e in document["entities"] if e["name"] == "edge")["capability"] = ""
     plan = designplan.compute(project, document)
     config = next(c for c in plan.changes if c.path == "synqt.yaml")
     assert "capability" not in config.after
@@ -256,7 +257,7 @@ def test_an_illegal_topology_is_not_ok(tmp_path):
     project = _copy(tmp_path, "gavel")
     document = designdoc.read(project)
     ledger = next(l for l in document["links"] if l["name"] == "ledger")
-    ledger["consumers"] = ["web", "client"]
+    ledger["consumers"] = ["edge", "app"]
     plan = designplan.compute(project, document)
     assert not plan.ok
     assert any(m.startswith("error:") for m in plan.findings)
@@ -331,13 +332,13 @@ def test_execute_writes_exactly_what_the_plan_said(tmp_path):
     project = _copy(tmp_path, "gavel")
     document = designdoc.read(project)
     document["links"].append({
-        "id": "new", "name": "prices", "contract": "Prices", "owner": "web",
-        "consumers": ["client"], "instance": "shared",
+        "id": "new", "name": "prices", "contract": "Prices", "owner": "edge",
+        "consumers": ["app"], "instance": "shared",
         "members": [{"kind": "slot", "name": "refresh", "type": "", "params": [],
                      "roles": []}]})
     plan = designplan.compute(project, document)
     designplan.execute(project, plan)
-    assert (project / "shared" / "Prices.syn").exists()
+    assert (project / "web" / "edge" / "Prices.syn").exists()
     assert "prices" in (project / "synqt.yaml").read_text()
     # And the same document now plans to nothing.
     assert designplan.compute(project, designdoc.read(project)).changes == ()
@@ -346,7 +347,7 @@ def test_execute_writes_exactly_what_the_plan_said(tmp_path):
 def test_execute_refuses_a_plan_with_an_error(tmp_path):
     project = _copy(tmp_path, "gavel")
     document = designdoc.read(project)
-    next(l for l in document["links"] if l["name"] == "ledger")["consumers"] = ["client"]
+    next(l for l in document["links"] if l["name"] == "ledger")["consumers"] = ["app"]
     plan = designplan.compute(project, document)
     before = (project / "synqt.yaml").read_text()
     with pytest.raises(designplan.DesignPlanError):
@@ -374,31 +375,31 @@ def test_a_failure_part_way_restores_what_it_already_touched(tmp_path, monkeypat
     with pytest.raises(designplan.DesignPlanError):
         designplan.execute(project, plan)
     assert (project / "synqt.yaml").read_text() == before
-    assert not (project / "api").exists()
+    assert not (project / "jobs" / "api").exists()
 
 
 def test_deleting_an_entity_removes_the_directory_from_disk(tmp_path):
     project = _copy(tmp_path, "gavel")
     document = designdoc.read(project)
-    document["entities"] = [e for e in document["entities"] if e["name"] != "database"]
-    document["links"] = [l for l in document["links"] if l["owner"] != "database"]
+    document["entities"] = [e for e in document["entities"] if e["name"] != "books"]
+    document["links"] = [l for l in document["links"] if l["owner"] != "books"]
     plan = designplan.compute(project, document)
     designplan.execute(project, plan)
-    assert not (project / "database").exists()
-    assert not (project / "shared" / "Ledger.syn").exists()
+    assert not (project / "db" / "relational" / "books").exists()
+    assert not (project / "db" / "relational" / "books" / "Ledger.syn").exists()
     config = yaml.safe_load((project / "synqt.yaml").read_text())
-    assert [e["name"] for e in config["entities"]] == ["client", "web"]
+    assert [e["name"] for e in config["entities"]] == ["app", "edge"]
 
 
 def test_a_failed_deletion_puts_the_whole_directory_back(tmp_path, monkeypatch):
     """A delete is the one change a reader cannot undo by hand, so the rollback has to
-    carry the files, not just the fact that a directory used to be there.
+    carry the files rather than only the fact that a directory was there.
     """
     project = _copy(tmp_path, "gavel")
-    inside = {p.name: p.read_text() for p in (project / "database").iterdir()}
+    inside = {p.name: p.read_text() for p in (project / "db" / "relational" / "books").iterdir()}
     document = designdoc.read(project)
-    document["entities"] = [e for e in document["entities"] if e["name"] != "database"]
-    document["links"] = [l for l in document["links"] if l["owner"] != "database"]
+    document["entities"] = [e for e in document["entities"] if e["name"] != "books"]
+    document["links"] = [l for l in document["links"] if l["owner"] != "books"]
     plan = designplan.compute(project, document)
 
     def refuse(path):
@@ -407,7 +408,7 @@ def test_a_failed_deletion_puts_the_whole_directory_back(tmp_path, monkeypatch):
     monkeypatch.setattr(designplan, "_remove", refuse)
     with pytest.raises(designplan.DesignPlanError):
         designplan.execute(project, plan)
-    assert {p.name: p.read_text() for p in (project / "database").iterdir()} == inside
+    assert {p.name: p.read_text() for p in (project / "db" / "relational" / "books").iterdir()} == inside
 
 
 def test_the_summary_names_every_change_that_was_made(tmp_path):
@@ -417,18 +418,18 @@ def test_the_summary_names_every_change_that_was_made(tmp_path):
                                  "blueprint": "jobs", "x": 400, "y": 40})
     summary = designplan.execute(project, designplan.compute(project, document))
     assert "synqt.yaml" in summary
-    assert "api/Schedule.qml" in summary
+    assert "jobs/api/Schedule.qml" in summary
 
 
 def test_pointing_a_link_at_a_different_contract_retires_the_old_one(tmp_path):
     project = _copy(tmp_path, "gavel")
     document = designdoc.read(project)
     ledger = next(l for l in document["links"] if l["name"] == "ledger")
-    ledger["contract"] = "Books"
+    ledger["contract"] = "Archive"
     plan = designplan.compute(project, document)
     paths = {c.path: c.action for c in plan.changes}
-    assert paths["shared/Books.syn"] == "create"
-    assert paths["shared/Ledger.syn"] == "delete"
+    assert paths["db/relational/books/Archive.syn"] == "create"
+    assert paths["db/relational/books/Ledger.syn"] == "delete"
 
 
 def test_a_blueprint_the_scaffolder_refuses_comes_back_as_a_plan_error(tmp_path):

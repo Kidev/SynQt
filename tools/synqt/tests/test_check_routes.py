@@ -146,7 +146,7 @@ entities:
     kind: service
     capability: web_edge
 
-  - name: client
+  - name: app
     kind: client
 
 router:
@@ -165,12 +165,12 @@ routes:
 
 
 def _project(source=_PROJECT, views=("Home.qml", "A.qml", "B.qml", "D.qml")):
-    """A project on disk whose client entity really holds the views its routes name."""
+    """A project on disk whose client entity holds the views its routes name."""
     root = Path(tempfile.mkdtemp())
     (root / "synqt.yaml").write_text(source)
-    (root / "client").mkdir()
+    (root / "client" / "app").mkdir(parents=True)
     for view in views:
-        (root / "client" / view).write_text("import QtQuick\n\nItem {}\n")
+        (root / "client" / "app" / view).write_text("import QtQuick\n\nItem {}\n")
     return root
 
 
@@ -194,19 +194,19 @@ def test_a_view_that_is_not_on_disk_fails_the_check():
     (root / "synqt.yaml").write_text(_PROJECT.replace("view: B.qml", "view: Missing.qml"))
     ok, messages = check.check_project(root)
     assert not ok, messages
-    assert any("no such file 'client/Missing.qml'" in m for m in messages), messages
+    assert any("no such file 'client/app/Missing.qml'" in m for m in messages), messages
 
 
 def test_a_view_written_with_the_entity_directory_says_how_to_write_it():
     root = _project()
-    (root / "synqt.yaml").write_text(_PROJECT.replace("view: A.qml", "view: client/A.qml"))
+    (root / "synqt.yaml").write_text(_PROJECT.replace("view: A.qml", "view: client/app/A.qml"))
     ok, messages = check.check_project(root)
     assert not ok, messages
     assert any("write it as 'A.qml'" in m for m in messages), messages
 
 
 def test_a_view_named_without_its_extension_is_accepted():
-    # _component_url appends the extension, so `view: Home` names client/Home.qml.
+    # _component_url appends the extension, so `view: Home` names client/app/Home.qml.
     root = _project()
     (root / "synqt.yaml").write_text(_PROJECT.replace("view: Home.qml", "view: Home")
                                              .replace("  - path: /c/\n", "  - path: /d\n"))
@@ -262,22 +262,22 @@ def test_the_check_and_the_generator_refuse_the_same_views():
     from synqt import appmodel
 
     for view in ("Home.qml", "./Home.qml", "views/Home.qml", "a:b.qml"):
-        assert check._route_view_findings("/a", view, "client",
+        assert check._route_view_findings("/a", view, "client/app",
                                           Path(tempfile.mkdtemp())) != []  # missing file
         assert not appmodel.view_escapes_client_directory(view), view
     for view in ("../web/A.qml", "..\\web\\A.qml", "/etc/A.qml", "C:/x/B.qml"):
-        findings = check._route_view_findings("/a", view, "client",
+        findings = check._route_view_findings("/a", view, "client/app",
                                               Path(tempfile.mkdtemp()))
         assert any("parent path" in f for f in findings), view
         assert appmodel.view_escapes_client_directory(view), view
 
 
 def test_a_view_in_a_subdirectory_of_the_client_is_accepted():
-    # A view may sit in a subdirectory; it is aliased into the module at that same
+    # A view may sit in a subdirectory. It is aliased into the module at that same
     # relative path, so the route's qrc URL still names it.
     root = _project()
-    (root / "client" / "views").mkdir()
-    (root / "client" / "views" / "Deep.qml").write_text("import QtQuick\n\nItem {}\n")
+    (root / "client" / "app" / "views").mkdir()
+    (root / "client" / "app" / "views" / "Deep.qml").write_text("import QtQuick\n\nItem {}\n")
     (root / "synqt.yaml").write_text(_PROJECT.replace("view: A.qml", "view: views/Deep.qml")
                                              .replace("  - path: /c/\n", "  - path: /d\n"))
     ok, messages = check.check_project(root)
@@ -315,8 +315,8 @@ def test_a_bare_path_typo_reports_only_the_path():
 
 
 def test_a_client_entity_with_no_name_still_has_its_views_checked():
-    # appgen defaults the client directory to "client"; reading a nameless client entity
-    # as "no client at all" here would skip the view rule on a project it still generates.
+    # A nameless client entity still gets the bare kind folder. Reading it as "no client
+    # at all" here would skip the view rule on a project the build still generates.
     # lint_routes directly, not check_project: an entity with no name trips an unrelated
     # rule in validate() long before the route table is read.
     root = _project()

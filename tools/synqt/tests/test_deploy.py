@@ -285,7 +285,8 @@ class LinuxLayoutTest(unittest.TestCase):
         with mock.patch.object(deploy, "_qml_modules", return_value=list(modules)), \
              mock.patch.object(deploy, "_dynamic_needs",
                                side_effect=lambda path: needs.get(Path(path).name, [])):
-            return deploy._deploy_linux(self.root, "client", self.out, str(self.kit))
+            return deploy._deploy_linux(self.root, "client", self.out, str(self.kit),
+                                        self.root / "client" / "app")
 
     def test_ships_the_libraries_only_a_plugin_or_a_qml_module_needs(self):
         self._deploy()
@@ -378,7 +379,8 @@ class LinuxLayoutTest(unittest.TestCase):
 
     def test_refuses_without_a_kit_to_take_the_libraries_from(self):
         with self.assertRaises(deploy.DeployError) as caught:
-            deploy._deploy_linux(self.root, "client", self.out, None)
+            deploy._deploy_linux(self.root, "client", self.out, None,
+                                 self.root / "client" / "app")
         self.assertIn("host Qt kit", str(caught.exception))
 
 

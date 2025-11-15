@@ -11,16 +11,17 @@ import yaml
 from synqt import check, maingen
 
 
-def _project(tmp_path, routes, palette=None, page_bodies=None, edge="web"):
-    """A minimal project on disk: an edge and a client entity, a top-level routes/router
-    block, and any page bodies written under `<edge>/pages` (where the edge serves them)."""
-    pages = tmp_path / edge / "pages"
+def _project(tmp_path, routes, palette=None, page_bodies=None, edge="edge"):
+    """A minimal project on disk. An edge and a client entity, a top-level routes/router
+    block, and any page bodies written in the edge's own folder under `pages/` (which is
+    where the edge serves them from)."""
+    pages = tmp_path / "web" / edge / "pages"
     pages.mkdir(parents=True)
     for name, body in (page_bodies or {}).items():
         (pages / name).write_text(body)
     config = {
         "entities": [{"name": edge, "kind": "web_edge"},
-                     {"name": "client", "kind": "client"}],
+                     {"name": "app", "kind": "client"}],
         "routes": routes,
         "router": {"fallback": "/", "palette": palette or []},
     }
@@ -96,10 +97,10 @@ def test_lint_routes_accepts_a_remote_route(tmp_path):
     # could never pass `synqt check`: a correct remote route always reported "declares
     # no view". A remote route's file is validated by lint_remote_pages, under
     # `<edge>/pages`, not by this rule against the client directory.
-    (tmp_path / "client").mkdir()
+    (tmp_path / "client" / "app").mkdir(parents=True)
     config = {
         "entities": [{"name": "web", "kind": "web_edge"},
-                     {"name": "client", "kind": "client"}],
+                     {"name": "app", "kind": "client"}],
         "routes": [{"path": "/c/:id", "remote": "C.qml"}],
         "router": {"fallback": "/c/:id"},
     }
@@ -112,11 +113,11 @@ def test_lint_routes_still_catches_a_duplicate_path_with_a_remote_route(tmp_path
     # Skipping the view-existence rule for a remote route must not skip the
     # duplicate-path rule too: two routes racing for the same path is still a real
     # conflict, remote or not.
-    (tmp_path / "client").mkdir()
-    (tmp_path / "client" / "A.qml").write_text("import QtQuick\nItem { }\n")
+    (tmp_path / "client" / "app").mkdir(parents=True)
+    (tmp_path / "client" / "app" / "A.qml").write_text("import QtQuick\nItem { }\n")
     config = {
         "entities": [{"name": "web", "kind": "web_edge"},
-                     {"name": "client", "kind": "client"}],
+                     {"name": "app", "kind": "client"}],
         "routes": [{"path": "/c", "view": "A.qml"},
                    {"path": "/c", "remote": "C.qml"}],
         "router": {"fallback": "/c"},
@@ -141,7 +142,7 @@ def test_appgen_does_not_emit_the_palette_without_a_remote_route():
     # preparation for adding one); with no remote route to enforce it on, the client
     # main must stay exactly what it is without a palette at all.
     source = maingen.render_client_main(
-        {"entities": [{"name": "client", "kind": "client"}],
+        {"entities": [{"name": "app", "kind": "client"}],
          "routes": [{"path": "/", "view": "Home.qml"}],
          "router": {"palette": ["QtQuick"]}},
         uri="Shop")
@@ -150,7 +151,7 @@ def test_appgen_does_not_emit_the_palette_without_a_remote_route():
 
 def test_appgen_emits_the_palette():
     source = maingen.render_client_main(
-        {"entities": [{"name": "client", "kind": "client"}],
+        {"entities": [{"name": "app", "kind": "client"}],
          "routes": [{"path": "/c", "remote": "C.qml"}],
          "router": {"palette": ["QtQuick", "QtQuick.Controls"]}},
         uri="Shop")
@@ -162,7 +163,7 @@ def test_appgen_client_does_not_crash_on_a_remote_only_route():
     # A remote-only route has no compiled-in view; the generator must not raise, and the
     # route must still be in the table with an empty componentUrl (the resolveRemote seam).
     source = maingen.render_client_main(
-        {"entities": [{"name": "client", "kind": "client"}],
+        {"entities": [{"name": "app", "kind": "client"}],
          "routes": [{"path": "/c/:id", "remote": "C.qml"}],
          "router": {"palette": ["QtQuick"]}},
         uri="Shop")
@@ -172,7 +173,7 @@ def test_appgen_client_does_not_crash_on_a_remote_only_route():
 def test_appgen_edge_emits_pages():
     source = maingen.render_edge_main(
         {"entities": [{"name": "web", "kind": "web_edge"},
-                      {"name": "client", "kind": "client"}],
+                      {"name": "app", "kind": "client"}],
          "routes": [{"path": "/c/:campaign", "remote": "Campaign.qml", "scope": "member"}]},
         {"name": "web", "kind": "web_edge"})
     assert "config.pagesDir" in source
@@ -193,7 +194,7 @@ def test_appgen_client_escapes_a_quote_from_config():
     # A double quote in a synqt.yaml value must be escaped into the C++ literal, never
     # spliced through it verbatim (which would end the string early).
     source = maingen.render_client_main(
-        {"entities": [{"name": "client", "kind": "client"}],
+        {"entities": [{"name": "app", "kind": "client"}],
          "routes": [{"path": "/x", "view": "Home.qml", "scope": 'a"b'}]},
         uri="Shop")
     assert r'QStringLiteral("a\"b")' in source
@@ -203,7 +204,7 @@ def test_appgen_client_escapes_a_quote_from_config():
 def test_appgen_edge_escapes_a_backslash_in_a_page_path():
     source = maingen.render_edge_main(
         {"entities": [{"name": "web", "kind": "web_edge"},
-                      {"name": "client", "kind": "client"}],
+                      {"name": "app", "kind": "client"}],
          "routes": [{"path": "/c\\x", "remote": "Campaign.qml"}]},
         {"name": "web", "kind": "web_edge"})
     assert r'QStringLiteral("/c\\x")' in source
@@ -284,7 +285,7 @@ def test_a_non_string_seed_is_rejected_without_a_project_dir(tmp_path):
 def test_appgen_edge_emits_the_seed():
     source = maingen.render_edge_main(
         {"entities": [{"name": "web", "kind": "web_edge"},
-                      {"name": "client", "kind": "client"}],
+                      {"name": "app", "kind": "client"}],
          "routes": [{"path": "/c/:campaign", "remote": "Campaign.qml",
                      "seed": "web/seeds/Campaign.qml"}]},
         {"name": "web", "kind": "web_edge"})
@@ -296,7 +297,7 @@ def test_appgen_edge_emits_nothing_for_a_non_string_seed():
     # `synqt check` reports the typo, but nothing makes `synqt build` run the check.
     source = maingen.render_edge_main(
         {"entities": [{"name": "web", "kind": "web_edge"},
-                      {"name": "client", "kind": "client"}],
+                      {"name": "app", "kind": "client"}],
          "routes": [{"path": "/c", "remote": "C.qml", "seed": True}]},
         {"name": "web", "kind": "web_edge"})
     assert ".seed" not in source
@@ -307,7 +308,7 @@ def test_appgen_edge_without_a_seed_emits_no_seed():
     # feature existed.
     source = maingen.render_edge_main(
         {"entities": [{"name": "web", "kind": "web_edge"},
-                      {"name": "client", "kind": "client"}],
+                      {"name": "app", "kind": "client"}],
          "routes": [{"path": "/c/:campaign", "remote": "Campaign.qml"}]},
         {"name": "web", "kind": "web_edge"})
     assert ".seed" not in source
@@ -316,7 +317,7 @@ def test_appgen_edge_without_a_seed_emits_no_seed():
 def test_appgen_edge_without_remote_routes_emits_no_pages():
     source = maingen.render_edge_main(
         {"entities": [{"name": "web", "kind": "web_edge"},
-                      {"name": "client", "kind": "client"}],
+                      {"name": "app", "kind": "client"}],
          "routes": [{"path": "/", "view": "Home.qml"}]},
         {"name": "web", "kind": "web_edge"})
     assert "config.pagesDir" not in source

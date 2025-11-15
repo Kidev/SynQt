@@ -261,17 +261,17 @@ class AppGenTest(unittest.TestCase):
         cmake = (root / "CMakeLists.txt").read_text()
         # The client is always a target; services are guarded behind the WASM check so a
         # WebAssembly configure builds only the client.
-        self.assertIn("qt_add_executable(client", cmake)
+        self.assertIn("qt_add_executable(app", cmake)
         self.assertIn("if(NOT EMSCRIPTEN)", cmake)
-        self.assertIn("qt_add_executable(web", cmake)
+        self.assertIn("qt_add_executable(edge", cmake)
         self.assertIn("SYNQT_ROOT", cmake)
         # The absolute-path QML needs a resource alias, or Qt refuses to configure.
         self.assertIn("QT_RESOURCE_ALIAS", cmake)
         # Each entity gets a main.cpp of the right shape.
-        client_main = (root / "client" / "main.cpp").read_text()
+        client_main = (root / "client" / "app" / "main.cpp").read_text()
         self.assertIn("SynClient", client_main)
         self.assertIn("resolveEdgeUrl", client_main)
-        edge_main = (root / "web" / "main.cpp").read_text()
+        edge_main = (root / "web" / "edge" / "main.cpp").read_text()
         self.assertIn("WebEdge edge", edge_main)
 
     def test_connect_point_drives_source_and_replica_wiring(self):
@@ -468,11 +468,11 @@ class AppGenTest(unittest.TestCase):
         # QML-module member, so the entity's main.cpp must register it as a singleton type
         # for a Source that consumes it (World.steer(...)) to resolve it by name.
         root = Path(tempfile.mkdtemp())
-        (root / "web").mkdir()
-        (root / "web" / "World.qml").write_text(
+        (root / "web" / "web").mkdir(parents=True)
+        (root / "web" / "web" / "World.qml").write_text(
             "pragma Singleton\nimport QtQuick\nItem {}\n")
-        (root / "web" / "Arena.qml").write_text("import QtQuick\nItem {}\n")
-        self.assertEqual(appmodel.discover_singletons(root / "web"), ["World"])
+        (root / "web" / "web" / "Arena.qml").write_text("import QtQuick\nItem {}\n")
+        self.assertEqual(appmodel.discover_singletons(root / "web" / "web"), ["World"])
         # A plain (non-singleton) Source is not registered as a singleton.
         self.assertEqual(appmodel.discover_singletons(root / "missing"), [])
 
@@ -489,7 +489,7 @@ class AppGenTest(unittest.TestCase):
         }
         edge_main = maingen.render_edge_main(config, config["entities"][1], ["World"])
         self.assertIn("qmlRegisterSingletonType", edge_main)
-        self.assertIn('QStringLiteral("/web/World.qml")', edge_main)
+        self.assertIn('QStringLiteral("/web/web/World.qml")', edge_main)
         self.assertIn('"SynQt", 1, 0, "World"', edge_main)
         self.assertIn("#include <QUrl>", edge_main)
         # A service that declares a singleton gains a --qml-dir and registers it too; a

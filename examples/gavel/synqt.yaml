@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # The gavel auction, the finished three-entity system from docs/tutorial.md: a browser
-# client, a web edge that serves the app and owns the live auction, and a database that
-# holds the durable Hall of Fame the browser reaches only through the edge.
+# client, a web edge that serves the app and owns the live auction, and the books, a
+# database holding the durable Hall of Fame the browser reaches only through the edge.
 project:
   name: gavel
   version: 0.1.0
@@ -21,21 +21,21 @@ security:
 build:
   client_threads: single
 
-# GitHub sign in (docs/tutorial-sign-in.md). The client_id is public; the client secret
-# lives only in web/.env (never here, never anywhere the browser can reach).
+# GitHub sign in (docs/tutorial-sign-in.md). The client_id is public. The client secret
+# lives only in web/edge/.env (never here, never anywhere the browser can reach).
 identity:
   providers:
     - name: github
       client_id: your-client-id-from-github
       client_secret: env:GITHUB_CLIENT_SECRET
-  mapping: web/identity/map.qml
+  mapping: web/edge/identity/map.qml
 
 entities:
-  - name: client
+  - name: app
     kind: client
     targets: [wasm]
 
-  - name: web
+  - name: edge
     kind: service
     capability: web_edge
     identity: true
@@ -44,10 +44,10 @@ entities:
     # either this block or public.tls_terminated_upstream, so that nothing ships
     # reachable over http:// with nobody named as the one who was meant to stop it.
     tls:
-      cert_file: certs/web/fullchain.pem
-      key_file: certs/web/privkey.pem
+      cert_file: certs/edge/fullchain.pem
+      key_file: certs/edge/privkey.pem
 
-  - name: database
+  - name: books
     kind: service
     blueprint: relational
 
@@ -56,25 +56,22 @@ connect_points:
   # per_session so each request carries its Caller (the signed-in user the edge authorizes).
   - name: auction
     contract: Auction
-    owner: web
-    consumers: [client]
-    server: web/Auction.qml
+    owner: edge
+    consumers: [app]
     instance: per_session
 
   # The Hall of Fame the browser sees: owned by the edge, filled from the database.
   - name: hall
     contract: Hall
-    owner: web
-    consumers: [client]
-    server: web/Hall.qml
+    owner: edge
+    consumers: [app]
     instance: shared
 
-  # The durable ledger: owned by the database, reachable only by the edge (never the
-  # browser; a client consumer here fails `synqt check`, since the database is not a
-  # web edge).
+  # The durable ledger: owned by the books, reachable only by the edge (never the
+  # browser; a client consumer here fails `synqt check`, since the books entity is not
+  # a web edge).
   - name: ledger
     contract: Ledger
-    owner: database
-    consumers: [web]
-    server: database/Ledger.qml
+    owner: books
+    consumers: [edge]
     instance: per_peer

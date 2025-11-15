@@ -31,7 +31,7 @@ def test_view_name_without_extension_still_resolves():
 def _client_cmake(routes):
     config = {
         "project": {"name": "shop"},
-        "entities": [{"name": "client", "kind": "client"}],
+        "entities": [{"name": "app", "kind": "client"}],
         "routes": routes,
     }
     return cmakegen.render_root_cmakelists(config, synqt_root="/synqt")
@@ -41,12 +41,12 @@ def _client_project(files, routes=()):
     """A project on disk whose client entity holds `files` (relative path -> contents)."""
     root = Path(tempfile.mkdtemp())
     for name, text in files.items():
-        path = root / "client" / name
+        path = root / "client" / "app" / name
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text)
     config = {
         "project": {"name": "shop"},
-        "entities": [{"name": "client", "kind": "client"}],
+        "entities": [{"name": "app", "kind": "client"}],
         "routes": list(routes),
     }
     return cmakegen.render_root_cmakelists(config, synqt_root="/synqt", project_dir=root)
@@ -78,7 +78,7 @@ def test_a_view_in_a_subdirectory_keeps_its_subdirectory():
     assert "qrc:/qt/qml/Shop/views/Home.qml" in source
 
     cmake = _client_cmake([{"path": "/", "view": "views/Home.qml"}])
-    assert '"${CMAKE_CURRENT_SOURCE_DIR}/client/views/Home.qml"' in cmake
+    assert '"${CMAKE_CURRENT_SOURCE_DIR}/client/app/views/Home.qml"' in cmake
     assert "PROPERTIES QT_RESOURCE_ALIAS views/Home.qml)" in cmake
 
 
@@ -144,7 +144,7 @@ def test_a_route_view_that_is_also_on_disk_is_not_a_collision():
 
 
 def test_a_hidden_qml_file_is_never_swept_in():
-    # The dot rule covers the file as well as the directory: client/.Scratch.qml is an
+    # The dot rule covers the file as well as the directory. Client/app/.Scratch.qml is an
     # editor's leftover, and compiling it in would register a type for it.
     cmake = _client_project({"Main.qml": _ITEM, ".Scratch.qml": _ITEM,
                             "parts/.Old.qml": _ITEM})
@@ -160,7 +160,7 @@ def test_a_views_helper_components_are_compiled_in_too():
                             routes=[{"path": "/", "view": "Home.qml"}])
     assert "PROPERTIES QT_RESOURCE_ALIAS Card.qml)" in cmake
     assert "PROPERTIES QT_RESOURCE_ALIAS parts/Badge.qml)" in cmake
-    assert '"${CMAKE_CURRENT_SOURCE_DIR}/client/parts/Badge.qml"' in cmake
+    assert '"${CMAKE_CURRENT_SOURCE_DIR}/client/app/parts/Badge.qml"' in cmake
 
 
 def test_a_singleton_is_marked_as_one():
@@ -200,8 +200,8 @@ def test_every_route_view_is_in_the_clients_qml_module():
     # route table carries resolves to nothing and the router reports Error.
     cmake = _client_cmake([{"path": "/", "view": "Home.qml"},
                            {"path": "/cart", "view": "Cart.qml"}])
-    assert '"${CMAKE_CURRENT_SOURCE_DIR}/client/Home.qml"' in cmake
-    assert '"${CMAKE_CURRENT_SOURCE_DIR}/client/Cart.qml"' in cmake
+    assert '"${CMAKE_CURRENT_SOURCE_DIR}/client/app/Home.qml"' in cmake
+    assert '"${CMAKE_CURRENT_SOURCE_DIR}/client/app/Cart.qml"' in cmake
     # Each file is listed by absolute path, so each needs the alias that puts it at the
     # module root: that is the half of the URL qrc:/qt/qml/Shop/Home.qml the route needs.
     assert "PROPERTIES QT_RESOURCE_ALIAS Home.qml)" in cmake
@@ -210,13 +210,13 @@ def test_every_route_view_is_in_the_clients_qml_module():
 
 def test_a_view_named_without_its_extension_is_listed_as_a_file():
     cmake = _client_cmake([{"path": "/", "view": "Home"}])
-    assert '"${CMAKE_CURRENT_SOURCE_DIR}/client/Home.qml"' in cmake
+    assert '"${CMAKE_CURRENT_SOURCE_DIR}/client/app/Home.qml"' in cmake
 
 
 def test_a_view_is_listed_once_however_many_routes_name_it():
     cmake = _client_cmake([{"path": "/", "view": "Home.qml"},
                            {"path": "/home", "view": "Home"}])
-    assert cmake.count('"${CMAKE_CURRENT_SOURCE_DIR}/client/Home.qml"') == 2  # file + alias
+    assert cmake.count('"${CMAKE_CURRENT_SOURCE_DIR}/client/app/Home.qml"') == 2  # file + alias
     assert cmake.count("PROPERTIES QT_RESOURCE_ALIAS Home.qml)") == 1
 
 

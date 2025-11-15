@@ -17,7 +17,7 @@ from typing import Any, Dict, List, Optional
 
 import yaml
 
-from . import addentity, appgen, licenses, presets, toolchain
+from . import addentity, appgen, appmodel, licenses, presets, toolchain
 
 QT_VERSION = toolchain.QT_VERSION
 
@@ -116,32 +116,23 @@ ApplicationWindow {
 """
 
 
-def write_client_main(project_dir: os.PathLike[str] | str, name: str) -> Optional[str]:
+def write_client_main(project_dir: os.PathLike[str] | str,
+                      entity: Dict[str, Any]) -> Optional[str]:
     """Give a client entity the one file it cannot start without, unless it has one.
 
     The generated client main.cpp does `engine.loadFromModule(uri, "Main")`, so `Main.qml` is
     the root object and its name is not a choice. A client with no such file builds, loads,
     logs nothing and renders a blank page, which is why it is written with the entity rather
-    than left to be remembered: `synqt new` writes it, and so does a client drawn in the
+    than left to be remembered. `synqt new` writes it, and so does a client drawn in the
     editor. Returns the project-relative path when it wrote one.
     """
-    target = Path(project_dir) / name / "Main.qml"
+    relative = appmodel.entity_file_path(entity)
+    target = Path(project_dir) / relative
     if target.exists():
         return None
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(_MAIN_QML, encoding="utf-8")
-    return f"{name}/Main.qml"
-
-
-def entity_qml_path(name: str, kind: str) -> str:
-    """Where an entity's own QML lives: the file that entity *is*.
-
-    Distinct from a connect point's Source, which is one surface the entity exposes. A client's
-    own file is its window; every other entity's is a singleton named after it.
-    """
-    if kind == "client":
-        return f"{name}/Main.qml"
-    return f"{name}/{name[:1].upper()}{name[1:]}.qml"
+    return relative
 
 
 def entity_singleton(name: str) -> str:
@@ -174,22 +165,22 @@ def entity_singleton(name: str) -> str:
             "}\n")
 
 
-def write_entity_qml(project_dir: os.PathLike[str] | str, name: str,
-                     kind: str = "service") -> Optional[str]:
+def write_entity_qml(project_dir: os.PathLike[str] | str,
+                     entity: Dict[str, Any]) -> Optional[str]:
     """Give an entity its own file, unless it has one. Returns the path when it wrote one.
 
     Every entity has one from the moment it exists, before it owns or consumes anything. An
     entity that is in synqt.yaml with an empty directory beside it is an entity nobody can
     open, and it was the state every plain service used to start in.
     """
-    relative = entity_qml_path(name, kind)
+    if entity.get("kind") == "client":
+        return write_client_main(project_dir, entity)
+    relative = appmodel.entity_file_path(entity)
     target = Path(project_dir) / relative
     if target.exists():
         return None
-    if kind == "client":
-        return write_client_main(project_dir, name)
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(entity_singleton(name), encoding="utf-8")
+    target.write_text(entity_singleton(str(entity.get("name") or "")), encoding="utf-8")
     return relative
 
 
@@ -233,16 +224,20 @@ def scaffold(parent_dir: os.PathLike[str] | str, name: str, *,
         raise NewProjectError(f"{root} already exists and is not empty")
     root.mkdir(parents=True, exist_ok=True)
 
+    # Named for what they are rather than for their kind, because the kind is already the
+    # folder they sit in: the client is `client/app/`, the edge is `web/edge/`. An entity
+    # called `web` would land in `web/web/`, and every entity of that kind after it would
+    # have to explain why it was not allowed the same name.
     entities: List[Dict[str, Any]] = [
-        {"name": "client", "kind": "client", "targets": ["wasm"]},
+        {"name": "app", "kind": "client", "targets": ["wasm"]},
         # The edge ships with TLS to the browser already configured, pointing at the
         # conventional place for the certificate. `synqt dev` runs plaintext on localhost
         # and ignores it; `synqt build --release` and `synqt serve` require either this or
         # public.tls_terminated_upstream, so a new project meets that rule from its first
         # release build rather than discovering it at the deployment.
-        {"name": "web", "kind": "service", "capability": "web_edge",
-         "tls": {"cert_file": "certs/web/fullchain.pem",
-                 "key_file": "certs/web/privkey.pem"}},
+        {"name": "edge", "kind": "service", "capability": "web_edge",
+         "tls": {"cert_file": "certs/edge/fullchain.pem",
+                 "key_file": "certs/edge/privkey.pem"}},
     ]
     config = _config(name, entities)
     if auth:
@@ -250,10 +245,8 @@ def scaffold(parent_dir: os.PathLike[str] | str, name: str, *,
         config["entities"][1]["identity"] = True
     (root / "synqt.yaml").write_text(yaml.safe_dump(config, sort_keys=False))
 
-    for folder in ("client", "web", "shared"):
-        (root / folder).mkdir(exist_ok=True)
     for entity in entities:
-        write_entity_qml(root, entity["name"], entity.get("kind", "service"))
+        write_entity_qml(root, entity)
 
     (root / ".gitignore").write_text(
         "# SynQt: never commit mesh private keys, the toolchain cache, or build outputs\n"

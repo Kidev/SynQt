@@ -18,7 +18,7 @@ from typing import Any, Dict, List, Optional
 
 import yaml
 
-from synqt import addcontract, newproject, yamledit
+from synqt import addcontract, appmodel, newproject, yamledit
 
 # Family -> the providers bundled for it (default first). This is the list the C++ family
 # factories accept, and the only place it is written down: `synqt add entity` offers these
@@ -172,7 +172,7 @@ def entity_block(name: str, blueprint: str, provider: Optional[str]) -> Dict[str
         if chosen in _EXTERNAL:
             block["provider"] = _EXTERNAL[chosen]["block"](name, _EXTERNAL[chosen]["secret_env"])
         elif blueprint == "relational":
-            block["settings"] = {"file": f"{name}/data/app.db",
+            block["settings"] = {"file": f"{appmodel.entity_dir(block)}/data/app.db",
                                  "journal_mode": "wal", "busy_timeout_ms": 5000}
         else:
             block["provider"] = {"name": chosen}
@@ -219,9 +219,9 @@ def scaffold(project_dir: os.PathLike[str] | str, name: str, blueprint: str,
     # The entity folder, the entity's own file + a Source stub; relational gets a schema file
     # too. The two QML files answer different questions: the entity's own is what this entity
     # is, and the Source is one surface it exposes.
-    entity_dir = root / name
+    entity_dir = root / appmodel.entity_dir(block)
     entity_dir.mkdir(parents=True, exist_ok=True)
-    newproject.write_entity_qml(root, name)
+    newproject.write_entity_qml(root, block)
     (entity_dir / f"{stub}.qml").write_text(_source_stub(blueprint, name))
     if blueprint == "relational":
         (entity_dir / "schema.sql").write_text(

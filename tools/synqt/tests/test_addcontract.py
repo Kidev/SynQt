@@ -17,17 +17,21 @@ project:
   name: app
 
 entities:
-  - name: client
+  - name: app
     kind: client
 
   # The edge, the only entity a browser reaches.
-  - name: web
+  - name: edge
     kind: service
     capability: web_edge
 
-  - name: api
+  - name: feeds
     kind: service
+    blueprint: api
 """
+
+# Where the `feeds` entity's files go: its blueprint's folder, then its own name.
+FEEDS = "api/feeds"
 
 
 class AddConnectPointTest(unittest.TestCase):
@@ -38,11 +42,11 @@ class AddConnectPointTest(unittest.TestCase):
 
     def test_the_connect_point_lands_with_the_owner_and_consumers_it_was_given(self):
         root = self._project()
-        addcontract.scaffold_connect_point(root, "prices", owner="api",
-                                           consumers=["web"], contract="Prices")
+        addcontract.scaffold_connect_point(root, "prices", owner="feeds",
+                                           consumers=["edge"], contract="Prices")
         point = yaml.safe_load((root / "synqt.yaml").read_text())["connect_points"][0]
-        self.assertEqual(point["owner"], "api")
-        self.assertEqual(point["consumers"], ["web"])
+        self.assertEqual(point["owner"], "feeds")
+        self.assertEqual(point["consumers"], ["edge"])
         self.assertEqual(point["contract"], "Prices")
         self.assertEqual(point["instance"], "shared")
 
@@ -52,25 +56,25 @@ class AddConnectPointTest(unittest.TestCase):
         explaining a topology is worse than one that refuses to run.
         """
         root = self._project()
-        addcontract.scaffold_connect_point(root, "prices", owner="api",
-                                           consumers=["web"], contract="Prices")
+        addcontract.scaffold_connect_point(root, "prices", owner="feeds",
+                                           consumers=["edge"], contract="Prices")
         text = (root / "synqt.yaml").read_text()
         self.assertIn("# Hand written, and it stays.", text)
         self.assertIn("# The edge, the only entity a browser reaches.", text)
 
     def test_everything_it_was_not_asked_to_change_is_byte_for_byte_what_it_was(self):
         root = self._project()
-        addcontract.scaffold_connect_point(root, "prices", owner="api",
-                                           consumers=["web"], contract="Prices")
+        addcontract.scaffold_connect_point(root, "prices", owner="feeds",
+                                           consumers=["edge"], contract="Prices")
         text = (root / "synqt.yaml").read_text()
         self.assertTrue(text.startswith(WRITTEN_BY_HAND.rstrip("\n")))
 
     def test_a_second_connect_point_joins_the_first(self):
         root = self._project()
-        addcontract.scaffold_connect_point(root, "prices", owner="api",
-                                           consumers=["web"], contract="Prices")
-        addcontract.scaffold_connect_point(root, "auction", owner="web",
-                                           consumers=["client"], contract="Auction",
+        addcontract.scaffold_connect_point(root, "prices", owner="feeds",
+                                           consumers=["edge"], contract="Prices")
+        addcontract.scaffold_connect_point(root, "auction", owner="edge",
+                                           consumers=["app"], contract="Auction",
                                            instance="per_session")
         points = yaml.safe_load((root / "synqt.yaml").read_text())["connect_points"]
         self.assertEqual([p["name"] for p in points], ["prices", "auction"])
@@ -80,7 +84,7 @@ class AddConnectPointTest(unittest.TestCase):
         root = self._project()
         with self.assertRaises(addcontract.AddContractError):
             addcontract.scaffold_connect_point(root, "prices", owner="nobody",
-                                               consumers=["web"], contract="Prices")
+                                               consumers=["edge"], contract="Prices")
         self.assertEqual((root / "synqt.yaml").read_text(), WRITTEN_BY_HAND)
 
     def test_the_owner_gets_an_empty_source_to_implement(self):
@@ -90,21 +94,21 @@ class AddConnectPointTest(unittest.TestCase):
         at the path the runtime resolves when the configuration does not name another.
         """
         root = self._project()
-        message = addcontract.scaffold_connect_point(root, "prices", owner="api",
-                                                     consumers=["web"], contract="Prices")
-        source = (root / "api" / "Prices.qml").read_text()
+        message = addcontract.scaffold_connect_point(root, "prices", owner="feeds",
+                                                     consumers=["edge"], contract="Prices")
+        source = (root / FEEDS / "Prices.qml").read_text()
         self.assertIn("Prices {", source)
         self.assertIn("SPDX-License-Identifier: Apache-2.0", source)
         self.assertIn("Caller", source)
-        self.assertIn("api/Prices.qml", message)
+        self.assertIn(f"{FEEDS}/Prices.qml", message)
 
     def test_a_source_somebody_has_already_written_is_left_alone(self):
         root = self._project()
-        (root / "api").mkdir()
-        (root / "api" / "Prices.qml").write_text("// mine\nPricesSource {\n}\n")
-        addcontract.scaffold_connect_point(root, "prices", owner="api",
-                                           consumers=["web"], contract="Prices")
-        self.assertEqual((root / "api" / "Prices.qml").read_text(),
+        (root / FEEDS).mkdir(parents=True)
+        (root / FEEDS / "Prices.qml").write_text("// mine\nPricesSource {\n}\n")
+        addcontract.scaffold_connect_point(root, "prices", owner="feeds",
+                                           consumers=["edge"], contract="Prices")
+        self.assertEqual((root / FEEDS / "Prices.qml").read_text(),
                          "// mine\nPricesSource {\n}\n")
 
     def test_a_source_rooted_at_the_wrong_type_is_reported_rather_than_rewritten(self):
@@ -114,58 +118,63 @@ class AddConnectPointTest(unittest.TestCase):
         that now is better than hearing it from the entity at start-up.
         """
         root = self._project()
-        (root / "api").mkdir()
-        (root / "api" / "Prices.qml").write_text(
+        (root / FEEDS).mkdir(parents=True)
+        (root / FEEDS / "Prices.qml").write_text(
             "import QtQuick\n\n// A comment naming PricesSource, which is not the root.\n"
             "QtObject {\n}\n")
-        message = addcontract.scaffold_connect_point(root, "prices", owner="api",
-                                                     consumers=["web"], contract="Prices")
+        message = addcontract.scaffold_connect_point(root, "prices", owner="feeds",
+                                                     consumers=["edge"], contract="Prices")
         self.assertIn("QtObject", message)
-        self.assertIn("PricesSource", message)
-        self.assertIn("QtObject {", (root / "api" / "Prices.qml").read_text())
+        self.assertIn("Prices", message)
+        self.assertIn("QtObject {", (root / FEEDS / "Prices.qml").read_text())
 
     def test_a_contract_name_qml_cannot_use_is_refused_before_anything_is_written(self):
         root = self._project()
         for refused in ("prices", "Cache", "Prices List"):
             with self.subTest(contract=refused):
                 with self.assertRaises(addcontract.AddContractError):
-                    addcontract.scaffold_connect_point(root, "prices", owner="api",
-                                                       consumers=["web"], contract=refused)
+                    addcontract.scaffold_connect_point(root, "prices", owner="feeds",
+                                                       consumers=["edge"], contract=refused)
         self.assertEqual((root / "synqt.yaml").read_text(), WRITTEN_BY_HAND)
-        self.assertFalse((root / "api").exists())
+        self.assertFalse((root / FEEDS).exists())
 
     def test_a_duplicate_name_is_refused(self):
         root = self._project()
-        addcontract.scaffold_connect_point(root, "prices", owner="api",
-                                           consumers=["web"], contract="Prices")
+        addcontract.scaffold_connect_point(root, "prices", owner="feeds",
+                                           consumers=["edge"], contract="Prices")
         with self.assertRaises(addcontract.AddContractError):
-            addcontract.scaffold_connect_point(root, "prices", owner="web",
-                                               consumers=["client"], contract="Other")
+            addcontract.scaffold_connect_point(root, "prices", owner="edge",
+                                               consumers=["app"], contract="Other")
 
 
 class AddContractTest(unittest.TestCase):
-    def test_the_scaffolded_contract_declares_a_type_for_every_model_role(self):
+    def _project(self) -> Path:
         root = Path(tempfile.mkdtemp())
-        addcontract.scaffold_contract(root, "Items")
-        text = (root / "shared" / "Items.syn").read_text()
+        (root / "synqt.yaml").write_text(WRITTEN_BY_HAND)
+        return root
+
+    def test_the_scaffolded_contract_declares_a_type_for_every_model_role(self):
+        root = self._project()
+        addcontract.scaffold_contract(root, "Items", owner="feeds")
+        text = (root / FEEDS / "Items.syn").read_text()
         self.assertIn("model rows(int id, string text)", text)
         self.assertIn("SPDX-License-Identifier: Apache-2.0", text)
 
     def test_it_refuses_to_overwrite_a_contract_that_is_already_there(self):
-        root = Path(tempfile.mkdtemp())
-        addcontract.scaffold_contract(root, "Items")
+        root = self._project()
+        addcontract.scaffold_contract(root, "Items", owner="feeds")
         with self.assertRaises(addcontract.AddContractError):
-            addcontract.scaffold_contract(root, "Items")
+            addcontract.scaffold_contract(root, "Items", owner="feeds")
 
     def test_a_lower_case_contract_is_refused_rather_than_generating_an_unusable_type(self):
         """`items` would generate `itemsSource`, and QML has no way to instantiate a type
         whose name begins in lower case, so the project would compile and then fail to
         load. The name is checked where it is chosen.
         """
-        root = Path(tempfile.mkdtemp())
+        root = self._project()
         with self.assertRaises(addcontract.AddContractError):
-            addcontract.scaffold_contract(root, "items")
-        self.assertFalse((root / "shared").exists())
+            addcontract.scaffold_contract(root, "items", owner="feeds")
+        self.assertFalse((root / FEEDS).exists())
 
 
 if __name__ == "__main__":

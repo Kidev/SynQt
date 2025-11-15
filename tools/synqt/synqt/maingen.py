@@ -54,7 +54,7 @@ def string_list_literal(values: List[str]) -> str:
                      for value in values)
 
 
-def _singleton_registrations(entity_name: str, singletons: List[str]) -> str:
+def _singleton_registrations(entity_dir: str, singletons: List[str]) -> str:
     """C++ registering each entity singleton QML by path, in the "SynQt" module."""
     if not singletons:
         return ""
@@ -63,7 +63,7 @@ def _singleton_registrations(entity_name: str, singletons: List[str]) -> str:
         lines.append(
             "    qmlRegisterSingletonType(QUrl::fromLocalFile(\n"
             "        qmlDir + QStringLiteral(\"/%s/%s.qml\")), \"SynQt\", 1, 0, \"%s\");"
-            % (cxx_string_literal(entity_name), cxx_string_literal(type_name),
+            % (cxx_string_literal(entity_dir), cxx_string_literal(type_name),
                cxx_string_literal(type_name)))
     return "\n".join(lines)
 
@@ -666,7 +666,8 @@ def render_edge_main(config: Dict[str, Any], edge: Dict[str, Any],
             mesh_owners.append(owner)
     scope_literal = string_list_literal(appmodel.scope_vocab(config))
     hierarchical_literal = "true" if appmodel.scopes_hierarchical(config) else "false"
-    singleton_section = _singleton_registrations(name, singletons or [])
+    singleton_section = _singleton_registrations(appmodel.entity_dir(edge),
+                                                 singletons or [])
     # Cross-origin isolation is forced on by a multi-threaded client (it cannot get
     # SharedArrayBuffer otherwise) and can also be set on its own; the edge then serves
     # COOP/COEP and adds worker-src 'self' blob: to the CSP (pitfall 13).
@@ -758,7 +759,7 @@ def render_edge_main(config: Dict[str, Any], edge: Dict[str, Any],
         instance = ("InstanceMode::PerSession"
                     if cp.get("instance") == "per_session" else "InstanceMode::Shared")
         var = re.sub(r"[^0-9A-Za-z]", "", cp_name) or "connectPoint"
-        server_file = f"{name}/{contract}.qml"
+        server_file = cp.get("server") or appmodel.source_path(edge, contract)
         # The declared scope is the barrier that decides whether this connect point is
         # acquired for a session at all (webedge.cpp checks it before creating the
         # Source), so it has to be carried here or the gate the topology declares does
@@ -823,7 +824,8 @@ def render_edge_main(config: Dict[str, Any], edge: Dict[str, Any],
         config.pages.append({page});
     }}""")
         pages_section = (
-            f'    config.pagesDir = qmlDir + QStringLiteral("/{name}/pages");\n'
+            f'    config.pagesDir = qmlDir + '
+            f'QStringLiteral("/{appmodel.entity_dir(edge)}/pages");\n'
             + "\n".join(page_blocks))
     else:
         pages_section = ""
@@ -975,7 +977,8 @@ def render_service_main(config: Dict[str, Any], entity: Dict[str, Any],
             '    parser.addOption(qmlDirOption);')
         qml_dir_resolve = (
             "\n    const QString qmlDir{QDir{parser.value(qmlDirOption)}.absolutePath()};\n"
-            + _singleton_registrations(name, singletons) + "\n")
+            + _singleton_registrations(appmodel.entity_dir(entity), singletons)
+            + "\n")
         qml_dir_includes = "\n#include <QDir>\n#include <QUrl>"
     else:
         qml_dir_option = ""

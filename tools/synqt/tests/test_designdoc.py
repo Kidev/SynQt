@@ -1,7 +1,8 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-"""synqt.yaml and shared/*.syn, as the one JSON model the editor and the inference share."""
+"""synqt.yaml and the project's contracts, as the one JSON model the editor and the
+inference share."""
 
 from __future__ import annotations
 
@@ -18,27 +19,27 @@ EXAMPLES = Path(__file__).resolve().parents[3] / "examples"
 
 def test_gavel_reads_as_three_entities_and_three_links():
     document = designdoc.read(EXAMPLES / "gavel")
-    assert [e["name"] for e in document["entities"]] == ["client", "web", "database"]
+    assert [e["name"] for e in document["entities"]] == ["app", "edge", "books"]
     assert [l["name"] for l in document["links"]] == ["auction", "hall", "ledger"]
 
 
 def test_an_entity_carries_what_the_editor_draws_it_with():
     document = designdoc.read(EXAMPLES / "gavel")
-    web = next(e for e in document["entities"] if e["name"] == "web")
+    web = next(e for e in document["entities"] if e["name"] == "edge")
     assert web["kind"] == "service"
     assert web["capability"] == "web_edge"
     assert web["identity"] is True
-    database = next(e for e in document["entities"] if e["name"] == "database")
+    database = next(e for e in document["entities"] if e["name"] == "books")
     assert database["blueprint"] == "relational"
-    client = next(e for e in document["entities"] if e["name"] == "client")
+    client = next(e for e in document["entities"] if e["name"] == "app")
     assert client["targets"] == ["wasm"]
 
 
 def test_a_link_carries_its_owner_consumers_and_instance():
     document = designdoc.read(EXAMPLES / "gavel")
     ledger = next(l for l in document["links"] if l["name"] == "ledger")
-    assert ledger["owner"] == "database"
-    assert ledger["consumers"] == ["web"]
+    assert ledger["owner"] == "books"
+    assert ledger["consumers"] == ["edge"]
     assert ledger["instance"] == "per_peer"
 
 
@@ -77,20 +78,20 @@ def test_members_keep_the_order_they_were_written_in():
     """A diff of a contract is read by a human. Regrouping the members by kind would show
     every one of them as moved the first time the editor touched a file it did not write.
     """
-    members = designdoc.parse_contract(EXAMPLES / "arena" / "shared" / "Arena.syn")
+    members = designdoc.parse_contract(EXAMPLES / "arena" / "web" / "edge" / "Arena.syn")
     assert [m["name"] for m in members] == [
         "roundEndsAt", "blobs", "board", "pellets", "champions", "steer", "ping",
         "eaten", "roundEnded"]
 
 
 def test_render_contract_round_trips_a_parsed_one():
-    members = designdoc.parse_contract(EXAMPLES / "arena" / "shared" / "Arena.syn")
+    members = designdoc.parse_contract(EXAMPLES / "arena" / "web" / "edge" / "Arena.syn")
     rendered = designdoc.render_contract("Arena", members)
     assert designdoc.parse_from_text(rendered, "Arena") == members
 
 
 def test_a_rendered_contract_carries_the_licence_header_every_source_file_carries():
-    members = designdoc.parse_contract(EXAMPLES / "gavel" / "shared" / "Auction.syn")
+    members = designdoc.parse_contract(EXAMPLES / "gavel" / "web" / "edge" / "Auction.syn")
     rendered = designdoc.render_contract("Auction", members)
     assert "SPDX-License-Identifier: Apache-2.0" in rendered
     assert "prop int highBid" in rendered
@@ -98,12 +99,12 @@ def test_a_rendered_contract_carries_the_licence_header_every_source_file_carrie
 
 def test_a_contract_that_does_not_parse_is_refused_by_name(tmp_path):
     project = tmp_path / "app"
-    (project / "shared").mkdir(parents=True)
+    (project / "web" / "edge").mkdir(parents=True)
     (project / "synqt.yaml").write_text(
-        "entities:\n  - name: web\n    kind: service\n    capability: web_edge\n"
-        "connect_points:\n  - name: broken\n    contract: Broken\n    owner: web\n"
+        "entities:\n  - name: edge\n    kind: service\n    capability: web_edge\n"
+        "connect_points:\n  - name: broken\n    contract: Broken\n    owner: edge\n"
         "    consumers: []\n")
-    (project / "shared" / "Broken.syn").write_text("contract Broken { prop\n")
+    (project / "web" / "edge" / "Broken.syn").write_text("contract Broken { prop\n")
     with pytest.raises(designdoc.DesignDocError) as caught:
         designdoc.read(project)
     assert "Broken.syn" in str(caught.value)
@@ -163,18 +164,18 @@ def test_the_browser_is_placed_left_of_the_edge_and_the_edge_left_of_the_rest():
     """
     document = designdoc.read(EXAMPLES / "gavel")
     at = {e["name"]: e["x"] for e in document["entities"]}
-    assert at["client"] < at["web"] < at["database"]
+    assert at["app"] < at["edge"] < at["books"]
 
 
 def test_to_config_gives_back_the_topology_it_was_read_from():
     document = designdoc.read(EXAMPLES / "gavel")
     config = designdoc.to_config(document)
-    assert [e["name"] for e in config["entities"]] == ["client", "web", "database"]
-    web = next(e for e in config["entities"] if e["name"] == "web")
+    assert [e["name"] for e in config["entities"]] == ["app", "edge", "books"]
+    web = next(e for e in config["entities"] if e["name"] == "edge")
     assert web["capability"] == "web_edge"
     ledger = next(p for p in config["connect_points"] if p["name"] == "ledger")
-    assert ledger["owner"] == "database"
-    assert ledger["consumers"] == ["web"]
+    assert ledger["owner"] == "books"
+    assert ledger["consumers"] == ["edge"]
     assert ledger["instance"] == "per_peer"
 
 
@@ -189,7 +190,6 @@ def test_to_config_keeps_what_the_document_does_not_model():
     config = designdoc.to_config(document, base=base)
     arena = next(p for p in config["connect_points"] if p["name"] == "arena")
     assert arena["scope"] == "player"
-    assert arena["server"] == "web/Arena.qml"
     assert config["scopes"]["order"] == ["anonymous", "player"]
 
 

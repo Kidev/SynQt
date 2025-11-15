@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Optional
 
 import yaml
 
-from synqt import qmlscan, yamledit
+from synqt import appmodel, qmlscan, yamledit
 
 _CONTRACT_TEMPLATE = """// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 // SPDX-License-Identifier: Apache-2.0
@@ -33,7 +33,7 @@ import QtQuick
 import SynQt
 
 // Owner of the "{point}" connect point. Its props, models and signals are the ones declared
-// in shared/{contract}.syn, and nothing undeclared ever reaches a consumer. A slot a consumer
+// in {contract}.syn beside it, and nothing undeclared ever reaches a consumer. A slot a consumer
 // calls arrives here with `Caller` set to whoever called it: authorize that caller first,
 // then act. This file is where the rule lives; a check in a consumer's UI is a courtesy, not
 // a guard.
@@ -62,8 +62,8 @@ def check_qml_name(name: str) -> str:
     """`name` back, or an error saying why it cannot name a QML type.
 
     A contract name is also a file name and a QML type name (``Items`` becomes
-    ``shared/Items.syn``, ``ItemsSource`` in QML, and ``ItemsSourceHelper`` in C++), so a
-    name QML cannot use is refused here rather than at the far end of a build.
+    ``Items.syn`` in its owner's folder, ``Items`` in QML, and ``ItemsSourceHelper`` in
+    C++), so a name QML cannot use is refused here rather than at the far end of a build.
     """
     if not name or not name.isascii() or not name.isidentifier() or not name[0].isupper():
         raise AddContractError(
@@ -77,14 +77,20 @@ def check_qml_name(name: str) -> str:
     return name
 
 
-def source_path(owner: str, contract: str) -> str:
-    """Where the owner-side Source for a connect point lives when nothing says otherwise.
+def owner_entity(project_dir: os.PathLike[str] | str, owner: str) -> Dict[str, Any]:
+    """The entity block for an owner named in a command, read from the project.
 
-    The default the runtime resolves (``topologywriter`` writes it into the entity topology
-    and the edge's generated main hands it to WebEdge), so a file written at this path is
-    the file that will be loaded.
+    Where an entity's files go depends on what kind of entity it is, so a command given a
+    bare name has to look the entity up before it can write anything beside it.
     """
-    return f"{owner}/{contract}.qml"
+    config_path = Path(project_dir) / "synqt.yaml"
+    config: Dict[str, Any] = {}
+    if config_path.exists():
+        config = yaml.safe_load(config_path.read_text()) or {}
+    for entity in config.get("entities") or []:
+        if isinstance(entity, dict) and entity.get("name") == owner:
+            return entity
+    raise AddContractError(f"unknown entity '{owner}'")
 
 
 def _declaration(member: Dict[str, Any]) -> str:
@@ -130,7 +136,7 @@ def source_stub(contract: str, point: str,
                                    declared=f"\n{declared}\n" if declared else "")
 
 
-def write_source(project_dir: os.PathLike[str] | str, owner: str, contract: str, *,
+def write_source(project_dir: os.PathLike[str] | str, owner: Dict[str, Any], contract: str, *,
                  point: str, path: Optional[str] = None,
                  members: Optional[List[Dict[str, Any]]] = None) -> Optional[str]:
     """Write the owner-side Source for a connect point, unless there is one already.
@@ -140,7 +146,7 @@ def write_source(project_dir: os.PathLike[str] | str, owner: str, contract: str,
     cannot host, and it fails at start-up rather than at the moment the point was added, so
     the empty file is written with the point rather than left to be remembered.
     """
-    relative = path or source_path(owner, contract)
+    relative = path or appmodel.source_path(owner, contract)
     target = Path(project_dir) / relative
     if target.exists():
         return None
@@ -149,36 +155,37 @@ def write_source(project_dir: os.PathLike[str] | str, owner: str, contract: str,
     return relative
 
 
-def _root_note(project_dir: os.PathLike[str] | str, owner: str,
+def _root_note(project_dir: os.PathLike[str] | str, owner: Dict[str, Any],
                contract: str) -> List[str]:
     """A word about a Source file that is there but is not one.
 
     The likeliest way to get here is the stub `synqt add entity` writes: it demonstrates
     the blueprint's helper and is rooted at QtObject, which is not something an owner can
-    host a connect point with. `synqt check` refuses it either way; saying so now saves the
+    host a connect point with. `synqt check` refuses it either way. Saying so now saves the
     trip.
     """
-    relative = source_path(owner, contract)
+    relative = appmodel.source_path(owner, contract)
     source = Path(project_dir) / relative
     root = qmlscan.root_type(source.read_text(encoding="utf-8", errors="replace"))
-    if root is None or root == f"{contract}Source":
+    if root is None or root == contract:
         return []
     return [f"  - {relative} is rooted at '{root}'. A connect point Source has to be "
-            f"rooted at '{contract}Source'; change it, or point this connect point at "
+            f"rooted at '{contract}'; change it, or point this connect point at "
             "another file with 'server:'."]
 
 
-def scaffold_contract(project_dir: os.PathLike[str] | str, name: str) -> str:
+def scaffold_contract(project_dir: os.PathLike[str] | str, name: str, *, owner: str) -> str:
     check_qml_name(name)
-    shared = Path(project_dir) / "shared"
-    shared.mkdir(parents=True, exist_ok=True)
-    path = shared / f"{name}.syn"
+    entity = owner_entity(project_dir, owner)
+    relative = appmodel.contract_path(entity, name)
+    path = Path(project_dir) / relative
     if path.exists():
         raise AddContractError(f"{path} already exists")
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(_CONTRACT_TEMPLATE.format(name=name))
-    return (f"Scaffolded shared/{name}.syn.\n"
+    return (f"Scaffolded {relative}.\n"
             f"  - Wire it into a connect point: synqt add connect-point <name> "
-            f"--contract {name} --owner <entity> --consumers <a,b>")
+            f"--contract {name} --owner {owner} --consumers <a,b>")
 
 
 def scaffold_connect_point(project_dir: os.PathLike[str] | str, name: str, *,
@@ -210,7 +217,8 @@ def scaffold_connect_point(project_dir: os.PathLike[str] | str, name: str, *,
         config_path.read_text(), "connect_points",
         {"name": name, "contract": contract, "owner": owner,
          "consumers": consumers, "instance": instance}))
-    written = write_source(project_dir, owner, contract, point=name)
+    owning = owner_entity(project_dir, owner)
+    written = write_source(project_dir, owning, contract, point=name)
     steps = [f"Added connect point '{name}' (owner {owner}, "
              f"consumers {', '.join(consumers)}, instance {instance}). Deny-by-default: "
              "only listed consumers may acquire it."]
@@ -218,9 +226,10 @@ def scaffold_connect_point(project_dir: os.PathLike[str] | str, name: str, *,
         steps.append(f"  - Wrote {written}, empty. Fill in the slots there and authorize "
                      "Caller in every one of them.")
     else:
-        steps.extend(_root_note(project_dir, owner, contract)
-                     or [f"  - {source_path(owner, contract)} is already there; authorize "
-                         "Caller in every slot it implements."])
-    if not (Path(project_dir) / "shared" / f"{contract}.syn").exists():
-        steps.append(f"  - Declare what crosses: synqt add contract {contract}")
+        steps.extend(_root_note(project_dir, owning, contract)
+                     or [f"  - {appmodel.source_path(owning, contract)} is already there; "
+                         "authorize Caller in every slot it implements."])
+    if not (Path(project_dir) / appmodel.contract_path(owning, contract)).exists():
+        steps.append(f"  - Declare what crosses: synqt add contract {contract} "
+                     f"--owner {owner}")
     return "\n".join(steps)

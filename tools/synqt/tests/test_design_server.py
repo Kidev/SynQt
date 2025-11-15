@@ -111,7 +111,7 @@ def assets(tmp_path, monkeypatch):
 def test_the_project_reads_back_as_a_design_document(server):
     base, _ = server
     body = _json(_get(f"{base}/api/project"))
-    assert [e["name"] for e in body["document"]["entities"]] == ["client", "web", "database"]
+    assert [e["name"] for e in body["document"]["entities"]] == ["app", "edge", "books"]
     assert "findings" in body
     assert body["ok"] is True
 
@@ -120,20 +120,20 @@ def test_the_project_reads_back_the_contract_behind_every_link(server):
     base, _ = server
     body = _json(_get(f"{base}/api/project"))
     ledger = next(link for link in body["document"]["links"] if link["name"] == "ledger")
-    assert ledger["owner"] == "database"
+    assert ledger["owner"] == "books"
     assert ledger["members"]
 
 
 def test_infer_reads_the_contracts_back_out_of_the_qml(server):
     base, project = server
-    before = (project / "shared" / "Auction.syn").read_text()
+    before = (project / "web" / "edge" / "Auction.syn").read_text()
     body = _json(_post(f"{base}/api/infer", {}))
     auction = next(link for link in body["document"]["links"] if link["name"] == "auction")
     assert {member["name"] for member in auction["members"]} >= {"itemName", "placeBid"}
     assert body["document"]["sourceHash"] == designdoc.source_hash(project)
     assert body["typedBy"] in ("ts", "heuristic")
     # It reads and answers. Writing a contract is what applying a change set does.
-    assert (project / "shared" / "Auction.syn").read_text() == before
+    assert (project / "web" / "edge" / "Auction.syn").read_text() == before
 
 
 # The guard
@@ -218,7 +218,7 @@ def test_validate_answers_without_touching_the_project(server):
     before = (project / "synqt.yaml").read_text()
     document = designdoc.read(project)
     ledger = next(link for link in document["links"] if link["name"] == "ledger")
-    ledger["consumers"] = ["web", "client"]
+    ledger["consumers"] = ["edge", "app"]
     body = _json(_post(f"{base}/api/validate", {"document": document}))
     assert body["ok"] is False
     assert any(message.startswith("error:") for message in body["findings"])
@@ -231,9 +231,9 @@ def test_a_plan_says_what_it_would_do_before_it_does_any_of_it(server):
     document["entities"].append({"id": "new", "name": "api", "kind": "service",
                                  "blueprint": "jobs", "x": 400, "y": 40})
     body = _json(_post(f"{base}/api/plan", {"document": document}))
-    assert "api/Schedule.qml" in [change["path"] for change in body["changes"]]
+    assert "jobs/api/Schedule.qml" in [change["path"] for change in body["changes"]]
     assert body["digest"] and body["diff"]
-    assert not (project / "api").exists()
+    assert not (project / "jobs" / "api").exists()
 
 
 def test_apply_refuses_a_digest_that_does_not_match(server):
@@ -247,7 +247,7 @@ def test_apply_refuses_a_digest_that_does_not_match(server):
                                  "blueprint": "jobs", "x": 400, "y": 40})
     assert _refused(f"{base}/api/apply", data={"document": document,
                                                "digest": "stale"}) == 409
-    assert not (project / "api").exists()
+    assert not (project / "jobs" / "api").exists()
 
 
 def test_plan_then_apply_writes_the_change(server):
@@ -258,7 +258,7 @@ def test_plan_then_apply_writes_the_change(server):
     plan = _json(_post(f"{base}/api/plan", {"document": document}))
     body = _json(_post(f"{base}/api/apply", {"document": document,
                                              "digest": plan["digest"]}))
-    assert (project / "api" / "Schedule.qml").is_file()
+    assert (project / "jobs" / "api" / "Schedule.qml").is_file()
     assert [e["name"] for e in _config(project)["entities"]][-1] == "api"
     assert body["applied"]
     assert [e["name"] for e in body["document"]["entities"]][-1] == "api"
@@ -276,7 +276,7 @@ def test_applying_keeps_where_the_boxes_were_put(server):
     plan = _json(_post(f"{base}/api/plan", {"document": document}))
     _post(f"{base}/api/apply", {"document": document, "digest": plan["digest"]})
     places = json.loads(designdoc.layout_path(project).read_text())["entities"]
-    assert places["client"]["x"] == 137
+    assert places["app"]["x"] == 137
     assert places["api"] == {"x": 400, "y": 40}
     assert designdoc.read(project)["entities"][0]["x"] == 137
 
@@ -289,12 +289,12 @@ def test_apply_refuses_a_design_that_does_not_pass_check(server):
     base, project = server
     document = designdoc.read(project)
     ledger = next(link for link in document["links"] if link["name"] == "ledger")
-    ledger["consumers"] = ["web", "client"]
+    ledger["consumers"] = ["edge", "app"]
     plan = _json(_post(f"{base}/api/plan", {"document": document}))
     assert plan["ok"] is False
     assert _refused(f"{base}/api/apply", data={"document": document,
                                                "digest": plan["digest"]}) == 400
-    assert _config(project)["connect_points"][2]["consumers"] == ["web"]
+    assert _config(project)["connect_points"][2]["consumers"] == ["edge"]
 
 
 def test_a_body_that_is_not_a_document_is_refused_rather_than_guessed_at(server):
@@ -397,7 +397,7 @@ def test_a_project_whose_qml_cannot_be_read_back_is_refused_with_the_reason(serv
     base, _ = server
 
     def unreadable(*arguments, **named):
-        raise design.infer.InferError("shared/Auction.syn does not parse")
+        raise design.infer.InferError("web/edge/Auction.syn does not parse")
 
     monkeypatch.setattr(design.infer, "collect", unreadable)
     assert _refused(f"{base}/api/infer", data={}) == 400

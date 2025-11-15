@@ -71,21 +71,26 @@ def test_a_string_literal_does_not_import():
 
 
 def _project(tmp_path: Path) -> Path:
-    (tmp_path / "client").mkdir()
-    (tmp_path / "web" / "pages").mkdir(parents=True)
+    (tmp_path / "client" / "app").mkdir(parents=True)
+    (tmp_path / "web" / "edge" / "pages").mkdir(parents=True)
     return tmp_path
+
+
+def _dirs(root: Path):
+    """The two folders route_file resolves against: the client's, and the edge's."""
+    return root / "client" / "app", root / "web" / "edge"
 
 
 def test_a_view_resolves_under_the_client_directory(tmp_path):
     root = _project(tmp_path)
-    resolved = graphics.route_file({"path": "/", "view": "Home.qml"}, root, "web")
-    assert resolved == root / "client" / "Home.qml"
+    resolved = graphics.route_file({"path": "/", "view": "Home.qml"}, *_dirs(root))
+    assert resolved == root / "client" / "app" / "Home.qml"
 
 
 def test_a_remote_page_resolves_under_the_edge_pages_directory(tmp_path):
     root = _project(tmp_path)
-    resolved = graphics.route_file({"path": "/c", "remote": "Campaign.qml"}, root, "web")
-    assert resolved == root / "web" / "pages" / "Campaign.qml"
+    resolved = graphics.route_file({"path": "/c", "remote": "Campaign.qml"}, *_dirs(root))
+    assert resolved == root / "web" / "edge" / "pages" / "Campaign.qml"
 
 
 # Merging the scan with the declaration
@@ -93,55 +98,55 @@ def test_a_remote_page_resolves_under_the_edge_pages_directory(tmp_path):
 
 def test_an_undeclared_route_takes_the_scan_and_says_so(tmp_path):
     root = _project(tmp_path)
-    (root / "client" / "Arena.qml").write_text("import QtQuick3D\nView3D {}")
+    (root / "client" / "app" / "Arena.qml").write_text("import QtQuick3D\nView3D {}")
     value, messages = graphics.route_requirement(
-        {"path": "/arena", "view": "Arena.qml"}, root, "web")
+        {"path": "/arena", "view": "Arena.qml"}, *_dirs(root))
     assert value == graphics.ACCELERATED
     assert any("/arena" in m and "graphics: accelerated" in m for m in messages)
 
 
 def test_an_undeclared_plain_route_is_silent(tmp_path):
     root = _project(tmp_path)
-    (root / "client" / "Home.qml").write_text("import QtQuick\nItem {}")
+    (root / "client" / "app" / "Home.qml").write_text("import QtQuick\nItem {}")
     value, messages = graphics.route_requirement(
-        {"path": "/", "view": "Home.qml"}, root, "web")
+        {"path": "/", "view": "Home.qml"}, *_dirs(root))
     assert value == graphics.ANY
     assert messages == []
 
 
 def test_a_declaration_wins_over_a_scan_that_disagrees(tmp_path):
     root = _project(tmp_path)
-    (root / "client" / "Arena.qml").write_text("import QtQuick3D\nView3D {}")
+    (root / "client" / "app" / "Arena.qml").write_text("import QtQuick3D\nView3D {}")
     value, messages = graphics.route_requirement(
-        {"path": "/arena", "view": "Arena.qml", "graphics": "software"}, root, "web")
+        {"path": "/arena", "view": "Arena.qml", "graphics": "software"}, *_dirs(root))
     assert value == graphics.ANY
     assert any("following the declaration" in m for m in messages)
 
 
 def test_a_declaration_wins_when_the_scan_saw_nothing(tmp_path):
-    # The Loader case: the scan cannot see what the page pulls in at run time.
+    # The Loader case. The scan cannot see what the page pulls in at run time.
     root = _project(tmp_path)
-    (root / "client" / "Gallery.qml").write_text("import QtQuick\nLoader {}")
+    (root / "client" / "app" / "Gallery.qml").write_text("import QtQuick\nLoader {}")
     value, messages = graphics.route_requirement(
-        {"path": "/g", "view": "Gallery.qml", "graphics": "accelerated"}, root, "web")
+        {"path": "/g", "view": "Gallery.qml", "graphics": "accelerated"}, *_dirs(root))
     assert value == graphics.ACCELERATED
     assert any("following the declaration" in m for m in messages)
 
 
 def test_an_agreeing_declaration_is_silent(tmp_path):
     root = _project(tmp_path)
-    (root / "client" / "Arena.qml").write_text("import QtQuick3D\nView3D {}")
+    (root / "client" / "app" / "Arena.qml").write_text("import QtQuick3D\nView3D {}")
     value, messages = graphics.route_requirement(
-        {"path": "/arena", "view": "Arena.qml", "graphics": "accelerated"}, root, "web")
+        {"path": "/arena", "view": "Arena.qml", "graphics": "accelerated"}, *_dirs(root))
     assert value == graphics.ACCELERATED
     assert messages == []
 
 
 def test_an_unknown_value_is_reported_and_the_scan_decides(tmp_path):
     root = _project(tmp_path)
-    (root / "client" / "Home.qml").write_text("import QtQuick\nItem {}")
+    (root / "client" / "app" / "Home.qml").write_text("import QtQuick\nItem {}")
     value, messages = graphics.route_requirement(
-        {"path": "/", "view": "Home.qml", "graphics": "webgl"}, root, "web")
+        {"path": "/", "view": "Home.qml", "graphics": "webgl"}, *_dirs(root))
     assert value == graphics.ANY
     assert any("not accelerated or software" in m for m in messages)
 
@@ -149,7 +154,7 @@ def test_an_unknown_value_is_reported_and_the_scan_decides(tmp_path):
 def test_an_unreadable_file_is_reported_and_treated_as_software(tmp_path):
     root = _project(tmp_path)
     value, messages = graphics.route_requirement(
-        {"path": "/", "view": "Missing.qml"}, root, "web")
+        {"path": "/", "view": "Missing.qml"}, *_dirs(root))
     assert value == graphics.ANY
     assert any("could not be read" in m for m in messages)
 
@@ -160,8 +165,9 @@ def test_an_unreadable_file_is_reported_and_treated_as_software(tmp_path):
 def test_lint_reports_a_route_the_scan_decided(tmp_path):
     from synqt import check
     root = _project(tmp_path)
-    (root / "client" / "Arena.qml").write_text("import QtQuick3D\nView3D {}")
-    config = {"entities": [{"name": "web", "capability": "web_edge"}],
+    (root / "client" / "app" / "Arena.qml").write_text("import QtQuick3D\nView3D {}")
+    config = {"entities": [{"name": "app", "kind": "client"},
+                           {"name": "edge", "capability": "web_edge"}],
               "routes": [{"path": "/arena", "view": "Arena.qml"}]}
     messages = check.lint_graphics(config, root)
     assert any(m.startswith("warn:") and "/arena" in m for m in messages)
@@ -170,8 +176,9 @@ def test_lint_reports_a_route_the_scan_decided(tmp_path):
 def test_lint_is_silent_when_every_route_is_plain(tmp_path):
     from synqt import check
     root = _project(tmp_path)
-    (root / "client" / "Home.qml").write_text("import QtQuick\nItem {}")
-    config = {"entities": [{"name": "web", "capability": "web_edge"}],
+    (root / "client" / "app" / "Home.qml").write_text("import QtQuick\nItem {}")
+    config = {"entities": [{"name": "app", "kind": "client"},
+                           {"name": "edge", "capability": "web_edge"}],
               "routes": [{"path": "/", "view": "Home.qml"}]}
     assert check.lint_graphics(config, root) == []
 
@@ -181,15 +188,15 @@ def test_lint_is_silent_when_every_route_is_plain(tmp_path):
 
 def _config(routes):
     return {"project": {"name": "app"},
-            "entities": [{"name": "client", "kind": "client"},
-                         {"name": "web", "capability": "web_edge"}],
+            "entities": [{"name": "app", "kind": "client"},
+                         {"name": "edge", "capability": "web_edge"}],
             "routes": routes}
 
 
 def test_a_plain_route_emits_the_literal_it_always_did(tmp_path):
     from synqt import maingen
     root = _project(tmp_path)
-    (root / "client" / "Home.qml").write_text("import QtQuick\nItem {}")
+    (root / "client" / "app" / "Home.qml").write_text("import QtQuick\nItem {}")
     config, _ = graphics.resolve(_config([{"path": "/", "view": "Home.qml"}]), root)
     rendered = maingen.render_client_main(config, "app")
     assert "GraphicsRequirement" not in rendered
@@ -198,7 +205,7 @@ def test_a_plain_route_emits_the_literal_it_always_did(tmp_path):
 def test_an_accelerated_route_carries_the_requirement(tmp_path):
     from synqt import maingen
     root = _project(tmp_path)
-    (root / "client" / "Arena.qml").write_text("import QtQuick3D\nView3D {}")
+    (root / "client" / "app" / "Arena.qml").write_text("import QtQuick3D\nView3D {}")
     config, _ = graphics.resolve(_config([{"path": "/arena", "view": "Arena.qml"}]), root)
     rendered = maingen.render_client_main(config, "app")
     assert "GraphicsRequirement::Accelerated" in rendered
@@ -207,7 +214,7 @@ def test_an_accelerated_route_carries_the_requirement(tmp_path):
 def test_an_accelerated_remote_page_carries_it_to_the_edge(tmp_path):
     from synqt import maingen
     root = _project(tmp_path)
-    (root / "web" / "pages" / "Tour.qml").write_text("import QtQuick3D\nView3D {}")
+    (root / "web" / "edge" / "pages" / "Tour.qml").write_text("import QtQuick3D\nView3D {}")
     config, _ = graphics.resolve(_config([{"path": "/tour", "remote": "Tour.qml"}]), root)
     edge = config["entities"][1]
     rendered = maingen.render_edge_main(config, edge, [])
@@ -217,7 +224,7 @@ def test_an_accelerated_remote_page_carries_it_to_the_edge(tmp_path):
 def test_a_plain_remote_page_emits_no_graphics_line(tmp_path):
     from synqt import maingen
     root = _project(tmp_path)
-    (root / "web" / "pages" / "Tour.qml").write_text("import QtQuick\nItem {}")
+    (root / "web" / "edge" / "pages" / "Tour.qml").write_text("import QtQuick\nItem {}")
     config, _ = graphics.resolve(_config([{"path": "/tour", "remote": "Tour.qml"}]), root)
     edge = config["entities"][1]
     rendered = maingen.render_edge_main(config, edge, [])
@@ -227,7 +234,7 @@ def test_a_plain_remote_page_emits_no_graphics_line(tmp_path):
 def test_the_generated_client_selects_the_backend_before_the_application(tmp_path):
     from synqt import maingen
     root = _project(tmp_path)
-    (root / "client" / "Home.qml").write_text("import QtQuick\nItem {}")
+    (root / "client" / "app" / "Home.qml").write_text("import QtQuick\nItem {}")
     config, _ = graphics.resolve(_config([{"path": "/", "view": "Home.qml"}]), root)
     rendered = maingen.render_client_main(config, "app")
     select = rendered.index("GraphicsProbe::selectBackend()")
@@ -238,7 +245,7 @@ def test_the_generated_client_selects_the_backend_before_the_application(tmp_pat
 def test_the_generated_client_exposes_the_graphics_accessor(tmp_path):
     from synqt import maingen
     root = _project(tmp_path)
-    (root / "client" / "Home.qml").write_text("import QtQuick\nItem {}")
+    (root / "client" / "app" / "Home.qml").write_text("import QtQuick\nItem {}")
     config, _ = graphics.resolve(_config([{"path": "/", "view": "Home.qml"}]), root)
     rendered = maingen.render_client_main(config, "app")
     assert 'setContextProperty(QStringLiteral("Graphics")' in rendered
@@ -249,16 +256,16 @@ def test_the_generated_client_exposes_the_graphics_accessor(tmp_path):
 def test_no_notice_override_emits_no_line(tmp_path):
     from synqt import maingen
     root = _project(tmp_path)
-    (root / "client" / "Home.qml").write_text("import QtQuick\nItem {}")
+    (root / "client" / "app" / "Home.qml").write_text("import QtQuick\nItem {}")
     config, _ = graphics.resolve(_config([{"path": "/", "view": "Home.qml"}]), root)
-    # attachTo() always reads the field; what must be absent is the assignment.
+    # attachTo() always reads the field. What must be absent is the assignment.
     assert "config.graphicsNoticeUrl = " not in maingen.render_client_main(config, "app")
 
 
 def test_a_notice_override_becomes_a_module_url(tmp_path):
     from synqt import maingen
     root = _project(tmp_path)
-    (root / "client" / "Home.qml").write_text("import QtQuick\nItem {}")
+    (root / "client" / "app" / "Home.qml").write_text("import QtQuick\nItem {}")
     base = _config([{"path": "/", "view": "Home.qml"}])
     base["client"] = {"graphics_notice": "MyNotice.qml"}
     config, _ = graphics.resolve(base, root)
@@ -269,7 +276,8 @@ def test_a_notice_override_becomes_a_module_url(tmp_path):
 def test_lint_refuses_a_notice_that_is_not_there(tmp_path):
     from synqt import check
     root = _project(tmp_path)
-    config = {"entities": [{"name": "web", "capability": "web_edge"}],
+    config = {"entities": [{"name": "app", "kind": "client"},
+                           {"name": "edge", "capability": "web_edge"}],
               "client": {"graphics_notice": "Missing.qml"}, "routes": []}
     assert any(m.startswith("error:") for m in check.lint_graphics(config, root))
 
@@ -277,7 +285,8 @@ def test_lint_refuses_a_notice_that_is_not_there(tmp_path):
 def test_lint_accepts_a_notice_that_is_there(tmp_path):
     from synqt import check
     root = _project(tmp_path)
-    (root / "client" / "MyNotice.qml").write_text("import QtQuick\nItem {}")
-    config = {"entities": [{"name": "web", "capability": "web_edge"}],
+    (root / "client" / "app" / "MyNotice.qml").write_text("import QtQuick\nItem {}")
+    config = {"entities": [{"name": "app", "kind": "client"},
+                           {"name": "edge", "capability": "web_edge"}],
               "client": {"graphics_notice": "MyNotice.qml"}, "routes": []}
     assert check.lint_graphics(config, root) == []

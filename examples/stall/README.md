@@ -8,7 +8,7 @@ the cart) is compiled into the client bundle. The marketing campaign pages are d
 the web edge on demand, so a merchandiser changes a campaign without a client rebuild.
 
 ```
-browser --wss+session--> web edge --mesh mTLS--> stock (database)
+browser --wss+session--> web edge --mesh mTLS--> stock
    grid, cart            owns the live catalog   owns the durable stock
    campaign pages        delivers campaign pages
 ```
@@ -17,17 +17,17 @@ browser --wss+session--> web edge --mesh mTLS--> stock (database)
 
 | Route | Kind | File |
 | --- | --- | --- |
-| `/` | compiled-in view | `client/Home.qml` |
-| `/cart` | compiled-in view | `client/Cart.qml` |
-| `/c/:campaign` | edge-delivered, seeded | `web/pages/Campaign.qml` |
-| `/members` | edge-delivered, `scope: user` | `web/pages/Members.qml` |
+| `/` | compiled-in view | `client/app/Home.qml` |
+| `/cart` | compiled-in view | `client/app/Cart.qml` |
+| `/c/:campaign` | edge-delivered, seeded | `web/edge/pages/Campaign.qml` |
+| `/members` | edge-delivered, `scope: user` | `web/edge/pages/Members.qml` |
 
 A `view:` route ships in the client bundle. A `remote:` route is delivered by the edge at
 navigation time over the same authenticated wss link, so it inherits the upgrade verifier,
 the session gating, and `Caller`, and it can be added or changed without rebuilding the
 client.
 
-## The page seed (`web/campaign-seed.qml`)
+## The page seed (`web/edge/campaign-seed.qml`)
 
 `/c/:campaign` is public and one `Campaign.qml` serves every slug. Its `seed:` hook runs on
 the edge, after the route's scope check, and turns the slug into a headline: `summer-sale`
@@ -43,7 +43,7 @@ sends the fresh seed even when the page body itself is unchanged (a `notModified
 
 1. `synqt check` passes on this project (the happy path).
 2. Adding the client as a consumer of the `inventory` connect point fails `synqt
-   check`: a connect point the browser consumes must be owned by a web edge; the database
+   check`: a connect point the browser consumes must be owned by a web edge; the stock entity
    is not, so the browser can never reach the durable stock.
 3. An under-scoped fetch of `/members` returns `forbidden` with no markup, no hash, and
    no seed; a signed-in (`user`) fetch of the same page succeeds.
@@ -56,10 +56,10 @@ sends the fresh seed even when the page body itself is unchanged (a `notModified
 
 ## A note on the connect-point Sources
 
-`web/Catalog.qml` owns the browser-facing `offers` model and fills it from the database's
+`web/edge/Catalog.qml` owns the browser-facing `offers` model and fills it from the stock entity's
 `itemStocked` signal with `setOffers`, which keeps only the declared roles, so the internal
-`sku` the database keys on never crosses to the browser. `stock/Inventory.qml` owns the
+`sku` the stock entity keys on never crosses to the browser. `db/relational/stock/Inventory.qml` owns the
 durable stock and authorizes the calling entity itself: only the web edge
-(`Caller.entity === "web"`) may `restock`. The `catalog` connect
+(`Caller.entity === "edge"`) may `restock`. The `catalog` connect
 point is `shared` (one live list for every browser); the `inventory` connect point is
 `per_peer` over mutual TLS, reachable only by the edge.

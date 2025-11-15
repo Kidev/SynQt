@@ -204,26 +204,26 @@ Item {
 
 def _project(tmp_path):
     """A two entity project on disk: the owner's Source, and a client that reads it."""
-    (tmp_path / "web").mkdir()
-    (tmp_path / "client").mkdir()
-    (tmp_path / "web" / "Auction.qml").write_text(OWNER, encoding="utf-8")
-    (tmp_path / "client" / "Main.qml").write_text(CLIENT, encoding="utf-8")
+    (tmp_path / "web" / "edge").mkdir(parents=True)
+    (tmp_path / "client" / "app").mkdir(parents=True)
+    (tmp_path / "web" / "edge" / "Auction.qml").write_text(OWNER, encoding="utf-8")
+    (tmp_path / "client" / "app" / "Main.qml").write_text(CLIENT, encoding="utf-8")
     (tmp_path / "synqt.yaml").write_text(textwrap.dedent("""\
         project:
           name: gavel
         """), encoding="utf-8")
-    return {"entities": [{"name": "client", "kind": "client", "targets": ["wasm"]},
-                         {"name": "web", "kind": "service", "capability": "web_edge"}],
-            "connect_points": [{"name": "auction", "contract": "Auction", "owner": "web",
-                                "consumers": ["client"], "server": "web/Auction.qml"}]}
+    return {"entities": [{"name": "app", "kind": "client", "targets": ["wasm"]},
+                         {"name": "edge", "kind": "service", "capability": "web_edge"}],
+            "connect_points": [{"name": "auction", "contract": "Auction",
+                                "owner": "edge", "consumers": ["app"]}]}
 
 
 def test_collect_unions_both_ends_and_lists_the_consumers(tmp_path):
     edges = infer.collect(tmp_path, _project(tmp_path))
     assert len(edges) == 1
     auction = _edge(edges, "auction")
-    assert (auction.owner, auction.contract, auction.consumers) == ("web", "Auction",
-                                                                    ("client",))
+    assert (auction.owner, auction.contract, auction.consumers) == ("edge", "Auction",
+                                                                    ("app",))
     # The owner alone knows about its models and signals; the client alone proves
     # nothing new about them, and neither end is dropped for it.
     assert {m.name for m in auction.members} >= {"itemName", "reserve", "placeBid",
@@ -231,8 +231,8 @@ def test_collect_unions_both_ends_and_lists_the_consumers(tmp_path):
     place = _member(auction.members, "placeBid")
     assert [(p.type, p.name) for p in place.params] == [("real", "amount")]
     assert place.certain is True
-    assert any(where.startswith("web/Auction.qml:") for where in place.evidence)
-    assert any(where.startswith("client/Main.qml:") for where in place.evidence)
+    assert any(where.startswith("web/edge/Auction.qml:") for where in place.evidence)
+    assert any(where.startswith("client/app/Main.qml:") for where in place.evidence)
 
 
 def test_a_type_proven_on_one_end_wins_over_a_guess_on_the_other(tmp_path):
@@ -262,8 +262,8 @@ def _copy(tmp_path, name):
 def test_gavel_is_rediscovered_from_its_qml():
     edges = _example("gavel")
     assert set(edges) == {"auction", "hall", "ledger"}
-    assert edges["ledger"].owner == "database"
-    assert edges["ledger"].consumers == ("web",)
+    assert edges["ledger"].owner == "books"
+    assert edges["ledger"].consumers == ("edge",)
     assert "recordWinner" in _names(edges["ledger"].members, "slot")
     assert {"placeBid", "closeLot"} <= _names(edges["auction"].members, "slot")
     assert "highBid" in _names(edges["auction"].members, "prop")
@@ -296,8 +296,8 @@ def test_a_rendered_contract_parses_as_a_contract():
 
 def test_every_rendered_member_says_which_file_it_came_from():
     rendered = infer.render_syn(_example("gavel")["auction"])
-    assert "web/Auction.qml:" in rendered
-    assert "client/Main.qml:" in rendered
+    assert "web/edge/Auction.qml:" in rendered
+    assert "client/app/Main.qml:" in rendered
 
 
 def test_write_refuses_an_existing_contract_without_force(tmp_path):
@@ -307,24 +307,24 @@ def test_write_refuses_an_existing_contract_without_force(tmp_path):
     # gavel already has its contracts written. Overwriting a hand-written file with a
     # guess is the one thing this command must never do without being told to.
     with pytest.raises(infer.InferError) as caught:
-        infer.write(project, edges)
-    assert "shared/Auction.syn" in str(caught.value)
+        infer.write(project, edges, config)
+    assert "web/edge/Auction.syn" in str(caught.value)
     assert "--force" in str(caught.value)
 
-    written = infer.write(project, edges, force=True)
-    assert "shared/Auction.syn" in written
-    assert designdoc.parse_contract(project / "shared" / "Auction.syn")
+    written = infer.write(project, edges, config, force=True)
+    assert "web/edge/Auction.syn" in written
+    assert designdoc.parse_contract(project / "web" / "edge" / "Auction.syn")
 
 
 def test_write_creates_the_contracts_that_were_never_written(tmp_path):
     project = _copy(tmp_path, "gavel")
     config = yaml.safe_load((project / "synqt.yaml").read_text(encoding="utf-8"))
-    for existing in (project / "shared").glob("*.syn"):
+    for existing in project.rglob("*.syn"):
         existing.unlink()
-    written = infer.write(project, infer.collect(project, config))
-    assert sorted(written) == ["shared/Auction.syn", "shared/Hall.syn",
-                               "shared/Ledger.syn"]
-    assert designdoc.parse_contract(project / "shared" / "Hall.syn")
+    written = infer.write(project, infer.collect(project, config), config)
+    assert sorted(written) == ["db/relational/books/Ledger.syn",
+                               "web/edge/Auction.syn", "web/edge/Hall.syn"]
+    assert designdoc.parse_contract(project / "web" / "edge" / "Hall.syn")
 
 
 def test_the_json_output_is_a_design_document(tmp_path):
@@ -332,15 +332,15 @@ def test_the_json_output_is_a_design_document(tmp_path):
     config = configmod.load(project)
     document = infer.to_document(infer.collect(project, config), config)
     assert document["version"] == designdoc.VERSION
-    assert {entity["name"] for entity in document["entities"]} == {"client", "web",
-                                                                   "database"}
+    assert {entity["name"] for entity in document["entities"]} == {"app", "edge", "books"}
     assert {link["name"] for link in document["links"]} == {"auction", "hall", "ledger"}
 
     # The editor's own shape, so the same document the inference produces is one the
     # planner can be handed: what it reports is the drift between the two.
     plan = designplan.compute(project, document)
     assert plan.ok, "\n".join(plan.findings)
-    assert all(change.path.startswith("shared/") for change in plan.changes)
+    assert all(change.path.endswith(".syn") for change in plan.changes), \
+        [change.path for change in plan.changes]
 
 
 def test_the_report_names_the_link_and_what_is_left_to_check(tmp_path):

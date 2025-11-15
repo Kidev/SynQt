@@ -109,13 +109,11 @@ def qml_uri(project_name: str) -> str:
 
 # where things live
 
-# The folder an entity of each kind sits in. These are the words a developer uses, and they
-# are the same words `blueprint:` takes, so a project's tree and its configuration read the
-# same. Several entities of one kind share their folder, which is what a folder is for: a
-# project with two databases has one `db/relational/`, not two directories with one file each.
-# A plain `service` is the exception and gets a folder of its own name, because it is somebody
-# building their own kind of entity and there is no shared kind to put it with.
-FOLDERS: Dict[str, str] = {
+# The folder entities of each kind sit in. These are the words a developer uses, and they are
+# the same words `blueprint:` takes, so a project's tree and its configuration read the same.
+# Entities of one kind sit together: a project with two databases has one `db/relational/`
+# holding both, not two unrelated directories.
+KIND_FOLDERS: Dict[str, str] = {
     "client": "client",
     "web_edge": "web",
     "relational": "db/relational",
@@ -123,21 +121,44 @@ FOLDERS: Dict[str, str] = {
     "cache": "cache",
     "api": "api",
     "jobs": "jobs",
+    "service": "service",
 }
 
-#: Where every contract lives, under a mirror of the tree beside it: a contract goes in the
-#: folder its owner sits in, so `shared/api/` is everything the api entities can say.
-SHARED = "shared"
+#: The kind an entity falls back to when it declares no blueprint it recognises.
+PLAIN_KIND = "service"
+
+
+def kind_dir(entity: Dict[str, Any]) -> str:
+    """The folder entities of this one's kind share, relative to the project root.
+
+    A bare `kind: web_edge` counts as an edge here even though :func:`is_edge` reads only
+    `capability:`. It is the spelling some projects use, the page lints already accept it,
+    and putting such an entity's pages somewhere other than the folder those lints look in
+    would report every one of them as missing.
+    """
+    kind = str(entity.get("kind") or "")
+    if kind == "client":
+        return KIND_FOLDERS["client"]
+    if is_edge(entity) or kind == "web_edge":
+        return KIND_FOLDERS["web_edge"]
+    blueprint = str(entity.get("blueprint") or "")
+    return KIND_FOLDERS.get(blueprint) or KIND_FOLDERS[PLAIN_KIND]
 
 
 def entity_dir(entity: Dict[str, Any]) -> str:
-    """The folder an entity's files live in, relative to the project root."""
-    if entity.get("kind") == "client":
-        return FOLDERS["client"]
-    if is_edge(entity):
-        return FOLDERS["web_edge"]
-    blueprint = str(entity.get("blueprint") or "")
-    return FOLDERS.get(blueprint) or str(entity.get("name") or "")
+    """The folder one entity's files live in, relative to the project root.
+
+    Everything an entity is made of is in here and nowhere else. The entity file, the Source
+    of every connect point it owns, each of those contracts, and anything its author adds
+    beside them. Its name is the entity's, so two databases never write over each other and
+    a `.qml` dropped in the folder is importable from the entity without any wiring.
+
+    An entity with no name at all gets the bare kind folder, because the generator has to
+    put its files somewhere and a path with an empty segment in it names nothing. The
+    missing name is reported by validate() rather than a second time here.
+    """
+    name = str(entity.get("name") or "")
+    return f"{kind_dir(entity)}/{name}" if name else kind_dir(entity)
 
 
 def entity_dirs(config: Dict[str, Any]) -> Dict[str, str]:
@@ -146,18 +167,32 @@ def entity_dirs(config: Dict[str, Any]) -> Dict[str, str]:
             for entity in entities(config)}
 
 
-def shared_dir(entity: Dict[str, Any]) -> str:
-    """Where the contracts an entity speaks live."""
-    return f"{SHARED}/{entity_dir(entity)}"
-
-
 def contract_path(entity: Dict[str, Any], contract: str) -> str:
-    return f"{shared_dir(entity)}/{contract}.syn"
+    """Where the contract of a connect point this entity owns lives.
+
+    Beside the Source that answers it, because the two are one thing seen twice. The file is
+    still on the wire for every consumer named on the point, so changing it is a breaking
+    change even though it sits in one entity's folder.
+    """
+    return f"{entity_dir(entity)}/{contract}.syn"
 
 
 def source_path(entity: Dict[str, Any], contract: str) -> str:
     """Where the Source of a connect point this entity owns lives."""
     return f"{entity_dir(entity)}/{contract}.qml"
+
+
+def entity_file_path(entity: Dict[str, Any]) -> str:
+    """Where an entity's own QML lives: the file that entity *is*.
+
+    Distinct from a connect point's Source, which is one surface the entity exposes. A
+    client's own file is its window and has to be called `Main.qml`, because the generated
+    main.cpp loads it by that name; every other entity's is a singleton named after it.
+    """
+    if entity.get("kind") == "client":
+        return f"{entity_dir(entity)}/Main.qml"
+    name = str(entity.get("name") or "")
+    return f"{entity_dir(entity)}/{name[:1].upper()}{name[1:]}.qml"
 
 
 # entities and connect points
@@ -206,6 +241,24 @@ def contracts_of(points: List[Dict[str, Any]]) -> List[str]:
         if contract and contract not in seen:
             seen.append(contract)
     return seen
+
+
+def contract_paths(config: Dict[str, Any]) -> Dict[str, str]:
+    """Every contract in the topology, by name, with the file it is written in.
+
+    A contract sits in its owner's folder, so finding one means finding the connect point
+    that owns it. Everything that has to point a compiler at a `.syn` asks here, consumers
+    included: a consumer never holds a copy, it compiles the owner's file at the replica
+    role.
+    """
+    by_name = {str(entity.get("name") or ""): entity for entity in entities(config)}
+    found: Dict[str, str] = {}
+    for point in connect_points(config):
+        contract = point.get("contract")
+        owner = by_name.get(str(point.get("owner") or ""))
+        if contract and owner is not None and contract not in found:
+            found[str(contract)] = contract_path(owner, str(contract))
+    return found
 
 
 def all_contracts(config: Dict[str, Any]) -> List[str]:
@@ -564,11 +617,12 @@ def is_framework_point(connect_point: Dict[str, Any]) -> bool:
 
 
 def app_points(points: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Only the connect points whose contract lives in the app's ``shared/``.
+    """Only the connect points whose contract is one of the app's own files.
 
-    Everything that reaches for `shared/<Contract>.syn` (the CMake contract calls, the
-    edge's generated consumer surface) goes through this, because a framework point has no
-    such file and never will.
+    Everything that reaches for a project `.syn` (the CMake contract calls, the edge's
+    generated consumer surface) goes through this, because a framework point has no such
+    file and never will: its contract is in src/service/contracts/, compiled into
+    SynQtService.
     """
     return [cp for cp in points if not is_framework_point(cp)]
 
@@ -588,6 +642,8 @@ def auth_connect_points(config: Dict[str, Any]) -> List[Dict[str, Any]]:
     owner = provider_entity(config)
     if not owner or not identity_providers(config):
         return []
+    owning = next((entity for entity in entities(config)
+                   if entity.get("name") == owner), {"name": owner})
     consumers = [name for name in (entity.get("name") for entity in entities(config)
                                    if is_edge(entity) and identity_enabled(config, entity))
                  if name]
@@ -597,7 +653,7 @@ def auth_connect_points(config: Dict[str, Any]) -> List[Dict[str, Any]]:
              "owner": owner,
              "consumers": consumers,
              "instance": "per_peer",
-             "server": f"{owner}/{contract}.qml",
+             "server": source_path(owning, contract),
              "framework": True}
             for name, contract in _AUTH_POINTS if name not in declared]
 

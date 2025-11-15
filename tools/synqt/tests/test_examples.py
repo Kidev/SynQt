@@ -31,7 +31,7 @@ def _add_client_consumer(config, connect_point):
     mutated = copy.deepcopy(config)
     for cp in mutated["connect_points"]:
         if cp["name"] == connect_point:
-            cp.setdefault("consumers", []).append("client")
+            cp.setdefault("consumers", []).append("app")
     return mutated
 
 
@@ -43,9 +43,9 @@ class GavelCheckTest(unittest.TestCase):
         ok, messages = check.validate(self.config)
         self.assertTrue(ok, messages)
 
-    def test_client_consuming_the_database_ledger_is_refused(self):
+    def test_client_consuming_the_books_ledger_is_refused(self):
         # The tutorial's Hall-of-Fame hands-on check: the browser can reach only the edge,
-        # so consuming the database-owned `ledger` must fail `synqt check`.
+        # so consuming the books-owned `ledger` must fail `synqt check`.
         ok, messages = check.validate(_add_client_consumer(self.config, "ledger"))
         self.assertFalse(ok)
         self.assertTrue(any("ledger" in m and "web_edge" in m and m.startswith("error:")
@@ -61,9 +61,9 @@ class ArenaCheckTest(unittest.TestCase):
         ok, messages = check.validate(self.config)
         self.assertTrue(ok, messages)
 
-    def test_client_consuming_the_database_scores_is_refused(self):
+    def test_client_consuming_the_records_scores_is_refused(self):
         # The multiplayer tutorial's hands-on check: the browser reaches only the edge, so
-        # consuming the database-owned `scores` must fail `synqt check`.
+        # consuming the records-owned `scores` must fail `synqt check`.
         ok, messages = check.validate(_add_client_consumer(self.config, "scores"))
         self.assertFalse(ok)
         self.assertTrue(any("scores" in m and "web_edge" in m and m.startswith("error:")

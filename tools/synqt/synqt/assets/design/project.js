@@ -143,13 +143,45 @@ function memberLine(member) {
     return `slot ${returned}${member.name}(${params(member.params)})`;
 }
 
-// Where the owner-side Source for a connect point lives when nothing says otherwise, and
-// what goes in it. Both mirror addcontract.source_path and addcontract.source_stub, which
-// is what the CLI writes for the same gesture; the suite asserts the two agree, because a
-// download whose QML the CLI would not have written is a project that starts differing from
-// itself the moment somebody runs `synqt design` on it.
+// The folder entities of each kind sit in, the same table appmodel.KIND_FOLDERS holds. An
+// entity's own folder is that one, then its name: everything the entity is made of lives in
+// there and nowhere else, which is what lets a `.qml` dropped beside it be imported with no
+// wiring at all.
+const KIND_FOLDERS = {
+    client: "client",
+    web_edge: "web",
+    relational: "db/relational",
+    document: "db/document",
+    cache: "cache",
+    api: "api",
+    jobs: "jobs",
+    service: "service",
+};
+
+export function entityDir(entity) {
+    let kind = "service";
+    if ((entity.kind || "service") === "client") {
+        kind = "client";
+    } else if (entity.capability === "web_edge" || entity.web_edge) {
+        kind = "web_edge";
+    } else if (KIND_FOLDERS[entity.blueprint]) {
+        kind = entity.blueprint;
+    }
+    return `${KIND_FOLDERS[kind]}/${entity.name}`;
+}
+
+// Where the owner-side Source and the contract of a connect point live when nothing says
+// otherwise, and what goes in the Source. All three mirror appmodel.source_path,
+// appmodel.contract_path and addcontract.source_stub, which is what the CLI writes for the
+// same gesture. The suite asserts the two agree, because a download whose QML the CLI would
+// not have written is a project that starts differing from itself the moment somebody runs
+// `synqt design` on it.
 export function sourcePath(owner, contract) {
-    return `${owner}/${contract}.qml`;
+    return `${entityDir(owner)}/${contract}.qml`;
+}
+
+export function contractPath(owner, contract) {
+    return `${entityDir(owner)}/${contract}.syn`;
 }
 
 export function sourceQml(contract, point, members) {
@@ -159,7 +191,7 @@ import QtQuick
 import SynQt
 
 // Owner of the "${point}" connect point. Its props, models and signals are the ones declared
-// in shared/${contract}.syn, and nothing undeclared ever reaches a consumer. A slot a consumer
+// in ${contract}.syn beside it, and nothing undeclared ever reaches a consumer. A slot a consumer
 // calls arrives here with \`Caller\` set to whoever called it: authorize that caller first,
 // then act. This file is where the rule lives; a check in a consumer's UI is a courtesy, not
 // a guard.
@@ -234,7 +266,7 @@ export function entityFiles(design, entity) {
         if (link.owner !== entity.name || !contract) {
             continue;
         }
-        const relative = link.server || sourcePath(entity.name, contract);
+        const relative = link.server || sourcePath(entity, contract);
         if (seen.has(relative)) {
             continue;
         }
@@ -243,8 +275,8 @@ export function entityFiles(design, entity) {
                       text: link.qml || sourceQml(contract, link.name, link.members),
                       owner: entity.name, link: link.name});
     }
-    // An entity named `web` that owns a `Web` contract writes its Source at the same path its
-    // own file would take. The Source wins: it is the one of the two with a connect point
+    // An entity named `books` that owns a `Books` contract writes its Source at the same path
+    // its own file would take. The Source wins: it is the one of the two with a connect point
     // depending on it.
     if (!seen.has(own)) {
         files.push({name: own, text: entity.qml || entityQml(entity), owner: entity.name});
@@ -258,9 +290,9 @@ export function entityFiles(design, entity) {
 // that belongs to the whole entity goes and what its Sources reach for it by name.
 export function entityQmlPath(entity) {
     if ((entity.kind || "service") === "client") {
-        return `${entity.name}/Main.qml`;
+        return `${entityDir(entity)}/Main.qml`;
     }
-    return `${entity.name}/${capitalised(entity.name)}.qml`;
+    return `${entityDir(entity)}/${capitalised(entity.name)}.qml`;
 }
 
 export function entityQml(entity) {
@@ -302,14 +334,19 @@ QtObject {
 export function projectFiles(design) {
     const root = String(design.project || "app");
     const files = [{name: `${root}/synqt.yaml`, text: renderYaml(design)}];
+    const owners = new Map();
+    for (const entity of design.entities || []) {
+        owners.set(entity.name, entity);
+    }
     const written = new Set();
     for (const link of design.links || []) {
         const contract = String(link.contract || "");
-        if (!contract || written.has(contract)) {
+        const owner = owners.get(link.owner);
+        if (!contract || !owner || written.has(contract)) {
             continue;
         }
         written.add(contract);
-        files.push({name: `${root}/shared/${contract}.syn`,
+        files.push({name: `${root}/${contractPath(owner, contract)}`,
                     text: renderContract(contract, link.members)});
     }
     for (const entity of design.entities || []) {

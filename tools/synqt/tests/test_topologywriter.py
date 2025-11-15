@@ -101,8 +101,8 @@ class EntityTopologyTest(unittest.TestCase):
         self.assertEqual(topology["provider"]["password"], "env:DB_PASSWORD")
 
     def test_schema_sql_is_split_into_forward_only_steps(self):
-        (self.root / "database").mkdir(parents=True)
-        (self.root / "database" / "schema.sql").write_text(
+        (self.root / "db/relational/database").mkdir(parents=True)
+        (self.root / "db/relational/database" / "schema.sql").write_text(
             "-- forward-only migrations\n"
             "CREATE TABLE items (id INTEGER PRIMARY KEY);\n"
             "CREATE TABLE tags (id INTEGER PRIMARY KEY);\n")
@@ -125,7 +125,7 @@ class EntityTopologyTest(unittest.TestCase):
         topology = topologywriter.entity_topology(
             self.config, self.config["entities"][2], self.root, self.endpoints)
         items = next(cp for cp in topology["connect_points"] if cp["name"] == "items")
-        self.assertTrue(items["server"].endswith("database/Items.qml"))
+        self.assertTrue(items["server"].endswith("db/relational/database/Items.qml"))
 
 
 class WriteTest(unittest.TestCase):
@@ -172,15 +172,16 @@ class WriteTest(unittest.TestCase):
         config = yaml.safe_load((root / "synqt.yaml").read_text())
         config["connect_points"] = [
             {"name": "items", "owner": "relational", "contract": "Items",
-             "consumers": ["web"]}]
+             "consumers": ["edge"]}]
         (root / "synqt.yaml").write_text(yaml.safe_dump(config, sort_keys=False))
         # The declared contract has to exist on disk. Declaring `items` without writing
-        # shared/Items.syn leaves a project that cannot configure, and this test used to pass
+        # its file leaves a project that cannot configure, and this test used to pass
         # anyway: build() caught the CMake failure, returned it as a note, and carried on
         # writing the topology this asserts on. It raises now, so the fixture has to be a
         # project that really builds, which is the only version of it that proves anything.
-        (root / "shared").mkdir(exist_ok=True)
-        (root / "shared" / "Items.syn").write_text(
+        owner = root / "db" / "relational" / "relational"
+        owner.mkdir(parents=True, exist_ok=True)
+        (owner / "Items.syn").write_text(
             "// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux\n"
             "// SPDX-License-Identifier: Apache-2.0\n"
             "\n"

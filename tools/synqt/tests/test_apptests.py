@@ -26,9 +26,9 @@ CONFIG = {
     ],
     "connect_points": [
         {"name": "auction", "contract": "Auction", "owner": "web",
-         "consumers": ["client"], "server": "web/Auction.qml"},
+         "consumers": ["client"]},
         {"name": "ledger", "contract": "Ledger", "owner": "database",
-         "consumers": ["web"], "server": "database/Ledger.qml"},
+         "consumers": ["web"]},
     ],
 }
 
@@ -38,10 +38,10 @@ def _project(with_tests=True):
     root = Path(TemporaryDirectory().name)
     root.mkdir(parents=True)
     (root / "shared").mkdir()
-    (root / "client").mkdir()
-    (root / "web").mkdir()
-    (root / "database").mkdir()
-    (root / "client" / "Main.qml").write_text("import QtQuick\nWindow { }\n")
+    (root / "client" / "client").mkdir(parents=True)
+    (root / "web" / "web").mkdir(parents=True)
+    (root / "db" / "relational" / "database").mkdir(parents=True)
+    (root / "client" / "client" / "Main.qml").write_text("import QtQuick\nWindow { }\n")
     (root / "synqt.yaml").write_text(yaml.safe_dump(CONFIG, sort_keys=False))
     if with_tests:
         (root / "tests").mkdir()
@@ -90,9 +90,9 @@ class GeneratedCMakeTest(unittest.TestCase):
         # A test drives an owner, and any connect point may be the one under test.
         text = cmakegen.render_tests_cmakelists(CONFIG)
         self.assertIn('synqt_add_contract(app_tests ROLE source '
-                      'SYN "${SYNQT_APP_ROOT}/shared/Auction.syn")', text)
+                      'SYN "${SYNQT_APP_ROOT}/web/web/Auction.syn")', text)
         self.assertIn('synqt_add_contract(app_tests ROLE source '
-                      'SYN "${SYNQT_APP_ROOT}/shared/Ledger.syn")', text)
+                      'SYN "${SYNQT_APP_ROOT}/db/relational/database/Ledger.syn")', text)
         self.assertNotIn("ROLE replica", text)
 
     def test_the_target_lives_in_its_own_directory(self):

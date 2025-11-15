@@ -136,7 +136,7 @@ def _schema_steps(root: Path, entity: Dict[str, Any]) -> List[str]:
     inline = entity.get("schema")
     if isinstance(inline, list):
         return [str(step) for step in inline if str(step).strip()]
-    schema_file = root / str(entity.get("name")) / "schema.sql"
+    schema_file = root / appmodel.entity_dir(entity) / "schema.sql"
     if not schema_file.exists():
         return []
     code = "\n".join(line.split("--", 1)[0] for line in schema_file.read_text().splitlines())
@@ -153,15 +153,18 @@ def _path(path: Path) -> str:
     return path.resolve().as_posix()
 
 
-def _server_file(root: Path, connect_point: Dict[str, Any]) -> str:
+def _server_file(root: Path, connect_point: Dict[str, Any],
+                 owners: Dict[str, Dict[str, Any]]) -> str:
     """The absolute path to the owner-side Source QML (the runtime loads it only for a
     connect point this entity owns; harmless in a consumer's slice)."""
     explicit = connect_point.get("server")
     if explicit:
         return _path(root / explicit)
-    owner = connect_point.get("owner", "")
-    contract = connect_point.get("contract", "")
-    return _path(root / owner / f"{contract}.qml")
+    owner = owners.get(str(connect_point.get("owner") or ""))
+    contract = str(connect_point.get("contract") or "")
+    if owner is None:
+        return ""
+    return _path(root / appmodel.source_path(owner, contract))
 
 
 def entity_topology(config: Dict[str, Any], entity: Dict[str, Any], project_dir: Path,
@@ -197,6 +200,7 @@ def entity_topology(config: Dict[str, Any], entity: Dict[str, Any], project_dir:
     if schema:
         topology["schema"] = schema
 
+    owners = {str(one.get("name") or ""): one for one in appmodel.entities(config)}
     connect_points: List[Dict[str, Any]] = []
     for connect_point in _connect_points(config):
         owner = connect_point.get("owner")
@@ -211,7 +215,7 @@ def entity_topology(config: Dict[str, Any], entity: Dict[str, Any], project_dir:
             "contract": connect_point.get("contract", ""),
             "owner": owner,
             "consumers": consumers,
-            "server": _server_file(root, connect_point),
+            "server": _server_file(root, connect_point, owners),
             "instance": connect_point.get("instance", "shared"),
             "endpoint": endpoints.get(connect_point.get("name"),
                                       {"transport": "mtls", "host": "127.0.0.1",

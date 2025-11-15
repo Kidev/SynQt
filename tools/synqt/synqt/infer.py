@@ -24,7 +24,7 @@ import textwrap
 from pathlib import Path, PurePosixPath
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from . import designdoc, qmlscan, typebackend
+from . import appmodel, designdoc, qmlscan, typebackend
 
 #: How an owner file is told from every other QML file in an entity, without reading the
 #: configuration: its root type is the type its own name declares. `web/Auction.qml` opens
@@ -245,7 +245,7 @@ def _scan(project_dir: os.PathLike[str] | str, config: Dict[str, Any],
 
     for entity in entities:
         name = str(entity.get("name") or "")
-        for path in _entity_files(root, name):
+        for path in _entity_files(root, entity):
             relative = path.relative_to(root).as_posix()
             contract, members = scan_owner(relative, _read_text(path), types)
             if not contract:
@@ -259,7 +259,7 @@ def _scan(project_dir: os.PathLike[str] | str, config: Dict[str, Any],
         accessors = accessors_for(config, name)
         if not accessors:
             continue
-        for path in _entity_files(root, name):
+        for path in _entity_files(root, entity):
             relative = path.relative_to(root).as_posix()
             for use in scan_consumer(relative, _read_text(path), accessors, types):
                 reached.append(use)
@@ -375,17 +375,19 @@ def to_document(edges: Sequence[Edge], config: Dict[str, Any]) -> Dict[str, Any]
     }
 
 
-def write(project_dir: os.PathLike[str] | str, edges: Sequence[Edge], *,
-          force: bool = False) -> List[str]:
-    """Write a `shared/<Contract>.syn` per link, and return what was written.
+def write(project_dir: os.PathLike[str] | str, edges: Sequence[Edge],
+          config: Dict[str, Any], *, force: bool = False) -> List[str]:
+    """Write each link's contract into its owner's folder, and return what was written.
 
     A contract that is already there is somebody's own writing, and this one is a guess, so
     the whole command stops rather than overwriting any of them. Nothing is written when
     one file would be refused: a half-applied scaffold is worse to unpick than none.
     """
     root = Path(project_dir)
-    planned = [("shared/%s.syn" % contract_name(edge), edge) for edge in edges
-               if edge.members]
+    owners = {str(entity.get("name") or ""): entity
+              for entity in appmodel.entities(config)}
+    planned = [(appmodel.contract_path(owners[edge.owner], contract_name(edge)), edge)
+               for edge in edges if edge.members and edge.owner in owners]
     present = [relative for relative, _ in planned if (root / relative).exists()]
     if present and not force:
         raise InferError(
@@ -514,10 +516,12 @@ def _bucket(found: Dict[Tuple[str, str], Dict[str, Any]], owner: str, point: str
     return entry
 
 
-def _entity_files(root: Path, name: str) -> List[Path]:
+def _entity_files(root: Path, entity: Dict[str, Any]) -> List[Path]:
     """The QML an entity is built from: its own directory, never the build output."""
-    directory = root / name
-    if not name or not directory.is_dir():
+    if not entity.get("name"):
+        return []
+    directory = root / appmodel.entity_dir(entity)
+    if not directory.is_dir():
         return []
     return [path for path in sorted(directory.rglob("*.qml"))
             if not ({"build", "node_modules"} & set(path.parts))]

@@ -297,8 +297,8 @@ class NewBuildDoctorTest(unittest.TestCase):
         root = self.parent / "app"
         config = yaml.safe_load((root / "synqt.yaml").read_text())
         names = {e["name"] for e in config["entities"]}
-        self.assertEqual(names, {"client", "web"})
-        self.assertTrue((root / "client" / "Main.qml").exists())
+        self.assertEqual(names, {"app", "edge"})
+        self.assertTrue((root / "client" / "app" / "Main.qml").exists())
         self.assertTrue((root / "CMakePresets.json").exists())
         self.assertIn("synqt/mesh/*.key", (root / ".gitignore").read_text())
         self.assertIn("GPLv3", message)  # the conveyance reminder
@@ -308,9 +308,9 @@ class NewBuildDoctorTest(unittest.TestCase):
         root = self.parent / "app"
         summary = buildmod.build(root, release=True, client="wasm")
         self.assertTrue((root / "build" / "client" / "THIRD-PARTY-LICENSES").exists())
-        self.assertTrue((root / "build" / "web" / "THIRD-PARTY-LICENSES").exists())
+        self.assertTrue((root / "build" / "edge" / "THIRD-PARTY-LICENSES").exists())
         # The edge that runs identity links Network Authorization -> GPLv3, jwt-cpp noted.
-        web_license = (root / "build" / "web" / "THIRD-PARTY-LICENSES").read_text()
+        web_license = (root / "build" / "edge" / "THIRD-PARTY-LICENSES").read_text()
         self.assertIn("Network Authorization: GPL-3.0-only", web_license)
         self.assertIn("jwt-cpp: MIT", web_license)
         self.assertIn("GPLv3", summary)
@@ -408,8 +408,8 @@ class BuildEntitySelectionTest(unittest.TestCase):
         # for work that never happened. Raises before any compilation, so this one is cheap.
         with self.assertRaises(buildmod.BuildError) as caught:
             buildmod.build(self.root, entity="databse")
-        self.assertIn("client", str(caught.exception))
-        self.assertIn("web", str(caught.exception))
+        self.assertIn("app", str(caught.exception))
+        self.assertIn("edge", str(caught.exception))
 
     def test_a_failed_compile_is_an_error_and_never_a_summary_bullet(self):
         # The rule: `synqt build` must not report success for a build that did not happen.
@@ -456,8 +456,8 @@ class BuildEntitySelectionTest(unittest.TestCase):
         self.assertEqual(buildmod.built_note([], []), "nothing to compile.")
 
     def test_an_edge_only_build_makes_no_client_and_says_so(self):
-        summary = buildmod.build(self.root, entity="web")
-        self.assertTrue((self.root / "build" / "web" / "THIRD-PARTY-LICENSES").exists())
+        summary = buildmod.build(self.root, entity="edge")
+        self.assertTrue((self.root / "build" / "edge" / "THIRD-PARTY-LICENSES").exists())
         self.assertFalse((self.root / "build" / "client").exists())
         self.assertIn("Built 1 entity artifact(s)", summary)
         # The client GPLv3 reminder is about the client artifact, and no client was built.
@@ -467,8 +467,8 @@ class BuildEntitySelectionTest(unittest.TestCase):
         self.assertIn("distributing the edge binary", summary)
 
     def test_a_client_only_build_warns_about_conveyance_and_not_the_edge(self):
-        summary = buildmod.build(self.root, entity="client")
-        self.assertFalse((self.root / "build" / "web").exists())
+        summary = buildmod.build(self.root, entity="app")
+        self.assertFalse((self.root / "build" / "edge").exists())
         self.assertIn("served to every visitor", summary)
         self.assertNotIn("distributing the edge binary", summary)
 

@@ -20,13 +20,13 @@ class AddContractTest(unittest.TestCase):
         newproject.scaffold(self.root.parent, self.root.name)  # project at self.root
 
     def test_add_contract_and_connect_point(self):
-        addcontract.scaffold_contract(self.root, "Items")
-        self.assertTrue((self.root / "shared" / "Items.syn").exists())
+        addcontract.scaffold_contract(self.root, "Items", owner="edge")
+        self.assertTrue((self.root / "web" / "edge" / "Items.syn").exists())
 
-        # Wire a connect point owned by web, consumed by the (existing) web edge only.
-        addcontract.scaffold_contract(self.root, "Todo")
+        # Wire a connect point owned by the edge, consumed by nothing yet.
+        addcontract.scaffold_contract(self.root, "Todo", owner="edge")
         message = addcontract.scaffold_connect_point(
-            self.root, "todo", owner="web", consumers=[], contract="Todo",
+            self.root, "todo", owner="edge", consumers=[], contract="Todo",
             instance="per_session")
         self.assertIn("deny-by-default", message.lower())
         cps = yaml.safe_load((self.root / "synqt.yaml").read_text())["connect_points"]
@@ -42,20 +42,20 @@ class AddContractTest(unittest.TestCase):
 class ContractLintTest(unittest.TestCase):
     def setUp(self):
         self.root = Path(tempfile.mkdtemp())
-        (self.root / "shared").mkdir()
+        (self.root / "web" / "edge").mkdir(parents=True)
 
     def test_valid_contract_lints_clean(self):
-        (self.root / "shared" / "Ok.syn").write_text(
+        (self.root / "web" / "edge" / "Ok.syn").write_text(
             "contract Ok {\n  prop int count\n  slot add(string t)\n  signal changed()\n}\n")
         self.assertEqual(check.lint_contracts(self.root), [])
 
     def test_unbalanced_braces_is_an_error(self):
-        (self.root / "shared" / "Bad.syn").write_text(
+        (self.root / "web" / "edge" / "Bad.syn").write_text(
             "contract Bad {\n  prop int count\n")  # missing closing brace
         self.assertTrue(any("unbalanced braces" in e for e in check.lint_contracts(self.root)))
 
     def test_bad_member_is_an_error(self):
-        (self.root / "shared" / "Bad.syn").write_text(
+        (self.root / "web" / "edge" / "Bad.syn").write_text(
             "contract Bad {\n  prop int count\n  frobnicate x\n}\n")  # unknown member
         self.assertTrue(any("unexpected member" in e for e in check.lint_contracts(self.root)))
 
@@ -258,7 +258,7 @@ class ClientRootLintTest(unittest.TestCase):
     def setUp(self):
         self.root = Path(tempfile.mkdtemp())
         newproject.scaffold(self.root.parent, self.root.name)
-        self.main = self.root / "client" / "Main.qml"
+        self.main = self.root / "client" / "app" / "Main.qml"
 
     def _write_root(self, root_type):
         self.main.write_text(
@@ -301,10 +301,10 @@ class ConnectPointSourceLintTest(unittest.TestCase):
     def setUp(self):
         self.root = Path(tempfile.mkdtemp())
         newproject.scaffold(self.root.parent, self.root.name)
-        addcontract.scaffold_connect_point(self.root, "items", owner="client",
-                                           consumers=["client"], contract="Items")
+        addcontract.scaffold_connect_point(self.root, "items", owner="app",
+                                           consumers=["app"], contract="Items")
         self.config = yaml.safe_load((self.root / "synqt.yaml").read_text())
-        self.source = self.root / "client" / "Items.qml"
+        self.source = self.root / "client" / "app" / "Items.qml"
 
     def test_the_source_the_scaffolder_wrote_lints_clean(self):
         self.assertEqual(check.lint_connect_point_sources(self.config, self.root), [])
@@ -312,7 +312,7 @@ class ConnectPointSourceLintTest(unittest.TestCase):
     def test_a_missing_source_is_an_error_that_names_the_file(self):
         self.source.unlink()
         messages = check.lint_connect_point_sources(self.config, self.root)
-        self.assertTrue(any(m.startswith("error:") and "client/Items.qml" in m
+        self.assertTrue(any(m.startswith("error:") and "client/app/Items.qml" in m
                             for m in messages), messages)
 
     def test_a_root_that_is_not_the_contract_is_an_error(self):
@@ -516,8 +516,8 @@ class DevLaunchTest(unittest.TestCase):
         config["entities"].append({"name": "auth", "kind": "service"})
         config["identity"] = {"provider_entity": "auth"}
         config["connect_points"] = [
-            {"name": "items", "owner": "database", "consumers": ["web"]},
-            {"name": "todo", "owner": "web", "consumers": ["client"]},
+            {"name": "items", "owner": "database", "consumers": ["edge"]},
+            {"name": "todo", "owner": "edge", "consumers": ["app"]},
         ]
         (self.root / "synqt.yaml").write_text(yaml.safe_dump(config, sort_keys=False))
         self.config = config
@@ -535,7 +535,7 @@ class DevLaunchTest(unittest.TestCase):
         (bundle / "index.html").write_text("<body>\n</body>\n")
 
     def test_the_edge_serves_the_bundle_and_a_service_gets_its_topology(self):
-        edge = run.dev_command(self.root, self._entity("web"), self.config, 8080)
+        edge = run.dev_command(self.root, self._entity("edge"), self.config, 8080)
         self.assertIn("--bundle", edge)
         self.assertEqual(edge[edge.index("--bundle") + 1], str(self.root / "build" / "client"))
         self.assertEqual(edge[edge.index("--port") + 1], "8080")
@@ -549,7 +549,7 @@ class DevLaunchTest(unittest.TestCase):
         # --dev is what unlocks the stub identity provider. A service that is not holding
         # the identity engine has no business being handed it, and `synqt serve` (which
         # passes no arguments at all) is what keeps the stub out of anything that ships.
-        self.assertIn("--dev", run.dev_command(self.root, self._entity("web"),
+        self.assertIn("--dev", run.dev_command(self.root, self._entity("edge"),
                                                self.config, 8080))
         self.assertIn("--dev", run.dev_command(self.root, self._entity("auth"),
                                                self.config, 8080))
@@ -558,12 +558,12 @@ class DevLaunchTest(unittest.TestCase):
 
     def test_owners_start_before_the_edge_which_takes_the_public_port_last(self):
         order = run._launch_order(self.config)
-        self.assertEqual(order[-1], "web")
-        self.assertLess(order.index("database"), order.index("web"))
-        self.assertNotIn("client", order)   # served as files, never a process
+        self.assertEqual(order[-1], "edge")
+        self.assertLess(order.index("database"), order.index("edge"))
+        self.assertNotIn("app", order)   # served as files, never a process
 
     def test_dev_launches_every_entity_in_order_and_writes_the_reload_harness(self):
-        self._build("web", "database", "auth")
+        self._build("edge", "database", "auth")
         started = []
 
         class FakeProcess:
@@ -588,8 +588,8 @@ class DevLaunchTest(unittest.TestCase):
         with unittest.mock.patch.object(run.subprocess, "Popen", FakeProcess):
             summary = run.dev(self.root, port=port, open_browser=False, block=False)
 
-        self.assertEqual(set(started), {"database", "auth", "web"})
-        self.assertEqual(started[-1], "web")   # the edge takes the public port last
+        self.assertEqual(set(started), {"database", "auth", "edge"})
+        self.assertEqual(started[-1], "edge")   # the edge takes the public port last
         self.assertIn(f"http://127.0.0.1:{port}/", summary)
         # The live-reload hook is served with the bundle, so it has to be there before the
         # browser opens rather than after the first edit.
@@ -613,7 +613,7 @@ class DevLaunchTest(unittest.TestCase):
 
     def test_dev_without_a_web_edge_has_nothing_to_serve(self):
         config = dict(self.config)
-        config["entities"] = [e for e in self.config["entities"] if e["name"] != "web"]
+        config["entities"] = [e for e in self.config["entities"] if e["name"] != "edge"]
         (self.root / "synqt.yaml").write_text(yaml.safe_dump(config, sort_keys=False))
         self.assertIn("no web_edge entity", run.dev(self.root, open_browser=False,
                                                     block=False))

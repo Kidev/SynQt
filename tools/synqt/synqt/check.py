@@ -850,18 +850,15 @@ def _reserved_edge_paths(config: Dict[str, Any]) -> Set[str]:
     return reserved
 
 
-def _client_entity_name(config: Dict[str, Any]) -> Optional[str]:
-    """The name of the client entity, which is also the directory its QML lives in.
+def _client_folder(config: Dict[str, Any]) -> Optional[str]:
+    """The directory the client entity's QML lives in, relative to the project root.
 
-    A client entity with no name falls back to "client", because that is the directory
-    the generator will look in (cmakegen defaults the same way); reading it
-    as "no client" here would skip the view rule on a project the build still generates.
-    None means there is no client entity at all, and then no view is compiled anywhere.
+    The same answer `appmodel.entity_dir` gives the generator, so a view this rule
+    accepts is a view the build will find. None means there is no client entity at all,
+    and then no view is compiled anywhere.
     """
-    for entity in config.get("entities") or []:
-        if isinstance(entity, dict) and entity.get("kind") == "client":
-            return str(entity.get("name") or "") or "client"
-    return None
+    client = appmodel.client_entity(config)
+    return appmodel.entity_dir(client) if client else None
 
 
 def _route_view_findings(path: Any, view: Any, client: str, client_dir: Path) -> List[str]:
@@ -919,8 +916,9 @@ def lint_routes(config: Dict[str, Any],
     if not isinstance(router, dict):
         router = {}
     reserved = {_normalized_route_path(p) for p in _reserved_edge_paths(config)}
-    client = _client_entity_name(config)
+    client = _client_folder(config)
     client_dir = Path(project_dir) / client if project_dir is not None and client else None
+
 
     seen = set()
     for route in routes:
@@ -994,9 +992,23 @@ def lint_routes(config: Dict[str, Any],
     return findings
 
 
+def _edge_folder(config: Dict[str, Any]) -> str:
+    """The folder the edge's delivered pages live under, or "" when there is no edge.
+
+    Found by the name :func:`_edge_entity_name` resolves rather than by
+    `appmodel.web_edges`, because that one also recognises a bare `kind: web_edge`, and a
+    project spelling its edge that way still has its pages checked.
+    """
+    name = _edge_entity_name(config)
+    for entity in appmodel.entities(config):
+        if name and entity.get("name") == name:
+            return appmodel.entity_dir(entity)
+    return ""
+
+
 def _edge_entity_name(config: Dict[str, Any]) -> Optional[str]:
     """The name of the project's web_edge entity, also the directory its edge-delivered
-    pages live under (`<edge>/pages`, flat under the project root; there is no
+    pages live under (`<edge>/pages`, flat under the project root. There is no
     `entities/` prefix).
 
     Recognized the same way `_is_web_edge` recognizes one (`capability: web_edge` or a
@@ -1123,10 +1135,10 @@ def lint_remote_pages(config: Dict[str, Any],
             "delivered page may only import declared modules")
 
     # A route that sets both is its own "sets both" finding below, not a shadow of
-    # itself: only a *separate* view route at the same path is a real shadow.
+    # itself. Only a *separate* view route at the same path is a real shadow.
     compiled_paths = {r.get("path") for r in routes if r.get("view") and not r.get("remote")}
-    pages_dir = os.path.join(str(project_dir), edge, "pages") if project_dir is not None \
-        else None
+    pages_dir = os.path.join(str(project_dir), _edge_folder(config), "pages") \
+        if project_dir is not None else None
 
     for route in remote_routes:
         path = route.get("path", "")
@@ -1202,20 +1214,20 @@ def lint_graphics(config: Dict[str, Any],
     blank area it replaces. A declaration that disagrees with the scan is followed and
     reported, since one of the two is wrong and only the author knows which.
     """
-    edges = appmodel.web_edges(config)
-    edge_name = edges[0].get("name", "web") if edges else "web"
+    client_dir, edge_dir = graphics.route_dirs(config, project_dir)
     messages: List[str] = []
     for route in config.get("routes") or []:
         if not isinstance(route, dict):
             continue
-        _, findings = graphics.route_requirement(route, project_dir, edge_name)
+        _, findings = graphics.route_requirement(route, client_dir, edge_dir)
         messages += [f"warn: {finding}" for finding in findings]
 
     # A named notice that is not there means the one case it exists for shows nothing at
     # all, and only a browser without WebGL would ever reveal that.
     notice = ((config.get("client") or {}).get("graphics_notice") or "")
     notice = notice.strip() if isinstance(notice, str) else ""
-    if notice and not (Path(project_dir) / "client" / notice).is_file():
+    if notice and not (client_dir is not None
+                       and (client_dir / notice).is_file()):
         messages.append(
             f"error: client.graphics_notice names {notice}, which is not in the client "
             f"directory")
@@ -1292,7 +1304,7 @@ def lint_client_root(project_dir: os.PathLike[str] | str) -> List[str]:
     for entity in config.get("entities") or []:
         if not isinstance(entity, dict) or entity.get("kind") != "client":
             continue
-        main = root / str(entity.get("name", "")) / "Main.qml"
+        main = root / appmodel.entity_file_path(entity)
         if not main.is_file():
             continue
         found = _qml_root_type(main.read_text(encoding="utf-8", errors="replace"))
@@ -1308,14 +1320,15 @@ def lint_connect_point_sources(config: Dict[str, Any],
                                project_dir: os.PathLike[str] | str) -> List[str]:
     """Check that every connect point has an owner-side Source, rooted at its contract.
 
-    A connect point is two halves: the contract that says what may cross it, and the QML on
-    the owner that implements it. The runtime loads `<owner>/<Contract>.qml` unless the
-    point names another file, and a point whose file is missing, or whose root object is
-    something other than `<Contract>Source`, is a point the owner cannot host. Both fail at
-    start-up rather than at build time, which is the same shape of defect
+    A connect point is two halves. The contract that says what may cross it, and the QML on
+    the owner that implements it. The runtime loads the Source from the owner's folder
+    unless the point names another file, and a point whose file is missing, or whose root
+    object is something other than the contract, is a point the owner cannot host. Both
+    fail at start-up rather than at build time, which is the same shape of defect
     :func:`lint_client_root` exists to catch, so both are errors here.
     """
     root = Path(project_dir)
+    owners = {str(one.get("name") or ""): one for one in appmodel.entities(config)}
     messages: List[str] = []
     for point in config.get("connect_points") or []:
         if not isinstance(point, dict):
@@ -1325,7 +1338,10 @@ def lint_connect_point_sources(config: Dict[str, Any],
         contract = str(point.get("contract") or "")
         if not owner or not contract:
             continue   # validate() reports an incomplete connect point in its own words
-        relative = str(point.get("server") or f"{owner}/{contract}.qml")
+        owning = owners.get(owner)
+        if owning is None:
+            continue   # validate() reports an unknown owner in its own words
+        relative = str(point.get("server") or appmodel.source_path(owning, contract))
         source = root / relative
         if not source.is_file():
             messages.append(
@@ -1344,18 +1360,32 @@ def lint_connect_point_sources(config: Dict[str, Any],
 _CONTRACT_MEMBERS = ("prop", "model", "slot", "signal")
 
 
+def project_contracts(project_dir: os.PathLike[str] | str) -> List[Path]:
+    """Every `.syn` the project holds, wherever its author put it.
+
+    A contract lives in its owner's folder, so there is no one directory to look in, and
+    finding them by walking is what lets this lint report a `.syn` that no connect point
+    names as well as one that does not parse.
+    """
+    root = Path(project_dir)
+    if not root.is_dir():
+        return []
+    return [path for path in sorted(root.rglob("*.syn"))
+            if not ({"build", "node_modules"} & set(path.parts))
+            and not any(part.startswith(".") for part in path.relative_to(root).parts)]
+
+
 def lint_contracts(project_dir: os.PathLike[str] | str) -> List[str]:
-    """Structural lint of shared/*.syn. (The full parse runs in synqtc at build time.)"""
+    """Structural lint of the project's `.syn` files. (synqtc does the full parse.)"""
+    root = Path(project_dir)
     messages: List[str] = []
-    shared = Path(project_dir) / "shared"
-    if not shared.exists():
-        return messages
-    for syn in sorted(shared.glob("*.syn")):
+    for syn in project_contracts(project_dir):
+        where = syn.relative_to(root).as_posix()
         code = "\n".join(line.split("//", 1)[0] for line in syn.read_text().splitlines())
         if code.count("{") != code.count("}"):
-            messages.append(f"error: {syn.name}: unbalanced braces")
+            messages.append(f"error: {where}: unbalanced braces")
         if not re.search(r"\b(contract|record)\b", code):
-            messages.append(f"error: {syn.name}: declares no contract or record")
+            messages.append(f"error: {where}: declares no contract or record")
         for block in re.finditer(r"contract\s+\w+\s*\{([^}]*)\}", code, re.S):
             for line in block.group(1).splitlines():
                 statement = line.strip()
@@ -1363,7 +1393,7 @@ def lint_contracts(project_dir: os.PathLike[str] | str) -> List[str]:
                     continue
                 if statement.split()[0] not in _CONTRACT_MEMBERS:
                     messages.append(
-                        f"error: {syn.name}: unexpected member '{statement[:32]}' "
+                        f"error: {where}: unexpected member '{statement[:32]}' "
                         "(want prop/model/slot/signal)")
     return messages
 
@@ -1388,15 +1418,19 @@ def _converts(inferred: str, declared: str) -> bool:
     return families[0] == families[1]
 
 
-def _declared_members(project_dir: Path, contract: str) -> Optional[List[Dict[str, Any]]]:
-    """The members of `shared/<contract>.syn`, or None when there is no such file.
+def _declared_members(project_dir: Path, paths: Dict[str, str],
+                      contract: str) -> Optional[List[Dict[str, Any]]]:
+    """The members of a contract's file, or None when there is no such file.
 
     A contract that is not written yet is not a contract this project has drifted from,
     and one that does not parse is reported by :func:`lint_contracts` and by the build in
     their own words rather than a second time here.
     """
-    path = project_dir / "shared" / f"{contract}.syn"
-    if not contract or not path.is_file():
+    relative = paths.get(contract)
+    if not contract or not relative:
+        return None
+    path = project_dir / relative
+    if not path.is_file():
         return None
     try:
         return designdoc.parse_contract(path)
@@ -1443,9 +1477,11 @@ def lint_contract_drift(config: Dict[str, Any], project_dir: os.PathLike[str] | 
 
     points = {str(point.get("name") or ""): point
               for point in appmodel.connect_points(config)}
+    contract_files = appmodel.contract_paths(config)
     declared: Dict[str, List[Dict[str, Any]]] = {}
     for name, point in points.items():
-        members = _declared_members(root, str(point.get("contract") or ""))
+        members = _declared_members(root, contract_files,
+                                    str(point.get("contract") or ""))
         if members is not None:
             declared[name] = members
 

@@ -117,19 +117,19 @@ class AuthConnectPoints(unittest.TestCase):
 
 
 class GeneratedCMake(unittest.TestCase):
-    """No app carries a shared/Identity.syn, so nothing may ask for one."""
+    """No app carries an Identity.syn of its own, so nothing may ask for one."""
 
     def test_the_auth_entity_compiles_no_app_contract_for_its_two_points(self):
         expanded = appmodel.with_auth_connect_points(promoted_config())
         cmake = cmakegen.render_root_cmakelists(expanded, "/synqt", None)
-        self.assertNotIn("shared/Identity.syn", cmake)
-        self.assertNotIn("shared/SessionStore.syn", cmake)
+        self.assertNotIn("Identity.syn", cmake)
+        self.assertNotIn("SessionStore.syn", cmake)
         self.assertIn("qt_add_executable(auth", cmake)
 
     def test_the_edge_still_compiles_its_own_contracts(self):
         expanded = appmodel.with_auth_connect_points(promoted_config())
         cmake = cmakegen.render_root_cmakelists(expanded, "/synqt", None)
-        self.assertIn("shared/App.syn", cmake)
+        self.assertIn("web/web/App.syn", cmake)
 
 
 class AuthEntityMain(unittest.TestCase):

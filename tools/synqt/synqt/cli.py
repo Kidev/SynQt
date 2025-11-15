@@ -244,6 +244,9 @@ def build_parser() -> argparse.ArgumentParser:
     provider = add_sub.add_parser("provider"); provider.add_argument("name")
     provider.add_argument("--family", required=True)
     contract = add_sub.add_parser("contract"); contract.add_argument("name")
+    contract.add_argument("--owner", required=True,
+                          help="the entity that owns it; the contract is written in that "
+                               "entity's folder, beside the Source that answers it")
     connect_point = add_sub.add_parser("connect-point"); connect_point.add_argument("name")
     connect_point.add_argument("--owner", required=True)
     connect_point.add_argument("--consumers", default="", help="comma-separated entity names")
@@ -290,7 +293,8 @@ def _run_add(args: argparse.Namespace) -> int:
     elif args.what == "provider":
         message = addprovider.scaffold(args.project_dir, args.name, args.family)
     elif args.what == "contract":
-        message = addcontract.scaffold_contract(args.project_dir, args.name)
+        message = addcontract.scaffold_contract(args.project_dir, args.name,
+                                                owner=args.owner)
     else: # connect-point
         consumers = [c for c in args.consumers.split(",") if c]
         message = addcontract.scaffold_connect_point(
@@ -369,9 +373,11 @@ def main(argv: Optional[List[str]] = None) -> int:
             else:
                 print(infermod.report(edges, typed_by=typebackend.name_of(backend)))
                 if edges and not args.write:
-                    print("\nWrite these to shared/ with: synqt infer --write")
+                    print("\nWrite these into their owners' folders with: "
+                          "synqt infer --write")
             if args.write:
-                written = infermod.write(args.project_dir, edges, force=args.force)
+                written = infermod.write(args.project_dir, edges, config,
+                                         force=args.force)
                 # With --json the report is machine-read, so what was written is said on
                 # stderr rather than in the middle of the document.
                 for path in written:

@@ -79,7 +79,7 @@ def generate(project_dir: os.PathLike[str] | str, config: Dict[str, Any], *,
         name = entity.get("name")
         if not name:
             continue
-        entity_dir = root / name
+        entity_dir = root / appmodel.entity_dir(entity)
         entity_dir.mkdir(parents=True, exist_ok=True)
         singletons = appmodel.discover_singletons(entity_dir)
         if entity.get("kind") == "client":
@@ -93,7 +93,7 @@ def generate(project_dir: os.PathLike[str] | str, config: Dict[str, Any], *,
         else:
             source = maingen.render_service_main(config, entity, singletons)
         writer.write_if_changed(entity_dir / "main.cpp", source)
-        written.append(f"{name}/main.cpp")
+        written.append(f"{appmodel.entity_dir(entity)}/main.cpp")
 
         # The auth entity's Sources: one bridge per framework connect point it owns, from
         # the connect point's own `server:` path, so the file and the topology cannot

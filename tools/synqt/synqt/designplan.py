@@ -184,7 +184,8 @@ def _apply_entities(work: Path, current: Dict[str, Any], wanted: Dict[str, Any],
         if name not in was:
             _scaffold_entity(work, entity)
             _note(reasons, "synqt.yaml", f"'{name}' added")
-            _note(reasons, name + "/", f"scaffolded with the '{name}' entity")
+            _note(reasons, appmodel.entity_dir(entity) + "/",
+                  f"scaffolded with the '{name}' entity")
             continue
         _patch(work, "entities", name, was[name], entity, _ENTITY_FIELDS,
                _entity_field, reasons)
@@ -195,11 +196,12 @@ def _apply_entities(work: Path, current: Dict[str, Any], wanted: Dict[str, Any],
             continue
         _edit_config(work, lambda text: yamledit.remove_item(text, "entities", name))
         _note(reasons, "synqt.yaml", f"'{name}' removed")
-        directory = work / name
+        folder = appmodel.entity_dir(was[name])
+        directory = work / folder
         if directory.is_dir():
             shutil.rmtree(directory)
-            removed.add(name)
-            _note(reasons, name, f"the '{name}' entity was removed")
+            removed.add(folder)
+            _note(reasons, folder, f"the '{name}' entity was removed")
     return removed
 
 
@@ -230,7 +232,7 @@ def _scaffold_entity(work: Path, entity: Dict[str, Any]) -> None:
     # Every entity gets its own file, whichever of the three ways it arrived. `synqt add
     # entity` writes one too, so an entity drawn here and one added from the command line are
     # the same entity.
-    newproject.write_entity_qml(work, entity["name"], kind)
+    newproject.write_entity_qml(work, entity)
     fields = {key: _entity_field(entity, key) for key in _ENTITY_FIELDS
               if _entity_field(entity, key) is not None}
     fields.pop("blueprint", None)
@@ -246,10 +248,16 @@ def _apply_links(work: Path, current: Dict[str, Any], wanted: Dict[str, Any],
     now = _by_name(wanted["links"])
     points = {str(point.get("name")): point for point in appmodel.connect_points(base)}
     alive = {entity["name"] for entity in wanted["entities"]}
+    # Where a link's two files go is decided by the entity that owns it, so the owners are
+    # resolved once here: both the drawing's entities (an owner added in the same edit is
+    # not in the config yet) and the ones already configured.
+    owners = {str(entity.get("name") or ""): entity
+              for entity in list(appmodel.entities(base)) + list(current["entities"])
+              + list(wanted["entities"])}
 
     for name, link in now.items():
-        _write_contract(work, link, was.get(name), reasons)
-        _write_source(work, link, points, alive, reasons)
+        _write_contract(work, link, was.get(name), owners, reasons)
+        _write_source(work, link, points, alive, owners, reasons)
         if name not in was:
             block = {key: _link_field(link, key) for key in _LINK_FIELDS
                      if _link_field(link, key) is not None}
@@ -270,27 +278,36 @@ def _apply_links(work: Path, current: Dict[str, Any], wanted: Dict[str, Any],
     # A contract nothing carries any more goes with the last link that carried it, whether
     # the link was removed or just pointed at a different contract.
     kept = {link["contract"] for link in now.values() if link.get("contract")}
-    orphaned = {link["contract"] for link in was.values() if link.get("contract")} - kept
-    for contract in sorted(orphaned):
-        source = work / "shared" / f"{contract}.syn"
+    orphaned = {(link["contract"], link.get("owner"))
+                for link in was.values() if link.get("contract")}
+    for contract, owner in sorted(orphaned):
+        if contract in kept:
+            continue
+        owning = owners.get(str(owner or ""))
+        if owning is None:
+            continue
+        relative = appmodel.contract_path(owning, contract)
+        source = work / relative
         if source.exists():
             source.unlink()
-            _note(reasons, f"shared/{contract}.syn",
+            _note(reasons, relative,
                   f"no connect point carries the {contract} contract any more")
 
 
 def _write_contract(work: Path, link: Dict[str, Any], was: Optional[Dict[str, Any]],
+                    owners: Dict[str, Dict[str, Any]],
                     reasons: Dict[str, List[str]]) -> None:
     contract = link.get("contract")
-    if not contract:
+    owning = owners.get(str(link.get("owner") or ""))
+    if not contract or owning is None:
         return
     members = link.get("members") or []
     if was is not None and was.get("members") == members and was.get("contract") == contract:
         return
-    source = work / "shared" / f"{contract}.syn"
+    relative = appmodel.contract_path(owning, contract)
+    source = work / relative
     if not members and not source.exists():
         return
-    relative = f"shared/{contract}.syn"
     # A rewrite is written whole, so a hand-written comment in the file does not survive
     # one. That is why it happens only when the members actually differ, and why the diff
     # shows the loss rather than the plan absorbing it silently.
@@ -301,26 +318,28 @@ def _write_contract(work: Path, link: Dict[str, Any], was: Optional[Dict[str, An
 
 
 def _write_source(work: Path, link: Dict[str, Any], points: Dict[str, Dict[str, Any]],
-                  alive: Set[str], reasons: Dict[str, List[str]]) -> None:
+                  alive: Set[str], owners: Dict[str, Dict[str, Any]],
+                  reasons: Dict[str, List[str]]) -> None:
     """Give a link an owner-side Source file: the one that was edited, or an empty one.
 
-    A connect point is two halves: the contract that says what may cross it, and the QML on
+    A connect point is two halves. The contract that says what may cross it, and the QML on
     the owner that implements it. Drawing the link is the whole gesture in the editor, so the
     second half is written here rather than left as an entity that fails to start.
 
-    A file nobody typed into is only ever created, never rewritten: what somebody has already
+    A file nobody typed into is only ever created, never rewritten. What somebody has already
     implemented is theirs, and the document carrying a copy of it is not a reason to write
     that copy back over it. That is what ``qmlEdited`` marks, and why it is not enough for the
-    document's copy to merely differ from the disk's: the same page holds a copy read when it
+    document's copy to merely differ from the disk's. The same page holds a copy read when it
     loaded, and a file changed in somebody's own editor since then would otherwise be reverted
     to what it said at that moment.
     """
     contract, owner = link.get("contract"), link.get("owner")
-    if not contract or owner not in alive:
+    owning = owners.get(str(owner or ""))
+    if not contract or owner not in alive or owning is None:
         return
     point = points.get(link["name"]) or {}
     relative = str(link.get("server") or point.get("server")
-                   or addcontract.source_path(owner, contract))
+                   or appmodel.source_path(owning, contract))
     target = work / relative
     edited = _edited_qml(link)
     if target.exists():
@@ -338,7 +357,7 @@ def _write_source(work: Path, link: Dict[str, Any], points: Dict[str, Dict[str, 
           f"'{link['name']}' had no Source on {owner}, so this one declares what the "
           "contract says and implements none of it" if members
           else f"'{link['name']}' had no Source on {owner}, so this one is empty")
-    addcontract.write_source(work, owner, contract, point=link["name"], path=relative,
+    addcontract.write_source(work, owning, contract, point=link["name"], path=relative,
                              members=members)
 
 
@@ -359,16 +378,15 @@ def _write_entity_qml(work: Path, entity: Dict[str, Any],
 
     An entity that already existed when the design was read has its file on disk, and most of
     what arrives here is the copy the page read from it. Only text the page marked as typed is
-    text to write; see :func:`_edited_qml`.
+    text to write. See :func:`_edited_qml`.
     """
-    kind = str(entity.get("kind") or "service")
-    relative = newproject.entity_qml_path(entity["name"], kind)
+    relative = appmodel.entity_file_path(entity)
     target = work / relative
     edited = _edited_qml(entity)
     if edited is None:
         # Not an edit but a gap: an entity that predates the file having existed at all, or
         # one whose directory somebody emptied. Written fresh rather than left missing.
-        if newproject.write_entity_qml(work, entity["name"], kind):
+        if newproject.write_entity_qml(work, entity):
             _note(reasons, relative, f"'{entity['name']}' had no file of its own")
         return
     if target.exists() and edited == _text_of(target):

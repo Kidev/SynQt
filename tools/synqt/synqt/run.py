@@ -186,7 +186,7 @@ def dev_command(root: Path, entity: Dict[str, Any], config: Dict[str, Any],
                 "--qml-dir", str(root), "--port", str(port), "--dev"]
     command = [binary, "--topology", str(root / "build" / name / "topology.json")]
     # A service that declares pragma-Singleton QML resolves it against the project root.
-    if appmodel.discover_singletons(root / name):
+    if appmodel.discover_singletons(root / appmodel.entity_dir(entity)):
         command += ["--qml-dir", str(root)]
     # The auth entity holds the identity engine, so it carries the dev-stub gate the edge
     # carries in-process. `synqt serve` passes no arguments at all, which is what keeps the

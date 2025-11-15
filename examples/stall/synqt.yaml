@@ -24,11 +24,11 @@ build:
   client_threads: single
 
 entities:
-  - name: client
+  - name: app
     kind: client
     targets: [wasm]
 
-  - name: web
+  - name: edge
     kind: service
     capability: web_edge
     # Serving the browser over TLS in a release build. `synqt dev` ignores this and
@@ -36,8 +36,8 @@ entities:
     # either this block or public.tls_terminated_upstream, so that nothing ships
     # reachable over http:// with nobody named as the one who was meant to stop it.
     tls:
-      cert_file: certs/web/fullchain.pem
-      key_file: certs/web/privkey.pem
+      cert_file: certs/edge/fullchain.pem
+      key_file: certs/edge/privkey.pem
 
   - name: stock
     kind: service
@@ -47,9 +47,8 @@ connect_points:
   # The offers the browser watches: owned by the edge, filled from the database.
   - name: catalog
     contract: Catalog
-    owner: web
-    consumers: [client]
-    server: web/Catalog.qml
+    owner: edge
+    consumers: [app]
     instance: shared
 
   # The durable stock: owned by the database, reachable only by the edge (never the
@@ -58,8 +57,7 @@ connect_points:
   - name: inventory
     contract: Inventory
     owner: stock
-    consumers: [web]
-    server: stock/Inventory.qml
+    consumers: [edge]
     instance: per_peer
 
 # The route table (top level, docs/project-layout-and-config.md). A route with `view:` is
@@ -70,12 +68,12 @@ routes:
     view: Home.qml
   - path: /cart
     view: Cart.qml
-  # The public campaign page: one Campaign.qml serves every slug, painted on its first
+  # The public campaign page. One Campaign.qml serves every slug, painted on its first
   # frame from a per-request seed the edge builds (see web/campaign-seed.qml).
   - path: /c/:campaign
     remote: Campaign.qml
-    seed: web/campaign-seed.qml
-  # A members-only edge-delivered page: an under-scoped fetch is refused with no markup.
+    seed: web/edge/campaign-seed.qml
+  # A members-only edge-delivered page. An under-scoped fetch is refused with no markup.
   - path: /members
     remote: Members.qml
     scope: user

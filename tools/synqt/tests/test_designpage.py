@@ -31,7 +31,7 @@ import pytest
 import yaml
 
 from synqt import check as checkmod
-from synqt import addcontract, designdoc, newproject, toolchain
+from synqt import addcontract, appmodel, designdoc, newproject, toolchain
 
 DESIGN = Path(checkmod.__file__).parent / "assets" / "design"
 
@@ -42,15 +42,15 @@ DOCUMENT = {
     "version": 1,
     "project": "gavel",
     "entities": [
-        {"name": "client", "kind": "client", "capability": "", "blueprint": "",
+        {"name": "app", "kind": "client", "capability": "", "blueprint": "",
          "provider": "", "targets": ["wasm"], "identity": False, "x": 40, "y": 40},
-        {"name": "web", "kind": "service", "capability": "web_edge", "blueprint": "",
+        {"name": "edge", "kind": "service", "capability": "web_edge", "blueprint": "",
          "provider": "", "targets": [], "identity": True, "x": 360, "y": 40},
-        {"name": "database", "kind": "service", "capability": "", "blueprint": "relational",
+        {"name": "books", "kind": "service", "capability": "", "blueprint": "relational",
          "provider": "sqlite", "targets": [], "identity": False, "x": 680, "y": 40},
     ],
     "links": [
-        {"name": "auction", "contract": "Auction", "owner": "web", "consumers": ["client"],
+        {"name": "auction", "contract": "Auction", "owner": "edge", "consumers": ["app"],
          "instance": "per_session", "transport": "", "members": [
              {"kind": "prop", "name": "highest", "type": "int", "params": [], "roles": []},
              {"kind": "model", "name": "bids", "type": "", "params": [],
@@ -62,8 +62,8 @@ DOCUMENT = {
               "params": [{"type": "int", "name": "amount"}], "roles": []},
              {"kind": "slot", "name": "watch", "type": "", "params": [], "roles": []},
          ]},
-        {"name": "records", "contract": "Records", "owner": "database",
-         "consumers": ["web"], "instance": "shared", "transport": "", "members": []},
+        {"name": "records", "contract": "Records", "owner": "books",
+         "consumers": ["edge"], "instance": "shared", "transport": "", "members": []},
     ],
 }
 
@@ -206,7 +206,9 @@ def test_the_downloaded_source_is_the_one_the_cli_would_have_written(rendered):
     the page writing a different one would make a project that differs from itself the
     moment somebody runs `synqt design` on it."""
     for link in DOCUMENT["links"]:
-        relative = addcontract.source_path(link["owner"], link["contract"])
+        owner = next(entity for entity in DOCUMENT["entities"]
+                     if entity["name"] == link["owner"])
+        relative = appmodel.source_path(owner, link["contract"])
         written = next(file["text"] for file in rendered["files"]
                        if file["name"] == f"gavel/{relative}")
         assert written == addcontract.source_stub(link["contract"], link["name"],
@@ -219,7 +221,7 @@ def test_a_source_declares_the_members_the_contract_carries(rendered):
     are what the editor reads back out of the file, so the two agreeing on the way in is what
     makes reading it again a no-op rather than a second opinion."""
     written = next(file["text"] for file in rendered["files"]
-                   if file["name"] == "gavel/web/Auction.qml")
+                   if file["name"] == "gavel/web/edge/Auction.qml")
     assert "property int highest" in written
     assert "signal outbid(who: string)" in written
     assert "function placeBid(amount: int): bool {" in written
@@ -234,7 +236,7 @@ def test_a_client_gets_the_one_file_it_cannot_start_without(rendered):
     used to write no file at all for a client, which is also why one never appeared in the
     files pane."""
     written = next(file["text"] for file in rendered["files"]
-                   if file["name"] == "gavel/client/Main.qml")
+                   if file["name"] == "gavel/client/app/Main.qml")
     assert written == newproject._MAIN_QML
 
 
@@ -245,7 +247,7 @@ def test_every_entity_has_its_own_file_before_it_owns_anything(rendered):
     entity exposes and may be created per session, and the entity is the thing that is there
     once."""
     for entity in DOCUMENT["entities"]:
-        own = newproject.entity_qml_path(entity["name"], entity.get("kind", "service"))
+        own = appmodel.entity_file_path(entity)
         assert any(file["name"] == f"gavel/{own}" for file in rendered["files"]), own
 
 
@@ -254,19 +256,22 @@ def test_a_services_own_file_is_the_singleton_the_build_registers(rendered):
     the generated main registers it under that entity's module. A file written without the
     pragma would be a file the build ignores."""
     written = next(file["text"] for file in rendered["files"]
-                   if file["name"] == "gavel/database/Database.qml")
-    assert written == newproject.entity_singleton("database")
+                   if file["name"] == "gavel/db/relational/books/Books.qml")
+    assert written == newproject.entity_singleton("books")
     assert "\npragma Singleton\n" in written
 
 
 def test_the_download_is_a_zip_holding_the_configuration_and_every_contract(rendered):
     archive = zipfile.ZipFile(io.BytesIO(base64.b64decode(rendered["zip"])))
     assert archive.testzip() is None
-    assert archive.namelist() == ["gavel/synqt.yaml", "gavel/shared/Auction.syn",
-                                  "gavel/shared/Records.syn", "gavel/client/Main.qml",
-                                  "gavel/web/Web.qml", "gavel/web/Auction.qml",
-                                  "gavel/database/Database.qml",
-                                  "gavel/database/Records.qml"]
+    assert archive.namelist() == ["gavel/synqt.yaml",
+                                  "gavel/web/edge/Auction.syn",
+                                  "gavel/db/relational/books/Records.syn",
+                                  "gavel/client/app/Main.qml",
+                                  "gavel/web/edge/Edge.qml",
+                                  "gavel/web/edge/Auction.qml",
+                                  "gavel/db/relational/books/Books.qml",
+                                  "gavel/db/relational/books/Records.qml"]
     for file in rendered["files"]:
         assert archive.read(file["name"]).decode("utf-8") == file["text"]
 
@@ -287,7 +292,7 @@ def test_a_source_reads_back_as_the_contract_it_was_written_from(rendered):
     anything other than what was written, every keystroke in the pane would be arguing with
     the panel about what the contract says."""
     written = next(file["text"] for file in rendered["files"]
-                   if file["name"] == "gavel/web/Auction.qml")
+                   if file["name"] == "gavel/web/edge/Auction.qml")
     read = _read(f"""
         const text = {json.dumps(written)};
         process.stdout.write(JSON.stringify(declarations(withoutNotice(text))));
