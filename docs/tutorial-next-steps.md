@@ -11,14 +11,14 @@ done several times already (creating a file, wiring a `connect_point`, running
 A restart keeps the Hall of Fame but forgets the bid in progress. Persist the
 current lot too.
 
-Add to `shared/Ledger.syn`:
+Add to `db/relational/books/Ledger.syn`:
 
 ```syn
 slot saveCurrent(string item, int amount, string bidder)
 slot var loadCurrent()    // returns the saved lot, or null if none
 ```
 
-Add one row to `database/schema.sql` (a single row table for "the current lot"):
+Add one row to `db/relational/books/schema.sql` (a single row table for "the current lot"):
 
 ```sql
 CREATE TABLE IF NOT EXISTS current (
@@ -29,11 +29,11 @@ CREATE TABLE IF NOT EXISTS current (
 );
 ```
 
-Add to `database/Ledger.qml`:
+Add to `db/relational/books/Ledger.qml`:
 
 ```qml
 function saveCurrent(item, amount, bidder) {
-    if (Caller.entity !== "web") return
+    if (Caller.entity !== "edge") return
     Db.exec("INSERT INTO current(id, item, amount, bidder) VALUES(1, ?, ?, ?)"
             + " ON CONFLICT(id) DO UPDATE SET item = excluded.item,"
             + " amount = excluded.amount, bidder = excluded.bidder",
@@ -41,20 +41,20 @@ function saveCurrent(item, amount, bidder) {
 }
 
 function loadCurrent() {
-    if (Caller.entity !== "web") return null
+    if (Caller.entity !== "edge") return null
     const rows = Db.query("SELECT item, amount, bidder FROM current WHERE id = 1")
     return rows.length > 0 ? rows[0] : null
 }
 ```
 
-In `web/Auction.qml`, load on startup and save after every change. Add a save call
+In `web/edge/Auction.qml`, load on startup and save after every change. Add a save call
 at the end of `placeBid` (after you set `highBid` and `highBidder`) and at the end of
 `closeLot`, plus:
 
 ```qml
 Component.onCompleted: {
     // loadCurrent() returns a value, so it resolves asynchronously.
-    Database.ledger.loadCurrent().then(saved => {
+    Books.ledger.loadCurrent().then(saved => {
         if (saved) {
             auction.itemName = saved.item
             auction.highBid = saved.amount
@@ -64,7 +64,7 @@ Component.onCompleted: {
 }
 
 function saveNow() {
-    Database.ledger.saveCurrent(auction.itemName, auction.highBid, auction.highBidder)
+    Books.ledger.saveCurrent(auction.itemName, auction.highBid, auction.highBidder)
 }
 ```
 
@@ -73,10 +73,10 @@ Now restart and the lot resumes exactly where it was.
 ## Move to PostgreSQL with one config change
 
 The embedded engine is great to start. To put the data in a managed PostgreSQL
-instead, change only the database entity's config. No QML changes: `Db.exec` and
-`Db.query` work the same, because the engine is masked behind the entity.
+instead, change only the database entity's config. No QML changes, because `Db.exec` and
+`Db.query` work the same, since the engine is masked behind the entity.
 
-In `synqt.yaml`, on the `database` entity, add a `provider` section naming the
+In `synqt.yaml`, on the `books` entity, add a `provider` section naming the
 engine and carrying its connection:
 
 ```yaml
@@ -91,7 +91,7 @@ engine and carrying its connection:
       ca_cert: certs/db-ca.pem
 ```
 
-Put the password in `database/.env` as `DB_PASSWORD=...`, and run `synqt doctor`,
+Put the password in `db/relational/books/.env` as `DB_PASSWORD=...`, and run `synqt doctor`,
 which fetches the PostgreSQL driver for you. That is the whole change. (For a quick
 local trial against a PostgreSQL with no TLS, you may drop `sslmode` and `ca_cert`;
 SynQt allows that only in dev on localhost and refuses it in a release build.)
@@ -109,14 +109,14 @@ The ticker needs to call `closeLot`, so let it reach the auction. Add it as a
 consumer of the `auction` connect point in `synqt.yaml`:
 
 ```yaml
-    consumers: [client, ticker]
+    consumers: [app, ticker]
 ```
 
 The one non obvious part: `closeLot` currently allows only an admin user, and the
 ticker is an entity, not a user. Check which kind of caller this is first
 (`Caller.hasScope` is for users, `Caller.entity` for entities), and only send the
 rejection signal to a user, because `emit<Signal>` targets a browser session.
-Widen the check in `web/Auction.qml`:
+Widen the check in `web/edge/Auction.qml`:
 
 ```qml
 const fromTicker = Caller.isEntity && Caller.entity === "ticker"
@@ -129,7 +129,7 @@ if (!fromTicker && !Caller.hasScope("admin")) {
 Then put the schedule in the ticker's logic file (the jobs blueprint scaffolds one),
 calling the auction it now consumes. As always, a connect point on another entity
 is reached under the owner entity's name, capitalized: the `auction` connect point
-owned by `web` appears to the ticker as `Web.auction`:
+owned by `edge` appears to the ticker as `Edge.auction`:
 
 ```qml
 import QtQuick
@@ -140,7 +140,7 @@ Item {
         interval: 60000      // one minute per lot
         repeat: true
         running: true
-        onTriggered: Web.auction.closeLot("Next mystery lot")
+        onTriggered: Edge.auction.closeLot("Next mystery lot")
     }
 }
 ```
@@ -153,7 +153,7 @@ Let a signed in user set a private maximum that only they can see, using a
 `per_session` connect point: each session gets its own object instance, so one
 user's value is invisible to everyone else.
 
-`shared/Proxy.syn`:
+`web/edge/Proxy.syn`:
 
 ```syn
 contract Proxy {
@@ -169,14 +169,14 @@ private:
 connect_points:
   - name: proxy
     contract: Proxy
-    owner: web
-    consumers: [client]
+    owner: edge
+    consumers: [app]
     server: web/Proxy.qml
     scope: user               # only signed in users get one at all
     instance: per_session     # one private Source per session
 ```
 
-`web/Proxy.qml`:
+`web/edge/Proxy.qml`:
 
 ```qml
 import QtQuick
@@ -218,7 +218,7 @@ TestCase {
     EntityTest {
         id: harness
 
-        source: "../web/Auction.qml"
+        source: "../web/edge/Auction.qml"
     }
 
     SignalSpy {
@@ -271,10 +271,10 @@ pass by stubbing the check it is meant to be testing. The database's own rule, t
 only the edge may call `recordWinner`, is tested the same way in a second file, with
 `harness.callerIsEntity("rogue")` in place of `callerIsUser`.
 
-One subtlety in that last test: `closeLot` records the winner in the database before
-resetting, and the harness loads one Source on its own, so there is no `Database` to
+One subtlety applies to that last test. `closeLot` records the winner in the database before
+resetting, and the harness loads one Source on its own, so there is no `Books` to
 record into. It passes because the lot has no bid on it yet and `closeLot` skips the
-write. Close a lot that does have a bid and the test stops, saying `Database is not
+write. Close a lot that does have a bid and the test stops, saying `Books is not
 defined`.
 
 [Testing your app](testing.md) covers the rest of `EntityTest`, that limit and what to

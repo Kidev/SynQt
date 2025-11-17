@@ -36,8 +36,8 @@ routes:
     view: Home.qml            # compiled into the client bundle
 
   - path: /c/:campaign
-    remote: Campaign.qml      # delivered by the edge, from web/pages/Campaign.qml
-    seed: web/campaign-seed.qml
+    remote: Campaign.qml      # delivered by the edge, from web/edge/pages/Campaign.qml
+    seed: web/edge/campaign-seed.qml
 ```
 
 The two keys are mutually exclusive on one route, and `synqt check` refuses a route that
@@ -50,8 +50,8 @@ client's QML branches on where a page came from.
 ## Where the files live
 
 A remote page lives under the web edge entity's directory, in a `pages/` subdirectory. For
-an edge entity named `web`, that is `web/pages/`. The `remote:` value is the file's path
-relative to that directory, so `remote: Campaign.qml` names `web/pages/Campaign.qml`.
+an edge entity named `web`, that is `web/edge/pages/`. The `remote:` value is the file's path
+relative to that directory, so `remote: Campaign.qml` names `web/edge/pages/Campaign.qml`.
 
 This directory is edge code, not client code. It is never compiled into the bundle and
 never reaches a visitor who does not navigate to a route that delivers it. `synqt check`
@@ -110,11 +110,11 @@ A seed is a QML hook file that derives from `SynQt.PageSeed` and defines one fun
 ```yaml
   - path: /c/:campaign
     remote: Campaign.qml
-    seed: web/campaign-seed.qml
+    seed: web/edge/campaign-seed.qml
 ```
 
 The hook itself, from
-[`examples/stall/web/campaign-seed.qml`](https://github.com/Kidev/SynQt/blob/main/examples/stall/web/campaign-seed.qml):
+[`examples/stall/web/edge/campaign-seed.qml`](https://github.com/Kidev/SynQt/blob/main/examples/stall/web/edge/campaign-seed.qml):
 
 ```qml
 import QtQuick
@@ -155,7 +155,7 @@ new parameters paints the new parameters rather than the old page's data.
 > delivered with no seed`. Nothing surfaces in the browser, so watch the edge log. The
 > return type may be annotated
 > `: var`, which does match, because a seed is a plain object. The reference hook is
-> [`examples/stall/web/campaign-seed.qml`](https://github.com/Kidev/SynQt/blob/main/examples/stall/web/campaign-seed.qml),
+> [`examples/stall/web/edge/campaign-seed.qml`](https://github.com/Kidev/SynQt/blob/main/examples/stall/web/edge/campaign-seed.qml),
 > whose in-file comment documents exactly this.
 
 ## The edge-served route table
@@ -178,7 +178,7 @@ A `scope:` on a remote route protects the page. The edge checks the caller's sco
 it delivers a single byte, and a refusal carries no markup, no content hash, and no seed
 (see [security](security.md#remote-pages-edge-delivered-qml)). So an under-scoped visitor
 cannot even obtain the QML of a scoped page. The stall's
-[`Members.qml`](https://github.com/Kidev/SynQt/blob/main/examples/stall/web/pages/Members.qml)
+[`Members.qml`](https://github.com/Kidev/SynQt/blob/main/examples/stall/web/edge/pages/Members.qml)
 uses this: `scope: user`, and an anonymous fetch comes back `forbidden` with the file never
 sent.
 

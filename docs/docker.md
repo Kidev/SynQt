@@ -82,9 +82,9 @@ per entity, and the compose network hands each container exactly that address:
 
 ```yaml
 entities:
-  - name: web
+  - name: edge
     mesh: { host: 172.30.238.11 }
-  - name: database
+  - name: store
     mesh: { host: 172.30.238.12 }
 ```
 

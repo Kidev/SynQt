@@ -50,7 +50,7 @@ Notes:
 
 - `Server` is the well-known alias for "the web edge this client talks to,"
   whatever that edge entity is actually named. It is the client-side counterpart
-  of addressing a service by its entity name (`Database.items`) elsewhere in the
+  of addressing a service by its entity name (`Store.items`) elsewhere in the
   mesh.
 - A connect point appears on `Server` only once its Replica has been acquired.
   A connect point with a `scope` the session does not hold is never acquired, so
@@ -346,15 +346,15 @@ example](programming-model.md#a-connect-point-implementation-end-to-end): the ed
 checks the user, the database checks the calling entity.
 
 ```qml
-// web/Todo.qml: the edge authorizes a user
+// web/edge/Todo.qml: the edge authorizes a user
 function add(text) {
     if (!Caller.hasScope("user")) { Caller.emitRejected("Sign in first."); return }
-    Database.items.insert({ text: text.trim(), ownerSub: Caller.identity.sub })
+    Store.items.insert({ text: text.trim(), ownerSub: Caller.identity.sub })
 }
 
-// database/Items.qml: the database authorizes the calling entity
+// db/relational/store/Items.qml: the database authorizes the calling entity
 function insert(row) {
-    if (Caller.entity !== "web") return    // only the edge may write
+    if (Caller.entity !== "edge") return    // only the edge may write
     Db.exec("INSERT INTO items(text, owner_sub) VALUES(?,?)", [row.text, row.ownerSub])
 }
 ```

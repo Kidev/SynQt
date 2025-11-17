@@ -30,17 +30,17 @@ Create `synqt.production.yaml` in the project root:
 public:
   port: 443
   tls:
-    cert_file: certs/web/fullchain.pem
-    key_file: certs/web/privkey.pem
+    cert_file: certs/edge/fullchain.pem
+    key_file: certs/edge/privkey.pem
 
 entities:
-  - name: web
+  - name: edge
     public:
       origin: https://gavel.example.com
     mesh:
       host: 10.0.0.10
 
-  - name: database
+  - name: books
     mesh:
       host: 10.0.0.20
 ```
@@ -199,8 +199,8 @@ jobs:
             build/
             synqt.yaml
             synqt.production.yaml
-            web/.env.example
-            database/schema.sql
+            web/edge/.env.example
+            db/relational/books/schema.sql
 ```
 
 Four things in there are worth saying out loud.

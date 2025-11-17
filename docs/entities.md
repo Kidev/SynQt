@@ -40,9 +40,9 @@ flowchart LR
     cache["<span style='color:#1a1a2e'>cache<br/>entity</span>"]
     jobs["<span style='color:#1a1a2e'>jobs<br/>entity</span>"]
   end
-  web -->|"Database.items"| db
+  web -->|"Store.items"| db
   web -->|"Cache.get/set"| cache
-  jobs -->|"Database.items"| db
+  jobs -->|"Store.items"| db
   db -. "provider<br/>(embedded or external engine)" .-> engine[("engine")]
   classDef pub fill:#fde,stroke:#c39,color:#1a1a2e;
   classDef priv fill:#def,stroke:#39c,color:#1a1a2e;
@@ -109,7 +109,7 @@ and the generated Source exposes `set<Model>` to publish rows (see
 [the programming model](programming-model.md#contracts-the-shape-of-what-may-cross)):
 
 ```syn
-// shared/Items.syn
+// db/relational/store/Items.syn
 contract Items {
     model rows(string text, string author)   // only these roles cross to consumers
     slot insert(ItemRow row)
@@ -119,7 +119,7 @@ record ItemRow(string text, string author, string ownerSub)
 ```
 
 ```qml
-// database/Items.qml (owner of the "items" connect point)
+// db/relational/store/Items.qml (owner of the "items" connect point)
 import QtQuick
 import SynQt
 
@@ -127,7 +127,7 @@ Items {
     id: items
 
     function insert(row) {
-        if (Caller.entity !== "web") return            // authorize the calling entity
+        if (Caller.entity !== "edge") return           // authorize the calling entity
         Db.exec("INSERT INTO items(text, author, owner_sub) VALUES(?, ?, ?)",
                 [row.text, row.author, row.ownerSub])   // parameterized
         items.reload()
@@ -140,7 +140,7 @@ Items {
 }
 ```
 
-Schema: the blueprint reads `database/schema.sql` at startup and applies
+Schema: the blueprint reads `db/relational/store/schema.sql` at startup and applies
 migrations. Migrations are forward only and versioned; the blueprint records the
 applied version in a metadata table.
 
@@ -265,7 +265,7 @@ When no blueprint fits, `synqt add entity <name>` scaffolds a bare service entit
 a folder, a config block, an empty owned connect point, and its mesh binding. You
 then:
 
-1. Declare its contracts in `shared/`.
+1. Declare its contracts in its own folder, one `.syn` per connect point it owns.
 2. Declare its connect points in `synqt.yaml` with `owner: <name>` and a
    `consumers` allowlist.
 3. Implement the owned Sources in the entity's folder, authorizing `Caller` in

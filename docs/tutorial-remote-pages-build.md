@@ -25,19 +25,19 @@ decides which. Open `synqt.yaml` and write the table:
 ```yaml
 routes:
   - path: /
-    view: Home.qml            # compiled in: the product grid
+    view: Home.qml            # compiled in, the product grid
   - path: /cart
-    view: Cart.qml            # compiled in: the cart
+    view: Cart.qml            # compiled in, the cart
 
   - path: /c/:campaign
-    remote: Campaign.qml      # edge-delivered: one page serves every campaign slug
-    seed: web/campaign-seed.qml
+    remote: Campaign.qml      # edge-delivered, and one page serves every campaign slug
+    seed: web/edge/campaign-seed.qml
   - path: /members
     remote: Members.qml       # edge-delivered, and members only
     scope: user
 ```
 
-`view:` names a file under the client entity's directory; `remote:` names a file under the
+`view:` names a file under the client entity's directory. `remote:` names a file under the
 edge's `pages/` directory. The two are mutually exclusive on one route, so a route is one
 or the other, never both.
 
@@ -61,8 +61,8 @@ as small as the pages need. It is a trust boundary, covered in
 
 ## Step 3: Write the campaign page on the edge
 
-A delivered page lives under `<edge>/pages/`. For an edge named `web`, that is `web/pages/`.
-Create `web/pages/Campaign.qml`:
+A delivered page lives under `<edge>/pages/`. For an edge named `web`, that is `web/edge/pages/`.
+Create `web/edge/pages/Campaign.qml`:
 
 ```qml
 import QtQuick
@@ -115,7 +115,7 @@ The page reads `Router.pageSeed.headline`. That comes from the seed, which we wr
 One `Campaign.qml` serves `/c/summer-sale`, `/c/black-friday`, and every other slug. Left
 alone it would flash empty for the first frame, before `Server.catalog.offers` has pushed
 anything. The page seed fixes that: it runs on the edge, per request, and hands the page the
-data it paints with immediately. Create `web/campaign-seed.qml`:
+data it paints with immediately. Create `web/edge/campaign-seed.qml`:
 
 ```qml
 import QtQuick
@@ -151,12 +151,12 @@ Step 1.
 > does
 > match, because a seed is a plain object. This is the single most likely mistake to make
 > here; the in-file comment in
-> [`web/campaign-seed.qml`](https://github.com/Kidev/SynQt/blob/main/examples/stall/web/campaign-seed.qml)
+> [`web/edge/campaign-seed.qml`](https://github.com/Kidev/SynQt/blob/main/examples/stall/web/edge/campaign-seed.qml)
 > spells it out.
 
 ## Step 5: Link to it from the grid
 
-The compiled-in home page opens a campaign. In `client/Home.qml`, a button navigates there
+The compiled-in home page opens a campaign. In `client/app/Home.qml`, a button navigates there
 like any other route:
 
 ```qml
@@ -169,7 +169,7 @@ Button {
 `Router.go("/c/summer-sale")` is the same call whether the target is compiled in or
 delivered. The router resolves the path, sees it is a `remote:` route, fetches
 `Campaign.qml` from the edge over the same `wss` link, and hands the resulting component to
-the one `Loader` in `client/Main.qml`. Nothing in your client QML branches on where the page
+the one `Loader` in `client/app/Main.qml`. Nothing in your client QML branches on where the page
 came from.
 
 ## Step 6: Run it
@@ -190,7 +190,7 @@ per-request seed on the wire. The page arrives once; the headline is fresh every
 ## Try it, then think
 
 > [!QUESTION]
-> Add a members-only page. Create `web/pages/Members.qml` with an `Item` root that imports
+> Add a members-only page. Create `web/edge/pages/Members.qml` with an `Item` root that imports
 > only the palette modules, and give it `remote: Members.qml` with `scope: user` in the
 > route table (you wrote that route in Step 1). Sign out, then navigate to `/members` in the
 > address bar. What does the edge send? Now sign in and try again.

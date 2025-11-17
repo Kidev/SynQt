@@ -16,14 +16,14 @@
       "version": 1,
       "project": "my-app",
       "entities": [
-        {"name": "client", "kind": "client", "targets": ["wasm"], "x": 40, "y": 40},
-        {"name": "web", "kind": "service", "capability": "web_edge", "x": 360, "y": 40},
-        {"name": "database", "kind": "service", "blueprint": "relational",
+        {"name": "app", "kind": "client", "targets": ["wasm"], "x": 40, "y": 40},
+        {"name": "edge", "kind": "service", "capability": "web_edge", "x": 360, "y": 40},
+        {"name": "store", "kind": "service", "blueprint": "relational",
          "provider": "sqlite", "x": 680, "y": 40},
-        {"name": "api", "kind": "service", "blueprint": "api", "x": 680, "y": 200}
+        {"name": "feeds", "kind": "service", "blueprint": "api", "x": 680, "y": 200}
       ],
       "links": [
-        {"name": "feed", "contract": "Feed", "owner": "web", "consumers": ["client"],
+        {"name": "feed", "contract": "Feed", "owner": "edge", "consumers": ["app"],
          "instance": "per_session", "members": [
            {"kind": "prop", "name": "loaded", "type": "bool", "params": [], "roles": []},
            {"kind": "model", "name": "rows", "type": "", "params": [],
@@ -32,12 +32,12 @@
            {"kind": "signal", "name": "denied", "type": "",
             "params": [{"type": "string", "name": "reason"}], "roles": []}
          ]},
-        {"name": "access", "contract": "Access", "owner": "database", "consumers": ["web"],
+        {"name": "access", "contract": "Access", "owner": "store", "consumers": ["edge"],
          "instance": "per_peer", "members": [
            {"kind": "slot", "name": "allows", "type": "bool",
             "params": [{"type": "string", "name": "sub"}], "roles": []}
          ]},
-        {"name": "upstream", "contract": "Upstream", "owner": "api", "consumers": ["web"],
+        {"name": "upstream", "contract": "Upstream", "owner": "feeds", "consumers": ["edge"],
          "instance": "per_peer", "members": [
            {"kind": "slot", "name": "fetch", "type": "var", "params": [], "roles": []}
          ]}

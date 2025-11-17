@@ -10,8 +10,8 @@ nodes, connect points as the lines between them, and a panel for what each one c
 There are two of it, and they are the same page.
 
 - **In a project.** `synqt design` serves it on this machine and opens it. What you draw
-  is that project: Apply writes `synqt.yaml`, the contracts under `shared/`, and the QML
-  files a new entity or connect point needs.
+  is that project: Apply writes `synqt.yaml`, each contract into the folder of the
+  entity that owns it, and the QML files a new entity or connect point needs.
 - **[On this site](/designer/).** The same editor with nothing behind it. Draw a system,
   press Download, and you get the project as a zip. Nothing is installed and nothing is
   read off your machine, because there is no machine on the other end of the page.
@@ -39,7 +39,7 @@ one arrives, so an entity is always somewhere you chose rather than somewhere a 
 room.
 
 Every entity arrives with its own file, before it owns or consumes anything. A client's is its
-window, `client/Main.qml`; every other entity's is a singleton named after it, `web/Web.qml`,
+window, `client/app/Main.qml`; every other entity's is a singleton named after it, `web/edge/Edge.qml`,
 where state belonging to the whole entity goes. That file is separate from the Source of any
 connect point the entity owns, and for a good reason: a Source can be created per session or
 per peer, so anything shared between them has to outlive any one of them.
@@ -47,7 +47,7 @@ per peer, so anything shared between them has to outlive any one of them.
 The boxes behind the nodes are the three sides of a system, and they are drawn from what each
 entity is rather than from where it sits: the browser, the one entity facing the internet,
 and the mesh, which nothing outside can reach. Under each node is the file to open next:
-`client/Main`, `web/Feed`, `database/Access`.
+`client/app/Main`, `web/edge/Feed`, `db/relational/store/Access`.
 
 Hovering anything says the rest. An entity's card gives what it is, what can reach it, the
 connect points it owns and consumes, and its files; a connect point's gives its owner, its
@@ -58,9 +58,9 @@ A connect point is drawn from the entity that **owns** it to the one that **cons
 Every node has a handle on each of its four sides; drag any of them and drop the line on the
 consumer. That direction is the whole meaning of the line, so it is the thing the canvas asks
 you to say first, it is drawn as a filled cap on the owner and an arrowhead on the consumer,
-and the point is named for it: dropping a line from `web` onto `client` gives you
-`webToClient`, carrying the `WebToClient` contract in `shared/WebToClient.syn`, implemented in
-`web/WebToClient.qml`. Rename it to whatever it actually carries the moment you know; nothing
+and the point is named for it: dropping a line from `edge` onto `app` gives you
+`edgeToApp`, carrying the `EdgeToApp` contract in `web/edge/EdgeToApp.syn`, implemented in
+`web/edge/EdgeToApp.qml`. Rename it to whatever it actually carries the moment you know; nothing
 depends on the name it arrived with.
 
 Drop the line on empty canvas instead and the palette opens there: pick a kind and that entity
@@ -89,8 +89,8 @@ deleting one takes the connect points it owned with it.
 ## The same project as text
 
 The pane under the canvas is the project this drawing is, open from the start: `synqt.yaml`,
-one contract per connect point under `shared/`, and the QML of every entity, each under its own
-directory. It is rebuilt from the drawing on every edit, so it can never be showing an older
+the QML of every entity under its own directory, and one contract per connect point
+beside the Source that answers it. It is rebuilt from the drawing on every edit, so it can never be showing an older
 design than the canvas above it. **Hide** collapses it to the strip along the bottom, which is
 also what opens it again.
 
@@ -122,7 +122,7 @@ is drawn for you, with the entity that owns it, you on its consumer list, and th
 reached for:
 
 ```qml
-// in client/Main.qml
+// in client/app/Main.qml
 property int score: Server.game.score
 ```
 

@@ -21,7 +21,7 @@ Quick Test finds them by directory, so adding a file needs no registration anywh
 Given this edge Source:
 
 ```qml
-// web/Auction.qml
+// web/edge/Auction.qml
 import QtQuick
 import SynQt
 
@@ -58,7 +58,7 @@ TestCase {
     EntityTest {
         id: harness
 
-        source: "../web/Auction.qml"
+        source: "../web/edge/Auction.qml"
     }
 
     SignalSpy {
@@ -104,7 +104,7 @@ anywhere else. The only SynQt-specific type is `EntityTest`.
 | Member | Description |
 |--------|-------------|
 | `source` | the Source QML to drive, as a path relative to the test file. |
-| `schema` | an SQL schema to apply to the in-memory database before each load. Relative to the test file, and usually `"../database/schema.sql"`. |
+| `schema` | an SQL schema to apply to the in-memory database before each load. Relative to the test file, and usually `"../db/relational/books/schema.sql"`. |
 | `subject` | the loaded Source. `null` until `load()` succeeds. This is what a test calls slots on and reads properties from. |
 | `contract` | the contract name, derived from the Source type. Set it only if the derivation is wrong. |
 | `errorString` | why the last `load()` failed. Pass it as the second argument to `verify` and a broken QML file reports itself. |
@@ -142,8 +142,8 @@ model, and there are four:
 - **The engine.** A statement that works on SQLite may not on PostgreSQL. Testing the
   slot's logic is not testing your SQL against the engine you deploy.
 - **The entity next door.** One Source is loaded on its own, so the accessors for
-  consumed entities are absent. A slot that calls `Database.ledger.recordWinner(...)`
-  fails with `Database is not defined`.
+  consumed entities are absent. A slot that calls `Books.ledger.recordWinner(...)`
+  fails with `Books is not defined`.
 
 That last one is a limit, not a defect, and it is worth saying why the accessor is absent
 rather than stubbed. A stub would have to invent what the other entity returns, and a test
@@ -160,7 +160,7 @@ function closeLot(nextItem) {
         Caller.emitBidRejected("Only the auctioneer can close a lot.");
         return;
     }
-    Database.ledger.recordWinner(...);        // not testable here
+    Books.ledger.recordWinner(...);           // not testable here
 }
 ```
 
@@ -202,7 +202,7 @@ function test_only_the_edge_may_record() {
     compare(harness.subject.recordWinner("vase", "bob", 300), false);
     compare(harness.dbQuery("SELECT * FROM winners").length, 0);
 
-    harness.callerIsEntity("web");
+    harness.callerIsEntity("edge");
     compare(harness.subject.recordWinner("vase", "bob", 300), true);
     compare(harness.dbQuery("SELECT * FROM winners").length, 1);
 }
@@ -215,8 +215,8 @@ applies:
 EntityTest {
     id: harness
 
-    source: "../database/Ledger.qml"
-    schema: "../database/schema.sql"
+    source: "../db/relational/books/Ledger.qml"
+    schema: "../db/relational/books/schema.sql"
 }
 ```
 

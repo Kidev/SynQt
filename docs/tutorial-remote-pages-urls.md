@@ -41,7 +41,7 @@ Type a slug of your own into the address bar, `/c/black-friday`, and press Enter
 ## Check 2: parameters, query, Back and Forward
 
 One campaign is not enough to watch a parameter change, so give the home page a second one.
-In `client/Home.qml`, next to the button you already have:
+In `client/app/Home.qml`, next to the button you already have:
 
 ```qml
 Button {
@@ -51,7 +51,7 @@ Button {
 ```
 
 That is a client change, so `synqt dev` rebuilds and reloads the client. Add one line to
-`web/pages/Campaign.qml` too, inside its `ColumnLayout` under the headline, so the page says
+`web/edge/pages/Campaign.qml` too, inside its `ColumnLayout` under the headline, so the page says
 which slug it is showing:
 
 ```qml

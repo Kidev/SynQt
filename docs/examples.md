@@ -20,7 +20,7 @@ The smallest non trivial app: a counter every connected client sees update in
 real time. It demonstrates a `shared` connect point, an edge owned property, and
 a client to edge request.
 
-### Contract, `shared/Counter.syn`
+### Contract, `web/edge/Counter.syn`
 
 ```syn
 contract Counter {
@@ -39,10 +39,10 @@ project:
   qt_version: 6.11.1
 
 entities:
-  - name: client
+  - name: app
     kind: client
 
-  - name: web
+  - name: edge
     kind: service
     capability: web_edge
     public:
@@ -51,9 +51,9 @@ entities:
 connect_points:
   - name: counter
     contract: Counter
-    owner: web                # the edge holds the authoritative Source
-    consumers: [client]       # the browser may acquire it
-    server: web/Counter.qml
+    owner: edge               # the edge holds the authoritative Source
+    consumers: [app]          # the browser may acquire it
+    server: web/edge/Counter.qml
     instance: shared          # one counter, shared by all clients
     # no scope: any session may use it
 ```
@@ -66,7 +66,7 @@ localhost. A release build refuses to start without TLS, so running it with
 certificate, as Example 2 shows (see the
 [validation rules](project-layout-and-config.md#validation)).
 
-### Edge, `web/Counter.qml`
+### Edge, `web/edge/Counter.qml`
 
 ```qml
 import QtQuick
@@ -84,7 +84,7 @@ Counter {
 Because `value` is a contract property, the framework pushes every change to all
 replicas. No broadcast code is needed.
 
-### Client, `client/Main.qml`
+### Client, `client/app/Main.qml`
 
 ```qml
 import QtQuick
@@ -124,7 +124,7 @@ but only signed in users may add, and a user may only remove their own items.
 Moderators may remove anything. It demonstrates login, scopes, per row ownership
 that never leaves the edge, and an edge to client refusal channel.
 
-### Contract, `shared/Todo.syn`
+### Contract, `web/edge/Todo.syn`
 
 ```syn
 contract Todo {
@@ -154,10 +154,10 @@ scopes:
   default: anonymous
 
 entities:
-  - name: client
+  - name: app
     kind: client
 
-  - name: web
+  - name: edge
     kind: service
     capability: web_edge
     public:
@@ -166,7 +166,7 @@ entities:
       cert_file: certs/fullchain.pem
       key_file: certs/privkey.pem
     env:
-      file: web/.env
+      file: web/edge/.env
 
 identity:
   required: false                 # anonymous users may read; only writing needs a scope
@@ -181,26 +181,26 @@ identity:
       client_secret: env:GITHUB_CLIENT_SECRET
       scopes: [read:user, user:email]
   mapping:
-    hook: web/identity/map.qml
+    hook: web/edge/identity/map.qml
 
 connect_points:
   - name: todo
     contract: Todo
-    owner: web
-    consumers: [client]
-    server: web/Todo.qml
+    owner: edge
+    consumers: [app]
+    server: web/edge/Todo.qml
     instance: shared              # one list everyone sees
     # no scope on the connect point: anonymous users may acquire it and read.
     # write permission is enforced inside the slots, not at acquisition.
 ```
 
-`web/.env` (edge only, never shipped):
+`web/edge/.env` (edge only, never shipped):
 
 ```cli
 GITHUB_CLIENT_SECRET=the-real-secret-value
 ```
 
-### Identity mapping, `web/identity/map.qml`
+### Identity mapping, `web/edge/identity/map.qml`
 
 This optional hook turns a provider identity into a SynQt scope after login. It
 runs only on the edge.
@@ -221,7 +221,7 @@ IdentityMapping {
 }
 ```
 
-### Edge, `web/Todo.qml`
+### Edge, `web/edge/Todo.qml`
 
 ```qml
 import QtQuick
@@ -272,7 +272,7 @@ Todo {
 }
 ```
 
-### Client, `client/Main.qml`
+### Client, `client/app/Main.qml`
 
 ```qml
 import QtQuick
@@ -372,9 +372,9 @@ the same as a shared connect point; only the configuration differs:
 connect_points:
   - name: draft
     contract: Draft
-    owner: web
-    consumers: [client]
-    server: web/Draft.qml
+    owner: edge
+    consumers: [app]
+    server: web/edge/Draft.qml
     scope: user               # only signed in users may acquire it at all
     instance: per_session     # each session has its own draft Source
 ```
@@ -405,26 +405,26 @@ scopes:
   default: anonymous
 
 entities:
-  - name: client
+  - name: app
     kind: client
 
-  - name: web
+  - name: edge
     kind: service
     capability: web_edge
     public:
       host: 0.0.0.0
       port: 8443
     tls:
-      cert_file: certs/web/fullchain.pem
-      key_file: certs/web/privkey.pem
+      cert_file: certs/edge/fullchain.pem
+      key_file: certs/edge/privkey.pem
     mesh:
       transport: mtls            # the default: mutual TLS, over loopback on one host
       host: 127.0.0.1
       port: 9443
     env:
-      file: web/.env
+      file: web/edge/.env
 
-  - name: database
+  - name: store
     kind: service
     blueprint: relational
     mesh:
@@ -432,23 +432,23 @@ entities:
       host: 127.0.0.1
       port: 9444
     settings:
-      file: database/data/app.db
+      file: db/relational/store/data/app.db
       journal_mode: wal
       busy_timeout_ms: 5000
 
 connect_points:
   - name: todo
     contract: Todo
-    owner: web                  # the edge owns the user facing object
-    consumers: [client]         # the browser may acquire it
-    server: web/Todo.qml
+    owner: edge               # the edge owns the user facing object
+    consumers: [app]          # the browser may acquire it
+    server: web/edge/Todo.qml
     instance: shared
 
   - name: items
     contract: Items
-    owner: database             # the database owns durable storage
-    consumers: [web]            # only the edge may reach it; never the browser
-    server: database/Items.qml
+    owner: store              # the store entity owns durable storage
+    consumers: [edge]         # only the edge may reach it; never the browser
+    server: db/relational/store/Items.qml
     instance: shared
 ```
 
@@ -459,9 +459,9 @@ database's `Caller.entity` check below rests on a verified certificate.
 `synqt mesh cert --all` issues the certificates for deployment; `synqt dev`
 provisions throwaway development ones automatically.
 
-### Contracts, `shared/`
+### Contracts
 
-`shared/Todo.syn` (browser facing, owned by the edge):
+`web/edge/Todo.syn` (browser facing, owned by the edge):
 
 ```syn
 contract Todo {
@@ -472,7 +472,7 @@ contract Todo {
 }
 ```
 
-`shared/Items.syn` (internal, owned by the database, consumed by the edge):
+`db/relational/store/Items.syn` (internal, owned by the database, consumed by the edge):
 
 ```syn
 contract Items {
@@ -488,7 +488,7 @@ record ItemRow(string text, string author, string ownerSub)
 Note `ownerSub` exists on the internal contract (the edge needs it to enforce
 ownership) but is absent from `Todo.items` roles, so it never reaches the browser.
 
-### The database entity, `database/Items.qml`
+### The database entity, `db/relational/store/Items.qml`
 
 ```qml
 import QtQuick
@@ -499,27 +499,27 @@ Items {
 
     function list() {
         // Only the edge may read. Authorize the calling entity.
-        if (Caller.entity !== "web") return []
+        if (Caller.entity !== "edge") return []
         return Db.query("SELECT id, text, author, owner_sub AS ownerSub"
                         + " FROM items ORDER BY id DESC LIMIT 200")
     }
 
     function insert(row) {
-        if (Caller.entity !== "web") return
+        if (Caller.entity !== "edge") return
         Db.exec("INSERT INTO items(text, author, owner_sub) VALUES(?, ?, ?)",
                 [row.text, row.author, row.ownerSub])   // parameterized: no injection
         items.changed()                                  // notify the edge
     }
 
     function remove(id) {
-        if (Caller.entity !== "web") return
+        if (Caller.entity !== "edge") return
         Db.exec("DELETE FROM items WHERE id = ?", [id])
         items.changed()
     }
 }
 ```
 
-`database/schema.sql`:
+`db/relational/store/schema.sql`:
 
 ```sql
 CREATE TABLE IF NOT EXISTS items (
@@ -530,7 +530,7 @@ CREATE TABLE IF NOT EXISTS items (
 );
 ```
 
-### The web edge, `web/Todo.qml`
+### The web edge, `web/edge/Todo.qml`
 
 ```qml
 import QtQuick
@@ -546,7 +546,7 @@ Todo {
     // Keep the browser facing model in sync with the database.
     function refresh() {
         // list() returns a value, so this cross entity call resolves asynchronously.
-        Database.items.list().then(fetched => {
+        Store.items.list().then(fetched => {
             todo.rows = fetched
             // Map internal rows to the browser facing roles (drop id and ownerSub).
             todo.setItems(fetched.map(r => ({ text: r.text, author: r.author, done: false })))
@@ -565,7 +565,7 @@ Todo {
             Caller.emitRejected("Items must be 1 to 280 characters."); return
         }
         // Persist via the database entity. The database authorizes that the caller is the edge.
-        Database.items.insert({ text: clean, author: Caller.identity.email,
+        Store.items.insert({ text: clean, author: Caller.identity.email,
                                 ownerSub: Caller.identity.sub })
     }
 
@@ -582,12 +582,12 @@ Todo {
             Caller.emitRejected("You can only remove your own items."); return
         }
         // The database authorizes that the caller is the edge, then deletes by id.
-        Database.items.remove(row.id)
+        Store.items.remove(row.id)
     }
 }
 ```
 
-### The client, `client/Main.qml`
+### The client, `client/app/Main.qml`
 
 Identical in spirit to Example 2: it reads `Server.todo.items`, calls
 `Server.todo.add(...)` and `Server.todo.remove(index)`, and shows
@@ -604,7 +604,7 @@ not know a database exists; it only ever talks to the edge.
   a moderator removes any. No client supplied value participates in the ownership
   decision; the edge compares its own cached `ownerSub` against the verified
   identity.
-- The browser cannot reach the database. `items` lists only `web` as a consumer, and
+- The browser cannot reach the store. `items` lists only `edge` as a consumer, and
   the browser cannot physically reach a non edge entity anyway.
 - Data minimization across two hops. `ownerSub` is on the internal contract for the
   edge's ownership logic and is dropped before anything reaches the browser, because
@@ -618,7 +618,7 @@ not know a database exists; it only ever talks to the edge.
   configured, or secured; it is a SynQt entity in the same toolchain and security
   model.
 - The same connect point mechanism carries both links. `Server.todo` (browser to
-  edge over wss) and `Database.items` (edge to database over the mesh) are the same
+  edge over wss) and `Store.items` (edge to database over the mesh) are the same
   programming model with different transports underneath.
 
 ## Example 5: a storefront with edge-delivered campaign pages
@@ -644,8 +644,8 @@ routes:
     view: Cart.qml
 
   - path: /c/:campaign
-    remote: Campaign.qml      # delivered by the edge, from web/pages/Campaign.qml
-    seed: web/campaign-seed.qml
+    remote: Campaign.qml      # delivered by the edge, from web/edge/pages/Campaign.qml
+    seed: web/edge/campaign-seed.qml
   - path: /members
     remote: Members.qml       # delivered by the edge, and members only
     scope: user
@@ -658,22 +658,22 @@ router:
 connect_points:
   - name: catalog
     contract: Catalog
-    owner: web                # the edge owns the browser-facing live catalog
-    consumers: [client]
-    server: web/Catalog.qml
+    owner: edge               # the edge owns the browser-facing live catalog
+    consumers: [app]
+    server: web/edge/Catalog.qml
     instance: shared
 
   - name: inventory
     contract: Inventory
-    owner: stock              # the database owns the durable stock
-    consumers: [web]          # only the edge; a client consumer here fails synqt check
-    server: stock/Inventory.qml
+    owner: stock              # the stock entity owns the durable stock
+    consumers: [edge]         # only the edge; a client consumer here fails synqt check
+    server: db/relational/stock/Inventory.qml
     instance: per_peer
 ```
 
-### The delivered page, `web/pages/Campaign.qml`
+### The delivered page, `web/edge/pages/Campaign.qml`
 
-One file serves every slug. Its root is an `Item`, not a window, because a delivered
+One file serves every slug. Its root is an `Item` rather than a window, because a delivered
 page is loaded into the client's `Loader`, and it imports only the palette modules. It
 paints its headline from the seed on the first frame, then keeps the offers live
 through the `catalog` replica:
@@ -715,7 +715,7 @@ Item {
 }
 ```
 
-### The page seed, `web/campaign-seed.qml`
+### The page seed, `web/edge/campaign-seed.qml`
 
 The seed runs on the edge, after the route's scope check, and turns the slug into the
 headline the page paints first, so it never flashes empty:
@@ -755,7 +755,7 @@ PageSeed {
   to an under-scoped session with no markup, no hash, and no seed, but the data any
   page reads is still governed by the connect point's own scope.
 - The database stays unreachable from the browser. The `inventory` connect point is
-  owned by `stock` and consumed only by `web`; adding the client as a consumer fails
+  owned by `stock` and consumed only by `edge`; adding the client as a consumer fails
   `synqt check`, because the browser can only reach a web edge.
 
 The [light storefront](tutorial-remote-pages.md) tutorial builds this shop up step by

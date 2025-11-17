@@ -170,12 +170,12 @@ This is the only reason a second check exists, and it is worth being precise abo
 when you need it. On every other topology `Caller.entity` is complete on its own: the
 framework decides the name from a verified certificate, the caller never asserts it,
 and no amount of defensive coding in a slot adds anything. So write
-`if (Caller.entity !== "web")` and stop. What a local link changes is who decides:
+`if (Caller.entity !== "edge")` and stop. What a local link changes is who decides:
 the name then comes from the connect point's own consumer list, and the operating
 system vouches only for the peer's user. [`Caller.isEntityVerified`](runtime-api.md#service-caller)
 is false exactly there, so a slot that must not be reachable by colocation even in a
 deployment that opted into it can say
-`if (!Caller.isEntityVerified || Caller.entity !== "web")`. On a mesh with no local
+`if (!Caller.isEntityVerified || Caller.entity !== "edge")`. On a mesh with no local
 link that condition is dead code, and writing it everywhere buys nothing.
 
 Authorization by entity. Once the calling entity is known (by verified
@@ -514,8 +514,8 @@ page protects the page's markup, never the data the page later reads.
   installers, so every entity builds on the same tested toolchain.
 - Native dependencies, if any, go through vcpkg with a pinned baseline, recorded and
   auditable.
-- The generated contract layer is reproducible from `shared/` and is not edited by
-  hand, so it cannot hide unreviewed behavior.
+- The generated contract layer is reproducible from the project's `.syn` files and is
+  not edited by hand, so it cannot hide unreviewed behavior.
 - Official entity blueprints (persistence, cache, document, gateway, jobs) are part
   of the framework and reviewed; using one does not pull in an unaudited third party
   product.

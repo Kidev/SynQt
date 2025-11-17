@@ -81,11 +81,11 @@ unchanged, and none of it became your problem by using an unusual provider. See
 
 ## Level 2: Your own rules about who someone is
 
-The provider says who signed in. It does not say what they may do here, and it should not:
-a scope is your system's word, not theirs. That translation is the mapping hook, and it is
+The provider says who signed in. It does not say what they may do here, and it should not,
+because a scope is your system's word rather than theirs. That translation is the mapping hook, and it is
 where most real customization lives.
 
-`web/identity/map.qml`:
+`web/edge/identity/map.qml`:
 
 ```qml
 import QtQuick
@@ -275,7 +275,7 @@ This is worth doing when you have more than one edge, and not before.
 <details class="solution" markdown>
 <summary>Solution</summary>
 
-The first is topology. Adding `client` to the `staff` connect point's consumer list fails
+The first is topology. Adding `app` to the `staff` connect point's consumer list fails
 `synqt check`, because a connect point a client consumes must be owned by a web edge, and
 the directory is not one. There is no configuration in which a browser reaches that entity,
 so the hop that was going to be saved does not exist.

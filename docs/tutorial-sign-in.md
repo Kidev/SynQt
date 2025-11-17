@@ -44,7 +44,7 @@ it goes in `synqt.yaml`, in the provider entry `synqt add auth` created:
       client_id: your-client-id-from-github
 ```
 
-The Client secret is a secret, so it goes only in `web/.env`, which is read only by
+The Client secret is a secret, so it goes only in `web/edge/.env`, which is read only by
 the edge and is git ignored:
 
 ```cli
@@ -53,7 +53,7 @@ GITHUB_CLIENT_SECRET=your-generated-secret
 
 > [!CAUTION]
 > The Client secret never goes in `synqt.yaml`, never in any file under `client/`,
-> and never anywhere the browser can reach. It lives only in `web/.env`, on the
+> and never anywhere the browser can reach. It lives only in `web/edge/.env`, on the
 > edge. SynQt will refuse to build if a secret is wired anywhere the client could
 > see it, but the habit matters more than the safety net.
 
@@ -67,13 +67,13 @@ GITHUB_CLIENT_SECRET=your-generated-secret
 ## Step 2: Use the real identity, not a typed name
 
 Now that the edge knows who the caller is, the bidder should come from their
-identity, not a text field. Change the contract in `shared/Auction.syn`:
+identity, not a text field. Change the contract in `web/edge/Auction.syn`:
 
 ```syn
 slot placeBid(int amount)   // no more bidder argument; the edge knows who you are
 ```
 
-Update `web/Auction.qml` to authorize the user and use their identity:
+Update `web/edge/Auction.qml` to authorize the user and use their identity:
 
 ```qml
 function placeBid(amount) {
@@ -99,7 +99,7 @@ function placeBid(amount) {
 
 ## Step 3: Update the UI for sign in
 
-Replace the bidding row and add sign in to `client/Main.qml`. The view now shows a
+Replace the bidding row and add sign in to `client/app/Main.qml`. The view now shows a
 Sign in button when you are anonymous, and the bid controls only when you are
 signed in:
 
@@ -178,13 +178,13 @@ laid out in [security](security.md).
 Let us give one person, the auctioneer, the power to close the current lot and put
 up the next one. This shows a higher permission level (admin).
 
-Add to `shared/Auction.syn`:
+Add to `web/edge/Auction.syn`:
 
 ```syn
 slot closeLot(string nextItem)
 ```
 
-Add to `web/Auction.qml`:
+Add to `web/edge/Auction.qml`:
 
 ```qml
 function closeLot(nextItem) {
@@ -200,7 +200,7 @@ function closeLot(nextItem) {
 ```
 
 Make yourself the auctioneer by mapping your identity to the admin scope. Open
-`web/identity/map.qml` (scaffolded by `synqt add auth`) and return `"admin"` for
+`web/edge/identity/map.qml` (scaffolded by `synqt add auth`) and return `"admin"` for
 your own account:
 
 ```qml
@@ -216,7 +216,7 @@ IdentityMapping {
 }
 ```
 
-Add an auctioneer control to `client/Main.qml`, visible only to admins:
+Add an auctioneer control to `client/app/Main.qml`, visible only to admins:
 
 ```qml
 RowLayout {

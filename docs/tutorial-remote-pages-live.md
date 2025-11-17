@@ -37,21 +37,21 @@ Now the wire. Open your browser's network panel on a fresh load of the storefron
   offers fill in.
 - Navigate away and back, or open another campaign slug. There is no second fetch of the page
   body. The edge answered the first fetch with a content hash, the client cached the page
-  under that hash, and every later navigation to a `/c/...` slug comes back `notModified`:
-  only the small, per-request seed is on the wire, never the page again.
+  under that hash, and every later navigation to a `/c/...` slug comes back `notModified`.
+  Only the small, per-request seed is on the wire, never the page again.
 
 The page is downloaded exactly once, by exactly the visitors who open it, and cached by
 content hash from then on.
 
 ## Check 2: edit it live, and add one without a rebuild
 
-A remote page is edge code, so changing it is an edge change, not a client rebuild. Two
+A remote page is edge code, so changing it is an edge change rather than a client rebuild. Two
 things follow, and both are visible with the tab still open.
 
 Restyle the running page. With `synqt dev` running and a campaign open in the tab, edit
-`web/pages/Campaign.qml`. Bump the headline's `font.pixelSize` from `24` to `40`, or change
+`web/edge/pages/Campaign.qml`. Bump the headline's `font.pixelSize` from `24` to `40`, or change
 a color, and save. The open tab restyles. There is no `synqt build`, no new WebAssembly
-bundle, and no page reload of the client: the edge picked up the changed page, and the next
+bundle, and no page reload of the client. The edge picked up the changed page, and the next
 time the tab shows that route it renders the new version. The compiled client never moved.
 
 Add a brand-new campaign. The client bundle knows about `/c/:campaign` as a pattern, but
@@ -60,11 +60,11 @@ campaign by navigating to a slug that has never existed, say `/c/back-to-school`
 
 - The seed turns `back-to-school` into "Back To School" and the page paints it.
 - The offers fill in from the same live `catalog`.
-- You added a working campaign without touching the client at all: no rebuild, no redeploy,
-  no new download for anyone.
+- You added a working campaign without touching the client at all, with no rebuild, no
+  redeploy, and no new download for anyone.
 
-If instead you needed a genuinely different page for a campaign, not just a new slug, you
-would drop a new file in `web/pages/` and point a new `remote:` route at it. The edge holds
+If instead you needed a different page for a campaign rather than only a new slug, you
+would drop a new file in `web/edge/pages/` and point a new `remote:` route at it. The edge holds
 the route table and tells the connected client about it (see
 [the edge-served route table](remote-pages.md#the-edge-served-route-table)), so the new
 route is reachable without a client rebuild too. That is the whole reason to keep a page on
@@ -92,8 +92,8 @@ Open `synqt.yaml` and add the client as a consumer of the `inventory` connect po
   - name: inventory
     contract: Inventory
     owner: stock
-    consumers: [web, client]     # add client: let the browser reach the database
-    server: stock/Inventory.qml
+    consumers: [edge, app]     # add client: let the browser reach the database
+    server: db/relational/stock/Inventory.qml
     instance: per_peer
 ```
 

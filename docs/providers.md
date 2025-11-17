@@ -1,7 +1,7 @@
 # Providers (backing entities with first party or third party engines)
 
 An entity already hides its backend behind a typed connect point: consumers call
-`Database.items.insert(...)` and never know or touch what stores the data. This
+`Store.items.insert(...)` and never know or touch what stores the data. This
 document makes that backend pluggable. A blueprint defines a small backend facing
 interface; a provider implements it for a specific engine. The default provider is
 SynQt's own embedded engine and needs no configuration. A third party engine
@@ -202,11 +202,11 @@ provider. This is the common case and needs nothing more.
 
 ```yaml
 entities:
-  - name: database
+  - name: store
     kind: service
     blueprint: relational         # provider defaults to sqlite (embedded)
     settings:
-      file: database/data/app.db
+      file: db/relational/store/data/app.db
       journal_mode: wal
       busy_timeout_ms: 5000
 ```
@@ -216,7 +216,7 @@ points, the contracts, and every consumer stay identical.
 
 ```yaml
 entities:
-  - name: database
+  - name: store
     kind: service
     blueprint: relational
     provider:
@@ -282,8 +282,8 @@ sequenceDiagram
   participant G as engine (e.g. PostgreSQL)
   B->>E: Server.todo.add("milk")  (wss, session)
   Note over E: edge authorizes the user (Caller.hasScope)
-  E->>D: Database.items.insert(row)  (mesh, mutual TLS)
-  Note over D: database authorizes the entity (Caller.entity == "web")
+  E->>D: Store.items.insert(row)  (mesh, mutual TLS)
+  Note over D: the store authorizes the entity (Caller.entity == "edge")
   D->>G: provider.exec("INSERT ...", params)  (TLS to engine, credentials)
   G-->>D: ok
   D-->>E: changed()
@@ -391,8 +391,8 @@ provider specific points:
 ## Why this design
 
 The entity model already promised that the contract is the stable boundary and the
-backend can change without touching consumers. Providers make that concrete: the
-same `database` entity can be SynQt's embedded SQLite during early development and a
+backend can change without touching consumers. Providers make that concrete. The
+same `store` entity can be SynQt's embedded SQLite during early development and a
 managed PostgreSQL or a MongoDB cluster in production, decided by one config value,
 with the mesh authentication, the `Caller` authorization, the data minimization, and
 the deny by default topology all unchanged. Simple by default, because the embedded

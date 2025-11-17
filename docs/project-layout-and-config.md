@@ -16,26 +16,28 @@ my-app/
   synqt.yaml              # project, topology, and security config
   .gitignore
 
-  shared/                 # contracts: the typed APIs that cross between entities
-    Todo.syn
+  client/                 # every client entity
+    app/                  # the client entity itself, shipped to the browser
+      Main.qml
+      TodoView.qml
+      assets/
 
-  client/                 # the client entity (WebAssembly), shipped to the browser
-    Main.qml
-    TodoView.qml
-    assets/
+  web/                    # every web edge entity
+    edge/                 # the edge: serves the client, faces the net
+      Edge.qml            # the entity itself: a singleton, one of it while the entity runs
+      Todo.qml            # a connect point the edge owns
+      Todo.syn            # what may cross it
+      identity/           # optional identity hooks
+      .env                # secrets for this entity only
+      .env.example
 
-  web/                    # the web edge entity (native), serves the client, faces the net
-    Web.qml               # the entity itself: a singleton, one of it while the entity runs
-    Todo.qml              # a connect point implementation owned by web
-    identity/             # optional identity hooks
-    .env                  # secrets for this entity only
-    .env.example
-
-  database/               # added with: synqt add entity database (relational blueprint)
-    Database.qml
-    Items.qml
-    schema.sql
-    .env
+  db/relational/          # every relational entity
+    store/                # added with: synqt add entity store --blueprint relational
+      Store.qml
+      Items.qml
+      Items.syn
+      schema.sql
+      .env
 
   synqt/                  # framework managed; toolchain and mesh CA
     toolchain/            # the pinned Qt and Emscripten kits
@@ -45,16 +47,23 @@ my-app/
     design.json           # where each entity sits on the canvas, and nothing else
 
   build/                  # build outputs, one subfolder per entity
-    client/
-    web/
-    database/
+    app/
+    edge/
+    store/
 ```
 
 Principles:
 
-- Each entity is a folder, named after the entity. The layout is fixed rather than
-  configurable: one rule, so nothing can point half the build at one directory and
-  half at another.
+- Each entity is a folder of its own, inside the folder entities of its kind share:
+  `client/<name>/`, `web/<name>/`, `db/relational/<name>/`, and so on. Everything
+  the entity is made of is in there and nowhere else, so a `.qml` file dropped
+  beside it is importable from it with no wiring, and two databases never write
+  over each other. The layout is fixed rather than configurable: one rule, so
+  nothing can point half the build at one directory and half at another.
+- A contract lives in the folder of the entity that owns it, beside the Source that
+  answers it, because the two are one thing seen twice. It is still on the wire for
+  every consumer the connect point names, so changing it is a breaking change even
+  though it sits in one entity's folder.
 - A service entity is never part of the WebAssembly build, and the client is never
   part of any service build. A connect point's `server` file is compiled into its
   owner entity only. No server file can leak into the client because it is never
@@ -93,7 +102,7 @@ A few conventions hold throughout the file:
 - Secrets are never literals here. Any value that carries a credential is an
   `env:` reference (for example `env:DB_PASSWORD`), never written into `synqt.yaml`.
   Validation enforces this. The name is answered when the entity starts, from its own
-  environment: the entity's env file (`web/.env` for an entity in `web/`, or wherever
+  environment, the entity's env file (`web/edge/.env` for an entity in `web/`, or wherever
   `env: {file: ...}` points) and then the project `.env`, most specific first, with
   neither able to overwrite a variable the real environment already set. That last rule
   is what lets an entity be deployed with a container secret, a systemd unit or a CI
@@ -139,8 +148,8 @@ an application and never a directory scheme.
 
 | Directory | Holds |
 |-----------|-------|
-| `shared/` | the `.syn` contracts, shared by every entity that owns or consumes a connect point |
-| `<entity>/` | one directory per entity, named after the entity itself (see [`entities`](#entities-the-topology)) |
+| `<kind>/<entity>/` | one directory per entity, inside the folder its kind shares: `client/`, `web/`, `db/relational/`, `db/document/`, `cache/`, `api/`, `jobs/`, `service/` (see [`entities`](#entities-the-topology)) |
+| `<kind>/<entity>/<Contract>.syn` | the contract of each connect point that entity owns, beside the Source that answers it |
 | `build/<entity>/` | what `synqt build` produces, one deployable directory per entity |
 | `synqt/mesh/` | the project's private CA and per entity certificates (`synqt/mesh/dev/` for the throwaway development CA) |
 | `synqt/toolchain/` | the pinned Qt and Emscripten kits `synqt` provisions |
@@ -188,7 +197,7 @@ rest depend on the kind of entity.
 
 `name` is also the entity's directory, and its QML module, and the name other
 entities address it by. There is no separate path key: `name: web` means the entity's
-QML lives in `web/`, its secrets in `web/.env`, and its build output in `build/web/`.
+QML lives in `web/`, its secrets in `web/edge/.env`, and its build output in `build/web/`.
 A client entity's window is `<name>/Main.qml`, always, which is why nothing declares
 an entry point either.
 
@@ -203,7 +212,7 @@ A client entity:
 
 ```yaml
 entities:
-  - name: client
+  - name: app
     kind: client              # QML client: browser (WebAssembly) and/or desktop, connect only
     targets: [wasm]           # [wasm] (default); add "desktop" for a native app
 ```
@@ -216,7 +225,7 @@ A web edge entity, with its nested sub sections for the public (internet facing)
 side, the mesh (service to service) side, the public TLS, and its env file:
 
 ```yaml
-  - name: web
+  - name: edge
     kind: service
     capability: web_edge      # serves a client bundle and faces the internet
     identity: true            # serve the login routes here (the default wherever
@@ -245,11 +254,11 @@ side, the mesh (service to service) side, the public TLS, and its env file:
       port: 9443
 
     tls:                      # the public TLS for the browser
-      cert_file: certs/web/fullchain.pem
-      key_file: certs/web/privkey.pem
+      cert_file: certs/edge/fullchain.pem
+      key_file: certs/edge/privkey.pem
 
     env:
-      file: web/.env
+      file: web/edge/.env
 ```
 
 `serve_client: false` hands delivery to a CDN. It is the other half of
@@ -261,7 +270,7 @@ embedded default needs no `provider` section at all; the blueprint's own setting
 under `settings`:
 
 ```yaml
-  - name: database
+  - name: store
     kind: service
     blueprint: relational    # official blueprint; see docs/entities.md
     # provider defaults to sqlite (embedded); no provider section needed for the default
@@ -282,7 +291,7 @@ under `settings`:
       file: database/.env
 
     settings:                 # blueprint specific settings (see docs/entities.md)
-      file: database/data/app.db
+      file: db/relational/store/data/app.db
       journal_mode: wal
       busy_timeout_ms: 5000
 ```
@@ -293,7 +302,7 @@ else (the connect points, the consumers, the mesh) is unchanged. This is the
 graduated path described in [providers](providers.md):
 
 ```yaml
-  - name: database
+  - name: store
     kind: service
     blueprint: relational
 
@@ -350,17 +359,17 @@ configured use of a contract with exactly one owner and a list of consumers.
 connect_points:
   - name: todo
     contract: Todo
-    owner: web                # the entity holding the authoritative Source
-    consumers: [client]       # the entities allowed to acquire the Replica
-    server: web/Todo.qml
+    owner: edge               # the entity holding the authoritative Source
+    consumers: [app]          # the entities allowed to acquire the Replica
+    server: web/edge/Todo.qml
     scope: user               # for browser consumers: minimum session scope
     instance: per_session     # per_session, per_peer, or shared
 
   - name: items
     contract: Items
-    owner: database
-    consumers: [web]          # only the edge may reach the database items connect point
-    server: database/Items.qml
+    owner: store
+    consumers: [edge]         # only the edge may reach the items connect point
+    server: db/relational/store/Items.qml
     instance: shared
 ```
 
@@ -466,7 +475,7 @@ project:
   origin_model: split_origin        # the session cookie becomes a third party cookie
 
 entities:
-  - name: web
+  - name: edge
     capability: web_edge
     public:
       serve_client: false           # a CDN delivers the bundle; the edge serves no files
@@ -606,7 +615,7 @@ identity:
     margin_seconds: 120           # how far ahead of expiry to renew one
 
   mapping:
-    hook: web/identity/map.qml    # optional QML returning a scope for an identity
+    hook: web/edge/identity/map.qml    # optional QML returning a scope for an identity
 ```
 
 A provider named `github` or `google` may be written as just a name, a `client_id`
@@ -615,7 +624,7 @@ would have written are filled in underneath whatever the project spells out. Any
 other name needs its endpoints written, because there is nothing to fill in.
 
 `mapping` accepts either the nested `hook:` above or the file directly
-(`mapping: web/identity/map.qml`); both name the same QML.
+(`mapping: web/edge/identity/map.qml`); both name the same QML.
 
 `refresh` times the server side access token renewal described in
 [authentication](authentication.md#session-lifecycle). The values above are the
@@ -647,9 +656,9 @@ key that could contradict them would be a way to get them wrong. The session coo
 `None; Secure` for `split_origin`), and the session id always rotates on a privilege
 change.
 
-The client secret is a name, never a value: it is read from the entity's environment
+The client secret is a name, never a value. It is read from the entity's environment
 when the edge starts, so it is in neither `synqt.yaml` nor the binary. Names are
-answered from the entity's own env file (`web/.env`) and then the project `.env`, and
+answered from the entity's own env file (`web/edge/.env`) and then the project `.env`, and
 neither file overwrites a variable the real environment already set, so a container or
 secret store always outranks a file on disk. A deployment that sets its variables
 directly needs no file at all.
@@ -702,9 +711,9 @@ routes:
 | Key | Required | Meaning |
 |-----|----------|---------|
 | `path` | yes | The route's path, absolute. Each segment is either a literal or a `:name` parameter that captures whatever is in that position. A parameter name starts with a letter or an underscore and continues with letters, digits, or underscores, and no name repeats within one path. Captured values are percent-decoded and arrive as `Router.params`. |
-| `view` | one of `view`/`remote` | The QML file compiled into the client bundle. Write it relative to the client entity's directory (`Home.qml`, not `client/Home.qml`, and `views/Home.qml` for one in a subdirectory), with or without the `.qml` extension. `synqt build` compiles it into the client's QML module at that same relative path and the router loads it from there, so a view needs nothing beyond the file being there. Mutually exclusive with `remote`. |
+| `view` | one of `view`/`remote` | The QML file compiled into the client bundle. Write it relative to the client entity's directory (`Home.qml`, not `client/app/Home.qml`, and `views/Home.qml` for one in a subdirectory), with or without the `.qml` extension. `synqt build` compiles it into the client's QML module at that same relative path and the router loads it from there, so a view needs nothing beyond the file being there. Mutually exclusive with `remote`. |
 | `remote` | one of `view`/`remote` | The QML file the web edge delivers on demand, instead of compiling it in. Write it relative to the edge entity's `pages/` directory (`Campaign.qml` names `<edge>/pages/Campaign.qml`). The edge sends it over the same authenticated `wss` link at navigation time, so it never enters the bundle and changes without a client rebuild. Mutually exclusive with `view`. See [remote pages](remote-pages.md). |
-| `seed` | no | The [page seed](remote-pages.md#the-page-seed-painting-the-first-frame) hook the edge runs, after this route's scope check, to build the data a delivered page paints with on its first frame. Written project-root-relative (like `identity.mapping`), because a hook is edge code, not a delivered page: `seed: web/campaign-seed.qml`. Applies only to a `remote:` route; a `seed:` on a compiled-in route is refused, because it would never run. |
+| `seed` | no | The [page seed](remote-pages.md#the-page-seed-painting-the-first-frame) hook the edge runs, after this route's scope check, to build the data a delivered page paints with on its first frame. Written project-root-relative (like `identity.mapping`), because a hook is edge code, not a delivered page: `seed: web/edge/campaign-seed.qml`. Applies only to a `remote:` route; a `seed:` on a compiled-in route is refused, because it would never run. |
 | `scope` | no | The scope a session must hold to reach this route. Omitted, the route is open to everyone, anonymous sessions included. On a `remote:` route the edge enforces it before delivery, so an under-scoped fetch is refused with no markup, no hash, and no seed. |
 | `graphics` | no | `accelerated` or `software`. Whether this route needs a GPU-backed scene graph. Omitted, `synqt build` reads the route's QML and decides; write it to overrule that. See below. |
 
@@ -778,7 +787,7 @@ for a refused route and over the page otherwise, so write it to work in either.
 
 A `remote:` route is not compiled into the client. Its file lives under the web edge
 entity's `pages/` directory, flat under the project root: for an edge named `web`,
-`remote: Campaign.qml` names `web/pages/Campaign.qml` (there is no `entities/`
+`remote: Campaign.qml` names `web/edge/pages/Campaign.qml` (there is no `entities/`
 prefix). The edge holds these files and delivers one over the same authenticated
 `wss` link the moment a visitor navigates to its route, so a delivered page never
 enters the bundle and can be added or changed without a client rebuild. The full
@@ -1023,28 +1032,28 @@ process environment, only on the relevant service entity.
 public:
   port: 443
   tls:
-    cert_file: certs/web/fullchain.pem
-    key_file: certs/web/privkey.pem
+    cert_file: certs/edge/fullchain.pem
+    key_file: certs/edge/privkey.pem
 
 entities:
-  - name: database          # matched by name; the rest of the entry is untouched
+  - name: database          # matched by name, and the rest of the entry is untouched
     mesh:
       host: 10.0.0.10
 ```
 
 `entities` and `connect_points` are matched entry by entry on `name`, so a profile
 retunes one entity without restating the topology. Every other list, such as a
-connect point's `consumers` or `scopes.order`, is replaced whole: its membership and
-order are the value. A profile changes and adds; it never removes. There is no
+connect point's `consumers` or `scopes.order`, is replaced whole. Its membership and
+order are the value. A profile changes and adds. It never removes. There is no
 delete syntax, because dropping a consumer or an entity is a security change and it
-belongs in the file that declares the list, not in an overlay.
+belongs in the file that declares the list rather than in an overlay.
 
 An environment override names a key inside a section the configuration already
 declares: `SYNQT_PUBLIC_PORT=443`, `SYNQT_BUILD_DESKTOP_EDGE_URL=wss://app.example.com/sync`
 (the nested path is resolved against the structure that is there, so
-`build.desktop.edge_url` and not `build.desktop_edge_url`). A variable naming no
-section is left alone, which is what keeps the runtime's own `SYNQT_ROOT`,
-`SYNQT_EDGE_URL` and `SYNQT_TEST_*` out of the topology; so is a bare section such as
+`build.desktop.edge_url` rather than `build.desktop_edge_url`). A variable naming no
+section is left alone, which keeps the runtime's own `SYNQT_ROOT`,
+`SYNQT_EDGE_URL` and `SYNQT_TEST_*` out of the topology. So is a bare section such as
 `SYNQT_ENTITIES`, and so is any path that would reach into a list. The value is read
 as the type the key already has, so `SYNQT_PROJECT_NAME=no` stays the string `no`
 rather than becoming `false`.
@@ -1216,7 +1225,7 @@ message quoted:
 | A `remote:` route exists but `router.palette` is empty | `error: a route declares 'remote:' but router.palette is empty; a delivered page may only import declared modules` |
 | A route sets both `view:` and `remote:` | `error: route '/c/:campaign' sets both 'view:' and 'remote:'` |
 | A `remote:` route shadows a compiled-in route at the same path | `error: remote route '/c/:campaign' shadows a compiled-in route of the same path` |
-| A `seed:` names a file that is not there | `error: page seed 'web/campaign-seed.qml' for route '/c/:campaign' does not exist under <project-dir>` |
+| A `seed:` names a file that is not there | `error: page seed 'web/edge/campaign-seed.qml' for route '/c/:campaign' does not exist under <project-dir>` |
 | A `remote:` names a page that is not there | `error: remote page 'Campaign.qml' for route '/c/:campaign' does not exist under <edge>/pages` |
 | A delivered page imports a module outside the palette | `error: remote page 'Campaign.qml' imports 'QtWebEngine', which is not in router.palette` |
 

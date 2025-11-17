@@ -96,8 +96,8 @@ build/
 Each entity's QML is compiled into its binary, so a service directory is small: the
 binary, the `topology.json` it reads at startup, and its licenses. What does *not* move
 into `build/` is the data an
-entity owns: a relational entity applies `database/schema.sql` and opens the file its
-`settings` name (`database/data/app.db` by default), both relative to the project root
+entity owns: a relational entity applies `db/relational/store/schema.sql` and opens the file its
+`settings` name (`db/relational/store/data/app.db` by default), both relative to the project root
 and both still in the entity's own directory. Which is also why `synqt clean`, whose job
 is to remove build outputs, cannot take a database with it.
 
@@ -127,8 +127,8 @@ myapp/
 ```
 
 The entity source directories travel too, but only for what an entity reads at run time.
-`database/` on a deployed host means `database/.env`, `database/schema.sql` and
-`database/data/`, not the QML, which is inside the binary. `synqt.yaml` travels because
+A relational entity's folder on a deployed host means its `.env`, its `schema.sql` and
+its `data/`, not the QML, which is inside the binary. `synqt.yaml` travels because
 the paths the entities use are the paths it spells.
 
 **Service binaries do not carry Qt.** `synqt build` does not run a deployment step for
@@ -147,7 +147,7 @@ they are `env:` references, and any `env:` reference reachable from a client tar
 rejected outright, so a secret cannot reach the browser by being named in the wrong
 section.
 
-On the host that means writing `database/.env` and `web/.env` with the values the
+On the host that means writing `db/relational/store/.env` and `web/edge/.env` with the values the
 references name, readable only by the user the entities run as. `.env.example` in each
 entity directory lists which ones. For a pipeline, the `SYNQT_<SECTION>_<KEY>`
 environment variables cover the non secret overrides (`SYNQT_PUBLIC_PORT=443`), and your
@@ -159,10 +159,10 @@ orchestrator's secret mechanism covers the rest.
 
 ```json
 {
-  "start_order": ["database", "web"],
+  "start_order": ["store", "edge"],
   "processes": [
     {
-      "entity": "database",
+      "entity": "store",
       "binary": "build/database/database",
       "bind": "loopback",
       "mesh_cert": "synqt/mesh/database.crt",
@@ -170,7 +170,7 @@ orchestrator's secret mechanism covers the rest.
       "ca_cert": "synqt/mesh/ca.crt"
     },
     {
-      "entity": "web",
+      "entity": "edge",
       "binary": "build/web/web",
       "bind": "public",
       "mesh_cert": "synqt/mesh/web.crt",

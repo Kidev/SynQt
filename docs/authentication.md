@@ -62,7 +62,7 @@ This:
 2. Adds the provider's `client_secret` as an `env:` reference and writes a
    `.env.example` entry so the required secret is documented but unset.
 3. Scaffolds the callback and login routes on the web edge.
-4. Scaffolds an identity mapping hook (`web/identity/map.qml`) that returns the
+4. Scaffolds an identity mapping hook (`web/edge/identity/map.qml`) that returns the
    default scope, ready for you to map specific identities to higher scopes.
 5. Prints exactly what you must do next (register the OAuth app with the provider,
    set the redirect URL to the edge callback, put the secret in the edge `.env`)
@@ -98,14 +98,13 @@ co located processes only, see [security](security.md).) Used to
 authorize entity originated calls (`Caller.isEntity`, `Caller.entity`). This is
 configured by the mesh CA and per entity certs (see
 [`[mesh]`](project-layout-and-config.md#mesh-service-to-service-security) and
-[security](security.md)), not by `synqt add auth`.
+[security](security.md)), and `synqt add auth` plays no part in it.
 
 A browser user is never an entity, and an entity is never a browser user. A
-database slot that checks `Caller.entity === "web"` is authorizing a service, not a
-person. An edge slot that checks `Caller.hasScope("admin")` is authorizing a
-person, not a service. Mixing them up (for example trusting a user supplied value as
-if it were an entity identity) is the kind of error the separation is designed to
-prevent.
+database slot that checks `Caller.entity === "edge"` authorizes a service. An edge
+slot that checks `Caller.hasScope("admin")` authorizes a person. Mixing them up (for
+example trusting a user supplied value as an entity identity) is the kind of error
+the separation prevents.
 
 ## The login flow, end to end
 
@@ -129,7 +128,7 @@ sequenceDiagram
         P-->>E: signing keys
         Note over E: verify ID token signature
     end
-    Note over E: map identity to scope (web/identity/map.qml), create session
+    Note over E: map identity to scope (web/edge/identity/map.qml), create session
     E-->>B: set httpOnly Secure SameSite session cookie
     B->>E: reopen wss, cookie rides along (same origin by default)
     Note over E: upgrade verifier validates the session, binds the connection
@@ -165,7 +164,7 @@ configuration.
 
 ## The identity mapping hook
 
-`web/identity/map.qml` turns a provider identity into a SynQt scope. It runs only
+`web/edge/identity/map.qml` turns a provider identity into a SynQt scope. It runs only
 on the edge, after a successful login.
 
 ```qml
@@ -185,7 +184,7 @@ IdentityMapping {
 
 For systems where roles live in a database, the hook can read a connect point the
 edge consumes (for example a `prop var assignments` the roles entity pushes, looked
-up as `Database.roles.assignments[identity.sub]`), so role assignment is data driven
+up as `Store.roles.assignments[identity.sub]`), so role assignment is data driven
 rather than hard coded. Read a pushed property, not a returning slot: `scopeFor` runs
 synchronously, because the edge needs the scope before it can create the session, and
 a returning slot hands back a promise instead of a value.
@@ -234,7 +233,7 @@ the entity, name it, and `synqt build` writes the two connect points (`identity`
 `sessions`, `per_peer` so one edge's answer never reaches another), the Source QML that
 bridges each to its engine, and the entity's `main.cpp` holding the OAuth engine and the
 authoritative session store. Their contracts ship in the runtime library, so no project
-carries a `shared/Identity.syn` and none has to.
+carries an `Identity.syn` of its own and none has to.
 
 ```yaml
 entities:

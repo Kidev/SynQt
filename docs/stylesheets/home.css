@@ -551,12 +551,19 @@
           mask-image: var(--synqt-icon-file);
 }
 
-.synqt-tree__leaf--nested {
+.synqt-tree__leaf--nested,
+.synqt-tree__dir--nested {
   padding-left: 1rem;
 }
 
-/* A directory opens what is in it, so pointing at `database` is pointing at the
-   two files under it, and `shared` at the three contracts. It is the same
+/* An entity's own folder sits inside the folder its kind shares, so its files
+   are two levels in. */
+.synqt-tree__leaf--deep {
+  padding-left: 2rem;
+}
+
+/* A directory opens what is in it, so pointing at `store` is pointing at the
+   three files under it, and `db/relational` at the same set. It is the same
    trigger as a file row, and it reads as one: nothing in this tree is a label
    with nothing behind it, and a reader who lands on the folder first is not
    asked to find the file under it before anything happens. */
@@ -1086,7 +1093,8 @@
   }
 
   .synqt-tree__title,
-  .synqt-tree__dir {
+  .synqt-tree__dir,
+  .synqt-tree__dir--nested {
     display: none;
   }
 
@@ -1108,7 +1116,8 @@
   }
 
   .synqt-tree__leaf,
-  .synqt-tree__leaf--nested {
+  .synqt-tree__leaf--nested,
+  .synqt-tree__leaf--deep {
     padding-left: 0;
   }
 }

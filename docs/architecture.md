@@ -133,10 +133,10 @@ flowchart LR
 
   subgraph edge["web edge entity (native), the only internet-facing entity"]
     stodo["<span style='color:#1a1a2e'>Todo Source<br/>authoritative owner</span>"]
-    rusers["<span style='color:#1a1a2e'>Database.users<br/>Replica</span>"]
+    rusers["<span style='color:#1a1a2e'>Store.users<br/>Replica</span>"]
   end
 
-  subgraph db["database entity (native), internal only"]
+  subgraph db["store entity (native), internal only"]
     susers["<span style='color:#1a1a2e'>Users Source<br/>authoritative owner</span>"]
   end
 
@@ -154,7 +154,7 @@ flowchart LR
 
 In the graph: thick arrows are owner to consumer (properties and signals), thin
 arrows are consumer to owner (slots). The browser's `Server.todo` Replica mirrors
-the edge's `Todo` Source over wss; the edge's `Database.users` Replica mirrors the
+the edge's `Todo` Source over wss; the edge's `Store.users` Replica mirrors the
 database's `Users` Source over mutual TLS. Only the edge faces the internet; the
 database is internal only.
 
@@ -185,7 +185,7 @@ Service runtime (native, used by every service entity):
 - `EntityRuntime`: the entry point for a service entity. Reads config, brings up
   the connect points this entity owns, opens the consumer connections this entity
   needs, and exposes consumed connect points by owner name (for example
-  `Database`).
+  `Store`).
 - `ConnectPointHost`: for each owned connect point, instantiates the Source
   (backed by the entity's QML), calls `enableRemoting()`, and (for per session or
   per peer instances) creates one Source per session or per calling entity.
@@ -207,7 +207,7 @@ Service runtime (native, used by every service entity):
 
 Generated layer:
 
-- From each contract in `shared/`, the build generates a QtRO Source header and
+- From each `.syn` contract, the build generates a QtRO Source header and
   Replica header (via repc) and the registrations needed on each side. This gives
   every connect point a compile time checked shape on both ends, so a version skew
   between two entities is a build error, not a runtime surprise.
@@ -237,7 +237,7 @@ sequenceDiagram
     autonumber
     participant B as Browser (client, WASM)
     participant E as Web edge
-    participant D as Database entity
+    participant D as Store entity
     B->>E: GET / (page request)
     E-->>B: index.html + WASM bundle + isolation/CSP headers
     Note over B,E: plane A (HTTPS delivery)
@@ -253,8 +253,8 @@ sequenceDiagram
     E-->>B: Todo model populates (plane C)
     B->>E: Server.todo.add("buy milk")  [slot: Replica to Source]
     Note over E: edge authorizes the user (Caller.hasScope), validates input
-    E->>D: Database.items.insert(row)  [mesh, mutual TLS]
-    Note over D: database authorizes the entity (Caller.entity == "web")
+    E->>D: Store.items.insert(row)  [mesh, mutual TLS]
+    Note over D: the store authorizes the entity (Caller.entity == "edge")
     D->>D: write through the provider (embedded or external engine)
     D-->>E: changed()
     E-->>B: Todo model update over wss (no refresh code anywhere)

@@ -19,8 +19,8 @@ Every `synqt build` produces one artifact per entity:
   SynQt service runtime and any blueprint backend (for example the SQLite driver
   for a relational entity).
 
-All artifacts consume the same generated contract layer from `shared/`, so a
-contract is identical across every entity that uses it. A version skew between two
+Every entity that owns or consumes a connect point compiles the one `.syn` file its
+owner holds, so a contract is identical across all of them. A version skew between two
 entities that share a connect point is therefore a compile error, not a runtime
 surprise. Output lands under `build/<entity>/`.
 
@@ -129,7 +129,7 @@ synqt add entity <name> [--blueprint <kind>] [--source <Name>]
 synqt add entity <name> --blueprint <kind> --provider <engine>
                                                   # Scaffold an entity backed by a chosen engine.
 synqt add auth <provider> [--required]           # Add secure by default user authentication.
-synqt add contract <Name>                        # Scaffold shared/<Name>.syn.
+synqt add contract <Name> --owner <entity>       # Scaffold <Name>.syn in its folder.
 synqt add connect-point <name> --owner <entity> [--consumers a,b]
                                                  # Scaffold a connect point, owner and consumers.
 synqt add provider <name> --family <fam>         # Scaffold a provider for a family interface.
@@ -184,7 +184,7 @@ from both ends, so QML that already works carries its own answer. The owner's So
 assigns the properties, answers the calls and pushes the models, and every consumer names
 the members it reads. The command scans both, unions what it finds, and prints one entry
 per connect point with the file and line every member came from. `--write` turns that into
-`shared/<Contract>.syn`, and it refuses to overwrite a contract that is already there
+the owner's folder, and it refuses to overwrite a contract that is already there
 unless you add `--force`, because what is on disk is somebody's writing and this is a
 reading of a shape. `--json` prints the same result as the document `synqt design` draws,
 which is how the editor offers to fill a contract in for you.
@@ -375,7 +375,7 @@ than a menu item offered to someone who has not.
   plaintext HTTP bound to localhost.
 - It runs a dev only stub identity provider that can mint a session at any
   configured scope for testing, gated behind dev mode so it can never ship.
-- It watches every entity folder and `shared/`. A change to client QML triggers an
+- It watches every entity folder. A change to client QML triggers an
   incremental client rebuild and a browser reload. A change to a contract
   regenerates the contract layer and rebuilds every entity that uses it. A change to
   a service entity's QML reloads that entity without dropping the dev page.
@@ -390,7 +390,7 @@ WebAssembly one; see [desktop clients](desktop.md).
 
 ## How QML becomes WebAssembly (the client entity)
 
-1. The contract generator turns each `shared/*.syn` into a QtRO rep file, runs repc
+1. The contract generator turns each `.syn` into a QtRO rep file, runs repc
    to produce Source and Replica headers, and emits the QML registrations. Output
    goes to `synqt_generated/<target>/` in the CMake binary directory, so it is a
    build artifact and never something in the project tree to commit or hand edit.

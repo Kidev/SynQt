@@ -106,13 +106,13 @@ The client is a square view onto the world, and, like agar.io, it is a camera. I
 shows only a window of the map, centered on your own blob, rather than the whole thing. The
 world point at the middle of the view is `(myX, myY)`, and every other point is placed by
 offsetting from it and scaling by a zoom that grows a little with your size. For now
-the camera sits still at the middle of the map with a single blob; the next parts make
+the camera sits still at the middle of the map with a single blob. The next parts make
 it move and fill it with players.
 
-Replace `client/Main.qml` with this starting scene:
+Replace `client/app/Main.qml` with this starting scene:
 
 ```qml
-// client/Main.qml
+// client/app/Main.qml
 import QtQuick
 import QtQuick.Controls
 import SynQt                       // the new import: Server, Session, and contracts

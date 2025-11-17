@@ -9,7 +9,7 @@ In SynQt, two entities talk through a connect point: a named live object that on
 entity owns and others see a live copy of. You declare its shape once, in a
 contract, so both sides agree on it and the compiler checks it.
 
-Create `shared/Auction.syn`:
+Create `web/edge/Auction.syn`:
 
 ```syn
 // The shape of the auction that the browser and the edge share.
@@ -34,7 +34,7 @@ contract Auction {
 ## Step 2: Implement the owner side
 
 The web edge will own this connect point, which means it holds the real,
-authoritative auction. Create `web/Auction.qml`:
+authoritative auction. Create `web/edge/Auction.qml`:
 
 ```qml
 import QtQuick
@@ -71,15 +71,15 @@ Tell SynQt this connect point exists, who owns it, and who may use it. Open
 connect_points:
   - name: auction
     contract: Auction
-    owner: web                # the edge holds the real auction
-    consumers: [client]       # the browser may watch and bid
-    server: web/Auction.qml
+    owner: edge               # the edge holds the real auction
+    consumers: [app]          # the browser may watch and bid
+    server: web/edge/Auction.qml
     instance: shared          # one auction shared by everyone
 ```
 
 ## Step 4: Build the UI
 
-Open `client/Main.qml` and replace its contents:
+Open `client/app/Main.qml` and replace its contents:
 
 ```qml
 import QtQuick
@@ -162,7 +162,7 @@ that happen.
 > [!QUESTION]
 > In tab one bid 50. In tab two bid 10. What happens to the bid of 10, and why?
 > Then, predict: if you delete the line `if (amount <= auction.highBid)` from
-> `web/Auction.qml` and save, what will a bid of 10 do to the standing bid of 50?
+> `web/edge/Auction.qml` and save, what will a bid of 10 do to the standing bid of 50?
 
 <details class="solution" markdown>
 <summary>Solution</summary>

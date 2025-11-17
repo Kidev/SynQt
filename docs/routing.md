@@ -32,8 +32,8 @@ routes:
     view: Home.qml          # compiled into the client bundle
 
   - path: /c/:campaign
-    remote: Campaign.qml    # delivered by the edge, from web/pages/Campaign.qml
-    seed: web/campaign-seed.qml
+    remote: Campaign.qml    # delivered by the edge, from web/edge/pages/Campaign.qml
+    seed: web/edge/campaign-seed.qml
 
   - path: /admin
     view: Admin.qml

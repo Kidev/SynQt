@@ -10,12 +10,13 @@ application, while the boundary stays explicit and one directional in trust.
 
 A contract declares the API of one connect point: its live properties, its owner
 to consumer signals, its consumer to owner calls, and any live models. A contract
-lives in `shared/` and is the single declaration every entity on either end of
-the connect point compiles against. SynQt contracts are a friendly surface over
+lives in the folder of the entity that owns the connect point, beside the Source
+that answers it, and is the single declaration every entity on either end of the
+connect point compiles against. SynQt contracts are a friendly surface over
 QtRemoteObjects rep files; the build generates the QtRO Source and Replica from
 them.
 
-A contract file uses the `.syn` extension. Example, `shared/Todo.syn`:
+A contract file uses the `.syn` extension. Example, `web/edge/Todo.syn`:
 
 ```syn
 // Direction of travel is fixed by the keyword:
@@ -84,13 +85,13 @@ schema in [project layout and configuration](project-layout-and-config.md#the-sy
 
 ```yaml
 connect_points:
-  - name: todo              # the name consumers use to reach it
-    contract: Todo          # which contract from shared/
-    owner: web              # the entity that holds the authoritative Source
-    consumers: [client]     # the entities allowed to acquire the Replica
-    server: web/Todo.qml    # the authoritative implementation (in the owner's folder)
-    scope: user             # for browser consumers: minimum session scope
-    instance: per_session   # per_session, per_peer, or shared
+  - name: todo                    # the name consumers use to reach it
+    contract: Todo                # the contract, in the owner's folder
+    owner: edge                   # the entity that holds the authoritative Source
+    consumers: [app]              # the entities allowed to acquire the Replica
+    server: web/edge/Todo.qml     # the authoritative implementation
+    scope: user                   # for browser consumers: minimum session scope
+    instance: per_session         # per_session, per_peer, or shared
 ```
 
 The configurable parts that matter:
@@ -109,7 +110,8 @@ The configurable parts that matter:
   `per_peer` means one Source per calling entity (useful when one service serves
   several others and must keep their state separate).
 - `server`. The file that implements the connect point, and its root element is the
-  contract itself: `web/Todo.qml` opens with `Todo { ... }`. Both ends of a contract are
+  contract itself: `web/edge/Todo.qml` opens with `Todo { ... }`. It defaults to the
+  contract's name in the owner's folder, so most points never write it. Both ends of a contract are
   QML types with that one name, and they never meet, because an entity may not consume a
   connect point it owns. In an owner's binary `Todo` is the owner side; in a consumer's it
   is the consumer side and the attached handler type used for
@@ -134,21 +136,21 @@ Todo.onRejected: reason => banner.show(reason)         // owner explained a refu
 
 From any entity's code, a connect point on another entity appears under that
 owner entity's name. For example, inside the web edge's code, the database's
-connect points are under `Database`:
+connect points are under `Store`:
 
 ```qml
-// web/Todo.qml (the edge), calling the database entity
+// web/edge/Todo.qml (the edge), calling the store entity
 function add(text) {
     if (!Caller.hasScope("user")) { Caller.emitRejected("Sign in first."); return }
     // Persist through the database entity. This is an async cross entity call.
-    Database.items.insert({ text: text.trim(), author: Caller.identity.email })
+    Store.items.insert({ text: text.trim(), author: Caller.identity.email })
 }
 ```
 
 `Server` is therefore just the well known name for "the edge a browser client
 talks to." The general form is `<EntityName>.<connectPoint>`, addressing the
 owner by its configured name, capitalized into a QML type like accessor: entity
-`database` appears as `Database`, entity `web` as `Web`. (`Server` is the client's
+`store` appears as `Store`, entity `edge` as `Edge`. (`Server` is the client's
 alias for its own edge, whatever that edge entity is named.)
 
 ## Handling a connect point's signals
@@ -190,7 +192,7 @@ Auth.onLoginFailed: reason => banner.show(reason)
 
 The same shorthand works on the service side, for the signals of a connect point an
 entity consumes from another entity. Inside the web edge, reacting to the database's
-`Ledger` signals, `Connections { target: Database.ledger; function onWinnersChanged() {...} }`
+`Ledger` signals, `Connections { target: Books.ledger; function onWinnersChanged() {...} }`
 collapses to:
 
 ```qml
@@ -225,7 +227,7 @@ global object. The caller is one of two things.
   on one host (over loopback) and across hosts alike. (On an opt in local socket
   link the name is trusted by colocation instead, and `Caller.isEntityVerified` is
   false; see [security](security.md).) The owner authorizes by entity: for example a
-  database slot can require `Caller.entity === "web"`.
+  store slot can require `Caller.entity === "edge"`.
 
 `Client` remains available on web edge connect points as a convenience alias for
 `Caller` when the caller is a browser user, so existing edge code reads
@@ -238,7 +240,7 @@ lets QtRO fan the change out to all consumers.
 
 ## A connect point implementation, end to end
 
-`web/Todo.qml`, the authoritative Source on the edge, authorizing the user and
+`web/edge/Todo.qml`, the authoritative Source on the edge, authorizing the user and
 delegating persistence to the database entity:
 
 ```qml
@@ -261,13 +263,13 @@ Todo {
         }
         // Persist via the database entity (async cross entity call).
         // The database will authorize that the caller is the edge.
-        Database.items.insert({ text: clean, author: Caller.identity.email,
+        Store.items.insert({ text: clean, author: Caller.identity.email,
                                 ownerSub: Caller.identity.sub })
     }
 }
 ```
 
-`database/Items.qml`, the authoritative Source on the database entity, authorizing
+`db/relational/store/Items.qml`, the authoritative Source on the database entity, authorizing
 the calling entity:
 
 ```qml
@@ -279,7 +281,7 @@ Items {
 
     function insert(row) {
         // The database authorizes the calling entity, not a user.
-        if (Caller.entity !== "web") {
+        if (Caller.entity !== "edge") {
             return   // refuse calls from any entity other than the edge
         }
         Db.exec("INSERT INTO items(text, author, owner_sub) VALUES(?,?,?)",

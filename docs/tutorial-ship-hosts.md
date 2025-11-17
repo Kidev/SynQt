@@ -26,8 +26,8 @@ The edge host:
 /srv/gavel/
   synqt.yaml
   synqt.production.yaml
-  certs/web/fullchain.pem
-  certs/web/privkey.pem
+  certs/edge/fullchain.pem
+  certs/edge/privkey.pem
   synqt/mesh/
     ca.crt
     web.crt
@@ -60,7 +60,7 @@ The database host:
 Three things about those trees.
 
 **The entity source directories travel, but only for what an entity reads at run time.**
-`database/` on a host means `.env`, `schema.sql` and `data/`. It does not mean the QML,
+`db/relational/books/` on a host means `.env`, `schema.sql` and `data/`. It does not mean the QML,
 which is compiled into the binary and is not on the host at all.
 
 **`synqt.yaml` travels** because the paths the entities use are the paths it spells. So
@@ -68,7 +68,7 @@ does the profile, because the entity resolves the same layering the build did.
 
 **The data is not in `build/`.** A relational entity opens the file its `settings` name,
 under its own directory, which is why `synqt clean` cannot take your database with it and
-why your backup job points at `database/data/` rather than at the build output.
+why your backup job points at `db/relational/books/data/` rather than at the build output.
 
 ## Step 2: Qt has to be there
 
@@ -272,7 +272,7 @@ working directory the unit sets.
 
 ## Advice worth taking now
 
-- **Back up `database/data/`, not `build/`.** The build is reproducible from a commit.
+- **Back up `db/relational/books/data/`, not `build/`.** The build is reproducible from a commit.
   The data is not reproducible from anything.
 - **Give each host the same project root path.** `/srv/gavel` on both means one unit
   template, one runbook, and one place your muscle memory takes you.

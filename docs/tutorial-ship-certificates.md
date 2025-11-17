@@ -45,7 +45,7 @@ web.crt           valid until 2027-09-05  (398 days)
 ```
 
 Each entity certificate carries the entity name as its subject. That is the whole
-mechanism behind `Caller.entity`: when the database checks `Caller.entity === "web"`, it
+mechanism behind `Caller.entity`: when the database checks `Caller.entity === "edge"`, it
 is reading a name out of a certificate the other end proved it holds the key for, issued
 by an authority both of them verify against.
 
@@ -99,8 +99,8 @@ Put the two files where `synqt.production.yaml` says they are:
 
 ```text
 gavel/
-  certs/web/fullchain.pem
-  certs/web/privkey.pem
+  certs/edge/fullchain.pem
+  certs/edge/privkey.pem
 ```
 
 Those paths are relative to the project root, like everything else an entity reads.
@@ -110,7 +110,7 @@ The alternative is to let something in front of the edge terminate TLS:
 ```yaml
 # synqt.production.yaml, instead of the tls block
 entities:
-  - name: web
+  - name: edge
     public:
       tls_terminated_upstream: true
       origin: https://gavel.example.com
@@ -145,7 +145,7 @@ identity:
 and resolved at start from the entity's own env file:
 
 ```text
-# web/.env on the edge host, readable only by the user the edge runs as
+# web/edge/.env on the edge host, readable only by the user the edge runs as
 GITHUB_CLIENT_SECRET=the-real-value
 ```
 
@@ -199,8 +199,8 @@ socket restricted to the user the entities run as. It is faster, it is a documen
 option, and it is never chosen for you.
 
 What it costs is the meaning of `Caller.entity`. On a local link the operating system
-tells you which **user** connected, not which entity, so any process running as that
-same user can claim to be the edge. The database's `Caller.entity === "web"` check
+tells you which user connected rather than which entity, so any process running as that
+same user can claim to be the edge. The database's `Caller.entity === "edge"` check
 stops being an authentication and becomes an assumption about who else is on the box.
 `synqt check` flags every local link for exactly that reason.
 

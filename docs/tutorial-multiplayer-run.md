@@ -10,12 +10,12 @@ crosses the wire, and it is the difference between a demo and something that sca
 This is interest management, and it needs one architectural change. Instead of a
 single shared `Arena` Source that broadcasts to everyone, give each player their own
 Source that publishes their own slice. SynQt calls that `instance: per_session`, and
-you split `web/Arena.qml` in two to get there.
+you split `web/edge/Arena.qml` in two to get there.
 
 ## The shared world, simulated once
 
 The authoritative world, the roster, the pellets, the simulation, the round, moves into
-a singleton that exists once no matter how many players connect. Create `web/World.qml`:
+a singleton that exists once no matter how many players connect. Create `web/edge/World.qml`:
 
 ```qml
 pragma Singleton                      // one shared instance for the whole edge
@@ -100,7 +100,7 @@ Item {
 
     // Hall of Fame
     function refreshChampions() {
-        Database.scores.top().then(rows => { world.champions = rows; world.championsChanged() })
+        Records.scores.top().then(rows => { world.champions = rows; world.championsChanged() })
     }
     Scores.onStandingsChanged: world.refreshChampions()
 
@@ -153,7 +153,7 @@ Item {
             let w = null
             for (const s in world.roster) { const b = world.roster[s]
                 if (b.online && (!w || b.mass > w.mass)) w = b }
-            if (w) { Database.scores.award(w.id, w.name); world.roundEnded(w.name) }
+            if (w) { Records.scores.award(w.id, w.name); world.roundEnded(w.name) }
             for (const s in world.roster) { const b = world.roster[s]
                 b.mass = world.startMass
                 b.x = b.tx = world.randPos(); b.y = b.ty = world.randPos() }
@@ -164,14 +164,14 @@ Item {
 }
 ```
 
-This is the simulation, liveness sweep, and round timer from your `web/Arena.qml`, moved
+This is the simulation, liveness sweep, and round timer from your `web/edge/Arena.qml`, moved
 here unchanged, plus the three query functions (`nearbyBlobs`, `nearbyPellets`, `board`)
-that compute a view. The `pragma Singleton` line tells SynQt to build `web/World.qml` as one
+that compute a view. The `pragma Singleton` line tells SynQt to build `web/edge/World.qml` as one
 shared instance; the per-session Source below reaches it just by name.
 
 ## One private view per player
 
-Now replace `web/Arena.qml` entirely. It no longer simulates anything. It is one
+Now replace `web/edge/Arena.qml` entirely. It no longer simulates anything. It is one
 player's private view: it forwards their `steer` and `ping` into the shared `World`, and
 publishes only their slice plus the two global lists (the leaderboard and the Hall of
 Fame). One of these exists per session.
@@ -223,9 +223,9 @@ Finally, change the `arena` connect point to one Source per session in `synqt.ya
 ```yaml
   - name: arena
     contract: Arena
-    owner: web
-    consumers: [client]
-    server: web/Arena.qml
+    owner: edge
+    consumers: [app]
+    server: web/edge/Arena.qml
     scope: player
     instance: per_session     # was: shared. One private view per player.
 ```
@@ -251,7 +251,7 @@ still glides with you, the clock still counts down, the Hall of Fame still fills
 changed is on the wire: each browser now receives only the blobs and pellets inside its
 view, not the whole map. With two players far apart, neither appears in the other's
 world at all until they drift close, then they slide into view. (The `roundMs` test knob
-now lives in `web/World.qml` if you want to watch a round resolve again.)
+now lives in `web/edge/World.qml` if you want to watch a round resolve again.)
 
 ## Try it, then think
 

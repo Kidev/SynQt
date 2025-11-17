@@ -16,7 +16,7 @@ its own process, and it owns the durable data.
 synqt add entity database --blueprint relational
 ```
 
-This scaffolds a `database/` entity backed by an embedded engine (SQLite), with no
+This scaffolds a `db/relational/books/` entity backed by an embedded engine (SQLite), with no
 separate database server to install or run. It is masked behind the entity, so the
 rest of your app only ever talks to connect points.
 
@@ -29,7 +29,7 @@ rest of your app only ever talks to connect points.
 
 ## Step 2: A contract for the ledger (database owns it)
 
-Create `shared/Ledger.syn`. This is the database's API, used by the edge:
+Create `db/relational/books/Ledger.syn`. This is the database's API, used by the edge:
 
 ```syn
 contract Ledger {
@@ -46,7 +46,7 @@ contract Ledger {
 
 ## Step 3: Implement the database side
 
-Create `database/Ledger.qml`:
+Create `db/relational/books/Ledger.qml`:
 
 ```qml
 import QtQuick
@@ -57,14 +57,14 @@ Ledger {
 
     function recordWinner(item, winner, amount) {
         // Only the edge may write. Authorize the calling entity.
-        if (Caller.entity !== "web") return
+        if (Caller.entity !== "edge") return
         Db.exec("INSERT INTO winners(item, winner, amount) VALUES(?, ?, ?)",
                 [item, winner, amount])   // parameters are separate, so no injection
         ledger.winnersChanged()
     }
 
     function recentWinners() {
-        if (Caller.entity !== "web") return []
+        if (Caller.entity !== "edge") return []
         return Db.query("SELECT item, winner, amount FROM winners ORDER BY id DESC LIMIT 20")
     }
 }
@@ -75,7 +75,7 @@ Ledger {
 > building a SQL string with `+`. Parameters keep a malicious value from becoming
 > SQL. The `Db` helper only works this way on purpose.
 
-Create `database/schema.sql`:
+Create `db/relational/books/schema.sql`:
 
 ```sql
 CREATE TABLE IF NOT EXISTS winners (
@@ -86,7 +86,7 @@ CREATE TABLE IF NOT EXISTS winners (
 );
 ```
 
-Notice `Caller.entity !== "web"`. Here the caller is another entity (the edge)
+Notice `Caller.entity !== "edge"`. Here the caller is another entity (the edge)
 rather than a person, and it proves which entity it is with the certificate its mesh
 link presented: entity links use mutual TLS even between two processes on your
 laptop, and `synqt dev` issued throwaway development certificates for that
@@ -98,7 +98,7 @@ The browser must never reach the database directly (more on that in a moment). S
 the edge owns a `Hall` connect point, a live list of winners, and fills it from the
 database.
 
-Create `shared/Hall.syn`:
+Create `web/edge/Hall.syn`:
 
 ```syn
 contract Hall {
@@ -106,7 +106,7 @@ contract Hall {
 }
 ```
 
-Create `web/Hall.qml`:
+Create `web/edge/Hall.qml`:
 
 ```qml
 import QtQuick
@@ -117,7 +117,7 @@ Hall {
 
     function refresh() {
         // recentWinners() returns a value, so the call resolves asynchronously.
-        Database.ledger.recentWinners().then(rows => {
+        Books.ledger.recentWinners().then(rows => {
             hall.setWinners(rows)                       // push the list to browsers
         })
     }
@@ -128,12 +128,12 @@ Hall {
 }
 ```
 
-`Database.ledger` is how the edge reaches the database's connect point, the same
+`Books.ledger` is how the edge reaches the database's connect point, the same
 way the browser reaches the edge with `Server`.
 
 ## Step 5: Record the winner when a lot closes
 
-Fill in the gap from [Real bidders](tutorial-sign-in.md). In `web/Auction.qml`,
+Fill in the gap from [Real bidders](tutorial-sign-in.md). In `web/edge/Auction.qml`,
 update `closeLot` to record the
 winner before resetting:
 
@@ -144,7 +144,7 @@ function closeLot(nextItem) {
         return
     }
     if (auction.highBid > 0) {
-        Database.ledger.recordWinner(auction.itemName, auction.highBidder, auction.highBid)
+        Books.ledger.recordWinner(auction.itemName, auction.highBidder, auction.highBid)
     }
     auction.itemName = nextItem
     auction.highBid = 0
@@ -160,20 +160,20 @@ Add to `synqt.yaml`:
 connect_points:
   - name: ledger
     contract: Ledger
-    owner: database           # the database owns durable storage
-    consumers: [web]          # only the edge may reach it
-    server: database/Ledger.qml
+    owner: books              # the books entity owns durable storage
+    consumers: [edge]         # only the edge may reach it
+    server: db/relational/books/Ledger.qml
 
   - name: hall
     contract: Hall
-    owner: web                # the edge owns what the browser sees
-    consumers: [client]
-    server: web/Hall.qml
+    owner: edge               # the edge owns what the browser sees
+    consumers: [app]
+    server: web/edge/Hall.qml
 ```
 
 ## Step 7: Show the Hall of Fame
 
-Add to `client/Main.qml`, below the bidding controls:
+Add to `client/app/Main.qml`, below the bidding controls:
 
 ```qml
 Label { text: "Hall of Fame"; font.pixelSize: 18 }
@@ -203,7 +203,7 @@ survived the restart, because they live in the database rather than in the edge'
 > so the client is a consumer too:
 >
 > ```
-> consumers = ["web", "client"]
+> consumers = ["edge", "app"]
 > ```
 >
 > Then run `synqt check`. Predict what it will say.
@@ -218,10 +218,10 @@ reach only the edge, never an internal entity like the database.
 This is the segmentation that protects your data. The database is never exposed to
 the internet and is reachable only by the entities you list (here, just the edge).
 Even the edge's calls to it are authenticated as coming from the edge, which is why
-`Ledger.recordWinner` checks `Caller.entity === "web"`. There are two trust
+`Ledger.recordWinner` checks `Caller.entity === "edge"`. There are two trust
 boundaries between an internet visitor and your stored data: the edge authorizes the
 person, and the database authorizes the edge. Put the `consumers` line back to
-`["web"]`. The full reasoning is in [security](security.md).
+`["edge"]`. The full reasoning is in [security](security.md).
 
 </details>
 

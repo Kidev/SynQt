@@ -105,7 +105,7 @@ browser.
   link, and `synqt check` holds both to the same mesh rules as any declared link. Their
   contracts live in `src/service/contracts/` and compile into `SynQtService`, which is why
   they are marked `framework` and filtered back out wherever an app side
-  `shared/<Contract>.syn` would otherwise be reached for.
+  the owner's `<Contract>.syn` would otherwise be reached for.
 - The edge's browser-facing policy (the `security` block, `project.origin_model`, the
   starting scope, the public bind and TLS, the `identity` block, and each connect point's
   `scope`) is read by `appmodel` and emitted by `maingen` as one assignment per key the
@@ -114,7 +114,8 @@ browser.
   where they could drift out of step with the structs they fill.
 - The [visual editor](visual-editor.md) and the inference behind it are the same project read
   two ways, and they share one shape. `designdoc` is that shape: a project as entities,
-  links and members, read from `synqt.yaml` and `shared/*.syn` and written back to them.
+  links and members, read from `synqt.yaml` and the project's `.syn` files and written
+  back to them.
   `design` serves the page and answers it, `designplan` turns an edited document into the
   change set Apply is allowed to write (and refuses one the real `synqt check` fails, or a
   contract the compiler could not read back), and `yamledit` is what writes `synqt.yaml`

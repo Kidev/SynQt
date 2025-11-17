@@ -9,7 +9,7 @@ Here the edge computes movement itself. Every blob's position is the edge's to d
 
 One connect point carries the whole game: every blob's pose and size, the pellets on
 the map, a request to aim somewhere, and an event when one blob eats another. Create
-`shared/Arena.syn`:
+`web/edge/Arena.syn`:
 
 ```syn
 // The arena the edge owns and every browser mirrors.
@@ -49,7 +49,7 @@ synqt add auth github
 
 Follow the same one time GitHub setup as [the auction](tutorial-sign-in.md#step-1-add-authentication):
 register an OAuth app, put the Client ID in `synqt.yaml`, and the Client secret in
-`web/.env` only. When that is done, anyone can sign in, but signing in is not the
+`web/edge/.env` only. When that is done, anyone can sign in, but signing in is not the
 same as being allowed in. The guest list is a scope mapping.
 
 Declare the scopes in `synqt.yaml`:
@@ -60,7 +60,7 @@ scopes:
   default: anonymous
 ```
 
-Open the identity mapping hook `synqt add auth` scaffolded, `web/identity/map.qml`,
+Open the identity mapping hook `synqt add auth` scaffolded, `web/edge/identity/map.qml`,
 and grant the `player` scope only to GitHub usernames you approve:
 
 ```qml
@@ -90,7 +90,7 @@ Here is the heart of the game. The edge holds the one authoritative arena: the r
 of players (with private bookkeeping the browser never sees), the pellets, and a
 simulation loop that moves every blob, feeds it, and resolves who eats whom. It stamps
 each player's name from their verified identity, never from anything the browser
-sends. Create `web/Arena.qml`:
+sends. Create `web/edge/Arena.qml`:
 
 ```qml
 import QtQuick
@@ -284,9 +284,9 @@ Wire the connect point in `synqt.yaml`:
 connect_points:
   - name: arena
     contract: Arena
-    owner: web                # the edge holds the one real arena
-    consumers: [client]       # the browser mirrors it
-    server: web/Arena.qml
+    owner: edge               # the edge holds the one real arena
+    consumers: [app]          # the browser mirrors it
+    server: web/edge/Arena.qml
     scope: player             # only approved players get the arena at all
     instance: shared          # one arena everyone shares
 ```
