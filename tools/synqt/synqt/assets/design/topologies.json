@@ -191,6 +191,25 @@
            "consumers": ["web"], "instance": "shared"}
         ]
       }
+    },
+    {
+      "id": "an-entity-nothing-reaches",
+      "rule": "orphan-entity",
+      "level": "warn",
+      "why": "An entity that owns no connect point and consumes none is a process that starts, talks to nobody, and is never noticed again.",
+      "document": {
+        "version": 1,
+        "project": "rules",
+        "entities": [
+          {"name": "app", "kind": "client"},
+          {"name": "edge", "kind": "service", "capability": "web_edge"},
+          {"name": "rollups", "kind": "service", "blueprint": "jobs"}
+        ],
+        "links": [
+          {"name": "feed", "contract": "Feed", "owner": "edge",
+           "consumers": ["app"], "instance": "shared"}
+        ]
+      }
     }
   ]
 }

@@ -33,6 +33,53 @@ def _duplicate_messages(names: List[Any], what: str, consequence: str) -> List[s
             for name in sorted({n for n in seen if seen.count(n) > 1})]
 
 
+def _own_contract_messages(config: Dict[str, Any],
+                           declared: List[Dict[str, Any]]) -> List[str]:
+    """Refuse an entity that owns a connect point named after the entity itself.
+
+    Both files land in the entity's folder under the same name: the entity's own QML is
+    `<Name>.qml` and the Source of a contract called `<Name>` is `<Name>.qml` too. One
+    would overwrite the other, and which one survives is whichever command ran last.
+    """
+    messages: List[str] = []
+    for entity in declared:
+        name = str(entity.get("name") or "")
+        if not name:
+            continue
+        capitalized = f"{name[:1].upper()}{name[1:]}"
+        for point in appmodel.owned_by(config, name):
+            if str(point.get("contract") or "") != capitalized:
+                continue
+            where = appmodel.entity_file_path(entity)
+            messages.append(
+                f"error: entity '{name}' owns a connect point carrying the "
+                f"'{capitalized}' contract, and both write {where}: the entity's own file "
+                f"and the Source of that contract have the same name. Rename one of them.")
+    return messages
+
+
+def _orphan_messages(config: Dict[str, Any], declared: List[Dict[str, Any]]) -> List[str]:
+    """Note an entity that owns nothing and consumes nothing.
+
+    A warning and not an error. It is the state every entity passes through between being
+    added and being wired, and refusing it would mean `synqt add entity` produced a project
+    that no longer checks. What it is not is a state to ship, because such an entity is a
+    process that starts, talks to nobody, and is never noticed again.
+    """
+    messages: List[str] = []
+    for entity in declared:
+        name = str(entity.get("name") or "")
+        if not name or entity.get("kind") == "client" or appmodel.is_edge(entity):
+            continue   # a client and an edge both have a browser to serve
+        if appmodel.owned_by(config, name) or appmodel.consumed_by(config, name):
+            continue
+        messages.append(
+            f"warn: entity '{name}' owns no connect point and consumes none, so nothing "
+            "can reach it and it can reach nothing; give it a connect point or take it "
+            "out (see https://synqt.org/entities/)")
+    return messages
+
+
 def validate(config: Dict[str, Any], *, release: bool = False,
              project_dir: Optional[os.PathLike[str] | str] = None,
              starting: bool = False) -> Tuple[bool, List[str]]:
@@ -88,6 +135,9 @@ def validate(config: Dict[str, Any], *, release: bool = False,
             messages.append(
                 f"error: client '{name}' has no web_edge entity to reach; the browser can "
                 "only reach a web edge (see https://synqt.org/entities/)")
+
+    messages += _own_contract_messages(config, declared)
+    messages += _orphan_messages(config, declared)
 
     # The endpoints the build will actually write, not the keys as spelled: a link's
     # transport and host can come from the owner entity's `mesh:` block as easily as from

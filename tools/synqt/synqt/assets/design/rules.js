@@ -191,6 +191,26 @@ function linkFindings(design, link) {
     return found;
 }
 
+// An entity nothing reaches and that reaches nothing. A warning, not an error: it is the
+// state every entity passes through between being dropped on the canvas and being wired,
+// and painting it red would mean the editor scolds you for the gesture it just performed.
+// The client and the edge are left out: both have a browser to serve.
+function orphanEntities(design) {
+    return entitiesOf(design)
+        .filter((entity) => entity.kind !== "client" && !isWebEdge(entity))
+        .filter((entity) => !linksOf(design).some(
+            (link) => link.owner === nameOf(entity)
+                || (link.consumers || []).includes(nameOf(entity))))
+        .map((entity) => ({
+            rule: "orphan-entity",
+            level: "warn",
+            entity: nameOf(entity),
+            message: `'${nameOf(entity)}' owns no connect point and consumes none, so `
+                + `nothing can reach it and it can reach nothing. Draw a link to it, or `
+                + `take it off the canvas.`,
+        }));
+}
+
 // Every rule the page paints, over one design document. Entity-level findings first, then
 // each link in the order it was drawn, so the list is stable between two runs on the same
 // document and a reader can follow it down the canvas.
@@ -199,6 +219,7 @@ export function findings(design) {
         ...duplicateEntities(design),
         ...duplicateLinks(design),
         ...clientWithoutEdge(design),
+        ...orphanEntities(design),
     ];
     for (const link of linksOf(design)) {
         found.push(...linkFindings(design, link));

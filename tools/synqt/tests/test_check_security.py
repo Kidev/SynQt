@@ -430,5 +430,48 @@ class BrowserPolicyTest(unittest.TestCase):
                                                     "default": "anonymous"})), [])
 
 
+class LayoutCollisionTest(unittest.TestCase):
+    """Two files an entity is made of may not want the same name.
+
+    An entity's own QML is `<Name>.qml` in its folder, and the Source of a contract called
+    `<Name>` is `<Name>.qml` in the same folder. Whichever was written last is the one on
+    disk, and the entity either loses its singleton or loses the Source it hosts a connect
+    point with.
+    """
+
+    def test_an_entity_owning_a_contract_of_its_own_name_is_refused(self):
+        config = base_config()
+        config["connect_points"].append(
+            {"name": "records", "owner": "database", "consumers": ["web"],
+             "contract": "Database"})
+        failures = errors(config)
+        self.assertTrue(any("Database" in m and "database" in m for m in failures), failures)
+
+    def test_a_contract_named_after_another_entity_is_fine(self):
+        # Only a collision inside one folder matters. `Web` owned by the database writes
+        # db/relational/database/Web.qml, which nothing else claims.
+        config = base_config()
+        config["connect_points"].append(
+            {"name": "records", "owner": "database", "consumers": ["web"], "contract": "Web"})
+        self.assertEqual(errors(config), [])
+
+
+class OrphanEntityTest(unittest.TestCase):
+    def test_an_entity_nothing_reaches_is_a_warning_not_an_error(self):
+        # The state every entity is in between `synqt add entity` and the connect point
+        # that wires it. Refusing it would mean the scaffolder wrote a project that no
+        # longer checks.
+        config = base_config()
+        config["entities"].append({"name": "rollups", "kind": "service", "blueprint": "jobs"})
+        ok, messages = check.validate(config)
+        self.assertTrue(ok, messages)
+        self.assertTrue(any(m.startswith("warn:") and "rollups" in m for m in messages),
+                        messages)
+
+    def test_a_wired_entity_draws_no_note(self):
+        self.assertEqual([m for m in check.validate(base_config())[1]
+                          if "owns no connect point" in m], [])
+
+
 if __name__ == "__main__":
     unittest.main()
