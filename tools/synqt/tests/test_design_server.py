@@ -231,7 +231,7 @@ def test_a_plan_says_what_it_would_do_before_it_does_any_of_it(server):
     document["entities"].append({"id": "new", "name": "api", "kind": "service",
                                  "blueprint": "jobs", "x": 400, "y": 40})
     body = _json(_post(f"{base}/api/plan", {"document": document}))
-    assert "jobs/api/Schedule.qml" in [change["path"] for change in body["changes"]]
+    assert "jobs/api/Api.qml" in [change["path"] for change in body["changes"]]
     assert body["digest"] and body["diff"]
     assert not (project / "jobs" / "api").exists()
 
@@ -258,7 +258,7 @@ def test_plan_then_apply_writes_the_change(server):
     plan = _json(_post(f"{base}/api/plan", {"document": document}))
     body = _json(_post(f"{base}/api/apply", {"document": document,
                                              "digest": plan["digest"]}))
-    assert (project / "jobs" / "api" / "Schedule.qml").is_file()
+    assert (project / "jobs" / "api" / "Api.qml").is_file()
     assert [e["name"] for e in _config(project)["entities"]][-1] == "api"
     assert body["applied"]
     assert [e["name"] for e in body["document"]["entities"]][-1] == "api"

@@ -113,12 +113,12 @@ def test_a_client_drawn_in_the_editor_gets_the_file_it_cannot_start_without(tmp_
 def test_adding_an_entity_creates_what_add_entity_creates(tmp_path):
     project = _copy(tmp_path, "gavel")
     document = designdoc.read(project)
-    document["entities"].append({"id": "new", "name": "cache", "kind": "service",
+    document["entities"].append({"id": "new", "name": "entries", "kind": "service",
                                  "blueprint": "cache", "provider": "memory",
                                  "x": 400, "y": 40})
     plan = designplan.compute(project, document)
     created = {c.path for c in plan.changes if c.action == "create"}
-    assert "cache/cache/Entries.qml" in created
+    assert "cache/entries/Entries.qml" in created
     assert any(c.path == "synqt.yaml" and c.action == "edit" for c in plan.changes)
     config = next(c for c in plan.changes if c.path == "synqt.yaml")
     assert "blueprint: cache" in config.after
@@ -291,7 +291,7 @@ def test_a_stale_source_hash_is_reported(tmp_path):
 def test_the_diff_names_every_change_and_digests_stably(tmp_path):
     project = _copy(tmp_path, "gavel")
     document = designdoc.read(project)
-    document["entities"].append({"id": "new", "name": "jobs", "kind": "service",
+    document["entities"].append({"id": "new", "name": "sweeps", "kind": "service",
                                  "blueprint": "jobs", "x": 400, "y": 240})
     plan = designplan.compute(project, document)
     text = designplan.diff(plan)
@@ -303,10 +303,10 @@ def test_the_diff_names_every_change_and_digests_stably(tmp_path):
 def test_the_digest_of_a_different_change_set_is_different(tmp_path):
     project = _copy(tmp_path, "gavel")
     first = designdoc.read(project)
-    first["entities"].append({"id": "new", "name": "jobs", "kind": "service",
+    first["entities"].append({"id": "new", "name": "sweeps", "kind": "service",
                               "blueprint": "jobs", "x": 400, "y": 240})
     second = designdoc.read(project)
-    second["entities"].append({"id": "new", "name": "cache", "kind": "service",
+    second["entities"].append({"id": "new", "name": "entries", "kind": "service",
                                "blueprint": "cache", "x": 400, "y": 240})
     assert (designplan.digest(designplan.compute(project, first))
             != designplan.digest(designplan.compute(project, second)))
@@ -316,7 +316,7 @@ def test_nothing_is_written_while_a_plan_is_computed(tmp_path):
     project = _copy(tmp_path, "gavel")
     before = {p: p.read_bytes() for p in project.rglob("*") if p.is_file()}
     document = designdoc.read(project)
-    document["entities"].append({"id": "new", "name": "jobs", "kind": "service",
+    document["entities"].append({"id": "new", "name": "sweeps", "kind": "service",
                                  "blueprint": "jobs", "x": 400, "y": 240})
     designplan.compute(project, document)
     after = {p: p.read_bytes() for p in project.rglob("*") if p.is_file()}
@@ -418,7 +418,7 @@ def test_the_summary_names_every_change_that_was_made(tmp_path):
                                  "blueprint": "jobs", "x": 400, "y": 40})
     summary = designplan.execute(project, designplan.compute(project, document))
     assert "synqt.yaml" in summary
-    assert "jobs/api/Schedule.qml" in summary
+    assert "jobs/api/Api.qml" in summary
 
 
 def test_pointing_a_link_at_a_different_contract_retires_the_old_one(tmp_path):

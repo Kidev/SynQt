@@ -385,7 +385,7 @@ class ProviderNameValidationTest(unittest.TestCase):
         self.assertTrue(errors)
 
     def test_a_provider_on_a_blueprint_without_a_family_is_an_error(self):
-        errors = self._errors({"name": "jobs", "kind": "service", "blueprint": "jobs",
+        errors = self._errors({"name": "sweeps", "kind": "service", "blueprint": "jobs",
                                "provider": {"name": "sqlite"}})
         self.assertTrue(errors)
 
@@ -426,17 +426,17 @@ class ServeOrderTest(unittest.TestCase):
                 {"name": "client", "kind": "client"},
                 {"name": "web", "kind": "service", "capability": "web_edge"},
                 {"name": "database", "kind": "service"},
-                {"name": "cache", "kind": "service"},
+                {"name": "entries", "kind": "service"},
             ],
             "connect_points": [
                 {"name": "items", "owner": "database", "consumers": ["web"]},
-                {"name": "kv", "owner": "cache", "consumers": ["web"]},
+                {"name": "kv", "owner": "entries", "consumers": ["web"]},
                 {"name": "todo", "owner": "web", "consumers": ["client"]},
             ],
         }
         order = run.startup_order(config)
         self.assertLess(order.index("database"), order.index("web"))
-        self.assertLess(order.index("cache"), order.index("web"))
+        self.assertLess(order.index("entries"), order.index("web"))
         self.assertNotIn("client", order)  # the client is served, not a service process
 
     def test_serve_reports_missing_builds(self):

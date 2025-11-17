@@ -36,14 +36,14 @@ class AddEntityTest(unittest.TestCase):
                            "    capability: web_edge\n")
         (root / "synqt.yaml").write_text(written_by_hand)
 
-        addentity.scaffold(root, "db", "relational")
+        addentity.scaffold(root, "ledger", "relational")
 
         text = (root / "synqt.yaml").read_text()
         self.assertIn("# Hand written, and it stays.", text)
         self.assertIn("# The edge, the only entity a browser reaches.", text)
         self.assertTrue(text.startswith(written_by_hand.rstrip("\n")))
         entities = yaml.safe_load(text)["entities"]
-        self.assertEqual([e["name"] for e in entities], ["web", "db"])
+        self.assertEqual([e["name"] for e in entities], ["web", "ledger"])
         self.assertEqual(entities[1]["blueprint"], "relational")
         self.assertEqual(entities[1]["settings"]["journal_mode"], "wal")
 
@@ -55,7 +55,7 @@ class AddEntityTest(unittest.TestCase):
         self.assertNotIn("provider", entity)  # embedded default, no engine config
         self.assertEqual(entity["settings"]["journal_mode"], "wal")
         # The Source stub calls Db only, never an engine.
-        source = (root / "db/relational/database" / "Items.qml").read_text()
+        source = (root / "db/relational/database" / "Database.qml").read_text()
         self.assertIn("Db.exec", source)
         self.assertNotIn("QSqlDatabase", source)
         self.assertTrue((root / "db/relational/database" / "schema.sql").exists())
@@ -76,7 +76,7 @@ class AddEntityTest(unittest.TestCase):
         addentity.scaffold(root, "api", "api")
         entity = yaml.safe_load((root / "synqt.yaml").read_text())["entities"][0]
         self.assertFalse(entity["inbound"])  # inbound exposure is an explicit choice
-        self.assertIn("Http.get", (root / "api/api" / "Upstream.qml").read_text())
+        self.assertIn("Http.get", (root / "api/api" / "Api.qml").read_text())
 
     def test_document_stub_calls_the_docs_helper_with_its_own_filter(self):
         root = self._project()
@@ -84,7 +84,7 @@ class AddEntityTest(unittest.TestCase):
         entity = yaml.safe_load((root / "synqt.yaml").read_text())["entities"][0]
         self.assertEqual(entity["blueprint"], "document")
         self.assertEqual(entity["provider"]["name"], "memory")  # embedded, nothing to install
-        source = (root / "db/document/notes" / "Documents.qml").read_text()
+        source = (root / "db/document/notes" / "Notes.qml").read_text()
         self.assertIn("Docs.insert", source)
         self.assertIn("Docs.find", source)
         # A filter map is the engine's query language, so the stub builds its own from a
@@ -107,59 +107,57 @@ class AddEntityTest(unittest.TestCase):
         for blueprint, helper in helpers.items():
             with self.subTest(blueprint=blueprint):
                 root = self._project()
-                addentity.scaffold(root, blueprint, blueprint)
-                stub = addentity.SOURCE_NAMES[blueprint]
-                folder = appmodel.entity_dir({"name": blueprint, "kind": "service",
-                                              "blueprint": blueprint})
-                source = (root / folder / f"{stub}.qml").read_text()
+                name = {"cache": "hits", "jobs": "rollups"}.get(blueprint, blueprint)
+                addentity.scaffold(root, name, blueprint)
+                block = {"name": name, "kind": "service", "blueprint": blueprint}
+                source = (root / appmodel.entity_file_path(block)).read_text()
                 self.assertIn(helper, source)
                 for other in set(helpers.values()) - {helper}:
                     self.assertNotIn(other, source)
                 for engine in engines:
                     self.assertNotIn(engine.lower(), source.lower())
 
-    def test_the_stub_is_named_after_the_blueprint_unless_the_author_names_it(self):
-        """The file name is the QML type name, and the name a contract will inherit when
-        the entity grows a connect point, so a jobs entity does not start life with a stub
-        called Items. `--source` is how somebody who has a better name says so.
+    def test_a_new_entity_gets_its_own_file_and_no_source_nobody_asked_for(self):
+        """A Source answers one connect point and is named after it. A new entity has no
+        connect points, so a Source here could only be named by inventing one, and the
+        invented name is the one somebody then has to live with or rename. The entity's
+        own file is written; the Source waits for `synqt add connect-point`.
         """
         root = self._project()
         addentity.scaffold(root, "rollups", "jobs")
-        self.assertTrue((root / "jobs/rollups" / "Schedule.qml").exists())
-
-        addentity.scaffold(root, "billing", "jobs", source="Invoices")
-        self.assertTrue((root / "jobs/billing" / "Invoices.qml").exists())
-        self.assertFalse((root / "jobs/billing" / "Schedule.qml").exists())
+        folder = root / "jobs/rollups"
+        self.assertEqual(sorted(path.name for path in folder.iterdir()), ["Rollups.qml"])
 
     def test_the_message_names_the_file_it_wrote(self):
         root = self._project()
-        message = addentity.scaffold(root, "cache", "cache")
-        self.assertIn("cache/Entries.qml", message)
+        message = addentity.scaffold(root, "hits", "cache")
+        self.assertIn("cache/hits/Hits.qml", message)
 
-    def test_no_default_stub_shadows_a_helper_the_stub_itself_calls(self):
+    def test_an_entity_name_that_would_shadow_a_helper_is_refused(self):
         """A QML file in the entity directory becomes a type of that name, and a type from
-        the directory beats one from an import, so a cache entity whose stub was called
-        Cache.qml would shadow the `Cache` helper that same stub calls. This is why the
-        defaults are Entries and Documents rather than the obvious Cache and Docs.
+        the directory beats one from an import, so an entity called `cache` would write a
+        `Cache.qml` shadowing the `Cache` helper its own file calls.
         """
-        for blueprint, stub in addentity.SOURCE_NAMES.items():
-            with self.subTest(blueprint=blueprint):
-                self.assertNotIn(stub, addcontract.RESERVED_QML_NAMES)
+        for refused in ("cache", "jobs", "db", "docs", "http"):
+            with self.subTest(name=refused):
+                root = self._project()
+                with self.assertRaises(addentity.AddEntityError):
+                    addentity.scaffold(root, refused, "service")
 
     def test_a_name_qml_cannot_use_is_refused_before_anything_is_written(self):
         root = self._project()
-        for refused in ("items", "Cache", "my source", "9Lives"):
+        for refused in ("my entity", "9Lives"):
             with self.subTest(name=refused):
                 with self.assertRaises(addentity.AddEntityError):
-                    addentity.scaffold(root, "notes", "document", source=refused)
-        self.assertFalse((root / "db/document/notes").exists())
+                    addentity.scaffold(root, refused, "document")
+        self.assertFalse((root / "db/document").exists())
 
     def test_rejects_unknown_blueprint_and_wrong_provider(self):
         root = self._project()
         with self.assertRaises(addentity.AddEntityError):
             addentity.scaffold(root, "x", "nonsense")
         with self.assertRaises(addentity.AddEntityError):
-            addentity.scaffold(root, "cache", "cache", provider="postgres")
+            addentity.scaffold(root, "hits", "cache", provider="postgres")
 
     def test_providers_listing(self):
         listing = addentity.list_providers()

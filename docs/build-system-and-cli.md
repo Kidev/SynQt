@@ -124,8 +124,7 @@ synqt clean             # Remove build outputs (keeps the toolchain cache and th
 synqt doctor            # Diagnose toolchain, ports, certificates, versions, topology.
 synqt --version         # Print the CLI version and the pinned toolchain (also -V).
 
-synqt add entity <name> [--blueprint <kind>] [--source <Name>]
-                                                 # Scaffold a new entity (bare or from a blueprint).
+synqt add entity <name> [--blueprint <kind>]     # Scaffold a new entity (bare or from a blueprint).
 synqt add entity <name> --blueprint <kind> --provider <engine>
                                                   # Scaffold an entity backed by a chosen engine.
 synqt add auth <provider> [--required]           # Add secure by default user authentication.
@@ -143,19 +142,20 @@ synqt docker down       # Stop them (--volumes also discards the CA and engine d
 ```
 
 The two `add` commands that produce QML each write the file that goes with what they add.
-`synqt add connect-point` writes the owner-side Source, empty, at the path the runtime
-resolves (`<owner>/<Contract>.qml`, or whatever the point's `server:` names), because a
-connect point without one is a point the owner cannot host, and nothing says so until the
-entity starts. A file that is already there is never touched. `synqt add entity` writes the
-entity's own file, `<name>/<Name>.qml`, a singleton where state belonging to the whole entity
-goes; every entity gets one, so none starts out as a directory with nothing in it. For a
-blueprint it also writes that blueprint's Source stub, named after the blueprint (`Items`
-for persistence, `Entries`
-for cache, `Documents` for document, `Upstream` for gateway, `Schedule` for jobs), and
-`--source <Name>` names it yourself. That name becomes a QML type, so it has to begin with
-a capital, and it may not be one of the names SynQt already uses for the helpers an
-entity's own QML calls (`Db`, `Cache`, `Docs`, `Http`, `Jobs`, `Caller`, and the client
-accessors). A `Cache.qml` of your own would shadow the `Cache` helper wherever that entity
+`synqt add connect-point` writes the owner-side Source, empty, in the owner's folder under
+the contract's name (or wherever the point's `server:` says), because a connect point
+without one is a point the owner cannot host, and nothing says so until the entity starts.
+A file that is already there is never touched. `synqt add entity` writes the entity's own
+file, a singleton named after the entity where state belonging to the whole entity goes;
+every entity gets one, so none starts out as a directory with nothing in it. For a
+blueprint that file also shows the blueprint's helper being used, which is the part that
+holds however the connect points are eventually named. It writes no Source: a Source
+answers a connect point and is named after it, and a new entity has none yet.
+
+An entity's name becomes a QML type, so it has to begin with a letter and it may not be
+one of the names SynQt already uses for the helpers an entity's own QML calls (`Db`,
+`Cache`, `Docs`, `Http`, `Jobs`, `Caller`, and the client accessors). An entity called
+`cache` would write a `Cache.qml` that shadows the `Cache` helper wherever that entity
 calls it, so the name is refused rather than debugged later. `synqt check` holds the same
 line from the other end: every connect point must have its Source file, and that file must
 be rooted at `<Contract>Source`.

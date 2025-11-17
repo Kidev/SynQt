@@ -36,20 +36,19 @@ PROVIDERS: Dict[str, List[str]] = {
 # registered alternatives when it misses.
 CUSTOM_PREFIX = "custom:"
 
-# Blueprint -> what its Source stub is called when the author does not say. The file name
-# is a QML type name, and it is the name the contract behind that Source will want too
-# (`<owner>/<Contract>.qml` is where the runtime looks), so each one reads as the thing that
-# crosses the connect point rather than as the engine sitting behind it. `--source` names it
-# instead. None of these may collide with addcontract.RESERVED_QML_NAMES, which is why the
-# cache entity's stub is Entries and not Cache.
-SOURCE_NAMES: Dict[str, str] = {
-    "relational": "Items",
-    "cache": "Entries",
-    "document": "Documents",
-    "api": "Upstream",
-    "jobs": "Schedule",
-    "service": "Items",
-}
+# What `synqt new --blueprint <kind>` calls the entity it scaffolds, for the two kinds whose
+# own word is a name SynQt already uses for a helper: an entity called `cache` would write a
+# `Cache.qml` that shadows the `Cache` helper its own file calls, and `jobs` the same. Every
+# other kind is named after itself. This is a starting name for an entity nobody has named
+# yet, not a name invented over one somebody gave: `synqt add entity <name>` always takes
+# the author's.
+STARTING_NAMES: Dict[str, str] = {"cache": "entries", "jobs": "schedule"}
+
+
+def starting_name(blueprint: str) -> str:
+    """What to call the entity when the author named a kind and nothing else."""
+    return STARTING_NAMES.get(blueprint, blueprint)
+
 
 # Blueprint -> (family or None, default provider or None).
 BLUEPRINTS: Dict[str, Optional[str]] = {
@@ -87,22 +86,30 @@ class AddEntityError(Exception):
     """A scaffolding error surfaced to the CLI (no traceback for the user)."""
 
 
-def _source_stub(blueprint: str, name: str) -> str:
-    """The Source stub for a blueprint entity.
+def _entity_qml(blueprint: str, name: str) -> str:
+    """A blueprint entity's own file: the singleton it is, showing the helper it has.
+
+    Not a connect point Source. A Source is named after the point it answers, and a new
+    entity has no points yet, so scaffolding one would mean inventing a name for a thing
+    nobody had asked for; `synqt add connect-point` writes the Source, named after the
+    contract, at the moment there is something to call it. What the author does get here
+    is the entity itself with its helper demonstrated in it, which is the part that is
+    the same however the points are eventually named.
 
     Written the way ``qmlformat`` would write it, using the project's own
     ``.qmlformat.ini``, so a scaffolded project passes its own ``synqt check`` (the
     ``check.qml_format`` rule) with nothing to reformat first.
     """
     header = ("// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux\n"
-              "// SPDX-License-Identifier: Apache-2.0\n\nimport QtQuick\nimport SynQt\n\n")
+              "// SPDX-License-Identifier: Apache-2.0\n\n"
+              "pragma Singleton\n\nimport QtQuick\nimport SynQt\n\n")
     if blueprint == "relational":
         return header + (
-            "// Owner of a relational connect point. It calls the `Db` helper only\n"
-            "// (parameterized query/exec) and never names an engine.\n"
+            f"// The '{name}' entity itself. It reaches its engine through the `Db`\n"
+            "// helper only (parameterized query/exec) and never names one.\n"
             "QtObject {\n"
             "    function insert(row) {\n"
-            "        if (Caller.entity !== \"web\") {\n"
+            "        if (Caller.entity !== \"edge\") {\n"
             "            return;   // authorize the calling entity\n"
             "        }\n"
             "        Db.exec(\"INSERT INTO items(text, author) VALUES(?, ?)\", "
@@ -111,7 +118,7 @@ def _source_stub(blueprint: str, name: str) -> str:
             "}\n")
     if blueprint == "cache":
         return header + (
-            "// Owner of a cache connect point. It calls the `Cache` helper only, so the\n"
+            f"// The '{name}' entity itself. It calls the `Cache` helper only, so the\n"
             "// entity works the same on the embedded store and on an external engine.\n"
             "QtObject {\n"
             "    function put(key, value) {\n"
@@ -124,13 +131,13 @@ def _source_stub(blueprint: str, name: str) -> str:
             "}\n")
     if blueprint == "document":
         return header + (
-            "// Owner of a document connect point. It calls the `Docs` helper only\n"
+            f"// The '{name}' entity itself. It calls the `Docs` helper only\n"
             "// (collection, filter and document as maps) and never names an engine. The\n"
             "// filter is built here from a value, never forwarded whole from a caller: a\n"
             "// filter map is the engine's query language the way a string is SQL's.\n"
             "QtObject {\n"
             "    function add(doc) {\n"
-            "        if (Caller.entity !== \"web\") {\n"
+            "        if (Caller.entity !== \"edge\") {\n"
             "            return;   // authorize the calling entity\n"
             "        }\n"
             "        Docs.insert(\"items\", doc);\n"
@@ -144,8 +151,9 @@ def _source_stub(blueprint: str, name: str) -> str:
             "}\n")
     if blueprint == "api":
         return header + (
-            "// Outbound only by default: it consumes external HTTP through the `Http`\n"
-            "// helper (TLS-verified, plaintext refused in release) and never touches sockets.\n"
+            f"// The '{name}' entity itself, outbound only by default: it reaches external\n"
+            "// HTTP through the `Http` helper (TLS-verified, plaintext refused in release)\n"
+            "// and never touches a socket itself.\n"
             "QtObject {\n"
             "    function upstream(url) {\n"
             "        return Http.get(url);\n"
@@ -153,7 +161,7 @@ def _source_stub(blueprint: str, name: str) -> str:
             "}\n")
     if blueprint == "jobs":
         return header + (
-            "// Owner of a jobs connect point. Scheduling and the bounded work queue belong\n"
+            f"// The '{name}' entity itself. Scheduling and the bounded work queue belong\n"
             "// to the `Jobs` helper, so there is no timer here to manage and nothing to deploy.\n"
             "QtObject {\n"
             "    // The rollup this entity exists to run, every minute, off the request path.\n"
@@ -181,24 +189,18 @@ def entity_block(name: str, blueprint: str, provider: Optional[str]) -> Dict[str
     return block
 
 
-def source_name(blueprint: str, chosen: Optional[str] = None) -> str:
-    """What the entity's Source stub is called: what the author asked for, or the blueprint's
-    own default. Either way it has to be a name QML can use."""
-    try:
-        return addcontract.check_qml_name(chosen or SOURCE_NAMES.get(blueprint, "Items"))
-    except addcontract.AddContractError as error:
-        raise AddEntityError(str(error)) from error
-
-
 def scaffold(project_dir: os.PathLike[str] | str, name: str, blueprint: str,
-             provider: Optional[str] = None, source: Optional[str] = None) -> str:
+             provider: Optional[str] = None) -> str:
     if blueprint not in BLUEPRINTS:
         raise AddEntityError(f"unknown blueprint '{blueprint}'; one of {sorted(BLUEPRINTS)}")
     family = BLUEPRINTS.get(blueprint)
     if provider and family and provider not in PROVIDERS[family]:
         raise AddEntityError(
             f"provider '{provider}' is not a {blueprint} provider; one of {PROVIDERS[family]}")
-    stub = source_name(blueprint, source)
+    try:
+        addcontract.check_qml_name(f"{name[:1].upper()}{name[1:]}")
+    except addcontract.AddContractError as error:
+        raise AddEntityError(str(error)) from error
 
     root = Path(project_dir)
     config_path = root / "synqt.yaml"
@@ -216,13 +218,13 @@ def scaffold(project_dir: os.PathLike[str] | str, name: str, blueprint: str,
         config_path.write_text("entities: []\n")
     config_path.write_text(yamledit.append_item(config_path.read_text(), "entities", block))
 
-    # The entity folder, the entity's own file + a Source stub; relational gets a schema file
-    # too. The two QML files answer different questions: the entity's own is what this entity
-    # is, and the Source is one surface it exposes.
+    # The entity folder and the entity's own file; relational gets a schema file too. No
+    # Source: a Source answers a connect point and is named after it, and this entity has
+    # none yet. `synqt add connect-point` writes one the moment there is a name for it.
     entity_dir = root / appmodel.entity_dir(block)
     entity_dir.mkdir(parents=True, exist_ok=True)
-    newproject.write_entity_qml(root, block)
-    (entity_dir / f"{stub}.qml").write_text(_source_stub(blueprint, name))
+    own = appmodel.entity_file_path(block)
+    (root / own).write_text(_entity_qml(blueprint, name))
     if blueprint == "relational":
         (entity_dir / "schema.sql").write_text(
             "-- forward-only migrations, one statement per step\n"
@@ -252,12 +254,11 @@ def scaffold(project_dir: os.PathLike[str] | str, name: str, blueprint: str,
             steps.append("  - The QMYSQL plugin must be built against MariaDB Connector/C "
                          "(LGPLv2.1), never Oracle's GPLv2-only libmysqlclient (see "
                          "https://synqt.org/licensing/).")
-    steps.append(f"  - {name}/{stub}.qml is a worked example of the blueprint's helper. "
-                 f"The Source of a connect point lives at {name}/<Contract>.qml and is "
-                 "rooted at <Contract>Source; 'synqt add connect-point' writes an empty "
-                 "one there for you.")
-    steps.append("  - Add the connect point(s) this entity owns under 'connect_points' "
-                 "with a consumers allowlist.")
+    folder = appmodel.entity_dir(block)
+    steps.append(f"  - {own} is the entity itself, with the blueprint's helper shown in it.")
+    steps.append(f"  - Add the connect point(s) this entity owns: 'synqt add connect-point "
+                 f"<name> --owner {name} --consumers <a,b>' writes {folder}/<Contract>.qml "
+                 "and you declare what crosses it beside that.")
     return "\n".join(steps)
 
 

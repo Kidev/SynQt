@@ -107,7 +107,7 @@ def build_parser() -> argparse.ArgumentParser:
             # guessed at half its types has no business rewriting the contracts a
             # deployment is built from because somebody wanted to see what it found.
             p.add_argument("--write", action="store_true",
-                           help="write shared/<Contract>.syn for every link it found")
+                           help="write each contract into its owner's folder")
             p.add_argument("--force", action="store_true",
                            help="with --write, overwrite a contract that is already there")
             p.add_argument("--json", action="store_true",
@@ -238,9 +238,6 @@ def build_parser() -> argparse.ArgumentParser:
     auth.add_argument("--provider-entity", default="")
     entity = add_sub.add_parser("entity"); entity.add_argument("name")
     entity.add_argument("--blueprint", default="service"); entity.add_argument("--provider")
-    entity.add_argument("--source", default="",
-                        help="what to call the entity's Source stub (default: the "
-                             "blueprint's own, e.g. Items for relational)")
     provider = add_sub.add_parser("provider"); provider.add_argument("name")
     provider.add_argument("--family", required=True)
     contract = add_sub.add_parser("contract"); contract.add_argument("name")
@@ -289,7 +286,7 @@ def _run_add(args: argparse.Namespace) -> int:
                                    provider_entity=args.provider_entity)
     elif args.what == "entity":
         message = addentity.scaffold(args.project_dir, args.name, args.blueprint,
-                                     provider=args.provider, source=args.source or None)
+                                     provider=args.provider)
     elif args.what == "provider":
         message = addprovider.scaffold(args.project_dir, args.name, args.family)
     elif args.what == "contract":

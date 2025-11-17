@@ -255,13 +255,13 @@ def scaffold(parent_dir: os.PathLike[str] | str, name: str, *,
     _write_qmlformat_settings(root)
 
     # A starting blueprint entity is scaffolded by `synqt add entity` itself, so the two
-    # paths cannot drift: same config block, same provider defaults, same folder and Source
-    # stub. It used to write a bare `{name, kind, blueprint}` here, which left a `synqt new
-    # --blueprint relational` project with an entity that had no provider settings, no
-    # schema, and no Source at all, unlike the same entity added a command later. It runs
-    # after .env.example exists because an external provider appends its secret to it.
+    # paths cannot drift: same config block, same provider defaults, same folder and same
+    # entity file. It used to write a bare `{name, kind, blueprint}` here, which left a
+    # `synqt new --blueprint relational` project with an entity that had no provider
+    # settings and no schema, unlike the same entity added a command later. It runs after
+    # .env.example exists because an external provider appends its secret to it.
     for blueprint in blueprints or []:
-        addentity.scaffold(root, blueprint, blueprint)
+        addentity.scaffold(root, addentity.starting_name(blueprint), blueprint)
     config = yaml.safe_load((root / "synqt.yaml").read_text())
 
     presets.write(root, config)

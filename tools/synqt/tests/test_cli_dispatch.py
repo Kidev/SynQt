@@ -184,15 +184,14 @@ class TestAdd:
         assert seen == {"name": "jobs", "blueprint": "service", "provider": None,
                         "source": None}
 
-    def test_add_entity_passes_the_source_name_through_when_it_is_given(self, tmp_path,
-                                                                       monkeypatch):
+    def test_add_entity_passes_the_name_and_blueprint_through(self, tmp_path, monkeypatch):
         seen = {}
         monkeypatch.setattr(addentity, "scaffold",
-                            lambda project_dir, name, blueprint, provider=None, source=None:
-                            seen.update(source=source) or "entity added")
-        assert _run(["add", "entity", "jobs", "--source", "Rollups",
+                            lambda project_dir, name, blueprint, provider=None:
+                            seen.update(name=name, blueprint=blueprint) or "entity added")
+        assert _run(["add", "entity", "rollups", "--blueprint", "jobs",
                      "--project-dir", str(tmp_path)])[0] == 0
-        assert seen == {"source": "Rollups"}
+        assert seen == {"name": "rollups", "blueprint": "jobs"}
 
     def test_add_provider_requires_and_forwards_a_family(self, tmp_path, monkeypatch):
         seen = {}
