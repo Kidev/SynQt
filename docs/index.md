@@ -409,19 +409,16 @@ entities:
 
 connect_points:
   - name: feed
-    contract: Feed
     owner: edge
     instance: per_session
     consumers: [app]
     server: web/edge/Feed.qml
   - name: access
-    contract: Access
     owner: store
     instance: per_peer
     consumers: [edge]
     server: db/relational/store/Access.qml
   - name: upstream
-    contract: Upstream
     owner: feeds
     instance: per_peer
     consumers: [edge]

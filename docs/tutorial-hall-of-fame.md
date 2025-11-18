@@ -159,13 +159,11 @@ Add to `synqt.yaml`:
 ```yaml
 connect_points:
   - name: ledger
-    contract: Ledger
     owner: books              # the books entity owns durable storage
     consumers: [edge]         # only the edge may reach it
     server: db/relational/books/Ledger.qml
 
   - name: hall
-    contract: Hall
     owner: edge               # the edge owns what the browser sees
     consumers: [app]
     server: web/edge/Hall.qml

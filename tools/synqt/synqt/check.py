@@ -48,7 +48,7 @@ def _own_contract_messages(config: Dict[str, Any],
             continue
         capitalized = f"{name[:1].upper()}{name[1:]}"
         for point in appmodel.owned_by(config, name):
-            if str(point.get("contract") or "") != capitalized:
+            if appmodel.contract_of(point) != capitalized:
                 continue
             where = appmodel.entity_file_path(entity)
             messages.append(
@@ -95,6 +95,10 @@ def validate(config: Dict[str, Any], *, release: bool = False,
     issued from the CA, and the CA private key is deliberately not on the machine that
     builds (docs/security.md), so a release build that demanded one would be demanding
     the one thing CI must never hold."""
+    # A caller may hand this a configuration it built itself rather than one config.resolve
+    # read, so the connect point defaults are filled in here too: a rule that judged a point
+    # with no contract name would be judging a different topology from the one built.
+    config = appmodel.normalized(config)
     messages: List[str] = []
     declared = [e for e in config.get("entities", []) if isinstance(e, dict)]
     entities = {e.get("name"): e for e in declared}
@@ -1385,7 +1389,7 @@ def lint_connect_point_sources(config: Dict[str, Any],
             continue
         name = str(point.get("name") or "")
         owner = str(point.get("owner") or "")
-        contract = str(point.get("contract") or "")
+        contract = appmodel.contract_of(point)
         if not owner or not contract:
             continue   # validate() reports an incomplete connect point in its own words
         owning = owners.get(owner)
@@ -1530,8 +1534,7 @@ def lint_contract_drift(config: Dict[str, Any], project_dir: os.PathLike[str] | 
     contract_files = appmodel.contract_paths(config)
     declared: Dict[str, List[Dict[str, Any]]] = {}
     for name, point in points.items():
-        members = _declared_members(root, contract_files,
-                                    str(point.get("contract") or ""))
+        members = _declared_members(root, contract_files, appmodel.contract_of(point))
         if members is not None:
             declared[name] = members
 
@@ -1552,7 +1555,7 @@ def _use_messages(use: "infer.Use", points: Dict[str, Any],
     if members is None:
         return []
     where = use.member.evidence[0] if use.member.evidence else use.point
-    contract = str(points[use.point].get("contract") or "")
+    contract = appmodel.contract_of(points[use.point])
     match = next((member for member in members if member["name"] == use.member.name), None)
     if match is None:
         return [f"error: {where}: connect point '{use.point}' has no '{use.member.name}': "
@@ -1592,7 +1595,7 @@ def _unused_messages(edge: "infer.Edge", points: Dict[str, Any],
     members = declared.get(edge.point)
     if members is None or edge.dynamic:
         return []
-    contract = str(points[edge.point].get("contract") or "")
+    contract = appmodel.contract_of(points[edge.point])
     seen = {member.name for member in edge.members}
     return [f"note: shared/{contract}.syn: '{member['name']}' is declared on the "
             f"{contract} contract and nothing on either end of '{edge.point}' uses it"

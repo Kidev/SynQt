@@ -70,7 +70,6 @@ Tell SynQt this connect point exists, who owns it, and who may use it. Open
 ```yaml
 connect_points:
   - name: auction
-    contract: Auction
     owner: edge               # the edge holds the real auction
     consumers: [app]          # the browser may watch and bid
     server: web/edge/Auction.qml

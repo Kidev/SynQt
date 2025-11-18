@@ -168,7 +168,6 @@ private:
 ```yaml
 connect_points:
   - name: proxy
-    contract: Proxy
     owner: edge
     consumers: [app]
     server: web/Proxy.qml

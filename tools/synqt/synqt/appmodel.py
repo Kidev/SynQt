@@ -213,6 +213,40 @@ def connect_points(config: Dict[str, Any]) -> List[Dict[str, Any]]:
     return [cp for cp in config.get("connect_points", []) if isinstance(cp, dict)]
 
 
+def contract_of(point: Dict[str, Any]) -> str:
+    """The contract a connect point carries: what it says, or its own name capitalized.
+
+    A point and the contract it carries are one thing named twice, and in every project
+    written so far the two words were the same word. So the name is the answer unless the
+    point says otherwise, and `contract:` is left for the case it exists for: two points
+    carrying one shape.
+    """
+    declared = point.get("contract")
+    if isinstance(declared, str) and declared.strip():
+        return declared.strip()
+    name = str(point.get("name") or "")
+    return f"{name[:1].upper()}{name[1:]}" if name else ""
+
+
+def normalized(config: Dict[str, Any]) -> Dict[str, Any]:
+    """`config` with every connect point carrying the contract name it resolves to.
+
+    Done once, where the configuration is read, so that no reader has to remember the
+    default and none of them can disagree about it. A point that names its contract keeps
+    what it named.
+    """
+    points = config.get("connect_points")
+    if not isinstance(points, list):
+        return config
+    filled = []
+    for point in points:
+        if isinstance(point, dict) and not point.get("contract"):
+            resolved = contract_of(point)
+            point = {**point, "contract": resolved} if resolved else point
+        filled.append(point)
+    return {**config, "connect_points": filled}
+
+
 def consumed_by(config: Dict[str, Any], entity_name: str) -> List[Dict[str, Any]]:
     return [cp for cp in connect_points(config)
             if entity_name in (cp.get("consumers") or [])]
@@ -237,7 +271,7 @@ def mesh_consumed(config: Dict[str, Any], entity_name: str) -> List[Dict[str, An
 def contracts_of(points: List[Dict[str, Any]]) -> List[str]:
     seen: List[str] = []
     for cp in points:
-        contract = cp.get("contract")
+        contract = contract_of(cp)
         if contract and contract not in seen:
             seen.append(contract)
     return seen
@@ -254,7 +288,7 @@ def contract_paths(config: Dict[str, Any]) -> Dict[str, str]:
     by_name = {str(entity.get("name") or ""): entity for entity in entities(config)}
     found: Dict[str, str] = {}
     for point in connect_points(config):
-        contract = point.get("contract")
+        contract = contract_of(point)
         owner = by_name.get(str(point.get("owner") or ""))
         if contract and owner is not None and contract not in found:
             found[str(contract)] = contract_path(owner, str(contract))

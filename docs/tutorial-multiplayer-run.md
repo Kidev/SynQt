@@ -222,7 +222,6 @@ Finally, change the `arena` connect point to one Source per session in `synqt.ya
 
 ```yaml
   - name: arena
-    contract: Arena
     owner: edge
     consumers: [app]
     server: web/edge/Arena.qml

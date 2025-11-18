@@ -283,7 +283,6 @@ Wire the connect point in `synqt.yaml`:
 ```yaml
 connect_points:
   - name: arena
-    contract: Arena
     owner: edge               # the edge holds the one real arena
     consumers: [app]          # the browser mirrors it
     server: web/edge/Arena.qml

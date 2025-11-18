@@ -90,7 +90,6 @@ Open `synqt.yaml` and add the client as a consumer of the `inventory` connect po
 
 ```yaml
   - name: inventory
-    contract: Inventory
     owner: stock
     consumers: [edge, app]     # add client: let the browser reach the database
     server: db/relational/stock/Inventory.qml

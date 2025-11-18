@@ -384,7 +384,9 @@ def test_the_home_pages_project_is_the_one_the_home_page_reads():
     assert [point["name"] for point in shown["connect_points"]] == \
         [link["name"] for link in feed["links"]]
     for point, link in zip(shown["connect_points"], feed["links"]):
-        assert point["contract"] == link["contract"]
+        # The page leaves `contract:` out where it is the point's own name, exactly as the
+        # writers do, so the two are compared on what each resolves to.
+        assert appmodel.contract_of(point) == link["contract"]
         assert point["owner"] == link["owner"]
         assert point["consumers"] == link["consumers"]
         assert point["instance"] == link["instance"]

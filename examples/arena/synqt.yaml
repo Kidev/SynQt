@@ -60,7 +60,6 @@ connect_points:
   # only their slice. scope: player is the real barrier; an unapproved account never has
   # `arena` acquired for it, so steer, ping, and the roster are out of reach.
   - name: arena
-    contract: Arena
     owner: edge
     consumers: [app]
     scope: player
@@ -70,7 +69,6 @@ connect_points:
   # browser; a client consumer here fails `synqt check`, since the database is not a web
   # edge). The edge mirrors the standings into the `arena` model everyone already watches.
   - name: scores
-    contract: Scores
     owner: records
     consumers: [edge]
     instance: per_peer

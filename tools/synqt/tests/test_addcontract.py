@@ -9,7 +9,7 @@ from pathlib import Path
 
 import yaml
 
-from synqt import addcontract
+from synqt import addcontract, appmodel
 
 WRITTEN_BY_HAND = """\
 # Hand written, and it stays.
@@ -47,8 +47,19 @@ class AddConnectPointTest(unittest.TestCase):
         point = yaml.safe_load((root / "synqt.yaml").read_text())["connect_points"][0]
         self.assertEqual(point["owner"], "feeds")
         self.assertEqual(point["consumers"], ["edge"])
-        self.assertEqual(point["contract"], "Prices")
         self.assertEqual(point["instance"], "shared")
+        # No `contract:` line: `Prices` is what the point's own name resolves to, and
+        # writing the same word twice is a line somebody has to keep in step for nothing.
+        self.assertNotIn("contract", point)
+        self.assertEqual(appmodel.contract_of(point), "Prices")
+
+    def test_a_contract_that_is_not_the_points_own_name_is_written_down(self):
+        root = self._project()
+        addcontract.scaffold_connect_point(root, "prices", owner="feeds",
+                                           consumers=["edge"], contract="Quotes")
+        point = yaml.safe_load((root / "synqt.yaml").read_text())["connect_points"][0]
+        self.assertEqual(point["contract"], "Quotes")
+        self.assertEqual(appmodel.contract_of(point), "Quotes")
 
     def test_it_keeps_the_comments_already_in_the_file(self):
         """The file belongs to whoever wrote it. Adding one entry is not permission to

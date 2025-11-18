@@ -213,10 +213,15 @@ def scaffold_connect_point(project_dir: os.PathLike[str] | str, name: str, *,
 
     # Spliced into the text rather than dumped over it: the file is the author's, and one
     # added entry is not a reason to lose their comments and their formatting.
+    # `contract:` only when it is not the point's own name capitalized, which is what the
+    # runtime resolves. Writing the same word twice is a line to keep in step for nothing.
+    block: Dict[str, Any] = {"name": name, "owner": owner, "consumers": consumers,
+                             "instance": instance}
+    if contract != appmodel.contract_of({"name": name}):
+        block = {"name": name, "contract": contract, "owner": owner,
+                 "consumers": consumers, "instance": instance}
     config_path.write_text(yamledit.append_item(
-        config_path.read_text(), "connect_points",
-        {"name": name, "contract": contract, "owner": owner,
-         "consumers": consumers, "instance": instance}))
+        config_path.read_text(), "connect_points", block))
     owning = owner_entity(project_dir, owner)
     written = write_source(project_dir, owning, contract, point=name)
     steps = [f"Added connect point '{name}' (owner {owner}, "

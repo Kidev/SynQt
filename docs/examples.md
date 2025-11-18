@@ -50,7 +50,6 @@ entities:
 
 connect_points:
   - name: counter
-    contract: Counter
     owner: edge               # the edge holds the authoritative Source
     consumers: [app]          # the browser may acquire it
     server: web/edge/Counter.qml
@@ -185,7 +184,6 @@ identity:
 
 connect_points:
   - name: todo
-    contract: Todo
     owner: edge
     consumers: [app]
     server: web/edge/Todo.qml
@@ -371,7 +369,6 @@ the same as a shared connect point; only the configuration differs:
 ```yaml
 connect_points:
   - name: draft
-    contract: Draft
     owner: edge
     consumers: [app]
     server: web/edge/Draft.qml
@@ -438,14 +435,12 @@ entities:
 
 connect_points:
   - name: todo
-    contract: Todo
     owner: edge               # the edge owns the user facing object
     consumers: [app]          # the browser may acquire it
     server: web/edge/Todo.qml
     instance: shared
 
   - name: items
-    contract: Items
     owner: store              # the store entity owns durable storage
     consumers: [edge]         # only the edge may reach it; never the browser
     server: db/relational/store/Items.qml
@@ -657,14 +652,12 @@ router:
 
 connect_points:
   - name: catalog
-    contract: Catalog
     owner: edge               # the edge owns the browser-facing live catalog
     consumers: [app]
     server: web/edge/Catalog.qml
     instance: shared
 
   - name: inventory
-    contract: Inventory
     owner: stock              # the stock entity owns the durable stock
     consumers: [edge]         # only the edge; a client consumer here fails synqt check
     server: db/relational/stock/Inventory.qml

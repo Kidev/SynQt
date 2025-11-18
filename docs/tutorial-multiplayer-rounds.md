@@ -151,7 +151,6 @@ Wire the new connect point in `synqt.yaml`, alongside the `arena` one:
 
 ```yaml
   - name: scores
-    contract: Scores
     owner: records            # the records entity owns durable storage
     consumers: [edge]         # only the edge may reach it, never the browser
     server: db/relational/records/Scores.qml

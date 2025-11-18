@@ -358,7 +358,6 @@ configured use of a contract with exactly one owner and a list of consumers.
 ```yaml
 connect_points:
   - name: todo
-    contract: Todo
     owner: edge               # the entity holding the authoritative Source
     consumers: [app]          # the entities allowed to acquire the Replica
     server: web/edge/Todo.qml
@@ -366,16 +365,23 @@ connect_points:
     instance: per_session     # per_session, per_peer, or shared
 
   - name: items
-    contract: Items
     owner: store
     consumers: [edge]         # only the edge may reach the items connect point
     server: db/relational/store/Items.qml
     instance: shared
 ```
 
-`scope` and `instance` are optional. Omitting `scope` means any session, including
-an anonymous one, may acquire the connect point; write protection then lives inside
-the slots, as in the examples. `instance` defaults to `shared`.
+`contract`, `server`, `scope` and `instance` are all optional.
+
+`contract` defaults to the point's own name capitalized, which is what a point carrying
+one contract always wanted: `- name: todo` carries `Todo`. Write it only when two points
+carry one shape, and then it names the shape they share. `server` defaults to that
+contract's `.qml` in the owner's folder, so the two lines above spelling it out could both
+be left off; they are there to show where the file goes.
+
+Omitting `scope` means any session, including an anonymous one, may acquire the connect
+point; write protection then lives inside the slots, as in the examples. `instance`
+defaults to `shared`.
 
 Validation derives the mesh links from `owner` and `consumers`: an entity may open
 a connection only to an owner it consumes from, and an owner accepts a connection

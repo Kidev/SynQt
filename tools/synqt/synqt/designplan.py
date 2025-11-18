@@ -440,6 +440,10 @@ def _link_field(link: Dict[str, Any], key: str) -> Any:
         return list(value or [])
     if key == "instance":
         return str(value or "shared")
+    # A contract named the same as its point is what the runtime resolves anyway, so the
+    # line is left out rather than written and then kept in step with the point's name.
+    if key == "contract" and value and value == appmodel.contract_of({"name": link["name"]}):
+        return None
     return str(value) if value else None
 
 

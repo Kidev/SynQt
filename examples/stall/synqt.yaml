@@ -46,7 +46,6 @@ entities:
 connect_points:
   # The offers the browser watches: owned by the edge, filled from the database.
   - name: catalog
-    contract: Catalog
     owner: edge
     consumers: [app]
     instance: shared
@@ -55,7 +54,6 @@ connect_points:
   # browser; a client consumer here fails `synqt check`, since the database is not a
   # web edge). This is the "database unreachable from the browser" connect point.
   - name: inventory
-    contract: Inventory
     owner: stock
     consumers: [edge]
     instance: per_peer

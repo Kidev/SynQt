@@ -44,6 +44,8 @@ from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 import yaml
 
+from . import appmodel
+
 ENV_PREFIX = "SYNQT_"
 
 
@@ -280,7 +282,9 @@ def resolve(project_dir: os.PathLike[str] | str, *, profile: Optional[str] = Non
 
     config, applied = apply_env(config, env)
     sources.extend(applied)
-    return Resolved(config=config, sources=sources)
+    # Filled in here rather than at each of the two dozen places a contract name is read,
+    # so no reader carries its own idea of the default and none of them can drift.
+    return Resolved(config=appmodel.normalized(config), sources=sources)
 
 
 def load(project_dir: os.PathLike[str] | str, *, profile: Optional[str] = None,

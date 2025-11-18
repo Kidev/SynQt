@@ -55,14 +55,12 @@ connect_points:
   # The live auction: the edge is the single authority; the browser may watch and bid.
   # per_session so each request carries its Caller (the signed-in user the edge authorizes).
   - name: auction
-    contract: Auction
     owner: edge
     consumers: [app]
     instance: per_session
 
   # The Hall of Fame the browser sees: owned by the edge, filled from the database.
   - name: hall
-    contract: Hall
     owner: edge
     consumers: [app]
     instance: shared
@@ -71,7 +69,6 @@ connect_points:
   # browser; a client consumer here fails `synqt check`, since the books entity is not
   # a web edge).
   - name: ledger
-    contract: Ledger
     owner: books
     consumers: [edge]
     instance: per_peer

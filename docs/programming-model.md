@@ -85,8 +85,7 @@ schema in [project layout and configuration](project-layout-and-config.md#the-sy
 
 ```yaml
 connect_points:
-  - name: todo                    # the name consumers use to reach it
-    contract: Todo                # the contract, in the owner's folder
+  - name: todo                    # the name consumers use to reach it, and the contract's
     owner: edge                   # the entity that holds the authoritative Source
     consumers: [app]              # the entities allowed to acquire the Replica
     server: web/edge/Todo.qml     # the authoritative implementation
@@ -109,9 +108,12 @@ The configurable parts that matter:
   feed). `per_session` means one Source per browser session (a private draft).
   `per_peer` means one Source per calling entity (useful when one service serves
   several others and must keep their state separate).
+- `contract`. What may cross, declared in `<Contract>.syn` in the owner's folder. It
+  defaults to the point's own name capitalized, so `- name: todo` carries `Todo` and most
+  points never write the line; name it only where two points carry one shape.
 - `server`. The file that implements the connect point, and its root element is the
   contract itself: `web/edge/Todo.qml` opens with `Todo { ... }`. It defaults to the
-  contract's name in the owner's folder, so most points never write it. Both ends of a contract are
+  contract's name in the owner's folder, so most points never write it either. Both ends of a contract are
   QML types with that one name, and they never meet, because an entity may not consume a
   connect point it owns. In an owner's binary `Todo` is the owner side; in a consumer's it
   is the consumer side and the attached handler type used for
