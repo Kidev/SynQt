@@ -14,7 +14,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from synqt import check, topologywriter
+from synqt import appmodel, check, topologywriter
 
 
 def base_config(**overrides):
@@ -454,6 +454,39 @@ class LayoutCollisionTest(unittest.TestCase):
         config["connect_points"].append(
             {"name": "records", "owner": "database", "consumers": ["web"], "contract": "Web"})
         self.assertEqual(errors(config), [])
+
+
+class InstanceDefaultTest(unittest.TestCase):
+    """A connect point that says nothing gets the instancing that keeps `Caller`.
+
+    `shared` builds one Source with no Caller bound to it at all (webedge.cpp start(),
+    connectpointhost.cpp start()), so a slot's `Caller.hasScope(...)` or `Caller.entity`
+    is a reference to something that is not there. An author who wrote an authorization
+    line and no `instance:` would have written a line that cannot run. So the default is
+    per caller, and `shared` is what somebody asks for when there is no caller to keep
+    apart.
+    """
+
+    def _points(self, config):
+        return {point["name"]: point["instance"]
+                for point in appmodel.normalized(config)["connect_points"]}
+
+    def test_a_browser_facing_point_defaults_to_per_session(self):
+        self.assertEqual(self._points(base_config())["app"], "per_session")
+
+    def test_a_service_to_service_point_defaults_to_per_peer(self):
+        self.assertEqual(self._points(base_config())["items"], "per_peer")
+
+    def test_a_point_with_no_consumers_stays_shared(self):
+        config = base_config()
+        config["connect_points"].append(
+            {"name": "internal", "owner": "database", "consumers": [], "contract": "Internal"})
+        self.assertEqual(self._points(config)["internal"], "shared")
+
+    def test_what_the_author_wrote_is_what_they_get(self):
+        config = base_config()
+        config["connect_points"][0]["instance"] = "shared"
+        self.assertEqual(self._points(config)["app"], "shared")
 
 
 class OrphanEntityTest(unittest.TestCase):

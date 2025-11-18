@@ -63,7 +63,6 @@ connect_points:
     owner: edge
     consumers: [app]
     scope: player
-    instance: per_session
 
   # The permanent scores: owned by the database, reachable only by the edge (never the
   # browser; a client consumer here fails `synqt check`, since the database is not a web
@@ -71,4 +70,3 @@ connect_points:
   - name: scores
     owner: records
     consumers: [edge]
-    instance: per_peer

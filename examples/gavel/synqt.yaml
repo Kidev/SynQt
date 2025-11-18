@@ -53,11 +53,11 @@ entities:
 
 connect_points:
   # The live auction: the edge is the single authority; the browser may watch and bid.
-  # per_session so each request carries its Caller (the signed-in user the edge authorizes).
+  # No instance: a browser-facing point is per_session, so each request carries its
+  # Caller (the signed-in user the edge authorizes).
   - name: auction
     owner: edge
     consumers: [app]
-    instance: per_session
 
   # The Hall of Fame the browser sees: owned by the edge, filled from the database.
   - name: hall
@@ -71,4 +71,3 @@ connect_points:
   - name: ledger
     owner: books
     consumers: [edge]
-    instance: per_peer

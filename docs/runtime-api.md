@@ -426,8 +426,12 @@ There are two ways to emit a contract signal, and the difference is the audience
   consumer of that Source instance. With a `shared` instance that is everyone;
   with a `per_session` instance there is only one consumer, so it is that session.
 - `Caller.emit<Signal>(...)` (`Caller.emitRejected(reason)`) delivers it to
-  the one caller currently in the slot. Use it to answer a specific request on a
-  `shared` instance without notifying the others.
+  the one caller currently in the slot.
+
+There is no `Caller` on a `shared` instance. It is built once, before any caller exists,
+so `Caller.emit<Signal>` and every other `Caller` member are out of reach there; a point
+whose slots answer one caller is one of the two per-caller modes, which is what an
+`instance:` left unwritten resolves to.
 
 For a `per_session` or `per_peer` connect point the two coincide, because the
 instance has a single consumer; `Caller.emit<Signal>` is the habit to keep because

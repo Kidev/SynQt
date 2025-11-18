@@ -438,13 +438,15 @@ connect_points:
     owner: edge               # the edge owns the user facing object
     consumers: [app]          # the browser may acquire it
     server: web/edge/Todo.qml
-    instance: shared
+    # no instance: a browser-facing point defaults to per_session, which is what gives
+    # the slots below their Caller
 
   - name: items
     owner: store              # the store entity owns durable storage
     consumers: [edge]         # only the edge may reach it; never the browser
     server: db/relational/store/Items.qml
-    instance: shared
+    # no instance: a service-to-service point defaults to per_peer, so Caller.entity is
+    # the verified name of the entity that called
 ```
 
 Auth is added with `synqt add auth github` (see [authentication](authentication.md)); omitted here for focus.

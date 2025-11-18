@@ -56,7 +56,6 @@ connect_points:
   - name: inventory
     owner: stock
     consumers: [edge]
-    instance: per_peer
 
 # The route table (top level, docs/project-layout-and-config.md). A route with `view:` is
 # compiled into the client bundle; a route with `remote:` is delivered by the edge at

@@ -380,8 +380,13 @@ contract's `.qml` in the owner's folder, so the two lines above spelling it out 
 be left off; they are there to show where the file goes.
 
 Omitting `scope` means any session, including an anonymous one, may acquire the connect
-point; write protection then lives inside the slots, as in the examples. `instance`
-defaults to `shared`.
+point; write protection then lives inside the slots, as in the examples.
+
+`instance` defaults to one Source per caller: `per_session` for a point a browser
+consumes, `per_peer` for one another entity consumes, and `shared` only for a point with
+no consumers at all. The default is the one that keeps `Caller`: a `shared` Source is
+built once with no caller bound to it, so the authorization a slot writes has nothing to
+read. Say `shared` where there is no caller to keep apart.
 
 Validation derives the mesh links from `owner` and `consumers`: an entity may open
 a connection only to an owner it consumes from, and an owner accepts a connection

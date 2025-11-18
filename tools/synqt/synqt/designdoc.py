@@ -5,8 +5,8 @@
 contract each link carries.
 
 The editor draws this and the inference writes it, so it is the one shape both agree on.
-Everything in it comes from the two things a project already has, ``synqt.yaml`` and
-``shared/*.syn``, with a single exception: where a node sits on the canvas is a drawing,
+Everything in it comes from the two things a project already has, ``synqt.yaml`` and the
+``.syn`` contract beside each owner's Source, with a single exception: where a node sits on the canvas is a drawing,
 not a fact about the system, so it lives beside the project in ``.synqt/design.json`` and
 never in the configuration. A project nobody has opened in the editor still lays out, from
 the one rule worth stating by default: the browser on the left, the edge it reaches in the
@@ -274,7 +274,7 @@ def _link(point: Dict[str, Any], root: Path, seats: Dict[str, Dict[str, Any]],
         "contract": contract,
         "owner": owner,
         "consumers": [str(consumer) for consumer in (point.get("consumers") or [])],
-        "instance": str(point.get("instance") or "shared"),
+        "instance": str(point.get("instance") or ""),
         "transport": str(point.get("transport") or ""),
         "members": members,
         "server": server,
@@ -395,7 +395,11 @@ def _link_config(link: Dict[str, Any], base: Dict[str, Any]) -> Dict[str, Any]:
     written["contract"] = link["contract"]
     written["owner"] = link["owner"]
     written["consumers"] = list(link["consumers"])
-    written["instance"] = link.get("instance") or "shared"
+    instance = str(link.get("instance") or "")
+    if instance:
+        written["instance"] = instance
+    else:
+        written.pop("instance", None)
     if link.get("transport"):
         written["transport"] = link["transport"]
     else:

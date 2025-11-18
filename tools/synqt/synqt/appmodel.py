@@ -228,21 +228,54 @@ def contract_of(point: Dict[str, Any]) -> str:
     return f"{name[:1].upper()}{name[1:]}" if name else ""
 
 
-def normalized(config: Dict[str, Any]) -> Dict[str, Any]:
-    """`config` with every connect point carrying the contract name it resolves to.
+def instance_of(point: Dict[str, Any], config: Dict[str, Any]) -> str:
+    """How many Sources a connect point gets: what it says, or what its ends imply.
 
-    Done once, where the configuration is read, so that no reader has to remember the
-    default and none of them can disagree about it. A point that names its contract keeps
-    what it named.
+    The default is the one that keeps `Caller`. A `shared` Source is built once with no
+    Caller at all, so every `Caller.hasScope(...)` and `Caller.entity` in its slots is a
+    reference to something that is not there; the authorization an author wrote is not
+    weakened, it is absent. So a point that says nothing gets an instance per caller:
+    `per_session` where the caller is a browser, `per_peer` where it is another entity.
+
+    A point with no consumers has no caller to keep apart and stays `shared`, and so does
+    one that asks for it, which is the right answer for a large read-only model every
+    consumer sees the same way (a leaderboard, a catalogue).
+    """
+    declared = point.get("instance")
+    if isinstance(declared, str) and declared.strip():
+        return declared.strip()
+    consumers = [str(name) for name in (point.get("consumers") or [])]
+    if not consumers:
+        return "shared"
+    by_name = {str(entity.get("name") or ""): entity for entity in entities(config)}
+    owner = by_name.get(str(point.get("owner") or ""))
+    clients = {name for name, entity in by_name.items() if entity.get("kind") == "client"}
+    if owner is not None and is_edge(owner) and (clients & set(consumers)):
+        return "per_session"
+    return "per_peer"
+
+
+def normalized(config: Dict[str, Any]) -> Dict[str, Any]:
+    """`config` with every connect point carrying the contract and instance it resolves to.
+
+    Done once, where the configuration is read, so that no reader has to remember either
+    default and none of them can disagree about it. A point that names one keeps what it
+    named.
     """
     points = config.get("connect_points")
     if not isinstance(points, list):
         return config
     filled = []
     for point in points:
-        if isinstance(point, dict) and not point.get("contract"):
-            resolved = contract_of(point)
-            point = {**point, "contract": resolved} if resolved else point
+        if isinstance(point, dict):
+            resolved = dict(point)
+            if not resolved.get("contract"):
+                contract = contract_of(point)
+                if contract:
+                    resolved["contract"] = contract
+            if not resolved.get("instance"):
+                resolved["instance"] = instance_of(point, config)
+            point = resolved
         filled.append(point)
     return {**config, "connect_points": filled}
 

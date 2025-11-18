@@ -439,7 +439,9 @@ def _link_field(link: Dict[str, Any], key: str) -> Any:
     if key == "consumers":
         return list(value or [])
     if key == "instance":
-        return str(value or "shared")
+        # Left out when the drawing does not say, so the same resolution the runtime
+        # applies decides it rather than `shared` being frozen in by the writer.
+        return str(value) if value else None
     # A contract named the same as its point is what the runtime resolves anyway, so the
     # line is left out rather than written and then kept in step with the point's name.
     if key == "contract" and value and value == appmodel.contract_of({"name": link["name"]}):

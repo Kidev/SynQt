@@ -82,14 +82,14 @@ def _module(name):
     return json.dumps((DESIGN / name).as_uri())
 
 
-def _node(script):
-    """Run `script` as an ES module and read back the JSON it prints."""
+def _node(script, *, raw=False):
+    """Run `script` as an ES module and read back what it prints (JSON unless `raw`)."""
     if shutil.which("node") is None:
         pytest.skip("node is not installed")
     finished = subprocess.run(["node", "--input-type=module", "-e", script],
                               capture_output=True, text=True, check=False)
     assert finished.returncode == 0, finished.stderr
-    return json.loads(finished.stdout)
+    return finished.stdout if raw else json.loads(finished.stdout)
 
 
 @pytest.fixture(scope="module")
@@ -366,6 +366,41 @@ def test_every_example_contract_parses_as_the_members_it_declares(examples):
                           if file["name"].endswith(f"/{link['contract']}.syn"))
             assert designdoc.parse_from_text(source, link["contract"]) == link["members"], \
                 f"example '{name}', contract {link['contract']}"
+
+
+def test_the_page_and_the_cli_resolve_one_instance_the_same_way():
+    """`shared` builds a Source with no Caller, so which instancing an unwritten `instance:`
+    resolves to decides whether the authorization in a slot can run at all. The page writes
+    the synqt.yaml a download holds and the CLI writes the one `synqt add connect-point`
+    produces; the two disagreeing here would be a topology that is safe from one door and
+    not from the other."""
+    document = {
+        "version": 1, "project": "p",
+        "entities": [
+            {"name": "app", "kind": "client"},
+            {"name": "edge", "kind": "service", "capability": "web_edge"},
+            {"name": "store", "kind": "service", "blueprint": "relational"},
+        ],
+        "links": [
+            {"name": "feed", "contract": "Feed", "owner": "edge", "consumers": ["app"],
+             "instance": "", "members": []},
+            {"name": "items", "contract": "Items", "owner": "store", "consumers": ["edge"],
+             "instance": "", "members": []},
+            {"name": "quiet", "contract": "Quiet", "owner": "store", "consumers": [],
+             "instance": "", "members": []},
+        ],
+    }
+    rendered = _node(f"""
+        import {{ renderYaml }} from {_module('project.js')};
+        process.stdout.write(renderYaml({json.dumps(document)}));
+    """, raw=True)
+    page = {point["name"]: point["instance"]
+            for point in yaml.safe_load(rendered)["connect_points"]}
+    config = designdoc.to_config(document, base={})
+    cli = {point["name"]: point["instance"]
+           for point in appmodel.normalized(config)["connect_points"]}
+    assert page == cli
+    assert page == {"feed": "per_session", "items": "per_peer", "quiet": "shared"}
 
 
 def test_the_home_pages_project_is_the_one_the_home_page_reads():

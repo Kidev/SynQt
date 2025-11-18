@@ -76,12 +76,40 @@ function entityLines(entity) {
     return lines;
 }
 
-function linkLines(link) {
+function isWebEdge(entity) {
+    return String((entity && entity.capability) || "") === "web_edge"
+        || String((entity && entity.kind) || "") === "web_edge"
+        || Boolean(entity && entity.web_edge);
+}
+
+// How many Sources a link gets when it does not say, the same rule appmodel.instance_of
+// applies: the one that keeps `Caller`. A shared Source is built once with no Caller at
+// all, so an authorization an author wrote in its slots is not weakened, it is absent.
+export function instanceOf(design, link) {
+    const declared = String((link && link.instance) || "");
+    if (declared) {
+        return declared;
+    }
+    const consumers = (link && link.consumers) || [];
+    if (!consumers.length) {
+        return "shared";
+    }
+    const entities = (design && design.entities) || [];
+    const owner = entities.find((entity) => entity.name === link.owner);
+    const clients = entities.filter((entity) => (entity.kind || "service") === "client")
+        .map((entity) => entity.name);
+    if (owner && isWebEdge(owner) && consumers.some((name) => clients.includes(name))) {
+        return "per_session";
+    }
+    return "per_peer";
+}
+
+function linkLines(design, link) {
     const lines = [`  - name: ${scalar(link.name)}`,
                    `    contract: ${scalar(link.contract)}`,
                    `    owner: ${scalar(link.owner)}`,
                    `    consumers: ${listing(link.consumers || [])}`,
-                   `    instance: ${scalar(link.instance || "shared")}`];
+                   `    instance: ${scalar(instanceOf(design, link))}`];
     if (link.transport) {
         lines.push(`    transport: ${scalar(link.transport)}`);
     }
@@ -120,7 +148,8 @@ export function renderYaml(design) {
         "",
         ...block("entities", design.entities || [], entityLines),
         "",
-        ...block("connect_points", design.links || [], linkLines),
+        ...block("connect_points", design.links || [],
+                 (link) => linkLines(design, link)),
         "",
     ].join("\n");
 }

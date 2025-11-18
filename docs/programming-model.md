@@ -104,10 +104,19 @@ The configurable parts that matter:
 - `scope` (for browser consumers). The minimum session scope a browser user must
   hold before the framework will acquire the Replica for that client. A user below
   the required scope never gets the object, so cannot call its slots at all.
-- `instance`. `shared` means one authoritative Source for all consumers (a public
-  feed). `per_session` means one Source per browser session (a private draft).
-  `per_peer` means one Source per calling entity (useful when one service serves
-  several others and must keep their state separate).
+- `instance`. `per_session` means one Source per browser session (a private draft),
+  `per_peer` one Source per calling entity (useful when one service serves several
+  others and must keep their state separate), and `shared` a single authoritative
+  Source for all consumers (a public feed).
+
+    A point that says nothing gets one per caller: `per_session` where a browser
+    consumes it, `per_peer` where another entity does. That default is not about
+    convenience. A `shared` Source is built once, before any caller exists, so it has no
+    `Caller` bound to it at all, and a slot that reads `Caller.hasScope(...)` or
+    `Caller.entity` on one is reading something that is not there. Write `shared` where
+    there is genuinely no caller to keep apart, which is the right answer for a
+    read-only model everybody sees the same way, and reach for `Caller.emit<Signal>`
+    only on the two modes that have a Caller to reach.
 - `contract`. What may cross, declared in `<Contract>.syn` in the owner's folder. It
   defaults to the point's own name capitalized, so `- name: todo` carries `Todo` and most
   points never write the line; name it only where two points carry one shape.
