@@ -1542,7 +1542,7 @@ def lint_contract_drift(config: Dict[str, Any], project_dir: os.PathLike[str] | 
     for use in found.uses:
         messages += _use_messages(use, points, declared)
     for edge in found.edges:
-        messages += _unused_messages(edge, points, declared)
+        messages += _unused_messages(edge, points, declared, contract_files)
     return messages
 
 
@@ -1590,14 +1590,16 @@ def _argument_messages(use: "infer.Use", contract: str, match: Dict[str, Any],
 
 
 def _unused_messages(edge: "infer.Edge", points: Dict[str, Any],
-                     declared: Dict[str, List[Dict[str, Any]]]) -> List[str]:
+                     declared: Dict[str, List[Dict[str, Any]]],
+                     files: Dict[str, str]) -> List[str]:
     """The declared members neither end of this link mentions anywhere."""
     members = declared.get(edge.point)
     if members is None or edge.dynamic:
         return []
     contract = appmodel.contract_of(points[edge.point])
+    where = files.get(contract) or f"{contract}.syn"
     seen = {member.name for member in edge.members}
-    return [f"note: shared/{contract}.syn: '{member['name']}' is declared on the "
+    return [f"note: {where}: '{member['name']}' is declared on the "
             f"{contract} contract and nothing on either end of '{edge.point}' uses it"
             for member in members if member["name"] not in seen]
 

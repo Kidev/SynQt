@@ -47,11 +47,20 @@ class AddConnectPointTest(unittest.TestCase):
         point = yaml.safe_load((root / "synqt.yaml").read_text())["connect_points"][0]
         self.assertEqual(point["owner"], "feeds")
         self.assertEqual(point["consumers"], ["edge"])
-        self.assertEqual(point["instance"], "shared")
-        # No `contract:` line: `Prices` is what the point's own name resolves to, and
-        # writing the same word twice is a line somebody has to keep in step for nothing.
+        # Neither `contract:` nor `instance:` is written: both are what the point resolves
+        # to on its own, and the same answer twice is a line to keep in step for nothing.
         self.assertNotIn("contract", point)
+        self.assertNotIn("instance", point)
         self.assertEqual(appmodel.contract_of(point), "Prices")
+        config = yaml.safe_load((root / "synqt.yaml").read_text())
+        self.assertEqual(appmodel.instance_of(point, config), "per_peer")
+
+    def test_an_instance_the_author_chose_is_written_down(self):
+        root = self._project()
+        addcontract.scaffold_connect_point(root, "prices", owner="feeds",
+                                           consumers=["edge"], instance="shared")
+        point = yaml.safe_load((root / "synqt.yaml").read_text())["connect_points"][0]
+        self.assertEqual(point["instance"], "shared")
 
     def test_a_contract_that_is_not_the_points_own_name_is_written_down(self):
         root = self._project()

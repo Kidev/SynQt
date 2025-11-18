@@ -1392,7 +1392,8 @@ function addLink(owner, consumer, toward, at) {
     touched();
     select({kind: "link", name});
     say(`'${owner.name}' now owns '${name}' and '${consumer.name}' consumes it. That writes `
-        + `shared/${link.contract}.syn and ${owner.name}/${link.contract}.qml. Say what `
+        + `${entityDir(owner)}/${link.contract}.syn and `
+        + `${entityDir(owner)}/${link.contract}.qml. Say what `
         + "crosses it.");
     // Straight into the one question a new link asks. It opens on the link rather than
     // waiting to be found in the panel, because a connect point that carries nothing is a

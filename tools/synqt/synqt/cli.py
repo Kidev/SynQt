@@ -247,9 +247,14 @@ def build_parser() -> argparse.ArgumentParser:
     connect_point = add_sub.add_parser("connect-point"); connect_point.add_argument("name")
     connect_point.add_argument("--owner", required=True)
     connect_point.add_argument("--consumers", default="", help="comma-separated entity names")
-    connect_point.add_argument("--contract", required=True)
-    connect_point.add_argument("--instance", default="shared",
-                               choices=["shared", "per_session", "per_peer"])
+    connect_point.add_argument("--contract", default="",
+                               help="the contract it carries (default: the point's own "
+                                    "name capitalized; name it only where two points "
+                                    "carry one shape)")
+    connect_point.add_argument("--instance", default="",
+                               choices=["", "shared", "per_session", "per_peer"],
+                               help="how many Sources it gets (default: one per caller, "
+                                    "which is what gives a slot its Caller)")
     for ap in (auth, entity, provider, contract, connect_point):
         ap.add_argument("--project-dir", default=".")
     return parser
@@ -296,7 +301,7 @@ def _run_add(args: argparse.Namespace) -> int:
         consumers = [c for c in args.consumers.split(",") if c]
         message = addcontract.scaffold_connect_point(
             args.project_dir, args.name, owner=args.owner, consumers=consumers,
-            contract=args.contract, instance=args.instance)
+            contract=args.contract or None, instance=args.instance or None)
     print(message)
     return 0
 

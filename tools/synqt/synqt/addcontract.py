@@ -189,11 +189,13 @@ def scaffold_contract(project_dir: os.PathLike[str] | str, name: str, *, owner: 
 
 
 def scaffold_connect_point(project_dir: os.PathLike[str] | str, name: str, *,
-                           owner: str, consumers: List[str], contract: str,
-                           instance: str = "shared") -> str:
-    if instance not in ("shared", "per_session", "per_peer"):
+                           owner: str, consumers: List[str],
+                           contract: Optional[str] = None,
+                           instance: Optional[str] = None) -> str:
+    if instance is not None and instance not in ("shared", "per_session", "per_peer"):
         raise AddContractError(
             "instance must be shared, per_session, or per_peer")
+    contract = contract or appmodel.contract_of({"name": name})
     check_qml_name(contract)
     config_path = Path(project_dir) / "synqt.yaml"
     if not config_path.exists():
@@ -213,20 +215,23 @@ def scaffold_connect_point(project_dir: os.PathLike[str] | str, name: str, *,
 
     # Spliced into the text rather than dumped over it: the file is the author's, and one
     # added entry is not a reason to lose their comments and their formatting.
-    # `contract:` only when it is not the point's own name capitalized, which is what the
-    # runtime resolves. Writing the same word twice is a line to keep in step for nothing.
-    block: Dict[str, Any] = {"name": name, "owner": owner, "consumers": consumers,
-                             "instance": instance}
+    # `contract:` and `instance:` only where they are not what the point resolves to on
+    # its own. Writing the same answer twice is a line to keep in step for nothing.
+    block: Dict[str, Any] = {"name": name, "owner": owner, "consumers": consumers}
     if contract != appmodel.contract_of({"name": name}):
         block = {"name": name, "contract": contract, "owner": owner,
-                 "consumers": consumers, "instance": instance}
+                 "consumers": consumers}
+    if instance is not None:
+        block["instance"] = instance
     config_path.write_text(yamledit.append_item(
         config_path.read_text(), "connect_points", block))
     owning = owner_entity(project_dir, owner)
     written = write_source(project_dir, owning, contract, point=name)
-    steps = [f"Added connect point '{name}' (owner {owner}, "
-             f"consumers {', '.join(consumers)}, instance {instance}). Deny-by-default: "
-             "only listed consumers may acquire it."]
+    resolved = instance or appmodel.instance_of(
+        {"name": name, "owner": owner, "consumers": consumers}, config)
+    steps = [f"Added connect point '{name}' (contract {contract}, owner {owner}, "
+             f"consumers {', '.join(consumers) or 'none'}, instance {resolved}). "
+             "Deny-by-default: only listed consumers may acquire it."]
     if written:
         steps.append(f"  - Wrote {written}, empty. Fill in the slots there and authorize "
                      "Caller in every one of them.")

@@ -219,7 +219,7 @@ def parse_from_text(text: str, name: str) -> List[Dict[str, Any]]:
 
 
 def parse_contract(path: os.PathLike[str] | str) -> List[Dict[str, Any]]:
-    """The members of the contract in a ``shared/<Name>.syn`` file."""
+    """The members declared in one ``.syn`` file."""
     source = Path(path)
     return parse_from_text(source.read_text(encoding="utf-8"), source.stem)
 
