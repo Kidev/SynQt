@@ -19,7 +19,7 @@ Inventory {
     property var store: []
 
     function restock(sku, title, price) {
-        if (Caller.entity !== "web") {
+        if (Caller.entity !== "edge") {
             return;   // the stock entity refuses any caller other than the edge
         }
         inventory.store.push({ sku: sku, title: title, price: price });

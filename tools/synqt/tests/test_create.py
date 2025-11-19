@@ -65,15 +65,30 @@ def test_an_untemplated_provider_is_taken_and_flagged():
     assert "no template" in out.getvalue()
 
 
-def test_blueprints_are_parsed_trimmed_and_deduplicated():
-    chosen = create.ask_blueprints(io.StringIO(), _answers(" relational , cache ,relational"))
-    assert chosen == ["relational", "cache"]
+def test_blueprints_are_parsed_and_trimmed():
+    chosen = create.ask_blueprints(io.StringIO(),
+                                   _answers(" orders : relational , sessions:cache "))
+    assert chosen == [("orders", "relational"), ("sessions", "cache")]
 
 
 def test_an_unknown_blueprint_names_the_ones_that_exist():
     with pytest.raises(create.CreateError) as raised:
-        create.ask_blueprints(io.StringIO(), _answers("postgres"))
+        create.ask_blueprints(io.StringIO(), _answers("orders:postgres"))
     assert "relational" in str(raised.value)
+
+
+def test_a_kind_with_no_name_is_refused_rather_than_named_for_you():
+    """The name is the entity's folder, its own QML file, and its accessor in every
+    consumer. Deriving one from the kind puts a word nobody chose into all three."""
+    with pytest.raises(create.CreateError) as raised:
+        create.ask_blueprints(io.StringIO(), _answers("relational"))
+    assert "<name>:<kind>" in str(raised.value)
+
+
+def test_two_starting_entities_may_not_share_a_name():
+    with pytest.raises(create.CreateError) as raised:
+        create.ask_blueprints(io.StringIO(), _answers("store:relational,store:cache"))
+    assert "store" in str(raised.value)
 
 
 def test_every_offered_blueprint_is_one_addentity_knows():
@@ -95,8 +110,9 @@ def test_answering_the_questions_matches_the_equivalent_flags():
     flagged = Path(tempfile.mkdtemp())
     try:
         create.create(asked, out=io.StringIO(), interactive=True,
-                      source=_answers("shop", "github", "relational"))
-        newproject.scaffold(flagged, "shop", auth="github", blueprints=["relational"])
+                      source=_answers("shop", "github", "orders:relational"))
+        newproject.scaffold(flagged, "shop", auth="github",
+                            blueprints=[("orders", "relational")])
 
         asked_config = yaml.safe_load((asked / "shop" / "synqt.yaml").read_text())
         flagged_config = yaml.safe_load((flagged / "shop" / "synqt.yaml").read_text())

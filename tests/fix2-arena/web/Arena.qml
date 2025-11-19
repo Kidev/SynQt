@@ -4,7 +4,7 @@
 import QtQuick
 import SynQt
 
-// One instance per player session (the runnable rendering of examples/arena/web/Arena.qml).
+// One instance per player session (the runnable rendering of examples/arena/web/edge/Arena.qml).
 // It never simulates; it forwards this player's steer and ping into the shared World and
 // publishes only their slice. Because it reads Caller, it is a per_session Source: only an
 // approved player (scope "player") ever reaches it; the connect point's scope gate means an

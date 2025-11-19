@@ -3,7 +3,7 @@
 
 import QtQuick
 
-// A persistence entity's owner-side Source. It calls the `Db` helper only; the runtime
+// A relational entity's owner-side Source. It calls the `Db` helper only. The runtime
 // injects Db automatically from the entity's blueprint + provider config (PROV-4), so this
 // file names no engine and needs no manual wiring.
 QtObject {

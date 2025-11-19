@@ -97,10 +97,12 @@ def _differences(left: Path, right: Path) -> Tuple[List[str], List[str]]:
 _EQUIVALENT = [
     pytest.param(["shop", "", ""], [], id="defaults"),
     pytest.param(["shop", "github", ""], ["--auth", "github"], id="auth"),
-    pytest.param(["shop", "none", "relational, cache"],
-                 ["--blueprint", "relational", "--blueprint", "cache"], id="blueprints"),
-    pytest.param(["shop", "google", "relational"],
-                 ["--auth", "google", "--blueprint", "relational"], id="auth-and-blueprint"),
+    pytest.param(["shop", "none", "orders:relational, sessions:cache"],
+                 ["--blueprint", "orders:relational", "--blueprint", "sessions:cache"],
+                 id="blueprints"),
+    pytest.param(["shop", "google", "orders:relational"],
+                 ["--auth", "google", "--blueprint", "orders:relational"],
+                 id="auth-and-blueprint"),
 ]
 
 
@@ -132,7 +134,7 @@ def test_the_name_can_come_from_the_command_line_instead_of_a_question(tmp_path)
     # one. Getting this wrong would consume the auth answer as the name.
     controller, follower = os.openpty()
     try:
-        os.write(controller, b"github\nrelational\n")
+        os.write(controller, b"github\norders:relational\n")
         completed = subprocess.run(
             [sys.executable, "-m", "synqt", "create", "shop", "--parent-dir", str(tmp_path)],
             stdin=follower, capture_output=True, text=True, env=_cli_env(), timeout=120)
@@ -143,7 +145,8 @@ def test_the_name_can_come_from_the_command_line_instead_of_a_question(tmp_path)
 
     flagged = tmp_path / "flagged"
     flagged.mkdir()
-    reference = _run_new(flagged, "shop", "--auth", "github", "--blueprint", "relational")
+    reference = _run_new(flagged, "shop", "--auth", "github",
+                         "--blueprint", "orders:relational")
 
     missing, differing = _differences(tmp_path / "shop", flagged / "shop")
     assert missing == []

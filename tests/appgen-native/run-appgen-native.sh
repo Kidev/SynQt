@@ -54,7 +54,7 @@ cp -r "$REPO_ROOT/examples/gavel" "$SRC"
 # The example is a working directory for whoever has run `synqt build` in it, and those
 # leftovers are gitignored, so a fresh clone never has them and a developer's checkout
 # does. Copying them in points a fresh configure at a cache built for another source tree,
-# and the link step writes an executable over the `database/` directory it copied along.
+# and the link step writes an executable over an entity directory it copied along.
 # Take the tracked sources, not the state.
 rm -rf "$SRC/build" "$SRC/CMakeUserPresets.json"
 PYTHONPATH="$REPO_ROOT/tools/synqt" python3 - "$SRC" "$REPO_ROOT" <<'PY'
@@ -77,7 +77,7 @@ cmake --build "$SRC/build"
 
 echo "== [3/5] Assert each generated entity produced a native executable =="
 rc=0
-for entity in client web database; do
+for entity in app edge books; do
     assert_native_exe "$SRC/build/$entity" "$entity" || rc=1
 done
 if [ "$rc" -ne 0 ]; then
@@ -111,9 +111,9 @@ cmake -S "$ROUTED" -B "$ROUTED/build" -G Ninja \
     -DCMAKE_PREFIX_PATH="$QT_HOST" \
     -DSYNQT_ROOT="$REPO_ROOT" \
     -DCMAKE_BUILD_TYPE=Release
-cmake --build "$ROUTED/build" --target client
+cmake --build "$ROUTED/build" --target app
 
-routed_exe="$(native_exe_path "$ROUTED/build/client")"
+routed_exe="$(native_exe_path "$ROUTED/build/app")"
 if [ -z "$routed_exe" ]; then
     echo "  routed client : MISSING"
     echo "APPGEN-NATIVE GATE: NO-GO"
@@ -176,7 +176,7 @@ print("  appgen wrote:", ", ".join(appgen.generate(app, config, synqt_root=repo)
 # A real project mesh, because both links are mutual TLS like any other: the auth entity is
 # reached over a verified link or not at all.
 mesh.init(app)
-print("  " + mesh.cert_all(app, ["web", "auth"]).replace("\n", "\n  "))
+print("  " + mesh.cert_all(app, ["edge", "auth"]).replace("\n", "\n  "))
 print("  topology:", ", ".join(topologywriter.write(app, config)))
 PY
 
@@ -189,7 +189,7 @@ cmake -S "$PROMOTED" -B "$PROMOTED/out" -G Ninja \
 cmake --build "$PROMOTED/out"
 
 rc=0
-for entity in client web auth; do
+for entity in app edge auth; do
     assert_native_exe "$PROMOTED/out/$entity" "$entity" || rc=1
 done
 if [ "$rc" -ne 0 ]; then
@@ -197,11 +197,11 @@ if [ "$rc" -ne 0 ]; then
     exit 1
 fi
 # Resolve the two the byte search below reads, because it reads them from Python and Python
-# is a native Windows program with no MSYS exe magic: `out/web` is a path bash can stat and
+# is a native Windows program with no MSYS exe magic. `out/edge` is a path bash can stat and
 # run, and a plain FileNotFoundError to open(). Every needle then reports as absent, so the
 # leak check passes vacuously while the presence check fails, which is how a correct build
 # came back NO-GO with four tracebacks.
-promoted_web="$(native_exe_path "$PROMOTED/out/web")"
+promoted_web="$(native_exe_path "$PROMOTED/out/edge")"
 promoted_auth="$(native_exe_path "$PROMOTED/out/auth")"
 
 mkdir -p "$PROMOTED/build/client"
@@ -223,7 +223,7 @@ auth_pid=$!
 sleep 2
 # --dev only for the plaintext loopback listener: the fixture's TLS certificate names a
 # deployed host, exactly as a real project's does.
-(cd "$PROMOTED" && exec ./out/web --bundle build/client --qml-dir . \
+(cd "$PROMOTED" && exec ./out/edge --bundle build/client --qml-dir . \
     --port 18443 --dev >"$WORK/promoted-web.log" 2>&1) &
 edge_pid=$!
 

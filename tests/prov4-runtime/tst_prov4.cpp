@@ -4,7 +4,7 @@
 // PROV-4 acceptance: EntityRuntime is blueprint-aware. Given an entity with a blueprint and
 // a provider config, the runtime builds and connects the provider and injects that
 // blueprint's helper into every owned Source's QML context; no manual injection. One test
-// per blueprint (persistence -> Db, cache -> Cache, document -> Docs, gateway -> Http,
+// per blueprint (relational -> Db, cache -> Cache, document -> Docs, api -> Http,
 // jobs -> Jobs), each proving the helper reached QML and works, plus the failure paths: a
 // provider that selects nothing stops the entity, and one that will not connect is fatal
 // for a database and survivable for a cache or a document store.
@@ -135,10 +135,10 @@ private:
         return topology;
     }
 
-    Topology persistenceTopology(const QString &dbFile)
+    Topology relationalTopology(const QString &dbFile)
     {
         Topology topology{blueprintTopology(
-            QStringLiteral("database"), QStringLiteral("persistence"),
+            QStringLiteral("database"), QStringLiteral("relational"),
             QStringLiteral(PROV4_SRCDIR "/database/Items.qml"),
             QVariantMap{{QStringLiteral("name"), QStringLiteral("sqlite")},
                         {QStringLiteral("file"), dbFile}})};
@@ -177,16 +177,16 @@ private slots:
     {
         const QString dbFile{m_dir.filePath(QStringLiteral("app.db"))};
         QQmlEngine engine;
-        EntityRuntime runtime{persistenceTopology(dbFile), &engine};
+        EntityRuntime runtime{relationalTopology(dbFile), &engine};
         QVERIFY2(runtime.start(), qPrintable(runtime.errorString()));
 
-        // The runtime brought up the owned connect point and injected Db into it; the test
+        // The runtime brought up the owned connect point and injected Db into it. The test
         // never called setContextObject.
         QCOMPARE(runtime.ownedHosts().size(), 1);
         ConnectPointHost *host{onlyHost(runtime)};
         QVERIFY(host != nullptr);
         QObject *injected{host->contextObject(QStringLiteral("Db"))};
-        QVERIFY2(injected != nullptr, "the runtime must inject Db for a persistence blueprint");
+        QVERIFY2(injected != nullptr, "the runtime must inject Db for a relational blueprint");
 
         // The injected Db is wired to the connected provider with the schema already applied.
         Db *db{qobject_cast<Db *>(injected)};
@@ -304,8 +304,8 @@ private slots:
     {
         QQmlEngine engine;
         EntityRuntime runtime{
-            blueprintTopology(QStringLiteral("api"), QStringLiteral("gateway"),
-                              QStringLiteral(PROV4_SRCDIR "/gateway/Upstream.qml"),
+            blueprintTopology(QStringLiteral("api"), QStringLiteral("api"),
+                              QStringLiteral(PROV4_SRCDIR "/api/Upstream.qml"),
                               QVariantMap{{QStringLiteral("release"), true}}),
             &engine};
         QVERIFY2(runtime.start(), qPrintable(runtime.errorString()));
@@ -313,7 +313,7 @@ private slots:
         ConnectPointHost *host{onlyHost(runtime)};
         QVERIFY(host != nullptr);
         Http *http{qobject_cast<Http *>(host->contextObject(QStringLiteral("Http")))};
-        QVERIFY2(http != nullptr, "the runtime must inject Http for a gateway blueprint");
+        QVERIFY2(http != nullptr, "the runtime must inject Http for an api blueprint");
 
         // Release is the runtime's default and the topology said so explicitly: a plaintext
         // call is refused before a socket is opened, and the promise says why.
@@ -335,8 +335,8 @@ private slots:
         // refuses immediately, so this needs no network and cannot hang.
         QQmlEngine engine;
         EntityRuntime runtime{
-            blueprintTopology(QStringLiteral("api"), QStringLiteral("gateway"),
-                              QStringLiteral(PROV4_SRCDIR "/gateway/Upstream.qml"),
+            blueprintTopology(QStringLiteral("api"), QStringLiteral("api"),
+                              QStringLiteral(PROV4_SRCDIR "/api/Upstream.qml"),
                               QVariantMap{{QStringLiteral("release"), false}}),
             &engine};
         QVERIFY2(runtime.start(), qPrintable(runtime.errorString()));
@@ -359,7 +359,7 @@ private slots:
 
     void runtimeWithoutBlueprintInjectsNothing()
     {
-        Topology topology{persistenceTopology(m_dir.filePath(QStringLiteral("none.db")))};
+        Topology topology{relationalTopology(m_dir.filePath(QStringLiteral("none.db")))};
         topology.blueprint.clear();  // a bare service entity: no helper is injected
         QQmlEngine engine;
         EntityRuntime runtime{topology, &engine};
@@ -397,7 +397,7 @@ private slots:
         // alternative is the silent one: the runtime brings up the connect point, consumers
         // acquire a Source whose every call fails, and nothing ever says why. Refusing
         // acquisition is the better failure, and errorString() has to name the cause.
-        Topology topology{persistenceTopology(m_dir.filePath(QStringLiteral("bad.db")))};
+        Topology topology{relationalTopology(m_dir.filePath(QStringLiteral("bad.db")))};
         topology.provider.insert(QStringLiteral("name"), QStringLiteral("custom:NotRegistered"));
         QQmlEngine engine;
         EntityRuntime runtime{topology, &engine};
@@ -462,10 +462,10 @@ private slots:
 
     void anEntityWhoseSchemaFailsRefusesToStart()
     {
-        // Same reasoning one step later: the provider opened, but every Source on this
+        // Same reasoning one step later. The provider opened, but every Source on this
         // entity is written against a schema that did not apply, so starting would only
         // move the failure to the first query.
-        Topology topology{persistenceTopology(m_dir.filePath(QStringLiteral("schema.db")))};
+        Topology topology{relationalTopology(m_dir.filePath(QStringLiteral("schema.db")))};
         topology.schema = QStringList{QStringLiteral("CREATE TABLE ((( syntax error")};
         QQmlEngine engine;
         EntityRuntime runtime{topology, &engine};

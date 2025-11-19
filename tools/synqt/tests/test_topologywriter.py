@@ -166,12 +166,12 @@ class WriteTest(unittest.TestCase):
 
     def test_build_writes_topology_for_a_blueprint_entity(self):
         parent = Path(tempfile.mkdtemp())
-        newproject.scaffold(parent, "app", blueprints=["relational"])
+        newproject.scaffold(parent, "app", blueprints=[("orders", "relational")])
         root = parent / "app"
         # Wire the edge to the relational entity so there is a real mesh link.
         config = yaml.safe_load((root / "synqt.yaml").read_text())
         config["connect_points"] = [
-            {"name": "items", "owner": "relational", "contract": "Items",
+            {"name": "items", "owner": "orders", "contract": "Items",
              "consumers": ["edge"]}]
         (root / "synqt.yaml").write_text(yaml.safe_dump(config, sort_keys=False))
         # The declared contract has to exist on disk. Declaring `items` without writing
@@ -179,7 +179,7 @@ class WriteTest(unittest.TestCase):
         # anyway: build() caught the CMake failure, returned it as a note, and carried on
         # writing the topology this asserts on. It raises now, so the fixture has to be a
         # project that really builds, which is the only version of it that proves anything.
-        owner = root / "db" / "relational" / "relational"
+        owner = root / "db" / "relational" / "orders"
         owner.mkdir(parents=True, exist_ok=True)
         (owner / "Items.syn").write_text(
             "// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux\n"
@@ -190,7 +190,7 @@ class WriteTest(unittest.TestCase):
             "}\n")
 
         buildmod.build(root, release=True, client="wasm")
-        topology_path = root / "build" / "relational" / "topology.json"
+        topology_path = root / "build" / "orders" / "topology.json"
         self.assertTrue(topology_path.exists())
         topology = json.loads(topology_path.read_text())
         self.assertEqual(topology["blueprint"], "relational")

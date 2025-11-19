@@ -4,7 +4,7 @@
 # FIX-1 acceptance: the auction tutorial's owner-side authorization, proven end to end on
 # the real three-entity gavel system (examples/gavel). The web edge owns the live auction
 # (per_session, so Caller is the bidding user) and authorizes every bid; the database owns
-# the durable ledger and authorizes the calling entity (Caller.entity === "web"). The
+# the durable ledger and authorizes the calling entity (Caller.entity === "edge"). The
 # client is a browser presenting a session, no secret and no mesh certificate. Native host
 # kit; throwaway CA + entity certs and a localhost edge cert are generated at configure
 # time. The connect-point Sources under test are the example's own files.
@@ -42,11 +42,12 @@ enable_testing()
 
 qt_add_executable(tst_fix1 tst_fix1.cpp)
 
-# The web edge hosts AuctionSource + HallSource from its QML; the database hosts
+# The web edge hosts AuctionSource + HallSource from its QML; the books entity hosts
 # LedgerSource. Every consumer uses dynamic replicas, so no replica headers are generated.
-synqt_add_contract(tst_fix1 ROLE source SYN "${GAVEL}/shared/Auction.syn")
-synqt_add_contract(tst_fix1 ROLE source SYN "${GAVEL}/shared/Ledger.syn")
-synqt_add_contract(tst_fix1 ROLE source SYN "${GAVEL}/shared/Hall.syn")
+synqt_add_contract(tst_fix1 ROLE source SYN "${GAVEL}/web/edge/Auction.syn")
+synqt_add_contract(tst_fix1 ROLE source SYN
+    "${GAVEL}/db/relational/books/Ledger.syn")
+synqt_add_contract(tst_fix1 ROLE source SYN "${GAVEL}/web/edge/Hall.syn")
 
 target_compile_definitions(tst_fix1 PRIVATE
     FIX1_CERT_DIR="${FIX1_CERTS}"

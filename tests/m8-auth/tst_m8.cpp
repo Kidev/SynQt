@@ -552,10 +552,10 @@ private slots:
 
         ConnectPointConfig config;
         config.name = QStringLiteral("sessions");
-        config.contract = QStringLiteral("Session");
+        config.contract = QStringLiteral("SessionStore");
         config.owner = QStringLiteral("auth");
         config.consumers = {QStringLiteral("web"), QStringLiteral("web2")};
-        config.serverFile = QStringLiteral(M8_SRCDIR "/auth/Session.qml");
+        config.serverFile = QStringLiteral(M8_SRCDIR "/auth/SessionStore.qml");
         config.instance = ConnectPointInstance::PerPeer;
         config.endpoint.mode = MeshTransportMode::MutualTls;
         config.endpoint.host = QStringLiteral("127.0.0.1");
@@ -572,8 +572,8 @@ private slots:
         // still alive, instead of at the test object's destruction in an undefined order.
         QObject meshScope;
 
-        // Bring up an edge's session cache: a SessionManager in remote mode, fed by the
-        // auth entity's Session Replica over mutual TLS.
+        // Bring up an edge's session cache. A SessionManager in remote mode, fed by the
+        // auth entity's SessionStore Replica over mutual TLS.
         const auto attachEdge = [&](const QString &entity) -> SessionManager * {
             // Create the cache before its node, so at teardown meshScope destroys the cache
             // (the Replica's receiver) first, while the Replica is still alive.

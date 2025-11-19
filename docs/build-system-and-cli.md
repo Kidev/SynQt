@@ -334,8 +334,8 @@ so it behaves identically in a shell, in a Makefile and in CI:
 
 ```cli
 synqt new shop                                          # client and web edge only
-synqt new shop --auth github --blueprint relational    # and an identity provider
-synqt new shop --blueprint relational --blueprint cache  # --blueprint repeats
+synqt new shop --auth github --blueprint orders:relational   # and an identity provider
+synqt new shop --blueprint orders:relational --blueprint sessions:cache  # repeatable
 ```
 
 `synqt create` asks the same things out loud and then calls it:

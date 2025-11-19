@@ -20,6 +20,24 @@ from . import (addauth, addcontract, addentity, addprovider, appmodel,
                run as runmod, typebackend, version as versionmod)
 
 
+def _starting_entities(values: List[str]) -> List[tuple[str, str]]:
+    """`--blueprint name:kind` values as (name, kind) pairs, or an error saying the form.
+
+    A bare kind is refused rather than named for you: `--blueprint cache` used to scaffold
+    an entity whose name nobody chose, and it is the name every file, folder and accessor
+    in that entity is then built from.
+    """
+    pairs: List[tuple[str, str]] = []
+    for value in values:
+        name, separator, kind = value.partition(":")
+        if not separator or not name.strip() or not kind.strip():
+            raise newproject.NewProjectError(
+                f"--blueprint takes <name>:<kind>, not '{value}'. Name the entity: "
+                f"--blueprint orders:{value.strip() or 'relational'}")
+        pairs.append((name.strip(), kind.strip()))
+    return pairs
+
+
 def _load_config(project_dir: str, profile: Optional[str] = None) -> Dict[str, Any]:
     return configmod.load(project_dir, profile=profile)
 
@@ -63,8 +81,13 @@ def build_parser() -> argparse.ArgumentParser:
     # reaching it takes a hand edit to synqt.yaml after reading what it costs; see the
     # "Serving the client from another origin" section of docs/project-layout-and-config.md.
     new.add_argument("--auth", default=None, help="provider to prime auth for (e.g. github)")
+    # `<name>:<kind>`, never a bare kind. A starting entity is an entity, and an entity is
+    # something somebody named: a flag that took only the kind had to invent the name, and
+    # the invented one is what its author then has to live with or rename.
     new.add_argument("--blueprint", action="append", dest="blueprints", default=[],
-                     help="a starting blueprint entity (repeatable)")
+                     metavar="NAME:KIND",
+                     help="a starting entity as <name>:<kind>, for example orders:relational "
+                          "(repeatable)")
     new.add_argument("--parent-dir", default=".")
 
     # The interactive twin of `new`, as its own command rather than a mode of that one.
@@ -354,7 +377,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     try:
         if args.command == "new":
             print(newproject.scaffold(args.parent_dir, args.name, auth=args.auth,
-                                      blueprints=args.blueprints))
+                                      blueprints=_starting_entities(args.blueprints)))
         elif args.command == "create":
             print(create.create(args.parent_dir, name=args.name))
         elif args.command == "providers":

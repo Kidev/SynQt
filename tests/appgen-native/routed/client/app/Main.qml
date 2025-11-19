@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 // SPDX-License-Identifier: Apache-2.0
 
-// The window every route renders inside: one Loader over Router.pageComponent, which is
+// The window every route renders inside. One Loader over Router.pageComponent, which is
 // the whole client side of URL routing. It reports what the router resolved, walks the rest
 // of the route table reporting each time, and quits, so the run is the proof.
 

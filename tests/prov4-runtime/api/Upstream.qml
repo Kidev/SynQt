@@ -3,7 +3,7 @@
 
 import QtQuick
 
-// A gateway entity's owner-side Source. Outbound only: it reaches a third party through the
+// An api entity's owner-side Source. Outbound only. It reaches a third party through the
 // `Http` helper the runtime injects, which verifies TLS and refuses plaintext in release, so
 // this file never touches a socket.
 QtObject {

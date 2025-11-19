@@ -5,14 +5,14 @@ import QtQuick
 import SynQt
 
 // The permanent scores on the records entity (docs/tutorial-multiplayer-rounds.md). Only
-// the edge may write (Caller.entity === "web"); it proves which entity it is with the
+// the edge may write (Caller.entity === "edge"); it proves which entity it is with the
 // certificate its mesh link presented. Parameters are always passed separately, so no
 // value can become SQL.
 Scores {
     id: scores
 
     function award(sub, name) {
-        if (Caller.entity !== "web") {
+        if (Caller.entity !== "edge") {
             return;   // only the edge may write
         }
         // One row per champion, keyed by their stable GitHub sub. First point inserts; later
@@ -24,7 +24,7 @@ Scores {
     }
 
     function top() {
-        if (Caller.entity !== "web") {
+        if (Caller.entity !== "edge") {
             return [];
         }
         return Db.query("SELECT name, points FROM champions " +

@@ -5,7 +5,7 @@ import QtQuick
 import SynQt
 
 // The authoritative ledger on the books entity (docs/tutorial-hall-of-fame.md). It
-// authorizes the CALLING ENTITY, not a user: only the web edge (Caller.entity === "web")
+// authorizes the CALLING ENTITY, not a user: only the web edge (Caller.entity === "edge")
 // may write, and it proves which entity it is with the certificate its mesh link
 // presented. Any other entity (even one on the connect point's consumer allowlist) is
 // refused here in the slot.
@@ -19,7 +19,7 @@ Ledger {
     property var store: []
 
     function recordWinner(item, winner, amount) {
-        if (Caller.entity !== "web") {
+        if (Caller.entity !== "edge") {
             return;   // the books entity refuses any caller other than the edge
         }
         ledger.store.push({ item: item, winner: winner, amount: amount });

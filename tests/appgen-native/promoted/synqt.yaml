@@ -4,12 +4,12 @@
 # The smallest project that promotes identity out of the web edge: one client, one edge, and
 # an auth entity named by `identity.provider_entity`. That one line is the whole feature, so
 # this fixture declares exactly it and nothing else, and everything else the promotion needs
-# has to be generated: the two mesh connect points (identity and sessions), the auth entity's
+# has to be generated. The two mesh connect points (identity and sessions), the auth entity's
 # Source QML for each, an auth main that builds the OAuth engine and the authoritative session
 # store, and an edge main that adopts both Replicas in C++.
 #
-# What a green build proves that a string test cannot: the auth main compiles against the
-# framework contracts in the runtime library (no app-side shared/Identity.syn exists), and the
+# What a green build proves that a string test cannot. The auth main compiles against the
+# framework contracts in the runtime library (the app carries no Identity.syn), and the
 # edge main's adoption block resolves IdentityProvider and SessionManager, which webedge.h
 # only forward-declares.
 project:
@@ -23,19 +23,19 @@ scopes:
   default: anonymous
 
 entities:
-  - name: client
+  - name: app
     kind: client
     targets: [wasm]
 
-  - name: web
+  - name: edge
     kind: service
     capability: web_edge
     identity: true
     public:
       port: 8443
     tls:
-      cert_file: deploy/web.crt
-      key_file: deploy/web.key
+      cert_file: deploy/edge.crt
+      key_file: deploy/edge.key
 
   # The auth entity. It declares no connect points: it owns the two `provider_entity` implies.
   - name: auth
@@ -43,17 +43,16 @@ entities:
 
 connect_points:
   # One ordinary browser-facing point, so the edge is a real edge rather than a login-only
-  # process, and so the generated CMake still resolves an app contract from shared/.
+  # process, and so the generated CMake still resolves a contract the app owns.
   - name: greeting
-    contract: Greeting
-    owner: web
-    consumers: [client]
+    owner: edge
+    consumers: [app]
 
 identity:
   provider_entity: auth
   required: false
-  mapping: web/identity/map.qml
-  # Both refresh keys, on the entity that holds the tokens: the auth entity, not the edge.
+  mapping: web/edge/identity/map.qml
+  # Both refresh keys, on the entity that holds the tokens. The auth entity, not the edge.
   refresh:
     interval_seconds: 30
     margin_seconds: 300

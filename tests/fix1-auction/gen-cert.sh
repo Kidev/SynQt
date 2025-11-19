@@ -2,18 +2,16 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-# Generate throwaway certificates for the FIX-1 auction acceptance test into $1:
+# Generate throwaway certificates for the auction acceptance test into $1:
 #   ca         - the project mesh CA
-#   database   - owner entity cert (SAN DNS:database), owns the ledger connect point
-#   web        - the edge's mesh identity (SAN DNS:web), the only entity allowed to write
+#   books      - owner entity cert (SAN DNS:books), owns the ledger connect point
+#   edge       - the edge's mesh identity (SAN DNS:edge), the only entity allowed to write
 #   auditor    - a listed consumer of ledger, but NOT the edge (tests the in-slot
-#                Caller.entity check: connection allowed, recordWinner refused)
+#                Caller.entity check. Connection allowed, recordWinner refused)
 #   server.*   - the edge's public TLS server cert (localhost), for the browser wss link,
-#                signed by ca: the client pins ca.crt and verifies the edge against it
+#                signed by ca. The client pins ca.crt and verifies the edge against it
 #
-# The profiles come from tests/lib/mesh-certs.sh, which mirrors what `synqt mesh cert`
-# issues. TEST certificates only, under build/ (git-ignored), never committed. No
-# production mesh CA key is created here (see docs/security.md).
+# Profiles from tests/lib/mesh-certs.sh. Throwaway, under build/, never committed.
 
 set -euo pipefail
 
@@ -24,13 +22,13 @@ OUT="${1:?usage: gen-cert.sh <output-dir>}"
 mkdir -p "$OUT"
 cd "$OUT"
 
-if synqt_certs_current .profile ca.crt database.crt web.crt auditor.crt server.crt; then
+if synqt_certs_current .profile ca.crt books.crt edge.crt auditor.crt server.crt; then
     exit 0
 fi
 
 synqt_gen_ca ca
-synqt_gen_entity database ca
-synqt_gen_entity web ca
+synqt_gen_entity books ca
+synqt_gen_entity edge ca
 synqt_gen_entity auditor ca
 
 # The edge's public TLS server certificate for the browser link (not a mesh cert).

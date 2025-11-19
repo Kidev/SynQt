@@ -36,20 +36,6 @@ PROVIDERS: Dict[str, List[str]] = {
 # registered alternatives when it misses.
 CUSTOM_PREFIX = "custom:"
 
-# What `synqt new --blueprint <kind>` calls the entity it scaffolds, for the two kinds whose
-# own word is a name SynQt already uses for a helper: an entity called `cache` would write a
-# `Cache.qml` that shadows the `Cache` helper its own file calls, and `jobs` the same. Every
-# other kind is named after itself. This is a starting name for an entity nobody has named
-# yet, not a name invented over one somebody gave: `synqt add entity <name>` always takes
-# the author's.
-STARTING_NAMES: Dict[str, str] = {"cache": "entries", "jobs": "schedule"}
-
-
-def starting_name(blueprint: str) -> str:
-    """What to call the entity when the author named a kind and nothing else."""
-    return STARTING_NAMES.get(blueprint, blueprint)
-
-
 # Blueprint -> (family or None, default provider or None).
 BLUEPRINTS: Dict[str, Optional[str]] = {
     "relational": "relational",

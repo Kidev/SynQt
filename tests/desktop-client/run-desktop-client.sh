@@ -97,16 +97,24 @@ if note.startswith("error") or note.startswith("note:"):
     sys.exit("desktop client build did not compile: " + note)
 PY
 
+# The client entity's name is the target name and the installed file name. Asked of the
+# project rather than assumed, so a topology that renames its client does not silently
+# leave this asserting on a path nothing writes.
+CLIENT="$(PYTHONPATH="$REPO_ROOT/tools/synqt" python3 -c \
+    'import sys, yaml; from synqt import appmodel;
+c = yaml.safe_load(open(sys.argv[1] + "/synqt.yaml"));
+print(appmodel.client_entity(c)["name"])' "$SRC")"
+
 echo "== [2/4] Assert the desktop client compiled and installed =="
 # The deploy folder is per platform (docs/desktop.md names windows/, macos/, linux/), and the
 # tooling picks it from the host, so ask the tooling rather than hard-code one of the three.
 PLATFORM="$(PYTHONPATH="$REPO_ROOT/tools/synqt" python3 -c \
     'from synqt import build; print(build.desktop_platform())')"
-HOST_BIN="$(native_exe_path "$SRC/build/host/client")"
-INSTALLED="$(native_exe_path "$SRC/build/client-desktop/$PLATFORM/client")"
+HOST_BIN="$(native_exe_path "$SRC/build/host/$CLIENT")"
+INSTALLED="$(native_exe_path "$SRC/build/client-desktop/$PLATFORM/$CLIENT")"
 rc=0
-assert_native_exe "$SRC/build/host/client" "compiled " || rc=1
-assert_native_exe "$SRC/build/client-desktop/$PLATFORM/client" "installed" || rc=1
+assert_native_exe "$SRC/build/host/$CLIENT" "compiled " || rc=1
+assert_native_exe "$SRC/build/client-desktop/$PLATFORM/$CLIENT" "installed" || rc=1
 
 # Steps 3 and 4 both read the built binary, so stop here rather than report confusing
 # follow-on failures for a binary that does not exist.
@@ -133,7 +141,8 @@ mkdir -p "$PROBE"
 # point is to test the code path `synqt build --deploy` takes, and a fixture that ran the
 # command itself would keep passing after that path broke.
 deploy_probe() {
-    PYTHONPATH="$REPO_ROOT/tools/synqt" python3 - "$SRC" "$PROBE" "$QT_HOST" "$PLATFORM" <<'PY'
+    PYTHONPATH="$REPO_ROOT/tools/synqt" python3 - \
+        "$SRC" "$PROBE" "$QT_HOST" "$PLATFORM" "$CLIENT" <<'PY'
 import sys
 from pathlib import Path
 
@@ -144,17 +153,18 @@ root, out, kit, platform = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3], sy
 # no signing identity on a build machine, and a fixture that signed would be testing the
 # developer's keychain rather than SynQt.
 deploy.check_signing_choice(platform, None, True)
-print("   ", deploy.deploy_client(root, "client", out, {"host_qt": kit}, platform, sign=None))
+print("   ", deploy.deploy_client(root, sys.argv[5], out, {"host_qt": kit},
+                                  platform, sign=None))
 PY
 }
 
 if [ "$PLATFORM" = "macos" ]; then
     # A bare Mach-O is not an app on macOS, and macdeployqt accepts nothing else, so a build
     # that emits one makes the deploy step docs/desktop.md hands to the developer impossible
-    # to perform without rewriting the generated CMake. That is what this asserts: not that
-    # the build deploys (it deliberately does not), but that what it produces is something the
+    # to perform without rewriting the generated CMake. That is what this asserts. The
+    # build does not deploy, and what it produces is something the
     # documented command can be run against.
-    APP="$SRC/build/client-desktop/macos/client.app"
+    APP="$SRC/build/client-desktop/macos/$CLIENT.app"
     if [ -d "$APP" ] && [ -f "$APP/Contents/Info.plist" ]; then
         BUNDLE_ID="$(defaults read "$APP/Contents/Info" CFBundleIdentifier 2>/dev/null || echo "")"
         echo "  bundle   : OK (.app with Info.plist, CFBundleIdentifier=$BUNDLE_ID)"
@@ -233,10 +243,11 @@ else
         # property rather than restating whatever the implementation happens to compute.
         linux_missing=""
         for needed in lib/libQt6XcbQpa.so.6 lib/libQt6QuickControls2Impl.so.6 \
-                      plugins/platforms/libqxcb.so qml/QtQuick/Controls/Basic/qmldir client.sh; do
+                      plugins/platforms/libqxcb.so qml/QtQuick/Controls/Basic/qmldir \
+                      "$CLIENT.sh"; do
             [ -e "$PROBE/$needed" ] || linux_missing="$linux_missing $needed"
         done
-        # The other half of correct: scoped. Shipping the kit's whole qml/ and plugins/ trees
+        # The other half of correct. scoped. Shipping the kit's whole qml/ and plugins/ trees
         # would satisfy every check above and cost 931 MB, three times what this needs. The
         # client links no Qt Sql and imports no virtual keyboard, so neither may appear.
         for absent in qml/QtQuick/VirtualKeyboard plugins/sqldrivers; do
@@ -254,16 +265,16 @@ else
         # The runtime half. A tree that is missing a library still starts on any machine that
         # has Qt installed, because the loader quietly answers from /usr/lib instead, so
         # "it ran" proves nothing on its own. What is asserted is where the running process
-        # actually mapped its Qt from, read out of /proc/<pid>/maps: every Qt library, QML
+        # mapped its Qt from, read out of /proc/<pid>/maps. Every Qt library, QML
         # module and plugin has to come from inside the deployed tree.
         set +e
-        SYNQT_PROBE="$PROBE" python3 - <<'PY'
+        SYNQT_PROBE="$PROBE" SYNQT_CLIENT="$CLIENT" python3 - <<'PY'
 import os
 import subprocess
 import sys
 
 probe = os.environ["SYNQT_PROBE"]
-process = subprocess.Popen([os.path.join(probe, "client.sh")],
+process = subprocess.Popen([os.path.join(probe, os.environ["SYNQT_CLIENT"] + ".sh")],
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                            env={**os.environ, "QT_QPA_PLATFORM": "offscreen"})
 try:

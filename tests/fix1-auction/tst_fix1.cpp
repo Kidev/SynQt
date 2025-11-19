@@ -8,7 +8,7 @@
 //   1. a bid that does not beat the standing one is refused BY THE EDGE (not the UI);
 //   2. placeBid while signed out (as from the browser console) is refused by the edge;
 // plus the segmentation the Hall of Fame stage teaches: the database records a winner only
-// for the edge (Caller.entity === "web") and refuses any other calling entity, even a
+// for the edge (Caller.entity === "edge") and refuses any other calling entity, even a
 // listed consumer. The third hands-on check (client-as-consumer-of-ledger fails
 // `synqt check`) is proven in tools/synqt/tests/test_examples.py.
 
@@ -60,9 +60,9 @@ ConnectPointConfig ledgerConnectPoint(quint16 port)
     ConnectPointConfig connectPoint;
     connectPoint.name = QStringLiteral("ledger");
     connectPoint.contract = QStringLiteral("Ledger");
-    connectPoint.owner = QStringLiteral("database");
-    connectPoint.consumers = {QStringLiteral("web"), QStringLiteral("auditor")};
-    connectPoint.serverFile = QStringLiteral(FIX1_GAVEL_DIR "/database/Ledger.qml");
+    connectPoint.owner = QStringLiteral("books");
+    connectPoint.consumers = {QStringLiteral("edge"), QStringLiteral("auditor")};
+    connectPoint.serverFile = QStringLiteral(FIX1_GAVEL_DIR "/db/relational/books/Ledger.qml");
     connectPoint.instance = ConnectPointInstance::PerPeer;
     connectPoint.endpoint.mode = MeshTransportMode::MutualTls;
     connectPoint.endpoint.host = QStringLiteral("127.0.0.1");
@@ -119,7 +119,7 @@ private:
 
     QObject *databaseView() const
     {
-        return m_web->consumedReplica(QStringLiteral("database"), QStringLiteral("ledger"));
+        return m_web->consumedReplica(QStringLiteral("books"), QStringLiteral("ledger"));
     }
 
 private slots:
@@ -133,19 +133,19 @@ private slots:
         // The database entity owns `ledger` (per_peer), on an OS-assigned mTLS port.
         m_dbEngine = std::make_unique<QQmlEngine>();
         Topology dbTopology;
-        dbTopology.entity = QStringLiteral("database");
-        dbTopology.credentials = credsFor(QStringLiteral("database"));
+        dbTopology.entity = QStringLiteral("books");
+        dbTopology.credentials = credsFor(QStringLiteral("books"));
         dbTopology.connectPoints = {ledgerConnectPoint(0)};
         m_database = std::make_unique<EntityRuntime>(dbTopology, m_dbEngine.get());
         QVERIFY2(m_database->start(), qPrintable(m_database->errorString()));
         m_ledgerPort = m_database->ownedHosts().value(0)->serverPort();
         QVERIFY(m_ledgerPort != 0);
 
-        // The edge entity consumes `ledger` from the database (as entity "web").
+        // The edge entity consumes `ledger` from the books entity (as entity "edge").
         m_edgeEngine = std::make_unique<QQmlEngine>();
         Topology webTopology;
-        webTopology.entity = QStringLiteral("web");
-        webTopology.credentials = credsFor(QStringLiteral("web"));
+        webTopology.entity = QStringLiteral("edge");
+        webTopology.credentials = credsFor(QStringLiteral("edge"));
         webTopology.connectPoints = {ledgerConnectPoint(m_ledgerPort)};
         m_web = std::make_unique<EntityRuntime>(webTopology, m_edgeEngine.get());
         QVERIFY2(m_web->start(), qPrintable(m_web->errorString()));
@@ -156,7 +156,7 @@ private slots:
 
         // The web edge: it owns `auction` (per_session, so Caller is the bidder) and `hall`
         // (shared, mirrored from the database), and reaches the database through the
-        // "Database" accessor of its mesh runtime.
+        // "Books" accessor of its mesh runtime.
         WebEdgeConfig config;
         config.bundleDir = QStringLiteral(FIX1_BUNDLE_DIR);
         config.host = QStringLiteral("127.0.0.1");
@@ -169,18 +169,18 @@ private slots:
         WebEdgeConnectPoint auction;
         auction.name = QStringLiteral("auction");
         auction.contract = QStringLiteral("Auction");
-        auction.serverFile = QStringLiteral(FIX1_GAVEL_DIR "/web/Auction.qml");
+        auction.serverFile = QStringLiteral(FIX1_GAVEL_DIR "/web/edge/Auction.qml");
         auction.instance = InstanceMode::PerSession;   // one per user, so Caller is the bidder
         WebEdgeConnectPoint hall;
         hall.name = QStringLiteral("hall");
         hall.contract = QStringLiteral("Hall");
-        hall.serverFile = QStringLiteral(FIX1_GAVEL_DIR "/web/Hall.qml");
+        hall.serverFile = QStringLiteral(FIX1_GAVEL_DIR "/web/edge/Hall.qml");
         hall.instance = InstanceMode::Shared;          // one Hall mirrored to every browser
         config.connectPoints = {auction, hall};
 
         m_edge = std::make_unique<WebEdge>(config, m_edgeEngine.get());
-        m_edge->setContextObject(QStringLiteral("Database"),
-                                 m_web->accessor(QStringLiteral("Database")));
+        m_edge->setContextObject(QStringLiteral("Books"),
+                                 m_web->accessor(QStringLiteral("Books")));
         QVERIFY2(m_edge->start(), qPrintable(m_edge->errorString()));
         m_edgePort = m_edge->serverPort();
         QVERIFY(m_edgePort != 0);
@@ -286,7 +286,7 @@ private slots:
             auditorLedger.reset(auditorNode.acquireDynamic(QStringLiteral("ledger")));
         });
         QVERIFY(auditor.connectMutualTls(
-            QHostAddress::LocalHost, m_ledgerPort, QStringLiteral("database"),
+            QHostAddress::LocalHost, m_ledgerPort, QStringLiteral("books"),
             loadCertificate(QStringLiteral(FIX1_CERT_DIR "/ca.crt")),
             loadCertificate(QStringLiteral(FIX1_CERT_DIR "/auditor.crt")),
             loadPrivateKey(QStringLiteral(FIX1_CERT_DIR "/auditor.key"))));

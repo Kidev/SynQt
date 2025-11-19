@@ -147,7 +147,9 @@ class QmlFormatCheckTest(unittest.TestCase):
         # first check after `synqt new --blueprint <kind>` looks at.
         root = Path(tempfile.mkdtemp())
         newproject.scaffold(root.parent, root.name,
-                            blueprints=["relational", "cache", "document", "api", "jobs"])
+                            blueprints=[("orders", "relational"), ("sessions", "cache"),
+                                        ("notes", "document"), ("feeds", "api"),
+                                        ("rollups", "jobs")])
         self.assertEqual(check.check_qml_format(root), [])
 
     def test_the_scaffold_opts_in_and_ships_the_settings(self):

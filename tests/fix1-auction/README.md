@@ -1,7 +1,7 @@
 <!-- SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
-# FIX-1: the auction tutorial as an acceptance fixture
+# The auction tutorial as an acceptance fixture
 
 Proves the [auction tutorial](../../docs/tutorial.md)'s hands-on checks end to end on the
 real `examples/gavel` system (native host kit, with the edge, mesh, and database in one
@@ -13,12 +13,12 @@ localhost edge cert generated at configure time, then `ctest`).
 
 `tst_fix1.cpp` verifies:
 
-- Hands-on check 1: a bid that does not beat the standing one is refused *by the edge*,
-  and the standing bid is untouched.
-- Hands-on check 2: `placeBid` while signed out (as from the browser console) is refused
-  by the edge, whatever the UI shows.
-- The Hall-of-Fame segmentation; the auctioneer's `closeLot` records a winner in the
-  database, and the database records only for the edge (`Caller.entity === "web"`),
+- Hands-on check 1. The edge refuses a bid that does not beat the standing one, and the
+  standing bid is untouched.
+- Hands-on check 2. The edge refuses `placeBid` while signed out (as from the browser
+  console), whatever the UI shows.
+- The Hall-of-Fame segmentation. The auctioneer's `closeLot` records a winner in the
+  books entity, and it records only for the edge (`Caller.entity === "edge"`),
   refusing a listed-but-non-edge consumer.
 
 The third hands-on check (client-as-consumer of the database `ledger` fails `synqt check`) is

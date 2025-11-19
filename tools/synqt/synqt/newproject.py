@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import yaml
 
@@ -218,7 +218,7 @@ def _write_qmlformat_settings(root: Path) -> None:
 
 def scaffold(parent_dir: os.PathLike[str] | str, name: str, *,
              auth: Optional[str] = None,
-             blueprints: Optional[List[str]] = None) -> str:
+             blueprints: Optional[List[Tuple[str, str]]] = None) -> str:
     root = Path(parent_dir) / name
     if root.exists() and any(root.iterdir()):
         raise NewProjectError(f"{root} already exists and is not empty")
@@ -260,8 +260,9 @@ def scaffold(parent_dir: os.PathLike[str] | str, name: str, *,
     # `synqt new --blueprint relational` project with an entity that had no provider
     # settings and no schema, unlike the same entity added a command later. It runs after
     # .env.example exists because an external provider appends its secret to it.
-    for blueprint in blueprints or []:
-        addentity.scaffold(root, addentity.starting_name(blueprint), blueprint)
+    for name_and_kind in blueprints or []:
+        entity_name, blueprint = name_and_kind
+        addentity.scaffold(root, entity_name, blueprint)
     config = yaml.safe_load((root / "synqt.yaml").read_text())
 
     presets.write(root, config)

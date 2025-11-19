@@ -145,11 +145,12 @@ private slots:
         synqtRegisterCatalogSources();
         synqtRegisterCatalogReplicas();
 
-        // The owner Source helper is a creatable QML type; the consumer Replica is a
-        // registered (uncreatable) QML type acquired from the runtime.
-        QVERIFY(qmlTypeId("SynQt", 1, 0, "TodoSource") >= 0);
+        // The owner Source helper is a creatable QML type registered under the contract's
+        // own name, so an owner writes `Todo { ... }`; the consumer Replica is a registered
+        // (uncreatable) QML type acquired from the runtime.
+        QVERIFY(qmlTypeId("SynQt", 1, 0, "Todo") >= 0);
         QVERIFY(qmlTypeId("SynQt", 1, 0, "TodoReplica") >= 0);
-        QVERIFY(qmlTypeId("SynQt", 1, 0, "CatalogSource") >= 0);
+        QVERIFY(qmlTypeId("SynQt", 1, 0, "Catalog") >= 0);
         QVERIFY(qmlTypeId("SynQt", 1, 0, "CatalogReplica") >= 0);
     }
 };

@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import os
 import sys
-from typing import Any, Dict, List, Optional, Sequence, TextIO
+from typing import Any, Dict, List, Optional, Sequence, TextIO, Tuple
 
 from . import addauth, addentity, newproject
 
@@ -89,26 +89,39 @@ def ask_auth(out: TextIO, source: TextIO) -> Optional[str]:
     return answer
 
 
-def ask_blueprints(out: TextIO, source: TextIO) -> List[str]:
-    """The starting entities beyond the client and the edge."""
+def ask_blueprints(out: TextIO, source: TextIO) -> List[Tuple[str, str]]:
+    """The starting entities beyond the client and the edge, each as (name, kind).
+
+    The name is asked for, never derived from the kind. It is what the entity's folder,
+    its own QML file and its accessor in every consumer are built from, so it is the
+    author's word or it is a word they have to change later.
+    """
     out.write("\nStarting entities beyond the client and the web edge?\n")
     for blueprint in _STARTING_BLUEPRINTS:
         out.write(f"  {blueprint:<12} {_BLUEPRINT_BLURB[blueprint]}\n")
+    out.write("  Name each one: orders:relational, sessions:cache. Comma separated.\n")
     out.write("  Leave empty for none; `synqt add entity` adds one later.\n")
-    answer = _prompt("Entities (comma separated)", default="none", out=out, source=source)
+    answer = _prompt("Entities (name:kind)", default="none", out=out, source=source)
     if answer.lower() in ("", "none", "no", "n"):
         return []
 
-    chosen: List[str] = []
+    chosen: List[Tuple[str, str]] = []
     for raw in answer.split(","):
-        blueprint = raw.strip().lower()
-        if not blueprint:
+        entry = raw.strip()
+        if not entry:
             continue
+        name, separator, blueprint = entry.partition(":")
+        name, blueprint = name.strip(), blueprint.strip().lower()
+        if not separator or not name or not blueprint:
+            raise CreateError(
+                f"'{entry}' does not name an entity; write <name>:<kind>, "
+                f"for example orders:{blueprint or 'relational'}")
         if blueprint not in addentity.BLUEPRINTS:
             known = ", ".join(_STARTING_BLUEPRINTS)
             raise CreateError(f"unknown blueprint '{blueprint}' (choose from: {known})")
-        if blueprint not in chosen:
-            chosen.append(blueprint)
+        if name in [already for already, _ in chosen]:
+            raise CreateError(f"two starting entities are both called '{name}'")
+        chosen.append((name, blueprint))
     return chosen
 
 

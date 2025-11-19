@@ -79,12 +79,20 @@ class TestSimpleCommands:
 
         monkeypatch.setattr(newproject, "scaffold", scaffold)
         code, out, _ = _run(["new", "acme", "--parent-dir", str(tmp_path),
-                             "--auth", "github", "--blueprint", "relational",
-                             "--blueprint", "cache"])
+                             "--auth", "github", "--blueprint", "orders:relational",
+                             "--blueprint", "sessions:cache"])
         assert code == 0
         assert "scaffolded" in out
         assert seen == {"parent_dir": str(tmp_path), "name": "acme", "auth": "github",
-                        "blueprints": ["relational", "cache"]}
+                        "blueprints": [("orders", "relational"), ("sessions", "cache")]}
+
+    def test_a_blueprint_with_no_name_is_refused_rather_than_named_for_you(self, tmp_path):
+        """The name is the entity's folder, its own file and its accessor in every consumer.
+        `--blueprint cache` used to scaffold one called `entries`, a word nobody chose."""
+        code, _, err = _run(["new", "acme", "--parent-dir", str(tmp_path),
+                             "--blueprint", "cache"])
+        assert code != 0
+        assert "<name>:<kind>" in err
 
     def test_providers_lists_them_without_needing_a_project(self, monkeypatch):
         monkeypatch.setattr(addentity, "list_providers", lambda: "relational: sqlite")

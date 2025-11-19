@@ -122,21 +122,21 @@ private slots:
         config.keyFile = QStringLiteral(FIX3_CERT_DIR "/server.key");
         config.scopeOrder = {QStringLiteral("anonymous"), QStringLiteral("user")};
         config.scopesHierarchical = true;
-        config.pagesDir = QStringLiteral(FIX3_STALL_DIR "/web/pages");
+        config.pagesDir = QStringLiteral(FIX3_STALL_DIR "/web/edge/pages");
 
         // The public, seeded campaign page (one file serves every slug).
         WebEdgePage campaign;
         campaign.path = QStringLiteral("/c/:campaign");
         campaign.file = QStringLiteral("Campaign.qml");
-        campaign.seed = QStringLiteral(FIX3_STALL_DIR "/web/campaign-seed.qml");
+        campaign.seed = QStringLiteral(FIX3_STALL_DIR "/web/edge/campaign-seed.qml");
 
-        // The scoped page: an anonymous fetch is refused before a byte is sent.
+        // The scoped page. An anonymous fetch is refused before a byte is sent.
         WebEdgePage members;
         members.path = QStringLiteral("/members");
         members.file = QStringLiteral("Members.qml");
         members.scope = QStringLiteral("user");
 
-        // A page the "browser" never compiled a route for: reaching it proves the
+        // A page the "browser" never compiled a route for. Reaching it proves the
         // edge-delivered nature (assertion 4). It reuses the campaign page file, so no
         // extra fixture is needed. It carries no seed of its own.
         WebEdgePage deal;
