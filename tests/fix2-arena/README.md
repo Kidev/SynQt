@@ -9,7 +9,7 @@ singleton type) simulates the one authoritative arena, and a `per_session` `Aren
 over it carries each player's view. Native host kit; the edge runs in one process, driven by
 native `SynClient`s acting as browsers.
 
-Run: `./run-fix2.sh` (builds `SynQtService`/`SynQtClient` + the test with a localhost edge
+Run: `./run-fix2.sh` (builds `SynQtEdge`/`SynQtClient` + the test with a localhost edge
 cert generated at configure time, then `ctest`).
 
 `tst_fix2.cpp` verifies:

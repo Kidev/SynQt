@@ -44,19 +44,19 @@ struct WebEdgePage
 {
     QString path;   ///< the route, possibly with :parameters
     QString file;   ///< relative to WebEdgeConfig::pagesDir
-    QString scope;  ///< minimum session scope; empty == any session may fetch it
+    QString scope;  ///< minimum session scope. Empty == any session may fetch it
     /// The page seed hook: a QML file deriving from SynQt::PageSeed that adds
     /// `function seedFor(route, parameters, caller)`, called after the scope check to
     /// build the data this page paints with on its first frame. Empty (the common case)
     /// means the route has no seed, and then nothing is built and nothing is sent.
     QString seed;
     /// "accelerated" when this page needs the RHI scene graph, empty or "software"
-    /// otherwise. Decided by the build and carried to the client in the route table; the
+    /// otherwise. Decided by the build and carried to the client in the route table. The
     /// edge never computes it.
     QString graphics;
 };
 
-/// The browser-facing configuration of a web edge: where it serves the bundle, the
+/// The browser-facing configuration of a web edge. Where it serves the bundle, the
 /// public TLS, the browser-hardening policy, and the resource limits. Defaults are the
 /// safe ones from [Security](https://synqt.org/security/).
 struct WebEdgeConfig
@@ -79,7 +79,7 @@ struct WebEdgeConfig
     ///
     /// It is not only a matter of which routes exist. A browser loading the app from a CDN
     /// never touches this origin before the upgrade, so it would arrive with no session and
-    /// be refused; `clientRoute` therefore stays registered as a credential endpoint that
+    /// be refused. `clientRoute` therefore stays registered as a credential endpoint that
     /// mints the session and answers the cross-origin fetch that asks for it.
     bool serveClient{true};
 
@@ -118,13 +118,13 @@ struct WebEdgeConfig
     QString pagesDir;
     QList<WebEdgePage> pages;
 
-    /// Development-only page watching: when true the edge watches its page files and pushes
+    /// Development-only page watching. When true the edge watches its page files and pushes
     /// pageChanged on a change (hot reload). Defaults false (fail closed) and is set only by
-    /// the `synqt dev` launch path; a built or served edge never watches, regardless of
+    /// the `synqt dev` launch path. A built or served edge never watches, regardless of
     /// whether TLS terminates here or at a reverse proxy.
     bool devWatch{false};
 
-    /// Login and identity (M8). Disabled by default; `synqt add auth` enables it.
+    /// Login and identity (M8). Disabled by default. `synqt add auth` enables it.
     IdentityConfig identity;
 
     bool usesTls() const { return !certFile.isEmpty() && !keyFile.isEmpty(); }

@@ -252,6 +252,12 @@ validation, rate limiting, authentication of callers). A gateway that only makes
 outbound calls is internal only. The type defaults to outbound only and makes
 inbound exposure an explicit, reviewed choice.
 
+Version 1 ships the outbound half only. `inbound: true` is accepted in `synqt.yaml`
+and `synqt check` warns that nothing serves it yet: the api entity links no HTTP
+server, so it opens no port. Until the inbound surface lands, put the public route on
+the web edge, which already has the TLS, the origin check and the rate limits, and let
+it reach the gateway over a connect point.
+
 ### Jobs (scheduled and background work)
 
 Purpose: run scheduled tasks (cron style) and background jobs (email sending, data

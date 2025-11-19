@@ -18,7 +18,7 @@ QT_END_NAMESPACE
 
 namespace SynQt {
 
-/// Verifies an OpenID Connect ID token: the RS256 signature against the provider JWKS
+/// Verifies an OpenID Connect ID token. The RS256 signature against the provider JWKS
 /// (fetched and cached with QNetworkAccessManager), plus the iss, aud, exp and nonce
 /// claims. The crypto is jwt-cpp's; SynQt does no hand-rolled cryptography and reports
 /// failure through the return value, never across an exception.

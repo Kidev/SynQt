@@ -160,7 +160,7 @@ PagesService *WebEdge::pagesService() const
 namespace {
 
 // How deep a seed may nest, and how large its JSON may get. A seed is one page's first
-// frame of data, not a feed, so both bounds are generous for every honest use. They exist
+// frame of data rather than a feed, so both bounds are generous for every legitimate use. They exist
 // because QJSValue::toVariant() and QJsonDocument::fromVariant() recurse without a bound
 // of their own and take the process down on a deep enough structure.
 constexpr int kMaxSeedDepth{32};
@@ -174,7 +174,7 @@ enum class SeedForSupport {
 };
 
 /// Classify a hook's seedFor. The edge invokes it with three QVariant arguments, so only an
-/// untyped seedFor matches; annotating a parameter type (`route: string`) changes the method
+/// untyped seedFor matches. Annotating a parameter type (`route: string`) changes the method
 /// signature so the invoke can never bind to it. The probe therefore mirrors the invoke
 /// exactly, rather than accepting any three-argument seedFor and letting it fail per request.
 SeedForSupport seedForSupport(const QObject *hook)
@@ -209,7 +209,7 @@ QVariant boundedSeedVariant(const QJSValue &value, int depth, bool *ok)
         return QVariant{};
     }
     // A QObject reached through a seed is not data to serialize (a hook handed the
-    // caller, say); it converts to nothing, which the object check downstream reports.
+    // caller, say). It converts to nothing, which the object check downstream reports.
     if (value.isQObject() || value.isCallable()) {
         return QVariant{};
     }
@@ -262,7 +262,7 @@ QString WebEdge::seedFor(const QString &route, const QVariantMap &parameters, Ca
         return QString{};
     }
     // A QML function returning an object literal comes back wrapped in a QJSValue, which
-    // QJsonDocument::fromVariant() knows nothing about; unwrap it to plain containers
+    // QJsonDocument::fromVariant() knows nothing about. Unwrap it to plain containers
     // first (bounded, see boundedSeedVariant), or every hook would silently seed nothing.
     if (result.canConvert<QJSValue>()) {
         bool withinDepth{true};
@@ -291,7 +291,7 @@ QString WebEdge::seedFor(const QString &route, const QVariantMap &parameters, Ca
 
 void WebEdge::warnAboutSeedOnce(const QString &route, const char *reason)
 {
-    // Once per route, never once per request: a browser chooses how often it asks for a
+    // Once per route, never once per request. A browser chooses how often it asks for a
     // page, so a per-request diagnostic is an unbounded log it can grow on demand.
     const auto entry{m_pageSeedHooks.find(route)};
     if (entry == m_pageSeedHooks.end() || entry->warned) {
@@ -305,10 +305,10 @@ void WebEdge::warnAboutSeedOnce(const QString &route, const char *reason)
 void WebEdge::buildPageSeedHooks()
 {
     // The app-facing page seed hook, built the way the identity mapping hook is
-    // (identityprovider.cpp): the app writes a PageSeed QML object carrying
+    // (identityprovider.cpp), the app writes a PageSeed QML object carrying
     // `function seedFor(route, parameters, caller)`, and the edge calls it after the
     // route's scope check. Each hook is built once here, never per request and never per
-    // connection; a project whose routes declare no seed builds nothing at all.
+    // connection. A project whose routes declare no seed builds nothing at all.
     qmlRegisterType<PageSeed>("SynQt", 1, 0, "PageSeed");
     for (const WebEdgePage &page : m_config.pages) {
         if (page.seed.isEmpty()) {
@@ -326,7 +326,7 @@ void WebEdge::buildPageSeedHooks()
         // the message below does.
         QObject *hook{component->isReady() ? component->create() : nullptr};
         if (!hook) {
-            // The hook's own file and QML diagnostic, which the developer wrote; never
+            // The hook's own file and QML diagnostic, which the developer wrote. Never
             // the page's source, and never anything the hook could have read.
             qWarning("SynQt: page seed hook %s failed to load: %s",
                      qUtf8Printable(page.seed), qUtf8Printable(component->errorString()));
@@ -337,7 +337,7 @@ void WebEdge::buildPageSeedHooks()
         // often it asks for a page. A hook that cannot answer is not kept.
         const SeedForSupport support{seedForSupport(hook)};
         if (support == SeedForSupport::Typed) {
-            // The single most likely mistake: the edge calls seedFor with untyped
+            // The single most likely mistake. The edge calls seedFor with untyped
             // (QVariant) arguments, so a hook that annotates a parameter can never be
             // reached. Say exactly that, once, instead of leaving Qt to log a generic
             // "no such method" on every request the browser makes.
@@ -438,7 +438,7 @@ QByteArray WebEdge::computeCsp() const
     }
     if (!sawWorkerSrc) {
         // 'self' is what the shell cache's service worker needs, and what the pinned kit's
-        // pthread workers are actually spawned from: measured on the real threaded bundle
+        // pthread workers are spawned from. Measured on the real threaded bundle
         // (Qt 6.11.1, Emscripten 4.0.7), a strict worker-src 'self' with no blob: kept the
         // page isolated, spawned every pthread worker, and logged no CSP violation in
         // Chromium, Firefox, or WebKit. blob: is kept as a margin for a future emsdk that
@@ -547,7 +547,7 @@ void WebEdge::stampResponse(const QHttpServerRequest &request, QHttpServerRespon
     // Issue a session on the page load, so the browser has a credential to present at the
     // wss upgrade. Only for a browser that arrives without a live one: a page load is not
     // a new visitor. Re-issuing unconditionally would replace the credential a visitor
-    // has just signed in with (the OAuth callback redirects onto this very route, so the
+    // has signed in with (the OAuth callback redirects onto this very route, so the
     // landing load would sign them straight back out), and would let one browser mint an
     // unbounded number of sessions by reloading.
     if (request.url().path() == m_config.clientRoute) {
@@ -611,7 +611,7 @@ QHttpServerResponse WebEdge::shellOrNotFound(const QString &path,
         && request.method() != QHttpServerRequest::Method::Head) {
         return QHttpServerResponse{QHttpServerResponse::StatusCode::NotFound};
     }
-    // An asset request (its last segment has an extension) must fail honestly rather
+    // An asset request (its last segment has an extension) must fail as a 404 rather
     // than receive HTML with a 200, which would surface as a confusing module-load
     // error instead of a missing file.
     const qsizetype lastSlash{path.lastIndexOf(QLatin1Char('/'))};
@@ -649,7 +649,7 @@ void WebEdge::stampShell(QHttpServerResponse &response, const QHttpServerRequest
     }
     headers.append(QHttpHeaders::WellKnownHeader::CacheControl,
                    QByteArrayLiteral("no-cache"));
-    // On the same terms as the client route (see stampResponse): only a browser arriving
+    // On the same terms as the client route (see stampResponse), only a browser arriving
     // without a live session is given one, so a refresh deep in the app never replaces
     // the credential the visitor signed in with.
     const QByteArray cookie{sessionCookieFor(request)};
@@ -694,7 +694,7 @@ bool WebEdge::start()
     // 1.5. The framework's own Pages connect point (edge-delivered pages): one
     //      PageStore/PagesService shared by every connection, since the page table
     //      is the same for everyone. Built once, here, and never rebuilt per
-    //      connection; a per-connection PagesEdgeSource is created in
+    //      connection. A per-connection PagesEdgeSource is created in
     //      hostConnection() so each carries its own Caller. Nothing is created when
     //      the project configures no pages, so that app pays nothing.
     if (!m_config.pages.isEmpty()) {
@@ -704,9 +704,9 @@ bool WebEdge::start()
         }
         // Development-only watching, keyed to an explicit dev flag. Only the
         // "synqt dev" launch path (dev_command() in tools/synqt/synqt/run.py, via the
-        // generated edge's --dev option) sets devWatch; a built or served edge leaves
+        // generated edge's --dev option) sets devWatch. A built or served edge leaves
         // it false and never watches. Deriving "development" from the absence of local
-        // TLS would be wrong: a production edge that terminates TLS at a reverse proxy
+        // TLS would be wrong. A production edge that terminates TLS at a reverse proxy
         // and speaks plaintext on the loopback hop has no local cert yet is not dev.
         if (m_config.devWatch) {
             m_pageStore->setWatching(true);
@@ -727,7 +727,7 @@ bool WebEdge::start()
         });
     } else {
         // A CDN delivers the bundle, so this route delivers the one thing only this origin
-        // can: the session. Without it a browser that loaded the app elsewhere reaches the
+        // can. The session. Without it a browser that loaded the app elsewhere reaches the
         // upgrade with no credential and is refused, which looks like a broken app rather
         // than a missing request.
         m_httpServer->route(m_config.clientRoute, [this](const QHttpServerRequest &request) {
@@ -735,8 +735,8 @@ bool WebEdge::start()
         });
     }
 
-    // Login/callback/logout: the whole OAuth flow runs here, on the edge. The browser
-    // ends with only a session cookie; the client secret and tokens never leave.
+    // Login/callback/logout. The whole OAuth flow runs here, on the edge. The browser
+    // ends with only a session cookie. The client secret and tokens never leave.
     if (m_config.identity.enabled) {
         CookiePolicy cookie;
         cookie.name = m_config.cookieName;
@@ -835,7 +835,7 @@ QHttpServerResponse WebEdge::credentialResponse(const QHttpServerRequest &reques
     // A CDN delivered the app, so this is the browser's first and only HTTP request to
     // this origin, and the one thing it needs from here is a session. The cookie itself is
     // stamped by stampResponse() on the client route, exactly as it is when this edge
-    // serves the page; the body is empty because there is nothing else to say.
+    // serves the page. The body is empty because there is nothing else to say.
     QHttpServerResponse response{QHttpServerResponse::StatusCode::NoContent};
 
     // The fetch that asks for this carries credentials, so it is only honored for an origin
@@ -886,7 +886,7 @@ void WebEdge::registerBundleRoutes()
             return QHttpServerResponse{QHttpServerResponse::StatusCode::NotFound};
         }
         if (!QFileInfo{resolved}.isFile()) {
-            // A directory inside the bundle serves nothing: this route is one segment
+            // A directory inside the bundle serves nothing. This route is one segment
             // deep and the ETag cache indexes top-level files only, so nothing under it
             // is reachable anyway. Treating it as "no such asset" is what keeps a client
             // route named after a bundle directory ("/assets") working on refresh, when
@@ -899,7 +899,7 @@ void WebEdge::registerBundleRoutes()
             return std::move(*notModified);
         }
         // Serve a precompressed variant when the client accepts it (the build
-        // precompresses with Brotli and gzip): the bytes are smaller and the resource
+        // precompresses with Brotli and gzip). The bytes are smaller and the resource
         // still arrives under its own type via Content-Encoding. The wasm dominates the
         // transfer, but the Emscripten glue .js is the next largest on a first visit, so
         // it earns the same treatment.
@@ -941,7 +941,7 @@ void WebEdge::registerBundleRoutes()
     // handlers for those, so the shell would go out with no CSP, COOP, or COEP.
     // Registered last, so every real route above still wins. The parameter is QUrl
     // rather than QString so the "<arg>" placeholder captures a multi-segment
-    // remainder ("/a/b/c"), not just one path component.
+    // remainder ("/a/b/c"), not only one path component.
     m_httpServer->route(QStringLiteral("/<arg>"), QHttpServerRequest::Method::Get
                                                        | QHttpServerRequest::Method::Head,
                         [this](const QUrl &rest, const QHttpServerRequest &request) {

@@ -41,10 +41,10 @@ struct CookiePolicy
 ///
 /// Two modes (see "Where identity runs" in
 /// [Authentication](https://synqt.org/authentication/)):
-///  - In process (default): this provider owns an OAuthBackend; the secret and tokens live
+///  - In process (default), this provider owns an OAuthBackend. The secret and tokens live
 ///    on the edge.
-///  - provider_entity: the edge holds no secret. The begin/exchange steps are delegated to
-///    a dedicated auth entity over the Identity mesh connect point via attachRemote(); the
+///  - provider_entity. The edge holds no secret. The begin/exchange steps are delegated to
+///    a dedicated auth entity over the Identity mesh connect point via attachRemote(). The
 ///    secret and tokens live only on the auth entity.
 class IdentityProvider : public QObject
 {
@@ -68,13 +68,13 @@ public:
     /// redirect_uri. Set once the edge has bound its port.
     void setEdgeOrigin(const QString &origin);
 
-    /// Promote this edge to provider_entity mode: the begin/exchange/refresh steps run on
+    /// Promote this edge to provider_entity mode. The begin/exchange/refresh steps run on
     /// the auth entity behind the given Identity Replica, and this edge holds no secret. Must
     /// be called before the first login (typically once the mesh link is up).
     void attachRemote(QObject *identityReplica);
     bool isRemote() const;
 
-    /// Server-side tokens for a session (never sent to the browser); empty if none/expired.
+    /// Server-side tokens for a session (never sent to the browser). Empty if none/expired.
     /// In provider_entity mode the tokens live on the auth entity, so this is always empty.
     QVariantMap tokensForSession(const QByteArray &sessionId) const;
 
@@ -83,7 +83,7 @@ public:
     OAuthBackend *backend() const;
 
     /// Drop everything held for a session that no longer exists, wherever it is held (on
-    /// this edge, or on the auth entity). Logging out already does this; this is the same
+    /// this edge, or on the auth entity). Logging out already does this. This is the same
     /// release for the session nobody logs out of, which is most of them: without it an
     /// edge keeps a visitor's access and refresh tokens for as long as the process lives,
     /// long after the session they belong to expired.

@@ -3,7 +3,7 @@
 
 # M5: The web edge
 
-`WebEdge` ([`src/service/webedge.*`](../../src/service)) is the only internet-facing
+`WebEdge` ([`src/edge/webedge.*`](../../src/edge)) is the only internet-facing
 entity. On `QHttpServer` it serves the client bundle with the browser-hardening
 headers, accepts the browser's WebSocket through the upgrade verifier (rejecting bad
 requests before a socket exists), and hands accepted sockets to a QtRO host so the
@@ -56,9 +56,9 @@ added to a `QRemoteObjectHost`, so the browser acquires the edge's connect point
 tests/m5-webedge/run-m5.sh
 ```
 
-Builds `SynQtService` (now with Qt HttpServer) and the test, generating a throwaway
-localhost TLS server cert at configure time into `build/m5-webedge/certs/`; a
-public-link server cert (not a mesh CA), git-ignored and never committed.
+Builds `SynQtEdge` (the library that carries Qt HttpServer) and the test, generating a throwaway
+localhost TLS server cert at configure time into `build/m5-webedge/certs/`. It is a
+public-link server cert rather than a mesh CA, git-ignored and never committed.
 
 ## What `aCdnEdgeServesNoFilesButStillMintsTheSession` is for
 
@@ -112,7 +112,7 @@ the transport has become buildable.
   per-connect-point scope gating land in M7, and OAuth login in M8. The
   acceptance test runs over real TLS; plaintext (`synqt dev`) is implemented too.
 - The `WebSocketTransport` adapter is shared with the client runtime; the same source
-  is compiled into `SynQtService` so the edge can wrap accepted browser sockets without
+  is compiled into `SynQtTransport` so the edge can wrap accepted browser sockets without
   a service->client library dependency.
 - In-process test trap worth noting: a blocking `waitForEncrypted` starves the
   same-process edge's event loop, so the stall test drives TLS asynchronously (`QTRY`).

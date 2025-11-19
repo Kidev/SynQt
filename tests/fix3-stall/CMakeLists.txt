@@ -18,8 +18,8 @@ qt_standard_project_setup()
 
 # Guarded: configured on its own, this suite is what pulls the runtime library in;
 # configured from the tree root, the root has already added it (see tests/CMakeLists.txt).
-if(NOT TARGET SynQtService)
-    add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../../src/service" "${CMAKE_BINARY_DIR}/SynQtService")
+if(NOT TARGET SynQtEdge)
+    add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../../src/edge" "${CMAKE_BINARY_DIR}/SynQtEdge")
 endif()
 if(NOT TARGET SynQtClient)
     add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../../src/client" "${CMAKE_BINARY_DIR}/SynQtClient")
@@ -41,8 +41,8 @@ set(STALL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../examples/stall")
 
 qt_add_executable(tst_fix3 tst_fix3.cpp)
 
-# Pages is the framework's own contract, generated once as part of SynQtService and exposed
-# publicly from there (src/service/CMakeLists.txt); this test reaches "rep_pages_source.h"
+# Pages is the framework's own contract, generated once as part of SynQtEdge and exposed
+# publicly from there (src/edge/CMakeLists.txt); this test reaches "rep_pages_source.h"
 # and PageResponse through that link rather than generating a second, colliding copy.
 target_compile_definitions(tst_fix3 PRIVATE
     FIX3_CERT_DIR="${FIX3_CERTS}"
@@ -51,7 +51,7 @@ target_compile_definitions(tst_fix3 PRIVATE
 )
 
 target_link_libraries(tst_fix3 PRIVATE
-    SynQtService
+    SynQtEdge
     SynQtClient
     Qt6::Core
     Qt6::Gui

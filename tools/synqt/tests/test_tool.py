@@ -440,6 +440,53 @@ class AppGenTest(unittest.TestCase):
         # Exactly one add_subdirectory of the providers tree (the guarded one).
         self.assertEqual(cmake.count('src/providers" "${CMAKE_BINARY_DIR}/SynQtProviders"'), 1)
 
+    def test_a_topology_with_no_edge_never_reaches_a_gpl_only_module(self):
+        """Qt HTTP Server and Qt Network Authorization are GPLv3-only.
+
+        A project of pure services must neither link them nor require them installed, so the
+        CMake must not add src/edge, must not find_package either component, and must link
+        every entity against SynQtService alone. Without this the LGPLv3 line in each
+        entity's THIRD-PARTY-LICENSES is a claim the build contradicts.
+        """
+        config = {
+            "project": {"name": "batch", "qt_version": "6.11.1"},
+            "scopes": {"order": ["anonymous"]},
+            "entities": [
+                {"name": "database", "type": "relational"},
+                {"name": "rollups", "type": "jobs"},
+            ],
+            "connect_points": [
+                {"name": "ledger", "contract": "Ledger", "owner": "database",
+                 "consumers": ["rollups"]}],
+        }
+        cmake = cmakegen.render_root_cmakelists(config, "/opt/synqt")
+        self.assertNotIn("src/edge", cmake)
+        self.assertNotIn("src/identity", cmake)
+        self.assertNotIn("HttpServer", cmake)
+        self.assertNotIn("NetworkAuth", cmake)
+        self.assertIn('src/service" "${CMAKE_BINARY_DIR}/SynQtService"', cmake)
+
+    def test_each_entity_links_the_library_its_own_licensing_says_it_does(self):
+        """The edge takes SynQtEdge, a promoted auth entity SynQtIdentity, the rest neither."""
+        config = {
+            "project": {"name": "shop", "qt_version": "6.11.1"},
+            "scopes": {"order": ["anonymous", "user"]},
+            "entities": [
+                {"name": "client", "type": "client", "targets": ["wasm"]},
+                {"name": "web", "type": "web_edge"},
+                {"name": "auth", "type": "service"},
+                {"name": "database", "type": "relational"},
+            ],
+            "connect_points": [],
+            "identity": {"provider_entity": "auth", "providers": [{"name": "github"}]},
+        }
+        cmake = cmakegen.render_root_cmakelists(config, "/opt/synqt")
+        for entity, library in (("web", "SynQtEdge"), ("auth", "SynQtIdentity"),
+                                ("database", "SynQtService")):
+            with self.subTest(entity):
+                block = cmake.split(f"target_link_libraries({entity} PRIVATE")[1]
+                self.assertIn(library, block.split(")")[0])
+
     def test_edge_main_without_a_mesh_side_stays_minimal(self):
         config = {
             "project": {"name": "shop", "qt_version": "6.11.1"},

@@ -58,11 +58,11 @@ public:
     /// sessions. Never null after construction.
     SessionManager *sessionManager() const;
 
-    /// The identity provider, when login is configured; null otherwise.
+    /// The identity provider, when login is configured. Null otherwise.
     IdentityProvider *identityProvider() const;
 
     /// The page service backing this edge's Pages connect point, shared by every
-    /// connection; null when the project configures no edge-delivered pages. Its
+    /// connection. Null when the project configures no edge-delivered pages. Its
     /// fetchPageFor() answers for the Caller it is given, applying that route's scope
     /// check to it, so a caller reaches through it exactly what it may reach directly.
     PagesService *pagesService() const;
@@ -173,7 +173,7 @@ private:
     /// verifier to the accepted socket (whose handshake headers are not re-readable).
     /// hostConnection() takes the entry in the same turn the upgrade is accepted, so an
     /// entry that outlives the handshake timeout belongs to a socket that never arrived
-    /// and is dropped: nothing else removes it, and a peer can retry as often as it likes.
+    /// and is dropped. Nothing else removes it, and a peer can retry as often as it likes.
     struct VerifiedSession
     {
         QByteArray id;

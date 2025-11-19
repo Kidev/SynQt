@@ -60,7 +60,7 @@ env:
   # repository at all, and never from an unpinned branch). Keep this SHA in step with the
   # other two Qt workflows.
   AQT_COMMIT: "9e49c82edc6d946db376dec907cca5b4b486eec5"
-  # Keep in step with ctest.yml: the arena's web edge links the same SynQtService.
+  # Keep in step with ctest.yml: the arena's web edge links the same SynQtEdge.
   JWT_CPP_VERSION: "v0.7.2"
 
 jobs:
@@ -96,7 +96,7 @@ jobs:
           - label: client-runtime
             kit: wasm_singlethread
             needs_qtremoteobjects: true
-            # The counter edge links SynQtService, which verifies ID-token signatures.
+            # The counter edge links SynQtIdentity, which verifies ID-token signatures.
             needs_jwt_cpp: true
             qt_modules: qtwebsockets
             # The one proof here whose claim is per-engine rather than per-kit: the browser
@@ -248,7 +248,7 @@ jobs:
 
       - name: Provide jwt-cpp headers
         # Kept in step with the same step in ctest.yml and in the example-bundle job below:
-        # SynQtService verifies OIDC ID-token signatures with jwt-cpp (MIT, header-only), and
+        # SynQtIdentity verifies OIDC ID-token signatures with jwt-cpp (MIT, header-only), and
         # without it the host configure dies on "jwt-cpp not found".
         if: matrix.needs_jwt_cpp
         shell: bash
@@ -401,7 +401,7 @@ jobs:
           cmake --install "$RUNNER_TEMP/qtro-wasm"
 
       - name: Provide jwt-cpp headers
-        # The arena builds its web edge, which links SynQtService, which verifies OIDC ID-token
+        # The arena builds its web edge, which links SynQtIdentity, which verifies OIDC ID-token
         # signatures with jwt-cpp (MIT, header-only). Without it the host configure dies on
         # "jwt-cpp not found", which is what it did: the client bundle compiled, the edge did
         # not, and this job reported it as a missing bundle rather than as the build error it

@@ -49,13 +49,22 @@ two it is allowed to.
 | `SynQtTransport` | [`src/transport`](https://github.com/Kidev/SynQt/tree/main/src/transport)  | Qt Core, WebSockets                                                | `WebSocketTransport`: the `QIODevice` over a `QWebSocket` that carries QtRemoteObjects. Also `RoutePattern`, the route matcher a request path is compiled against, shared by the client's `Router` and a service's `fetchPage` authorization. Shared by both the client and the web edge, so it is its own leaf library with no client or service dependency. |
 | `SynQtClient`    | [`src/client`](https://github.com/Kidev/SynQt/tree/main/src/client)     | Qt Core, Network, WebSockets, RemoteObjects, Qml, Quick            | The client runtime: `SynClient` (the wss connection and reconnection), `ServerAccessor` (the `Server` QML accessor), `Session`, the router (`Router`, using `SynQtTransport`'s `RoutePattern`, plus `BrowserHistory` and `ResumePath`), the typed replica factory registry, and client logging. Links into both the WebAssembly and the native desktop client. |
 | `SynQtConsumer`  | [`src/consumer`](https://github.com/Kidev/SynQt/tree/main/src/consumer)   | Qt Qml, and the generated contracts                                | The consumer facade: `Contract.on<Signal>` attached handlers and the returning slot `.then()` promise, plus the connect point resolver that hands a replica to QML. |
-| `SynQtService`   | [`src/service`](https://github.com/Kidev/SynQt/tree/main/src/service)    | Qt Core, Network, NetworkAuth, Qml, RemoteObjects, WebSockets, HttpServer, OpenSSL, jwt-cpp | Everything a service entity needs: `EntityRuntime` and `ConnectPointHost` (topology and hosting), the mesh transport (`MeshServer`, `MeshClient`, `MeshPeer`), the `WebEdge` (HTTP bundle serving and the WebSocket upgrade pipeline), `SessionManager` and `Caller`, and the identity stack (`IdentityProvider`, `OAuthBackend`, `JwksVerifier`, the identity service and its dev stub). |
+| `SynQtService`   | [`src/service`](https://github.com/Kidev/SynQt/tree/main/src/service)    | Qt Core, Network, Qml, RemoteObjects, WebSockets, OpenSSL | What every service entity needs and nothing more: `EntityRuntime` and `ConnectPointHost` (topology and hosting), the mesh transport (`MeshServer`, `MeshClient`, `MeshPeer`), `SessionManager` and `Caller`. Every module here is LGPLv3, which is what makes a relational, cache, document, jobs or plain service entity LGPLv3. |
+| `SynQtIdentity`  | [`src/identity`](https://github.com/Kidev/SynQt/tree/main/src/identity)   | `SynQtService`, Qt NetworkAuth, jwt-cpp | The login engine: `OAuthBackend` (the client secret and the tokens), `EdgeReplyHandler`, `JwksVerifier` (ID token signatures against the provider JWKS), and `IdentityService` with the `Identity` and `SessionStore` connect points a dedicated auth entity owns. Qt Network Authorization is GPLv3-only, so this is a library of its own and only the edge and the auth entity link it. |
+| `SynQtEdge`      | [`src/edge`](https://github.com/Kidev/SynQt/tree/main/src/edge)      | `SynQtIdentity`, Qt HttpServer | The one entity a browser reaches: `WebEdge` (bundle serving, the header policy, the WebSocket upgrade pipeline), `IdentityProvider` (the login, callback and logout routes), the `Pages` connect point (`PageStore`, `PagesService`, `PagesEdgeSource`) and the dev-only `StubIdentityServer`. Qt HTTP Server is GPLv3-only, so only a `type: web_edge` entity links this. |
 | `SynQtProviders` | [`src/providers`](https://github.com/Kidev/SynQt/tree/main/src/providers)  | Qt Sql, optional hiredis and mongo-c                               | The backend facing family interfaces (`IPersistenceProvider`, `IDocumentProvider`, `ICacheProvider`), the bundled providers (`sqlite`, `postgres`, `mysql`, the `memory` cache), the optional external ones (`redis`, `mongodb`, gated by their client libraries), the `ProviderRegistry` a custom provider registers with, and the entity QML helpers `Db`, `Cache`, `Docs`, `Http`, and `Jobs`. |
 
 The client links only `SynQtTransport`, `SynQtClient`, and `SynQtConsumer`. It never links
 `SynQtService` or `SynQtProviders`; the build fails on purpose if it tries, because those
-carry HttpServer, NetworkAuth, storage drivers, and credentials that must never reach the
-browser.
+carry storage drivers and credentials that must never reach the browser.
+
+The line between the last three is the license, not tidiness. Qt HTTP Server and Qt Network
+Authorization are GPLv3-only, and linking one makes that entity's binary GPLv3, so they are
+reached only through `SynQtEdge` and `SynQtIdentity`. `appmodel.service_library` says which
+of the three an entity links, and both the generated CMake and its generated
+`THIRD-PARTY-LICENSES` read that one function, so what the file claims and what the binary
+links cannot drift apart. A topology with no web edge and no auth entity never adds those
+directories at all, so those modules need not even be installed.
 
 ## The tooling ([`tools/`](https://github.com/Kidev/SynQt/tree/main/tools))
 
@@ -103,7 +112,7 @@ browser.
   appends them once at each entry point that reads the whole topology (generation, the
   topology writer, validation), so the auth entity hosts them, each edge opens the consumer
   link, and `synqt check` holds both to the same mesh rules as any declared link. Their
-  contracts live in `src/service/contracts/` and compile into `SynQtService`, which is why
+  contracts live in `src/identity/contracts/` and compile into `SynQtIdentity`, which is why
   they are marked `framework` and filtered back out wherever an app side
   the owner's `<Contract>.syn` would otherwise be reached for.
 - The edge's browser-facing policy (the `security` block, `project.origin_model`, the

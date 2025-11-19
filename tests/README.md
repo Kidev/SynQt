@@ -34,7 +34,7 @@ configured from the root, the root has already added it.
 
 The whole tree is worth the two files it costs. Measured on a 32-core host from clean, 17
 suites configured and built one at a time cost 227 s and 812 object files; the tree costs
-18 s and 295, because SynQtService and SynQtClient are compiled once instead of once per
+18 s and 295, because SynQtEdge and SynQtClient are compiled once instead of once per
 suite, and because 17 configure steps become one.
 
 Prerequisites for the whole tree are the union of what the suites need: a Qt 6.11.1 host

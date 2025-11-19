@@ -15,8 +15,8 @@ qt_standard_project_setup()
 
 # Guarded: configured on its own, this suite is what pulls the runtime library in;
 # configured from the tree root, the root has already added it (see tests/CMakeLists.txt).
-if(NOT TARGET SynQtService)
-    add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../../src/service" "${CMAKE_BINARY_DIR}/SynQtService")
+if(NOT TARGET SynQtEdge)
+    add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../../src/edge" "${CMAKE_BINARY_DIR}/SynQtEdge")
 endif()
 if(NOT TARGET SynQtClient)
     add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../../src/client" "${CMAKE_BINARY_DIR}/SynQtClient")
@@ -24,12 +24,12 @@ endif()
 
 enable_testing()
 
-# Pages is the framework's own contract, generated once as part of SynQtService itself
-# (see src/service/CMakeLists.txt) and exposed publicly from there; this test reaches
+# Pages is the framework's own contract, generated once as part of SynQtEdge itself
+# (see src/edge/CMakeLists.txt) and exposed publicly from there; this test reaches
 # "rep_pages_source.h" and PagesService through that link rather than generating (and
 # then linking) a second, colliding copy of PagesSourceHelper/PagesCaller of its own.
 qt_add_executable(tst_pagestore tst_pagestore.cpp)
-target_link_libraries(tst_pagestore PRIVATE SynQtService Qt6::Test)
+target_link_libraries(tst_pagestore PRIVATE SynQtEdge Qt6::Test)
 target_compile_definitions(tst_pagestore PRIVATE
     REMOTE_PAGES_SRCDIR="${CMAKE_CURRENT_SOURCE_DIR}")
 add_test(NAME pagestore COMMAND tst_pagestore)

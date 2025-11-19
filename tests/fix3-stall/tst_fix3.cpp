@@ -28,7 +28,7 @@
 #include "synclient.h"
 #include "synclientconfig.h"
 
-#include "rep_pages_source.h"  // PageResponse, exposed publicly by SynQtService
+#include "rep_pages_source.h"  // PageResponse, exposed publicly by SynQtEdge
 
 #include <QJsonDocument>
 #include <QJsonObject>

@@ -67,9 +67,9 @@ class TestSecurityBlock(unittest.TestCase):
         self.assertIn("config.maxMessageBytes = 65536;", source)
 
     def test_an_undeclared_key_is_left_to_the_struct(self):
-        # The defaults live once, in src/service/webedgeconfig.h. Emitting them here too
+        # The defaults live once, in src/edge/webedgeconfig.h. Emitting them here too
         # would be a second copy to keep in step, and the generated main would stop
-        # reading as the set of decisions its synqt.yaml actually made.
+        # reading as the set of decisions its synqt.yaml made.
         source = render(base_config())
         for field in ("config.csp", "config.allowedOrigins", "config.handshakeTimeoutMs",
                       "config.maxConnectionsPerIp", "config.maxConnectionsGlobal",

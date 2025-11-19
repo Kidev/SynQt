@@ -101,7 +101,7 @@ PageResponse PagesService::fetchPageFor(const QString &requestPath,
 
     // Past this point the caller is authorized for this route, so a reply may carry the
     // page. The hash is the hash of the page FILE, so it is the same for every
-    // parameterization of one route: a caller who already holds the component sends that
+    // parameterization of one route. A caller who already holds the component sends that
     // hash with a different concrete path, and only the bulky qml payload is worth
     // skipping. The seed is small and parameter-dependent, and the client keeps its
     // previous seed on an empty one (router.cpp), so producing it only on the ok path

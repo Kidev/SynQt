@@ -10,7 +10,7 @@
 # build` is what anyone opening the repository tries first, and it had nothing to find. The
 # second is cost: each tests/<suite>/CMakeLists.txt is a standalone project that pulls the
 # runtime libraries in through add_subdirectory, so building them one script at a time
-# compiles SynQtService, SynQtClient, and the leaves under them once per suite. Here they
+# compiles SynQtEdge, SynQtClient, and the leaves under them once per suite. Here they
 # are compiled once for all of them.
 #
 # Prerequisites are the union of what the suites need: a Qt 6.11 host kit including
@@ -40,6 +40,8 @@ add_subdirectory(src/consumer)
 add_subdirectory(src/providers)
 add_subdirectory(src/client)
 add_subdirectory(src/service)
+add_subdirectory(src/identity)
+add_subdirectory(src/edge)
 # After src/service: the harness links it, and this is the scope that creates the target.
 add_subdirectory(src/testing)
 
@@ -54,6 +56,8 @@ synqt_enable_coverage(
     SynQtProviders
     SynQtClient
     SynQtService
+    SynQtIdentity
+    SynQtEdge
     SynQtTesting
 )
 

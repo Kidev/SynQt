@@ -15,8 +15,8 @@ qt_standard_project_setup()
 
 # Guarded: configured on its own, this suite is what pulls the runtime library in;
 # configured from the tree root, the root has already added it (see tests/CMakeLists.txt).
-if(NOT TARGET SynQtService)
-    add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../../src/service" "${CMAKE_BINARY_DIR}/SynQtService")
+if(NOT TARGET SynQtEdge)
+    add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../../src/edge" "${CMAKE_BINARY_DIR}/SynQtEdge")
 endif()
 include("${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/SynQtContracts.cmake")
 
@@ -44,7 +44,7 @@ target_compile_definitions(tst_m5 PRIVATE
 )
 
 target_link_libraries(tst_m5 PRIVATE
-    SynQtService
+    SynQtEdge
     Qt6::Core
     Qt6::Network
     Qt6::Qml

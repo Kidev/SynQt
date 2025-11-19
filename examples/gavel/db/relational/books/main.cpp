@@ -67,6 +67,8 @@ int main(int argc, char *argv[])
         qCritical().noquote() << "books failed to start:" << runtime.errorString();
         return 1;
     }
+    // The entity is alive from now, not from its first caller.
+    engine.singletonInstance<QObject *>("SynQt", "Books");
     qInfo().noquote() << QStringLiteral("books entity up");
     return app.exec();
 }

@@ -4,13 +4,14 @@
 """Render the app's multi-binary root ``CMakeLists.txt`` from the declared topology.
 
 Every entity is a CMake target that links the matching SynQt runtime library
-(``SynQtClient`` for the client, ``SynQtService`` for services and the edge) and wires in
-its contracts through ``synqt_add_contract``: the client generates typed Replicas, an
-owner generates the Source helper. Services are built inside ``if(NOT EMSCRIPTEN)``, so
-the WebAssembly configure never sees a target that links HttpServer, NetworkAuth or Sql.
+(``SynQtClient`` for the client, and one of ``SynQtService`` / ``SynQtIdentity`` /
+``SynQtEdge`` for a service, per :func:`appmodel.service_library`) and wires in its
+contracts through ``synqt_add_contract``: the client generates typed Replicas, an owner
+generates the Source helper. Services are built inside ``if(NOT EMSCRIPTEN)``, so the
+WebAssembly configure never sees a target that links HttpServer, NetworkAuth or Sql.
 
 Deterministic string rendering, unit-testable without a compiler. What the topology says
-is read through :mod:`synqt.appmodel`; the actual compilation runs through the CMake
+is read through :mod:`synqt.appmodel`. The actual compilation runs through the CMake
 presets in :mod:`synqt.build`.
 """
 
@@ -65,8 +66,8 @@ def render_root_cmakelists(config: Dict[str, Any], synqt_root: os.PathLike[str] 
     if services:
         lines += ["", "# Service entities (host only; never built for WebAssembly)",
                   "if(NOT EMSCRIPTEN)",
-                  f"    find_package(Qt6 {qt_version} REQUIRED COMPONENTS HttpServer NetworkAuth Sql)",
-                  '    add_subdirectory("${SYNQT_ROOT}/src/service" "${CMAKE_BINARY_DIR}/SynQtService")']
+                  f"    find_package(Qt6 {qt_version} REQUIRED COMPONENTS Sql)"]
+        lines += _runtime_library_cmake(config, services)
         # A blueprint/provider entity also links the provider library. SynQtService already
         # pulls SynQtProviders in (it PUBLIC-links it), so guard on the target to avoid
         # claiming the same binary directory twice.
@@ -84,6 +85,30 @@ def render_root_cmakelists(config: Dict[str, Any], synqt_root: os.PathLike[str] 
                           Path(project_dir) if project_dir is not None else None)
 
     return "\n".join(lines) + "\n"
+
+
+def _runtime_library_cmake(config: Dict[str, Any],
+                           services: List[Dict[str, Any]]) -> List[str]:
+    """Add only the SynQt runtime libraries this topology needs.
+
+    Not an optimization. Qt HTTP Server and Qt Network Authorization are GPLv3-only, so a
+    project with no web edge and no auth entity must neither link them nor require them to
+    be installed. Adding src/edge unconditionally would do both, and its
+    THIRD-PARTY-LICENSES would be wrong about it. Each directory guards its own
+    dependencies with `if(NOT TARGET ...)`, so listing several here is safe and the order
+    only decides which scope creates a target.
+    """
+    needed = {appmodel.service_library(config, entity) for entity in services}
+    lines: List[str] = []
+    for library in ("SynQtService", "SynQtIdentity", "SynQtEdge"):
+        if library not in needed:
+            continue
+        folder = appmodel.SERVICE_LIBRARIES[library]
+        lines += [f"    if(NOT TARGET {library})",
+                  f'        add_subdirectory("${{SYNQT_ROOT}}/{folder}" '
+                  f'"${{CMAKE_BINARY_DIR}}/{library}")',
+                  "    endif()"]
+    return lines
 
 
 def _tests_cmake(config: Dict[str, Any], qt_version: str,
@@ -280,13 +305,15 @@ def _macos_bundle_cmake(config: Dict[str, Any], name: str) -> List[str]:
 
 def _service_cmake(config: Dict[str, Any], entity: Dict[str, Any]) -> List[str]:
     name = entity.get("name")
-    # Framework connect points are filtered out on both sides: their contracts live in
-    # src/service/contracts/ and are compiled into SynQtService, so an app has no
+    # Framework connect points are filtered out on both sides. Their contracts live in
+    # the runtime libraries and are compiled into them, so an app has no
     # `Identity.syn` of its own to point a synqt_add_contract at. That is what makes
     # promoting identity to its own entity a one-line change to synqt.yaml and nothing else.
     owned = appmodel.app_points(appmodel.owned_by(config, name))
     consumed = appmodel.app_points(appmodel.mesh_consumed(config, name))
-    libs = ["SynQtService"]
+    # SynQtService, SynQtIdentity or SynQtEdge, by what this entity is. The same call
+    # decides what its THIRD-PARTY-LICENSES says it links (licenses.py).
+    libs = [appmodel.service_library(config, entity)]
     if appmodel.entity_type(entity) in appmodel.TYPE_HELPERS or entity.get("provider"):
         libs.append("SynQtProviders")
     folder = appmodel.entity_dir(entity)
@@ -299,10 +326,15 @@ def _service_cmake(config: Dict[str, Any], entity: Dict[str, Any]) -> List[str]:
     for contract in appmodel.contracts_of(consumed):
         lines.append(f"    synqt_add_contract({name} ROLE replica "
                      f'SYN "${{CMAKE_CURRENT_SOURCE_DIR}}/{paths[contract]}")')
+    # Qt6::Gui for the edge because its main runs a QGuiApplication. A service runs a
+    # QCoreApplication and gets Gui only if it owns a connect point, where it arrives with
+    # SynQtContract (the published model is a QStandardItemModel).
+    qt_modules = "Qt6::Core Qt6::Gui Qt6::Network Qt6::Qml" if appmodel.is_edge(entity) \
+        else "Qt6::Core Qt6::Network Qt6::Qml"
     link = " ".join(libs)
     lines += [f"    target_link_libraries({name} PRIVATE",
-              f"        {link} Qt6::Core Qt6::Gui Qt6::Network Qt6::Qml",
-              "        Qt6::RemoteObjects Qt6::WebSockets Qt6::HttpServer)"]
+              f"        {link} {qt_modules}",
+              "        Qt6::RemoteObjects Qt6::WebSockets)"]
     lines += _custom_provider_cmake(entity, name)
     return lines
 

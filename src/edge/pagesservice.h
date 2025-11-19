@@ -19,8 +19,8 @@ class PageStore;
 
 /// Owner-side answer to "may this caller have this page, and do they already have it".
 ///
-/// This is where a remote page's confidentiality actually lives. The client-side route
-/// guard is a redirect and protects nothing; the check here is what stops an under-scoped
+/// This is where a remote page's confidentiality lives. The client-side route
+/// guard is a redirect and protects nothing. The check here is what stops an under-scoped
 /// session from receiving a single byte of the page. Requests name a route, and a route
 /// is matched against the declared table, so no caller-supplied string ever reaches the
 /// filesystem.
@@ -36,7 +36,7 @@ public:
         std::function<QString(const QString &route, const QVariantMap &parameters,
                               Caller *caller)>;
 
-    /// store must not be null: it is the page table this service answers every
+    /// store must not be null. It is the page table this service answers every
     /// fetchPageFor() call against, not an optional collaborator, so a null
     /// store is a construction-time programming error, not a per-call check.
     explicit PagesService(PageStore *store, QObject *parent = nullptr);

@@ -103,8 +103,8 @@ jobs:
           sudo apt-get install -y libssl-dev libgl1-mesa-dev
 
       - name: Provide jwt-cpp headers
-        # SynQtService verifies OIDC ID-token signatures with it, and four of the five
-        # harnesses link SynQtService. Exported as a path rather than installed into a
+        # SynQtIdentity verifies OIDC ID-token signatures with it, and four of the five
+        # harnesses link the service runtime. Exported as a path rather than installed into a
         # system prefix, for the reason ctest.yml gives.
         run: |
           set -eu

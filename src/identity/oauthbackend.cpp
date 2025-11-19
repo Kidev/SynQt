@@ -291,7 +291,7 @@ int OAuthBackend::refreshExpiring(int marginSeconds)
     const qint64 threshold{QDateTime::currentMSecsSinceEpoch()
                            + static_cast<qint64>(marginSeconds) * 1000};
     int refreshed{0};
-    // Collect first: refreshOne mutates m_tokens, so do not iterate it while refreshing.
+    // Collect first. refreshOne mutates m_tokens, so do not iterate it while refreshing.
     QStringList due;
     for (auto it{m_tokens.constBegin()}; it != m_tokens.constEnd(); ++it) {
         if (it->refreshToken.isEmpty() || it->expiresAtMs <= 0) {

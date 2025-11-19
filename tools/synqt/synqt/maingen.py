@@ -162,9 +162,9 @@ def _edge_policy_lines(config: Dict[str, Any], edge: Dict[str, Any]) -> List[str
     """The browser-facing policy the project declared, as `WebEdgeConfig` assignments.
 
     One line per DECLARED key and nothing at all for the rest. The defaults live once, in
-    the struct (src/service/webedgeconfig.h); repeating them here would be a second copy
+    the struct (src/edge/webedgeconfig.h). Repeating them here would be a second copy
     to keep in step and a silent way for a generated edge to disagree with the type it
-    fills. The upshot is that a generated main reads as exactly the set of decisions its
+    fills. So a generated main reads as exactly the set of decisions its
     synqt.yaml made, and a project that declares no `security:` block generates what it
     generated before this existed.
     """

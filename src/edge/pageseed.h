@@ -9,7 +9,7 @@
 namespace SynQt {
 
 /// The base type a page seed hook (a route's `seed:` QML file) derives from. The hook adds
-/// `function seedFor(route, parameters, caller)`; the edge invokes it after the page's scope
+/// `function seedFor(route, parameters, caller)`. The edge invokes it after the page's scope
 /// check to build the data the delivered page paints with on its first frame, before its
 /// connect points have pushed anything. It runs only on the edge.
 ///

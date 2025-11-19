@@ -9,7 +9,7 @@
 namespace SynQt {
 
 /// The base type the identity mapping hook (web/identity/map.qml) derives from. The hook
-/// adds `function scopeFor(identity)`; the edge invokes it after a successful login to turn
+/// adds `function scopeFor(identity)`. The edge invokes it after a successful login to turn
 /// a normalized identity into a SynQt scope. It runs only on the edge.
 class IdentityMapping : public QObject
 {

@@ -17,8 +17,8 @@ qt_standard_project_setup()
 
 # Guarded: configured on its own, this suite is what pulls the runtime library in;
 # configured from the tree root, the root has already added it (see tests/CMakeLists.txt).
-if(NOT TARGET SynQtService)
-    add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../../src/service" "${CMAKE_BINARY_DIR}/SynQtService")
+if(NOT TARGET SynQtEdge)
+    add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../../src/edge" "${CMAKE_BINARY_DIR}/SynQtEdge")
 endif()
 include("${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/SynQtContracts.cmake")
 
@@ -33,8 +33,8 @@ endif()
 enable_testing()
 
 qt_add_executable(tst_m8 tst_m8.cpp)
-# The Identity and Session Sources this suite hosts come from SynQtService: they are
-# framework contracts (src/service/contracts/), owned by the auth entity that
+# The Identity and SessionStore Sources this suite hosts come from SynQtIdentity: they are
+# framework contracts (src/identity/contracts/), owned by the auth entity that
 # `identity.provider_entity` names, so the library carries them and the generated auth main
 # needs no app contract. This suite hosts them exactly as that generated main does, which is
 # what makes it the runtime proof behind the generator.
@@ -42,7 +42,7 @@ target_compile_definitions(tst_m8 PRIVATE
     M8_SRCDIR="${CMAKE_CURRENT_SOURCE_DIR}"
     M8_CERT_DIR="${M8_CERTS}")
 target_link_libraries(tst_m8 PRIVATE
-    SynQtService
+    SynQtEdge
     Qt6::Core
     Qt6::Gui
     Qt6::Network

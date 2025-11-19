@@ -73,7 +73,7 @@ DEFAULT_SUBNET = "172.30.238.0/24"
 # to the entity list.
 FIRST_HOST = 11
 
-# The jwt-cpp SynQtService verifies OIDC ID-token signatures with. Kept in step with the
+# The jwt-cpp SynQtIdentity verifies OIDC ID-token signatures with. Kept in step with the
 # workflows that build the same thing (.github/workflows/{ctest,benchmarks,leaks}.yml): the
 # floor is v0.7.1, below which the configure stops on a missing
 # jwt::helper::create_public_key_from_rsa_components.
@@ -433,7 +433,7 @@ def render_dockerfile(config: Dict[str, Any], *, client: str = "image") -> str:
         "        -m qtremoteobjects qtwebsockets qthttpserver qtnetworkauth qtshadertools \\",
         '        --outputdir "$QT_ROOT"',
         "",
-        "# jwt-cpp (MIT, header-only): SynQtService verifies OIDC ID-token signatures with it,",
+        "# jwt-cpp (MIT, header-only): SynQtIdentity verifies OIDC ID-token signatures with it,",
         '# and the configure step stops on "jwt-cpp not found" without it. v0.7.1 is the floor',
         "# (create_public_key_from_rsa_components, which JwksVerifier uses, arrived there);",
         f"# {JWT_CPP_VERSION} is the version SynQt's own CI builds against.",

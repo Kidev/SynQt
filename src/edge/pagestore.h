@@ -24,9 +24,9 @@ namespace SynQt {
 /// caller-supplied string onto the pages directory, so there is no path a
 /// request can name that was not configured.
 ///
-/// Hashing is what makes a revisit free: the client sends the hash it holds
+/// Hashing is what makes a revisit free. The client sends the hash it holds
 /// and an unchanged page comes back as a status with no body. In development
-/// the store watches the directory so an edit reaches open tabs; in release
+/// the store watches the directory so an edit reaches open tabs. In release
 /// it reads and hashes once.
 class PageStore : public QObject
 {
@@ -36,10 +36,10 @@ public:
     explicit PageStore(QString pagesDir, QObject *parent = nullptr);
     ~PageStore() override;
 
-    /// Declare a page. file is relative to the pages directory; scope is the
+    /// Declare a page. file is relative to the pages directory. Scope is the
     /// minimum session scope, empty for a page any session may fetch.
     /// Declare a page. `graphics` is the requirement the build decided ("accelerated" or
-    /// empty); the store carries it into the route table and never computes one.
+    /// empty). The store carries it into the route table and never computes one.
     void addPage(const QString &route, const QString &file, const QString &scope,
                  const QString &graphics = QString{});
 

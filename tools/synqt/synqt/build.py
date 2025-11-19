@@ -601,7 +601,8 @@ def build(project_dir: os.PathLike[str] | str, *, release: bool = True,
                     out = out / desktop_platform()
                 out.mkdir(parents=True, exist_ok=True)
                 (out / "THIRD-PARTY-LICENSES").write_text(
-                    licenses.generate(entity, target=target, qt_license_mode=qt_license_mode))
+                    licenses.generate(entity, target=target,
+                                      qt_license_mode=qt_license_mode, config=config))
                 # The desktop client compiles on the host; place it beside its licenses.
                 # Installed before the note is written, so the note can name the artifact that
                 # is actually there rather than the one this build expected to produce.
@@ -624,7 +625,7 @@ def build(project_dir: os.PathLike[str] | str, *, release: bool = True,
             out = build_dir / name
             out.mkdir(parents=True, exist_ok=True)
             (out / "THIRD-PARTY-LICENSES").write_text(
-                licenses.generate(entity, qt_license_mode=qt_license_mode))
+                licenses.generate(entity, qt_license_mode=qt_license_mode, config=config))
             _install_binary(build_dir, name, out)  # so `synqt serve` can launch it
             produced.append(f"build/{name}/")
 

@@ -25,7 +25,7 @@ namespace {
 constexpr int reloadQuietMs{100};
 
 /// How many reads a change is given before it is given up on. A file that was just
-/// written can be briefly unreadable: an atomic replace leaves the path missing between
+/// written can be briefly unreadable. An atomic replace leaves the path missing between
 /// the unlink and the rename, and on Windows an indexer or a scanner holds a fresh file
 /// open for a moment. Retrying for two seconds turns that into a slightly late hot
 /// reload rather than an edit that never arrives.
@@ -160,7 +160,7 @@ void PageStore::onFileChanged(const QString &path)
 
 void PageStore::flushPending()
 {
-    // Over a copy: the loop writes to m_pending, and a route dropped here must not
+    // Over a copy. The loop writes to m_pending, and a route dropped here must not
     // invalidate the iteration.
     const QStringList routes{m_pending.keys()};
     for (const QString &route : routes) {
@@ -173,7 +173,7 @@ void PageStore::flushPending()
             if (m_watcher && !m_watcher->files().contains(path)) {
                 m_watcher->addPath(path);
             }
-            // Only when the content actually moved. A replace can be reported twice, and
+            // Only when the content moved. A replace can be reported twice, and
             // an unchanged hash tells every open tab to re-fetch a page it already holds.
             if (m_pages.value(route).hash != before) {
                 emit pageChanged(route, m_pages.value(route).hash);

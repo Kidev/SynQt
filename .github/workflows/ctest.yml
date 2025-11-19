@@ -245,7 +245,7 @@ jobs:
         # The headers stay where they are cloned and the path is exported, rather than copied into
         # /usr/local/include and left for CMake to stumble on: that implicit system prefix is
         # searched on the Linux runner but not on the macOS one, so every macOS suite that links
-        # SynQtService failed on headers that were sitting on disk the whole time. An exported
+        # the service runtime failed on headers that were sitting on disk the whole time. An exported
         # path is also the same mechanism OPENSSL_ROOT_DIR uses above, and needs no sudo.
         shell: bash
         run: |

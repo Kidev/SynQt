@@ -22,7 +22,7 @@ namespace SynQt {
 
 class JwksVerifier;
 
-/// The secret-bearing OAuth2 / OpenID Connect engine: it holds the client secret, builds
+/// The secret-bearing OAuth2 / OpenID Connect engine. It holds the client secret, builds
 /// the authorization URL (PKCE + state), performs the server-side token exchange, verifies
 /// and normalizes the identity (userinfo or a JWKS-verified ID token), and owns the stored
 /// access/refresh/ID tokens with their expiry. It also refreshes an access token before it
@@ -41,7 +41,7 @@ public:
     explicit OAuthBackend(IdentityConfig config, QObject *parent = nullptr);
     ~OAuthBackend() override;
 
-    /// The authorization step: build the provider's authorize URL and hold a pending login
+    /// The authorization step. Build the provider's authorize URL and hold a pending login
     /// keyed by the returned state (the PKCE verifier and the OIDC nonce stay here). The
     /// redirectUri is the caller's public callback URL. On failure `error` is set.
     struct BeginResult
@@ -77,7 +77,7 @@ public:
     /// both directly and by the periodic sweep timer.
     int refreshExpiring(int marginSeconds);
 
-    /// Enable the periodic refresh sweep: every `intervalSeconds` refresh tokens due within
+    /// Enable the periodic refresh sweep. Every `intervalSeconds` refresh tokens due within
     /// `marginSeconds`. A non-positive interval disables it.
     void setAutoRefresh(int intervalSeconds, int marginSeconds);
 

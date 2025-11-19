@@ -137,6 +137,8 @@ int main(int argc, char *argv[])
     // Give each owner Source its mesh accessor (e.g. Database) by name.
     edge.setContextObject(EntityRuntime::accessorName(QStringLiteral("books")),
                           runtime.accessor(EntityRuntime::accessorName(QStringLiteral("books"))));
+    // The entity is alive from now, not from its first caller.
+    engine.singletonInstance<QObject *>("SynQt", "Edge");
     if (!edge.start()) {
         qCritical().noquote() << "edge edge failed to start:" << edge.errorString();
         return 1;

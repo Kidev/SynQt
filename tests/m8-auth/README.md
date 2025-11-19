@@ -8,19 +8,19 @@ browser only ever ends with an httpOnly session cookie.
 
 ## What runs
 
-- `IdentityProvider` (`src/service`); `QOAuth2AuthorizationCodeFlow` with PKCE, a
+- `IdentityProvider` (`src/edge`); `QOAuth2AuthorizationCodeFlow` with PKCE, a
   framework-generated state verified on the callback (a state the edge did not issue is
   refused before any token exchange), the token exchange with the edge-held
   `client_secret`, identity normalization per [authentication](../../docs/authentication.md), the scope-mapping
   QML hook (`IdentityMapping.scopeFor`), the authenticated session, and the
   `HttpOnly`/`Secure`/`SameSite` cookie. A custom `EdgeReplyHandler` gives the flow the
   edge's public callback URL instead of a loopback port.
-- `JwksVerifier` (`src/service`); for OpenID Connect providers, verifies the ID token's
+- `JwksVerifier` (`src/identity`); for OpenID Connect providers, verifies the ID token's
   RS256 signature against the provider JWKS (fetched and cached with `QNetworkAccessManager`)
   plus iss/aud/exp/nonce, using pinned jwt-cpp (MIT, vcpkg). No hand-rolled crypto; the
   signature is checked with the no-throw `rs256::verify(..., ec)` so no exception crosses the
   boundary.
-- `StubIdentityServer` (`src/service`); a dev-only provider (`/authorize`, `/token`,
+- `StubIdentityServer` (`src/edge`); a dev-only provider (`/authorize`, `/token`,
   `/userinfo`, `/jwks`) that authenticates a preconfigured user, verifies the PKCE S256
   verifier and the client secret, and issues a real RS256-signed ID token. It is gated so it
   can never ship: it takes a `DevOnly` acknowledgement, and the runtime refuses a `devStub`
@@ -49,7 +49,7 @@ connect point (both `per_peer`, both over mutual TLS), each edge consumes them, 
 edge holds no OAuth backend, no secret and no token; it only issues the session cookie.
 
 Those two connect points are framework contracts, not app contracts. They live in
-`src/service/contracts/{Identity,Session}.syn` and compile into `SynQtService`, which is
+`src/identity/contracts/{Identity,SessionStore}.syn` and compile into `SynQtIdentity`, which is
 what lets `identity.provider_entity: auth` be a single line in a project's `synqt.yaml`:
 the generated auth `main.cpp` registers the Sources out of the runtime library, and no app
 carries a `shared/Identity.syn`. This suite hosts them exactly as that generated main does.

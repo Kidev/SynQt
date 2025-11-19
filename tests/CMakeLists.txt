@@ -8,7 +8,7 @@
 # you bisect a failure. What this file adds is the whole-tree build, where the runtime
 # libraries are compiled once instead of once per suite. Measured on a 32-core host, from
 # clean: 17 suites configured and built one at a time cost 227 s and 812 object files; this
-# tree costs 18 s and 295, because SynQtService and SynQtClient are built once and because
+# tree costs 18 s and 295, because SynQtEdge and SynQtClient are built once and because
 # 17 configure steps become one.
 #
 # In milestone order, which is the order the framework was built in and the order a failure

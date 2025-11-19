@@ -8,7 +8,7 @@ real `examples/gavel` system (native host kit, with the edge, mesh, and database
 process, driven by native `SynClient`s acting as browsers). The connect-point Sources under
 test are the example's own files.
 
-Run: `./run-fix1.sh` (builds `SynQtService`/`SynQtClient` + the test with a throwaway CA and
+Run: `./run-fix1.sh` (builds `SynQtEdge`/`SynQtClient` + the test with a throwaway CA and
 localhost edge cert generated at configure time, then `ctest`).
 
 `tst_fix1.cpp` verifies:

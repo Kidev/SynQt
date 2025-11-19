@@ -14,11 +14,11 @@ namespace SynQt {
 /// Whether an identity endpoint may be spoken to at all.
 ///
 /// Every one of these URLs carries something that must not be readable in transit or
-/// forgeable on the way back: the token endpoint carries the client secret and returns
+/// forgeable on the way back. The token endpoint carries the client secret and returns
 /// the tokens, the JWKS endpoint returns the keys every ID token is then trusted against
 /// (fetch those over http and anyone on the path chooses who your users are), and the
 /// authorize endpoint is where the browser is sent. So https is required, with one
-/// exception: a loopback host, which is the dev stub provider and cannot be reached from
+/// exception. A loopback host, which is the dev stub provider and cannot be reached from
 /// another machine. `synqt check` reports the same rule before anything runs.
 inline bool isSecureIdentityEndpoint(const QUrl &url)
 {
@@ -33,7 +33,7 @@ inline bool isSecureIdentityEndpoint(const QUrl &url)
 
 /// One configured OAuth2 / OpenID Connect provider. The client_secret is resolved from
 /// the edge environment only (never a literal in synqt.yaml, never in a client target).
-/// A template owns how raw provider fields normalize into the identity object; here that
+/// A template owns how raw provider fields normalize into the identity object. Here that
 /// is expressed as the field names to read (OAuth2 userinfo) or the OIDC ID-token path.
 struct IdentityProviderConfig
 {
@@ -51,10 +51,10 @@ struct IdentityProviderConfig
     bool useIdToken{false};
     QUrl jwksUrl;                  ///< provider signing keys (OIDC)
     QString issuer;                ///< expected iss claim (OIDC)
-    QString audience;              ///< expected aud claim (OIDC); defaults to clientId
+    QString audience;              ///< expected aud claim (OIDC). Defaults to clientId
 
     /// Normalization: which raw fields feed each identity field (userinfo path). Defaults
-    /// suit the generic OAuth2 template; the GitHub template maps the numeric id to sub and
+    /// suit the generic OAuth2 template. The GitHub template maps the numeric id to sub and
     /// falls back to the primary verified address from the emails endpoint.
     QString subField{QStringLiteral("id")};
     QString loginField{QStringLiteral("login")};
@@ -62,7 +62,7 @@ struct IdentityProviderConfig
     QString emailField{QStringLiteral("email")};
     QUrl emailsUrl;                ///< GitHub-style fallback for a private email
 
-    /// A dev-only stub provider (issued by `synqt dev`); it must never run in a shipped
+    /// A dev-only stub provider (issued by `synqt dev`). It must never run in a shipped
     /// edge. The runtime refuses it unless the dev gate is explicitly enabled.
     bool devStub{false};
 };

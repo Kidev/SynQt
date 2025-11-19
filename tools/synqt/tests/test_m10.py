@@ -15,6 +15,7 @@ from pathlib import Path
 import yaml
 
 from synqt import build as buildmod
+from synqt import appmodel
 from synqt import check, config as configmod, doctor, licenses, mesh, newproject, toolchain
 
 
@@ -201,6 +202,64 @@ class LicenseTest(unittest.TestCase):
         text = licenses.generate({"name": "web", "type": "web_edge"},
                                  qt_license_mode="commercial")
         self.assertIn("Commercial", text)
+
+    def test_a_pure_service_names_no_gpl_module_and_no_jwt(self):
+        """The LGPLv3 line has to be a fact about the binary, not a hope.
+
+        `SynQtService` links neither Qt HTTP Server nor Qt Network Authorization, so a
+        relational, cache, document, jobs or plain service entity carries neither, and its
+        file must not claim otherwise either way.
+        """
+        for entity_type in ("relational", "cache", "document", "jobs", "service"):
+            with self.subTest(entity_type):
+                text = licenses.generate({"name": "store", "type": entity_type})
+                self.assertNotIn("Qt HTTP Server", text)
+                self.assertNotIn("Qt Network Authorization", text)
+                self.assertNotIn("jwt-cpp", text)
+                self.assertIn("Effective license of this entity artifact: LGPL-3.0-only",
+                              text)
+
+    def test_the_auth_entity_reports_what_promoting_identity_made_it_link(self):
+        """`identity.provider_entity` is the one thing that makes a service GPLv3.
+
+        Nothing on the entity itself says it runs the login. The project block names it. So
+        the file is generated with the config, and without it the same entity is an ordinary
+        LGPLv3 service, which is what it is in every project that does not promote identity.
+        """
+        auth = {"name": "auth", "type": "service"}
+        config = {"entities": [{"name": "web", "type": "web_edge"}, auth],
+                  "identity": {"provider_entity": "auth",
+                               "providers": [{"name": "github"}]}}
+        text = licenses.generate(auth, config=config)
+        self.assertIn("Qt Network Authorization: GPL-3.0-only", text)
+        self.assertIn("jwt-cpp: MIT", text)
+        self.assertIn("Effective license of this entity artifact: GPL-3.0-only", text)
+        # The edge runs the routes, not the engine, so the auth entity links no HTTP server.
+        self.assertNotIn("Qt HTTP Server", text)
+        self.assertIn("LGPL-3.0-only", licenses.generate(auth))
+
+    def test_the_file_and_the_build_read_the_same_table(self):
+        """A GPLv3-only module is named if and only if the entity links the library with it.
+
+        `licenses.py` and `cmakegen.py` both go through `appmodel.service_library`. This is
+        what stops the two from drifting: the old file keyed the auth obligations off a
+        field nothing wrote, and reported LGPL for entities that were linking HttpServer.
+        """
+        config = {"entities": [{"name": "web", "type": "web_edge"},
+                               {"name": "auth", "type": "service"},
+                               {"name": "database", "type": "relational"}],
+                  "identity": {"provider_entity": "auth",
+                               "providers": [{"name": "github"}]}}
+        for entity in config["entities"]:
+            with self.subTest(entity["name"]):
+                library = appmodel.service_library(config, entity)
+                expected = appmodel.LIBRARY_GPL_MODULES[library]
+                modules = licenses.entity_modules(entity, config=config)
+                self.assertEqual([m for m in modules
+                                  if licenses._MODULE_LICENSE[m] == "GPL-3.0-only"],
+                                 [m for m in modules if m in expected])
+                for module in expected:
+                    self.assertIn(module, modules)
 
 
 class CheckTest(unittest.TestCase):
@@ -424,7 +483,7 @@ class BuildEntitySelectionTest(unittest.TestCase):
         # note test below gives: reaching the compile path needs a resolved Qt toolchain.
         error = subprocess.CalledProcessError(
             returncode=1, cmd=["cmake", "--preset", "host"],
-            stderr="CMake Error at src/service/CMakeLists.txt:29 (message):\n"
+            stderr="CMake Error at src/identity/CMakeLists.txt:29 (message):\n"
                    "  jwt-cpp not found.\n"
                    "-- Configuring incomplete, errors occurred!\n")
         message = buildmod._compile_failure(error, verbose=False)

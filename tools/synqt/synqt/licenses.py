@@ -8,11 +8,15 @@ as entities and providers change (docs/licensing.md). Under open-source Qt the c
 (WASM) and the web edge are GPLv3, pure services are LGPLv3; some Qt add-ons (HTTP Server,
 Network Authorization, Qt Quick 3D/Physics) are GPLv3-only and make their entity GPLv3.
 Under a commercial Qt license none of the GPL terms apply.
+
+The GPLv3-only modules are read off :data:`appmodel.LIBRARY_GPL_MODULES`, keyed by the
+runtime library :func:`appmodel.service_library` gives the entity, which is the same
+function ``cmakegen`` links with. A module cannot appear in one and not the other.
 """
 
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from . import appmodel
 
@@ -35,8 +39,15 @@ _THIRD_PARTY = {
 }
 
 
-def entity_modules(entity: Dict[str, Any], target: str = "wasm") -> List[str]:
-    """The Qt modules an entity links, from its `type:`, its provider, and what it runs."""
+def entity_modules(entity: Dict[str, Any], target: str = "wasm",
+                   config: Optional[Dict[str, Any]] = None) -> List[str]:
+    """The Qt modules an entity links, from its `type:`, its provider, and what it runs.
+
+    `config` is what tells an auth entity apart from any other service, since nothing on
+    the entity itself says so. `identity.provider_entity` names it from the project block.
+    Without it the entity is read as a plain service, which is what it is in every project
+    that does not promote identity.
+    """
     entity_type = appmodel.entity_type(entity)
 
     if entity_type == "client":
@@ -47,17 +58,25 @@ def entity_modules(entity: Dict[str, Any], target: str = "wasm") -> List[str]:
             modules.append("Qt for WebAssembly platform")
         return modules
 
-    modules = ["Qt Core", "Qt Network", "Qt Qml", "Qt RemoteObjects", "Qt WebSockets"]
+    # Every service links the core runtime, and the core runtime pulls in the provider
+    # layer, which carries the bundled SQLite and PostgreSQL providers and therefore Qt Sql
+    # whatever the entity's own type is.
+    modules = ["Qt Core", "Qt Network", "Qt Qml", "Qt RemoteObjects", "Qt WebSockets",
+               "Qt Sql"]
+    # Qt Gui, because the published model is a QStandardItemModel (SynQt::SourceModel, in
+    # SynQtContract): an entity that owns a connect point links it, and one that only
+    # consumes does not. The edge always owns at least the framework's Pages point, and it
+    # runs a QGuiApplication.
+    if entity_type == "web_edge" or (config is not None
+                                     and appmodel.owned_by(config, entity.get("name"))):
+        modules.append("Qt Gui")
     if entity_type == "web_edge":
-        modules += ["Qt Gui", "Qt HTTP Server"]
-    if entity_type == "relational":
-        modules.append("Qt Sql")
-    if entity_type == "api" and entity.get("inbound"):
         modules.append("Qt HTTP Server")
-    # An entity that runs identity/login links Network Authorization (+ HTTP Server for its
-    # callback routes when it is the edge or a dedicated auth entity).
-    if entity.get("identity") or entity_type == "web_edge":
-        modules.append("Qt Network Authorization")
+    # The GPLv3-only modules come from the runtime library this entity links, so the file
+    # cannot claim one the build does not link, or miss one it does. The auth entity
+    # (`identity.provider_entity`) is the case that reads as an ordinary service otherwise.
+    modules += appmodel.LIBRARY_GPL_MODULES[
+        appmodel.service_library(config or {}, entity)]
     # De-duplicate, preserve order.
     seen: List[str] = []
     for module in modules:
@@ -66,15 +85,16 @@ def entity_modules(entity: Dict[str, Any], target: str = "wasm") -> List[str]:
     return seen
 
 
-def entity_third_party(entity: Dict[str, Any]) -> List[str]:
-    libs: List[str] = []
+def entity_third_party(entity: Dict[str, Any],
+                       config: Optional[Dict[str, Any]] = None) -> List[str]:
+    libs: List[str] = ["OpenSSL"]  # the mesh transport is mutual TLS on every link
     provider = (entity.get("provider") or {}).get("name", "")
-    if entity.get("identity") or appmodel.is_edge(entity):
-        libs += ["jwt-cpp", "picojson", "OpenSSL"]
+    # jwt-cpp verifies an OIDC ID token's signature, and it is linked by the same library
+    # that carries the OAuth engine: the edge, and the auth entity when identity is promoted.
+    if appmodel.service_library(config or {}, entity) != "SynQtService":
+        libs += ["jwt-cpp", "picojson"]
     if provider == "mysql":
         libs.append("MariaDB Connector/C")
-    if provider in ("postgres", "mysql") or appmodel.entity_type(entity) == "relational":
-        libs.append("OpenSSL")
     return sorted(set(libs))
 
 
@@ -87,11 +107,12 @@ def effective_license(modules: List[str], qt_license_mode: str = "open_source") 
 
 
 def generate(entity: Dict[str, Any], *, target: str = "wasm",
-             qt_license_mode: str = "open_source") -> str:
+             qt_license_mode: str = "open_source",
+             config: Optional[Dict[str, Any]] = None) -> str:
     """The THIRD-PARTY-LICENSES text for one entity/target."""
     name = entity.get("name", "entity")
-    modules = entity_modules(entity, target)
-    third_party = entity_third_party(entity)
+    modules = entity_modules(entity, target, config)
+    third_party = entity_third_party(entity, config)
     effective = effective_license(modules, qt_license_mode)
 
     lines = [

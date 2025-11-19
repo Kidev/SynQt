@@ -14,11 +14,11 @@ find_package(Qt6 6.11 REQUIRED COMPONENTS
     Core Network Qml RemoteObjects WebSockets HttpServer Test)
 qt_standard_project_setup()
 
-# The edge (SynQtService) and the client runtime (SynQtClient); both share SynQtTransport.
+# The edge (SynQtEdge) and the client runtime (SynQtClient); both share SynQtTransport.
 # Guarded: configured on its own, this suite is what pulls the runtime library in;
 # configured from the tree root, the root has already added it (see tests/CMakeLists.txt).
-if(NOT TARGET SynQtService)
-    add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../../src/service" "${CMAKE_BINARY_DIR}/SynQtService")
+if(NOT TARGET SynQtEdge)
+    add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../../src/edge" "${CMAKE_BINARY_DIR}/SynQtEdge")
 endif()
 if(NOT TARGET SynQtClient)
     add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../../src/client" "${CMAKE_BINARY_DIR}/SynQtClient")
@@ -47,7 +47,7 @@ target_compile_definitions(tst_m6 PRIVATE
 )
 
 target_link_libraries(tst_m6 PRIVATE
-    SynQtService
+    SynQtEdge
     SynQtClient
     Qt6::Core
     Qt6::Network

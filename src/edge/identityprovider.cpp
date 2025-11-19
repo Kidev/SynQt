@@ -159,7 +159,7 @@ bool IdentityProvider::isRemote() const
 void IdentityProvider::attachRemote(QObject *identityReplica)
 {
     m_remote = identityReplica;
-    // The auth entity's answers connect by name into our receiving slots (the Identity
+    // The auth entity's answers connect by name into this object's receiving slots (the Identity
     // Replica is dynamic, so string-based connect as in SessionManager::attachRemote). As
     // with the session cache, this provider must be destroyed while the Replica is still
     // alive, since the Replica frees its runtime metaobject on destruction.
@@ -435,7 +435,7 @@ QByteArray IdentityProvider::buildCookie(const QByteArray &token) const
 {
     QByteArray cookie{m_cookie.name.toUtf8() + "=" + token + "; HttpOnly; Path=/"};
     if (m_cookie.sameSiteNone) {
-        // This is the cookie the measurement in tests/split-origin singles out: it is set on
+        // This is the cookie the measurement in tests/split-origin singles out. It is set on
         // the callback, a top-level navigation onto the edge, so marking it `Partitioned`
         // files it under the edge's partition where the client site can never read it. The
         // attribute is therefore absent here for a sharper reason than in WebEdge, and it

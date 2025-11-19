@@ -51,11 +51,11 @@ endif()
 # The edge server (host only; not built for WASM)
 if(NOT EMSCRIPTEN)
     find_package(Qt6 6.11 REQUIRED COMPONENTS Network RemoteObjects WebSockets HttpServer)
-    add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../../../src/service" "${CMAKE_BINARY_DIR}/SynQtService")
+    add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../../../src/edge" "${CMAKE_BINARY_DIR}/SynQtEdge")
 
     qt_add_executable(counter-edge "${CMAKE_CURRENT_SOURCE_DIR}/../edge/main.cpp")
     synqt_add_contract(counter-edge ROLE source SYN "${CMAKE_CURRENT_SOURCE_DIR}/../shared/Counter.syn")
     target_link_libraries(counter-edge PRIVATE
-        SynQtService Qt6::Core Qt6::Gui Qt6::Network Qt6::Qml
+        SynQtEdge Qt6::Core Qt6::Network Qt6::Qml
         Qt6::RemoteObjects Qt6::WebSockets Qt6::HttpServer)
 endif()

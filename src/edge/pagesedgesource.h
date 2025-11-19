@@ -33,7 +33,7 @@ class PagesEdgeSource : public PagesSimpleSource
 
 public:
     /// store and service are shared across every connection and outlive this
-    /// instance (owned by WebEdge); caller is this connection's own and must never
+    /// instance (owned by WebEdge). Caller is this connection's own and must never
     /// be shared with another connection's Source.
     PagesEdgeSource(PageStore *store, PagesService *service, Caller *caller,
                     QObject *parent = nullptr);

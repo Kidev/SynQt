@@ -421,10 +421,10 @@ def scopes_hierarchical(config: Dict[str, Any]) -> bool:
 #
 # Everything under here answers one question: what did the project DECLARE? Never "what
 # does the framework do when the project declares nothing": the defaults live once, in
-# `WebEdgeConfig` (src/service/webedgeconfig.h) and `IdentityConfig`
-# (src/service/identityconfig.h), and a second copy here would be a second thing to keep
+# `WebEdgeConfig` (src/edge/webedgeconfig.h) and `IdentityConfig`
+# (src/identity/identityconfig.h), and a second copy here would be a second thing to keep
 # in step and a silent way for the generated edge to disagree with the struct it fills.
-# So a key the project does not set is simply absent from what these return, and the
+# So a key the project does not set is absent from what these return, and the
 # generated main then says nothing about it and lets the struct's own default stand.
 # `env_file` is the one that does supply a default, because no struct holds it: where an
 # entity's secrets live is a project-layout convention, not a runtime setting.
@@ -703,7 +703,7 @@ def identity_refresh(config: Dict[str, Any]) -> Dict[str, Any]:
 # synthesized here rather than hand-written into every project that wants them.
 #
 # They are FRAMEWORK connect points, and that is the one way they differ from a declared
-# one: their contracts ship in the runtime library (src/service/contracts/) rather than in
+# one: their contracts ship in the runtime library (src/identity/contracts/) rather than in
 # the owning entity's folder, so nothing generates or compiles an app-side copy for them.
 # That is what `is_framework_point` marks, and the two emitters that would otherwise reach
 # for the owner's `<Contract>.syn` filter on it.
@@ -725,13 +725,50 @@ def is_framework_point(connect_point: Dict[str, Any]) -> bool:
     return bool(connect_point.get("framework"))
 
 
+# Which SynQt runtime library a service entity links
+#
+# Three, not one, and the line between them is the license. Qt HTTP Server and Qt Network
+# Authorization are GPLv3-only, so anything that links one is GPLv3: the web edge's HTTP
+# surface lives in SynQtEdge and the OAuth engine in SynQtIdentity, and a relational, cache,
+# document, jobs or plain service entity links neither. That is what makes the LGPLv3 line
+# in its generated THIRD-PARTY-LICENSES a fact about the binary rather than a claim about
+# intent (docs/licensing.md). `licenses.py` and `cmakegen.py` both read this, so what the
+# file says and what the build links cannot drift apart.
+SERVICE_LIBRARIES: Dict[str, str] = {
+    "SynQtService": "src/service",
+    "SynQtIdentity": "src/identity",
+    "SynQtEdge": "src/edge",
+}
+
+# GPLv3-only Qt modules, by the library that links them.
+LIBRARY_GPL_MODULES: Dict[str, List[str]] = {
+    "SynQtService": [],
+    "SynQtIdentity": ["Qt Network Authorization"],
+    "SynQtEdge": ["Qt Network Authorization", "Qt HTTP Server"],
+}
+
+
+def service_library(config: Dict[str, Any], entity: Dict[str, Any]) -> str:
+    """The SynQt runtime library this service entity links, and links transitively from.
+
+    The edge serves HTTP and runs the login routes; the auth entity
+    (`identity.provider_entity`) runs the OAuth engine but no HTTP surface, because the
+    routes stay on the edge and reach it over the mesh; everything else needs neither.
+    """
+    if is_edge(entity):
+        return "SynQtEdge"
+    if entity.get("name") and provider_entity(config) == entity.get("name"):
+        return "SynQtIdentity"
+    return "SynQtService"
+
+
 def app_points(points: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Only the connect points whose contract is one of the app's own files.
 
     Everything that reaches for a project `.syn` (the CMake contract calls, the edge's
     generated consumer surface) goes through this, because a framework point has no such
-    file and never will: its contract is in src/service/contracts/, compiled into
-    SynQtService.
+    file and never will: its contract ships with the runtime library that owns it
+    (src/identity/contracts/ for identity and sessions, src/edge/contracts/ for pages).
     """
     return [cp for cp in points if not is_framework_point(cp)]
 
