@@ -1,7 +1,7 @@
 # Entities
 
 This page is the depth reference for the entity model: what an entity is, the
-kinds and capabilities, the official blueprints SynQt ships so common needs are
+types, the official entity types SynQt ships so common needs are
 one command away, and how to build a custom entity. It assumes the programming
 model in [programming model](programming-model.md) and the topology config in
 [project layout and configuration](project-layout-and-config.md).
@@ -13,8 +13,8 @@ An entity is a unit of a SynQt system with:
 - a unique name (its identity in the topology and, for cross host links, the
   subject of its mesh certificate),
 - a folder of its own,
-- a kind (`client` or `service`) and optional capabilities,
-- a binary of its own (WebAssembly for a client, native for a service),
+- a type (one word: what it is),
+- a binary of its own (WebAssembly for a client, native for everything else),
 - a set of connect points it owns and a set it consumes,
 - a place in the deny by default topology and a transport binding.
 
@@ -33,7 +33,7 @@ flowchart LR
   user(("browser<br/>user"))
   user -->|"wss + session<br/>(TLS, origin checked)"| web
   subgraph internet["public"]
-    web["<span style='color:#1a1a2e'>web edge<br/>(web_edge capability)</span>"]
+    web["<span style='color:#1a1a2e'>web edge<br/>(type: web_edge)</span>"]
   end
   subgraph private["private network (mesh: mutual TLS or local socket)"]
     db["<span style='color:#1a1a2e'>database<br/>entity</span>"]
@@ -52,12 +52,16 @@ flowchart LR
 
 Only the web edge faces the internet. Every other entity is private and reachable
 only over the authenticated mesh, by the entities the topology allows. A database
-entity's actual engine sits behind a provider ([Official blueprints](#official-blueprints)
+entity's engine sits behind a provider ([Official entity types](#official-entity-types)
 below and [providers](providers.md)).
 
-## Kinds and capabilities
+## The one field: `type`
 
-Kind `client`:
+One field says it. `type:` decides the folder the entity lives in, the helper the runtime
+puts in its QML, whether it faces the internet, and whether it is compiled native or to
+WebAssembly. An entity that names no type is a `service`.
+
+`type: client`:
 
 - Compiled to WebAssembly, runs in the browser, untrusted, connect only.
 - Reaches exactly one web edge over wss. Never participates in the mesh.
@@ -65,24 +69,25 @@ Kind `client`:
   admin app) are a later version feature; the model already allows naming more
   than one.
 
-Kind `service`:
+`type: web_edge`:
 
-- A native binary. Can listen and connect. Runs its own Qt event loop.
-- Carries zero or more capabilities. The only capability defined today is
-  `web_edge`: the entity serves a client bundle and accepts that client's wss
-  connection. It is the only entity exposed to the internet.
-- A service with no capabilities is an internal service, reachable only over the
-  mesh by the entities the topology allows.
+- A native binary that serves the client bundle and accepts that client's wss
+  connection. It is the only entity exposed to the internet, and a project has one.
 
-A typical system: one `client`, one `web` (web edge), and one or more internal
-services (database, cache, document store, gateway, jobs, auth).
+Every other type is a native binary that listens and connects on the mesh only, reachable
+by the entities the topology allows and by nobody else. `relational`, `document` and
+`cache` each come with an engine behind a provider; `api` and `jobs` come with a helper and
+no engine; `service` is the plain one, with neither.
 
-## Official blueprints
+A typical system: one `client`, one `web_edge`, and one or more internal entities
+(database, cache, document store, api, jobs, auth).
 
-A blueprint is a prebuilt entity template you instantiate with
-`synqt add entity <name> --blueprint <kind>`. It scaffolds the entity folder, its
-config block, its contracts, and its secure defaults. Blueprints are part of the
-framework and are reviewed; using one does not pull in an unaudited third party.
+## Official entity types
+
+An entity type is a prebuilt entity you instantiate with
+`synqt add entity <name> --type <type>`. It scaffolds the entity folder, its
+config block, its contracts, and its secure defaults. The types are part of the
+framework and are reviewed. Using one does not pull in an unaudited third party.
 
 ### Persistence (the database entity)
 
@@ -94,13 +99,13 @@ Backend: a provider. The default provider is Qt SQL with the bundled SQLite driv
 in Qt, running no separate daemon. This keeps the "no third party app" promise out
 of the box: the storage is an embedded library inside a SynQt entity, not a separate
 server you operate. The same entity can instead be backed by a third party engine
-(PostgreSQL, MySQL, and others, or a document engine through the document blueprint)
+(PostgreSQL, MySQL, and others, or a document engine through the document entity type)
 by selecting a provider, with the connect points and every consumer unchanged. The
 provider system, the available engines, and their security are the subject of
 [providers](providers.md). This section describes the default embedded provider, which
 is what a fresh project uses with no configuration.
 
-The blueprint provides a `Db` helper exposed to the entity's QML for parameterized
+The type provides a `Db` helper exposed to the entity's QML for parameterized
 queries (always parameterized, never string built, to prevent SQL injection). With
 the SQLite provider it talks to the embedded engine; with another relational
 provider it talks to that engine through the same helper. The connect point's
@@ -140,25 +145,25 @@ Items {
 }
 ```
 
-Schema: the blueprint reads `db/relational/store/schema.sql` at startup and applies
-migrations. Migrations are forward only and versioned; the blueprint records the
+Schema: the type reads `db/relational/store/schema.sql` at startup and applies
+migrations. Migrations are forward only and versioned. The type records the
 applied version in a metadata table.
 
-Operational notes that the blueprint enforces, because they are real SQLite
+Operational notes that the type enforces, because they are real SQLite
 constraints documented by Qt:
 
 - Single writer. SQLite blocks under concurrent write transactions and will retry
-  until a busy timeout. The blueprint serializes writes on the entity's event loop
+  until a busy timeout. The entity type serializes writes on the entity's event loop
   (which owns the connection; Qt SQL requires a connection be used only from the
   thread that created it) and sets `busy_timeout_ms` from config.
 - WAL mode. `journal_mode: wal` (the default) allows concurrent readers with a
   single writer and improves throughput.
 - Connection ownership. The entity owns one `QSqlDatabase` connection on its main
   thread. Heavy read work that must not block the writer can be delegated to a read
-  only connection in a worker, but the blueprint keeps a single connection by default
+  only connection in a worker, but the type keeps a single connection by default
   for simplicity and correctness.
 
-Security: the database entity has no `web_edge` capability, binds private or local
+Security: the database entity is not a `web_edge`, binds private or local
 only, authorizes the calling entity in every slot, and holds its own secrets (the
 data file path, any encryption key) in its own `.env`. There is no path to it from
 the browser except through an edge connect point that the edge authorizes.
@@ -181,7 +186,7 @@ restart does not lose everything. No separate cache server is run.
 
 Contract shape (illustrative): `get(string key)`, `set(string key, var value, int
 ttlSeconds)`, `del(string key)`, `incr(string key)`, matching the `Cache` helper the
-blueprint injects ([runtime API](runtime-api.md#cache-ephemeral-key-value)). The cache entity authorizes
+type injects ([runtime API](runtime-api.md#cache-ephemeral-key-value)). The cache entity authorizes
 the calling entity and bounds value sizes and key counts to prevent memory
 exhaustion.
 
@@ -195,18 +200,18 @@ Purpose: durable storage for records that do not want a fixed set of columns
 entity, reachable only by the entities you authorize.
 
 Backend: a provider, exactly as for persistence. The default is an embedded in
-process store, so the blueprint runs with nothing to install; selecting the
+process store, so the type runs with nothing to install; selecting the
 `mongodb` provider moves the same entity onto a MongoDB server, with the connect
 points and every consumer unchanged. The entity's QML calls the `Docs` helper the
 runtime injects, passing the collection, the document and the filter as maps, never
 as an engine query string, which is what keeps a Source working across that swap.
 
-When to use it over persistence: a document store buys you shape freedom, and gives
-up the relational guarantees (joins, foreign keys, a schema the engine enforces) the
-relational blueprint is there for. Reach for it when the records really do differ
-from each other, not to skip writing a schema.
+A document store buys you shape freedom over persistence, and gives up the relational
+guarantees (joins, foreign keys, a schema the engine enforces) the relational entity
+type is there for. Use it when the records differ from each other, and not to skip
+writing a schema.
 
-Security: identical in kind to the relational entity. No `web_edge` capability, a
+Security: identical in shape to the relational entity. Not a `web_edge`, a
 private or local only bind, the calling entity authorized in every slot, and its
 credentials in its own `.env`.
 
@@ -233,7 +238,7 @@ consume external HTTP APIs on behalf of the system.
 
 Backend: QHttpServer for the inbound API surface (with the same TLS, origin, and
 auth discipline as the web edge, plus API key or token auth for machine callers),
-and QNetworkAccessManager for outbound calls to third party APIs. The blueprint
+and QNetworkAccessManager for outbound calls to third party APIs. The entity type
 exposes outbound HTTP to the entity's QML as an `Http` helper: a promise returning
 wrapper over QNetworkAccessManager (`Http.get(url).then(...)`, and the other verbs
 likewise) that enforces TLS verification and refuses plaintext in release, so
@@ -244,7 +249,7 @@ rest of the system never speaks raw HTTP to the outside.
 Security: a gateway that accepts inbound public traffic carries the `web_edge`
 style exposure and must be treated like the edge (public TLS, strict input
 validation, rate limiting, authentication of callers). A gateway that only makes
-outbound calls is internal only. The blueprint defaults to outbound only and makes
+outbound calls is internal only. The type defaults to outbound only and makes
 inbound exposure an explicit, reviewed choice.
 
 ### Jobs (scheduled and background work)
@@ -261,7 +266,7 @@ runs each job with only the connect point access its work requires.
 
 ## Building a custom entity
 
-When no blueprint fits, `synqt add entity <name>` scaffolds a bare service entity:
+When no other type fits, `synqt add entity <name>` scaffolds a bare service entity:
 a folder, a config block, an empty owned connect point, and its mesh binding. You
 then:
 

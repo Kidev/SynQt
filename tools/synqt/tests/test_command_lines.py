@@ -120,7 +120,7 @@ def _config(*entities):
 
 
 def test_a_project_with_no_client_builds_only_its_services():
-    config = _config({"name": "web", "kind": "service"}, {"name": "db", "kind": "service"})
+    config = _config({"name": "web", "type": "service"}, {"name": "db", "type": "service"})
     entity, host, client = buildmod._targets_for(config, "all")
     assert entity is None
     assert host == ["web", "db"]
@@ -128,8 +128,8 @@ def test_a_project_with_no_client_builds_only_its_services():
 
 
 def test_a_browser_client_is_built_by_the_wasm_kit_and_not_with_the_services():
-    config = _config({"name": "app", "kind": "client", "targets": ["wasm"]},
-                     {"name": "web", "kind": "service"})
+    config = _config({"name": "app", "type": "client", "targets": ["wasm"]},
+                     {"name": "web", "type": "service"})
     entity, host, client = buildmod._targets_for(config, "wasm")
     assert entity["name"] == "app"
     assert host == ["web"]
@@ -139,8 +139,8 @@ def test_a_browser_client_is_built_by_the_wasm_kit_and_not_with_the_services():
 def test_a_desktop_client_is_built_by_the_host_kit_and_joins_the_services():
     """It is the same QML, but the desktop target links the host kit, so it belongs to the
     build the services are in rather than to the one Emscripten drives."""
-    config = _config({"name": "app", "kind": "client", "targets": ["wasm", "desktop"]},
-                     {"name": "web", "kind": "service"})
+    config = _config({"name": "app", "type": "client", "targets": ["wasm", "desktop"]},
+                     {"name": "web", "type": "service"})
     _, host, client = buildmod._targets_for(config, "all")
     assert host == ["web", "app"]
     assert set(client) == {"wasm", "desktop"}
@@ -182,13 +182,13 @@ def test_a_signed_tree_anywhere_else_needs_nothing_further(monkeypatch):
 def test_a_configuration_or_contract_change_rebuilds_both_sides(tmp_path):
     """Both sides read them, so attributing either to one side would leave the other
     running against a topology or a contract that has moved."""
-    config = _config({"name": "app", "kind": "client"}, {"name": "web", "kind": "service"})
+    config = _config({"name": "app", "type": "client"}, {"name": "web", "type": "service"})
     for changed in (tmp_path / "synqt.yaml", tmp_path / "shared" / "Auction.syn"):
         assert runmod._categorize({changed}, tmp_path, config) == (True, True)
 
 
 def test_an_entitys_qml_is_attributed_to_that_entitys_side(tmp_path):
-    config = _config({"name": "app", "kind": "client"}, {"name": "web", "kind": "service"})
+    config = _config({"name": "app", "type": "client"}, {"name": "web", "type": "service"})
     assert runmod._categorize({tmp_path / "app" / "Main.qml"}, tmp_path, config) == \
         (False, True)
     assert runmod._categorize({tmp_path / "web" / "Auction.qml"}, tmp_path, config) == \
@@ -197,8 +197,8 @@ def test_an_entitys_qml_is_attributed_to_that_entitys_side(tmp_path):
 
 def test_a_file_belonging_to_nothing_in_particular_rebuilds_both_sides(tmp_path):
     """A file outside the tree, or in a directory no entity owns, is a change nobody can
-    attribute; rebuilding both is the answer that cannot be wrong."""
-    config = _config({"name": "app", "kind": "client"}, {"name": "web", "kind": "service"})
+    attribute. Rebuilding both is the answer that cannot be wrong."""
+    config = _config({"name": "app", "type": "client"}, {"name": "web", "type": "service"})
     assert runmod._categorize({Path("/elsewhere/Main.qml")}, tmp_path, config) == (True, True)
     assert runmod._categorize({tmp_path / "scratch" / "Main.qml"}, tmp_path, config) == \
         (True, True)

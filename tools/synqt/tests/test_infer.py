@@ -177,16 +177,16 @@ def test_a_dynamically_indexed_accessor_is_recorded_as_dynamic():
 
 
 def test_the_accessor_for_a_service_is_the_owner_entity_capitalised():
-    config = {"entities": [{"name": "web", "kind": "service", "capability": "web_edge"},
-                           {"name": "database", "kind": "service"}],
+    config = {"entities": [{"name": "web", "type": "web_edge"},
+                           {"name": "database", "type": "service"}],
               "connect_points": [{"name": "scores", "owner": "database",
                                   "consumers": ["web"]}]}
     assert infer.accessors_for(config, "web")["Database"] == "database"
 
 
 def test_the_client_reaches_its_edge_through_Server():
-    config = {"entities": [{"name": "client", "kind": "client"},
-                           {"name": "web", "kind": "service", "capability": "web_edge"}],
+    config = {"entities": [{"name": "client", "type": "client"},
+                           {"name": "web", "type": "web_edge"}],
               "connect_points": []}
     assert infer.accessors_for(config, "client")["Server"] == "web"
 
@@ -212,8 +212,8 @@ def _project(tmp_path):
         project:
           name: gavel
         """), encoding="utf-8")
-    return {"entities": [{"name": "app", "kind": "client", "targets": ["wasm"]},
-                         {"name": "edge", "kind": "service", "capability": "web_edge"}],
+    return {"entities": [{"name": "app", "type": "client", "targets": ["wasm"]},
+                         {"name": "edge", "type": "web_edge"}],
             "connect_points": [{"name": "auction", "contract": "Auction",
                                 "owner": "edge", "consumers": ["app"]}]}
 

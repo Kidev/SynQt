@@ -179,35 +179,35 @@ class MeshTest(unittest.TestCase):
 
 class LicenseTest(unittest.TestCase):
     def test_client_wasm_is_gplv3_with_conveyance_note(self):
-        text = licenses.generate({"name": "client", "kind": "client"}, target="wasm")
+        text = licenses.generate({"name": "client", "type": "client"}, target="wasm")
         self.assertIn("Qt for WebAssembly platform: GPL-3.0-only", text)
         self.assertIn("Effective license of this entity artifact: GPL-3.0-only", text)
         self.assertIn("conveyed to every visitor", text)
 
     def test_desktop_client_is_lgplv3(self):
-        text = licenses.generate({"name": "client", "kind": "client"}, target="desktop")
+        text = licenses.generate({"name": "client", "type": "client"}, target="desktop")
         self.assertNotIn("WebAssembly platform", text)
         self.assertIn("LGPL-3.0-only", text)
 
     def test_web_edge_is_gplv3_pure_service_is_lgplv3(self):
-        edge = licenses.generate({"name": "web", "capability": "web_edge"})
+        edge = licenses.generate({"name": "web", "type": "web_edge"})
         self.assertIn("Qt HTTP Server: GPL-3.0-only", edge)
         self.assertIn("Effective license of this entity artifact: GPL-3.0-only", edge)
-        db = licenses.generate({"name": "database", "kind": "service", "blueprint": "relational"})
+        db = licenses.generate({"name": "database", "type": "relational"})
         self.assertIn("Qt Sql: LGPL-3.0-only", db)
         self.assertIn("Effective license of this entity artifact: LGPL-3.0-only", db)
 
     def test_commercial_mode(self):
-        text = licenses.generate({"name": "web", "capability": "web_edge"},
+        text = licenses.generate({"name": "web", "type": "web_edge"},
                                  qt_license_mode="commercial")
         self.assertIn("Commercial", text)
 
 
 class CheckTest(unittest.TestCase):
     def _base(self):
-        return {"entities": [{"name": "client", "kind": "client"},
-                             {"name": "web", "kind": "service", "capability": "web_edge"},
-                             {"name": "database", "kind": "service", "blueprint": "relational"}]}
+        return {"entities": [{"name": "client", "type": "client"},
+                             {"name": "web", "type": "web_edge"},
+                             {"name": "database", "type": "relational"}]}
 
     def test_client_consuming_a_non_edge_connect_point_fails(self):
         config = self._base()
@@ -331,9 +331,9 @@ class NewBuildDoctorTest(unittest.TestCase):
         root = self.parent / "app"
         config = configmod.load(root)
         config.setdefault("entities", []).extend([
-            {"name": "store", "kind": "service", "provider": {"name": "mysql"}},
-            {"name": "warehouse", "kind": "service", "provider": {"name": "postgres"}},
-            {"name": "hot", "kind": "service", "provider": {"name": "redis"}},
+            {"name": "store", "type": "service", "provider": {"name": "mysql"}},
+            {"name": "warehouse", "type": "service", "provider": {"name": "postgres"}},
+            {"name": "hot", "type": "service", "provider": {"name": "redis"}},
         ])
         (root / "synqt.yaml").write_text(yaml.safe_dump(config, sort_keys=False))
 
@@ -377,8 +377,8 @@ class NewBuildDoctorTest(unittest.TestCase):
             (drivers / stem).write_bytes(b"")
         config = configmod.load(root)
         config.setdefault("entities", []).extend([
-            {"name": "warehouse", "kind": "service", "provider": {"name": "postgres"}},
-            {"name": "store", "kind": "service", "provider": {"name": "mysql"}},
+            {"name": "warehouse", "type": "service", "provider": {"name": "postgres"}},
+            {"name": "store", "type": "service", "provider": {"name": "mysql"}},
         ])
         (root / "synqt.yaml").write_text(yaml.safe_dump(config, sort_keys=False))
 

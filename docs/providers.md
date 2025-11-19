@@ -2,7 +2,7 @@
 
 An entity already hides its backend behind a typed connect point: consumers call
 `Store.items.insert(...)` and never know or touch what stores the data. This
-document makes that backend pluggable. A blueprint defines a small backend facing
+document makes that backend pluggable. An entity type defines a small backend facing
 interface; a provider implements it for a specific engine. The default provider is
 SynQt's own embedded engine and needs no configuration. A third party engine
 (PostgreSQL, MySQL, MongoDB, Redis, or your own) is selected by one config value
@@ -54,7 +54,7 @@ provider and its config, and nothing else.
 
 ## Blueprints define a provider family and interface
 
-Each blueprint targets a family of engines and defines one backend interface that
+Each of them targets a family of engines and defines one backend interface that
 every provider in that family implements. A provider declares which family it
 serves.
 
@@ -102,13 +102,13 @@ framework headers):
 - Cache: `connect()`, `health()`, `get(key)`, `set(key, value, ttl)`, `del(key)`,
   `incr(key)`, `expire(key, ttl)`.
 
-The entity's QML never holds the interface itself. Each blueprint exposes one helper,
+The entity's QML never holds the interface itself. Each type exposes one helper,
 injected into every owned connect point Source by the entity runtime: `Db` for
 persistence, `Docs` for document, `Cache` for cache (and, outside the provider
 families, `Http` for a gateway and `Jobs` for a jobs entity). The helper forwards to
 whichever provider the config selected, which is why the Source never names an engine.
-Every member of every helper is listed under [the blueprint
-helpers](runtime-api.md#service-the-blueprint-helpers).
+Every member of every helper is listed under [the type
+helpers](runtime-api.md#service-the-type-helpers).
 
 ## Bundled providers, and how honest each one is
 
@@ -203,8 +203,8 @@ provider. This is the common case and needs nothing more.
 ```yaml
 entities:
   - name: store
-    kind: service
-    blueprint: relational         # provider defaults to sqlite (embedded)
+    type: service
+    type: relational              # provider defaults to sqlite (embedded)
     settings:
       file: db/relational/store/data/app.db
       journal_mode: wal
@@ -217,11 +217,10 @@ points, the contracts, and every consumer stay identical.
 ```yaml
 entities:
   - name: store
-    kind: service
-    blueprint: relational
+    type: relational
     provider:
       name: postgres
-      host: db.internal            # a private address, not public
+      host: db.internal            # a private address, never public
       port: 5432
       database: app
       user: app
@@ -231,14 +230,13 @@ entities:
       pool_size: 8
 ```
 
-Expanded, document engine. A different blueprint, a third party engine, same
+Expanded, document engine. A different type, a third party engine, same
 masking.
 
 ```yaml
 entities:
   - name: docs
-    kind: service
-    blueprint: document
+    type: document
     provider:
       name: mongodb
       uri: env:MONGODB_URI         # full connection string with credentials, from env
@@ -251,8 +249,7 @@ Expanded, cache engine.
 ```yaml
 entities:
   - name: cache
-    kind: service
-    blueprint: cache
+    type: cache
     provider:
       name: redis
       host: cache.internal
@@ -349,7 +346,7 @@ not weaken its boundary for it.
 
 ```cli
 synqt providers                           # List available providers per family.
-synqt add entity db --blueprint relational --provider postgres
+synqt add entity db --type relational --provider postgres
                                            # Scaffold an entity with a chosen provider,
                                            # a provider config stub, and .env.example
                                            # entries for its secrets.

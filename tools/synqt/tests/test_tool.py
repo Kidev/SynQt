@@ -149,9 +149,9 @@ class ManifestTest(unittest.TestCase):
     def test_manifest_orders_owners_first_and_only_edge_is_public(self):
         config = {
             "entities": [
-                {"name": "client", "kind": "client"},
-                {"name": "web", "kind": "service", "capability": "web_edge"},
-                {"name": "database", "kind": "service"},
+                {"name": "client", "type": "client"},
+                {"name": "web", "type": "web_edge"},
+                {"name": "database", "type": "service"},
             ],
             "connect_points": [
                 {"name": "items", "owner": "database", "consumers": ["web"]}],
@@ -279,8 +279,8 @@ class AppGenTest(unittest.TestCase):
             "project": {"name": "shop", "qt_version": "6.11.1"},
             "scopes": {"order": ["anonymous", "user"]},
             "entities": [
-                {"name": "client", "kind": "client", "targets": ["wasm"]},
-                {"name": "web", "kind": "service", "capability": "web_edge"},
+                {"name": "client", "type": "client", "targets": ["wasm"]},
+                {"name": "web", "type": "web_edge"},
             ],
             "connect_points": [
                 {"name": "counter", "contract": "Counter", "owner": "web",
@@ -310,7 +310,7 @@ class AppGenTest(unittest.TestCase):
         # build and Silent in a release build; so console.log works in dev, stripped in prod.
         config = {
             "project": {"name": "shop", "qt_version": "6.11.1"},
-            "entities": [{"name": "client", "kind": "client", "targets": ["wasm"]}],
+            "entities": [{"name": "client", "type": "client", "targets": ["wasm"]}],
         }
         client_main = maingen.render_client_main(config, appmodel.qml_uri(config["project"]["name"]))
         self.assertIn('#include "clientlogging.h"', client_main)
@@ -322,7 +322,7 @@ class AppGenTest(unittest.TestCase):
         config = {
             "project": {"name": "shop", "qt_version": "6.11.1"},
             "build": {"client_logging": "none"},
-            "entities": [{"name": "client", "kind": "client", "targets": ["wasm"]}],
+            "entities": [{"name": "client", "type": "client", "targets": ["wasm"]}],
         }
         client_main = maingen.render_client_main(config, appmodel.qml_uri(config["project"]["name"]))
         self.assertIn(
@@ -339,7 +339,7 @@ class AppGenTest(unittest.TestCase):
         config = {
             "project": {"name": "shop", "qt_version": "6.11.1"},
             "router": {"fallback": "/c//"},
-            "entities": [{"name": "client", "kind": "client", "targets": ["wasm"]}],
+            "entities": [{"name": "client", "type": "client", "targets": ["wasm"]}],
         }
         client_main = maingen.render_client_main(config, appmodel.qml_uri(config["project"]["name"]))
         self.assertIn('config.routerFallback = QStringLiteral("/c");', client_main)
@@ -353,8 +353,8 @@ class AppGenTest(unittest.TestCase):
             "project": {"name": "gate", "qt_version": "6.11.1"},
             "scopes": {"order": ["anonymous", "user", "moderator"]},
             "entities": [
-                {"name": "client", "kind": "client", "targets": ["wasm"]},
-                {"name": "web", "kind": "service", "capability": "web_edge"},
+                {"name": "client", "type": "client", "targets": ["wasm"]},
+                {"name": "web", "type": "web_edge"},
             ],
         }
         uri = appmodel.qml_uri(base["project"]["name"])
@@ -377,9 +377,9 @@ class AppGenTest(unittest.TestCase):
             "project": {"name": "gavel", "qt_version": "6.11.1"},
             "scopes": {"order": ["anonymous", "user"]},
             "entities": [
-                {"name": "client", "kind": "client", "targets": ["wasm"]},
-                {"name": "web", "kind": "service", "capability": "web_edge"},
-                {"name": "database", "kind": "service", "blueprint": "relational"},
+                {"name": "client", "type": "client", "targets": ["wasm"]},
+                {"name": "web", "type": "web_edge"},
+                {"name": "database", "type": "relational"},
             ],
             "connect_points": [
                 {"name": "auction", "contract": "Auction", "owner": "web",
@@ -411,7 +411,7 @@ class AppGenTest(unittest.TestCase):
             "project": {"name": "gavel", "qt_version": "6.11.1"},
             "scopes": {"order": ["anonymous", "user"]},
             "entities": [
-                {"name": "database", "kind": "service", "blueprint": "relational"},
+                {"name": "database", "type": "relational"},
             ],
             "connect_points": [
                 {"name": "ledger", "contract": "Ledger", "owner": "database",
@@ -429,9 +429,9 @@ class AppGenTest(unittest.TestCase):
             "project": {"name": "gavel", "qt_version": "6.11.1"},
             "scopes": {"order": ["anonymous", "user"]},
             "entities": [
-                {"name": "client", "kind": "client", "targets": ["wasm"]},
-                {"name": "web", "kind": "service", "capability": "web_edge"},
-                {"name": "database", "kind": "service", "blueprint": "relational"},
+                {"name": "client", "type": "client", "targets": ["wasm"]},
+                {"name": "web", "type": "web_edge"},
+                {"name": "database", "type": "relational"},
             ],
             "connect_points": [],
         }
@@ -445,8 +445,8 @@ class AppGenTest(unittest.TestCase):
             "project": {"name": "shop", "qt_version": "6.11.1"},
             "scopes": {"order": ["anonymous", "user"]},
             "entities": [
-                {"name": "client", "kind": "client", "targets": ["wasm"]},
-                {"name": "web", "kind": "service", "capability": "web_edge"},
+                {"name": "client", "type": "client", "targets": ["wasm"]},
+                {"name": "web", "type": "web_edge"},
             ],
             "connect_points": [
                 {"name": "counter", "contract": "Counter", "owner": "web",
@@ -480,8 +480,8 @@ class AppGenTest(unittest.TestCase):
             "project": {"name": "arena", "qt_version": "6.11.1"},
             "scopes": {"order": ["anonymous", "player"]},
             "entities": [
-                {"name": "client", "kind": "client", "targets": ["wasm"]},
-                {"name": "web", "kind": "service", "capability": "web_edge"},
+                {"name": "client", "type": "client", "targets": ["wasm"]},
+                {"name": "web", "type": "web_edge"},
             ],
             "connect_points": [
                 {"name": "arena", "contract": "Arena", "owner": "web",
@@ -492,9 +492,9 @@ class AppGenTest(unittest.TestCase):
         self.assertIn('QStringLiteral("/web/web/World.qml")', edge_main)
         self.assertIn('"SynQt", 1, 0, "World"', edge_main)
         self.assertIn("#include <QUrl>", edge_main)
-        # A service that declares a singleton gains a --qml-dir and registers it too; a
+        # A service that declares a singleton gains a --qml-dir and registers it too. A
         # service without one stays minimal (no qml-dir option, no registration).
-        svc = {"name": "sim", "kind": "service"}
+        svc = {"name": "sim", "type": "service"}
         with_singleton = maingen.render_service_main(config, svc, ["World"])
         self.assertIn("qmlRegisterSingletonType", with_singleton)
         self.assertIn("qml-dir", with_singleton)
@@ -674,9 +674,9 @@ class SourceWatcherTest(unittest.TestCase):
     def test_categorize_routes_changes_to_the_right_side(self):
         root = Path("/proj")
         config = {"entities": [
-            {"name": "client", "kind": "client"},
-            {"name": "web", "kind": "service", "capability": "web_edge"},
-            {"name": "database", "kind": "service"}]}
+            {"name": "client", "type": "client"},
+            {"name": "web", "type": "web_edge"},
+            {"name": "database", "type": "service"}]}
         # A client QML edit rebuilds only the client.
         self.assertEqual(
             runmod._categorize({root / "client" / "Main.qml"}, root, config), (False, True))

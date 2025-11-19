@@ -73,7 +73,7 @@ from pathlib import Path
 
 import yaml
 
-from synqt import appgen, build, presets
+from synqt import appgen, appmodel, build, presets
 
 app, repo, edge_url = Path(sys.argv[1]), sys.argv[2], sys.argv[3]
 config = yaml.safe_load((app / "synqt.yaml").read_text())
@@ -81,7 +81,7 @@ config = yaml.safe_load((app / "synqt.yaml").read_text())
 # Turn the WASM-only client into a dual wasm+desktop target and give the desktop build an edge
 # URL to bake in. This is the one config change docs/desktop.md says a desktop client needs.
 for entity in config["entities"]:
-    if entity.get("kind") == "client":
+    if appmodel.is_client(entity):
         entity["targets"] = ["wasm", "desktop"]
 config.setdefault("build", {}).setdefault("desktop", {})["edge_url"] = edge_url
 (app / "synqt.yaml").write_text(yaml.safe_dump(config, sort_keys=False))

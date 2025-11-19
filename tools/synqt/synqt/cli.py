@@ -20,35 +20,17 @@ from . import (addauth, addcontract, addentity, addprovider, appmodel,
                run as runmod, typebackend, version as versionmod)
 
 
-def _starting_entities(values: List[str]) -> List[tuple[str, str]]:
-    """`--blueprint name:kind` values as (name, kind) pairs, or an error saying the form.
-
-    A bare kind is refused rather than named for you: `--blueprint cache` used to scaffold
-    an entity whose name nobody chose, and it is the name every file, folder and accessor
-    in that entity is then built from.
-    """
-    pairs: List[tuple[str, str]] = []
-    for value in values:
-        name, separator, kind = value.partition(":")
-        if not separator or not name.strip() or not kind.strip():
-            raise newproject.NewProjectError(
-                f"--blueprint takes <name>:<kind>, not '{value}'. Name the entity: "
-                f"--blueprint orders:{value.strip() or 'relational'}")
-        pairs.append((name.strip(), kind.strip()))
-    return pairs
-
-
 def _load_config(project_dir: str, profile: Optional[str] = None) -> Dict[str, Any]:
     return configmod.load(project_dir, profile=profile)
 
 
 def _service_entities(config: Dict[str, Any]) -> List[str]:
     return [e.get("name") for e in config.get("entities", [])
-            if isinstance(e, dict) and e.get("kind") != "client"]
+            if appmodel.is_service(e)]
 
 
 class _PrintVersionAction(argparse.Action):
-    """Print `version.version_lines()` as three literal lines.
+    """Print `version.version_lines()` as three literal lines, for the `--version` alias.
 
     argparse's own ``action="version"`` runs the version string through the parser's
     HelpFormatter, whose `_fill_text` collapses every embedded newline into a space
@@ -69,25 +51,28 @@ class _PrintVersionAction(argparse.Action):
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="synqt", description="The SynQt CLI.")
+    # `synqt version` is the documented form: every other thing this CLI does is a verb,
+    # and one of them being a flag made it the odd one out. `--version` and `-V` still
+    # work and are hidden from the help, because they are what every other tool on the
+    # machine answers to and erroring on them would be a small rudeness for no gain.
     parser.add_argument("--version", "-V", action=_PrintVersionAction,
-                        help="print the CLI version and the pinned toolchain")
+                        help=argparse.SUPPRESS)
     sub = parser.add_subparsers(dest="command", required=False)
+
+    sub.add_parser("version", help="print the CLI version and the pinned toolchain")
 
     new = sub.add_parser("new", help="scaffold a new project")
     new.add_argument("name")
     # No --origin-model. A scaffolded project is same-origin, which is the only shape whose
     # session cookie is first-party and therefore the only one that keeps working as browsers
     # wind down third-party cookies. `split_origin` still exists and is still validated, but
-    # reaching it takes a hand edit to synqt.yaml after reading what it costs; see the
+    # reaching it takes a hand edit to synqt.yaml after reading what it costs. See the
     # "Serving the client from another origin" section of docs/project-layout-and-config.md.
     new.add_argument("--auth", default=None, help="provider to prime auth for (e.g. github)")
-    # `<name>:<kind>`, never a bare kind. A starting entity is an entity, and an entity is
-    # something somebody named: a flag that took only the kind had to invent the name, and
-    # the invented one is what its author then has to live with or rename.
-    new.add_argument("--blueprint", action="append", dest="blueprints", default=[],
-                     metavar="NAME:KIND",
-                     help="a starting entity as <name>:<kind>, for example orders:relational "
-                          "(repeatable)")
+    # No flag for a starting entity. An entity is something somebody named, so such a flag
+    # had to carry a name and a type at once (`--blueprint orders:relational`), and one
+    # command already says that better: `synqt add entity orders --type relational`, run
+    # once the project exists. `synqt create` asks for both, as two questions.
     new.add_argument("--parent-dir", default=".")
 
     # The interactive twin of `new`, as its own command rather than a mode of that one.
@@ -260,7 +245,13 @@ def build_parser() -> argparse.ArgumentParser:
     auth.add_argument("--required", action="store_true")
     auth.add_argument("--provider-entity", default="")
     entity = add_sub.add_parser("entity"); entity.add_argument("name")
-    entity.add_argument("--blueprint", default="service"); entity.add_argument("--provider")
+    # Defaulted, not required. An entity with no engine and no browser-facing side is a
+    # real thing to want, and `synqt add entity billing` should produce it rather than
+    # make you say which of the nothings you meant.
+    entity.add_argument("--type", dest="entity_type", default=appmodel.PLAIN_TYPE,
+                        choices=sorted(addentity.TYPES),
+                        help="what the entity is (default: %(default)s)")
+    entity.add_argument("--provider")
     provider = add_sub.add_parser("provider"); provider.add_argument("name")
     provider.add_argument("--family", required=True)
     contract = add_sub.add_parser("contract"); contract.add_argument("name")
@@ -275,9 +266,9 @@ def build_parser() -> argparse.ArgumentParser:
                                     "name capitalized; name it only where two points "
                                     "carry one shape)")
     connect_point.add_argument("--instance", default="",
-                               choices=["", "shared", "per_session", "per_peer"],
-                               help="how many Sources it gets (default: one per caller, "
-                                    "which is what gives a slot its Caller)")
+                               choices=["", "per_session", "per_peer"],
+                               help="what a caller is on this point (default: read off "
+                                    "its ends; there is one Source per caller either way)")
     for ap in (auth, entity, provider, contract, connect_point):
         ap.add_argument("--project-dir", default=".")
     return parser
@@ -313,7 +304,7 @@ def _run_add(args: argparse.Namespace) -> int:
         message = addauth.scaffold(args.project_dir, args.provider, required=args.required,
                                    provider_entity=args.provider_entity)
     elif args.what == "entity":
-        message = addentity.scaffold(args.project_dir, args.name, args.blueprint,
+        message = addentity.scaffold(args.project_dir, args.name, args.entity_type,
                                      provider=args.provider)
     elif args.what == "provider":
         message = addprovider.scaffold(args.project_dir, args.name, args.family)
@@ -375,9 +366,10 @@ def main(argv: Optional[List[str]] = None) -> int:
         parser.print_help()
         return 2
     try:
-        if args.command == "new":
-            print(newproject.scaffold(args.parent_dir, args.name, auth=args.auth,
-                                      blueprints=_starting_entities(args.blueprints)))
+        if args.command == "version":
+            print("\n".join(versionmod.version_lines()))
+        elif args.command == "new":
+            print(newproject.scaffold(args.parent_dir, args.name, auth=args.auth))
         elif args.command == "create":
             print(create.create(args.parent_dir, name=args.name))
         elif args.command == "providers":

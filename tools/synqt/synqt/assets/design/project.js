@@ -27,6 +27,7 @@
 // it to `synqt check`, which is what stops this drifting from what `synqt new` writes.
 
 import { declarationsFor } from "./source.js";
+import { entityType } from "./rules.js";
 
 // The Qt this project pins, matching synqt/toolchain.py. The suite asserts the two agree,
 // because a browser with no CLI behind it has nothing to ask.
@@ -48,13 +49,7 @@ function listing(values) {
 
 function entityLines(entity) {
     const lines = [`  - name: ${scalar(entity.name)}`,
-                   `    kind: ${scalar(entity.kind || "service")}`];
-    if (entity.capability) {
-        lines.push(`    capability: ${scalar(entity.capability)}`);
-    }
-    if (entity.blueprint) {
-        lines.push(`    blueprint: ${scalar(entity.blueprint)}`);
-    }
+                   `    type: ${scalar(entityType(entity))}`];
     if (entity.identity) {
         lines.push("    identity: true");
     }
@@ -65,10 +60,10 @@ function entityLines(entity) {
         lines.push("    provider:", `      name: ${scalar(entity.provider)}`);
     }
     // The same TLS block `synqt new` writes, pointing at the conventional place for the
-    // certificate: `synqt build --release` and `synqt serve` refuse an edge that names
+    // certificate. `synqt build --release` and `synqt serve` refuse an edge that names
     // neither this nor a terminating proxy, so a downloaded project meets that rule from
     // its first release build rather than at the deployment.
-    if (entity.capability === "web_edge") {
+    if (isWebEdge(entity)) {
         lines.push("    tls:",
                    "      cert_file: certs/web/fullchain.pem",
                    "      key_file: certs/web/privkey.pem");
@@ -77,26 +72,21 @@ function entityLines(entity) {
 }
 
 function isWebEdge(entity) {
-    return String((entity && entity.capability) || "") === "web_edge"
-        || String((entity && entity.kind) || "") === "web_edge"
-        || Boolean(entity && entity.web_edge);
+    return entityType(entity || {}) === "web_edge";
 }
 
-// How many Sources a link gets when it does not say, the same rule appmodel.instance_of
-// applies: the one that keeps `Caller`. A shared Source is built once with no Caller at
-// all, so an authorization an author wrote in its slots is not weakened, it is absent.
+// What a caller is on a link that does not say, the same rule appmodel.instance_of
+// applies. There is one Source per caller either way: a Source shared by every caller
+// could not be told who was calling, so its slots had no `Caller` at all.
 export function instanceOf(design, link) {
     const declared = String((link && link.instance) || "");
     if (declared) {
         return declared;
     }
     const consumers = (link && link.consumers) || [];
-    if (!consumers.length) {
-        return "shared";
-    }
     const entities = (design && design.entities) || [];
     const owner = entities.find((entity) => entity.name === link.owner);
-    const clients = entities.filter((entity) => (entity.kind || "service") === "client")
+    const clients = entities.filter((entity) => entityType(entity) === "client")
         .map((entity) => entity.name);
     if (owner && isWebEdge(owner) && consumers.some((name) => clients.includes(name))) {
         return "per_session";
@@ -172,11 +162,11 @@ function memberLine(member) {
     return `slot ${returned}${member.name}(${params(member.params)})`;
 }
 
-// The folder entities of each kind sit in, the same table appmodel.KIND_FOLDERS holds. An
-// entity's own folder is that one, then its name: everything the entity is made of lives in
+// The folder entities of each type sit in, the same table appmodel.TYPE_FOLDERS holds. An
+// entity's own folder is that one, then its name. Everything the entity is made of lives in
 // there and nowhere else, which is what lets a `.qml` dropped beside it be imported with no
 // wiring at all.
-const KIND_FOLDERS = {
+const TYPE_FOLDERS = {
     client: "client",
     web_edge: "web",
     relational: "db/relational",
@@ -188,15 +178,8 @@ const KIND_FOLDERS = {
 };
 
 export function entityDir(entity) {
-    let kind = "service";
-    if ((entity.kind || "service") === "client") {
-        kind = "client";
-    } else if (entity.capability === "web_edge" || entity.web_edge) {
-        kind = "web_edge";
-    } else if (KIND_FOLDERS[entity.blueprint]) {
-        kind = entity.blueprint;
-    }
-    return `${KIND_FOLDERS[kind]}/${entity.name}`;
+    const folder = TYPE_FOLDERS[entityType(entity)] || TYPE_FOLDERS.service;
+    return `${folder}/${entity.name}`;
 }
 
 // Where the owner-side Source and the contract of a connect point live when nothing says
@@ -318,14 +301,14 @@ export function entityFiles(design, entity) {
 // window; every other entity's is a `pragma Singleton` named after it, which is where state
 // that belongs to the whole entity goes and what its Sources reach for it by name.
 export function entityQmlPath(entity) {
-    if ((entity.kind || "service") === "client") {
+    if (entityType(entity) === "client") {
         return `${entityDir(entity)}/Main.qml`;
     }
     return `${entityDir(entity)}/${capitalised(entity.name)}.qml`;
 }
 
 export function entityQml(entity) {
-    if ((entity.kind || "service") === "client") {
+    if (entityType(entity) === "client") {
         return clientMain();
     }
     return entitySingleton(entity.name);

@@ -13,10 +13,10 @@ Every `synqt build` produces one artifact per entity:
 - The client entity builds to a WebAssembly bundle (the `.wasm` module, its loader,
   the page, assets), precompressed and ready to serve. When the client entity
   declares a `desktop` target, the same QML also builds to a native desktop
-  application for each configured platform (Windows, macOS, Linux); see [desktop
+  application for each configured platform (Windows, macOS, Linux), see [desktop
   clients](desktop.md).
 - Each service entity builds to a native binary for its target host, linking the
-  SynQt service runtime and any blueprint backend (for example the SQLite driver
+  SynQt service runtime and any engine backend (for example the SQLite driver
   for a relational entity).
 
 Every entity that owns or consumes a connect point compiles the one `.syn` file its
@@ -38,7 +38,7 @@ Emscripten:
   version is unsupported because Emscripten does not promise ABI stability across
   versions.
 - vcpkg, only if a project adds native dependencies beyond Qt and the bundled
-  blueprint backends. A default project needs none.
+  engine backends. A default project needs none.
 
 Resolution is cached and re runs only when `project.qt_version` or
 `build.client_threads` changes.
@@ -122,10 +122,10 @@ synqt infer [--write]   # Read back the contracts the QML already implies.
 synqt test              # Build and run the project's own QML tests (see testing.md).
 synqt clean             # Remove build outputs (keeps the toolchain cache and the CA).
 synqt doctor            # Diagnose toolchain, ports, certificates, versions, topology.
-synqt --version         # Print the CLI version and the pinned toolchain (also -V).
+synqt version           # Print the CLI version and the pinned toolchain.
 
-synqt add entity <name> [--blueprint <kind>]     # Scaffold a new entity (bare or from a blueprint).
-synqt add entity <name> --blueprint <kind> --provider <engine>
+synqt add entity <name> [--type <type>]          # Scaffold a new entity (a plain service by default).
+synqt add entity <name> --type <type> --provider <engine>
                                                   # Scaffold an entity backed by a chosen engine.
 synqt add auth <provider> [--required]           # Add secure by default user authentication.
 synqt add contract <Name> --owner <entity>       # Scaffold <Name>.syn in its folder.
@@ -133,7 +133,7 @@ synqt add connect-point <name> --owner <entity> [--consumers a,b]
                                                  # Scaffold a connect point, owner and consumers.
 synqt add provider <name> --family <fam>         # Scaffold a provider for a family interface.
 
-synqt providers         # List available providers per blueprint family.
+synqt providers         # List available providers per entity type.
 synqt mesh ...          # Certificate authority and entity certificates.
 
 synqt docker init       # Generate the Dockerfile, compose file, and container profile.
@@ -147,16 +147,20 @@ the contract's name (or wherever the point's `server:` says), because a connect 
 without one is a point the owner cannot host, and nothing says so until the entity starts.
 A file that is already there is never touched. `synqt add entity` writes the entity's own
 file, a singleton named after the entity where state belonging to the whole entity goes;
-every entity gets one, so none starts out as a directory with nothing in it. For a
-blueprint that file also shows the blueprint's helper being used, which is the part that
-holds however the connect points are eventually named. It writes no Source: a Source
-answers a connect point and is named after it, and a new entity has none yet.
+every entity gets one, so none starts out as a directory with nothing in it. For a type
+with a helper that file also shows the helper being used, which is the part that holds
+however the connect points are eventually named. It writes no Source: a Source answers a
+connect point and is named after it, and a new entity has none yet.
 
-An entity's name becomes a QML type, so it has to begin with a letter and it may not be
-one of the names SynQt already uses for the helpers an entity's own QML calls (`Db`,
-`Cache`, `Docs`, `Http`, `Jobs`, `Caller`, and the client accessors). An entity called
-`cache` would write a `Cache.qml` that shadows the `Cache` helper wherever that entity
-calls it, so the name is refused rather than debugged later. `synqt check` holds the same
+An entity's name becomes a QML type, so it has to begin with a letter, and inside its own
+folder it may not be one of the names SynQt already puts in scope there: `Caller`,
+`Server`, `Session`, `Client`, `Router` and their neighbours in every entity, plus the one
+helper the entity's own type installs (`Db` in a relational entity, `Cache` in a cache
+entity, `Docs`, `Http`, `Jobs`). Only that one, so `synqt add entity cache --type cache` is
+refused for its own `Cache` helper while `synqt add entity cache --type relational` is
+fine: the runtime builds exactly one helper per entity, and reserving all five everywhere
+would ban five perfectly good words across the whole project to prevent a collision that
+exists in one entity. `synqt check` holds the same
 line from the other end: every connect point must have its Source file, and that file must
 be rooted at `<Contract>Source`.
 
@@ -226,7 +230,7 @@ is not judged, because a Source is an ordinary QML object and its `property var 
 crosses nothing; neither is a point some QML reached by a computed name, because the scan
 cannot follow that and "nobody uses this" would be a claim about what it failed to read.
 
-`synqt --version` (or `-V`) answers in three lines:
+`synqt version` answers in three lines:
 
 ```cli
 synqt 0.1.0
@@ -333,17 +337,24 @@ One scaffolder, two front ends, and the name says which you get.
 so it behaves identically in a shell, in a Makefile and in CI:
 
 ```cli
-synqt new shop                                          # client and web edge only
-synqt new shop --auth github --blueprint orders:relational   # and an identity provider
-synqt new shop --blueprint orders:relational --blueprint sessions:cache  # repeatable
+synqt new shop                       # client and web edge
+synqt new shop --auth github         # and an identity provider
+cd shop
+synqt add entity orders --type relational    # each further entity, named
+synqt add entity sessions --type cache
 ```
 
-`synqt create` asks the same things out loud and then calls it:
+There is no flag on `synqt new` for a starting entity. An entity is something somebody
+named, so such a flag has to carry a name and a type at once, and the pair it took
+(`--blueprint orders:relational`) was a worse spelling of the command that already exists.
+
+`synqt create` asks the same things out loud and then calls the same scaffolder:
 
 1. What is the project called? (Also accepted as an argument: `synqt create shop`.)
 2. Authentication now, or later with `synqt add auth`? None is the default.
-3. Starting entities beyond the client and edge, from the blueprints, or later with
-   `synqt add entity`? None is the default.
+3. Starting entities beyond the client and edge: a name, then a type, one entity at a
+   time, until you answer the name with nothing. None is the default, and
+   `synqt add entity` adds one at any point later.
 
 The questions exist because the secure choice should be made consciously at the
 start, not discovered later. No insecure auth state is the default, and the questions
@@ -439,14 +450,14 @@ else in a project names a Qt version.
 Contributors building SynQt get:
 
 - The SynQt service runtime library (native): Qt Core, Network, WebSockets,
-  RemoteObjects, plus HttpServer and NetworkAuth for the web edge capability (and
+  RemoteObjects, plus HttpServer and NetworkAuth for a web edge (and
   the pinned `jwt-cpp` from vcpkg for ID token verification, since Qt has no JWT
-  API), plus Sql for the relational blueprint. Linked per entity by what that
+  API), plus Sql for the relational entity type. Linked per entity by what that
   entity needs.
 - The SynQt client runtime library (WebAssembly): Qt Core, Network, WebSockets,
-  RemoteObjects, Qml, Quick. No HttpServer, NetworkAuth, or Sql: the client never
+  RemoteObjects, Qml, Quick. No HttpServer, NetworkAuth, or Sql, because the client never
   listens, never holds secrets, never touches storage.
-- The contract generator, the blueprints, the mesh certificate tooling, and the
+- The contract generator, the entity types, the mesh certificate tooling, and the
   `synqt` CLI.
 - A test suite covering the transports, the upgrade verifier, the mesh mutual TLS,
   the session and scope logic, the entity authorization, and an end to end multi

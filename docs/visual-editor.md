@@ -28,8 +28,8 @@ apart.
 ## What you can draw
 
 The rail on the left is the entity palette, and it is the list from
-[entities](entities.md): a client, a web edge, the four blueprints that come with an engine
-behind them (persistence, cache, document, gateway), the jobs blueprint, and a plain service
+[entities](entities.md): a client, a web edge, the four types that come with an engine
+behind them (relational, cache, document, api), the jobs type, and a plain service
 you write yourself. Each row carries the glyph the canvas draws that entity with, and hovering
 one says what that kind of entity is for and when you would reach for it; the same line
 appears in the panel once one is on the canvas.

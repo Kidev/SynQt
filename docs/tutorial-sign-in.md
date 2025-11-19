@@ -184,7 +184,18 @@ Add to `web/edge/Auction.syn`:
 slot closeLot(string nextItem)
 ```
 
-Add to `web/edge/Auction.qml`:
+Resetting the lot is a change to the lot, which lives in the edge entity, so add the
+move to `web/edge/Edge.qml` beside `accept`:
+
+```qml
+function openLot(nextItem: string) {
+    root.itemName = nextItem;
+    root.highBid = 0;
+    root.highBidder = "nobody yet";
+}
+```
+
+And the rule about who may do it to `web/edge/Auction.qml`, which is where the caller is:
 
 ```qml
 function closeLot(nextItem) {
@@ -193,9 +204,7 @@ function closeLot(nextItem) {
         return
     }
     // (A later part records the winner here before resetting.)
-    auction.itemName = nextItem
-    auction.highBid = 0
-    auction.highBidder = "nobody yet"
+    Edge.openLot(nextItem)
 }
 ```
 

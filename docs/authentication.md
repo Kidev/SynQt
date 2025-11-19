@@ -238,7 +238,7 @@ carries an `Identity.syn` of its own and none has to.
 ```yaml
 entities:
   - name: auth          # an ordinary service entity; it declares no connect points
-    kind: service
+    type: service
 
 identity:
   provider_entity: auth

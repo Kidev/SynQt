@@ -171,9 +171,9 @@ def write_entity_qml(project_dir: os.PathLike[str] | str,
 
     Every entity has one from the moment it exists, before it owns or consumes anything. An
     entity that is in synqt.yaml with an empty directory beside it is an entity nobody can
-    open, and it was the state every plain service used to start in.
+    open.
     """
-    if entity.get("kind") == "client":
+    if appmodel.is_client(entity):
         return write_client_main(project_dir, entity)
     relative = appmodel.entity_file_path(entity)
     target = Path(project_dir) / relative
@@ -218,24 +218,31 @@ def _write_qmlformat_settings(root: Path) -> None:
 
 def scaffold(parent_dir: os.PathLike[str] | str, name: str, *,
              auth: Optional[str] = None,
-             blueprints: Optional[List[Tuple[str, str]]] = None) -> str:
+             starting: Optional[List[Tuple[str, str]]] = None) -> str:
+    """Write a new project: a client, a web edge, and whatever `starting` names.
+
+    `starting` is `(name, type)` pairs and comes only from `synqt create`, which asks for
+    both. `synqt new` has no flag for it. An entity is something somebody named, naming one
+    on a project-creation flag meant a `<name>:<type>` pair nobody enjoyed writing, and
+    `synqt add entity <name> --type <type>` is the one shape that already says it.
+    """
     root = Path(parent_dir) / name
     if root.exists() and any(root.iterdir()):
         raise NewProjectError(f"{root} already exists and is not empty")
     root.mkdir(parents=True, exist_ok=True)
 
-    # Named for what they are rather than for their kind, because the kind is already the
+    # Named for what they are rather than for their type, because the type is already the
     # folder they sit in: the client is `client/app/`, the edge is `web/edge/`. An entity
-    # called `web` would land in `web/web/`, and every entity of that kind after it would
+    # called `web` would land in `web/web/`, and every entity of that type after it would
     # have to explain why it was not allowed the same name.
     entities: List[Dict[str, Any]] = [
-        {"name": "app", "kind": "client", "targets": ["wasm"]},
+        {"name": "app", "type": "client", "targets": ["wasm"]},
         # The edge ships with TLS to the browser already configured, pointing at the
         # conventional place for the certificate. `synqt dev` runs plaintext on localhost
-        # and ignores it; `synqt build --release` and `synqt serve` require either this or
+        # and ignores it. `synqt build --release` and `synqt serve` require either this or
         # public.tls_terminated_upstream, so a new project meets that rule from its first
         # release build rather than discovering it at the deployment.
-        {"name": "edge", "kind": "service", "capability": "web_edge",
+        {"name": "edge", "type": "web_edge",
          "tls": {"cert_file": "certs/edge/fullchain.pem",
                  "key_file": "certs/edge/privkey.pem"}},
     ]
@@ -254,15 +261,14 @@ def scaffold(parent_dir: os.PathLike[str] | str, name: str, *,
     (root / ".env.example").write_text("# Entity secrets (env: references), never committed\n")
     _write_qmlformat_settings(root)
 
-    # A starting blueprint entity is scaffolded by `synqt add entity` itself, so the two
-    # paths cannot drift: same config block, same provider defaults, same folder and same
-    # entity file. It used to write a bare `{name, kind, blueprint}` here, which left a
-    # `synqt new --blueprint relational` project with an entity that had no provider
-    # settings and no schema, unlike the same entity added a command later. It runs after
-    # .env.example exists because an external provider appends its secret to it.
-    for name_and_kind in blueprints or []:
-        entity_name, blueprint = name_and_kind
-        addentity.scaffold(root, entity_name, blueprint)
+    # A starting entity is scaffolded by `synqt add entity` itself, so the two paths cannot
+    # drift, with the same config block, same provider defaults, same folder and same entity file.
+    # Writing a bare `{name, kind, blueprint}` here would leave a project whose
+    # relational entity has no provider settings and no schema, unlike the same entity added
+    # a command later. It runs after .env.example exists because an external provider
+    # appends its secret to it.
+    for entity_name, entity_type in starting or []:
+        addentity.scaffold(root, entity_name, entity_type)
     config = yaml.safe_load((root / "synqt.yaml").read_text())
 
     presets.write(root, config)

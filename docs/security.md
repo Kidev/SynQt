@@ -198,11 +198,11 @@ dynamic discovery surface to attack.
 
 ## Network segmentation and the database
 
-The web edge is the only entity with the web edge capability and the only one bound
+The web edge is the only entity of `type: web_edge` and the only one bound
 to a public interface. Every other entity binds only to a private interface (or a
 local socket) and is unreachable from the internet. A database entity:
 
-- has no web edge capability, so it never serves a client and never faces the net;
+- is not a web edge, so it never serves a client and never faces the net;
 - is listed as the consumer of nothing the browser owns and as the owner of connect
   points consumed only by the entities that legitimately need its data (typically
   the edge or a small number of services);
@@ -318,7 +318,7 @@ fully trust in one mesh, that is the assumption to revisit first.
   framework can guarantee that only declared slots are reachable and that only
   declared fields come back; it cannot know that your `add(string text)` should
   refuse a megabyte.
-- Database specifics. The relational blueprint serializes writes and sets a busy
+- Database specifics. The relational entity type serializes writes and sets a busy
   timeout, so concurrent transactions cannot deadlock the entity (SQLite blocks
   under concurrent writers); see [entities](entities.md).
 
@@ -516,7 +516,7 @@ page protects the page's markup, never the data the page later reads.
   auditable.
 - The generated contract layer is reproducible from the project's `.syn` files and is
   not edited by hand, so it cannot hide unreviewed behavior.
-- Official entity blueprints (persistence, cache, document, gateway, jobs) are part
+- The official entity types (relational, cache, document, api, jobs) are part
   of the framework and reviewed; using one does not pull in an unaudited third party
   product.
 
@@ -560,7 +560,7 @@ Mesh links:
 - The mesh CA private key is not on any running entity and not committed; entity
   keys have restrictive permissions.
 - Certs are within their validity window; rotation is scheduled before expiry.
-- Only the web edge has the web edge capability and a public bind; every other
+- Only the web edge has `type: web_edge` and a public bind; every other
   entity binds private or local only.
 
 Authorization and data:
@@ -583,4 +583,4 @@ System wide:
 - Resource limits set on both link types: message size, connection caps, handshake
   timeout, heartbeat, database busy timeout.
 - Secrets only via `env:`, never referenced by a client target, never logged.
-- Toolchain, dependencies, and blueprints pinned and reviewed.
+- Toolchain, dependencies, and entity types pinned and reviewed.

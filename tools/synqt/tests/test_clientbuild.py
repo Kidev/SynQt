@@ -22,8 +22,8 @@ from synqt import (check, clientbuild, cmakegen, doctor, maingen, newproject, pr
 
 def _single():
     return {"project": {"name": "app"}, "security": {"cross_origin_isolation": False},
-            "entities": [{"name": "client", "kind": "client", "targets": ["wasm"]},
-                         {"name": "web", "kind": "service", "capability": "web_edge"}]}
+            "entities": [{"name": "client", "type": "client", "targets": ["wasm"]},
+                         {"name": "web", "type": "web_edge"}]}
 
 
 def _multi():
@@ -105,7 +105,7 @@ class PresetTest(unittest.TestCase):
 
 class EdgeMainTest(unittest.TestCase):
     def _edge_main(self, config):
-        edge = next(e for e in config["entities"] if e.get("capability") == "web_edge")
+        edge = next(e for e in config["entities"] if e.get("type") == "web_edge")
         return maingen.render_edge_main(config, edge)
 
     def test_single_edge_leaves_isolation_off(self):

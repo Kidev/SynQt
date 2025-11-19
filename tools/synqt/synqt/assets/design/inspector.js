@@ -10,7 +10,7 @@
 // with it, because leaving either behind would leave the project naming an entity that is
 // not there.
 
-import { INSTANCE_MODES } from "./rules.js";
+import { INSTANCE_MODES, entityType } from "./rules.js";
 import { ROLE_HELP, roleOf } from "./canvas.js";
 
 // The .syn type vocabulary, from synqtc/types.py. `var` is in it because a model role may
@@ -19,11 +19,11 @@ const TYPES = ["int", "string", "bool", "real", "float", "double", "var"];
 
 const KINDS = ["prop", "model", "signal", "slot"];
 
-// The three blueprints that take a data provider (addentity.BLUEPRINTS). An api and a
+// The three entity types that take a data provider (addentity.TYPES). An api and a
 // jobs entity have no engine behind them, so neither is offered one.
 const PROVIDER_FAMILIES = new Set(["relational", "cache", "document"]);
 
-// What each kind of entity is called in one line, for the panel to state rather than offer.
+// What each type of entity is called in one line, for the panel to state rather than offer.
 // An entity is whichever palette row it was dragged from and stays that: turning a database
 // into a client in a drop-down would keep the name, the position and the connect points
 // while changing what the thing fundamentally is, and everything drawn against it would
@@ -130,7 +130,7 @@ function entityPanel(design, entity, actions) {
     // palette, and everything drawn since means what it means because of that.
     panel.append(field("Kind", tag("p", {class: "field__fixed"}, KIND_LABELS[role])));
 
-    if ((entity.kind || "service") === "client") {
+    if (entityType(entity) === "client") {
         const targets = tag("div");
         for (const target of TARGETS) {
             targets.append(check(target, (entity.targets || []).includes(target),
@@ -155,12 +155,12 @@ function entityPanel(design, entity, actions) {
         }));
         panel.append(note("The one entity the browser can reach. Everything else is "
                           + "behind it, on the mesh."));
-    } else if (PROVIDER_FAMILIES.has(entity.blueprint)) {
+    } else if (PROVIDER_FAMILIES.has(entityType(entity))) {
         panel.append(field("Provider", text(entity.provider, (value) => {
             entity.provider = value;
             actions.changed();
         }, "sqlite")));
-        panel.append(note("The engine behind the blueprint, swapped with this one value. "
+        panel.append(note("The engine behind the type, swapped with this one value. "
                           + "Its credentials come from this entity's own environment and "
                           + "never from here."));
     }
@@ -326,14 +326,15 @@ function linkPanel(design, link, actions) {
     panel.append(note("This list is the authorization. An entity that is not on it is "
                       + "refused the replica, and nothing it does can talk its way on."));
 
-    panel.append(field("Instance", choice(INSTANCE_MODES, link.instance || "shared",
+    panel.append(field("Instance", choice(INSTANCE_MODES, link.instance || "per_peer",
                                           (value) => {
         link.instance = value;
         actions.changed();
     })));
-    panel.append(note("shared is one Source for everybody. per_session is one per browser "
-                      + "connection, which is what gives a slot its Caller; per_peer is one "
-                      + "per calling entity."));
+    panel.append(note("What a caller is here: per_session is one browser connection, "
+                      + "per_peer is one calling entity. There is a Source per caller "
+                      + "either way, which is what gives a slot its Caller; state they all "
+                      + "share belongs in the owner's own singleton."));
 
     panel.append(field("Transport", choice(["", "local"], link.transport, (value) => {
         link.transport = value;

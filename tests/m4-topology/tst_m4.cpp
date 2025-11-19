@@ -40,7 +40,7 @@ ConnectPointConfig thingConnectPoint(quint16 port)
     connectPoint.owner = QStringLiteral("a");
     connectPoint.consumers = {QStringLiteral("b")};
     connectPoint.serverFile = QStringLiteral(M4_SRCDIR "/a/Thing.qml");
-    connectPoint.instance = ConnectPointInstance::Shared;
+    connectPoint.instance = ConnectPointInstance::PerPeer;
     connectPoint.endpoint.mode = MeshTransportMode::MutualTls;
     connectPoint.endpoint.host = QStringLiteral("127.0.0.1");
     connectPoint.endpoint.port = port;
@@ -103,7 +103,7 @@ private slots:
         const QByteArray json{R"json({
             "entity": "database",
             "credentials": {"ca": "ca.crt", "cert": "database.crt", "key": "database.key"},
-            "blueprint": "persistence",
+            "type": "relational",
             "schema": ["CREATE TABLE grants (sub TEXT)", "CREATE INDEX i ON grants (sub)"],
             "connect_points": [{
                 "name": "access",

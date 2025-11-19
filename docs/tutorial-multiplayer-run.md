@@ -7,15 +7,16 @@ four thousand unit map, so most of what arrives is never drawn. This last part s
 each player only what they can see. It plays exactly the same; the change is in what
 crosses the wire, and it is the difference between a demo and something that scales.
 
-This is interest management, and it needs one architectural change. Instead of a
-single shared `Arena` Source that broadcasts to everyone, give each player their own
-Source that publishes their own slice. SynQt calls that `instance: per_session`, and
-you split `web/edge/Arena.qml` in two to get there.
+This is interest management, and the split it needs is one you already have. Each
+player already has their own `Arena` Source over one shared `World`; what changes is that
+the Source stops publishing the whole world and starts publishing that player's slice.
+`World` grows two query functions to compute a slice, and `Arena` calls those instead of
+the global ones.
 
-## The shared world, simulated once
+## The shared world, with a round and a slice
 
-The authoritative world, the roster, the pellets, the simulation, the round, moves into
-a singleton that exists once no matter how many players connect. Create `web/edge/World.qml`:
+Here is `web/edge/World.qml` again, now with the round timer, the Hall of Fame, and the
+two `nearby` queries. Replace the file with it:
 
 ```qml
 pragma Singleton                      // one shared instance for the whole edge
@@ -164,17 +165,16 @@ Item {
 }
 ```
 
-This is the simulation, liveness sweep, and round timer from your `web/edge/Arena.qml`, moved
-here unchanged, plus the three query functions (`nearbyBlobs`, `nearbyPellets`, `board`)
-that compute a view. The `pragma Singleton` line tells SynQt to build `web/edge/World.qml` as one
-shared instance; the per-session Source below reaches it just by name.
+The simulation and the liveness sweep are the ones you already wrote; what is added is
+the round timer, the Hall of Fame, and the two `nearby` queries that compute one player's
+view. The `pragma Singleton` line is what makes `web/edge/World.qml` one instance for the
+whole edge; every Source reaches it just by name.
 
 ## One private view per player
 
-Now replace `web/edge/Arena.qml` entirely. It no longer simulates anything. It is one
-player's private view: it forwards their `steer` and `ping` into the shared `World`, and
-publishes only their slice plus the two global lists (the leaderboard and the Hall of
-Fame). One of these exists per session.
+Now replace `web/edge/Arena.qml`. It still forwards `steer` and `ping` into the shared
+`World`; what is new is that it publishes only this player's slice, plus the two lists
+that stay global (the leaderboard and the Hall of Fame).
 
 ```qml
 import QtQuick
@@ -218,18 +218,11 @@ Arena {
 }
 ```
 
-Finally, change the `arena` connect point to one Source per session in `synqt.yaml`:
+The `arena` connect point in `synqt.yaml` does not change at all, and that is the point:
+the arrangement this needed was already there, because every connect point already gets a
+Source per caller.
 
-```yaml
-  - name: arena
-    owner: edge
-    consumers: [app]
-    server: web/edge/Arena.qml
-    scope: player
-    instance: per_session     # was: shared. One private view per player.
-```
-
-The client does not change at all. It already read `blobs` (now just the nearby ones),
+The client does not change either. It already read `blobs` (now just the nearby ones),
 `board` (still global), `pellets` (nearby), `champions`, and `roundEndsAt`. That is the
 payoff of keeping the leaderboard in its own `board` model back in part two: switching to
 per-player delivery touched only the edge.

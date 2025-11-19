@@ -35,12 +35,11 @@ identity:
 
 entities:
   - name: app
-    kind: client
+    type: client
     targets: [wasm]
 
   - name: edge
-    kind: service
-    capability: web_edge
+    type: web_edge
     identity: true
     # Serving the browser over TLS in a release build. `synqt dev` ignores this and
     # runs plaintext on localhost; `synqt build --release` and `synqt serve` require
@@ -51,8 +50,7 @@ entities:
       key_file: certs/edge/privkey.pem
 
   - name: records
-    kind: service
-    blueprint: relational
+    type: relational
 
 connect_points:
   # The whole live world. per_session gives each player their own private view (interest

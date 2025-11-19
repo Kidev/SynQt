@@ -26,25 +26,26 @@ import os
 import sys
 from typing import Any, Dict, List, Optional, Sequence, TextIO, Tuple
 
-from . import addauth, addentity, newproject
+from . import addauth, addentity, appmodel, newproject
 
 
 class CreateError(Exception):
     """A question could not be asked, or was answered with something impossible."""
 
 
-# The blueprints worth starting a project with. `addentity.BLUEPRINTS` also carries
-# `service` (a bare custom entity), which is not a starting choice: it is what you add
-# once you know what it is for, and offering it here would be a question with no
-# information in it.
-_STARTING_BLUEPRINTS: Sequence[str] = ("relational", "cache", "document", "api", "jobs")
+# The entity types worth starting a project with, in the order they are offered.
+# `client` and `web_edge` are types too and are not here. A project has one of each and
+# `synqt new` has already written them.
+_STARTING_TYPES: Sequence[str] = ("relational", "cache", "document", "api", "jobs",
+                                  "service")
 
-_BLUEPRINT_BLURB: Dict[str, str] = {
+_TYPE_BLURB: Dict[str, str] = {
     "relational": "durable rows behind the edge (SQLite by default)",
     "cache": "bounded in-memory key-value, evicts under pressure",
     "document": "schemaless documents behind the edge",
     "api": "outbound HTTP to third-party APIs, over verified TLS",
     "jobs": "timers and a bounded background queue, internal only",
+    "service": "no engine and no browser-facing side; just its own QML",
 }
 
 
@@ -89,40 +90,35 @@ def ask_auth(out: TextIO, source: TextIO) -> Optional[str]:
     return answer
 
 
-def ask_blueprints(out: TextIO, source: TextIO) -> List[Tuple[str, str]]:
-    """The starting entities beyond the client and the edge, each as (name, kind).
+def ask_entities(out: TextIO, source: TextIO) -> List[Tuple[str, str]]:
+    """The starting entities beyond the client and the edge, each as (name, type).
 
-    The name is asked for, never derived from the kind. It is what the entity's folder,
-    its own QML file and its accessor in every consumer are built from, so it is the
-    author's word or it is a word they have to change later.
+    Two questions per entity, name first. The name is asked for and never derived from
+    the type. It is what the entity's folder, its own QML file and its accessor in every
+    consumer are built from, so it is the author's word or it is a word they have to
+    change later. Asking the two separately is also why this reads nothing like the
+    `<name>:<type>` pair a single flag would have needed.
     """
-    out.write("\nStarting entities beyond the client and the web edge?\n")
-    for blueprint in _STARTING_BLUEPRINTS:
-        out.write(f"  {blueprint:<12} {_BLUEPRINT_BLURB[blueprint]}\n")
-    out.write("  Name each one: orders:relational, sessions:cache. Comma separated.\n")
-    out.write("  Leave empty for none; `synqt add entity` adds one later.\n")
-    answer = _prompt("Entities (name:kind)", default="none", out=out, source=source)
-    if answer.lower() in ("", "none", "no", "n"):
-        return []
+    out.write("\nStarting entities beyond the client and the web edge.\n")
+    for entity_type in _STARTING_TYPES:
+        out.write(f"  {entity_type:<12} {_TYPE_BLURB[entity_type]}\n")
+    out.write("  Name one at a time; leave the name empty to stop. "
+              "`synqt add entity` adds one later.\n")
 
     chosen: List[Tuple[str, str]] = []
-    for raw in answer.split(","):
-        entry = raw.strip()
-        if not entry:
-            continue
-        name, separator, blueprint = entry.partition(":")
-        name, blueprint = name.strip(), blueprint.strip().lower()
-        if not separator or not name or not blueprint:
-            raise CreateError(
-                f"'{entry}' does not name an entity; write <name>:<kind>, "
-                f"for example orders:{blueprint or 'relational'}")
-        if blueprint not in addentity.BLUEPRINTS:
-            known = ", ".join(_STARTING_BLUEPRINTS)
-            raise CreateError(f"unknown blueprint '{blueprint}' (choose from: {known})")
+    while True:
+        name = _prompt("Entity name (empty to finish)", default="", out=out,
+                       source=source).strip()
+        if not name:
+            return chosen
         if name in [already for already, _ in chosen]:
             raise CreateError(f"two starting entities are both called '{name}'")
-        chosen.append((name, blueprint))
-    return chosen
+        entity_type = _prompt(f"Type for '{name}'", default=appmodel.PLAIN_TYPE, out=out,
+                              source=source).strip().lower()
+        if entity_type not in addentity.TYPES:
+            known = ", ".join(_STARTING_TYPES)
+            raise CreateError(f"unknown entity type '{entity_type}' (choose from: {known})")
+        chosen.append((name, entity_type))
 
 
 def answers(out: TextIO, source: TextIO, *, name: Optional[str] = None) -> Dict[str, Any]:
@@ -136,7 +132,7 @@ def answers(out: TextIO, source: TextIO, *, name: Optional[str] = None) -> Dict[
     return {
         "name": resolved,
         "auth": ask_auth(out, source),
-        "blueprints": ask_blueprints(out, source),
+        "entities": ask_entities(out, source),
     }
 
 
@@ -155,10 +151,10 @@ def create(parent_dir: os.PathLike[str] | str, *, name: Optional[str] = None,
     if not interactive:
         raise CreateError(
             "synqt create asks questions and needs a terminal. For a script or CI, "
-            "use `synqt new <name> [--auth <provider>] [--blueprint <kind>]`, which "
-            "takes the same answers as flags.")
+            "use `synqt new <name> [--auth <provider>]` and then "
+            "`synqt add entity <name> --type <type>` for each entity.")
 
     chosen = answers(stream_out, stream_in, name=name)
     stream_out.write("\n")
     return newproject.scaffold(parent_dir, chosen["name"], auth=chosen["auth"],
-                               blueprints=chosen["blueprints"])
+                               starting=chosen["entities"])

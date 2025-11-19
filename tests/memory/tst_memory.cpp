@@ -210,7 +210,7 @@ ConnectPointConfig localProbe(const QString &socketName)
     connectPoint.owner = QStringLiteral("a");
     connectPoint.consumers = {QStringLiteral("b")};
     connectPoint.serverFile = QStringLiteral(MEMORY_SRCDIR "/owner/Probe.qml");
-    connectPoint.instance = ConnectPointInstance::Shared;
+    connectPoint.instance = ConnectPointInstance::PerPeer;
     // The local socket, so this test needs no certificate authority of its own. What is
     // being measured is what the runtime retires when a link is replaced, which is the
     // same work on either transport.

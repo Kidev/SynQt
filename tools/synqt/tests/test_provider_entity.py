@@ -30,9 +30,9 @@ def promoted_config(**overrides):
         "project": {"name": "app"},
         "scopes": {"order": ["anonymous", "user"], "default": "anonymous"},
         "entities": [
-            {"name": "client", "kind": "client"},
-            {"name": "web", "kind": "service", "capability": "web_edge"},
-            {"name": "auth", "kind": "service"},
+            {"name": "client", "type": "client"},
+            {"name": "web", "type": "web_edge"},
+            {"name": "auth", "type": "service"},
         ],
         "connect_points": [
             {"name": "app", "owner": "web", "consumers": ["client"], "contract": "App"},
@@ -80,15 +80,13 @@ class AuthConnectPoints(unittest.TestCase):
 
     def test_every_edge_that_serves_login_consumes_them(self):
         config = promoted_config()
-        config["entities"].append({"name": "web2", "kind": "service",
-                                   "capability": "web_edge"})
+        config["entities"].append({"name": "web2", "type": "web_edge"})
         for point in appmodel.auth_connect_points(config):
             self.assertEqual(point["consumers"], ["web", "web2"])
 
     def test_an_edge_that_opted_out_of_login_does_not_consume_them(self):
         config = promoted_config()
-        config["entities"].append({"name": "web2", "kind": "service",
-                                   "capability": "web_edge", "identity": False})
+        config["entities"].append({"name": "web2", "type": "web_edge", "identity": False})
         for point in appmodel.auth_connect_points(config):
             self.assertEqual(point["consumers"], ["web"])
 
@@ -184,7 +182,7 @@ class AuthEntityMain(unittest.TestCase):
 
     def test_an_ordinary_service_is_untouched(self):
         config = appmodel.with_auth_connect_points(promoted_config())
-        config["entities"].append({"name": "database", "kind": "service"})
+        config["entities"].append({"name": "database", "type": "service"})
         source = maingen.render_service_main(config, entity_named(config, "database"))
         self.assertNotIn("IdentityService", source)
         self.assertNotIn("SessionManager", source)

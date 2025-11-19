@@ -57,9 +57,9 @@ private:
     ConnectPointConfig m_config;
     MeshCredentials m_credentials;
     QQmlEngine *m_engine;
-    QRemoteObjectHost *m_host{nullptr};  ///< the shared-instance host (null for per_peer)
     MeshServer *m_server{nullptr};
-    QObject *m_source{nullptr};          ///< the shared-instance Source (null for per_peer)
+    /// No Source and no host node here: both are per peer, parented to that peer's device
+    /// (see onPeerConnected), so a disconnect takes its Source and its Caller with it.
     QHash<QString, QObject *> m_contextObjects;
     QString m_errorString;
 };

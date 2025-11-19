@@ -24,8 +24,8 @@ def base_config(**overrides):
     config = {
         "project": {"name": "app"},
         "entities": [
-            {"name": "client", "kind": "client", "path": "client"},
-            {"name": "web", "kind": "service", "capability": "web_edge", "path": "web"},
+            {"name": "client", "type": "client", "path": "client"},
+            {"name": "web", "type": "web_edge", "path": "web"},
         ],
         "connect_points": [
             {"name": "app", "owner": "web", "consumers": ["client"], "contract": "App"},
@@ -288,8 +288,7 @@ class TestEnvFile(unittest.TestCase):
 
     def test_both_mains_load_the_project_env_file(self):
         config = base_config()
-        config["entities"].append({"name": "database", "kind": "service",
-                                   "path": "database", "blueprint": "relational"})
+        config["entities"].append({"name": "database", "type": "relational", "path": "database"})
         self.assertIn('loadEnvFile(QStringLiteral(".env"));', render(config))
         service = maingen.render_service_main(config, config["entities"][2])
         self.assertIn('loadEnvFile(QStringLiteral(".env"));', service)

@@ -43,13 +43,10 @@ MeshTransportMode transportModeFromString(const QString &value)
 
 ConnectPointInstance instanceFromString(const QString &value)
 {
-    if (value == QLatin1String("per_session")) {
-        return ConnectPointInstance::PerSession;
-    }
-    if (value == QLatin1String("per_peer")) {
-        return ConnectPointInstance::PerPeer;
-    }
-    return ConnectPointInstance::Shared;
+    // Per-peer is the fallback because the mesh is where an unqualified topology lands: a
+    // browser-facing point is written by the edge, which says per_session explicitly.
+    return value == QLatin1String("per_session") ? ConnectPointInstance::PerSession
+                                                 : ConnectPointInstance::PerPeer;
 }
 
 } // namespace
@@ -64,8 +61,8 @@ Topology topologyFromJson(const QJsonObject &object)
     topology.credentials.certPath = credentials.value(QStringLiteral("cert")).toString();
     topology.credentials.keyPath = credentials.value(QStringLiteral("key")).toString();
 
-    topology.blueprint = object.value(QStringLiteral("blueprint")).toString();
-    // The provider block for the blueprint: the external `provider` object, or the embedded
+    topology.type = object.value(QStringLiteral("type")).toString();
+    // The provider block for the type. The external `provider` object, or the embedded
     // `settings` object (sqlite) when no external provider is named.
     const QJsonObject provider{object.value(QStringLiteral("provider")).toObject()};
     if (!provider.isEmpty()) {

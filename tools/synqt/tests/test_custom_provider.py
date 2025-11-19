@@ -1,12 +1,9 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-"""A `custom:` provider is compiled into the entity that selects it, with no CMake to edit.
-
-`synqt add provider` writes providers/custom/<name>provider.cpp, and the registration macro
-in it only runs if the file is linked into the entity. The root CMakeLists is regenerated on
-every build, so a hand-added target_sources would not survive one. The selection itself has
-to be what pulls the file in.
+"""A `custom:` provider is compiled into the entity that selects it. The registration macro
+runs only if the file is linked, and the generated CMake is rewritten every build, so the
+selection pulls the file in.
 """
 
 import tempfile
@@ -16,13 +13,13 @@ from synqt import addprovider, cmakegen
 
 
 def _config(provider_name):
-    entity = {"name": "database", "kind": "service", "blueprint": "relational"}
+    entity = {"name": "database", "type": "relational"}
     if provider_name is not None:
         entity["provider"] = {"name": provider_name}
     return {
         "project": {"name": "shop"},
-        "entities": [{"name": "client", "kind": "client"},
-                     {"name": "web", "kind": "service", "capability": "web_edge"},
+        "entities": [{"name": "client", "type": "client"},
+                     {"name": "web", "type": "web_edge"},
                      entity],
     }
 

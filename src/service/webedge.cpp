@@ -686,23 +686,11 @@ bool WebEdge::start()
     computeScriptHashes();
     cacheBundle();
 
-    // 1. Instantiate the shared connect points once (created here, hosted on every
-    //    connection's node so their state stays in sync across browsers). A per_session
-    //    connect point is instead instantiated per connection in hostConnection(), so
-    //    each instance carries a Caller for its one user.
-    for (const WebEdgeConnectPoint &connectPoint : m_config.connectPoints) {
-        if (connectPoint.instance != InstanceMode::Shared) {
-            continue;
-        }
-        QString error;
-        QObject *source{createSource(connectPoint, nullptr, this, &error)};
-        if (!source) {
-            m_errorString = error;
-            return false;
-        }
-        m_sharedSources.insert(connectPoint.name, source);
-    }
-
+    // 1. No connect point Source is built here. Every one of them is instantiated per
+    //    connection in hostConnection(), so each carries a Caller for its one user, and
+    //    anything the connections share belongs to the entity's own singleton, which
+    //    outlives all of them (the PageStore below is the framework's own example).
+    //
     // 1.5. The framework's own Pages connect point (edge-delivered pages): one
     //      PageStore/PagesService shared by every connection, since the page table
     //      is the same for everyone. Built once, here, and never rebuilt per
@@ -1090,9 +1078,9 @@ void WebEdge::hostConnection(QWebSocket *socket)
     const QString key{peerKey(socket->peerAddress().toString(), socket->peerPort())};
     const QByteArray sessionId{m_pendingSessions.take(key).id};
 
-    // One QtRO host node per connection. per_session Sources are minted fresh with a
-    // Caller bound to this session; shared Sources are the single instances, hosted here
-    // too so their state stays in sync across every browser.
+    // One QtRO host node per connection, and one Source per connect point on it, minted
+    // fresh with a Caller bound to this session. The node is per connection whatever the
+    // Sources do, which is why reusing one Source across connections saved so little.
     QRemoteObjectHost *node{new QRemoteObjectHost{socket}};
     node->setHostUrl(QUrl{QStringLiteral("synqt-edge:///%1")
                               .arg(QUuid::createUuid().toString(QUuid::WithoutBraces))},
@@ -1109,22 +1097,17 @@ void WebEdge::hostConnection(QWebSocket *socket)
         if (!connectPoint.scope.isEmpty() && !gate->hasScope(connectPoint.scope)) {
             continue;
         }
-        QObject *source{nullptr};
-        if (connectPoint.instance == InstanceMode::Shared) {
-            source = m_sharedSources.value(connectPoint.name);
-        } else {
-            Caller *caller{Caller::forUser(connectPoint.contract, m_sessionManager,
-                                           sessionId, nullptr, socket)};
-            caller->setScopeOrder(m_config.scopeOrder, m_config.scopesHierarchical);
-            QString error;
-            source = createSource(connectPoint, caller, socket, &error);
-            if (!source) {
-                emit upgradeRejected(error);
-                continue;
-            }
-            caller->setParent(source);
-            caller->setSource(source);  // Caller.emitSignal reaches this one caller
+        Caller *caller{Caller::forUser(connectPoint.contract, m_sessionManager,
+                                       sessionId, nullptr, socket)};
+        caller->setScopeOrder(m_config.scopeOrder, m_config.scopesHierarchical);
+        QString error;
+        QObject *source{createSource(connectPoint, caller, socket, &error)};
+        if (!source) {
+            emit upgradeRejected(error);
+            continue;
         }
+        caller->setParent(source);
+        caller->setSource(source);  // Caller.emitSignal reaches this one caller
         if (source && !node->enableRemoting(source, connectPoint.name)) {
             emit upgradeRejected(
                 QStringLiteral("enableRemoting failed for %1").arg(connectPoint.name));

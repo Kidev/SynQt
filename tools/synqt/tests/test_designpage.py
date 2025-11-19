@@ -42,11 +42,11 @@ DOCUMENT = {
     "version": 1,
     "project": "gavel",
     "entities": [
-        {"name": "app", "kind": "client", "capability": "", "blueprint": "",
+        {"name": "app", "type": "client",
          "provider": "", "targets": ["wasm"], "identity": False, "x": 40, "y": 40},
-        {"name": "edge", "kind": "service", "capability": "web_edge", "blueprint": "",
+        {"name": "edge", "type": "web_edge",
          "provider": "", "targets": [], "identity": True, "x": 360, "y": 40},
-        {"name": "books", "kind": "service", "capability": "", "blueprint": "relational",
+        {"name": "books", "type": "relational",
          "provider": "sqlite", "targets": [], "identity": False, "x": 680, "y": 40},
     ],
     "links": [
@@ -63,7 +63,7 @@ DOCUMENT = {
              {"kind": "slot", "name": "watch", "type": "", "params": [], "roles": []},
          ]},
         {"name": "records", "contract": "Records", "owner": "books",
-         "consumers": ["edge"], "instance": "shared", "transport": "", "members": []},
+         "consumers": ["edge"], "instance": "per_peer", "transport": "", "members": []},
     ],
 }
 
@@ -377,9 +377,9 @@ def test_the_page_and_the_cli_resolve_one_instance_the_same_way():
     document = {
         "version": 1, "project": "p",
         "entities": [
-            {"name": "app", "kind": "client"},
-            {"name": "edge", "kind": "service", "capability": "web_edge"},
-            {"name": "store", "kind": "service", "blueprint": "relational"},
+            {"name": "app", "type": "client"},
+            {"name": "edge", "type": "web_edge"},
+            {"name": "store", "type": "relational"},
         ],
         "links": [
             {"name": "feed", "contract": "Feed", "owner": "edge", "consumers": ["app"],
@@ -400,7 +400,7 @@ def test_the_page_and_the_cli_resolve_one_instance_the_same_way():
     cli = {point["name"]: point["instance"]
            for point in appmodel.normalized(config)["connect_points"]}
     assert page == cli
-    assert page == {"feed": "per_session", "items": "per_peer", "quiet": "shared"}
+    assert page == {"feed": "per_session", "items": "per_peer", "quiet": "per_peer"}
 
 
 def test_the_home_pages_project_is_the_one_the_home_page_reads():

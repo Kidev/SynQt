@@ -13,7 +13,17 @@
 // Pure functions over the document, no DOM: the node checker imports this file directly, and
 // a rule that reached for the page could not be checked outside a browser.
 
-const INSTANCE_MODES = ["shared", "per_session", "per_peer"];
+// What a caller is on a link. There is one Source per caller either way; these two say
+// what a caller *is*. There is no "shared": QtRO never tells a slot which connection
+// invoked it, so a Source shared by every caller had no `Caller` at all.
+const INSTANCE_MODES = ["per_session", "per_peer"];
+
+// One field says what an entity is, the same answer appmodel.entity_type gives. Defined
+// here because this is the file with no DOM and no imports, so every other module can
+// reach it and the node checker can run it outside a browser.
+export function entityType(entity) {
+    return String((entity && entity.type) || "") || "service";
+}
 
 function entitiesOf(design) {
     return Array.isArray(design && design.entities) ? design.entities : [];
@@ -32,7 +42,7 @@ function consumersOf(link) {
 }
 
 function isWebEdge(entity) {
-    return String((entity && entity.capability) || "") === "web_edge";
+    return entityType(entity || {}) === "web_edge";
 }
 
 // The names declared more than once, in the order they were first declared. Both maps are
@@ -87,7 +97,7 @@ function clientWithoutEdge(design) {
         return [];
     }
     return entities
-        .filter((entity) => entity.kind === "client" && inBrowser(entity))
+        .filter((entity) => entityType(entity) === "client" && inBrowser(entity))
         .map((entity) => ({
             rule: "no-web-edge-for-client",
             level: "error",
@@ -170,8 +180,9 @@ function linkFindings(design, link) {
             level: "error",
             link: name,
             message: `'${name}' has instance '${instance}'. It must be one of `
-                + `${INSTANCE_MODES.join(", ")}, and anything else is built as one shared `
-                + `Source for every caller.`,
+                + `${INSTANCE_MODES.join(", ")}. 'shared' used to mean one Source for `
+                + `everybody, which could carry no Caller at all; put state the callers `
+                + `share in the owner entity's own singleton instead.`,
         });
     }
 
@@ -197,7 +208,7 @@ function linkFindings(design, link) {
 // The client and the edge are left out: both have a browser to serve.
 function orphanEntities(design) {
     return entitiesOf(design)
-        .filter((entity) => entity.kind !== "client" && !isWebEdge(entity))
+        .filter((entity) => entityType(entity) !== "client" && !isWebEdge(entity))
         .filter((entity) => !linksOf(design).some(
             (link) => link.owner === nameOf(entity)
                 || (link.consumers || []).includes(nameOf(entity))))

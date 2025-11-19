@@ -17,7 +17,7 @@ delivers on demand rather than compiling into the client bundle.
 ## Example 1: a shared live counter (no login)
 
 The smallest non trivial app: a counter every connected client sees update in
-real time. It demonstrates a `shared` connect point, an edge owned property, and
+real time. It demonstrates state shared by every browser, an edge owned property, and
 a client to edge request.
 
 ### Contract, `web/edge/Counter.syn`
@@ -40,11 +40,10 @@ project:
 
 entities:
   - name: app
-    kind: client
+    type: client
 
   - name: edge
-    kind: service
-    capability: web_edge
+    type: web_edge
     public:
       port: 8443
 
@@ -53,7 +52,9 @@ connect_points:
     owner: edge               # the edge holds the authoritative Source
     consumers: [app]          # the browser may acquire it
     server: web/edge/Counter.qml
-    instance: shared          # one counter, shared by all clients
+    # no instance: a browser-facing point is per_session, so each connection gets its
+    # own Source and each slot gets its Caller. The counter itself is one number for
+    # everybody, so it lives in the edge entity's own file below.
     # no scope: any session may use it
 ```
 
@@ -65,7 +66,31 @@ localhost. A release build refuses to start without TLS, so running it with
 certificate, as Example 2 shows (see the
 [validation rules](project-layout-and-config.md#validation)).
 
+### The edge entity, `web/edge/Edge.qml`
+
+The number itself, held by the entity rather than by any one connection. A Source is
+created per browser session and does not outlive it; this file is the entity and does.
+
+```qml
+pragma Singleton
+
+import QtQuick
+
+QtObject {
+    id: root
+
+    property int value: 0
+
+    function bump(by: int) {
+        root.value = root.value + by;
+    }
+}
+```
+
 ### Edge, `web/edge/Counter.qml`
+
+One of these per browser session. It binds the contract property to the entity's number,
+so every session sees the same value and every slot still has a `Caller` to authorize.
 
 ```qml
 import QtQuick
@@ -73,10 +98,11 @@ import SynQt
 
 Counter {
     id: counter
-    value: 0
 
-    function increment() { counter.value = counter.value + 1 }   // the edge is the writer
-    function decrement() { counter.value = counter.value - 1 }
+    value: Edge.value
+
+    function increment() { Edge.bump(1); }    // the edge is the writer
+    function decrement() { Edge.bump(-1); }
 }
 ```
 
@@ -113,8 +139,8 @@ ApplicationWindow {
 }
 ```
 
-Open the page in two browser tabs and the counter stays in sync, because both
-replicas observe the same shared Source.
+Open the page in two browser tabs and the counter stays in sync: each tab has its own
+Source, and both bind to the one number the edge entity holds.
 
 ## Example 2: the authenticated Todo app
 
@@ -154,11 +180,10 @@ scopes:
 
 entities:
   - name: app
-    kind: client
+    type: client
 
   - name: edge
-    kind: service
-    capability: web_edge
+    type: web_edge
     public:
       port: 8443
     tls:
@@ -187,7 +212,8 @@ connect_points:
     owner: edge
     consumers: [app]
     server: web/edge/Todo.qml
-    instance: shared              # one list everyone sees
+    # no instance: per_session, so each slot has its Caller. The list everyone sees
+    # lives in the edge entity's own file, which outlives any one connection.
     # no scope on the connect point: anonymous users may acquire it and read.
     # write permission is enforced inside the slots, not at acquisition.
 ```
@@ -219,7 +245,39 @@ IdentityMapping {
 }
 ```
 
+### The edge entity, `web/edge/Edge.qml`
+
+The list is one list for the whole app, so it belongs to the entity and not to any one
+connection. `ownerId` is kept here and is not declared in the contract, so it cannot reach
+a browser however the Source is written.
+
+```qml
+pragma Singleton
+
+import QtQuick
+
+QtObject {
+    id: root
+
+    property var rows: []
+
+    function append(row) {
+        root.rows = root.rows.concat([row]);
+    }
+
+    function removeAt(index: int) {
+        const next = root.rows.slice();
+        next.splice(index, 1);
+        root.rows = next;
+    }
+}
+```
+
 ### Edge, `web/edge/Todo.qml`
+
+One of these per browser session, which is what gives every slot below its `Client`
+(the browser-side name for `Caller`). It reads and writes the entity's list, and
+`setItems` copies only the declared roles out to that session.
 
 ```qml
 import QtQuick
@@ -227,10 +285,8 @@ import SynQt
 
 Todo {
     id: todo
-    count: 0
 
-    // Authoritative rows. ownerId is edge only and never crosses to clients.
-    property var rows: []
+    count: Edge.rows.length
 
     function add(text) {
         if (!Client.hasScope("user")) {
@@ -242,30 +298,39 @@ Todo {
             Client.emitRejected("Items must be 1 to 280 characters.")
             return
         }
-        rows.push({
+        Edge.append({
             text: clean,
             author: Client.identity.email,
             done: false,
             ownerId: Client.id              // edge only authorization data
         })
-        todo.setItems(rows)                 // replicate; only declared roles cross
-        todo.count = rows.length
     }
 
     function remove(index) {
-        if (index < 0 || index >= rows.length) {
+        if (index < 0 || index >= Edge.rows.length) {
             Client.emitRejected("No such item.")
             return
         }
-        const row = rows[index]
+        const row = Edge.rows[index]
         const isOwner = row.ownerId === Client.id
         if (!isOwner && !Client.hasScope("moderator")) {
             Client.emitRejected("You can only remove your own items.")
             return
         }
-        rows.splice(index, 1)
-        todo.setItems(rows)
-        todo.count = rows.length
+        Edge.removeAt(index)
+    }
+
+    // Every session's Source republishes when the entity's list changes, so a change one
+    // user makes reaches all of them. setItems keeps only the roles `items` declares, so
+    // ownerId is dropped at this boundary and never crosses to a browser.
+    Component.onCompleted: todo.setItems(Edge.rows)
+
+    Connections {
+        function onRowsChanged() {
+            todo.setItems(Edge.rows);
+        }
+
+        target: Edge
     }
 }
 ```
@@ -362,9 +427,9 @@ ApplicationWindow {
 
 ## Example 3: a private per session draft (sketch)
 
-When state must be private to one client, mark the connect point `per_session` so
-each session gets its own authoritative Source. The contract and client code look
-the same as a shared connect point; only the configuration differs:
+Every connect point already gets a Source per caller. What makes a draft private is that
+the Source keeps its state to itself instead of reading the entity's, and that the point is
+scoped so an anonymous client never acquires it at all:
 
 ```yaml
 connect_points:
@@ -376,10 +441,9 @@ connect_points:
     instance: per_session     # each session has its own draft Source
 ```
 
-Now one user's draft is a different Source instance from another's. There is no
-shared object through which one client could observe another's draft, and the
-`scope: user` precondition means an anonymous client never even acquires the
-replica.
+One user's draft is a different Source instance from another's, and this one touches no
+singleton, so there is nothing through which one client could observe another's draft. The
+`scope: user` precondition means an anonymous client never even acquires the replica.
 
 ## Example 4: a three entity todo with durable storage
 
@@ -403,11 +467,10 @@ scopes:
 
 entities:
   - name: app
-    kind: client
+    type: client
 
   - name: edge
-    kind: service
-    capability: web_edge
+    type: web_edge
     public:
       host: 0.0.0.0
       port: 8443
@@ -422,8 +485,7 @@ entities:
       file: web/edge/.env
 
   - name: store
-    kind: service
-    blueprint: relational
+    type: relational
     mesh:
       transport: mtls            # certificate identity: the database can trust Caller.entity
       host: 127.0.0.1
@@ -629,8 +691,8 @@ bundle. A merchandiser changes a campaign, or adds a new one, without a client r
 
 ### Topology, `synqt.yaml`
 
-The entities are a `kind: client`, a `capability: web_edge`, and a
-`blueprint: relational` database. The route table and the `router` block are
+The entities are a `type: client`, a `type: web_edge`, and a
+`type: relational` database. The route table and the `router` block are
 top-level keys:
 
 ```yaml
@@ -657,7 +719,6 @@ connect_points:
     owner: edge               # the edge owns the browser-facing live catalog
     consumers: [app]
     server: web/edge/Catalog.qml
-    instance: shared
 
   - name: inventory
     owner: stock              # the stock entity owns the durable stock

@@ -39,7 +39,7 @@ def render_root_cmakelists(config: Dict[str, Any], synqt_root: os.PathLike[str] 
     qt_version = project.get("qt_version", "6.11.1")
     uri = appmodel.qml_uri(name)
     client = appmodel.client_entity(config)
-    services = [e for e in appmodel.entities(config) if e.get("kind") != "client"]
+    services = [e for e in appmodel.entities(config) if appmodel.is_service(e)]
 
     lines: List[str] = [_HEADER_CMAKE, "",
                         "cmake_minimum_required(VERSION 3.21)",
@@ -70,7 +70,8 @@ def render_root_cmakelists(config: Dict[str, Any], synqt_root: os.PathLike[str] 
         # A blueprint/provider entity also links the provider library. SynQtService already
         # pulls SynQtProviders in (it PUBLIC-links it), so guard on the target to avoid
         # claiming the same binary directory twice.
-        if any(e.get("blueprint") or e.get("provider") for e in services):
+        if any(appmodel.entity_type(e) in appmodel.TYPE_HELPERS or e.get("provider")
+               for e in services):
             lines += ['    if(NOT TARGET SynQtProviders)',
                       '        add_subdirectory("${SYNQT_ROOT}/src/providers" '
                       '"${CMAKE_BINARY_DIR}/SynQtProviders")',
@@ -286,7 +287,7 @@ def _service_cmake(config: Dict[str, Any], entity: Dict[str, Any]) -> List[str]:
     owned = appmodel.app_points(appmodel.owned_by(config, name))
     consumed = appmodel.app_points(appmodel.mesh_consumed(config, name))
     libs = ["SynQtService"]
-    if entity.get("blueprint") or entity.get("provider"):
+    if appmodel.entity_type(entity) in appmodel.TYPE_HELPERS or entity.get("provider"):
         libs.append("SynQtProviders")
     folder = appmodel.entity_dir(entity)
     paths = appmodel.contract_paths(config)

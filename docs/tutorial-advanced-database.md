@@ -399,8 +399,7 @@ One block in `synqt.yaml`, and nothing else in the project changes:
 ```yaml
 entities:
   - name: books
-    kind: service
-    blueprint: relational
+    type: relational
     provider:
       name: custom:SqlServer
       host: sql.internal              # a private address, never public

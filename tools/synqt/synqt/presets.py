@@ -16,7 +16,7 @@ import os
 from pathlib import Path
 from typing import Any, Dict, List
 
-from . import clientbuild, toolchain, writer
+from . import appmodel, clientbuild, toolchain, writer
 
 
 def _presets(config: Dict[str, Any]) -> Dict[str, Any]:
@@ -70,7 +70,7 @@ def _presets(config: Dict[str, Any]) -> Dict[str, Any]:
     build: List[Dict[str, Any]] = []
     for entity in config.get("entities", []):
         name = entity.get("name")
-        if entity.get("kind") == "client":
+        if appmodel.is_client(entity):
             build.append({"name": f"{name}-wasm", "configurePreset": "wasm", "targets": [name]})
             if "desktop" in entity.get("targets", []):
                 build.append({"name": f"{name}-desktop", "configurePreset": "host",

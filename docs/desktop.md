@@ -265,7 +265,7 @@ section when desktop is one of them:
 ```yaml
 entities:
   - name: app
-    kind: client
+    type: client
     targets: [wasm, desktop]   # default [wasm]; add "desktop" for a native build
 
 build:

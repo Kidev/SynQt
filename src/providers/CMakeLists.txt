@@ -3,7 +3,7 @@
 
 # The SynQt provider library: the backend-facing family interfaces (persistence, cache,
 # document) and the bundled providers, plus the QML helpers (Db, Cache, Docs, Http, Jobs) that a
-# blueprint entity's Sources call. The connect point Source calls only an interface, never
+# an entity's Sources call. The connect point Source calls only an interface, never
 # an engine; credentials live inside a provider, sourced from the entity env, never on a
 # connect point or in a log. A pure service links this; the client never does.
 

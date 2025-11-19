@@ -10,8 +10,8 @@ from synqt import check, clientcache, clientshell, maingen
 
 def _config(**build):
     return {"project": {"name": "app"},
-            "entities": [{"name": "client", "kind": "client", "targets": ["wasm"]},
-                         {"name": "web", "kind": "service", "capability": "web_edge"}],
+            "entities": [{"name": "client", "type": "client", "targets": ["wasm"]},
+                         {"name": "web", "type": "web_edge"}],
             "build": dict(build)}
 
 
@@ -129,9 +129,9 @@ class EdgeConfigTest(unittest.TestCase):
     the CSP would advertise a worker the build never emitted (or block one it did)."""
 
     def _edge_main(self, **build):
-        edge = {"name": "web", "kind": "service", "capability": "web_edge"}
+        edge = {"name": "web", "type": "web_edge"}
         config = {"project": {"name": "app"},
-                  "entities": [{"name": "client", "kind": "client", "targets": ["wasm"]},
+                  "entities": [{"name": "client", "type": "client", "targets": ["wasm"]},
                                edge],
                   "build": dict(build)}
         return maingen.render_edge_main(config, edge)

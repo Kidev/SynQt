@@ -21,9 +21,9 @@ import subprocess
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from . import (appgen, clientbuild, clientcache, clientshell, config as configmod,
-               deploy as deploymod, licenses, manifest, presets, run, toolchain,
-               topologywriter, writer)
+from . import (appgen, appmodel, clientbuild, clientcache, clientshell,
+               config as configmod, deploy as deploymod, licenses, manifest, presets,
+               run, toolchain, topologywriter, writer)
 
 
 class BuildError(Exception):
@@ -321,11 +321,11 @@ def _targets_for(config: Dict[str, Any], client: str) -> Tuple[Optional[Dict[str
                                                                List[str], List[str]]:
     """Resolve the host targets (services, plus the client only for a desktop build) and the
     client targets requested. The browser client compiles through the separate wasm kit."""
-    client_entity = next((e for e in config.get("entities", []) if e.get("kind") == "client"),
+    client_entity = next((e for e in appmodel.entities(config) if appmodel.is_client(e)),
                          None)
     client_targets = _client_targets(client_entity, client) if client_entity else []
     host_targets = [e.get("name") for e in config.get("entities", [])
-                    if e.get("kind") != "client" and e.get("name")]
+                    if appmodel.is_service(e) and e.get("name")]
     if client_entity and "desktop" in client_targets:
         host_targets.append(client_entity.get("name"))
     return client_entity, host_targets, client_targets
@@ -351,7 +351,7 @@ def compile_incremental(project_dir: os.PathLike[str] | str, config: Dict[str, A
         name = entity.get("name")
         if not name:
             continue
-        if entity.get("kind") == "client":
+        if appmodel.is_client(entity):
             if "desktop" in _client_targets(entity, client):
                 _install_binary(build_dir, name,
                                 build_dir / "client-desktop" / desktop_platform())
@@ -518,7 +518,7 @@ def write_process_manifest(config: Dict[str, Any], build_dir: Path) -> Path:
     """A dependency-ordered start plan: owners before consumers, only the edge public."""
     order = run.startup_order(config)
     edges = {e.get("name") for e in config.get("entities", [])
-             if e.get("capability") == "web_edge" or e.get("web_edge")}
+             if appmodel.is_edge(e)}
     processes = [{
         "entity": name,
         "binary": f"build/{name}/{name}",
@@ -574,12 +574,12 @@ def build(project_dir: os.PathLike[str] | str, *, release: bool = True,
     topologywriter.write(root, config)  # the machine topology each service reads at startup
 
     # Only among the selected entities: `--entity web` must not compile the client too.
-    client_entity = next((e for e in selected if e.get("kind") == "client"), None)
+    client_entity = next((e for e in selected if appmodel.is_client(e)), None)
     client_targets = _client_targets(client_entity, client) if client_entity else []
 
     # Host targets: every service entity, plus the client only when a desktop build is
     # requested (the browser client compiles through the separate wasm kit).
-    host_targets = [e.get("name") for e in selected if e.get("kind") != "client"]
+    host_targets = [e.get("name") for e in selected if appmodel.is_service(e)]
     if client_entity and "desktop" in client_targets:
         host_targets.append(client_entity.get("name"))
     edge_url = _desktop_edge_url(config) if "desktop" in client_targets else None
@@ -590,7 +590,7 @@ def build(project_dir: os.PathLike[str] | str, *, release: bool = True,
     deploy_notes: List[str] = []
     for entity in selected:
         name = entity.get("name")
-        if entity.get("kind") == "client":
+        if appmodel.is_client(entity):
             for target in _client_targets(entity, client):
                 folder = "client" if target == "wasm" else "client-desktop"
                 out = build_dir / folder
@@ -651,7 +651,7 @@ def build(project_dir: os.PathLike[str] | str, *, release: bool = True,
         notices: List[str] = []
         if client_targets:
             notices.append(licenses.CLIENT_GPL_WARNING)
-        if any(e.get("capability") == "web_edge" or e.get("web_edge") for e in selected):
+        if any(appmodel.is_edge(e) for e in selected):
             notices.append("Note: distributing the edge binary triggers GPLv3 (Qt HTTP "
                            "Server / Network Authorization). See https://synqt.org/licensing/.")
         if notices:

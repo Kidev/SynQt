@@ -16,11 +16,11 @@
       "version": 1,
       "project": "my-app",
       "entities": [
-        {"name": "app", "kind": "client", "targets": ["wasm"], "x": 40, "y": 40},
-        {"name": "edge", "kind": "service", "capability": "web_edge", "x": 360, "y": 40},
-        {"name": "store", "kind": "service", "blueprint": "relational",
+        {"name": "app", "type": "client", "targets": ["wasm"], "x": 40, "y": 40},
+        {"name": "edge", "type": "web_edge", "x": 360, "y": 40},
+        {"name": "store", "type": "relational",
          "provider": "sqlite", "x": 680, "y": 40},
-        {"name": "feeds", "kind": "service", "blueprint": "api", "x": 680, "y": 200}
+        {"name": "feeds", "type": "api", "x": 680, "y": 200}
       ],
       "links": [
         {"name": "feed", "contract": "Feed", "owner": "edge", "consumers": ["app"],

@@ -25,14 +25,13 @@ build:
 
 entities:
   - name: app
-    kind: client
+    type: client
     targets: [wasm]
 
   - name: edge
-    kind: service
-    capability: web_edge
+    type: web_edge
     # Serving the browser over TLS in a release build. `synqt dev` ignores this and
-    # runs plaintext on localhost; `synqt build --release` and `synqt serve` require
+    # runs plaintext on localhost. `synqt build --release` and `synqt serve` require
     # either this block or public.tls_terminated_upstream, so that nothing ships
     # reachable over http:// with nobody named as the one who was meant to stop it.
     tls:
@@ -40,15 +39,13 @@ entities:
       key_file: certs/edge/privkey.pem
 
   - name: stock
-    kind: service
-    blueprint: relational
+    type: relational
 
 connect_points:
   # The offers the browser watches: owned by the edge, filled from the database.
   - name: catalog
     owner: edge
     consumers: [app]
-    instance: shared
 
   # The durable stock: owned by the database, reachable only by the edge (never the
   # browser; a client consumer here fails `synqt check`, since the database is not a

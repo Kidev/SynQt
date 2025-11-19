@@ -22,7 +22,7 @@ in an owned connect point's implementation.
 | `Caller` | any owner slot (any entity) | who invoked this slot: a browser user, or a calling entity |
 | `Client` | web edge owner slots | alias for `Caller` when the caller is a browser user |
 | generated Source | an owned connect point's implementation | the owner-side write surface (`set<Model>`, property setters, signals) |
-| `Db`, `Docs`, `Cache`, `Http`, `Jobs` | a blueprint entity's QML | the helper that blueprint provides, one per entity (see [the blueprint helpers](#service-the-blueprint-helpers)) |
+| `Db`, `Docs`, `Cache`, `Http`, `Jobs` | a typed entity's QML | the helper that type provides, one per entity (see [the type helpers](#service-the-type-helpers)) |
 
 `<Contract>.on<Signal>` attached handlers (for reacting to a connect point's
 signals) are covered in [Handling a connect point's signals](programming-model.md#handling-a-connect-points-signals);
@@ -368,9 +368,10 @@ function insert(row) {
     a link the project explicitly moved to `transport: local`; `isEntityVerified` is
     how a slot refuses that. See [security](security.md).
 
-Outside a call that originated from a consumer (for example an owner-side timer
-mutating shared state), there is no caller. The owner simply writes the Source and
-QtRO fans the change out to every consumer.
+Outside a call that originated from a consumer (for example an owner-side timer, or the
+entity's own singleton) there is no caller, and `Caller` is not in scope at all. `synqt
+check` refuses a file that names it outside a Source, because an authorization line that
+cannot run still reads like one.
 
 ### `Client`: the web edge alias
 
@@ -422,31 +423,29 @@ each `.syn` construct lowers.
 
 There are two ways to emit a contract signal, and the difference is the audience:
 
-- Calling the Source's signal (`rejected(reason)`) delivers it to every
-  consumer of that Source instance. With a `shared` instance that is everyone;
-  with a `per_session` instance there is only one consumer, so it is that session.
-- `Caller.emit<Signal>(...)` (`Caller.emitRejected(reason)`) delivers it to
-  the one caller currently in the slot.
+- Calling the Source's signal (`rejected(reason)`) delivers it to every consumer of that
+  Source instance, which is one caller: there is a Source per caller.
+- `Caller.emit<Signal>(...)` (`Caller.emitRejected(reason)`) delivers it to the one caller
+  currently in the slot.
 
-There is no `Caller` on a `shared` instance. It is built once, before any caller exists,
-so `Caller.emit<Signal>` and every other `Caller` member are out of reach there; a point
-whose slots answer one caller is one of the two per-caller modes, which is what an
-`instance:` left unwritten resolves to.
+So the two coincide, and `Caller.emit<Signal>` is the habit to keep, because it says which
+audience it means.
 
-For a `per_session` or `per_peer` connect point the two coincide, because the
-instance has a single consumer; `Caller.emit<Signal>` is the habit to keep because
-it stays correct if the instance later becomes `shared`.
+To reach *every* consumer, change what they are all reading: put the state in the entity's
+own singleton and let each Source republish from it. That is the arrangement described
+under [connect points](programming-model.md#connect-points-owned-by-one-entity-consumed-by-others), and it is how one bid reaches
+every browser watching the auction.
 
 ---
 
-## Service: the blueprint helpers
+## Service: the type helpers
 
-A [blueprint entity](entities.md) gets one more injected object, named for what it
-does: the helper its blueprint provides, available in every connect point Source that
+A [typed entity](entities.md) gets one more injected object, named for what it
+does: the helper its type provides, available in every connect point Source that
 entity owns. A helper is a thin, engine-agnostic front for the
 [provider](providers.md) the config selected, which is why the same Source keeps
-working when the provider changes. Which helper exists is decided by the entity's
-blueprint, not by an import; an entity with no blueprint has none of them.
+working when the provider changes. The entity's type decides which helper exists,
+rather than an import. An entity whose type has none (client, web_edge, service) has none of them.
 
 | Helper | Injected into | Backed by |
 |--------|---------------|-----------|

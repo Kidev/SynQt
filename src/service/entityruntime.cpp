@@ -88,10 +88,10 @@ EntityRuntime::EntityRuntime(Topology topology, QQmlEngine *engine, QObject *par
 
 EntityRuntime::~EntityRuntime() = default;
 
-bool EntityRuntime::buildBlueprintContext()
+bool EntityRuntime::buildTypeContext()
 {
-    const QString blueprint{m_topology.blueprint};
-    if (blueprint == QLatin1String("relational")) {
+    const QString type{m_topology.type};
+    if (type == QLatin1String("relational")) {
         m_persistence = makePersistenceProvider(providerConfigFromMap(m_topology.provider),
                                                 &m_errorString);
         if (m_persistence == nullptr) {
@@ -110,8 +110,8 @@ bool EntityRuntime::buildBlueprintContext()
             m_persistence.reset();
             return false;
         }
-        m_blueprintContext.insert(QStringLiteral("Db"), new Db{m_persistence.get(), this});
-    } else if (blueprint == QLatin1String("cache")) {
+        m_typeContext.insert(QStringLiteral("Db"), new Db{m_persistence.get(), this});
+    } else if (type == QLatin1String("cache")) {
         m_cache = makeCacheProvider(providerConfigFromMap(m_topology.provider), &m_errorString);
         if (m_cache == nullptr) {
             return false;
@@ -124,8 +124,8 @@ bool EntityRuntime::buildBlueprintContext()
             qWarning("SynQt: cache provider '%s' is not connected: %s",
                      qUtf8Printable(m_cache->name()), qUtf8Printable(error));
         }
-        m_blueprintContext.insert(QStringLiteral("Cache"), new Cache{m_cache.get(), this});
-    } else if (blueprint == QLatin1String("document")) {
+        m_typeContext.insert(QStringLiteral("Cache"), new Cache{m_cache.get(), this});
+    } else if (type == QLatin1String("document")) {
         m_document = makeDocumentProvider(providerConfigFromMap(m_topology.provider),
                                           &m_errorString);
         if (m_document == nullptr) {
@@ -136,14 +136,14 @@ bool EntityRuntime::buildBlueprintContext()
             qWarning("SynQt: document provider '%s' is not connected: %s",
                      qUtf8Printable(m_document->name()), qUtf8Printable(error));
         }
-        m_blueprintContext.insert(QStringLiteral("Docs"), new Docs{m_document.get(), this});
-    } else if (blueprint == QLatin1String("api")) {
+        m_typeContext.insert(QStringLiteral("Docs"), new Docs{m_document.get(), this});
+    } else if (type == QLatin1String("api")) {
         m_network = new QNetworkAccessManager{this};
         const bool release{m_topology.provider.value(QStringLiteral("release"), true).toBool()};
-        m_blueprintContext.insert(QStringLiteral("Http"),
-                                  new Http{m_network, m_engine, release, this});
-    } else if (blueprint == QLatin1String("jobs")) {
-        m_blueprintContext.insert(QStringLiteral("Jobs"), new Jobs{1000, this});
+        m_typeContext.insert(QStringLiteral("Http"),
+                             new Http{m_network, m_engine, release, this});
+    } else if (type == QLatin1String("jobs")) {
+        m_typeContext.insert(QStringLiteral("Jobs"), new Jobs{1000, this});
     }
     return true;
 }
@@ -196,32 +196,43 @@ QObject *EntityRuntime::consumedReplica(const QString &owner, const QString &con
 
 bool EntityRuntime::start()
 {
-    // Build the blueprint backend once, so every owned Source is created with its helper
-    // (Db/Cache/Docs/Http/Jobs) already in context (a shared Source is created inside start()).
-    // An entity that cannot serve its blueprint never reaches enableRemoting(): a consumer
-    // being refused acquisition is a far better failure than one acquiring a Source whose
-    // every call will fail.
-    if (!buildBlueprintContext()) {
+    // Build the type's backend once, so every owned Source is created with its helper
+    // (Db/Cache/Docs/Http/Jobs) already in context. An entity that cannot serve its type
+    // never reaches enableRemoting(): a consumer being refused acquisition is a far better
+    // failure than one acquiring a Source whose every call will fail.
+    if (!buildTypeContext()) {
         return false;
+    }
+
+    // The helper goes on the ROOT context as well as on each Source's, because the entity's
+    // own singleton is created by the engine in the root context and it is the entity: it is
+    // where state that outlives any one Source belongs, and it cannot hold that state if it
+    // cannot reach the engine behind it. Without this, `Db.exec(...)` in an entity singleton
+    // is a ReferenceError that reads like a working line. Each Source's own context sets the
+    // same objects again, which is what keeps the shadowing check below meaningful.
+    if (m_engine) {
+        for (auto it{m_typeContext.constBegin()}; it != m_typeContext.constEnd(); ++it) {
+            m_engine->rootContext()->setContextProperty(it.key(), it.value());
+        }
     }
 
     // Bring up an owner for every connect point this entity owns.
     for (const ConnectPointConfig &connectPoint : m_topology.owned()) {
         ConnectPointHost *host{
             new ConnectPointHost{connectPoint, m_topology.credentials, m_engine, this}};
-        for (auto it{m_blueprintContext.constBegin()}; it != m_blueprintContext.constEnd(); ++it) {
+        for (auto it{m_typeContext.constBegin()}; it != m_typeContext.constEnd(); ++it) {
             host->setContextObject(it.key(), it.value());
         }
         for (auto it{m_entityContext.constBegin()}; it != m_entityContext.constEnd(); ++it) {
-            // The blueprint's helper wins. An entity contributing its own `Db` would leave
+            // The type's own helper wins. An entity contributing its own `Db` would leave
             // every Source on it calling something other than the provider the config
             // selected, and silently, because the name still resolves. Refusing the
             // override and saying so is the only outcome that cannot look like it worked.
-            if (m_blueprintContext.contains(it.key())) {
-                qWarning("SynQt: entity '%s' contributed '%s', which its %s blueprint already "
-                         "provides; keeping the blueprint's helper",
+            if (m_typeContext.contains(it.key())) {
+                qWarning("SynQt: entity '%s' contributed '%s', which its %s type already "
+                         "provides; keeping the type's helper",
                          qUtf8Printable(m_topology.entity), qUtf8Printable(it.key()),
-                         qUtf8Printable(m_topology.blueprint));
+                         qUtf8Printable(m_topology.type));
                 continue;
             }
             host->setContextObject(it.key(), it.value());

@@ -32,15 +32,14 @@ identity:
 
 entities:
   - name: app
-    kind: client
+    type: client
     targets: [wasm]
 
   - name: edge
-    kind: service
-    capability: web_edge
+    type: web_edge
     identity: true
     # Serving the browser over TLS in a release build. `synqt dev` ignores this and
-    # runs plaintext on localhost; `synqt build --release` and `synqt serve` require
+    # runs plaintext on localhost. `synqt build --release` and `synqt serve` require
     # either this block or public.tls_terminated_upstream, so that nothing ships
     # reachable over http:// with nobody named as the one who was meant to stop it.
     tls:
@@ -48,8 +47,7 @@ entities:
       key_file: certs/edge/privkey.pem
 
   - name: books
-    kind: service
-    blueprint: relational
+    type: relational
 
 connect_points:
   # The live auction: the edge is the single authority; the browser may watch and bid.
@@ -63,7 +61,6 @@ connect_points:
   - name: hall
     owner: edge
     consumers: [app]
-    instance: shared
 
   # The durable ledger: owned by the books, reachable only by the edge (never the
   # browser; a client consumer here fails `synqt check`, since the books entity is not

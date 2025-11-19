@@ -47,21 +47,21 @@ const DRAG_SLOP = 3;
 // answer rather than three.
 const PALETTE = [
     {label: "Client", role: "client", base: "client",
-     make: () => ({kind: "client", targets: ["wasm"]})},
+     make: () => ({type: "client", targets: ["wasm"]})},
     {label: "Web edge", role: "edge", base: "web",
-     make: () => ({kind: "service", capability: "web_edge"})},
+     make: () => ({type: "web_edge"})},
     {label: "Relational", role: "relational", base: "database",
-     make: () => ({kind: "service", blueprint: "relational", provider: "sqlite"})},
+     make: () => ({type: "relational", provider: "sqlite"})},
     {label: "Cache", role: "cache", base: "cache",
-     make: () => ({kind: "service", blueprint: "cache", provider: "memory"})},
+     make: () => ({type: "cache", provider: "memory"})},
     {label: "Document store", role: "document", base: "documents",
-     make: () => ({kind: "service", blueprint: "document", provider: "memory"})},
+     make: () => ({type: "document", provider: "memory"})},
     {label: "API", role: "api", base: "api",
-     make: () => ({kind: "service", blueprint: "api"})},
+     make: () => ({type: "api"})},
     {label: "Jobs", role: "jobs", base: "jobs",
-     make: () => ({kind: "service", blueprint: "jobs"})},
+     make: () => ({type: "jobs"})},
     {label: "Service", role: "service", base: "service",
-     make: () => ({kind: "service"})},
+     make: () => ({type: "service"})},
 ].map((item) => ({...item, help: ROLE_HELP[item.role]}));
 
 const state = {
@@ -389,7 +389,7 @@ function fileOf(what, files) {
 }
 
 // Every file grouped under the directory it is in, in the order projectFiles lists them. The
-// first segment is the folder: `shared` and one per entity, which is the whole of a SynQt
+// first segment is the folder each entity's type puts it in, which is the whole of a SynQt
 // project's shape.
 function foldersOf(files) {
     const folders = [];

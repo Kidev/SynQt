@@ -31,6 +31,7 @@
 
 #include <QHostAddress>
 #include <QQmlEngine>
+#include <qqml.h>
 #include <QRemoteObjectDynamicReplica>
 #include <QRemoteObjectNode>
 #include <QSignalSpy>
@@ -143,6 +144,13 @@ private slots:
 
         // The edge entity consumes `ledger` from the books entity (as entity "edge").
         m_edgeEngine = std::make_unique<QQmlEngine>();
+        // The edge's own singleton, registered the way the generated main registers it
+        // (maingen._singleton_registrations). Every Source the edge owns reaches the lot
+        // and the Hall of Fame through it, so without this the example's QML is loading
+        // against a name that is not there.
+        qmlRegisterSingletonType(
+            QUrl::fromLocalFile(QStringLiteral(FIX1_GAVEL_DIR "/web/edge/Edge.qml")),
+            "SynQt", 1, 0, "Edge");
         Topology webTopology;
         webTopology.entity = QStringLiteral("edge");
         webTopology.credentials = credsFor(QStringLiteral("edge"));
@@ -154,9 +162,10 @@ private slots:
         QTRY_VERIFY((view = databaseView()) != nullptr);
         QTRY_VERIFY(qobject_cast<QRemoteObjectDynamicReplica *>(view)->isReplicaValid());
 
-        // The web edge: it owns `auction` (per_session, so Caller is the bidder) and `hall`
-        // (shared, mirrored from the database), and reaches the database through the
-        // "Books" accessor of its mesh runtime.
+        // The web edge: it owns `auction` and `hall`, both per_session so every slot has
+        // its Caller, and both reading the one lot and the one Hall of Fame from the edge
+        // entity's own singleton. It reaches the database through the "Books" accessor of
+        // its mesh runtime.
         WebEdgeConfig config;
         config.bundleDir = QStringLiteral(FIX1_BUNDLE_DIR);
         config.host = QStringLiteral("127.0.0.1");
@@ -175,7 +184,10 @@ private slots:
         hall.name = QStringLiteral("hall");
         hall.contract = QStringLiteral("Hall");
         hall.serverFile = QStringLiteral(FIX1_GAVEL_DIR "/web/edge/Hall.qml");
-        hall.instance = InstanceMode::Shared;          // one Hall mirrored to every browser
+        // Per session like every other point. The hall is the same for everyone, and the
+        // state behind it lives in the edge entity's own singleton; the Source is this
+        // session's window onto it, and it has a Caller because every caller does.
+        hall.instance = InstanceMode::PerSession;
         config.connectPoints = {auction, hall};
 
         m_edge = std::make_unique<WebEdge>(config, m_edgeEngine.get());
@@ -248,14 +260,17 @@ private slots:
         QCOMPARE(aliceAuction->property("highBid").toInt(), 50);   // unchanged: the edge refused
 
         // Hands-on check 2: placeBid while signed out (as from the browser console) is
-        // refused by the edge, whatever the UI shows. The anonymous session's own auction
-        // never advances past its initial 0.
+        // refused by the edge, whatever the UI shows, and the standing bid is untouched.
+        // 999 would have won if it had been let through, which is what makes the refusal
+        // visible: the anonymous session is watching the SAME auction as Alice (one lot,
+        // held by the edge entity), so an accepted bid would show up here immediately.
         QSignalSpy anonRejected{anonAuction, SIGNAL(bidRejected(QString))};
+        QTRY_COMPARE(anonAuction->property("highBid").toInt(), 50);   // Alice's bid, shared
         QVERIFY(QMetaObject::invokeMethod(anonAuction, "placeBid", Q_ARG(int, 999)));
         QTRY_VERIFY(anonRejected.count() >= 1);
         QVERIFY(anonRejected.first().at(0).toString().contains(QStringLiteral("sign in")));
         QTest::qWait(300);
-        QCOMPARE(anonAuction->property("highBid").toInt(), 0);     // never bid successfully
+        QCOMPARE(anonAuction->property("highBid").toInt(), 50);    // never bid successfully
 
         // Segmentation: the auctioneer (admin) takes a bid then closes the lot, which
         // records the winner in the database. Only the edge may write, so the record lands.

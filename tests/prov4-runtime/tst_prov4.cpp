@@ -1,10 +1,10 @@
 // SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 // SPDX-License-Identifier: Apache-2.0
 
-// PROV-4 acceptance: EntityRuntime is blueprint-aware. Given an entity with a blueprint and
+// PROV-4 acceptance: EntityRuntime is type-aware. Given an entity with a type and
 // a provider config, the runtime builds and connects the provider and injects that
-// blueprint's helper into every owned Source's QML context; no manual injection. One test
-// per blueprint (relational -> Db, cache -> Cache, document -> Docs, api -> Http,
+// type's helper into every owned Source's QML context. No manual injection. One test
+// per type (relational -> Db, cache -> Cache, document -> Docs, api -> Http,
 // jobs -> Jobs), each proving the helper reached QML and works, plus the failure paths: a
 // provider that selects nothing stops the entity, and one that will not connect is fatal
 // for a database and survivable for a cache or a document store.
@@ -24,6 +24,7 @@
 
 #include <QJSValue>
 #include <QQmlEngine>
+#include <qqml.h>
 #include <QTemporaryDir>
 #include <QTest>
 #include <QUuid>
@@ -110,15 +111,15 @@ class TestProv4 : public QObject
 private:
     QTemporaryDir m_dir;
 
-    /// A one connect point topology for `blueprint`, owned by `entity`, whose Source is
+    /// A one connect point topology of `entityType`, owned by `entity`, whose Source is
     /// `sourceFile`. A local socket keeps the owner cert-free: these tests prove injection,
     /// not the mesh, which M3 and M4 already cover.
-    static Topology blueprintTopology(const QString &entity, const QString &blueprint,
-                                      const QString &sourceFile, QVariantMap provider)
+    static Topology typeTopology(const QString &entity, const QString &entityType,
+                                 const QString &sourceFile, QVariantMap provider)
     {
         Topology topology;
         topology.entity = entity;
-        topology.blueprint = blueprint;
+        topology.type = entityType;
         topology.provider = std::move(provider);
 
         ConnectPointConfig connectPoint;
@@ -126,7 +127,7 @@ private:
         connectPoint.owner = entity;
         connectPoint.consumers = QStringList{QStringLiteral("web")};
         connectPoint.serverFile = sourceFile;
-        connectPoint.instance = ConnectPointInstance::Shared;
+        connectPoint.instance = ConnectPointInstance::PerPeer;
         connectPoint.endpoint.mode = MeshTransportMode::LocalSocket;
         connectPoint.endpoint.socketName =
             QStringLiteral("synqt-prov4-%1")
@@ -135,9 +136,20 @@ private:
         return topology;
     }
 
+    /// Register an entity's own QML as its singleton and bring it to life, the way the
+    /// generated main does (maingen._singleton_registrations and
+    /// _singleton_instantiations). Called after `runtime.start()`, because that is what
+    /// puts the type's helper on the root context the singleton is created in.
+    static QObject *liveSingleton(QQmlEngine &engine, const QString &file,
+                                  const char *typeName)
+    {
+        qmlRegisterSingletonType(QUrl::fromLocalFile(file), "SynQt", 1, 0, typeName);
+        return engine.singletonInstance<QObject *>("SynQt", typeName);
+    }
+
     Topology relationalTopology(const QString &dbFile)
     {
-        Topology topology{blueprintTopology(
+        Topology topology{typeTopology(
             QStringLiteral("database"), QStringLiteral("relational"),
             QStringLiteral(PROV4_SRCDIR "/database/Items.qml"),
             QVariantMap{{QStringLiteral("name"), QStringLiteral("sqlite")},
@@ -150,14 +162,14 @@ private:
 
     static Topology cacheTopology(const QString &providerName)
     {
-        return blueprintTopology(QStringLiteral("cache"), QStringLiteral("cache"),
+        return typeTopology(QStringLiteral("cache"), QStringLiteral("cache"),
                                  QStringLiteral(PROV4_SRCDIR "/cache/Counters.qml"),
                                  QVariantMap{{QStringLiteral("name"), providerName}});
     }
 
     static Topology documentTopology(const QString &providerName)
     {
-        return blueprintTopology(QStringLiteral("notes"), QStringLiteral("document"),
+        return typeTopology(QStringLiteral("notes"), QStringLiteral("document"),
                                  QStringLiteral(PROV4_SRCDIR "/document/Notes.qml"),
                                  QVariantMap{{QStringLiteral("name"), providerName}});
     }
@@ -186,7 +198,7 @@ private slots:
         ConnectPointHost *host{onlyHost(runtime)};
         QVERIFY(host != nullptr);
         QObject *injected{host->contextObject(QStringLiteral("Db"))};
-        QVERIFY2(injected != nullptr, "the runtime must inject Db for a relational blueprint");
+        QVERIFY2(injected != nullptr, "the runtime must inject Db for a relational entity");
 
         // The injected Db is wired to the connected provider with the schema already applied.
         Db *db{qobject_cast<Db *>(injected)};
@@ -213,10 +225,14 @@ private slots:
         ConnectPointHost *host{onlyHost(runtime)};
         QVERIFY(host != nullptr);
         Cache *cache{qobject_cast<Cache *>(host->contextObject(QStringLiteral("Cache")))};
-        QVERIFY2(cache != nullptr, "the runtime must inject Cache for a cache blueprint");
+        QVERIFY2(cache != nullptr, "the runtime must inject Cache for a cache entity");
 
-        // Counters.qml wrote this from Component.onCompleted, so the helper reached QML and
-        // not only the C++ side: nothing in this test called set() for that key.
+        // The entity's own file wrote this from Component.onCompleted, so the helper
+        // reached QML and not only the C++ side: nothing in this test called set() for
+        // that key. It is a singleton, not a Source, because a Source belongs to a caller
+        // and there is no caller here. The entity is what is alive at start-up.
+        QVERIFY(liveSingleton(engine, QStringLiteral(PROV4_SRCDIR "/cache/Counters.qml"),
+                              "Counters") != nullptr);
         QCOMPARE(cache->get(QStringLiteral("from-qml")).toString(),
                  QStringLiteral("written-at-source-creation"));
 
@@ -236,9 +252,12 @@ private slots:
         ConnectPointHost *host{onlyHost(runtime)};
         QVERIFY(host != nullptr);
         Docs *docs{qobject_cast<Docs *>(host->contextObject(QStringLiteral("Docs")))};
-        QVERIFY2(docs != nullptr, "the runtime must inject Docs for a document blueprint");
+        QVERIFY2(docs != nullptr, "the runtime must inject Docs for a document entity");
 
-        // Notes.qml inserted this from Component.onCompleted: the injection reached QML.
+        // The entity's own file inserted this from Component.onCompleted: the injection
+        // reached QML, in the singleton that is alive for as long as the entity is.
+        QVERIFY(liveSingleton(engine, QStringLiteral(PROV4_SRCDIR "/document/Notes.qml"),
+                              "Notes") != nullptr);
         const QVariantList atCreation = docs->find(QStringLiteral("notes"));
         QCOMPARE(atCreation.size(), 1);
         QCOMPARE(atCreation.first().toMap().value(QStringLiteral("title")).toString(),
@@ -269,7 +288,7 @@ private slots:
     void runtimeInjectsJobsFromBlueprintAndItWorks()
     {
         QQmlEngine engine;
-        EntityRuntime runtime{blueprintTopology(QStringLiteral("jobs"), QStringLiteral("jobs"),
+        EntityRuntime runtime{typeTopology(QStringLiteral("jobs"), QStringLiteral("jobs"),
                                                 QStringLiteral(PROV4_SRCDIR "/jobs/Rollups.qml"),
                                                 QVariantMap{}),
                               &engine};
@@ -278,10 +297,12 @@ private slots:
         ConnectPointHost *host{onlyHost(runtime)};
         QVERIFY(host != nullptr);
         Jobs *jobs{qobject_cast<Jobs *>(host->contextObject(QStringLiteral("Jobs")))};
-        QVERIFY2(jobs != nullptr, "the runtime must inject Jobs for a jobs blueprint");
+        QVERIFY2(jobs != nullptr, "the runtime must inject Jobs for a jobs entity");
 
-        // Rollups.qml enqueued from Component.onCompleted and the queue drains on the event
-        // loop, so the job is still pending here: the injection reached QML.
+        // The entity's own file enqueued from Component.onCompleted and the queue drains
+        // on the event loop, so the job is still pending here. The injection reached QML.
+        QVERIFY(liveSingleton(engine, QStringLiteral(PROV4_SRCDIR "/jobs/Rollups.qml"),
+                              "Rollups") != nullptr);
         QCOMPARE(jobs->queued(), 1);
 
         engine.globalObject().setProperty(QStringLiteral("ran"), 0);
@@ -304,7 +325,7 @@ private slots:
     {
         QQmlEngine engine;
         EntityRuntime runtime{
-            blueprintTopology(QStringLiteral("api"), QStringLiteral("api"),
+            typeTopology(QStringLiteral("api"), QStringLiteral("api"),
                               QStringLiteral(PROV4_SRCDIR "/api/Upstream.qml"),
                               QVariantMap{{QStringLiteral("release"), true}}),
             &engine};
@@ -313,7 +334,7 @@ private slots:
         ConnectPointHost *host{onlyHost(runtime)};
         QVERIFY(host != nullptr);
         Http *http{qobject_cast<Http *>(host->contextObject(QStringLiteral("Http")))};
-        QVERIFY2(http != nullptr, "the runtime must inject Http for an api blueprint");
+        QVERIFY2(http != nullptr, "the runtime must inject Http for an api entity");
 
         // Release is the runtime's default and the topology said so explicitly: a plaintext
         // call is refused before a socket is opened, and the promise says why.
@@ -335,7 +356,7 @@ private slots:
         // refuses immediately, so this needs no network and cannot hang.
         QQmlEngine engine;
         EntityRuntime runtime{
-            blueprintTopology(QStringLiteral("api"), QStringLiteral("api"),
+            typeTopology(QStringLiteral("api"), QStringLiteral("api"),
                               QStringLiteral(PROV4_SRCDIR "/api/Upstream.qml"),
                               QVariantMap{{QStringLiteral("release"), false}}),
             &engine};
@@ -357,10 +378,10 @@ private slots:
                      .contains(QStringLiteral("refusing a plaintext outbound request")));
     }
 
-    void runtimeWithoutBlueprintInjectsNothing()
+    void runtimeWithoutTypeInjectsNothing()
     {
         Topology topology{relationalTopology(m_dir.filePath(QStringLiteral("none.db")))};
-        topology.blueprint.clear();  // a bare service entity: no helper is injected
+        topology.type.clear();  // a bare service entity: no helper is injected
         QQmlEngine engine;
         EntityRuntime runtime{topology, &engine};
         QVERIFY2(runtime.start(), qPrintable(runtime.errorString()));
@@ -371,17 +392,17 @@ private slots:
     void anEntityCannotShadowItsOwnBlueprintHelper()
     {
         // An entity may contribute accessors of its own (the auth entity's IdentityEngine
-        // and Sessions are why setContextObject exists), but not under a name its blueprint
-        // already installed: every Source on it would then be calling something other than
+        // and Sessions are why setContextObject exists), but not under a name its type
+        // already installed. Every Source on it would then be calling something other than
         // the provider the config selected, and the name would still resolve, so nothing
-        // would look wrong. The blueprint's helper wins and the clash is said out loud.
+        // would look wrong. The type's helper wins and the clash is said out loud.
         QQmlEngine engine;
         EntityRuntime runtime{cacheTopology(QStringLiteral("memory")), &engine};
         QObject decoy;
         runtime.setContextObject(QStringLiteral("Cache"), &decoy);
         QTest::ignoreMessage(QtWarningMsg,
                              "SynQt: entity 'cache' contributed 'Cache', which its cache "
-                             "blueprint already provides; keeping the blueprint's helper");
+                             "type already provides; keeping the type's helper");
         QVERIFY2(runtime.start(), qPrintable(runtime.errorString()));
 
         ConnectPointHost *host{onlyHost(runtime)};
@@ -410,7 +431,7 @@ private slots:
     void aCacheOrDocumentEntityWithNoSuchProviderRefusesToStart()
     {
         // Same rule in the other two families, so an unselectable name can never be the one
-        // difference between blueprints.
+        // difference between entity types.
         QQmlEngine cacheEngine;
         EntityRuntime cacheRuntime{cacheTopology(QStringLiteral("custom:NotRegistered")),
                                    &cacheEngine};

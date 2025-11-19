@@ -29,8 +29,8 @@ def cdn_config(**overrides):
     config = {
         "project": {"name": "app", "origin_model": "split_origin"},
         "entities": [
-            {"name": "client", "kind": "client"},
-            {"name": "web", "kind": "service", "capability": "web_edge",
+            {"name": "client", "type": "client"},
+            {"name": "web", "type": "web_edge",
              "public": {"serve_client": False,
                         "origin": "https://edge.example.com",
                         "sync_route": "/sync"}},

@@ -1,10 +1,10 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-"""The per-entity topology.json writer: the machine form the service runtime reads.
+"""The per-entity topology.json writer. The machine form the service runtime reads.
 
 Covers the shared-endpoint invariant (owner and consumer agree on host+port), the
-local-socket path, blueprint/provider/schema pass-through (with secrets kept as env:
+local-socket path, type/provider/schema pass-through (with secrets kept as env:
 references), and that the writer emits a file for every service entity but not the client
 or the edge.
 """
@@ -26,13 +26,13 @@ def _config():
     return {
         "project": {"name": "shop"},
         "entities": [
-            {"name": "client", "kind": "client", "targets": ["wasm"]},
-            {"name": "web", "kind": "service", "capability": "web_edge"},
-            {"name": "database", "kind": "service", "blueprint": "relational",
+            {"name": "client", "type": "client", "targets": ["wasm"]},
+            {"name": "web", "type": "web_edge"},
+            {"name": "database", "type": "relational",
              "provider": {"name": "postgres", "host": "db.internal", "port": 5432,
                           "database": "shop", "user": "shop",
                           "password": "env:DB_PASSWORD", "sslmode": "verify-full"}},
-            {"name": "jobs", "kind": "service", "blueprint": "jobs"},
+            {"name": "jobs", "type": "jobs"},
         ],
         "connect_points": [
             {"name": "items", "owner": "database", "contract": "Items",
@@ -91,11 +91,11 @@ class EntityTopologyTest(unittest.TestCase):
         self.assertTrue(creds["ca"].endswith("synqt/mesh/ca.crt"))
         self.assertTrue(Path(creds["cert"]).is_absolute())
 
-    def test_blueprint_and_provider_pass_through_with_secret_as_env_reference(self):
+    def test_type_and_provider_pass_through_with_secret_as_env_reference(self):
         topology = topologywriter.entity_topology(
             self.config, self.config["entities"][2], self.root, self.endpoints)
-        self.assertEqual(topology["blueprint"], "relational")
-        # The provider block is carried through; the secret stays an env: reference, never
+        self.assertEqual(topology["type"], "relational")
+        # The provider block is carried through. The secret stays an env: reference, never
         # resolved into the file.
         self.assertEqual(topology["provider"]["name"], "postgres")
         self.assertEqual(topology["provider"]["password"], "env:DB_PASSWORD")
@@ -164,9 +164,9 @@ class WriteTest(unittest.TestCase):
         written = topologywriter.write(root, config)
         self.assertNotIn("build/web/topology.json", written)
 
-    def test_build_writes_topology_for_a_blueprint_entity(self):
+    def test_build_writes_topology_for_a_typed_entity(self):
         parent = Path(tempfile.mkdtemp())
-        newproject.scaffold(parent, "app", blueprints=[("orders", "relational")])
+        newproject.scaffold(parent, "app", starting=[("orders", "relational")])
         root = parent / "app"
         # Wire the edge to the relational entity so there is a real mesh link.
         config = yaml.safe_load((root / "synqt.yaml").read_text())
@@ -193,7 +193,7 @@ class WriteTest(unittest.TestCase):
         topology_path = root / "build" / "orders" / "topology.json"
         self.assertTrue(topology_path.exists())
         topology = json.loads(topology_path.read_text())
-        self.assertEqual(topology["blueprint"], "relational")
+        self.assertEqual(topology["type"], "relational")
         self.assertEqual(topology["connect_points"][0]["name"], "items")
 
 

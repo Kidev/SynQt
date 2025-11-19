@@ -143,11 +143,10 @@ project:
 
 entities:
   - name: web
-    kind: service
-    capability: web_edge
+    type: web_edge
 
   - name: app
-    kind: client
+    type: client
 
 router:
   fallback: /
@@ -317,10 +316,10 @@ def test_a_bare_path_typo_reports_only_the_path():
 def test_a_client_entity_with_no_name_still_has_its_views_checked():
     # A nameless client entity still gets the bare kind folder. Reading it as "no client
     # at all" here would skip the view rule on a project the build still generates.
-    # lint_routes directly, not check_project: an entity with no name trips an unrelated
+    # lint_routes directly, not check_project. An entity with no name trips an unrelated
     # rule in validate() long before the route table is read.
     root = _project()
-    config = {"entities": [{"kind": "client"}],
+    config = {"entities": [{"type": "client"}],
               "routes": [{"path": "/", "view": "Missing.qml"}],
               "router": {"fallback": "/"}}
     findings = check.lint_routes(config, root)

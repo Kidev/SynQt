@@ -42,15 +42,15 @@ import SynQt
 {declared}}}
 """
 
-# The names SynQt itself puts in the QML scope an entity's own files are resolved in: the
-# blueprint helpers the runtime installs (`Db`, `Cache`, ...) and the accessors registered
-# into the SynQt module. A file in an entity directory becomes a QML type named after the
-# file, and a type from the directory wins over one from an import, so `Cache.qml` sitting
-# beside a Source would quietly shadow the cache helper that Source calls. Refused where
-# somebody picks the name rather than debugged where the call goes wrong.
-RESERVED_QML_NAMES = frozenset({
-    "App", "Cache", "Caller", "Client", "Db", "Docs", "EntityTest", "Graphics", "Http",
-    "IdentityMapping", "Jobs", "PageSeed", "Router", "Server", "Session",
+# The names SynQt puts in the QML scope of EVERY entity, whatever it is: the accessors the
+# runtime installs on a Source's context and the types registered into the SynQt module. A
+# file in an entity directory becomes a QML type named after the file, and a type from the
+# directory wins over one from an import, so `Session.qml` beside a Source would quietly
+# shadow the session accessor that Source calls. Refused where somebody picks the name
+# rather than debugged where the call goes wrong.
+ALWAYS_RESERVED = frozenset({
+    "App", "Caller", "Client", "EntityTest", "Graphics", "IdentityMapping", "PageSeed",
+    "Router", "Server", "Session",
 })
 
 
@@ -58,21 +58,42 @@ class AddContractError(Exception):
     """A scaffolding error surfaced to the CLI (no traceback for the user)."""
 
 
-def check_qml_name(name: str) -> str:
-    """`name` back, or an error saying why it cannot name a QML type.
+def reserved_for(entity_type: Optional[str]) -> frozenset:
+    """The names that cannot be used inside an entity of this type.
+
+    The always-reserved set, plus the ONE helper this type installs: `Db` in a relational
+    entity, `Cache` in a cache entity, and so on (`appmodel.TYPE_HELPERS`). `EntityRuntime`
+    builds exactly one of them, so `Cache` is a name in scope in a cache entity and a name
+    like any other everywhere else. Reserving the whole set globally, which is what this
+    used to do, made every one of those words unusable in every entity in the project to
+    prevent a collision that only exists in one of them.
+    """
+    if entity_type is None:
+        return ALWAYS_RESERVED
+    helper = appmodel.TYPE_HELPERS.get(entity_type)
+    return (ALWAYS_RESERVED | {helper}) if helper else ALWAYS_RESERVED
+
+
+def check_qml_name(name: str, *, entity_type: Optional[str] = None) -> str:
+    """`name` back, or an error saying why it cannot name a QML type here.
 
     A contract name is also a file name and a QML type name (``Items`` becomes
     ``Items.syn`` in its owner's folder, ``Items`` in QML, and ``ItemsSourceHelper`` in
     C++), so a name QML cannot use is refused here rather than at the far end of a build.
+
+    `entity_type` is the type of the entity the file lands in, which decides whether the
+    one type-specific helper name is taken. Omitted, only the always-reserved names are.
     """
     if not name or not name.isascii() or not name.isidentifier() or not name[0].isupper():
         raise AddContractError(
             f"'{name}' cannot name a QML type; use a name that starts with a capital "
             "letter and holds only letters, digits and underscores (for example Items)")
-    if name in RESERVED_QML_NAMES:
+    if name in reserved_for(entity_type):
+        where = (f"every entity of type '{entity_type}'" if name not in ALWAYS_RESERVED
+                 else "every entity")
         raise AddContractError(
-            f"'{name}' is what SynQt calls one of the helpers an entity's QML uses, and a "
-            f"{name}.qml of your own would shadow it wherever it is called; pick another "
+            f"'{name}' is what SynQt calls one of the helpers the QML of {where} uses, and "
+            f"a {name}.qml of your own would shadow it wherever it is called; pick another "
             "name")
     return name
 
@@ -175,8 +196,8 @@ def _root_note(project_dir: os.PathLike[str] | str, owner: Dict[str, Any],
 
 
 def scaffold_contract(project_dir: os.PathLike[str] | str, name: str, *, owner: str) -> str:
-    check_qml_name(name)
     entity = owner_entity(project_dir, owner)
+    check_qml_name(name, entity_type=appmodel.entity_type(entity))
     relative = appmodel.contract_path(entity, name)
     path = Path(project_dir) / relative
     if path.exists():
@@ -192,11 +213,13 @@ def scaffold_connect_point(project_dir: os.PathLike[str] | str, name: str, *,
                            owner: str, consumers: List[str],
                            contract: Optional[str] = None,
                            instance: Optional[str] = None) -> str:
-    if instance is not None and instance not in ("shared", "per_session", "per_peer"):
+    if instance is not None and instance not in ("per_session", "per_peer"):
         raise AddContractError(
-            "instance must be shared, per_session, or per_peer")
+            "instance must be per_session or per_peer; there is one Source per caller and "
+            "the only question is what a caller is on this point")
     contract = contract or appmodel.contract_of({"name": name})
-    check_qml_name(contract)
+    check_qml_name(contract, entity_type=appmodel.entity_type(owner_entity(project_dir,
+                                                                          owner)))
     config_path = Path(project_dir) / "synqt.yaml"
     if not config_path.exists():
         raise AddContractError("no synqt.yaml (run 'synqt new' first)")

@@ -98,13 +98,8 @@ def _deployed_binary(root: Path, name: str) -> Optional[Path]:
     return _executable(root / "build" / name, name)
 
 
-def _is_edge(entity: Dict[str, Any]) -> bool:
-    return entity.get("capability") == "web_edge" or bool(entity.get("web_edge"))
-
-
 def _edge_entity(config: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    return next((e for e in config.get("entities", [])
-                 if isinstance(e, dict) and _is_edge(e)), None)
+    return next((e for e in appmodel.entities(config) if appmodel.is_edge(e)), None)
 
 
 def startup_order(config: Dict[str, Any]) -> List[str]:
@@ -112,8 +107,8 @@ def startup_order(config: Dict[str, Any]) -> List[str]:
     # Including the links `identity.provider_entity` implies, so an auth entity comes up
     # before the edges that reach it for a login.
     config = appmodel.with_auth_connect_points(config)
-    services = {e.get("name") for e in config.get("entities", [])
-                if isinstance(e, dict) and e.get("kind") != "client"}
+    services = {e.get("name") for e in appmodel.entities(config)
+                if appmodel.is_service(e)}
     after: Dict[str, set] = {name: set() for name in services}
     for connect_point in config.get("connect_points", []):
         owner = connect_point.get("owner")
@@ -181,7 +176,7 @@ def dev_command(root: Path, entity: Dict[str, Any], config: Dict[str, Any],
     name = entity.get("name")
     resolved = host_binary(root, name)
     binary = str(resolved) if resolved else str(root / "build" / "host" / name)
-    if _is_edge(entity):
+    if appmodel.is_edge(entity):
         return [binary, "--bundle", str(root / "build" / "client"),
                 "--qml-dir", str(root), "--port", str(port), "--dev"]
     command = [binary, "--topology", str(root / "build" / name / "topology.json")]
@@ -342,10 +337,10 @@ def _categorize(changed: Set[Path], root: Path, config: Dict[str, Any],
     """Decide whether a change touches the host side (services/edge), the client side, or
     both. A topology (a configuration file) or contract (.syn) change affects both; an
     entity's QML is attributed to that entity's side."""
-    services = {e.get("name") for e in config.get("entities", [])
-                if isinstance(e, dict) and e.get("kind") != "client"}
-    client_name = next((e.get("name") for e in config.get("entities", [])
-                        if isinstance(e, dict) and e.get("kind") == "client"), None)
+    services = {e.get("name") for e in appmodel.entities(config)
+                if appmodel.is_service(e)}
+    client_name = next((e.get("name") for e in appmodel.entities(config)
+                        if appmodel.is_client(e)), None)
     host = client = False
     for path in changed:
         if path.name in config_names or path.suffix == ".syn":

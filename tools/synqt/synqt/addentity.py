@@ -1,10 +1,10 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-"""``synqt add entity`` and ``synqt providers``: scaffold a blueprint entity.
+"""``synqt add entity`` and ``synqt providers``: scaffold an entity of a given type.
 
-A blueprint entity is instantiated with secure defaults: the embedded provider needs no
-configuration; an external provider is masked behind the same entity, its secret recorded
+An entity is instantiated with secure defaults. The embedded provider needs no
+configuration. An external provider is masked behind the same entity, its secret recorded
 as an ``env:`` reference (with a ``.env.example`` entry) and its connection forced to
 verified TLS. The connect point Source calls only the provider interface, so the engine
 choice never leaks into the rest of the system.
@@ -18,7 +18,7 @@ from typing import Any, Dict, List, Optional
 
 import yaml
 
-from synqt import addcontract, appmodel, newproject, yamledit
+from synqt import addcontract, appgen, appmodel, newproject, presets, yamledit
 
 # Family -> the providers bundled for it (default first). This is the list the C++ family
 # factories accept, and the only place it is written down: `synqt add entity` offers these
@@ -36,17 +36,19 @@ PROVIDERS: Dict[str, List[str]] = {
 # registered alternatives when it misses.
 CUSTOM_PREFIX = "custom:"
 
-# Blueprint -> (family or None, default provider or None).
-BLUEPRINTS: Dict[str, Optional[str]] = {
+# Entity type -> the provider family behind it, or None for a type with no data engine.
+# `client` and `web_edge` are entity types too but are not offered here. A project has one
+# of each, `synqt new` writes them, and a second of either is not a thing to scaffold.
+TYPES: Dict[str, Optional[str]] = {
     "relational": "relational",
     "cache": "cache",
     "document": "document",
     "api": None,   # QHttpServer inbound (opt-in) + Http outbound; no data provider
     "jobs": None,      # timers + bounded queue; no data provider
-    "service": None,   # a bare custom entity
+    "service": None,   # a bare entity: no engine, no browser-facing side, just its QML
 }
 
-# External providers: the NAME of the environment variable the credential is read from, and
+# External providers. The NAME of the environment variable the credential is read from, and
 # the provider block that references it. Nothing here ever holds a credential: `secret_env` is
 # a variable name, and the block records the `env:` reference the runtime resolves at start-up
 # from the entity's own environment. That distinction is why these are not called `secret`.
@@ -72,8 +74,8 @@ class AddEntityError(Exception):
     """A scaffolding error surfaced to the CLI (no traceback for the user)."""
 
 
-def _entity_qml(blueprint: str, name: str) -> str:
-    """A blueprint entity's own file: the singleton it is, showing the helper it has.
+def _entity_qml(entity_type: str, name: str) -> str:
+    """An entity's own file: the singleton it is, showing the helper its type gives it.
 
     Not a connect point Source. A Source is named after the point it answers, and a new
     entity has no points yet, so scaffolding one would mean inventing a name for a thing
@@ -89,20 +91,22 @@ def _entity_qml(blueprint: str, name: str) -> str:
     header = ("// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux\n"
               "// SPDX-License-Identifier: Apache-2.0\n\n"
               "pragma Singleton\n\nimport QtQuick\nimport SynQt\n\n")
-    if blueprint == "relational":
+    if entity_type == "relational":
         return header + (
             f"// The '{name}' entity itself. It reaches its engine through the `Db`\n"
             "// helper only (parameterized query/exec) and never names one.\n"
+            "//\n"
+            "// No `Caller` here, and that is not an omission: this file is the entity, not\n"
+            "// a connect point, so nothing outside the entity can reach it and there is no\n"
+            "// caller to authorize. Authorization lives in the Source of each connect\n"
+            "// point, which is where a caller actually arrives.\n"
             "QtObject {\n"
             "    function insert(row) {\n"
-            "        if (Caller.entity !== \"edge\") {\n"
-            "            return;   // authorize the calling entity\n"
-            "        }\n"
             "        Db.exec(\"INSERT INTO items(text, author) VALUES(?, ?)\", "
             "[row.text, row.author]);\n"
             "    }\n"
             "}\n")
-    if blueprint == "cache":
+    if entity_type == "cache":
         return header + (
             f"// The '{name}' entity itself. It calls the `Cache` helper only, so the\n"
             "// entity works the same on the embedded store and on an external engine.\n"
@@ -115,17 +119,17 @@ def _entity_qml(blueprint: str, name: str) -> str:
             "        return Cache.get(key);\n"
             "    }\n"
             "}\n")
-    if blueprint == "document":
+    if entity_type == "document":
         return header + (
             f"// The '{name}' entity itself. It calls the `Docs` helper only\n"
             "// (collection, filter and document as maps) and never names an engine. The\n"
             "// filter is built here from a value, never forwarded whole from a caller: a\n"
             "// filter map is the engine's query language the way a string is SQL's.\n"
+            "//\n"
+            "// No `Caller` here: this file is the entity, not a connect point, so there is\n"
+            "// no caller to authorize. That check belongs in each connect point's Source.\n"
             "QtObject {\n"
             "    function add(doc) {\n"
-            "        if (Caller.entity !== \"edge\") {\n"
-            "            return;   // authorize the calling entity\n"
-            "        }\n"
             "        Docs.insert(\"items\", doc);\n"
             "    }\n"
             "\n"
@@ -135,7 +139,7 @@ def _entity_qml(blueprint: str, name: str) -> str:
             "        });\n"
             "    }\n"
             "}\n")
-    if blueprint == "api":
+    if entity_type == "api":
         return header + (
             f"// The '{name}' entity itself, outbound only by default: it reaches external\n"
             "// HTTP through the `Http` helper (TLS-verified, plaintext refused in release)\n"
@@ -145,7 +149,7 @@ def _entity_qml(blueprint: str, name: str) -> str:
             "        return Http.get(url);\n"
             "    }\n"
             "}\n")
-    if blueprint == "jobs":
+    if entity_type == "jobs":
         return header + (
             f"// The '{name}' entity itself. Scheduling and the bounded work queue belong\n"
             "// to the `Jobs` helper, so there is no timer here to manage and nothing to deploy.\n"
@@ -155,36 +159,42 @@ def _entity_qml(blueprint: str, name: str) -> str:
             "        console.log(\"rollup\");\n"
             "    })\n"
             "}\n")
-    return header + "QtObject {\n}\n"
+    # An empty object on one line, which is what qmlformat writes for one: the scaffold
+    # promises a project that passes its own `synqt check` with nothing to reformat, and a
+    # plain service is the one type with nothing to put in the braces.
+    return header + "QtObject {}\n"
 
 
-def entity_block(name: str, blueprint: str, provider: Optional[str]) -> Dict[str, Any]:
-    block: Dict[str, Any] = {"name": name, "kind": "service", "blueprint": blueprint}
-    family = BLUEPRINTS.get(blueprint)
+def entity_block(name: str, entity_type: str, provider: Optional[str]) -> Dict[str, Any]:
+    block: Dict[str, Any] = {"name": name, "type": entity_type}
+    family = TYPES.get(entity_type)
     if family:
         chosen = provider or PROVIDERS[family][0]
         if chosen in _EXTERNAL:
             block["provider"] = _EXTERNAL[chosen]["block"](name, _EXTERNAL[chosen]["secret_env"])
-        elif blueprint == "relational":
+        elif entity_type == "relational":
             block["settings"] = {"file": f"{appmodel.entity_dir(block)}/data/app.db",
                                  "journal_mode": "wal", "busy_timeout_ms": 5000}
         else:
             block["provider"] = {"name": chosen}
-    if blueprint == "api":
+    if entity_type == "api":
         block["inbound"] = False  # opt-in, reviewed choice
     return block
 
 
-def scaffold(project_dir: os.PathLike[str] | str, name: str, blueprint: str,
+def scaffold(project_dir: os.PathLike[str] | str, name: str,
+             entity_type: str = appmodel.PLAIN_TYPE,
              provider: Optional[str] = None) -> str:
-    if blueprint not in BLUEPRINTS:
-        raise AddEntityError(f"unknown blueprint '{blueprint}'; one of {sorted(BLUEPRINTS)}")
-    family = BLUEPRINTS.get(blueprint)
+    if entity_type not in TYPES:
+        raise AddEntityError(f"unknown entity type '{entity_type}'; one of {sorted(TYPES)}")
+    family = TYPES.get(entity_type)
     if provider and family and provider not in PROVIDERS[family]:
         raise AddEntityError(
-            f"provider '{provider}' is not a {blueprint} provider; one of {PROVIDERS[family]}")
+            f"provider '{provider}' is not a {entity_type} provider; "
+            f"one of {PROVIDERS[family]}")
     try:
-        addcontract.check_qml_name(f"{name[:1].upper()}{name[1:]}")
+        addcontract.check_qml_name(f"{name[:1].upper()}{name[1:]}",
+                                   entity_type=entity_type)
     except addcontract.AddContractError as error:
         raise AddEntityError(str(error)) from error
 
@@ -197,7 +207,7 @@ def scaffold(project_dir: os.PathLike[str] | str, name: str, blueprint: str,
     if any(isinstance(e, dict) and e.get("name") == name for e in entities):
         raise AddEntityError(f"an entity named '{name}' already exists")
 
-    block = entity_block(name, blueprint, provider)
+    block = entity_block(name, entity_type, provider)
     # Spliced into the text rather than dumped over it: the file is the author's, and one
     # added entity is not a reason to lose their comments and their formatting.
     if not config_path.exists():
@@ -210,8 +220,8 @@ def scaffold(project_dir: os.PathLike[str] | str, name: str, blueprint: str,
     entity_dir = root / appmodel.entity_dir(block)
     entity_dir.mkdir(parents=True, exist_ok=True)
     own = appmodel.entity_file_path(block)
-    (root / own).write_text(_entity_qml(blueprint, name))
-    if blueprint == "relational":
+    (root / own).write_text(_entity_qml(entity_type, name))
+    if entity_type == "relational":
         (entity_dir / "schema.sql").write_text(
             "-- forward-only migrations, one statement per step\n"
             "CREATE TABLE items (id INTEGER PRIMARY KEY AUTOINCREMENT,\n"
@@ -229,7 +239,7 @@ def scaffold(project_dir: os.PathLike[str] | str, name: str, blueprint: str,
             lines.append(f"{secret_env}=")
             env_example.write_text("\n".join(lines) + "\n")
 
-    steps = [f"Entity '{name}' scaffolded ({blueprint}"
+    steps = [f"Entity '{name}' scaffolded ({entity_type}"
              + (f", provider {chosen}" if chosen else "") + ")."]
     if secret_env:
         steps.append(f"  - Put the {chosen} credential in the entity .env as {secret_env} "
@@ -240,8 +250,16 @@ def scaffold(project_dir: os.PathLike[str] | str, name: str, blueprint: str,
             steps.append("  - The QMYSQL plugin must be built against MariaDB Connector/C "
                          "(LGPLv2.1), never Oracle's GPLv2-only libmysqlclient (see "
                          "https://synqt.org/licensing/).")
+    # Regenerate the buildable app. The new entity needs its main.cpp, its CMake target
+    # and its preset, and a command that leaves a project needing a build before it is
+    # complete is a command that half worked. `synqt build` regenerates these too, so this
+    # only moves the moment, but the moment is the one the author is looking at.
+    config = yaml.safe_load(config_path.read_text()) or {}
+    presets.write(root, config)
+    appgen.generate(root, config)
+
     folder = appmodel.entity_dir(block)
-    steps.append(f"  - {own} is the entity itself, with the blueprint's helper shown in it.")
+    steps.append(f"  - {own} is the entity itself, with the type's helper shown in it.")
     steps.append(f"  - Add the connect point(s) this entity owns: 'synqt add connect-point "
                  f"<name> --owner {name} --consumers <a,b>' writes {folder}/<Contract>.qml "
                  "and you declare what crosses it beside that.")
@@ -252,5 +270,5 @@ def list_providers() -> str:
     lines = ["Available providers per family (default first):"]
     for family, providers in PROVIDERS.items():
         lines.append(f"  {family}: {', '.join(providers)}")
-    lines.append("  (blueprints: relational, cache, document, api, jobs, service)")
+    lines.append("  (entity types: relational, cache, document, api, jobs, service)")
     return "\n".join(lines)

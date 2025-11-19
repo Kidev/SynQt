@@ -291,9 +291,9 @@ def accessors_for(config: Dict[str, Any], entity_name: str) -> Dict[str, str]:
     """
     entities = list(config.get("entities") or [])
     points = list(config.get("connect_points") or [])
-    kind = next((str(entity.get("kind") or "") for entity in entities
-                 if entity.get("name") == entity_name), "")
-    if kind == "client":
+    entity_type = next((appmodel.entity_type(entity) for entity in entities
+                        if entity.get("name") == entity_name), "")
+    if entity_type == "client":
         owners = [str(point.get("owner") or "") for point in points
                   if entity_name in (point.get("consumers") or [])]
         edge = next((owner for owner in owners if owner), "") or _first_edge(entities)
@@ -495,7 +495,7 @@ def _count(number: int, noun: str) -> str:
 
 def _first_edge(entities: Sequence[Dict[str, Any]]) -> str:
     for entity in entities:
-        if entity.get("capability") == "web_edge":
+        if appmodel.is_edge(entity):
             return str(entity.get("name") or "")
     return ""
 

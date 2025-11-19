@@ -18,6 +18,7 @@
 #include "counter_sourcehelper.h"  // synqtRegisterCounterSources()
 
 #include <QQmlEngine>
+#include <qqml.h>
 #include <QRemoteObjectDynamicReplica>
 #include <QRemoteObjectReplica>
 #include <QSignalSpy>
@@ -39,6 +40,12 @@ WebEdgeConfig edgeConfig(quint16 port)
     config.port = port;
     config.certFile = QStringLiteral(M6_CERT_DIR "/server.crt");
     config.keyFile = QStringLiteral(M6_CERT_DIR "/server.key");
+
+    // The edge entity's own file, registered and brought to life the way the generated
+    // main does it. The counter lives there, because a Source is per session and the
+    // number is not. Registration is global, so doing it here is enough.
+    qmlRegisterSingletonType(QUrl::fromLocalFile(QStringLiteral(M6_SRCDIR "/web/Edge.qml")),
+                             "SynQt", 1, 0, "Edge");
 
     WebEdgeConnectPoint counter;
     counter.name = QStringLiteral("counter");

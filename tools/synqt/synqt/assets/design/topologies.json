@@ -21,13 +21,13 @@
         "version": 1,
         "project": "rules",
         "entities": [
-          {"name": "client", "kind": "client"},
-          {"name": "web", "kind": "service", "capability": "web_edge"},
-          {"name": "database", "kind": "service", "blueprint": "relational"}
+          {"name": "client", "type": "client"},
+          {"name": "web", "type": "web_edge"},
+          {"name": "database", "type": "relational"}
         ],
         "links": [
           {"name": "ledger", "contract": "Ledger", "owner": "database",
-           "consumers": ["web", "client"], "instance": "shared"}
+           "consumers": ["web", "client"], "instance": "per_peer"}
         ]
       }
     },
@@ -40,12 +40,12 @@
         "version": 1,
         "project": "rules",
         "entities": [
-          {"name": "client", "kind": "client"},
-          {"name": "web", "kind": "service", "capability": "web_edge"}
+          {"name": "client", "type": "client"},
+          {"name": "web", "type": "web_edge"}
         ],
         "links": [
           {"name": "ledger", "contract": "Ledger", "owner": "records",
-           "consumers": ["web"], "instance": "shared"}
+           "consumers": ["web"], "instance": "per_peer"}
         ]
       }
     },
@@ -58,12 +58,12 @@
         "version": 1,
         "project": "rules",
         "entities": [
-          {"name": "client", "kind": "client"},
-          {"name": "web", "kind": "service", "capability": "web_edge"}
+          {"name": "client", "type": "client"},
+          {"name": "web", "type": "web_edge"}
         ],
         "links": [
           {"name": "ledger", "contract": "Ledger", "owner": "web",
-           "consumers": ["reports"], "instance": "shared"}
+           "consumers": ["reports"], "instance": "per_peer"}
         ]
       }
     },
@@ -76,12 +76,12 @@
         "version": 1,
         "project": "rules",
         "entities": [
-          {"name": "client", "kind": "client"},
-          {"name": "web", "kind": "service", "capability": "web_edge"}
+          {"name": "client", "type": "client"},
+          {"name": "web", "type": "web_edge"}
         ],
         "links": [
           {"name": "ledger", "contract": "Ledger", "owner": "web",
-           "consumers": ["web"], "instance": "shared"}
+           "consumers": ["web"], "instance": "per_peer"}
         ]
       }
     },
@@ -94,9 +94,9 @@
         "version": 1,
         "project": "rules",
         "entities": [
-          {"name": "client", "kind": "client"},
-          {"name": "web", "kind": "service", "capability": "web_edge"},
-          {"name": "web", "kind": "service", "blueprint": "jobs"}
+          {"name": "client", "type": "client"},
+          {"name": "web", "type": "web_edge"},
+          {"name": "web", "type": "jobs"}
         ],
         "links": []
       }
@@ -110,15 +110,15 @@
         "version": 1,
         "project": "rules",
         "entities": [
-          {"name": "client", "kind": "client"},
-          {"name": "web", "kind": "service", "capability": "web_edge"},
-          {"name": "database", "kind": "service", "blueprint": "relational"}
+          {"name": "client", "type": "client"},
+          {"name": "web", "type": "web_edge"},
+          {"name": "database", "type": "relational"}
         ],
         "links": [
           {"name": "ledger", "contract": "Ledger", "owner": "database",
-           "consumers": ["web"], "instance": "shared"},
+           "consumers": ["web"], "instance": "per_peer"},
           {"name": "ledger", "contract": "Bids", "owner": "web",
-           "consumers": ["client"], "instance": "shared"}
+           "consumers": ["client"], "instance": "per_peer"}
         ]
       }
     },
@@ -126,13 +126,13 @@
       "id": "instance-that-is-not-a-mode",
       "rule": "invalid-instance",
       "level": "error",
-      "why": "Anything the generator does not recognise is built as one shared Source, so a misspelled per_session hands every caller the instance it existed to keep apart.",
+      "why": "A misspelled per_session is not per_session, and the point of that setting is which caller a Source belongs to.",
       "document": {
         "version": 1,
         "project": "rules",
         "entities": [
-          {"name": "client", "kind": "client"},
-          {"name": "web", "kind": "service", "capability": "web_edge"}
+          {"name": "client", "type": "client"},
+          {"name": "web", "type": "web_edge"}
         ],
         "links": [
           {"name": "ledger", "contract": "Ledger", "owner": "web",
@@ -149,8 +149,8 @@
         "version": 1,
         "project": "rules",
         "entities": [
-          {"name": "client", "kind": "client"},
-          {"name": "database", "kind": "service", "blueprint": "relational"}
+          {"name": "client", "type": "client"},
+          {"name": "database", "type": "relational"}
         ],
         "links": []
       }
@@ -164,13 +164,13 @@
         "version": 1,
         "project": "rules",
         "entities": [
-          {"name": "client", "kind": "client"},
-          {"name": "web", "kind": "service", "capability": "web_edge"},
-          {"name": "database", "kind": "service", "blueprint": "relational"}
+          {"name": "client", "type": "client"},
+          {"name": "web", "type": "web_edge"},
+          {"name": "database", "type": "relational"}
         ],
         "links": [
           {"name": "ledger", "contract": "Ledger", "owner": "database",
-           "consumers": ["web"], "instance": "shared", "transport": "local"}
+           "consumers": ["web"], "instance": "per_peer", "transport": "local"}
         ]
       }
     },
@@ -183,12 +183,12 @@
         "version": 1,
         "project": "rules",
         "entities": [
-          {"name": "client", "kind": "client"},
-          {"name": "web", "kind": "service", "capability": "web_edge"}
+          {"name": "client", "type": "client"},
+          {"name": "web", "type": "web_edge"}
         ],
         "links": [
           {"name": "clientToWeb", "contract": "ClientToWeb", "owner": "client",
-           "consumers": ["web"], "instance": "shared"}
+           "consumers": ["web"], "instance": "per_peer"}
         ]
       }
     },
@@ -201,13 +201,13 @@
         "version": 1,
         "project": "rules",
         "entities": [
-          {"name": "app", "kind": "client"},
-          {"name": "edge", "kind": "service", "capability": "web_edge"},
-          {"name": "rollups", "kind": "service", "blueprint": "jobs"}
+          {"name": "app", "type": "client"},
+          {"name": "edge", "type": "web_edge"},
+          {"name": "rollups", "type": "jobs"}
         ],
         "links": [
           {"name": "feed", "contract": "Feed", "owner": "edge",
-           "consumers": ["app"], "instance": "shared"}
+           "consumers": ["app"], "instance": "per_peer"}
         ]
       }
     }

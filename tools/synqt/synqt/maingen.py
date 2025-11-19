@@ -55,7 +55,15 @@ def string_list_literal(values: List[str]) -> str:
 
 
 def _singleton_registrations(entity_dir: str, singletons: List[str]) -> str:
-    """C++ registering each entity singleton QML by path, in the "SynQt" module."""
+    """C++ registering each entity singleton QML by path, in the "SynQt" module.
+
+    Registering is only half of it. A QML singleton is created on first use, and nothing
+    uses the entity's own file until a caller arrives and a Source is built, so an entity
+    whose file subscribes to a mesh signal or starts a simulation in `Component.onCompleted`
+    would sit inert until the first browser connected, and would have missed everything
+    that happened before that. It is the entity. It is alive while the entity is. So each
+    one is asked for once here, immediately after registration, which is what creates it.
+    """
     if not singletons:
         return ""
     lines = ["    // Entity singletons (pragma Singleton QML the Sources reach by name)."]
@@ -66,6 +74,23 @@ def _singleton_registrations(entity_dir: str, singletons: List[str]) -> str:
             % (cxx_string_literal(entity_dir), cxx_string_literal(type_name),
                cxx_string_literal(type_name)))
     return "\n".join(lines)
+
+
+def _singleton_instantiations(singletons: List[str]) -> str:
+    """C++ bringing each entity singleton to life, once the engine exists.
+
+    Separate from the registration above because it has to run after the QQmlEngine is
+    constructed, and the registration has to run before it. See the note there for why
+    creating them at all is not optional.
+    """
+    if not singletons:
+        return ""
+    lines = ["    // The entity is alive from now, not from its first caller."]
+    for type_name in singletons:
+        lines.append(
+            "    engine.singletonInstance<QObject *>(\"SynQt\", \"%s\");"
+            % cxx_string_literal(type_name))
+    return "\n".join(lines) + "\n"
 
 
 def _configured_value(value: str) -> str:
@@ -668,8 +693,13 @@ def render_edge_main(config: Dict[str, Any], edge: Dict[str, Any],
     hierarchical_literal = "true" if appmodel.scopes_hierarchical(config) else "false"
     singleton_section = _singleton_registrations(appmodel.entity_dir(edge),
                                                  singletons or [])
+    # After the mesh accessors are on the root context and before the edge starts: the
+    # entity's own file may reach a connect point it consumes (the auction's Hall of Fame
+    # subscribes to `Books.ledger` this way), and it must be running before the first
+    # browser arrives.
+    singleton_instances = _singleton_instantiations(singletons or [])
     # Cross-origin isolation is forced on by a multi-threaded client (it cannot get
-    # SharedArrayBuffer otherwise) and can also be set on its own; the edge then serves
+    # SharedArrayBuffer otherwise) and can also be set on its own. The edge then serves
     # COOP/COEP and adds worker-src 'self' blob: to the CSP (pitfall 13).
     coi_literal = "true" if clientbuild.cross_origin_isolation(config) else "false"
     sw_literal = "true" if clientcache.uses_service_worker(config) else "false"
@@ -916,7 +946,7 @@ int main(int argc, char *argv[])
 {cp_section}{pages_block}
 
     WebEdge edge{{config, &engine}};
-{mesh_inject_block}    if (!edge.start()) {{
+{mesh_inject_block}{singleton_instances}    if (!edge.start()) {{
         qCritical().noquote() << "{name} edge failed to start:" << edge.errorString();
         return 1;
     }}
@@ -985,9 +1015,13 @@ def render_service_main(config: Dict[str, Any], entity: Dict[str, Any],
         qml_dir_resolve = ""
         qml_dir_includes = ""
 
+    # After `runtime.start()`, which is what puts this entity's helper (Db/Cache/...) and
+    # its consumed accessors on the root context the singleton is created in.
+    singleton_instances = _singleton_instantiations(singletons)
+
     # The auth entity's two engines, and the accessors its Sources reach them by. Built
     # before `runtime.start()` because a shared Source is created inside it and a Source
-    # cannot be given context afterwards; the session store's vocabulary comes from the same
+    # cannot be given context afterwards. The session store's vocabulary comes from the same
     # `scopes:` and `identity.session:` blocks the edge reads, so both agree on what an
     # unauthenticated caller is and how long a session lives.
     if is_auth:
@@ -1064,7 +1098,7 @@ int main(int argc, char *argv[])
         qCritical().noquote() << "{name} failed to start:" << runtime.errorString();
         return 1;
     }}
-    qInfo().noquote() << QStringLiteral("{name} entity up");
+{singleton_instances}    qInfo().noquote() << QStringLiteral("{name} entity up");
     return app.exec();
 }}
 """

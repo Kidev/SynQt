@@ -26,11 +26,10 @@ def test_gavel_reads_as_three_entities_and_three_links():
 def test_an_entity_carries_what_the_editor_draws_it_with():
     document = designdoc.read(EXAMPLES / "gavel")
     web = next(e for e in document["entities"] if e["name"] == "edge")
-    assert web["kind"] == "service"
-    assert web["capability"] == "web_edge"
+    assert web["type"] == "web_edge"
     assert web["identity"] is True
     database = next(e for e in document["entities"] if e["name"] == "books")
-    assert database["blueprint"] == "relational"
+    assert database["type"] == "relational"
     client = next(e for e in document["entities"] if e["name"] == "app")
     assert client["targets"] == ["wasm"]
 
@@ -101,7 +100,7 @@ def test_a_contract_that_does_not_parse_is_refused_by_name(tmp_path):
     project = tmp_path / "app"
     (project / "web" / "edge").mkdir(parents=True)
     (project / "synqt.yaml").write_text(
-        "entities:\n  - name: edge\n    kind: service\n    capability: web_edge\n"
+        "entities:\n  - name: edge\n    type: web_edge\n"
         "connect_points:\n  - name: broken\n    contract: Broken\n    owner: edge\n"
         "    consumers: []\n")
     (project / "web" / "edge" / "Broken.syn").write_text("contract Broken { prop\n")
@@ -114,7 +113,7 @@ def test_a_link_drawn_before_its_contract_exists_has_no_members(tmp_path):
     project = tmp_path / "app"
     project.mkdir()
     (project / "synqt.yaml").write_text(
-        "entities:\n  - name: web\n    kind: service\n    capability: web_edge\n"
+        "entities:\n  - name: web\n    type: web_edge\n"
         "connect_points:\n  - name: prices\n    contract: Prices\n    owner: web\n"
         "    consumers: []\n")
     assert designdoc.read(project)["links"][0]["members"] == []
@@ -123,9 +122,9 @@ def test_a_link_drawn_before_its_contract_exists_has_no_members(tmp_path):
 def test_the_source_hash_changes_with_the_file(tmp_path):
     project = tmp_path / "app"
     project.mkdir()
-    (project / "synqt.yaml").write_text("entities:\n  - name: web\n    kind: service\n")
+    (project / "synqt.yaml").write_text("entities:\n  - name: web\n    type: service\n")
     first = designdoc.source_hash(project)
-    (project / "synqt.yaml").write_text("entities:\n  - name: api\n    kind: service\n")
+    (project / "synqt.yaml").write_text("entities:\n  - name: api\n    type: service\n")
     assert designdoc.source_hash(project) != first
 
 
@@ -138,8 +137,8 @@ def test_layout_coordinates_are_read_back_when_present(tmp_path):
     (project / "synqt.yaml").write_text(
         "project:\n  name: app\n"
         "entities:\n"
-        "  - name: client\n    kind: client\n"
-        "  - name: web\n    kind: service\n    capability: web_edge\n")
+        "  - name: client\n    type: client\n"
+        "  - name: web\n    type: web_edge\n")
 
     document = designdoc.read(project)
     document["entities"][0]["x"] = 111
@@ -172,7 +171,7 @@ def test_to_config_gives_back_the_topology_it_was_read_from():
     config = designdoc.to_config(document)
     assert [e["name"] for e in config["entities"]] == ["app", "edge", "books"]
     web = next(e for e in config["entities"] if e["name"] == "edge")
-    assert web["capability"] == "web_edge"
+    assert web["type"] == "web_edge"
     ledger = next(p for p in config["connect_points"] if p["name"] == "ledger")
     assert ledger["owner"] == "books"
     assert ledger["consumers"] == ["edge"]

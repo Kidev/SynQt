@@ -32,7 +32,7 @@ my-app/
       .env.example
 
   db/relational/          # every relational entity
-    store/                # added with: synqt add entity store --blueprint relational
+    store/                # added with: synqt add entity store --type relational
       Store.qml
       Items.qml
       Items.syn
@@ -54,7 +54,7 @@ my-app/
 
 Principles:
 
-- Each entity is a folder of its own, inside the folder entities of its kind share:
+- Each entity is a folder of its own, inside the folder entities of its type share:
   `client/<name>/`, `web/<name>/`, `db/relational/<name>/`, and so on. Everything
   the entity is made of is in there and nowhere else, so a `.qml` file dropped
   beside it is importable from it with no wiring, and two databases never write
@@ -148,8 +148,8 @@ an application and never a directory scheme.
 
 | Directory | Holds |
 |-----------|-------|
-| `<kind>/<entity>/` | one directory per entity, inside the folder its kind shares: `client/`, `web/`, `db/relational/`, `db/document/`, `cache/`, `api/`, `jobs/`, `service/` (see [`entities`](#entities-the-topology)) |
-| `<kind>/<entity>/<Contract>.syn` | the contract of each connect point that entity owns, beside the Source that answers it |
+| `<type>/<entity>/` | one directory per entity, inside the folder its type shares: `client/`, `web/`, `db/relational/`, `db/document/`, `cache/`, `api/`, `jobs/`, `service/` (see [`entities`](#entities-the-topology)) |
+| `<type>/<entity>/<Contract>.syn` | the contract of each connect point that entity owns, beside the Source that answers it |
 | `build/<entity>/` | what `synqt build` produces, one deployable directory per entity |
 | `synqt/mesh/` | the project's private CA and per entity certificates (`synqt/mesh/dev/` for the throwaway development CA) |
 | `synqt/toolchain/` | the pinned Qt and Emscripten kits `synqt` provisions |
@@ -192,8 +192,8 @@ unauthenticated browser session runs at.
 
 A block sequence with one entry per entity. The list of entities, and through each
 entity's owned and consumed connect points the whole mesh topology, is defined here.
-Each entry is a map; the two keys every entity has are `name` and `kind`, and the
-rest depend on the kind of entity.
+Each entry is a map; the two keys every entity has are `name` and `type`, and the
+rest depend on the type of entity.
 
 `name` is also the entity's directory, and its QML module, and the name other
 entities address it by. There is no separate path key: `name: web` means the entity's
@@ -204,16 +204,23 @@ an entry point either.
 Every other entity's own file is `<name>/<Name>.qml`, a `pragma Singleton` written when
 the entity is created. It is where state belonging to the whole entity goes, and every
 Source that entity owns reaches it by that name. It is not the same thing as a connect
-point's `server` file: a Source can be created per session or per peer, so anything
-shared between them has to outlive any one of them. An entity that has no use for one
-can delete it.
+point's `server` file: a Source is created per caller, so anything the callers share has
+to outlive any one of them, and this file is the thing that does. It is also what the
+entity's own engine helper (`Db`, `Cache`, and the rest) is in scope in, and it is created
+when the entity starts rather than when its first caller arrives, so an entity that
+subscribes to a mesh signal or starts a loop here misses nothing.
+
+It is the entity, not a caller, so `Caller` is not in scope in it and `synqt check` says
+so: an authorization line here would read like a rule and run as a ReferenceError. Those
+belong in the Source, where a caller actually arrives. An entity that has no use for the
+file can delete it.
 
 A client entity:
 
 ```yaml
 entities:
   - name: app
-    kind: client              # QML client: browser (WebAssembly) and/or desktop, connect only
+    type: client              # QML client: browser (WebAssembly) and/or desktop, connect only
     targets: [wasm]           # [wasm] (default); add "desktop" for a native app
 ```
 
@@ -226,8 +233,7 @@ side, the mesh (service to service) side, the public TLS, and its env file:
 
 ```yaml
   - name: edge
-    kind: service
-    capability: web_edge      # serves a client bundle and faces the internet
+    type: web_edge            # serves a client bundle and faces the internet
     identity: true            # serve the login routes here (the default wherever
                               # the project declares an `identity` section; set it
                               # to false on an edge that must not sign anyone in)
@@ -265,16 +271,14 @@ side, the mesh (service to service) side, the public TLS, and its env file:
 `split_origin`, so it is described in [serving the client from another
 origin](#serving-the-client-from-another-origin) rather than here.
 
-A service entity (here a database from the official blueprint). Note how the
-embedded default needs no `provider` section at all; the blueprint's own settings go
-under `settings`:
+A database entity. The embedded default needs no `provider` section at all, and
+the type's own settings go under `settings`:
 
 ```yaml
   - name: store
-    kind: service
-    blueprint: relational    # official blueprint; see docs/entities.md
+    type: relational          # a database entity; see the entity types page
     # provider defaults to sqlite (embedded); no provider section needed for the default
-    # no web_edge capability: never serves a client, never faces the internet
+    # not a web_edge: never serves a client, never faces the internet
 
     mesh:
       transport: mtls         # the default: mutual TLS, bound to loopback on one host
@@ -290,7 +294,7 @@ under `settings`:
     env:
       file: database/.env
 
-    settings:                 # blueprint specific settings (see docs/entities.md)
+    settings:                 # type specific settings (see docs/entities.md)
       file: db/relational/store/data/app.db
       journal_mode: wal
       busy_timeout_ms: 5000
@@ -303,8 +307,7 @@ graduated path described in [providers](providers.md):
 
 ```yaml
   - name: store
-    kind: service
-    blueprint: relational
+    type: relational
 
     provider:
       name: postgres          # masked behind this entity; consumers never know
@@ -320,12 +323,13 @@ graduated path described in [providers](providers.md):
 
 Notes:
 
-- `kind` is `client` or `service`. `capabilities` lists named capabilities; the
-  only one defined today is `web_edge`. A service with no capabilities is an
-  internal service reachable only over the mesh.
-- `blueprint` selects an official entity template (see [entities](entities.md)). The
-  `provider` section selects the engine behind a blueprint (see
-  [providers](providers.md)); omit it to use the blueprint default (the embedded
+- `type` is the one field that says what an entity is: `client`, `web_edge`, or one
+  of the entity types on the [entities](entities.md) page (`relational`, `document`,
+  `cache`, `api`, `jobs`, `service`). It decides the folder the entity lives in, the
+  helper the runtime puts in its QML, and whether it faces the internet. Omitted, it
+  is `service`: no engine, no browser-facing side, reachable only over the mesh.
+- The `provider` section selects the engine behind a type that has one (see
+  [providers](providers.md)); omit it to use that type's default (the embedded
   engine), which needs no provider section. `provider.name` picks the engine and the
   remaining keys in the section carry the connection.
 - `transport: mtls` (the default for every mesh link) uses QtRO over mutually
@@ -362,13 +366,13 @@ connect_points:
     consumers: [app]          # the entities allowed to acquire the Replica
     server: web/edge/Todo.qml
     scope: user               # for browser consumers: minimum session scope
-    instance: per_session     # per_session, per_peer, or shared
+    instance: per_session     # what a caller is here: per_session or per_peer
 
   - name: items
     owner: store
     consumers: [edge]         # only the edge may reach the items connect point
     server: db/relational/store/Items.qml
-    instance: shared
+    instance: per_peer
 ```
 
 `contract`, `server`, `scope` and `instance` are all optional.
@@ -382,11 +386,12 @@ be left off; they are there to show where the file goes.
 Omitting `scope` means any session, including an anonymous one, may acquire the connect
 point; write protection then lives inside the slots, as in the examples.
 
-`instance` defaults to one Source per caller: `per_session` for a point a browser
-consumes, `per_peer` for one another entity consumes, and `shared` only for a point with
-no consumers at all. The default is the one that keeps `Caller`: a `shared` Source is
-built once with no caller bound to it, so the authorization a slot writes has nothing to
-read. Say `shared` where there is no caller to keep apart.
+`instance` says what a caller is on this point: `per_session` for a browser, `per_peer`
+for another entity. It is read off the point's own ends when it is absent, so most points
+never write it. There is one Source per caller whichever it is, and there is no value
+meaning "one for everybody": such a Source could not be told who was calling, so its slots
+had no `Caller`. State every caller shares belongs in the owner entity's own
+[singleton](programming-model.md#connect-points-owned-by-one-entity-consumed-by-others), which outlives all of them.
 
 Validation derives the mesh links from `owner` and `consumers`: an entity may open
 a connection only to an owner it consumes from, and an owner accepts a connection
@@ -487,7 +492,7 @@ project:
 
 entities:
   - name: edge
-    capability: web_edge
+    type: web_edge
     public:
       serve_client: false           # a CDN delivers the bundle; the edge serves no files
       origin: https://app.example.com
@@ -1092,7 +1097,7 @@ fast. Non negotiable checks:
   `synqt add connect-point` writes that file, empty, along with the point, so the
   usual way to meet this rule is not to notice it.
 - A connect point reachable by the `client` entity whose `owner` lacks the
-  `web_edge` capability is rejected (the browser can only reach a web edge). So is a
+  `type: web_edge` is rejected (the browser can only reach a web edge). So is a
   `client` entity in a project that declares no `web_edge` entity at all: a browser
   reaches a web edge or it reaches nothing, so that client has no address to open.
   A client built only for the `desktop` target is exempt, because it is not served by
@@ -1108,7 +1113,8 @@ fast. Non negotiable checks:
 - A name declared twice, whether an entity or a connect point, is rejected. Both are
   keyed by name, so the second declaration replaces the first rather than colliding
   with it, and a consumer list narrowed on the first would disappear without a word.
-- An `instance` that is not `shared`, `per_session`, or `per_peer` is rejected.
+- An `instance` that is not `per_session` or `per_peer` is rejected. `shared` is named
+  in the refusal, because it used to exist and meant a Source with no `Caller`.
   Anything the generator does not recognise is built as a single shared Source, so a
   misspelled `per_session` would hand every caller the instance it existed to keep
   apart.
@@ -1146,7 +1152,7 @@ fast. Non negotiable checks:
   something this version implements (`cookie` and `authorization_code`). A setting
   the edge cannot honor is refused rather than dropped, because an edge that quietly
   runs a different one is indistinguishable from an edge that runs the one asked for.
-- A provider whose `name` is not available for the entity's `blueprint` family is
+- A provider whose `name` is not available for the entity's type is
   rejected, naming the providers that are. A `custom:<Name>` is checked for shape
   only, since what an entity registers is known when it starts, not when it is
   checked; if that name selects nothing the entity refuses to start and names the

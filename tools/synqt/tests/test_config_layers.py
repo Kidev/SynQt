@@ -32,10 +32,10 @@ BASE = {
     "mesh": {"require_mtls_cross_host": True},
     "scopes": {"order": ["anonymous", "user", "moderator"]},
     "entities": [
-        {"name": "web", "kind": "service", "capability": "web_edge"},
-        {"name": "database", "kind": "service", "blueprint": "relational",
+        {"name": "web", "type": "web_edge"},
+        {"name": "database", "type": "relational",
          "settings": {"path": "data/app.db"}},
-        {"name": "client", "kind": "client", "targets": ["wasm"]},
+        {"name": "client", "type": "client", "targets": ["wasm"]},
     ],
     "connect_points": [
         {"name": "items", "owner": "database", "consumers": ["web"], "contract": "Items"},
@@ -60,7 +60,7 @@ class MergeTest(unittest.TestCase):
                          ["web", "database", "client"])
 
     def test_a_named_list_appends_an_entry_the_base_did_not_have(self):
-        merged = configmod.merge(BASE, {"entities": [{"name": "cache", "kind": "service"}]})
+        merged = configmod.merge(BASE, {"entities": [{"name": "cache", "type": "service"}]})
         self.assertEqual([e["name"] for e in merged["entities"]],
                          ["web", "database", "client", "cache"])
 

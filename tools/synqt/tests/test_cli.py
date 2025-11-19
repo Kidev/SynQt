@@ -139,17 +139,20 @@ class QmlFormatCheckTest(unittest.TestCase):
 
     def test_a_scaffolded_project_is_format_clean(self):
         # A new project must not be told its own scaffolding is unformatted on the very
-        # first check: that is how people learn to skim the output.
+        # first check. That is how people learn to skim the output.
         self.assertEqual(check.check_qml_format(self.root), [])
 
-    def test_every_blueprint_stub_is_format_clean_too(self):
-        # The Source stubs are scaffolding as much as Main.qml is, and they are what the
-        # first check after `synqt new --blueprint <kind>` looks at.
+    def test_every_type_stub_is_format_clean_too(self):
+        # An entity's own file is scaffolding as much as Main.qml is, and it is what the
+        # first check after `synqt add entity <name> --type <type>` looks at. Every type
+        # is listed, `service` included: it is the one with nothing in the braces, which
+        # is exactly the case that was writing `QtObject {\n}` where qmlformat writes
+        # `QtObject {}`, so the scaffold reported its own output as unformatted.
         root = Path(tempfile.mkdtemp())
         newproject.scaffold(root.parent, root.name,
-                            blueprints=[("orders", "relational"), ("sessions", "cache"),
+                            starting=[("orders", "relational"), ("sessions", "cache"),
                                         ("notes", "document"), ("feeds", "api"),
-                                        ("rollups", "jobs")])
+                                        ("rollups", "jobs"), ("billing", "service")])
         self.assertEqual(check.check_qml_format(root), [])
 
     def test_the_scaffold_opts_in_and_ships_the_settings(self):
@@ -336,10 +339,10 @@ class ProviderNameValidationTest(unittest.TestCase):
     """
 
     def _config(self, entity):
-        # A whole project, minimal but sound: the client needs an edge to reach, so a
+        # A whole project, minimal but sound. The client needs an edge to reach, so a
         # topology error of its own does not turn up in the list this asks about.
-        return {"entities": [{"name": "client", "kind": "client"},
-                             {"name": "web", "kind": "service", "capability": "web_edge"},
+        return {"entities": [{"name": "client", "type": "client"},
+                             {"name": "web", "type": "web_edge"},
                              entity]}
 
     def _errors(self, entity):
@@ -349,51 +352,51 @@ class ProviderNameValidationTest(unittest.TestCase):
     def test_a_bundled_provider_is_accepted(self):
         for family, providers in addentity.PROVIDERS.items():
             for provider in providers:
-                with self.subTest(blueprint=family, provider=provider):
+                with self.subTest(entity_type=family, provider=provider):
                     self.assertEqual(self._errors(
-                        {"name": "db", "kind": "service", "blueprint": family,
+                        {"name": "db", "type": family,
                          "provider": {"name": provider}}), [])
 
     def test_no_provider_name_is_accepted(self):
         # The embedded default needs no provider section at all.
         self.assertEqual(self._errors(
-            {"name": "db", "kind": "service", "blueprint": "relational"}), [])
+            {"name": "db", "type": "relational"}), [])
         self.assertEqual(self._errors(
-            {"name": "db", "kind": "service", "blueprint": "relational",
+            {"name": "db", "type": "relational",
              "settings": {"file": "db/app.db"}}), [])
 
     def test_a_provider_from_another_family_is_an_error(self):
-        # redis is a real provider, just not a relational one.
-        errors = self._errors({"name": "db", "kind": "service", "blueprint": "relational",
+        # redis is a real provider, not a relational one.
+        errors = self._errors({"name": "db", "type": "relational",
                                "provider": {"name": "redis"}})
         self.assertTrue(errors)
         self.assertIn("sqlite", errors[0])  # names the ones that are
 
     def test_an_unknown_provider_is_an_error(self):
-        errors = self._errors({"name": "db", "kind": "service", "blueprint": "relational",
+        errors = self._errors({"name": "db", "type": "relational",
                                "provider": {"name": "postgress"}})
         self.assertTrue(errors)
         self.assertIn("postgres", errors[0])
 
     def test_a_custom_provider_is_accepted_on_shape(self):
-        # What it is registered as is only knowable at run time; the factory reports a miss.
+        # What it is registered as is only knowable at run time. The factory reports a miss.
         self.assertEqual(self._errors(
-            {"name": "db", "kind": "service", "blueprint": "relational",
+            {"name": "db", "type": "relational",
              "provider": {"name": "custom:MyEngine"}}), [])
 
     def test_a_bare_custom_prefix_is_an_error(self):
-        errors = self._errors({"name": "db", "kind": "service", "blueprint": "relational",
+        errors = self._errors({"name": "db", "type": "relational",
                                "provider": {"name": "custom:"}})
         self.assertTrue(errors)
 
-    def test_a_provider_on_a_blueprint_without_a_family_is_an_error(self):
-        errors = self._errors({"name": "sweeps", "kind": "service", "blueprint": "jobs",
+    def test_a_provider_on_a_type_without_a_family_is_an_error(self):
+        errors = self._errors({"name": "sweeps", "type": "jobs",
                                "provider": {"name": "sqlite"}})
         self.assertTrue(errors)
 
     def test_a_bad_provider_fails_the_whole_check(self):
         ok, _ = check.validate(self._config(
-            {"name": "db", "kind": "service", "blueprint": "relational",
+            {"name": "db", "type": "relational",
              "provider": {"name": "nosuchengine"}}))
         self.assertFalse(ok)
 
@@ -425,10 +428,10 @@ class ServeOrderTest(unittest.TestCase):
     def test_owners_start_before_consumers(self):
         config = {
             "entities": [
-                {"name": "client", "kind": "client"},
-                {"name": "web", "kind": "service", "capability": "web_edge"},
-                {"name": "database", "kind": "service"},
-                {"name": "entries", "kind": "service"},
+                {"name": "client", "type": "client"},
+                {"name": "web", "type": "web_edge"},
+                {"name": "database", "type": "service"},
+                {"name": "entries", "type": "service"},
             ],
             "connect_points": [
                 {"name": "items", "owner": "database", "consumers": ["web"]},
@@ -513,9 +516,8 @@ class DevLaunchTest(unittest.TestCase):
         self.root = Path(tempfile.mkdtemp()) / "app"
         newproject.scaffold(self.root.parent, self.root.name)
         config = yaml.safe_load((self.root / "synqt.yaml").read_text())
-        config["entities"].append({"name": "database", "kind": "service",
-                                   "blueprint": "relational"})
-        config["entities"].append({"name": "auth", "kind": "service"})
+        config["entities"].append({"name": "database", "type": "relational"})
+        config["entities"].append({"name": "auth", "type": "service"})
         config["identity"] = {"provider_entity": "auth"}
         config["connect_points"] = [
             {"name": "items", "owner": "database", "consumers": ["edge"]},

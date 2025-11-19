@@ -22,10 +22,9 @@ def base_config(**overrides):
     config = {
         "project": {"name": "app"},
         "entities": [
-            {"name": "client", "kind": "client", "path": "client"},
-            {"name": "web", "kind": "service", "capability": "web_edge", "path": "web"},
-            {"name": "database", "kind": "service", "path": "database",
-             "blueprint": "relational"},
+            {"name": "client", "type": "client", "path": "client"},
+            {"name": "web", "type": "web_edge", "path": "web"},
+            {"name": "database", "type": "relational", "path": "database"},
         ],
         "connect_points": [
             {"name": "app", "owner": "web", "consumers": ["client"], "contract": "App"},
@@ -40,7 +39,7 @@ def with_edge_tls(config):
     """Give the web edge a TLS block, so a release-mode test asserts on its own rule and
     not on the (separate, also tested) rule that a release edge must terminate TLS."""
     for entity in config["entities"]:
-        if entity.get("capability") == "web_edge":
+        if entity.get("type") == "web_edge":
             entity["tls"] = {"cert_file": "certs/web/fullchain.pem",
                              "key_file": "certs/web/privkey.pem"}
     return config
@@ -225,7 +224,7 @@ class DesktopClientTest(unittest.TestCase):
         already what holds a desktop client to naming an edge at all."""
         config = {
             "project": {"name": "app"},
-            "entities": [{"name": "client", "kind": "client", "path": "client",
+            "entities": [{"name": "client", "type": "client", "path": "client",
                           "targets": ["desktop"]}],
             "build": {"desktop": {"edge_url": "wss://app.example/sync"}},
         }
@@ -234,7 +233,7 @@ class DesktopClientTest(unittest.TestCase):
     def test_a_client_built_for_the_browser_as_well_still_needs_one(self):
         config = {
             "project": {"name": "app"},
-            "entities": [{"name": "client", "kind": "client", "path": "client",
+            "entities": [{"name": "client", "type": "client", "path": "client",
                           "targets": ["wasm", "desktop"]}],
             "build": {"desktop": {"edge_url": "wss://app.example/sync"}},
         }
@@ -301,7 +300,7 @@ class ProviderSecretTest(unittest.TestCase):
 
     def test_a_uri_carrying_a_credential_is_rejected(self):
         config = base_config()
-        config["entities"][2].update({"blueprint": "document"})
+        config["entities"][2].update({"type": "document"})
         config["entities"][2]["provider"] = {
             "name": "mongodb", "uri": "mongodb://user:pass@db.example/app"}
         found = errors(config)
@@ -309,7 +308,7 @@ class ProviderSecretTest(unittest.TestCase):
 
     def test_a_uri_without_a_credential_is_left_alone(self):
         config = base_config()
-        config["entities"][2].update({"blueprint": "document"})
+        config["entities"][2].update({"type": "document"})
         config["entities"][2]["provider"] = {"name": "mongodb",
                                              "uri": "mongodb://db.example:27017/app"}
         self.assertEqual(errors(config), [])
@@ -457,14 +456,13 @@ class LayoutCollisionTest(unittest.TestCase):
 
 
 class InstanceDefaultTest(unittest.TestCase):
-    """A connect point that says nothing gets the instancing that keeps `Caller`.
+    """Every connect point gets one Source per caller; `instance:` only says what a
+    caller is.
 
-    `shared` builds one Source with no Caller bound to it at all (webedge.cpp start(),
-    connectpointhost.cpp start()), so a slot's `Caller.hasScope(...)` or `Caller.entity`
-    is a reference to something that is not there. An author who wrote an authorization
-    line and no `instance:` would have written a line that cannot run. So the default is
-    per caller, and `shared` is what somebody asks for when there is no caller to keep
-    apart.
+    There is no third answer. `shared` built one Source with no Caller bound to it at all,
+    so a slot's `Caller.hasScope(...)` or `Caller.entity` was a reference to something that
+    was not there, and an author who wrote an authorization line and no `instance:` had
+    written a line that could not run.
     """
 
     def _points(self, config):
@@ -477,16 +475,30 @@ class InstanceDefaultTest(unittest.TestCase):
     def test_a_service_to_service_point_defaults_to_per_peer(self):
         self.assertEqual(self._points(base_config())["items"], "per_peer")
 
-    def test_a_point_with_no_consumers_stays_shared(self):
+    def test_a_point_with_no_consumers_is_still_per_caller(self):
+        # Nothing consumes it yet, which is not a reason to build a Source that could not
+        # be told who was calling once something does.
         config = base_config()
         config["connect_points"].append(
             {"name": "internal", "owner": "database", "consumers": [], "contract": "Internal"})
-        self.assertEqual(self._points(config)["internal"], "shared")
+        self.assertEqual(self._points(config)["internal"], "per_peer")
 
     def test_what_the_author_wrote_is_what_they_get(self):
         config = base_config()
+        config["connect_points"][0]["instance"] = "per_peer"
+        self.assertEqual(self._points(config)["app"], "per_peer")
+
+    def test_asking_for_shared_is_refused_and_names_the_singleton(self):
+        """The rule that would have caught the whole class. `shared` is gone, and a
+        project still asking for it is told where the state it wanted belongs rather than
+        quietly getting a Source whose every `Caller` line is a ReferenceError."""
+        config = base_config()
         config["connect_points"][0]["instance"] = "shared"
-        self.assertEqual(self._points(config)["app"], "shared")
+        ok, messages = check.validate(config)
+        self.assertFalse(ok)
+        refusal = next(m for m in messages if "instance: shared" in m)
+        self.assertIn("no 'Caller'", refusal)
+        self.assertIn("singleton", refusal)
 
 
 class OrphanEntityTest(unittest.TestCase):
@@ -495,7 +507,7 @@ class OrphanEntityTest(unittest.TestCase):
         # that wires it. Refusing it would mean the scaffolder wrote a project that no
         # longer checks.
         config = base_config()
-        config["entities"].append({"name": "rollups", "kind": "service", "blueprint": "jobs"})
+        config["entities"].append({"name": "rollups", "type": "jobs"})
         ok, messages = check.validate(config)
         self.assertTrue(ok, messages)
         self.assertTrue(any(m.startswith("warn:") and "rollups" in m for m in messages),
@@ -504,6 +516,69 @@ class OrphanEntityTest(unittest.TestCase):
     def test_a_wired_entity_draws_no_note(self):
         self.assertEqual([m for m in check.validate(base_config())[1]
                           if "owns no connect point" in m], [])
+
+
+class CallerOutsideASourceTest(unittest.TestCase):
+    """`Caller` exists on a Source's context and nowhere else.
+
+    This is the rule that would have caught the whole family. A `Caller.hasScope(...)` in
+    an entity singleton is a ReferenceError at run time and an authorization check to
+    every human who reads it, which is the worst combination a security rule can have: it
+    passes review and does nothing. The runtime cannot make the name resolve there (there
+    is no caller), so the check has to be that the name is not written there.
+    """
+
+    def _project(self, files):
+        root = Path(tempfile.mkdtemp())
+        for relative, text in files.items():
+            path = root / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text)
+        return root
+
+    def _config(self):
+        return {
+            "project": {"name": "app"},
+            "entities": [{"name": "web", "type": "web_edge"}],
+            "connect_points": [{"name": "app", "owner": "web", "consumers": [],
+                                "contract": "App"}],
+        }
+
+    def test_a_source_may_authorize_its_caller(self):
+        root = self._project({
+            "web/web/App.qml": 'App {\n    function add() { if (!Caller.hasScope("user")) return; }\n}\n',
+        })
+        self.assertEqual(check.lint_caller_use(self._config(), root), [])
+
+    def test_an_entity_singleton_may_not(self):
+        root = self._project({
+            "web/web/App.qml": "App {\n}\n",
+            "web/web/Web.qml": ('pragma Singleton\nQtObject {\n'
+                                '    function add() { if (!Caller.hasScope("user")) return; }\n}\n'),
+        })
+        messages = check.lint_caller_use(self._config(), root)
+        self.assertEqual(len(messages), 1, messages)
+        self.assertTrue(messages[0].startswith("error:"), messages)
+        self.assertIn("web/web/Web.qml:3", messages[0])
+        self.assertIn("Caller", messages[0])
+
+    def test_the_edges_client_alias_is_held_to_the_same_rule(self):
+        root = self._project({
+            "web/web/App.qml": "App {\n}\n",
+            "web/web/Web.qml": ("pragma Singleton\nQtObject {\n"
+                                "    property string who: Client.identity.name\n}\n"),
+        })
+        messages = check.lint_caller_use(self._config(), root)
+        self.assertEqual(len(messages), 1, messages)
+        self.assertIn("'Client'", messages[0])
+
+    def test_a_source_named_by_server_is_recognized_as_one(self):
+        config = self._config()
+        config["connect_points"][0]["server"] = "web/web/Elsewhere.qml"
+        root = self._project({
+            "web/web/Elsewhere.qml": 'App {\n    function add() { Caller.hasScope("user"); }\n}\n',
+        })
+        self.assertEqual(check.lint_caller_use(config, root), [])
 
 
 if __name__ == "__main__":

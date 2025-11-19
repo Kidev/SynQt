@@ -19,7 +19,11 @@ from . import (addentity, appmodel, clientcache, config as configmod, designdoc,
 
 # How many Source instances an owner keeps for one connect point: one for everybody, one
 # per browser session, or one per connected entity.
-INSTANCE_MODES = frozenset({"shared", "per_session", "per_peer"})
+#: What a caller is on a connect point. There is one Source per caller either way, so
+#: these two say what a caller *is*. `shared` was a third value and is refused by name
+#: (see `_instance_messages`): one Source for everybody could not be told who was
+#: calling, so its slots had no `Caller` at all.
+INSTANCE_MODES = frozenset({"per_session", "per_peer"})
 
 
 def _duplicate_messages(names: List[Any], what: str, consequence: str) -> List[str]:
@@ -31,6 +35,59 @@ def _duplicate_messages(names: List[Any], what: str, consequence: str) -> List[s
     seen: List[str] = [str(name) for name in names if name]
     return [f"error: {what} '{name}' is declared more than once; {consequence}"
             for name in sorted({n for n in seen if seen.count(n) > 1})]
+
+
+def _entity_type_messages(declared: List[Dict[str, Any]]) -> List[str]:
+    """Refuse an unknown `type:`, and refuse the three fields it replaced.
+
+    An entity used to say what it was three times over (`kind:`, `capability:` and
+    `blueprint:`, with `blueprint: service` restating `kind: service`), and the folder rule
+    already collapsed all three into one answer. They are refused by name rather than
+    ignored: a config still written the old way would otherwise read as a plain service,
+    put its files in the wrong folder, and lose its provider, all without a word.
+
+    An unknown type is refused for the same reason. `type: relational` misspelled is an
+    entity with no `Db`, whose files go to `service/`, and whose provider block nothing
+    reads; every symptom points somewhere other than the typo.
+    """
+    messages: List[str] = []
+    for entity in declared:
+        name = str(entity.get("name") or "?")
+        for retired, replacement in appmodel.RETIRED_ENTITY_FIELDS.items():
+            if retired in entity:
+                messages.append(
+                    f"error: entity '{name}' sets '{retired}:', which no longer exists; "
+                    f"write '{replacement}' instead. One field says what an entity is: "
+                    "https://synqt.org/project-layout-and-config/")
+        declared_type = str(entity.get("type") or "").strip()
+        if declared_type and declared_type not in appmodel.TYPE_FOLDERS:
+            messages.append(
+                f"error: entity '{name}' has type '{declared_type}', which is not one of "
+                f"{sorted(appmodel.TYPE_FOLDERS)}")
+    return messages
+
+
+def _instance_messages(config: Dict[str, Any]) -> List[str]:
+    """Refuse `instance: shared`, which used to mean a Source with no `Caller`.
+
+    QtRO hands `enableRemoting()` one object and never tells a slot which connection
+    invoked it, so a single Source shared by every caller could not be given a `Caller` at
+    all: every `Caller.hasScope(...)` and `Caller.entity` written in one was a reference to
+    something that was not there. Every Source is per-caller now, and state that really is
+    shared belongs in the entity's own singleton, which outlives all of them.
+    """
+    messages: List[str] = []
+    for point in appmodel.connect_points(config):
+        if str(point.get("instance") or "").strip() != "shared":
+            continue
+        owner = str(point.get("owner") or "?")
+        messages.append(
+            f"error: connect point '{point.get('name')}' asks for 'instance: shared', which "
+            "no longer exists: one Source for every caller could not be told who was "
+            f"calling, so its slots had no 'Caller'. Drop the line (a Source is minted per "
+            f"caller), and put anything the callers share in the '{owner}' entity's own "
+            "singleton: https://synqt.org/programming-model/")
+    return messages
 
 
 def _own_contract_messages(config: Dict[str, Any],
@@ -69,7 +126,7 @@ def _orphan_messages(config: Dict[str, Any], declared: List[Dict[str, Any]]) -> 
     messages: List[str] = []
     for entity in declared:
         name = str(entity.get("name") or "")
-        if not name or entity.get("kind") == "client" or appmodel.is_edge(entity):
+        if not name or appmodel.is_client(entity) or appmodel.is_edge(entity):
             continue   # a client and an edge both have a browser to serve
         if appmodel.owned_by(config, name) or appmodel.consumed_by(config, name):
             continue
@@ -121,7 +178,7 @@ def validate(config: Dict[str, Any], *, release: bool = False,
     config = appmodel.with_auth_connect_points(config)
 
     web_edges = {name for name, e in entities.items() if _is_web_edge(e)}
-    clients = {name for name, e in entities.items() if e.get("kind") == "client"}
+    clients = {name for name, e in entities.items() if appmodel.is_client(e)}
 
     # A browser reaches a web edge or it reaches nothing: it holds no mesh certificate and
     # the mesh is not routable from it. A client in a project with no web_edge entity has
@@ -140,6 +197,8 @@ def validate(config: Dict[str, Any], *, release: bool = False,
                 f"error: client '{name}' has no web_edge entity to reach; the browser can "
                 "only reach a web edge (see https://synqt.org/entities/)")
 
+    messages += _entity_type_messages(declared)
+    messages += _instance_messages(config)
     messages += _own_contract_messages(config, declared)
     messages += _orphan_messages(config, declared)
 
@@ -179,12 +238,14 @@ def validate(config: Dict[str, Any], *, release: bool = False,
                 "owner listens for consumers and a browser cannot listen, so a connect point "
                 "the client takes part in must be owned by a web_edge entity")
 
-        # Anything unrecognised is read as 'shared' downstream (maingen), so a typo here
-        # does not fail, it hands every caller the one Source that per_session existed to
-        # keep apart. Which is the whole of interest management and half of the per-user
-        # isolation in one word nobody would look at twice.
+        # A misspelled per_session is not per_session, and downstream nothing says so: the
+        # point falls back to per_peer and a browser-facing point quietly stops being what
+        # it was written to be. Caught here, by name.
         instance = connect_point.get("instance")
-        if instance is not None and str(instance) not in INSTANCE_MODES:
+        if (instance is not None and str(instance) not in INSTANCE_MODES
+                and str(instance).strip() != "shared"):
+            # `shared` is skipped here only because `_instance_messages` says something
+            # far more useful about it than "not one of these two".
             messages.append(
                 f"error: connect point '{name}' has instance '{instance}'; it must be one of "
                 f"{', '.join(sorted(INSTANCE_MODES))}")
@@ -527,10 +588,10 @@ def _provider_entity_messages(config: Dict[str, Any],
     if entity is None:
         messages.append(
             f"error: identity.provider_entity names '{owner}', which is not a declared "
-            "entity; add it (kind: service) or leave provider_entity empty to run identity "
+            "entity; add it (type: service) or leave provider_entity empty to run identity "
             "in process on the edge")
         return messages
-    if entity.get("kind") == "client":
+    if appmodel.is_client(entity):
         messages.append(
             f"error: identity.provider_entity names the client entity '{owner}'; the client "
             "holds no secret and no mesh certificate, so it can never run identity")
@@ -690,7 +751,7 @@ def _mesh_certificate_messages(config: Dict[str, Any], entities: Dict[str, Any],
             for party in [connect_point.get("owner"), *(connect_point.get("consumers") or [])]:
                 # The client holds no mesh certificate by design: it reaches the edge over
                 # wss and never joins the mesh.
-                if party in entities and entities[party].get("kind") != "client":
+                if party in entities and appmodel.is_service(entities[party]):
                     needs_certificate.add(str(party))
 
     if not (mesh_dir / "ca.crt").exists() and not needs_certificate:
@@ -795,13 +856,13 @@ def _provider_messages(name: str, entity: Dict[str, Any]) -> List[str]:
         return []  # no name: the family default (sqlite, memory) applies
     selected = str(selected)
 
-    blueprint = entity.get("blueprint")
-    family = addentity.BLUEPRINTS.get(blueprint) if blueprint else None
+    entity_type = appmodel.entity_type(entity)
+    family = addentity.TYPES.get(entity_type)
     if family is None:
         # api and jobs carry a provider block for their own settings but select no
-        # engine; a bare service entity has no family at all.
-        return [f"error: entity '{name}' sets provider.name '{selected}' but its blueprint "
-                f"('{blueprint or 'none'}') takes no data provider"]
+        # engine. A bare service entity has no family at all.
+        return [f"error: entity '{name}' sets provider.name '{selected}' but its type "
+                f"('{entity_type}') takes no data provider"]
 
     if selected.startswith(addentity.CUSTOM_PREFIX):
         custom = selected[len(addentity.CUSTOM_PREFIX):]
@@ -869,7 +930,7 @@ def _is_web_edge(entity: Dict[str, Any]) -> bool:
     """The one test for "is this entity a web edge", called from `validate()` too, so
     the two checks cannot disagree about which entity's `public` section is
     authoritative."""
-    return entity.get("capability") == "web_edge" or bool(entity.get("web_edge"))
+    return appmodel.is_edge(entity)
 
 
 def _reserved_edge_paths(config: Dict[str, Any]) -> Set[str]:
@@ -1073,7 +1134,7 @@ def _edge_entity_name(config: Dict[str, Any]) -> Optional[str]:
     for entity in config.get("entities") or []:
         if not isinstance(entity, dict):
             continue
-        if _is_web_edge(entity) or entity.get("kind") == "web_edge":
+        if _is_web_edge(entity):
             return entity.get("name")
     return None
 
@@ -1356,7 +1417,7 @@ def lint_client_root(project_dir: os.PathLike[str] | str) -> List[str]:
 
     messages: List[str] = []
     for entity in config.get("entities") or []:
-        if not isinstance(entity, dict) or entity.get("kind") != "client":
+        if not isinstance(entity, dict) or not appmodel.is_client(entity):
             continue
         main = root / appmodel.entity_file_path(entity)
         if not main.is_file():
@@ -1644,6 +1705,59 @@ def qmlformat_path() -> Optional[str]:
     return qt_tool_path("qmlformat")
 
 
+#: `Caller` and the edge's alias for it. `Client` is the same object under the name edge
+#: code uses for a browser caller, so both are in scope only in a Source.
+_CALLER_USE = re.compile(r"\b(Caller|Client)\s*\.")
+
+
+def lint_caller_use(config: Dict[str, Any],
+                    project_dir: os.PathLike[str] | str) -> List[str]:
+    """Refuse `Caller` in a file that is not a connect point Source.
+
+    `Caller` is a context property, and the runtime installs it on the context of a Source
+    and nowhere else (`connectpointhost.cpp`, `webedge.cpp`). Anywhere else the name does
+    not resolve: an entity's own singleton, a helper component, a delivered page. What
+    makes that worth an error rather than a shrug is how it fails. `Caller.hasScope("admin")`
+    in a singleton is a ReferenceError at run time, which in QML means the function stops
+    there, but read by a human it is an authorization check, and in review it passes for
+    one. A rule that cannot run is worse than no rule, because everyone believes it is
+    there.
+
+    So the check is, which files may say it. A Source may (that is where a caller
+    arrives). Everything else may not, and is told where the check belongs.
+    """
+    root = Path(project_dir)
+    sources: Set[str] = set()
+    owners = {str(one.get("name") or ""): one for one in appmodel.entities(config)}
+    for point in appmodel.connect_points(config):
+        owning = owners.get(str(point.get("owner") or ""))
+        if owning is None:
+            continue
+        contract = appmodel.contract_of(point)
+        relative = str(point.get("server") or "")
+        if not relative and contract:
+            relative = appmodel.source_path(owning, contract)
+        if relative:
+            sources.add((root / relative).resolve().as_posix())
+
+    messages: List[str] = []
+    for qml in project_qml_files(root):
+        if qml.resolve().as_posix() in sources:
+            continue
+        text = qml.read_text(encoding="utf-8", errors="replace")
+        found = _CALLER_USE.search(text)
+        if found is None:
+            continue
+        relative = qml.relative_to(root).as_posix()
+        line = text.count("\n", 0, found.start()) + 1
+        messages.append(
+            f"error: {relative}:{line}: '{found.group(1)}' is only in scope in a connect "
+            "point's Source, so this reads as an authorization check and runs as a "
+            "ReferenceError. Move the check into the Source of the point the caller "
+            "arrives on: https://synqt.org/programming-model/")
+    return messages
+
+
 def project_qml_files(project_dir: os.PathLike[str] | str) -> List[Path]:
     """The project's own QML: not build output, not vendored dependencies."""
     root = Path(project_dir)
@@ -1752,6 +1866,7 @@ def check_project(project_dir: os.PathLike[str] | str, *, release: bool = False,
     loading_messages = lint_loading(project_dir)
     client_root_messages = lint_client_root(project_dir)
     source_messages = lint_connect_point_sources(config, project_dir)
+    caller_messages = lint_caller_use(config, project_dir)
     route_messages = lint_routes(config, project_dir)
     remote_page_messages = lint_remote_pages(config, project_dir)
     graphics_messages = lint_graphics(config, project_dir)
@@ -1759,6 +1874,7 @@ def check_project(project_dir: os.PathLike[str] | str, *, release: bool = False,
     messages += contract_messages
     messages += loading_messages
     messages += source_messages
+    messages += caller_messages
     messages += route_messages
     messages += remote_page_messages
     messages += graphics_messages
@@ -1771,10 +1887,11 @@ def check_project(project_dir: os.PathLike[str] | str, *, release: bool = False,
     ok = ok and not any(
         m.startswith("error:")
         for m in contract_messages + loading_messages + client_root_messages
-        + source_messages + route_messages + remote_page_messages + graphics_messages
+        + source_messages + caller_messages + route_messages + remote_page_messages
+        + graphics_messages
         + drift_messages + qml_messages)
     if not ok:
-        # validate() adds its "ok: topology valid" before the lints have run; printing it
+        # validate() adds its "ok: topology valid" before the lints have run, and printing it
         # above a list of errors reads as a pass. The lints get the last word.
         messages = [m for m in messages if not m.startswith("ok:")]
     return ok, messages

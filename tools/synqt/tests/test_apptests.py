@@ -20,9 +20,9 @@ from synqt import appgen, appmodel, cmakegen, maingen, run
 CONFIG = {
     "project": {"name": "gavel", "qt_version": "6.11.1"},
     "entities": [
-        {"name": "client", "kind": "client", "targets": ["wasm"]},
-        {"name": "web", "kind": "service", "capability": "web_edge"},
-        {"name": "database", "kind": "service", "blueprint": "relational"},
+        {"name": "client", "type": "client", "targets": ["wasm"]},
+        {"name": "web", "type": "web_edge"},
+        {"name": "database", "type": "relational"},
     ],
     "connect_points": [
         {"name": "auction", "contract": "Auction", "owner": "web",

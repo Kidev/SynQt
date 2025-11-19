@@ -31,7 +31,7 @@ def test_view_name_without_extension_still_resolves():
 def _client_cmake(routes):
     config = {
         "project": {"name": "shop"},
-        "entities": [{"name": "app", "kind": "client"}],
+        "entities": [{"name": "app", "type": "client"}],
         "routes": routes,
     }
     return cmakegen.render_root_cmakelists(config, synqt_root="/synqt")
@@ -46,7 +46,7 @@ def _client_project(files, routes=()):
         path.write_text(text)
     config = {
         "project": {"name": "shop"},
-        "entities": [{"name": "app", "kind": "client"}],
+        "entities": [{"name": "app", "type": "client"}],
         "routes": list(routes),
     }
     return cmakegen.render_root_cmakelists(config, synqt_root="/synqt", project_dir=root)

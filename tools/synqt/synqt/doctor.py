@@ -9,7 +9,7 @@ import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from . import (clientbuild, config as configmod, licenses, toolchain,
+from . import (appmodel, clientbuild, config as configmod, licenses, toolchain,
                version as versionmod)
 
 QT_VERSION = toolchain.QT_VERSION
@@ -75,7 +75,7 @@ def report(project_dir: os.PathLike[str] | str,
     if not (mesh / "ca.crt").exists():
         lines.append("    - no production CA (run 'synqt mesh init'); 'synqt dev' uses a throwaway dev CA.")
     for entity in config.get("entities", []):
-        if entity.get("kind") == "client":
+        if appmodel.is_client(entity):
             continue
         name = entity.get("name")
         have = (mesh / f"{name}.crt").exists()

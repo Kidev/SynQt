@@ -14,6 +14,8 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
+from . import appmodel
+
 # Qt module -> its open-source license. LGPLv3 modules keep an entity LGPLv3; a GPLv3-only
 # module makes its entity GPLv3.
 _MODULE_LICENSE = {
@@ -26,7 +28,7 @@ _MODULE_LICENSE = {
     "Qt for WebAssembly platform": "GPL-3.0-only",
 }
 
-# Third-party (non-Qt) libraries a bundled provider or capability may link.
+# Third-party (non-Qt) libraries a bundled provider or entity type may link.
 _THIRD_PARTY = {
     "jwt-cpp": "MIT", "picojson": "BSD-2-Clause", "OpenSSL": "Apache-2.0",
     "MariaDB Connector/C": "LGPL-2.1-only",
@@ -34,12 +36,10 @@ _THIRD_PARTY = {
 
 
 def entity_modules(entity: Dict[str, Any], target: str = "wasm") -> List[str]:
-    """The Qt modules an entity links, from its kind / capability / blueprint / provider."""
-    kind = entity.get("kind", "service")
-    blueprint = entity.get("blueprint")
-    capability = entity.get("capability", blueprint)
+    """The Qt modules an entity links, from its `type:`, its provider, and what it runs."""
+    entity_type = appmodel.entity_type(entity)
 
-    if kind == "client":
+    if entity_type == "client":
         modules = ["Qt Core", "Qt Gui", "Qt Qml", "Qt Quick", "Qt Quick Controls",
                    "Qt RemoteObjects", "Qt WebSockets"]
         # The WASM platform port is GPLv3; a native desktop build links the desktop kit.
@@ -48,15 +48,15 @@ def entity_modules(entity: Dict[str, Any], target: str = "wasm") -> List[str]:
         return modules
 
     modules = ["Qt Core", "Qt Network", "Qt Qml", "Qt RemoteObjects", "Qt WebSockets"]
-    if capability == "web_edge" or entity.get("web_edge"):
+    if entity_type == "web_edge":
         modules += ["Qt Gui", "Qt HTTP Server"]
-    if blueprint == "relational":
+    if entity_type == "relational":
         modules.append("Qt Sql")
-    if blueprint == "api" and entity.get("inbound"):
+    if entity_type == "api" and entity.get("inbound"):
         modules.append("Qt HTTP Server")
     # An entity that runs identity/login links Network Authorization (+ HTTP Server for its
     # callback routes when it is the edge or a dedicated auth entity).
-    if entity.get("identity") or capability in ("web_edge", "auth"):
+    if entity.get("identity") or entity_type == "web_edge":
         modules.append("Qt Network Authorization")
     # De-duplicate, preserve order.
     seen: List[str] = []
@@ -69,11 +69,11 @@ def entity_modules(entity: Dict[str, Any], target: str = "wasm") -> List[str]:
 def entity_third_party(entity: Dict[str, Any]) -> List[str]:
     libs: List[str] = []
     provider = (entity.get("provider") or {}).get("name", "")
-    if entity.get("identity") or entity.get("capability") in ("web_edge", "auth"):
+    if entity.get("identity") or appmodel.is_edge(entity):
         libs += ["jwt-cpp", "picojson", "OpenSSL"]
     if provider == "mysql":
         libs.append("MariaDB Connector/C")
-    if provider in ("postgres", "mysql") or entity.get("blueprint") == "relational":
+    if provider in ("postgres", "mysql") or appmodel.entity_type(entity) == "relational":
         libs.append("OpenSSL")
     return sorted(set(libs))
 
@@ -96,7 +96,7 @@ def generate(entity: Dict[str, Any], *, target: str = "wasm",
 
     lines = [
         f"THIRD-PARTY-LICENSES for entity '{name}'"
-        + (f" (target: {target})" if entity.get("kind") == "client" else ""),
+        + (f" (target: {target})" if appmodel.is_client(entity) else ""),
         "Generated from the resolved topology by `synqt build`; do not edit by hand.",
         "",
         "SynQt framework code: Apache-2.0",
@@ -111,7 +111,7 @@ def generate(entity: Dict[str, Any], *, target: str = "wasm",
         for lib in third_party:
             lines.append(f"  - {lib}: {_THIRD_PARTY.get(lib, 'see upstream')}")
     lines += ["", f"Effective license of this entity artifact: {effective}"]
-    if effective == "GPL-3.0-only" and entity.get("kind") == "client":
+    if effective == "GPL-3.0-only" and appmodel.is_client(entity):
         lines.append(
             "This client is conveyed to every visitor, so you must offer its complete "
             "corresponding source under GPLv3 (or use a commercial Qt license to keep it "

@@ -24,12 +24,11 @@ scopes:
 
 entities:
   - name: app
-    kind: client
+    type: client
     targets: [wasm]
 
   - name: edge
-    kind: service
-    capability: web_edge
+    type: web_edge
     identity: true
     public:
       port: 8443
@@ -37,9 +36,9 @@ entities:
       cert_file: deploy/edge.crt
       key_file: deploy/edge.key
 
-  # The auth entity. It declares no connect points: it owns the two `provider_entity` implies.
+  # The auth entity. It declares no connect points. It owns the two `provider_entity` implies.
   - name: auth
-    kind: service
+    type: service
 
 connect_points:
   # One ordinary browser-facing point, so the edge is a real edge rather than a login-only

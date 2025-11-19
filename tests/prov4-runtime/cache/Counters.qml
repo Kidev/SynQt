@@ -3,10 +3,12 @@
 
 import QtQuick
 
-// A cache entity's owner-side Source. It calls the `Cache` helper only; the runtime injects
-// Cache automatically from the entity's blueprint + provider config (PROV-4). The write in
-// Component.onCompleted runs when the runtime creates this Source, so the test can prove the
-// injection reached QML and not only the C++ side: without it the write never lands.
+// A cache entity's own file: the entity itself, alive for as long as the entity runs. It
+// calls the `Cache` helper only. The runtime injects Cache automatically from the entity's
+// type + provider config (PROV-4). The write in Component.onCompleted runs when the entity
+// comes up, so the test can prove the injection reached QML and not only the C++ side.
+pragma Singleton
+
 QtObject {
     Component.onCompleted: Cache.set("from-qml", "written-at-source-creation", 300)
 

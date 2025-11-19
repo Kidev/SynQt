@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-"""`synqt add entity` scaffolds a blueprint entity that is secure by default."""
+"""`synqt add entity` scaffolds an entity of a given type, secure by default."""
 
 import tempfile
 import unittest
@@ -32,8 +32,8 @@ class AddEntityTest(unittest.TestCase):
                            "entities:\n"
                            "  # The edge, the only entity a browser reaches.\n"
                            "  - name: web\n"
-                           "    kind: service\n"
-                           "    capability: web_edge\n")
+                           "    type: web_edge\n"
+                           "\n")
         (root / "synqt.yaml").write_text(written_by_hand)
 
         addentity.scaffold(root, "ledger", "relational")
@@ -44,14 +44,14 @@ class AddEntityTest(unittest.TestCase):
         self.assertTrue(text.startswith(written_by_hand.rstrip("\n")))
         entities = yaml.safe_load(text)["entities"]
         self.assertEqual([e["name"] for e in entities], ["web", "ledger"])
-        self.assertEqual(entities[1]["blueprint"], "relational")
+        self.assertEqual(entities[1]["type"], "relational")
         self.assertEqual(entities[1]["settings"]["journal_mode"], "wal")
 
     def test_relational_defaults_to_embedded_sqlite(self):
         root = self._project()
         addentity.scaffold(root, "database", "relational")
         entity = yaml.safe_load((root / "synqt.yaml").read_text())["entities"][0]
-        self.assertEqual(entity["blueprint"], "relational")
+        self.assertEqual(entity["type"], "relational")
         self.assertNotIn("provider", entity)  # embedded default, no engine config
         self.assertEqual(entity["settings"]["journal_mode"], "wal")
         # The Source stub calls Db only, never an engine.
@@ -82,7 +82,7 @@ class AddEntityTest(unittest.TestCase):
         root = self._project()
         addentity.scaffold(root, "notes", "document")
         entity = yaml.safe_load((root / "synqt.yaml").read_text())["entities"][0]
-        self.assertEqual(entity["blueprint"], "document")
+        self.assertEqual(entity["type"], "document")
         self.assertEqual(entity["provider"]["name"], "memory")  # embedded, nothing to install
         source = (root / "db/document/notes" / "Notes.qml").read_text()
         self.assertIn("Docs.insert", source)
@@ -92,11 +92,11 @@ class AddEntityTest(unittest.TestCase):
         self.assertNotIn("mongo", source.lower())
         self.assertIn('"author": String(author)', source)
 
-    def test_every_blueprint_stub_calls_its_own_helper_and_names_no_engine(self):
-        """One assertion per blueprint, over the whole family at once.
+    def test_every_type_stub_calls_its_own_helper_and_names_no_engine(self):
+        """One assertion per entity type, over the whole family at once.
 
         The stub is the first SynQt code anyone reads after `synqt add entity`, and what
-        it demonstrates is the rule the blueprint exists to enforce: the Source calls the
+        it demonstrates is the rule the type exists to enforce. The Source calls the
         family helper, and the engine is the provider's business. A stub that reached past
         its helper would teach the opposite on day one.
         """
@@ -104,12 +104,12 @@ class AddEntityTest(unittest.TestCase):
                    "api": "Http.", "jobs": "Jobs."}
         engines = ("QSqlDatabase", "sqlite", "postgres", "mongo", "redis",
                    "QNetworkAccessManager", "QTimer")
-        for blueprint, helper in helpers.items():
-            with self.subTest(blueprint=blueprint):
+        for entity_type, helper in helpers.items():
+            with self.subTest(entity_type=entity_type):
                 root = self._project()
-                name = {"cache": "hits", "jobs": "rollups"}.get(blueprint, blueprint)
-                addentity.scaffold(root, name, blueprint)
-                block = {"name": name, "kind": "service", "blueprint": blueprint}
+                name = {"cache": "hits", "jobs": "rollups"}.get(entity_type, entity_type)
+                addentity.scaffold(root, name, entity_type)
+                block = {"name": name, "type": entity_type}
                 source = (root / appmodel.entity_file_path(block)).read_text()
                 self.assertIn(helper, source)
                 for other in set(helpers.values()) - {helper}:
@@ -121,28 +121,61 @@ class AddEntityTest(unittest.TestCase):
         """A Source answers one connect point and is named after it. A new entity has no
         connect points, so a Source here could only be named by inventing one, and the
         invented name is the one somebody then has to live with or rename. The entity's
-        own file is written; the Source waits for `synqt add connect-point`.
+        own file is written. The Source waits for `synqt add connect-point`.
+
+        `main.cpp` is generated, not authored: every entity is its own binary and needs
+        one, and the command regenerates the buildable app so the project is complete when
+        it returns rather than after the next build.
         """
         root = self._project()
         addentity.scaffold(root, "rollups", "jobs")
         folder = root / "jobs/rollups"
-        self.assertEqual(sorted(path.name for path in folder.iterdir()), ["Rollups.qml"])
+        self.assertEqual(sorted(path.name for path in folder.iterdir()),
+                         ["Rollups.qml", "main.cpp"])
 
     def test_the_message_names_the_file_it_wrote(self):
         root = self._project()
         message = addentity.scaffold(root, "hits", "cache")
         self.assertIn("cache/hits/Hits.qml", message)
 
-    def test_an_entity_name_that_would_shadow_a_helper_is_refused(self):
-        """A QML file in the entity directory becomes a type of that name, and a type from
-        the directory beats one from an import, so an entity called `cache` would write a
-        `Cache.qml` shadowing the `Cache` helper its own file calls.
+    def test_an_entity_may_be_called_after_a_helper_it_does_not_have(self):
+        """The reservation is per entity, because the collision is.
+
+        A QML file in the entity directory becomes a type of that name, and a type from
+        the directory beats one from an import. But `EntityRuntime` builds exactly ONE
+        helper, the one its type calls for, so `Cache` is a name in scope in a cache
+        entity and an ordinary word everywhere else. Reserving all five in every entity
+        banned five good nouns across the whole project to prevent a collision that
+        exists in one of them.
         """
-        for refused in ("cache", "jobs", "db", "docs", "http"):
-            with self.subTest(name=refused):
+        for name, entity_type in [("cache", "relational"), ("jobs", "cache"),
+                                  ("db", "jobs"), ("docs", "api"), ("http", "document")]:
+            with self.subTest(name=name, type=entity_type):
+                root = self._project()
+                addentity.scaffold(root, name, entity_type)
+                block = {"name": name, "type": entity_type}
+                self.assertTrue((root / appmodel.entity_file_path(block)).exists())
+
+    def test_an_entity_named_after_its_own_helper_is_refused(self):
+        """The one case that collides. A cache entity called `cache` writes a
+        `Cache.qml` beside the Sources that call the `Cache` helper, and the file wins."""
+        for name, entity_type in [("cache", "cache"), ("db", "relational"),
+                                  ("docs", "document"), ("http", "api"),
+                                  ("jobs", "jobs")]:
+            with self.subTest(name=name, type=entity_type):
+                root = self._project()
+                with self.assertRaises(addentity.AddEntityError) as raised:
+                    addentity.scaffold(root, name, entity_type)
+                self.assertIn(entity_type, str(raised.exception))
+
+    def test_a_name_synqt_uses_in_every_entity_is_refused_everywhere(self):
+        """`Caller`, `Server`, `Session` and their neighbours are in scope whatever the
+        entity is, so these stay refused for every type."""
+        for name in ("caller", "server", "session", "router", "client"):
+            with self.subTest(name=name):
                 root = self._project()
                 with self.assertRaises(addentity.AddEntityError):
-                    addentity.scaffold(root, refused, "service")
+                    addentity.scaffold(root, name, "service")
 
     def test_a_name_qml_cannot_use_is_refused_before_anything_is_written(self):
         root = self._project()
@@ -152,7 +185,7 @@ class AddEntityTest(unittest.TestCase):
                     addentity.scaffold(root, refused, "document")
         self.assertFalse((root / "db/document").exists())
 
-    def test_rejects_unknown_blueprint_and_wrong_provider(self):
+    def test_rejects_unknown_type_and_wrong_provider(self):
         root = self._project()
         with self.assertRaises(addentity.AddEntityError):
             addentity.scaffold(root, "x", "nonsense")

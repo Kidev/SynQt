@@ -143,10 +143,6 @@ private:
     /// canonical path.
     QHash<QString, QByteArray> m_etags;
 
-    /// One shared Source per shared connect point, created once and hosted on every
-    /// connection's node so its state stays in sync across browsers.
-    QHash<QString, QObject *> m_sharedSources;
-
     /// The framework's own Pages connect point (see WebEdgeConfig::pages): one
     /// PageStore/PagesService shared by every connection, built once in start() and
     /// never rebuilt per connection. Both stay null when the project configures no

@@ -18,19 +18,17 @@ project:
 
 entities:
   - name: app
-    kind: client
+    type: client
 
   # The edge, the only entity a browser reaches.
   - name: edge
-    kind: service
-    capability: web_edge
+    type: web_edge
 
   - name: feeds
-    kind: service
-    blueprint: api
+    type: api
 """
 
-# Where the `feeds` entity's files go: its blueprint's folder, then its own name.
+# Where the `feeds` entity's files go: its type's folder, then its own name.
 FEEDS = "api/feeds"
 
 
@@ -58,9 +56,16 @@ class AddConnectPointTest(unittest.TestCase):
     def test_an_instance_the_author_chose_is_written_down(self):
         root = self._project()
         addcontract.scaffold_connect_point(root, "prices", owner="feeds",
-                                           consumers=["edge"], instance="shared")
+                                           consumers=["edge"], instance="per_session")
         point = yaml.safe_load((root / "synqt.yaml").read_text())["connect_points"][0]
-        self.assertEqual(point["instance"], "shared")
+        self.assertEqual(point["instance"], "per_session")
+
+    def test_shared_is_refused_because_it_no_longer_exists(self):
+        root = self._project()
+        with self.assertRaises(addcontract.AddContractError) as raised:
+            addcontract.scaffold_connect_point(root, "prices", owner="feeds",
+                                               consumers=["edge"], instance="shared")
+        self.assertIn("per_session", str(raised.exception))
 
     def test_a_contract_that_is_not_the_points_own_name_is_written_down(self):
         root = self._project()
@@ -150,13 +155,25 @@ class AddConnectPointTest(unittest.TestCase):
 
     def test_a_contract_name_qml_cannot_use_is_refused_before_anything_is_written(self):
         root = self._project()
-        for refused in ("prices", "Cache", "Prices List"):
+        # `Http` is refused because `feeds` is an api entity and that is the helper its
+        # own Sources call; `Caller` is refused in any entity. A lower-case name and one
+        # with a space are not QML type names at all.
+        for refused in ("prices", "Http", "Caller", "Prices List"):
             with self.subTest(contract=refused):
                 with self.assertRaises(addcontract.AddContractError):
                     addcontract.scaffold_connect_point(root, "prices", owner="feeds",
                                                        consumers=["edge"], contract=refused)
         self.assertEqual((root / "synqt.yaml").read_text(), WRITTEN_BY_HAND)
         self.assertFalse((root / FEEDS).exists())
+
+    def test_a_helper_this_entity_does_not_have_is_an_ordinary_name(self):
+        """`feeds` is an api entity, so its QML has `Http` and nothing else. `Cache` is a
+        word like any other there, and reserving it would have banned it project-wide to
+        prevent a collision in cache entities only."""
+        root = self._project()
+        addcontract.scaffold_connect_point(root, "prices", owner="feeds",
+                                           consumers=["edge"], contract="Cache")
+        self.assertTrue((root / FEEDS / "Cache.qml").exists())
 
     def test_a_duplicate_name_is_refused(self):
         root = self._project()

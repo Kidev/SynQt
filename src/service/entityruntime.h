@@ -49,7 +49,7 @@ public:
     QString errorString() const;
 
     /// Expose an accessor to every owned Source's QML context, alongside the ones this
-    /// runtime builds for the entity's blueprint. Call it before start(): a shared connect
+    /// runtime builds for the entity's type. Call it before start(): an owned connect
     /// point's Source is created there, and a Source cannot be given context afterwards.
     ///
     /// This is how an entity contributes an engine of its own that the topology cannot
@@ -88,12 +88,12 @@ private:
     void openConsumerLink(const ConnectPointConfig &connectPoint);
     QQmlPropertyMap *accessorFor(const QString &capitalizedOwner);
 
-    /// Build the backend helper (Db/Cache/Docs/Http/Jobs) this entity's blueprint calls for, so
+    /// Build the one backend helper (Db/Cache/Docs/Http/Jobs) this entity's type calls for, so
     /// it can be injected into every owned Source's QML context before the Source is created.
-    /// False with errorString() set when the entity cannot serve its blueprint at all: its
+    /// False with errorString() set when the entity cannot serve its type at all: its
     /// `provider.name` selects nothing, or the selected engine will not open. An entity whose
     /// Sources would find no helper in context must not reach enableRemoting().
-    bool buildBlueprintContext();
+    bool buildTypeContext();
 
     Topology m_topology;
     QQmlEngine *m_engine;
@@ -106,16 +106,16 @@ private:
     QHash<QString, ConsumerBase *> m_consumerFacades;
 
     /// Accessors the entity itself contributed through setContextObject(), kept separate
-    /// from the blueprint's so an entity cannot silently shadow the Db helper its own
-    /// blueprint installed.
+    /// from the type's so an entity cannot silently shadow the Db helper its own
+    /// type installed.
     QHash<QString, QObject *> m_entityContext;
 
-    /// The blueprint backend the runtime owns and the context objects it injects by name.
+    /// The type's backend, owned by the runtime, and the context objects it injects by name.
     std::unique_ptr<IPersistenceProvider> m_persistence;
     std::unique_ptr<ICacheProvider> m_cache;
     std::unique_ptr<IDocumentProvider> m_document;
     QNetworkAccessManager *m_network{nullptr};
-    QHash<QString, QObject *> m_blueprintContext;
+    QHash<QString, QObject *> m_typeContext;
 
     QString m_errorString;
 };

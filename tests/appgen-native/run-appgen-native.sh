@@ -11,7 +11,7 @@
 #   * the service main used QJsonObject with only <QJsonDocument> included (forward-declared);
 #   * the edge main upcast QQmlPropertyMap* to QObject* without <QQmlPropertyMap>.
 #
-# It runs appgen over the real three-entity gavel topology (client + web edge + persistence
+# It runs appgen over the real three-entity gavel topology (client + web edge + relational
 # database, with connect points, per_session, identity, and a provider), then configures and
 # builds every entity with the native kit. The client's `targets: [wasm]` also builds as a
 # native desktop app here, which exercises the client main too. A green run means the generator

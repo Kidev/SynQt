@@ -86,26 +86,9 @@ QObject *ConnectPointHost::createSource(QObject *caller, QObject *parent, QStrin
 
 bool ConnectPointHost::start()
 {
-    // A shared connect point has one authoritative Source, hosted once; a per_peer connect
-    // point mints a Source (with a Caller bound to the calling entity) per accepted peer,
-    // so the owner can authorize each entity in its slots.
-    if (m_config.instance == ConnectPointInstance::Shared) {
-        QString error;
-        m_source = createSource(nullptr, this, &error);
-        if (!m_source) {
-            m_errorString = error;
-            return false;
-        }
-        m_host = new QRemoteObjectHost{this};
-        m_host->setHostUrl(QUrl{QStringLiteral("synqt-cp-%1:///host").arg(m_config.name)},
-                           QRemoteObjectHost::AllowExternalRegistration);
-        if (!m_host->enableRemoting(m_source, m_config.name)) {
-            m_errorString = QStringLiteral("enableRemoting failed for connect point %1")
-                                .arg(m_config.name);
-            return false;
-        }
-    }
-
+    // Nothing is instantiated here. A connect point mints a Source, with a Caller bound to
+    // the calling entity, per accepted peer, so the owner can authorize each entity in its
+    // slots; see onPeerConnected(). There is no instance to build before a caller exists.
     m_server = new MeshServer{this};
     connect(m_server, &MeshServer::peerConnected, this, &ConnectPointHost::onPeerConnected);
 
@@ -147,13 +130,8 @@ void ConnectPointHost::onPeerConnected(QIODevice *device, const MeshPeer &peer)
     }
     emit consumerAttached(peer.entity);
 
-    if (m_config.instance == ConnectPointInstance::Shared) {
-        m_host->addHostSideConnection(device);
-        return;
-    }
-
-    // per_peer: a fresh Source and its own node for this entity, with a Caller carrying
-    // the certificate-verified entity name for the owner's per-slot authorization.
+    // A fresh Source and its own node for this entity, with a Caller carrying the
+    // certificate-verified entity name for the owner's per-slot authorization.
     QRemoteObjectHost *node{new QRemoteObjectHost{device}};
     node->setHostUrl(QUrl{QStringLiteral("synqt-cp-%1:///%2")
                               .arg(m_config.name,

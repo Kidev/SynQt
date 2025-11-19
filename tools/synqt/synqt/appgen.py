@@ -82,7 +82,7 @@ def generate(project_dir: os.PathLike[str] | str, config: Dict[str, Any], *,
         entity_dir = root / appmodel.entity_dir(entity)
         entity_dir.mkdir(parents=True, exist_ok=True)
         singletons = appmodel.discover_singletons(entity_dir)
-        if entity.get("kind") == "client":
+        if appmodel.is_client(entity):
             # The same QML module URI the client target is configured with in
             # render_root_cmakelists (qt_add_qml_module URI ...), so a compiled-in route's
             # qrc URL actually matches where qmlcachegen puts the view.

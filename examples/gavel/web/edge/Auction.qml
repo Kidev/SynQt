@@ -5,16 +5,20 @@ import QtQuick
 import SynQt
 
 // The authoritative auction, owned by the web edge (docs/tutorial-sign-in.md and
-// docs/tutorial-hall-of-fame.md). It is a per_session instance, so `Caller` is the one
+// docs/tutorial-hall-of-fame.md). One of these per browser session, so `Caller` is the one
 // browser user who made the request: every rule that matters is enforced here, on the
-// owner, against that verified caller; never in the client UI. The bidder's name comes
-// from `Caller.identity`, which a caller cannot forge, not from an argument.
+// owner, against that verified caller; never in the client UI. The bidder's name comes from
+// `Caller.identity`, which a caller cannot forge, not from an argument.
+//
+// The lot itself is not per session, so it lives in the `Edge` singleton and these
+// properties bind to it. That is what keeps one auction with one standing bid however many
+// browsers are watching, while each of them still gets a Source with a Caller in it.
 Auction {
     id: auction
 
-    itemName: "A homemade lasagna, baked fresh this morning"
-    highBid: 0
-    highBidder: "nobody yet"
+    itemName: Edge.itemName
+    highBid: Edge.highBid
+    highBidder: Edge.highBidder
 
     // A consumer (a browser) is asking to bid. We decide whether to accept.
     function placeBid(amount) {
@@ -24,12 +28,11 @@ Auction {
             Caller.emitBidRejected("Please sign in to bid.");
             return;
         }
-        if (amount <= auction.highBid) {
-            Caller.emitBidRejected("Your bid must beat " + auction.highBid + ".");
+        if (amount <= Edge.highBid) {
+            Caller.emitBidRejected("Your bid must beat " + Edge.highBid + ".");
             return;
         }
-        auction.highBid = amount;
-        auction.highBidder = Caller.identity.name;   // their real name, from sign in
+        Edge.accept(amount, Caller.identity.name);   // their real name, from sign in
     }
 
     // The auctioneer (admin) closes the current lot and opens the next one. The winner is
@@ -39,12 +42,10 @@ Auction {
             Caller.emitBidRejected("Only the auctioneer can close a lot.");
             return;
         }
-        if (auction.highBid > 0) {
+        if (Edge.highBid > 0) {
             // Only the edge may write; the books entity authorizes the calling entity itself.
-            Books.ledger.recordWinner(auction.itemName, auction.highBidder, auction.highBid);
+            Books.ledger.recordWinner(Edge.itemName, Edge.highBidder, Edge.highBid);
         }
-        auction.itemName = nextItem;
-        auction.highBid = 0;
-        auction.highBidder = "nobody yet";
+        Edge.openLot(nextItem);
     }
 }

@@ -47,24 +47,24 @@ function loadCurrent() {
 }
 ```
 
-In `web/edge/Auction.qml`, load on startup and save after every change. Add a save call
-at the end of `placeBid` (after you set `highBid` and `highBidder`) and at the end of
-`closeLot`, plus:
+The lot lives in `web/edge/Edge.qml`, so that is where it is loaded and saved: once at
+startup for the whole entity, not once per browser. Add a `root.saveNow()` at the end of
+`accept` and of `openLot`, plus:
 
 ```qml
 Component.onCompleted: {
     // loadCurrent() returns a value, so it resolves asynchronously.
     Books.ledger.loadCurrent().then(saved => {
         if (saved) {
-            auction.itemName = saved.item
-            auction.highBid = saved.amount
-            auction.highBidder = saved.bidder
+            root.itemName = saved.item;
+            root.highBid = saved.amount;
+            root.highBidder = saved.bidder;
         }
-    })
+    });
 }
 
 function saveNow() {
-    Books.ledger.saveCurrent(auction.itemName, auction.highBid, auction.highBidder)
+    Books.ledger.saveCurrent(root.itemName, root.highBid, root.highBidder);
 }
 ```
 
@@ -102,7 +102,7 @@ Turn it into a speed auction where each lot closes itself after a minute. Add a 
 entity, which is built for scheduled work:
 
 ```cli
-synqt add entity ticker --blueprint jobs
+synqt add entity ticker --type jobs
 ```
 
 The ticker needs to call `closeLot`, so let it reach the auction. Add it as a
@@ -126,7 +126,7 @@ if (!fromTicker && !Caller.hasScope("admin")) {
 }
 ```
 
-Then put the schedule in the ticker's logic file (the jobs blueprint scaffolds one),
+Then put the schedule in the ticker's logic file (the jobs type scaffolds one),
 calling the auction it now consumes. As always, a connect point on another entity
 is reached under the owner entity's name, capitalized: the `auction` connect point
 owned by `edge` appears to the ticker as `Edge.auction`:

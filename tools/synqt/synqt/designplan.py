@@ -36,7 +36,7 @@ _IGNORED = ("build", ".git", ".synqt", "__pycache__", "node_modules", ".venv")
 
 # The entity fields the document models. Anything else in an entity block (TLS files,
 # provider settings, an env file) is the author's and is left where it is.
-_ENTITY_FIELDS = ("kind", "capability", "blueprint", "provider", "targets", "identity")
+_ENTITY_FIELDS = ("type", "provider", "targets", "identity")
 _LINK_FIELDS = ("contract", "owner", "consumers", "instance", "transport")
 
 
@@ -206,28 +206,25 @@ def _apply_entities(work: Path, current: Dict[str, Any], wanted: Dict[str, Any],
 
 
 def _scaffold_entity(work: Path, entity: Dict[str, Any]) -> None:
-    """Add one entity the way `synqt add entity` would, or plainly when it has no blueprint.
+    """Add one entity the way `synqt add entity` would, whatever type it is.
 
-    The scaffolder is run rather than imitated: an entity the editor draws has to be the
+    The scaffolder is run rather than imitated. An entity the editor draws has to be the
     same entity the command line produces, down to the schema file and the credential name
     written into .env.example, or the two ways into a project drift apart.
     """
-    blueprint = entity.get("blueprint") or ""
-    kind = str(entity.get("kind") or "service")
-    if kind == "client":
-        # The one file a client cannot start without, written by the same helper `synqt new`
-        # calls. Without it the entity is on the canvas, is in synqt.yaml, and has an empty
-        # directory: the build succeeds and the browser shows nothing.
-        block = {"name": entity["name"], "kind": "client"}
-        _edit_config(work, lambda text: yamledit.append_item(text, "entities", block))
-    elif blueprint in addentity.BLUEPRINTS:
+    entity_type = appmodel.entity_type(entity)
+    if entity_type in addentity.TYPES:
         try:
-            addentity.scaffold(work, entity["name"], blueprint,
+            addentity.scaffold(work, entity["name"], entity_type,
                                entity.get("provider") or None)
         except addentity.AddEntityError as error:
             raise DesignPlanError(f"'{entity['name']}': {error}") from error
     else:
-        block = {"name": entity["name"], "kind": kind}
+        # A client or a web edge: one of each per project, so there is nothing to scaffold
+        # beyond the block and the entity file written below. The client's is the one file
+        # it cannot start without. Without it the entity is on the canvas, is in
+        # synqt.yaml, and has an empty directory, and the browser shows nothing.
+        block = {"name": entity["name"], "type": entity_type}
         _edit_config(work, lambda text: yamledit.append_item(text, "entities", block))
     # Every entity gets its own file, whichever of the three ways it arrived. `synqt add
     # entity` writes one too, so an entity drawn here and one added from the command line are
@@ -235,7 +232,7 @@ def _scaffold_entity(work: Path, entity: Dict[str, Any]) -> None:
     newproject.write_entity_qml(work, entity)
     fields = {key: _entity_field(entity, key) for key in _ENTITY_FIELDS
               if _entity_field(entity, key) is not None}
-    fields.pop("blueprint", None)
+    fields.pop("type", None)
     fields.pop("provider", None)
     if fields:
         _edit_config(work, lambda text: yamledit.patch_item(
@@ -429,8 +426,8 @@ def _entity_field(entity: Dict[str, Any], key: str) -> Any:
         return {"name": value} if value else None
     if key == "targets":
         return list(value) if value else None
-    if key == "kind":
-        return str(value or "service")
+    if key == "type":
+        return appmodel.entity_type(entity)
     return str(value) if value else None
 
 
@@ -440,7 +437,7 @@ def _link_field(link: Dict[str, Any], key: str) -> Any:
         return list(value or [])
     if key == "instance":
         # Left out when the drawing does not say, so the same resolution the runtime
-        # applies decides it rather than `shared` being frozen in by the writer.
+        # applies decides it rather than one answer being frozen in by the writer.
         return str(value) if value else None
     # A contract named the same as its point is what the runtime resolves anyway, so the
     # line is left out rather than written and then kept in step with the point's name.

@@ -223,8 +223,8 @@ class CheckTest(unittest.TestCase):
     def _validate(self, loading):
         from synqt import check
         config = {"project": {"name": "app"},
-                  "entities": [{"name": "client", "kind": "client", "targets": ["wasm"]},
-                               {"name": "web", "kind": "service", "capability": "web_edge"}],
+                  "entities": [{"name": "client", "type": "client", "targets": ["wasm"]},
+                               {"name": "web", "type": "web_edge"}],
                   "build": {"loading": loading}}
         return check.validate(config)
 

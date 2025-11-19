@@ -123,7 +123,7 @@ This distinction is the whole value of the harness, so it is worth being exact a
 **Real**: the Source, compiled from your QML through the same generated
 `<Contract>Source` type the entity uses. `Caller`, minted through the same factory the
 mesh and the web edge mint it through, including the typed `emit<Signal>` methods and
-hierarchical `hasScope`. The blueprint helpers, `Db`, `Cache`, `Docs` and `Jobs`, are the
+hierarchical `hasScope`. The entity type helpers, `Db`, `Cache`, `Docs` and `Jobs`, are the
 same classes an entity gets.
 
 **Substituted**: only the engine behind a helper. `Db` runs on SQLite in memory, `Cache`

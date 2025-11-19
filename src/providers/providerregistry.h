@@ -26,18 +26,13 @@ struct ProviderRegistration
 {
 };
 
-/// Where a custom provider announces itself, and the other half of the expandability escape
-/// hatch documented in [Providers](https://synqt.org/providers/): implementing a family
-/// interface gets you a class, registering it here is what lets `provider.name` select it.
+/// Where a custom provider registers, so `provider.name` can select it (see
+/// [Providers](https://synqt.org/providers/)). Only names under the `custom:` prefix reach
+/// this registry, so a custom provider never shadows a bundled one.
 ///
-/// The `custom:` prefix is a namespace, not decoration. Only a name carrying it reaches this
-/// registry, so a custom provider can never shadow a bundled one: `sqlite` always means the
-/// bundled SQLite provider, and `custom:sqlite` is a different provider entirely.
-///
-/// Registration must happen before the entity runtime builds its blueprint context, and the
-/// tables are not synchronized: register at static initialization (the macros below) or from
-/// the entity's main() before start(). Static initialization order does not matter here
-/// because the tables are function-local statics, constructed on first use.
+/// Register before the entity runtime builds its type context: at static initialization (the
+/// macros below) or in main() before start(). The tables are not synchronized; they are
+/// function-local statics, so initialization order does not matter.
 class ProviderRegistry
 {
 public:
@@ -79,21 +74,18 @@ public:
 
 /// The diagnostic for a `provider.name` that selects nothing, naming what the family does
 /// offer so a typo reports the alternatives instead of failing silently. `family` is the
-/// blueprint family ("persistence"), `bundled` its built-in provider names. Shared by the
+/// provider family ("relational"), `bundled` its built-in provider names. Shared by the
 /// three family factories, which is the only reason it lives here.
 QString unknownProviderMessage(const QString &family, const QString &configName,
                                const QStringList &bundled);
 
 } // namespace SynQt
 
-/// Register a custom provider at static initialization. `providerName` is the bare name as
-/// it appears after `custom:` in the config; `ProviderClass` is constructible from a
-/// `const ProviderConfig &`. Place one at namespace scope in the provider's .cpp:
+/// Register a custom provider at static initialization. `providerName` is the name after
+/// `custom:` in the config; `ProviderClass` is constructible from a `const ProviderConfig &`.
+/// Place one at namespace scope in the provider's .cpp:
 ///
 ///     SYNQT_REGISTER_PERSISTENCE_PROVIDER("MyEngine", MyEngineProvider)
-///
-/// The object is `const` at namespace scope and so has internal linkage already. A custom
-/// provider compiles directly into its entity, so the linker keeps it.
 #define SYNQT_REGISTER_PERSISTENCE_PROVIDER(providerName, ProviderClass)                     \
     const SynQt::ProviderRegistration synqtRegister##ProviderClass{                          \
         SynQt::ProviderRegistry::registerPersistence(                                        \

@@ -41,7 +41,7 @@ def _entities(config: Dict[str, Any]) -> List[Dict[str, Any]]:
 
 
 def _is_edge(entity: Dict[str, Any]) -> bool:
-    return entity.get("capability") == "web_edge" or bool(entity.get("web_edge"))
+    return appmodel.is_edge(entity)
 
 
 def _service_entities(config: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -49,7 +49,7 @@ def _service_entities(config: Dict[str, Any]) -> List[Dict[str, Any]]:
     edge, whose generated main takes --bundle/--qml-dir/--port, not --topology. (When the
     edge composes EntityRuntime for its mesh-side links, drop the edge exclusion here.)"""
     return [e for e in _entities(config)
-            if e.get("kind") != "client" and not _is_edge(e)]
+            if appmodel.is_service(e) and not _is_edge(e)]
 
 
 def _connect_points(config: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -187,10 +187,12 @@ def entity_topology(config: Dict[str, Any], entity: Dict[str, Any], project_dir:
         },
     }
 
-    blueprint = entity.get("blueprint")
-    if blueprint:
-        topology["blueprint"] = blueprint
-    # The provider block for the blueprint: an external `provider` (env: refs intact), or the
+    # `service` is the default on both sides, so writing it would only add a line the
+    # runtime already assumes. Every other type is what selects the entity's helper.
+    entity_type = appmodel.entity_type(entity)
+    if entity_type != appmodel.PLAIN_TYPE:
+        topology["type"] = entity_type
+    # The provider block for the type. An external `provider` (env, refs intact), or the
     # embedded `settings` (sqlite). The runtime prefers `provider`, then `settings`.
     if entity.get("provider"):
         topology["provider"] = entity["provider"]

@@ -19,15 +19,15 @@ binary, its own identity, and its own place in the topology. There are two kinds
   user facing app); it may have more (for example a separate admin app) in later
   versions.
 - A service entity is a native binary. It can listen and connect. Services carry
-  capabilities. The most important capability is web edge: a service with the web
-  edge capability serves a client bundle and accepts that client's connection. It
+  types. The most important one is the web edge: an entity of `type: web_edge`
+  serves a client bundle and accepts that client's connection. It
   is the only kind of entity exposed to the internet. Other services (a database,
   a cache, a gateway, a jobs runner, an auth service, or anything custom) have no
   public exposure and are reachable only by the entities the topology allows.
 
 A familiar client and server pair maps onto this model directly: the process that
 serves the app and faces the internet is the service entity holding the web edge
-capability, and the browser app is the client entity. Everything else is a
+type, and the browser app is the client entity. Everything else is a
 service entity you add as needed.
 
 Why entities. A real system is more than a browser and one process. It
@@ -197,11 +197,11 @@ Service runtime (native, used by every service entity):
   each time the link comes back the consumer re-acquires the connect point by
   itself. So entities may start in any order, and one service can be restarted
   under a deploy without restarting the entities that consume it.
-- `Provider` (on blueprint entities): the backend behind the entity's connect
+- `Provider` (on entities with an engine): the backend behind the entity's connect
   points, selected by config. The default is an embedded engine (SQLite for
   persistence, in memory for cache); a third party engine is masked behind the same
   entity through the same interface (see [providers](providers.md)).
-- `WebEdge` (only on entities with the web edge capability): owns the QHttpServer,
+- `WebEdge` (only on a `type: web_edge` entity): owns the QHttpServer,
   TLS for the public port, static bundle serving, the header policy, the
   WebSocket upgrade pipeline, the SessionManager, and the optional IdentityProvider.
 
@@ -293,12 +293,12 @@ the user, and the database authorized the edge. Neither trusts the other blindly
 - User identity: Qt Network Authorization (QOAuth2AuthorizationCodeFlow) on the
   edge, PKCE on by default since 6.8, run server side so the client secret never
   reaches the browser.
-- Durable persistence (the database blueprint): a provider behind the entity. The
+- Durable persistence (the relational type): a provider behind the entity. The
   default is Qt SQL with the bundled SQLite driver, the in process database with the
   best test coverage on all platforms, running no separate daemon. The same entity
   can be backed by a third party engine (PostgreSQL, MySQL, MongoDB, Redis) through a
   provider, masked behind the entity so consumers and the security model do not
-  change (see [providers](providers.md)). The default blueprint serializes writes and
+  change (see [providers](providers.md)). The default provider serializes writes and
   sets a busy timeout, because SQLite can block under concurrent transactions (see
   [entities](entities.md)).
 
@@ -318,10 +318,10 @@ SQLite connection on the thread that created it, per the Qt SQL threading rule.
   ahead of time by qmlcachegen and want their QML at build time. A peripheral view can
   instead be delivered by the edge and interpreted at run time as a
   [remote page](remote-pages.md), which keeps it out of the bundle and editable without
-  a client rebuild; that path is interpreted, not compiled, so it is for campaign and
-  landing pages, not per-frame views. Access to data is controlled at the connect point
+  a client rebuild. That path is interpreted, so it suits campaign and landing pages
+  rather than per-frame views. Access to data is controlled at the connect point
   and route guard level in both cases.
-- A novel storage engine. The database blueprint embeds SQLite by default and masks
+- A novel storage engine. The relational type embeds SQLite by default and masks
   third party engines (PostgreSQL, MySQL, MongoDB, Redis) behind a provider rather
   than reimplementing durability. Writing a brand new storage engine is out of scope;
   using an existing one through a provider is supported (see

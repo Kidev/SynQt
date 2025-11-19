@@ -136,9 +136,9 @@ def _stored_seats(project_dir: Path) -> Dict[str, Dict[str, Any]]:
 
 
 def _column(entity: Dict[str, Any]) -> int:
-    if entity["kind"] == "client":
+    if entity["type"] == "client":
         return _CLIENT_X
-    if entity["capability"] == "web_edge":
+    if entity["type"] == "web_edge":
         return _EDGE_X
     return _SERVICE_X
 
@@ -165,9 +165,7 @@ def _entity(entity: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "id": str(entity.get("name") or ""),
         "name": str(entity.get("name") or ""),
-        "kind": str(entity.get("kind") or "service"),
-        "capability": str(entity.get("capability") or ""),
-        "blueprint": str(entity.get("blueprint") or ""),
+        "type": appmodel.entity_type(entity),
         "provider": str(provider or ""),
         "targets": [str(target) for target in (entity.get("targets") or [])],
         "identity": bool(entity.get("identity")),
@@ -367,12 +365,7 @@ def render_member(member: Dict[str, Any]) -> str:
 def _entity_config(entity: Dict[str, Any], base: Dict[str, Any]) -> Dict[str, Any]:
     written = dict(base)
     written["name"] = entity["name"]
-    written["kind"] = entity["kind"]
-    for key in ("capability", "blueprint"):
-        if entity.get(key):
-            written[key] = entity[key]
-        else:
-            written.pop(key, None)
+    written["type"] = entity["type"]
     if entity.get("provider"):
         existing = base.get("provider")
         provider = dict(existing) if isinstance(existing, dict) else {}

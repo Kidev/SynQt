@@ -423,8 +423,7 @@ SYNQT_REGISTER_CACHE_PROVIDER("Memcached", MemcachedProvider)
 ```yaml
 entities:
   - name: cache
-    kind: service
-    blueprint: cache
+    type: cache
     provider:
       name: custom:Memcached
       host: cache.internal

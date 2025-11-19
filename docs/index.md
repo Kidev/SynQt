@@ -399,13 +399,12 @@ project:
 scopes: { order: [anonymous, user, admin], default: anonymous }
 
 entities:
-  - { name: app, kind: client, edge: edge }
+  - { name: app, type: client, edge: edge }
   - name: edge
-    kind: service
-    capability: web_edge
+    type: web_edge
     public: { port: 8443, sync_route: /sync }
-  - { name: store, kind: service, blueprint: relational }
-  - { name: feeds, kind: service, blueprint: api }
+  - { name: store, type: relational }
+  - { name: feeds, type: api }
 
 connect_points:
   - name: feed
@@ -429,9 +428,9 @@ connect_points:
 <li data-code="qt_version" data-href="build-system-and-cli/">One version pins the whole toolchain: Qt, the Emscripten it is built against, and every entity built from them.</li>
 <li data-code="order: [anonymous" data-href="security/">The scope ladder. Every session sits on one rung, and a connect point can demand a minimum.</li>
 <li data-code="name: app" data-href="desktop/">The browser client, built to WebAssembly. The same QML also builds as a native app for Windows, macOS, and Linux, against this same edge.</li>
-<li data-code="capability: web_edge" data-href="entities/">The one entity allowed to face the internet, on the one public port. Nothing else gets one.</li>
-<li data-code="blueprint: relational" data-href="providers/">A database entity: embedded SQLite by default, PostgreSQL or MySQL behind the same interface with one config value.</li>
-<li data-code="blueprint: api" data-href="entities/">The outbound HTTP gateway. It holds the third-party credentials, and it is the only entity that calls out.</li>
+<li data-code="type: web_edge" data-href="entities/">The one entity allowed to face the internet, on the one public port. Nothing else gets one.</li>
+<li data-code="type: relational" data-href="providers/">A database entity: embedded SQLite by default, PostgreSQL or MySQL behind the same interface with one config value.</li>
+<li data-code="type: api" data-href="entities/">The outbound HTTP gateway. It holds the third-party credentials, and it is the only entity that calls out.</li>
 <li data-code="instance: per_session" data-href="programming-model/">One Source per browser connection, which is what gives its slots a Caller. The mesh equivalent is per_peer: one Source per calling entity.</li>
 <li data-code="consumers: [app]" data-href="project-layout-and-config/">The browser's one way in, and deny by default: an entity that is not on this list cannot open this connect point at all.</li>
 <li data-code="consumers: [edge]" data-href="entities/">The database is reachable by the edge, over mutual TLS, and by nothing else, browser included.</li>
@@ -632,7 +631,7 @@ CREATE INDEX IF NOT EXISTS grants_by_date
 ```
 
 <ul class="synqt-flow__glossary" hidden>
-<li data-code="CREATE TABLE IF NOT EXISTS grants" data-href="entities/">The only file here that is not QML, and the only place the shape of the stored data is written down. The relational blueprint applies it at startup and extends it forward, never back.</li>
+<li data-code="CREATE TABLE IF NOT EXISTS grants" data-href="entities/">The only file here that is not QML, and the only place the shape of the stored data is written down. The relational entity type applies it at startup and extends it forward, never back.</li>
 <li data-code="sub" data-href="authentication/">The subject the identity provider issued, which is what a session carries and what the edge passes in. No name, no address: nothing here identifies a person.</li>
 <li data-code="CREATE INDEX IF NOT EXISTS grants_by_date" data-href="providers/">Both statements are written to run twice without complaining, because startup applies them to a database that may already have them.</li>
 </ul>

@@ -52,7 +52,7 @@ class SessionManager;
 ///
 /// It is the real Caller, minted through the same factory the runtime uses, so a slot
 /// cannot pass here and fail in production because the test stubbed the check. What is
-/// substituted is only what an engine would otherwise be: the blueprint helpers are backed
+/// substituted is only what an engine would otherwise be. The type helpers are backed
 /// by in-memory providers, so a test needs no database, no server, and no certificates.
 ///
 /// This class ships in a library a production entity never links and registers into an

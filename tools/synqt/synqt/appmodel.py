@@ -109,11 +109,11 @@ def qml_uri(project_name: str) -> str:
 
 # where things live
 
-# The folder entities of each kind sit in. These are the words a developer uses, and they are
-# the same words `blueprint:` takes, so a project's tree and its configuration read the same.
-# Entities of one kind sit together: a project with two databases has one `db/relational/`
-# holding both, not two unrelated directories.
-KIND_FOLDERS: Dict[str, str] = {
+# The folder entities of each type sit in. These are the words a developer uses, and they are
+# the words `type:` takes, so a project's tree and its configuration read the same. Entities
+# of one type sit together. A project with two databases has one `db/relational/` holding
+# both, not two unrelated directories.
+TYPE_FOLDERS: Dict[str, str] = {
     "client": "client",
     "web_edge": "web",
     "relational": "db/relational",
@@ -124,25 +124,50 @@ KIND_FOLDERS: Dict[str, str] = {
     "service": "service",
 }
 
-#: The kind an entity falls back to when it declares no blueprint it recognises.
-PLAIN_KIND = "service"
+#: What an entity is when it says nothing. A plain service, with no engine behind it.
+PLAIN_TYPE = "service"
+
+#: The helper the runtime installs into an entity's QML, per type that has one. This is the
+#: whole reason a type is more than a folder name. An entity of one of these types reaches
+#: its engine through this one name and never mentions the engine. `EntityRuntime` builds
+#: exactly one of these (see `EntityRuntime::buildTypeContext`), so `Cache` is in scope in a
+#: cache entity and in no other, which is what makes the reserved-name rule narrow rather
+#: than global. A type absent from this table (`client`, `web_edge`, `service`) installs none.
+TYPE_HELPERS: Dict[str, str] = {
+    "relational": "Db",
+    "cache": "Cache",
+    "document": "Docs",
+    "api": "Http",
+    "jobs": "Jobs",
+}
+
+#: The fields this one replaced. An entity used to carry three overlapping words: `kind:`
+#: (client or service), `capability:` (web_edge) and `blueprint:` (the engine family), with
+#: `blueprint: service` restating `kind: service` and the folder rule already collapsing all
+#: three into one decision. They are refused by name rather than ignored, so a project
+#: written against the old spelling is told what to write instead of silently coming up as
+#: a plain service; see `validate()`.
+RETIRED_ENTITY_FIELDS: Dict[str, str] = {
+    "kind": "type",
+    "capability": "type",
+    "blueprint": "type",
+    "web_edge": "type: web_edge",
+}
 
 
-def kind_dir(entity: Dict[str, Any]) -> str:
-    """The folder entities of this one's kind share, relative to the project root.
+def entity_type(entity: Dict[str, Any]) -> str:
+    """The one word an entity is: `client`, `web_edge`, or the engine family it runs on.
 
-    A bare `kind: web_edge` counts as an edge here even though :func:`is_edge` reads only
-    `capability:`. It is the spelling some projects use, the page lints already accept it,
-    and putting such an entity's pages somewhere other than the folder those lints look in
-    would report every one of them as missing.
+    An entity that names no type is a plain service, which is the type with no engine and
+    no browser-facing side: something whose behaviour is entirely its own QML.
     """
-    kind = str(entity.get("kind") or "")
-    if kind == "client":
-        return KIND_FOLDERS["client"]
-    if is_edge(entity) or kind == "web_edge":
-        return KIND_FOLDERS["web_edge"]
-    blueprint = str(entity.get("blueprint") or "")
-    return KIND_FOLDERS.get(blueprint) or KIND_FOLDERS[PLAIN_KIND]
+    declared = str(entity.get("type") or "").strip()
+    return declared or PLAIN_TYPE
+
+
+def type_dir(entity: Dict[str, Any]) -> str:
+    """The folder entities of this one's type share, relative to the project root."""
+    return TYPE_FOLDERS.get(entity_type(entity)) or TYPE_FOLDERS[PLAIN_TYPE]
 
 
 def entity_dir(entity: Dict[str, Any]) -> str:
@@ -153,12 +178,12 @@ def entity_dir(entity: Dict[str, Any]) -> str:
     beside them. Its name is the entity's, so two databases never write over each other and
     a `.qml` dropped in the folder is importable from the entity without any wiring.
 
-    An entity with no name at all gets the bare kind folder, because the generator has to
+    An entity with no name at all gets the bare type folder, because the generator has to
     put its files somewhere and a path with an empty segment in it names nothing. The
     missing name is reported by validate() rather than a second time here.
     """
     name = str(entity.get("name") or "")
-    return f"{kind_dir(entity)}/{name}" if name else kind_dir(entity)
+    return f"{type_dir(entity)}/{name}" if name else type_dir(entity)
 
 
 def entity_dirs(config: Dict[str, Any]) -> Dict[str, str]:
@@ -189,7 +214,7 @@ def entity_file_path(entity: Dict[str, Any]) -> str:
     client's own file is its window and has to be called `Main.qml`, because the generated
     main.cpp loads it by that name; every other entity's is a singleton named after it.
     """
-    if entity.get("kind") == "client":
+    if is_client(entity):
         return f"{entity_dir(entity)}/Main.qml"
     name = str(entity.get("name") or "")
     return f"{entity_dir(entity)}/{name[:1].upper()}{name[1:]}.qml"
@@ -202,11 +227,26 @@ def entities(config: Dict[str, Any]) -> List[Dict[str, Any]]:
 
 
 def client_entity(config: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    return next((e for e in entities(config) if e.get("kind") == "client"), None)
+    return next((e for e in entities(config) if is_client(e)), None)
+
+
+def is_client(entity: Dict[str, Any]) -> bool:
+    return entity_type(entity) == "client"
 
 
 def is_edge(entity: Dict[str, Any]) -> bool:
-    return entity.get("capability") == "web_edge" or bool(entity.get("web_edge"))
+    return entity_type(entity) == "web_edge"
+
+
+def is_service(entity: Dict[str, Any]) -> bool:
+    """Everything that is not the client: the edge and every other entity type.
+
+    The one distinction the build turns on, because it is the line between what is
+    compiled to WebAssembly and served to a browser and what is compiled native and run by
+    you. `type:` says which of the eight an entity is. This says which side of that line it
+    falls on.
+    """
+    return not is_client(entity)
 
 
 def connect_points(config: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -229,27 +269,29 @@ def contract_of(point: Dict[str, Any]) -> str:
 
 
 def instance_of(point: Dict[str, Any], config: Dict[str, Any]) -> str:
-    """How many Sources a connect point gets: what it says, or what its ends imply.
+    """Which kind of caller a connect point's Sources are minted for.
 
-    The default is the one that keeps `Caller`. A `shared` Source is built once with no
-    Caller at all, so every `Caller.hasScope(...)` and `Caller.entity` in its slots is a
-    reference to something that is not there; the authorization an author wrote is not
-    weakened, it is absent. So a point that says nothing gets an instance per caller:
-    `per_session` where the caller is a browser, `per_peer` where it is another entity.
+    Always one Source per caller, because there is no such thing as a call without one.
+    The only question is what a caller *is* on this point: a browser session
+    (`per_session`) or another entity (`per_peer`). A point that says nothing is read off
+    its own ends, and saying it changes nothing about how many Sources exist.
 
-    A point with no consumers has no caller to keep apart and stays `shared`, and so does
-    one that asks for it, which is the right answer for a large read-only model every
-    consumer sees the same way (a leaderboard, a catalogue).
+    There used to be a third answer, `shared`, meaning one Source for everyone. QtRO hands
+    `enableRemoting()` a single object and never tells a slot which connection invoked it,
+    so that one Source had no `Caller` to give: every `Caller.hasScope(...)` and
+    `Caller.entity` an author had written in it was a reference to something that was not
+    there. It bought almost nothing to pay for that (the edge builds a `QRemoteObjectHost`
+    per connection either way, so it saved one QObject per browser), and state that really
+    is shared has a better home in the entity's own singleton, which outlives every Source
+    and which the framework's own Pages connect point already uses that way.
     """
     declared = point.get("instance")
     if isinstance(declared, str) and declared.strip():
         return declared.strip()
-    consumers = [str(name) for name in (point.get("consumers") or [])]
-    if not consumers:
-        return "shared"
     by_name = {str(entity.get("name") or ""): entity for entity in entities(config)}
     owner = by_name.get(str(point.get("owner") or ""))
-    clients = {name for name, entity in by_name.items() if entity.get("kind") == "client"}
+    consumers = [str(name) for name in (point.get("consumers") or [])]
+    clients = {name for name, entity in by_name.items() if is_client(entity)}
     if owner is not None and is_edge(owner) and (clients & set(consumers)):
         return "per_session"
     return "per_peer"
@@ -662,9 +704,9 @@ def identity_refresh(config: Dict[str, Any]) -> Dict[str, Any]:
 #
 # They are FRAMEWORK connect points, and that is the one way they differ from a declared
 # one: their contracts ship in the runtime library (src/service/contracts/) rather than in
-# the app's `shared/`, so nothing generates or compiles an app-side copy for them. That is
-# what `is_framework_point` marks, and the two emitters that would otherwise reach for
-# `shared/<Contract>.syn` filter on it.
+# the owning entity's folder, so nothing generates or compiles an app-side copy for them.
+# That is what `is_framework_point` marks, and the two emitters that would otherwise reach
+# for the owner's `<Contract>.syn` filter on it.
 AUTH_IDENTITY_POINT = "identity"
 AUTH_SESSION_POINT = "sessions"
 

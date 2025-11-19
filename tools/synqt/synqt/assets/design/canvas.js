@@ -25,6 +25,8 @@
 // mesh is tens of nodes, not thousands, and a drawing that is a function of the document
 // cannot fall out of step with it.
 
+import { entityType } from "./rules.js";
+
 const SVG = "http://www.w3.org/2000/svg";
 
 export const NODE_RADIUS = 26;
@@ -175,21 +177,21 @@ export const ROLE_HELP = {
     jobs: "Work on a timer or a queue, with nothing listening on a port. Use it for what "
         + "should not happen while somebody waits: nightly rollups, retries, cleanup, "
         + "anything that would otherwise sit inside a request.",
-    service: "An entity with no blueprint: your own logic, its own binary, reachable only "
+    service: "An entity with no engine: your own logic, its own binary, reachable only "
         + "by the entities you list. Use it when a piece of the system deserves to fail, "
         + "scale and be deployed on its own.",
 };
 
-// What an entity is, as one word: the column it belongs in and the glyph it carries.
+// What an entity is, as one word. The column it belongs in and the glyph it carries.
 export function roleOf(entity) {
-    if ((entity.kind || "service") === "client") {
+    if (entityType(entity) === "client") {
         return "client";
     }
-    if (entity.capability === "web_edge") {
+    if (entityType(entity) === "web_edge") {
         return "edge";
     }
-    const blueprint = entity.blueprint || "";
-    return GLYPHS[blueprint] ? blueprint : "service";
+    const type = entityType(entity);
+    return GLYPHS[type] ? type : "service";
 }
 
 function glyph(entity) {
@@ -296,17 +298,11 @@ function classes(base, {selected, level}) {
     return out.join(" ");
 }
 
-// What an entity is, spelled out: the words synqt.yaml uses for it, in the order it writes
-// them. The panel states this and the tooltip repeats it; the node itself has better use for
+// What an entity is, spelled out. The words synqt.yaml uses for it, in the order it writes
+// them. The panel states this and the tooltip repeats it. The node itself has better use for
 // its second line.
 export function describe(entity) {
-    const parts = [entity.kind || "service"];
-    if (entity.capability) {
-        parts.push(entity.capability);
-    }
-    if (entity.blueprint) {
-        parts.push(entity.blueprint);
-    }
+    const parts = [entityType(entity)];
     if (entity.provider) {
         parts.push(entity.provider);
     }

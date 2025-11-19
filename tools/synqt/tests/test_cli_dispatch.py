@@ -33,12 +33,11 @@ _PROJECT = textwrap.dedent("""\
       name: acme
     entities:
       - name: client
-        kind: client
+        type: client
       - name: web
-        kind: service
-        capability: web_edge
+        type: web_edge
       - name: database
-        kind: service
+        type: service
 """)
 
 
@@ -61,6 +60,17 @@ class TestNoCommand:
         assert code == 2
         assert "usage: synqt" in out
 
+    def test_version_is_a_subcommand_like_every_other_verb(self):
+        code, out, _ = _run(["version"])
+        assert code == 0
+        assert len(out.strip().splitlines()) == 3
+
+    def test_the_version_flag_still_answers_for_the_people_who_type_it(self):
+        """Kept, and kept out of the help. `synqt version` is the documented spelling
+        because every other thing this CLI does is a verb, but `--version` is what every
+        other tool on the machine answers to and erroring on it helps nobody."""
+        assert "--version" not in cli.build_parser().format_help()
+
     def test_version_prints_three_lines_and_exits(self):
         out = io.StringIO()
         with redirect_stdout(out), pytest.raises(SystemExit) as exit_info:
@@ -73,26 +83,26 @@ class TestSimpleCommands:
     def test_new_scaffolds_with_the_flags_it_was_given(self, tmp_path, monkeypatch):
         seen = {}
 
-        def scaffold(parent_dir, name, auth=None, blueprints=None):
-            seen.update(parent_dir=parent_dir, name=name, auth=auth, blueprints=blueprints)
+        def scaffold(parent_dir, name, auth=None):
+            seen.update(parent_dir=parent_dir, name=name, auth=auth)
             return "scaffolded"
 
         monkeypatch.setattr(newproject, "scaffold", scaffold)
         code, out, _ = _run(["new", "acme", "--parent-dir", str(tmp_path),
-                             "--auth", "github", "--blueprint", "orders:relational",
-                             "--blueprint", "sessions:cache"])
+                             "--auth", "github"])
         assert code == 0
         assert "scaffolded" in out
-        assert seen == {"parent_dir": str(tmp_path), "name": "acme", "auth": "github",
-                        "blueprints": [("orders", "relational"), ("sessions", "cache")]}
+        assert seen == {"parent_dir": str(tmp_path), "name": "acme", "auth": "github"}
 
-    def test_a_blueprint_with_no_name_is_refused_rather_than_named_for_you(self, tmp_path):
-        """The name is the entity's folder, its own file and its accessor in every consumer.
-        `--blueprint cache` used to scaffold one called `entries`, a word nobody chose."""
-        code, _, err = _run(["new", "acme", "--parent-dir", str(tmp_path),
-                             "--blueprint", "cache"])
-        assert code != 0
-        assert "<name>:<kind>" in err
+    def test_new_has_no_flag_for_a_starting_entity(self, tmp_path):
+        """An entity is something somebody named, and a flag on project creation had to
+        carry the name and the type at once. `synqt add entity <name> --type <type>` is
+        the one shape that says it, so `new` no longer has a second."""
+        err = io.StringIO()
+        with redirect_stderr(err), pytest.raises(SystemExit) as exit_info:
+            cli.main(["new", "acme", "--parent-dir", str(tmp_path), "--blueprint", "cache"])
+        assert exit_info.value.code != 0
+        assert "--blueprint" in err.getvalue()
 
     def test_providers_lists_them_without_needing_a_project(self, monkeypatch):
         monkeypatch.setattr(addentity, "list_providers", lambda: "relational: sqlite")
@@ -182,24 +192,23 @@ class TestAdd:
         assert "auth added" in out
         assert seen == {"provider": "github", "required": True, "provider_entity": "auth"}
 
-    def test_add_entity_defaults_to_the_plain_service_blueprint(self, tmp_path, monkeypatch):
+    def test_add_entity_with_no_type_makes_a_plain_service(self, tmp_path, monkeypatch):
         seen = {}
         monkeypatch.setattr(addentity, "scaffold",
-                            lambda project_dir, name, blueprint, provider=None, source=None:
-                            seen.update(name=name, blueprint=blueprint, provider=provider,
-                                        source=source) or "entity added")
-        assert _run(["add", "entity", "jobs", "--project-dir", str(tmp_path)])[0] == 0
-        assert seen == {"name": "jobs", "blueprint": "service", "provider": None,
-                        "source": None}
+                            lambda project_dir, name, entity_type, provider=None:
+                            seen.update(name=name, type=entity_type, provider=provider)
+                            or "entity added")
+        assert _run(["add", "entity", "billing", "--project-dir", str(tmp_path)])[0] == 0
+        assert seen == {"name": "billing", "type": "service", "provider": None}
 
-    def test_add_entity_passes_the_name_and_blueprint_through(self, tmp_path, monkeypatch):
+    def test_add_entity_passes_the_name_and_type_through(self, tmp_path, monkeypatch):
         seen = {}
         monkeypatch.setattr(addentity, "scaffold",
-                            lambda project_dir, name, blueprint, provider=None:
-                            seen.update(name=name, blueprint=blueprint) or "entity added")
-        assert _run(["add", "entity", "rollups", "--blueprint", "jobs",
+                            lambda project_dir, name, entity_type, provider=None:
+                            seen.update(name=name, type=entity_type) or "entity added")
+        assert _run(["add", "entity", "rollups", "--type", "jobs",
                      "--project-dir", str(tmp_path)])[0] == 0
-        assert seen == {"name": "rollups", "blueprint": "jobs"}
+        assert seen == {"name": "rollups", "type": "jobs"}
 
     def test_add_provider_requires_and_forwards_a_family(self, tmp_path, monkeypatch):
         seen = {}

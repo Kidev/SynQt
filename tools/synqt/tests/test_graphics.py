@@ -166,8 +166,8 @@ def test_lint_reports_a_route_the_scan_decided(tmp_path):
     from synqt import check
     root = _project(tmp_path)
     (root / "client" / "app" / "Arena.qml").write_text("import QtQuick3D\nView3D {}")
-    config = {"entities": [{"name": "app", "kind": "client"},
-                           {"name": "edge", "capability": "web_edge"}],
+    config = {"entities": [{"name": "app", "type": "client"},
+                           {"name": "edge", "type": "web_edge"}],
               "routes": [{"path": "/arena", "view": "Arena.qml"}]}
     messages = check.lint_graphics(config, root)
     assert any(m.startswith("warn:") and "/arena" in m for m in messages)
@@ -177,8 +177,8 @@ def test_lint_is_silent_when_every_route_is_plain(tmp_path):
     from synqt import check
     root = _project(tmp_path)
     (root / "client" / "app" / "Home.qml").write_text("import QtQuick\nItem {}")
-    config = {"entities": [{"name": "app", "kind": "client"},
-                           {"name": "edge", "capability": "web_edge"}],
+    config = {"entities": [{"name": "app", "type": "client"},
+                           {"name": "edge", "type": "web_edge"}],
               "routes": [{"path": "/", "view": "Home.qml"}]}
     assert check.lint_graphics(config, root) == []
 
@@ -188,8 +188,8 @@ def test_lint_is_silent_when_every_route_is_plain(tmp_path):
 
 def _config(routes):
     return {"project": {"name": "app"},
-            "entities": [{"name": "app", "kind": "client"},
-                         {"name": "edge", "capability": "web_edge"}],
+            "entities": [{"name": "app", "type": "client"},
+                         {"name": "edge", "type": "web_edge"}],
             "routes": routes}
 
 
@@ -276,8 +276,8 @@ def test_a_notice_override_becomes_a_module_url(tmp_path):
 def test_lint_refuses_a_notice_that_is_not_there(tmp_path):
     from synqt import check
     root = _project(tmp_path)
-    config = {"entities": [{"name": "app", "kind": "client"},
-                           {"name": "edge", "capability": "web_edge"}],
+    config = {"entities": [{"name": "app", "type": "client"},
+                           {"name": "edge", "type": "web_edge"}],
               "client": {"graphics_notice": "Missing.qml"}, "routes": []}
     assert any(m.startswith("error:") for m in check.lint_graphics(config, root))
 
@@ -286,7 +286,7 @@ def test_lint_accepts_a_notice_that_is_there(tmp_path):
     from synqt import check
     root = _project(tmp_path)
     (root / "client" / "app" / "MyNotice.qml").write_text("import QtQuick\nItem {}")
-    config = {"entities": [{"name": "app", "kind": "client"},
-                           {"name": "edge", "capability": "web_edge"}],
+    config = {"entities": [{"name": "app", "type": "client"},
+                           {"name": "edge", "type": "web_edge"}],
               "client": {"graphics_notice": "MyNotice.qml"}, "routes": []}
     assert check.lint_graphics(config, root) == []

@@ -6,23 +6,21 @@ import SynQt
 
 // The Hall of Fame the edge owns and the browser sees (docs/tutorial-hall-of-fame.md). The
 // browser must never reach the books entity directly, so the edge holds this live list and
-// fills it from the books entity's ledger. It mirrors the books entity's `winnerRecorded` signal
-// into the `winners` model with setWinners, which keeps only the declared roles.
+// fills it from the books entity's ledger.
+//
+// One of these per browser session, like every connect point Source. The list itself is not
+// per session, so it lives in the `Edge` singleton and this binds to it: setWinners keeps only
+// the declared roles, so nothing the ledger holds beyond them reaches a browser.
 Hall {
     id: hall
 
-    property var winnerList: []       // server-side accumulator; only roles cross the wire
+    Component.onCompleted: hall.setWinners(Edge.winners)
 
-    function onWinnerRecorded(item, winner, amount) {
-        hall.winnerList.unshift({ item: item, winner: winner, amount: amount });
-        if (hall.winnerList.length > 20) {
-            hall.winnerList = hall.winnerList.slice(0, 20);
+    Connections {
+        function onWinnersChanged() {
+            hall.setWinners(Edge.winners);
         }
-        hall.setWinners(hall.winnerList);   // push the latest winners to browsers
-    }
 
-    // `Books.ledger` is how the edge reaches the books entity's connect point, the same way
-    // the browser reaches the edge with `Server`. A generated Source is a plain QObject, so
-    // subscribe to the mesh signal imperatively.
-    Component.onCompleted: Books.ledger.winnerRecorded.connect(hall.onWinnerRecorded)
+        target: Edge
+    }
 }

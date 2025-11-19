@@ -90,7 +90,7 @@ connect_points:
     consumers: [app]              # the entities allowed to acquire the Replica
     server: web/edge/Todo.qml     # the authoritative implementation
     scope: user                   # for browser consumers: minimum session scope
-    instance: per_session         # per_session, per_peer, or shared
+    instance: per_session         # what a caller is here: per_session or per_peer
 ```
 
 The configurable parts that matter:
@@ -104,19 +104,22 @@ The configurable parts that matter:
 - `scope` (for browser consumers). The minimum session scope a browser user must
   hold before the framework will acquire the Replica for that client. A user below
   the required scope never gets the object, so cannot call its slots at all.
-- `instance`. `per_session` means one Source per browser session (a private draft),
-  `per_peer` one Source per calling entity (useful when one service serves several
-  others and must keep their state separate), and `shared` a single authoritative
-  Source for all consumers (a public feed).
+- `instance`. There is one Source per caller, always; this says what a caller is.
+  `per_session` is one browser session, `per_peer` is one calling entity. A point that
+  says nothing is read off its own ends, so most never write the line.
 
-    A point that says nothing gets one per caller: `per_session` where a browser
-    consumes it, `per_peer` where another entity does. That default is not about
-    convenience. A `shared` Source is built once, before any caller exists, so it has no
-    `Caller` bound to it at all, and a slot that reads `Caller.hasScope(...)` or
-    `Caller.entity` on one is reading something that is not there. Write `shared` where
-    there is genuinely no caller to keep apart, which is the right answer for a
-    read-only model everybody sees the same way, and reach for `Caller.emit<Signal>`
-    only on the two modes that have a Caller to reach.
+    There is no third value, and that is the point. QtRO hands `enableRemoting()` a
+    single object and never tells a slot which connection invoked it, so a Source shared
+    by every caller could not be given a `Caller` at all: `Caller.hasScope(...)`,
+    `Caller.entity` and `Caller.emit<Signal>` in one were reading something that was not
+    there, and an authorization line written in one was not weakened, it was absent.
+
+    State that really is shared has a better home anyway. The entity's own
+    `pragma Singleton` file outlives every Source the entity mints, so a public feed
+    lives there and each per-session Source is that session's window onto it: one
+    subscription, one copy of the data, and a `Caller` in every slot. The framework's own
+    Pages connect point is built exactly that way, and so is the Hall of Fame in the
+    auction example.
 - `contract`. What may cross, declared in `<Contract>.syn` in the owner's folder. It
   defaults to the point's own name capitalized, so `- name: todo` carries `Todo` and most
   points never write the line; name it only where two points carry one shape.
@@ -245,9 +248,10 @@ global object. The caller is one of two things.
 directly (`Client.hasScope`, `Client.identity`, `Client.emit<Signal>`, and
 `Client.id` for the session id). The general mechanism is `Caller`.
 
-Outside a call that originated from a consumer (for example an owner side timer
-mutating shared state), there is no caller; the owner simply mutates the Source and
-lets QtRO fan the change out to all consumers.
+Outside a call that originated from a consumer (an owner-side timer, or the entity's own
+singleton) there is no caller, and `Caller` is not in scope there at all. `synqt check`
+refuses a file outside a Source that names it, because an authorization line that cannot
+run still reads like one to everybody reviewing it.
 
 ## A connect point implementation, end to end
 

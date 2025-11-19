@@ -21,10 +21,13 @@ namespace SynQt {
 /// socket is an explicit opt-in and is never selected implicitly.
 enum class MeshTransportMode { MutualTls, LocalSocket };
 
-/// How many Source instances back a connect point. Shared is one authoritative Source
-/// for all consumers; per-peer is one per calling entity; per-session is one per
-/// browser session (an edge concept that arrives with sessions).
-enum class ConnectPointInstance { Shared, PerSession, PerPeer };
+/// What a caller is on a connect point: another entity (per-peer) or a browser session
+/// (per-session). Either way there is one Source per caller, which is the only way a
+/// slot can be told who invoked it: QtRO hands enableRemoting() a single object and
+/// never reports the calling connection, so a Source shared by every caller could carry
+/// no Caller at all. State the callers genuinely share lives in the entity's own
+/// singleton, which outlives all of them.
+enum class ConnectPointInstance { PerSession, PerPeer };
 
 /// Where the owner hosts a connect point (and where its consumers reach it).
 struct MeshEndpoint
@@ -53,7 +56,7 @@ struct ConnectPointConfig
     QString owner;
     QStringList consumers;
     QString serverFile;  ///< the owner-side QML that implements the Source
-    ConnectPointInstance instance{ConnectPointInstance::Shared};
+    ConnectPointInstance instance{ConnectPointInstance::PerPeer};
     MeshEndpoint endpoint;
 };
 
@@ -65,11 +68,12 @@ struct Topology
     MeshCredentials credentials;
     QList<ConnectPointConfig> connectPoints;
 
-    /// The entity's blueprint, if any, drives which backend helper the runtime injects into
-    /// its owned Sources (persistence -> Db, cache -> Cache, gateway -> Http, jobs -> Jobs).
-    /// `provider` is the resolved provider/settings block for that blueprint; `schema` is the
-    /// forward-only migration steps a persistence entity applies at startup.
-    QString blueprint;
+    /// What the entity is, which decides the one backend helper the runtime injects into its
+    /// owned Sources (relational -> Db, cache -> Cache, document -> Docs, api -> Http,
+    /// jobs -> Jobs; client, web_edge and service get none). `provider` is the resolved
+    /// provider/settings block for that type; `schema` is the forward-only migration steps a
+    /// relational entity applies at startup.
+    QString type;
     QVariantMap provider;
     QStringList schema;
 

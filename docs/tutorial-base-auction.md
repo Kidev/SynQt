@@ -31,10 +31,39 @@ contract Auction {
 > directional trust is the whole point, and you will feel why in a moment. The
 > full contract format is in [the programming model](programming-model.md).
 
-## Step 2: Implement the owner side
+## Step 2: Hold the lot
 
-The web edge will own this connect point, which means it holds the real,
-authoritative auction. Create `web/edge/Auction.qml`:
+There is one lot under the hammer, however many people are watching it, so it belongs to
+the edge entity rather than to any one browser. `synqt new` already wrote
+`web/edge/Edge.qml`, the entity's own file: open it and give it the auction.
+
+```qml
+pragma Singleton
+
+import QtQuick
+
+QtObject {
+    id: root
+
+    property string itemName: "A homemade lasagna, baked fresh this morning"
+    property int highBid: 0
+    property string highBidder: "nobody yet"
+
+    function accept(amount: int, bidder: string) {
+        root.highBid = amount;
+        root.highBidder = bidder;
+    }
+}
+```
+
+Nothing here decides anything, and that is deliberate: this file has no caller, so it is
+the wrong place for a rule about who may do what. The rules go in the next file, which
+does have one.
+
+## Step 3: Implement the owner side
+
+The web edge owns the connect point, which means it answers for the auction. Create
+`web/edge/Auction.qml`:
 
 ```qml
 import QtQuick
@@ -43,18 +72,17 @@ import SynQt
 Auction {
     id: auction
 
-    itemName: "A homemade lasagna, baked fresh this morning"
-    highBid: 0
-    highBidder: "nobody yet"
+    itemName: Edge.itemName
+    highBid: Edge.highBid
+    highBidder: Edge.highBidder
 
     // A consumer (a browser) is asking to bid. We decide whether to accept.
     function placeBid(bidder, amount) {
-        if (amount <= auction.highBid) {
-            Caller.emitBidRejected("Your bid must beat " + auction.highBid + ".")
+        if (amount <= Edge.highBid) {
+            Caller.emitBidRejected("Your bid must beat " + Edge.highBid + ".")
             return
         }
-        auction.highBid = amount
-        auction.highBidder = bidder
+        Edge.accept(amount, bidder)
     }
 }
 ```
@@ -62,7 +90,11 @@ Auction {
 `Caller` is whoever made this request. `Caller.emitBidRejected(...)` sends the
 `bidRejected` signal back to that one caller, not to everyone.
 
-## Step 3: Wire it into the project
+There is one of these per browser session, which is exactly why `Caller` means anything:
+a single Source shared by every browser could not be told which of them was calling. The
+lot is shared and the answering is not, and the two files above are that split.
+
+## Step 4: Wire it into the project
 
 Tell SynQt this connect point exists, who owns it, and who may use it. Open
 `synqt.yaml` and add:
@@ -73,10 +105,9 @@ connect_points:
     owner: edge               # the edge holds the real auction
     consumers: [app]          # the browser may watch and bid
     server: web/edge/Auction.qml
-    instance: shared          # one auction shared by everyone
 ```
 
-## Step 4: Build the UI
+## Step 5: Build the UI
 
 Open `client/app/Main.qml` and replace its contents:
 
@@ -143,7 +174,7 @@ ApplicationWindow {
 `Server` is how the browser reaches the edge's connect points. `Server.auction` is
 the live copy of the auction the edge owns.
 
-## Step 5: Run it
+## Step 6: Run it
 
 Save everything and look at the browser. You should see the lasagna and a current
 bid of 0. Place a bid of 50. The current bid jumps to 50 with your name.

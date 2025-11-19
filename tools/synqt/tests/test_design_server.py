@@ -228,8 +228,7 @@ def test_validate_answers_without_touching_the_project(server):
 def test_a_plan_says_what_it_would_do_before_it_does_any_of_it(server):
     base, project = server
     document = designdoc.read(project)
-    document["entities"].append({"id": "new", "name": "api", "kind": "service",
-                                 "blueprint": "jobs", "x": 400, "y": 40})
+    document["entities"].append({"id": "new", "name": "api", "type": "jobs", "x": 400, "y": 40})
     body = _json(_post(f"{base}/api/plan", {"document": document}))
     assert "jobs/api/Api.qml" in [change["path"] for change in body["changes"]]
     assert body["digest"] and body["diff"]
@@ -243,8 +242,7 @@ def test_apply_refuses_a_digest_that_does_not_match(server):
     """
     base, project = server
     document = designdoc.read(project)
-    document["entities"].append({"id": "new", "name": "api", "kind": "service",
-                                 "blueprint": "jobs", "x": 400, "y": 40})
+    document["entities"].append({"id": "new", "name": "api", "type": "jobs", "x": 400, "y": 40})
     assert _refused(f"{base}/api/apply", data={"document": document,
                                                "digest": "stale"}) == 409
     assert not (project / "jobs" / "api").exists()
@@ -253,8 +251,7 @@ def test_apply_refuses_a_digest_that_does_not_match(server):
 def test_plan_then_apply_writes_the_change(server):
     base, project = server
     document = designdoc.read(project)
-    document["entities"].append({"id": "new", "name": "api", "kind": "service",
-                                 "blueprint": "jobs", "x": 400, "y": 40})
+    document["entities"].append({"id": "new", "name": "api", "type": "jobs", "x": 400, "y": 40})
     plan = _json(_post(f"{base}/api/plan", {"document": document}))
     body = _json(_post(f"{base}/api/apply", {"document": document,
                                              "digest": plan["digest"]}))
@@ -271,8 +268,7 @@ def test_applying_keeps_where_the_boxes_were_put(server):
     base, project = server
     document = designdoc.read(project)
     document["entities"][0]["x"] = 137
-    document["entities"].append({"id": "new", "name": "api", "kind": "service",
-                                 "blueprint": "jobs", "x": 400, "y": 40})
+    document["entities"].append({"id": "new", "name": "api", "type": "jobs", "x": 400, "y": 40})
     plan = _json(_post(f"{base}/api/plan", {"document": document}))
     _post(f"{base}/api/apply", {"document": document, "digest": plan["digest"]})
     places = json.loads(designdoc.layout_path(project).read_text())["entities"]

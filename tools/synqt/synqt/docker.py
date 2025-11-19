@@ -166,7 +166,7 @@ def service_entities(config: Dict[str, Any]) -> List[Dict[str, Any]]:
     The client is not a process. It is a bundle the edge serves, so it has no container of
     its own however it was built.
     """
-    return [entity for entity in appmodel.entities(config) if entity.get("kind") != "client"]
+    return [entity for entity in appmodel.entities(config) if appmodel.is_service(entity)]
 
 
 def edge_entity(config: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -1080,10 +1080,10 @@ def init(project_dir: os.PathLike[str] | str, config: Dict[str, Any], *,
     if not edge:
         raise DockerError(
             "this project declares no web edge, so there is nothing to publish a port for. "
-            "Add an entity with `capability: web_edge` first.")
+            "Add an entity with `type: web_edge` first.")
     # An engine shares its entity's network namespace, and a namespace shared that way
     # cannot also publish a port. That collides only for a web edge that owns an engine of
-    # its own, which is a topology worth stopping on anyway: the one entity facing the
+    # its own, which is a topology worth stopping on anyway. The one entity facing the
     # internet is the last one that should hold a database.
     engine_edge = [entity for entity, _, _ in engines(config)
                    if entity.get("name") == edge.get("name")]

@@ -18,11 +18,10 @@ project:
 entities:
   # The browser.
   - name: client
-    kind: client
+    type: client
 
   - name: web
-    kind: service
-    capability: web_edge
+    type: web_edge
 
 connect_points:
   - name: auction
@@ -33,10 +32,10 @@ connect_points:
 
 
 def test_append_keeps_every_comment():
-    out = yamledit.append_item(SAMPLE, "entities", {"name": "api", "kind": "service"})
+    out = yamledit.append_item(SAMPLE, "entities", {"name": "api", "type": "service"})
     assert "# The project." in out
     assert "# The browser." in out
-    assert yaml.safe_load(out)["entities"][-1] == {"name": "api", "kind": "service"}
+    assert yaml.safe_load(out)["entities"][-1] == {"name": "api", "type": "service"}
 
 
 def test_append_writes_its_own_comment_above_the_item():
@@ -49,7 +48,7 @@ def test_append_writes_its_own_comment_above_the_item():
 
 
 def test_append_creates_a_list_the_file_does_not_have_yet():
-    text = "entities:\n  - name: web\n    kind: service\n"
+    text = "entities:\n  - name: web\n    type: service\n"
     out = yamledit.append_item(text, "connect_points",
                                {"name": "prices", "contract": "Prices", "owner": "web",
                                 "consumers": ["client"]})
@@ -69,9 +68,9 @@ project:
   name: app
 entities:
 - name: client
-  kind: client
+  type: client
 - name: web
-  kind: service
+  type: service
 connect_points:
 - name: auction
   owner: web
@@ -83,18 +82,18 @@ def test_a_list_level_with_its_key_is_the_shape_pyyaml_writes():
     the same indent as the key naming them. Every generated project starts that way, so an
     editor that only understood the indented form would break on all of them.
     """
-    out = yamledit.append_item(DUMPED, "entities", {"name": "api", "kind": "service"})
+    out = yamledit.append_item(DUMPED, "entities", {"name": "api", "type": "service"})
     assert [e["name"] for e in yaml.safe_load(out)["entities"]] == [
         "client", "web", "api"]
     assert yaml.safe_load(out)["connect_points"][0]["name"] == "auction"
 
 
 def test_the_dumped_shape_patches_and_removes_too():
-    out = yamledit.patch_item(DUMPED, "entities", "web", {"capability": "web_edge"})
+    out = yamledit.patch_item(DUMPED, "entities", "web", {"type": "web_edge"})
     out = yamledit.remove_item(out, "entities", "client")
     loaded = yaml.safe_load(out)
     assert [e["name"] for e in loaded["entities"]] == ["web"]
-    assert loaded["entities"][0]["capability"] == "web_edge"
+    assert loaded["entities"][0]["type"] == "web_edge"
     assert loaded["project"]["name"] == "app"
 
 
@@ -118,17 +117,17 @@ def test_patch_replaces_a_field_that_spans_several_lines():
             "    provider:\n"
             "      name: sqlite\n"
             "      path: data/app.db\n"
-            "    kind: service\n")
+            "    type: service\n")
     out = yamledit.patch_item(text, "entities", "db", {"provider": {"name": "postgres"}})
     loaded = yaml.safe_load(out)["entities"][0]
     assert loaded["provider"] == {"name": "postgres"}
-    assert loaded["kind"] == "service"
+    assert loaded["type"] == "service"
 
 
 def test_remove_field_takes_the_key_out_rather_than_nulling_it():
-    out = yamledit.remove_field(SAMPLE, "entities", "web", "capability")
+    out = yamledit.remove_field(SAMPLE, "entities", "web", "type")
     web = next(e for e in yaml.safe_load(out)["entities"] if e["name"] == "web")
-    assert "capability" not in web
+    assert "type" not in web
     assert "null" not in out
     assert "# The browser." in out
 
@@ -139,13 +138,13 @@ def test_remove_field_takes_a_key_that_spans_several_lines():
             "    provider:\n"
             "      name: sqlite\n"
             "      path: data/app.db\n"
-            "    kind: service\n")
+            "    type: service\n")
     out = yamledit.remove_field(text, "entities", "db", "provider")
-    assert yaml.safe_load(out)["entities"][0] == {"name": "db", "kind": "service"}
+    assert yaml.safe_load(out)["entities"][0] == {"name": "db", "type": "service"}
 
 
 def test_remove_field_of_something_the_item_never_had_changes_nothing():
-    assert yamledit.remove_field(SAMPLE, "entities", "web", "blueprint") == SAMPLE
+    assert yamledit.remove_field(SAMPLE, "entities", "web", "targets") == SAMPLE
 
 
 def test_the_key_that_opens_an_item_is_refused_rather_than_half_removed():
@@ -160,7 +159,7 @@ def test_remove_takes_the_item_and_its_leading_comment():
 
 
 def test_remove_of_the_last_item_leaves_an_empty_list_that_still_parses():
-    text = "entities:\n  - name: only\n    kind: client\n"
+    text = "entities:\n  - name: only\n    type: client\n"
     out = yamledit.remove_item(text, "entities", "only")
     assert yaml.safe_load(out)["entities"] == []
 
@@ -197,7 +196,7 @@ def test_set_scalar_can_write_a_whole_section_at_the_root():
 
 def test_an_unknown_item_is_refused_rather_than_appended():
     with pytest.raises(yamledit.YamlEditError):
-        yamledit.patch_item(SAMPLE, "entities", "nobody", {"kind": "service"})
+        yamledit.patch_item(SAMPLE, "entities", "nobody", {"type": "service"})
 
 
 def test_removing_an_unknown_item_is_refused_too():
@@ -207,9 +206,9 @@ def test_removing_an_unknown_item_is_refused_too():
 
 def test_a_shape_it_cannot_edit_textually_is_refused_loudly():
     # A flow-style list of mappings is legal YAML and not a shape this project writes.
-    text = "entities: [{name: client, kind: client}]\n"
+    text = "entities: [{name: client, type: client}]\n"
     with pytest.raises(yamledit.YamlEditError):
-        yamledit.append_item(text, "entities", {"name": "web", "kind": "service"})
+        yamledit.append_item(text, "entities", {"name": "web", "type": "service"})
 
 
 def test_a_list_of_scalars_is_not_a_list_of_items():
@@ -224,12 +223,12 @@ def test_a_path_through_something_that_is_not_a_mapping_is_refused():
 
 
 def test_every_edit_leaves_a_document_that_parses_to_the_expected_object():
-    out = yamledit.append_item(SAMPLE, "entities", {"name": "api", "kind": "service"})
-    out = yamledit.patch_item(out, "entities", "api", {"blueprint": "relational"})
+    out = yamledit.append_item(SAMPLE, "entities", {"name": "api", "type": "service"})
+    out = yamledit.patch_item(out, "entities", "api", {"type": "relational"})
     out = yamledit.remove_item(out, "entities", "client")
     loaded = yaml.safe_load(out)
     assert [e["name"] for e in loaded["entities"]] == ["web", "api"]
-    assert loaded["entities"][-1]["blueprint"] == "relational"
+    assert loaded["entities"][-1]["type"] == "relational"
 
 
 def test_the_rest_of_the_document_is_byte_for_byte_what_it_was():

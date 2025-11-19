@@ -2,8 +2,8 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-# M9: the family interfaces and bundled providers (persistence sqlite/postgres/mysql with a
-# bounded connection pool, cache, document, gateway/jobs helpers). Native host kit.
+# M9: the family interfaces and bundled providers (relational sqlite/postgres/mysql with a
+# bounded connection pool, cache, document, api/jobs helpers). Native host kit.
 #
 # The live provider proofs run only when their SYNQT_TEST_* env vars name a reachable server;
 # each skips cleanly otherwise. To run all three against throwaway engines:

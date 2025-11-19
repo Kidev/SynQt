@@ -32,8 +32,8 @@ class AddAuthTest(unittest.TestCase):
                            "entities:\n"
                            "  # The edge, the only entity a browser reaches.\n"
                            "  - name: web\n"
-                           "    kind: service\n"
-                           "    capability: web_edge\n")
+                           "    type: web_edge\n"
+                           "\n")
         (root / "synqt.yaml").write_text(written_by_hand)
 
         addauth.scaffold(root, "github")

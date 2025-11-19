@@ -23,10 +23,10 @@ def _config(**overrides):
     config = {
         "project": {"name": "shop"},
         "entities": [
-            {"name": "client", "kind": "client", "edge": "web"},
-            {"name": "web", "kind": "service", "capability": "web_edge",
+            {"name": "client", "type": "client", "edge": "web"},
+            {"name": "web", "type": "web_edge",
              "public": {"port": 8443}},
-            {"name": "store", "kind": "service", "blueprint": "relational"},
+            {"name": "store", "type": "relational"},
         ],
         "connect_points": [
             {"name": "feed", "contract": "Feed", "owner": "web", "consumers": ["client"]},
@@ -65,7 +65,7 @@ class AddressTest(unittest.TestCase):
 
     def test_a_subnet_too_small_is_refused_with_the_numbers(self):
         config = _config()
-        config["entities"] += [{"name": f"svc{index}", "kind": "service"}
+        config["entities"] += [{"name": f"svc{index}", "type": "service"}
                                for index in range(8)]
         with self.assertRaises(docker.DockerError) as error:
             docker.mesh_addresses(config, "10.9.9.0/29")
@@ -412,10 +412,12 @@ class InitTest(unittest.TestCase):
         # and a shared namespace cannot publish the public port.
         import tempfile
 
+        # Hand written, because `synqt check` already refuses it from the other end: one
+        # field says what an entity is, and a web_edge is not a relational entity, so the
+        # provider block below is one nothing reads. This is the second door.
         config = _config()
         for entity in config["entities"]:
             if entity["name"] == "web":
-                entity["blueprint"] = "relational"
                 entity["provider"] = {"name": "postgres", "password": "env:DB_PASSWORD"}
         with tempfile.TemporaryDirectory() as tmp:
             root = self._project(tmp, config)
@@ -475,7 +477,7 @@ class SecretDiscoveryTest(unittest.TestCase):
 
     def test_the_identity_secret_follows_a_provider_entity(self):
         config = _config()
-        config["entities"].append({"name": "auth", "kind": "service"})
+        config["entities"].append({"name": "auth", "type": "service"})
         config["identity"] = {"provider_entity": "auth",
                               "providers": [{"name": "github",
                                              "client_secret": "env:GITHUB_CLIENT_SECRET"}]}

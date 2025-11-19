@@ -71,7 +71,7 @@ Every one of those is also a flag on [`synqt new`](build-system-and-cli.md#scaff
 which is the same scaffolder without the questions and the one to use in a script:
 
 ```cli
-synqt new my-app --auth github --blueprint orders:relational
+synqt new my-app --auth github
 ```
 
 > [!NOTE]

@@ -84,23 +84,35 @@ below) is the stable subject id GitHub assigns, which is what keys a player even
 they change their display name. Everyone who signs in gets a real identity, but only
 approved logins reach the `player` scope, and the connect point below requires it.
 
-## Step 3: The edge owns the arena
+## Step 3: The edge owns the arena, once
 
 Here is the heart of the game. The edge holds the one authoritative arena: the roster
 of players (with private bookkeeping the browser never sees), the pellets, and a
-simulation loop that moves every blob, feeds it, and resolves who eats whom. It stamps
-each player's name from their verified identity, never from anything the browser
-sends. Create `web/edge/Arena.qml`:
+simulation loop that moves every blob, feeds it, and resolves who eats whom.
+
+It goes in two files, and which one is which matters. There is exactly one arena however
+many people are playing, so the arena lives in the edge entity's own singleton. Each
+browser session gets its own connect point Source, which is what gives its slots a
+`Caller` to check, and that Source is a thin layer over the one arena. A single Source
+shared by everybody could not be told which player was steering.
+
+### The arena itself, `web/edge/World.qml`
+
+One of it, for as long as the edge runs. `pragma Singleton` is what says so, and every
+Source the edge owns reaches it as `World`. It has no `Caller`, so it decides nothing
+about who may do what; it is handed a player and told to act.
 
 ```qml
+pragma Singleton                      // one instance for the whole edge
+
 import QtQuick
 import SynQt
 
-Arena {
-    id: arena
+Item {
+    id: world
 
     // Tuning
-    readonly property real world: 4000        // arena is world x world units
+    readonly property real size: 4000         // the arena is size x size units
     readonly property real startMass: 10      // everyone spawns this small
     readonly property int  pelletCount: 250   // food on the map at once
 
@@ -110,72 +122,72 @@ Arena {
     function speedFor(mass) { return 260 / Math.pow(mass, 0.22) }
     // A blob's radius grows with the square root of its mass, so area tracks mass.
     function radiusFor(mass) { return 6 + Math.sqrt(mass) * 3 }
-    function randPos() { return Math.random() * arena.world }
+    function randPos() { return Math.random() * world.size }
+
+    signal eaten(string prey, string predator)
 
     // State the browser never sees
-    // Per player, keyed by GitHub sub. tx/ty is the aim point; only the model's
+    // Per player, keyed by GitHub sub. tx/ty is the aim point, and only the model's
     // declared roles (id, name, x, y, mass, online) ever cross to a browser.
     property var roster: ({})
     property var pellets: []           // [{ id, x, y }, ...]
-    property bool pelletsDirty: true
+    property int pelletsVersion: 0     // bumped when a pellet moves, and Sources watch it
 
     Component.onCompleted: {
-        for (let i = 0; i < arena.pelletCount; i++)
-            arena.pellets.push({ id: "p" + i, x: arena.randPos(), y: arena.randPos() })
-        publishPellets()
+        for (let i = 0; i < world.pelletCount; i++)
+            world.pellets.push({ id: "p" + i, x: world.randPos(), y: world.randPos() })
     }
 
-    // What the browser sees
-    function publishBlobs() {
+    // What a browser may see. These return values and push nothing. Publishing is
+    // the Source's job, and the Source is per player.
+    function blobs() {
         const rows = []
-        for (const sub in arena.roster) {
-            const b = arena.roster[sub]
+        for (const sub in world.roster) {
+            const b = world.roster[sub]
             if (!b.online) continue
             rows.push({ id: b.id, name: b.name, x: b.x, y: b.y,
                         mass: b.mass, online: b.online })
         }
-        arena.setBlobs(rows)                         // for drawing, any order
-        // The live leaderboard is its own small model: the biggest blobs by name and
-        // size. It is separate from `blobs` on purpose, because in the last part the
-        // edge stops sending every blob to every player, but the scoreboard must stay
-        // global. Keeping it apart now means the client never has to change.
-        const top = rows.map(r => ({ name: r.name, mass: r.mass }))
-                        .sort((a, b) => b.mass - a.mass).slice(0, 8)
-        arena.setBoard(top)
+        return rows
     }
 
-    function publishPellets() {
-        arena.setPellets(arena.pellets.map(p => ({ id: p.id, x: p.x, y: p.y })))
-        arena.pelletsDirty = false
+    // The live leaderboard is its own small list, the biggest blobs by name and size.
+    // It is separate from `blobs` on purpose, because in the last part the edge stops
+    // sending every blob to every player, but the scoreboard must stay global. Keeping
+    // it apart now means the client never has to change.
+    function board() {
+        return world.blobs().map(r => ({ name: r.name, mass: r.mass }))
+                    .sort((a, b) => b.mass - a.mass).slice(0, 8)
     }
 
-    // Requests from a browser
-    // A browser reports where its cursor is aiming, in world coordinates. This is a
-    // goal, never a position: the simulation below decides how far the blob gets.
-    function steer(x, y) {
-        if (!Caller.hasScope("player")) return          // approved players only
-        const sub = Caller.identity.sub
+    function pelletRows() {
+        return world.pellets.map(p => ({ id: p.id, x: p.x, y: p.y }))
+    }
+
+    // Requests, already authorized. `sub` and `name` come from the Source's verified
+    // caller, never from anything a browser sent. This file has no caller of its own,
+    // which is exactly why the checking happens one file over.
+    // The aim point is a goal, never a position. The simulation below decides how far
+    // the blob gets.
+    function steer(sub, name, x, y) {
         const now = Date.now()
-        let b = arena.roster[sub]
+        let b = world.roster[sub]
         if (!b || !b.online) {
-            // First aim this session, or back after dropping: spawn them small.
-            const sx = arena.randPos(), sy = arena.randPos()
-            b = arena.roster[sub] = { id: sub, name: Caller.identity.login,
+            // First aim this session, or back after dropping, so spawn them small.
+            const sx = world.randPos(), sy = world.randPos()
+            b = world.roster[sub] = { id: sub, name: name,
                                       x: sx, y: sy, tx: sx, ty: sy,
-                                      mass: arena.startMass, online: true, lastSeen: now }
+                                      mass: world.startMass, online: true, lastSeen: now }
         }
-        b.tx = Math.max(0, Math.min(arena.world, x))    // clamp the goal into the map
-        b.ty = Math.max(0, Math.min(arena.world, y))
+        b.tx = Math.max(0, Math.min(world.size, x))    // clamp the goal into the map
+        b.ty = Math.max(0, Math.min(world.size, y))
         b.lastSeen = now
     }
 
-    // A cheap round trip the browser uses to show latency, and a keepalive.
-    function ping() {
-        if (Caller.hasScope("player")) {
-            const b = arena.roster[Caller.identity.sub]
-            if (b) b.lastSeen = Date.now()
-        }
-        return Date.now()
+    // The keepalive half of the browser's ping.
+    function keepAlive(sub) {
+        const b = world.roster[sub]
+        if (b) b.lastSeen = Date.now()
     }
 
     // The simulation
@@ -188,32 +200,32 @@ Arena {
             last = now
 
             // 1) Move each online blob toward its aim point, no further than its
-            //    speed budget for this tick. This is where a teleport dies: the blob
+            //    speed budget for this tick. This is where a teleport dies. The blob
             //    advances at most speedFor(mass) * dt, whatever the client asked for.
-            for (const sub in arena.roster) {
-                const b = arena.roster[sub]
+            for (const sub in world.roster) {
+                const b = world.roster[sub]
                 if (!b.online) continue
                 const dx = b.tx - b.x, dy = b.ty - b.y
                 const dist = Math.hypot(dx, dy)
                 if (dist > 0.5) {
-                    const step = Math.min(arena.speedFor(b.mass) * dt, dist)
+                    const step = Math.min(world.speedFor(b.mass) * dt, dist)
                     b.x += dx / dist * step
                     b.y += dy / dist * step
                 }
             }
 
-            // 2) Feed the blobs: a blob over a pellet eats it and grows by one; the
+            // 2) Feed the blobs. A blob over a pellet eats it and grows by one, and the
             //    pellet respawns elsewhere. Growth is the edge's to grant, never the
             //    client's to claim.
-            for (const sub in arena.roster) {
-                const b = arena.roster[sub]
+            for (const sub in world.roster) {
+                const b = world.roster[sub]
                 if (!b.online) continue
-                const r = arena.radiusFor(b.mass)
-                for (const p of arena.pellets) {
+                const r = world.radiusFor(b.mass)
+                for (const p of world.pellets) {
                     if (Math.hypot(p.x - b.x, p.y - b.y) < r) {
                         b.mass += 1
-                        p.x = arena.randPos(); p.y = arena.randPos()
-                        arena.pelletsDirty = true
+                        p.x = world.randPos(); p.y = world.randPos()
+                        world.pelletsVersion += 1
                     }
                 }
             }
@@ -222,23 +234,20 @@ Arena {
             //    swallows it. The loser's mass transfers to the winner and the loser
             //    respawns small. Every blob's size is the edge's own tally, so this
             //    verdict cannot be gamed from a browser.
-            const subs = Object.keys(arena.roster).filter(s => arena.roster[s].online)
+            const subs = Object.keys(world.roster).filter(s => world.roster[s].online)
             for (const a of subs) for (const c of subs) {
                 if (a === c) continue
-                const big = arena.roster[a], small = arena.roster[c]
+                const big = world.roster[a], small = world.roster[c]
                 if (!big.online || !small.online) continue
                 if (big.mass < small.mass * 1.15) continue          // must be clearly bigger
-                if (Math.hypot(big.x - small.x, big.y - small.y) > arena.radiusFor(big.mass))
+                if (Math.hypot(big.x - small.x, big.y - small.y) > world.radiusFor(big.mass))
                     continue                                        // must overlap the centre
                 big.mass += small.mass
-                arena.eaten(small.name, big.name)                   // tell everyone
-                small.mass = arena.startMass                        // respawn the loser small
-                small.x = small.tx = arena.randPos()
-                small.y = small.ty = arena.randPos()
+                world.eaten(small.name, big.name)                   // tell every Source
+                small.mass = world.startMass                        // respawn the loser small
+                small.x = small.tx = world.randPos()
+                small.y = small.ty = world.randPos()
             }
-
-            publishBlobs()
-            if (arena.pelletsDirty) publishPellets()
         }
     }
 
@@ -249,9 +258,56 @@ Arena {
         interval: 2000; repeat: true; running: true
         onTriggered: {
             const now = Date.now()
-            for (const sub in arena.roster) {
-                const b = arena.roster[sub]
+            for (const sub in world.roster) {
+                const b = world.roster[sub]
                 if (b.online && now - b.lastSeen > 5000) b.online = false
+            }
+        }
+    }
+}
+```
+
+### One player's view of it, `web/edge/Arena.qml`
+
+The connect point Source, one per browser session. It is where the caller arrives, so it
+is where the rules are: only an approved player may steer, and the name stamped on a blob
+comes from `Caller.identity`, never from an argument. Then it publishes what the world
+holds.
+
+```qml
+import QtQuick
+import SynQt
+
+Arena {
+    id: arena
+
+    // The pellet field is republished only when it actually moved, and the version this
+    // session last sent is this session's own business: a flag on the world would be
+    // cleared by whichever browser ticked first and the rest would never see the change.
+    property int lastPellets: -1
+
+    Component.onCompleted: World.eaten.connect((prey, predator) => arena.eaten(prey, predator))
+
+    function steer(x, y) {
+        if (!Caller.hasScope("player")) return          // approved players only
+        World.steer(Caller.identity.sub, Caller.identity.login, x, y)
+    }
+
+    // A cheap round trip the browser uses to show latency, and a keepalive.
+    function ping() {
+        if (Caller.hasScope("player")) World.keepAlive(Caller.identity.sub)
+        return Date.now()
+    }
+
+    // Push the world to this browser, twenty times a second.
+    Timer {
+        interval: 50; repeat: true; running: true
+        onTriggered: {
+            arena.setBlobs(World.blobs())
+            arena.setBoard(World.board())
+            if (arena.lastPellets !== World.pelletsVersion) {
+                arena.lastPellets = World.pelletsVersion
+                arena.setPellets(World.pelletRows())
             }
         }
     }
@@ -269,14 +325,14 @@ Arena {
 > lean.
 
 > [!NOTE]
-> One honesty note about cost. `publishBlobs()` rebuilds and pushes the whole roster
-> every tick, twenty times a second, and to *every* browser, so the work grows with
-> the square of the player count. For a handful of friends this is nothing. The pellet
-> field already does the lighter thing, republishing only when a pellet actually moved
-> (`pelletsDirty`), and [the last part](tutorial-multiplayer-run.md) takes the bigger
-> step: sending each player only the blobs and pellets near them, so the payload stops
-> growing with the whole arena. Good to build on, but this shared broadcast version is
-> where we start.
+> One honesty note about cost. Each session's `Arena` pushes the whole roster every
+> tick, twenty times a second, so the work grows with the square of the player count.
+> For a handful of friends this is nothing. The pellet field already does the lighter
+> thing, republishing only when a pellet actually moved (`pelletsVersion`), and [the last
+> part](tutorial-multiplayer-run.md) takes the bigger step: sending each player only the
+> blobs and pellets near them, so the payload stops growing with the whole arena. The
+> split you just wrote is what makes that a change to one file: the simulation is already
+> in one place, and only what each Source publishes has to narrow.
 
 Wire the connect point in `synqt.yaml`:
 
@@ -287,7 +343,8 @@ connect_points:
     consumers: [app]          # the browser mirrors it
     server: web/edge/Arena.qml
     scope: player             # only approved players get the arena at all
-    instance: shared          # one arena everyone shares
+    # no instance: a browser-facing point is per_session, which is what puts a Caller in
+    # the slots above. The arena itself is shared because World.qml is.
 ```
 
 `scope: player` is doing real work: a signed in visitor who is not on the guest list

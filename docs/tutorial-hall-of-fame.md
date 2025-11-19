@@ -13,7 +13,7 @@ its own process, and it owns the durable data.
 ## Step 1: Add a database entity
 
 ```cli
-synqt add entity database --blueprint relational
+synqt add entity database --type relational
 ```
 
 This scaffolds a `db/relational/books/` entity backed by an embedded engine (SQLite), with no
@@ -106,7 +106,32 @@ contract Hall {
 }
 ```
 
-Create `web/edge/Hall.qml`:
+The list is the same for everyone, so it belongs to the edge entity. Add it to
+`web/edge/Edge.qml`, alongside the lot you put there in
+[the base auction](tutorial-base-auction.md):
+
+```qml
+property var winners: []
+
+function refresh() {
+    // recentWinners() returns a value, so the call resolves asynchronously.
+    Books.ledger.recentWinners().then(rows => {
+        root.winners = rows;
+    });
+}
+
+Component.onCompleted: {
+    root.refresh();
+    Books.ledger.winnersChanged.connect(root.refresh);   // database moved; repull
+}
+```
+
+`Books.ledger` is how the edge reaches the database's connect point, the same
+way the browser reaches the edge with `Server`. Subscribed once, here, rather than once
+per browser.
+
+Then create `web/edge/Hall.qml`, one per browser session like every Source, as that
+session's window onto the list:
 
 ```qml
 import QtQuick
@@ -115,21 +140,17 @@ import SynQt
 Hall {
     id: hall
 
-    function refresh() {
-        // recentWinners() returns a value, so the call resolves asynchronously.
-        Books.ledger.recentWinners().then(rows => {
-            hall.setWinners(rows)                       // push the list to browsers
-        })
+    Component.onCompleted: hall.setWinners(Edge.winners)
+
+    Connections {
+        function onWinnersChanged() {
+            hall.setWinners(Edge.winners);   // push the list to this browser
+        }
+
+        target: Edge
     }
-
-    Component.onCompleted: refresh()
-
-    Ledger.onWinnersChanged: hall.refresh()   // database moved; repull
 }
 ```
-
-`Books.ledger` is how the edge reaches the database's connect point, the same
-way the browser reaches the edge with `Server`.
 
 ## Step 5: Record the winner when a lot closes
 
@@ -143,12 +164,10 @@ function closeLot(nextItem) {
         Caller.emitBidRejected("Only the auctioneer can close a lot.")
         return
     }
-    if (auction.highBid > 0) {
-        Books.ledger.recordWinner(auction.itemName, auction.highBidder, auction.highBid)
+    if (Edge.highBid > 0) {
+        Books.ledger.recordWinner(Edge.itemName, Edge.highBidder, Edge.highBid)
     }
-    auction.itemName = nextItem
-    auction.highBid = 0
-    auction.highBidder = "nobody yet"
+    Edge.openLot(nextItem)
 }
 ```
 
