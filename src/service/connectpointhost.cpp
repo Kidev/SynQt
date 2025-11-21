@@ -84,6 +84,53 @@ QObject *ConnectPointHost::createSource(QObject *caller, QObject *parent, QStrin
     return source;
 }
 
+QObject *ConnectPointHost::sourceForPeer(const MeshPeer &peer, QIODevice *device,
+                                         QString *error)
+{
+    // A Source per link: parented to the device, so it dies with it.
+    if (m_config.instance == ConnectPointInstance::PerConnection) {
+        Caller *caller{Caller::forEntity(m_config.contract, peer.entity, peer.authenticated,
+                                         nullptr, device)};
+        QObject *source{createSource(caller, device, error)};
+        if (source) {
+            caller->setParent(source);
+            caller->setSource(source);
+        }
+        return source;
+    }
+
+    // Per caller: one Source for this consuming entity, whatever number of links it opens.
+    // Parented to the host, because it outlives any one of them.
+    PeerSource &entry{m_peerSources[peer.entity]};
+    if (entry.source) {
+        return entry.source;
+    }
+    Caller *caller{Caller::forEntity(m_config.contract, peer.entity, peer.authenticated,
+                                     nullptr, this)};
+    QObject *source{createSource(caller, this, error)};
+    if (!source) {
+        delete caller;
+        return nullptr;
+    }
+    caller->setParent(source);
+    caller->setSource(source);
+    entry.source = source;
+    return source;
+}
+
+void ConnectPointHost::releasePeerSource(const QString &entity)
+{
+    const auto entry{m_peerSources.find(entity)};
+    if (entry == m_peerSources.end()) {
+        return;
+    }
+    if (--entry->connections > 0) {
+        return;
+    }
+    delete entry->source;
+    m_peerSources.erase(entry);
+}
+
 bool ConnectPointHost::start()
 {
     // Nothing is instantiated here. A connect point mints a Source, with a Caller bound to
@@ -130,25 +177,30 @@ void ConnectPointHost::onPeerConnected(QIODevice *device, const MeshPeer &peer)
     }
     emit consumerAttached(peer.entity);
 
-    // A fresh Source and its own node for this entity, with a Caller carrying the
-    // certificate-verified entity name for the owner's per-slot authorization.
+    // Claimed before the Source is reached for, and released when the link goes away, so a
+    // per-caller Source lives exactly as long as this entity has a link open.
+    const QString entity{peer.entity};
+    if (m_config.instance == ConnectPointInstance::PerCaller) {
+        ++m_peerSources[entity].connections;
+        connect(device, &QObject::destroyed, this,
+                [this, entity]() { releasePeerSource(entity); });
+    }
+
+    // Its own node for this link, with a Caller carrying the certificate-verified entity
+    // name for the owner's per-slot authorization.
     QRemoteObjectHost *node{new QRemoteObjectHost{device}};
     node->setHostUrl(QUrl{QStringLiteral("synqt-cp-%1:///%2")
                               .arg(m_config.name,
                                    QUuid::createUuid().toString(QUuid::WithoutBraces))},
                      QRemoteObjectHost::AllowExternalRegistration);
-    Caller *caller{Caller::forEntity(m_config.contract, peer.entity, peer.authenticated,
-                                     nullptr, device)};
     QString error;
-    QObject *source{createSource(caller, device, &error)};
+    QObject *source{sourceForPeer(peer, device, &error)};
     if (!source) {
         emit connectionRefused(peer.entity);
         device->close();
         device->deleteLater();
         return;
     }
-    caller->setParent(source);
-    caller->setSource(source);
     if (!node->enableRemoting(source, m_config.name)) {
         m_errorString = QStringLiteral("enableRemoting failed for connect point %1")
                             .arg(m_config.name);

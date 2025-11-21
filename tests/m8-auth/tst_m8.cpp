@@ -543,8 +543,8 @@ private slots:
         reply->deleteLater();
     }
 
-    // identity.provider_entity: a dedicated auth entity owns the authoritative session
-    // store behind a per_peer Session connect point; edges consume it over the mesh. A
+    // identity.provider_entity. A dedicated auth entity owns the authoritative session
+    // store behind a per-caller Session connect point. Edges consume it over the mesh. A
     // session created (as login does) on one edge is validated on another.
     void providerEntityDistributedSessions()
     {
@@ -556,7 +556,7 @@ private slots:
         config.owner = QStringLiteral("auth");
         config.consumers = {QStringLiteral("web"), QStringLiteral("web2")};
         config.serverFile = QStringLiteral(M8_SRCDIR "/auth/SessionStore.qml");
-        config.instance = ConnectPointInstance::PerPeer;
+        config.instance = ConnectPointInstance::PerCaller;
         config.endpoint.mode = MeshTransportMode::MutualTls;
         config.endpoint.host = QStringLiteral("127.0.0.1");
         config.endpoint.port = 0;
@@ -660,7 +660,7 @@ private slots:
     void providerEntityCentralizedLogin()
     {
         // The auth entity owns the OAuth engine, with the FULL provider (secret included),
-        // behind a per_peer Identity Source over mutual TLS.
+        // behind a per-caller Identity Source over mutual TLS.
         IdentityConfig authConfig;
         authConfig.enabled = true;
         authConfig.allowDevStub = true;
@@ -673,7 +673,7 @@ private slots:
         cp.owner = QStringLiteral("auth");
         cp.consumers = {QStringLiteral("web")};
         cp.serverFile = QStringLiteral(M8_SRCDIR "/auth/Identity.qml");
-        cp.instance = ConnectPointInstance::PerPeer;
+        cp.instance = ConnectPointInstance::PerCaller;
         cp.endpoint.mode = MeshTransportMode::MutualTls;
         cp.endpoint.host = QStringLiteral("127.0.0.1");
         cp.endpoint.port = 0;

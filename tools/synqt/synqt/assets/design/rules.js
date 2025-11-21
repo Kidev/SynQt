@@ -16,7 +16,7 @@
 // What a caller is on a link. There is one Source per caller either way; these two say
 // what a caller *is*. There is no "shared": QtRO never tells a slot which connection
 // invoked it, so a Source shared by every caller had no `Caller` at all.
-const INSTANCE_MODES = ["per_session", "per_peer"];
+const INSTANCE_MODES = ["caller", "connection"];
 
 // One field says what an entity is, the same answer appmodel.entity_type gives. Defined
 // here because this is the file with no DOM and no imports, so every other module can

@@ -258,8 +258,9 @@ Layers, outermost to innermost:
 - Consumer allowlist. Only listed consumer entities may acquire a connect point.
 - Connect point scope (browser users). The edge does not acquire a scoped connect
   point's Replica for an under scoped user.
-- Instances. `per_session` keeps one user's authoritative state separate from
-  another's; `per_peer` keeps one calling entity's state separate from another's.
+- Instances. One Source per caller keeps one user's authoritative state separate from
+  another's, and one calling entity's separate from another's. `instance: connection`
+  narrows it further, to one link.
 - Push only properties. Consumers cannot set owner properties directly, only
   request a change the owner controls.
 - In slot checks. Every slot checks `Caller` (a user scope and ownership, or a
@@ -568,8 +569,8 @@ Authorization and data:
 - Every privileged slot authorizes `Caller` (user scope and ownership, or calling
   entity) and validates input before acting. No slot relies on a consumer side
   check.
-- Connect points holding private per user or per entity state use `per_session` or
-  `per_peer`.
+- Connect points holding private per user or per entity state keep the default
+  `instance: caller`, so one caller's state is never in another caller's Source.
 - Contracts expose only the model roles and objects consumers need; private fields
   stay off the contract.
 - The database (and any sensitive entity) is reachable only through authorized

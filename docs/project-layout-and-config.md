@@ -366,13 +366,13 @@ connect_points:
     consumers: [app]          # the entities allowed to acquire the Replica
     server: web/edge/Todo.qml
     scope: user               # for browser consumers: minimum session scope
-    instance: per_session     # what a caller is here: per_session or per_peer
+    instance: caller          # one Source per caller (the default), or per connection
 
   - name: items
     owner: store
     consumers: [edge]         # only the edge may reach the items connect point
     server: db/relational/store/Items.qml
-    instance: per_peer
+    instance: caller
 ```
 
 `contract`, `server`, `scope` and `instance` are all optional.
@@ -386,14 +386,24 @@ be left off; they are there to show where the file goes.
 Omitting `scope` means any session, including an anonymous one, may acquire the connect
 point; write protection then lives inside the slots, as in the examples.
 
-`instance` says what a caller is on this point: `per_session` for a browser, `per_peer`
-for another entity. It is read off the point's own ends when it is absent, so most points
-never write it. There is one Source per caller whichever it is, and there is no value
-meaning "one for everybody": such a Source could not be told who was calling, so its slots
-had no `Caller`. State every caller shares belongs in the owner entity's own
-[singleton](programming-model.md#connect-points-owned-by-one-entity-consumed-by-others), which outlives all of them.
+`instance` says how many Sources this point mints. `caller` is the default and what most
+points want: one Source per caller, so every link one signed-in user opens reaches the
+same one, and so does every link one consuming entity opens. Their second tab continues
+what they started in the first, and their reconnect after a dropped network does too.
 
-Validation derives the mesh links from `owner` and `consumers`: an entity may open
+Write `connection` for one Source per link. Ask for it when what the Source holds belongs
+to the link rather than to the person: a live view window, a stream cursor, anything two
+tabs of one user should not share.
+
+There is no value meaning "one Source for everybody": such a Source could not be told who
+was calling, so its slots had no `Caller`. State every caller shares belongs in the owner
+entity's own
+[singleton](programming-model.md#connect-points-owned-by-one-entity-consumed-by-others),
+which outlives all of them. A Source is live state either way, and a per-caller one is
+gone once that caller closes their last link, so anything that must survive that belongs
+in the singleton or behind a persistence connect point.
+
+Validation derives the mesh links from `owner` and `consumers`. An entity may open
 a connection only to an owner it consumes from, and an owner accepts a connection
 only from a listed consumer. This is the deny by default topology.
 
@@ -1113,11 +1123,13 @@ fast. Non negotiable checks:
 - A name declared twice, whether an entity or a connect point, is rejected. Both are
   keyed by name, so the second declaration replaces the first rather than colliding
   with it, and a consumer list narrowed on the first would disappear without a word.
-- An `instance` that is not `per_session` or `per_peer` is rejected. `shared` is named
-  in the refusal, because it used to exist and meant a Source with no `Caller`.
-  Anything the generator does not recognise is built as a single shared Source, so a
-  misspelled `per_session` would hand every caller the instance it existed to keep
-  apart.
+- An `instance` that is not `caller` or `connection` is rejected, and the three
+  spellings it used to take are named in the refusal. `shared` meant one Source for
+  everybody, which could not be told who was calling. `per_session` and `per_peer` both
+  mean `caller` now, and are refused rather than translated because they were also a
+  claim the runtime did not keep: both minted a Source per connection, so a user's second
+  tab started blank. Anything unrecognised falls back to `caller`, so a misspelled
+  `connection` would quietly share what it was written to keep apart.
 - A connect point `scope` not in `scopes.order` is rejected.
 - `client_threads: multi` without cross origin isolation is rejected (the CLI
   offers to set it).

@@ -4,8 +4,8 @@
 import QtQuick
 import SynQt
 
-// The authoritative identity Source on the auth entity (a per_peer instance: one per
-// consuming edge, so each edge's answer reaches only that edge). It bridges the connect
+// The authoritative identity Source on the auth entity (one instance per consuming
+// edge, so each edge's answer reaches only that edge). It bridges the connect
 // point to a single shared IdentityService (the `IdentityEngine` context object), which owns
 // the client secret, the token exchange and the stored tokens. The service methods are
 // synchronous, so this Source emits each result on itself and answers only the edge that

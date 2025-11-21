@@ -149,9 +149,9 @@ Each lot now closes on its own, records its winner, and the next one opens.
 
 ## Give each bidder a private maximum bid
 
-Let a signed in user set a private maximum that only they can see, using a
-`per_session` connect point: each session gets its own object instance, so one
-user's value is invisible to everyone else.
+Let a signed in user set a private maximum that only they can see. One Source per
+caller is already the default, so the value lives in that user's own object and is
+invisible to everyone else, while still following them from tab to tab.
 
 `web/edge/Proxy.syn`:
 
@@ -162,8 +162,8 @@ contract Proxy {
 }
 ```
 
-The connect point, in `synqt.yaml`. The `per_session` instance is what makes it
-private:
+The connect point, in `synqt.yaml`. `instance: caller` is the default, written out here
+because it is the line that makes the value private:
 
 ```yaml
 connect_points:
@@ -172,7 +172,7 @@ connect_points:
     consumers: [app]
     server: web/Proxy.qml
     scope: user               # only signed in users get one at all
-    instance: per_session     # one private Source per session
+    instance: caller          # one private Source per bidder (the default)
 ```
 
 `web/edge/Proxy.qml`:
@@ -192,8 +192,9 @@ Proxy {
 ```
 
 In the client, read and set it with `Server.proxy.maxBid` and
-`Server.proxy.setMax(...)`. Because the connect point is `per_session`, there is no
-shared object through which one user could ever see another's maximum. From here,
+`Server.proxy.setMax(...)`. Because the point mints a Source per caller, there is no
+shared object through which one user could ever see another's maximum, and the bidder's
+own second tab opens on the maximum they already set. From here,
 making `placeBid` automatically raise a user up to their stored maximum is an obvious
 next step, now that the value has a safe, private home.
 

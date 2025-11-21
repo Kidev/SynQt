@@ -17,13 +17,9 @@ import yaml
 from . import (addentity, appmodel, clientcache, config as configmod, designdoc,
                graphics, infer, qmlscan, toolchain, topologywriter, typebackend)
 
-# How many Source instances an owner keeps for one connect point: one for everybody, one
-# per browser session, or one per connected entity.
-#: What a caller is on a connect point. There is one Source per caller either way, so
-#: these two say what a caller *is*. `shared` was a third value and is refused by name
-#: (see `_instance_messages`): one Source for everybody could not be told who was
-#: calling, so its slots had no `Caller` at all.
-INSTANCE_MODES = frozenset({"per_session", "per_peer"})
+#: How many Sources an owner keeps for one connect point. Read from appmodel so the check
+#: and the resolution cannot disagree about what is spellable.
+INSTANCE_MODES = appmodel.INSTANCE_MODES
 
 
 def _duplicate_messages(names: List[Any], what: str, consequence: str) -> List[str]:
@@ -79,25 +75,39 @@ def _entity_type_messages(declared: List[Dict[str, Any]]) -> List[str]:
 
 
 def _instance_messages(config: Dict[str, Any]) -> List[str]:
-    """Refuse `instance: shared`, which used to mean a Source with no `Caller`.
+    """Refuse the spellings `instance:` used to take, each by name.
 
-    QtRO hands `enableRemoting()` one object and never tells a slot which connection
-    invoked it, so a single Source shared by every caller could not be given a `Caller` at
-    all: every `Caller.hasScope(...)` and `Caller.entity` written in one was a reference to
-    something that was not there. Every Source is per-caller now, and state that really is
-    shared belongs in the entity's own singleton, which outlives all of them.
+    `shared` meant one Source for everybody, and it cannot come back: QtRO hands
+    `enableRemoting()` one object and never tells a slot which connection invoked it, so
+    that Source could be given no `Caller` at all. State every caller shares belongs in the
+    entity's own singleton, which outlives all of them.
+
+    `per_session` and `per_peer` are refused rather than translated even though both now
+    mean `caller`, because they were also a claim the runtime did not keep: both minted a
+    Source per *connection*, so a user's second tab got a blank one. Saying so is the only
+    way an author who relied on that learns their app changed under them.
     """
     messages: List[str] = []
     for point in appmodel.connect_points(config):
-        if str(point.get("instance") or "").strip() != "shared":
-            continue
+        declared = str(point.get("instance") or "").strip()
+        name = point.get("name")
         owner = str(point.get("owner") or "?")
-        messages.append(
-            f"error: connect point '{point.get('name')}' asks for 'instance: shared', which "
-            "no longer exists: one Source for every caller could not be told who was "
-            f"calling, so its slots had no 'Caller'. Drop the line (a Source is minted per "
-            f"caller), and put anything the callers share in the '{owner}' entity's own "
-            "singleton: https://synqt.org/programming-model/")
+        if declared == "shared":
+            messages.append(
+                f"error: connect point '{name}' asks for 'instance: shared', which no longer "
+                "exists: one Source for every caller could not be told who was calling, so "
+                "its slots had no 'Caller'. Drop the line (a Source is minted per caller), "
+                f"and put anything the callers share in the '{owner}' entity's own "
+                "singleton: https://synqt.org/programming-model/")
+        elif declared in appmodel.RETIRED_INSTANCE_MODES:
+            replacement = appmodel.RETIRED_INSTANCE_MODES[declared]
+            messages.append(
+                f"error: connect point '{name}' asks for 'instance: {declared}', which is "
+                f"now spelled '{replacement}'. It is more than a rename: '{declared}' minted "
+                "a Source per connection, so one user's second tab started blank; "
+                f"'{replacement}' is one Source per caller, shared by that caller's tabs and "
+                "reconnects. Write 'instance: connection' to keep a Source per link: "
+                "https://synqt.org/programming-model/")
     return messages
 
 
@@ -249,14 +259,15 @@ def validate(config: Dict[str, Any], *, release: bool = False,
                 "owner listens for consumers and a browser cannot listen, so a connect point "
                 "the client takes part in must be owned by a web_edge entity")
 
-        # A misspelled per_session is not per_session, and downstream nothing says so: the
-        # point falls back to per_peer and a browser-facing point quietly stops being what
-        # it was written to be. Caught here, by name.
+        # A misspelled `connection` is not `connection`, and downstream nothing says so:
+        # the point falls back to one Source per caller and quietly stops being what it was
+        # written to be. Caught here, by name.
         instance = connect_point.get("instance")
+        retired = set(appmodel.RETIRED_INSTANCE_MODES) | {"shared"}
         if (instance is not None and str(instance) not in INSTANCE_MODES
-                and str(instance).strip() != "shared"):
-            # `shared` is skipped here only because `_instance_messages` says something
-            # far more useful about it than "not one of these two".
+                and str(instance).strip() not in retired):
+            # A retired spelling is skipped here only because `_instance_messages` says
+            # something far more useful about it than "not one of these two".
             messages.append(
                 f"error: connect point '{name}' has instance '{instance}'; it must be one of "
                 f"{', '.join(sorted(INSTANCE_MODES))}")

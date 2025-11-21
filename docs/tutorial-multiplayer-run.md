@@ -302,7 +302,7 @@ position from a client, and it shows each player only what they are entitled to 
   own blob with the edge's exact rule so it tracks your cursor and the camera follows,
   and interpolates everyone else from a buffer of recent snapshots so motion is
   smooth, reconciling against the edge whenever it pushes an update.
-- Interest management with a `per_session` instance means the edge simulates once in a
+- Interest management with one Source per caller means the edge simulates once in a
   shared singleton and sends each player only their slice, so the payload stops growing
   with the whole arena, and a client is shown only what it can see.
 - Durable data lives in a database the browser can never reach; the edge authorizes the

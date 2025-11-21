@@ -326,15 +326,15 @@ function linkPanel(design, link, actions) {
     panel.append(note("This list is the authorization. An entity that is not on it is "
                       + "refused the replica, and nothing it does can talk its way on."));
 
-    panel.append(field("Instance", choice(INSTANCE_MODES, link.instance || "per_peer",
+    panel.append(field("Instance", choice(INSTANCE_MODES, link.instance || "caller",
                                           (value) => {
         link.instance = value;
         actions.changed();
     })));
-    panel.append(note("What a caller is here: per_session is one browser connection, "
-                      + "per_peer is one calling entity. There is a Source per caller "
-                      + "either way, which is what gives a slot its Caller; state they all "
-                      + "share belongs in the owner's own singleton."));
+    panel.append(note("How many Sources this point mints. caller is one per caller, so a "
+                      + "user's second tab continues the first tab's Source; connection is "
+                      + "one per link, so it does not. State every caller shares belongs in "
+                      + "the owner's own singleton, which outlives all of them."));
 
     panel.append(field("Transport", choice(["", "local"], link.transport, (value) => {
         link.transport = value;

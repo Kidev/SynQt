@@ -12,7 +12,7 @@
 #   * the edge main upcast QQmlPropertyMap* to QObject* without <QQmlPropertyMap>.
 #
 # It runs appgen over the real three-entity gavel topology (client + web edge + relational
-# database, with connect points, per_session, identity, and a provider), then configures and
+# database, with connect points, a scope-gated point, identity, and a provider), then configures and
 # builds every entity with the native kit. The client's `targets: [wasm]` also builds as a
 # native desktop app here, which exercises the client main too. A green run means the generator
 # produces buildable code for the full service/edge/provider path.

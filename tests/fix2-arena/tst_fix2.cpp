@@ -3,7 +3,7 @@
 
 // FIX-2 acceptance: the multiplayer tutorial's two hands-on checks, proven end to end. The
 // web edge owns one authoritative arena; a World simulated once, injected into each
-// per_session Arena Source by name, and integrates every blob itself from an aim point.
+// per-caller Arena Source by name, and integrates every blob itself from an aim point.
 // Verifies the tutorial's "try it, then think" checks:
 //   1. a console steer(3999, 3999) does not teleport: the edge walks the blob toward the
 //      corner at its size's speed, a tick's budget at a time (movement authority);
@@ -103,7 +103,7 @@ private slots:
         m_engine = std::make_unique<QQmlEngine>();
 
         // The one authoritative world: the tutorial's `pragma Singleton` World, registered as
-        // a QML singleton type so every per_session Arena Source reaches it by name (`World`).
+        // a QML singleton type so every per-caller Arena Source reaches it by name (`World`).
         // singletonInstance forces its creation now and hands the test the same instance the
         // Arena Sources see, so the assertions read the authoritative state directly.
         const int worldTypeId{qmlRegisterSingletonType(
@@ -125,7 +125,7 @@ private slots:
         arena.contract = QStringLiteral("Arena");
         arena.serverFile = QStringLiteral(FIX2_SRCDIR "/web/Arena.qml");
         arena.scope = QStringLiteral("player");        // only approved players acquire it
-        arena.instance = InstanceMode::PerSession;     // one per player, so Caller is bound
+        arena.instance = InstanceMode::PerCaller;     // one per player, so Caller is bound
         config.connectPoints = {arena};
 
         m_edge = std::make_unique<WebEdge>(config, m_engine.get());

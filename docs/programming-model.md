@@ -90,7 +90,7 @@ connect_points:
     consumers: [app]              # the entities allowed to acquire the Replica
     server: web/edge/Todo.qml     # the authoritative implementation
     scope: user                   # for browser consumers: minimum session scope
-    instance: per_session         # what a caller is here: per_session or per_peer
+    instance: caller         # one Source per caller (the default), or per connection
 ```
 
 The configurable parts that matter:
@@ -104,22 +104,31 @@ The configurable parts that matter:
 - `scope` (for browser consumers). The minimum session scope a browser user must
   hold before the framework will acquire the Replica for that client. A user below
   the required scope never gets the object, so cannot call its slots at all.
-- `instance`. There is one Source per caller, always; this says what a caller is.
-  `per_session` is one browser session, `per_peer` is one calling entity. A point that
-  says nothing is read off its own ends, so most never write the line.
+- `instance`. How many Sources this point mints, and therefore who shares the state one
+  holds. `caller` is the default and almost always right: one Source per caller, so every
+  link a signed-in user opens reaches the same one and their second tab continues the
+  draft they started in the first. On the mesh it reads the same way, with the calling
+  entity as the caller. Write `connection` for one Source per link, when what it holds
+  belongs to the link and not to the person: a live view window, a stream cursor.
 
-    There is no third value, and that is the point. QtRO hands `enableRemoting()` a
-    single object and never tells a slot which connection invoked it, so a Source shared
-    by every caller could not be given a `Caller` at all: `Caller.hasScope(...)`,
-    `Caller.entity` and `Caller.emit<Signal>` in one were reading something that was not
-    there, and an authorization line written in one was not weakened, it was absent.
+    There is no third value meaning one Source for everybody, and that is the point.
+    QtRO hands `enableRemoting()` a single object and never tells a slot which connection
+    invoked it, so a Source shared by every caller could not be given a `Caller` at all:
+    `Caller.hasScope(...)`, `Caller.entity` and `Caller.emit<Signal>` in one were reading
+    something that was not there, and an authorization line written in one was not
+    weakened, it was absent.
 
     State that really is shared has a better home anyway. The entity's own
     `pragma Singleton` file outlives every Source the entity mints, so a public feed
-    lives there and each per-session Source is that session's window onto it: one
+    lives there and each caller's Source is that caller's window onto it: one
     subscription, one copy of the data, and a `Caller` in every slot. The framework's own
     Pages connect point is built exactly that way, and so is the Hall of Fame in the
     auction example.
+
+    A Source is live state, not storage, whichever value you pick. A per-caller Source
+    lasts as long as that caller has at least one link open and is gone once they all
+    close, so what has to survive a user closing the last tab belongs in the singleton or
+    behind a persistence connect point.
 - `contract`. What may cross, declared in `<Contract>.syn` in the owner's folder. It
   defaults to the point's own name capitalized, so `- name: todo` carries `Todo` and most
   points never write the line; name it only where two points carry one shape.

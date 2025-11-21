@@ -21,12 +21,11 @@ namespace SynQt {
 /// `security.session_transport` is refused at `synqt check` until then.
 enum class SessionTransport { Cookie };
 
-/// What a caller is on a browser-facing connect point. Only one answer here: a browser
-/// session. It is an enum rather than nothing so the edge and the mesh describe a
-/// connect point the same way, and so a second answer can be added without changing
-/// every declaration. Every Source is minted per caller and carries that caller's own
-/// Caller; see ConnectPointInstance in topology.h for why there is no shared option.
-enum class InstanceMode { PerSession };
+/// How many Sources a browser-facing connect point mints. The edge's spelling of
+/// ConnectPointInstance (topology.h), which carries the full explanation: PerCaller is
+/// one Source per session, so a user's tabs share it, and PerConnection is one per
+/// socket, so they do not.
+enum class InstanceMode { PerCaller, PerConnection };
 
 /// One client-facing connect point owned by the web edge (consumed by the client). The
 /// browser can only reach a web_edge entity, so these are the objects it acquires.
@@ -36,7 +35,7 @@ struct WebEdgeConnectPoint
     QString contract;
     QString serverFile;  ///< the owner-side QML implementing the Source
     QString scope;       ///< minimum session scope; empty == reachable by any session
-    InstanceMode instance{InstanceMode::PerSession};
+    InstanceMode instance{InstanceMode::PerCaller};
 };
 
 /// One page the edge delivers rather than the bundle carrying it.

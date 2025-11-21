@@ -119,6 +119,17 @@ private:
     void rememberVerifiedSession(const QString &peer, const QByteArray &sessionId);
     QObject *createSource(const WebEdgeConnectPoint &connectPoint, QObject *caller,
                           QObject *parent, QString *error);
+    /// The Source this connection acquires for one connect point, minted or continued.
+    ///
+    /// `InstanceMode::PerCaller` looks the session up first, so a user's second tab reaches
+    /// the Source their first tab has been using rather than a blank one. Returns nullptr
+    /// on a load failure, with the reason in *error.
+    QObject *sourceForConnection(const WebEdgeConnectPoint &connectPoint,
+                                 const QByteArray &sessionId, QWebSocket *socket,
+                                 QString *error);
+    /// Drop this connection's claim on its session's Sources, and destroy them when it was
+    /// the last one. Called from the socket's disconnected handler.
+    void releaseSessionSources(const QByteArray &sessionId);
     /// Build each configured page's seed hook once and install the one provider that
     /// dispatches to them, on the shared PagesService.
     void buildPageSeedHooks();
@@ -180,6 +191,25 @@ private:
         qint64 verifiedMs{0};
     };
     QHash<QString, VerifiedSession> m_pendingSessions;
+
+    /// The Sources one session's connections share, for every `InstanceMode::PerCaller`
+    /// connect point (which is the default). Keyed by session id, so a user's second tab
+    /// continues the first tab's Source rather than starting a blank one, and so does a
+    /// reconnect after the network dropped.
+    ///
+    /// `connections` is what decides when they die. A Source here outlives the socket that
+    /// built it, so it is owned by the edge and destroyed when the session's last
+    /// connection closes. Without the count the map would grow for the life of the process,
+    /// one entry per session that ever connected.
+    ///
+    /// A session id is required to key on, so an anonymous browser holding no session falls
+    /// back to a Source per connection. There is no identity to continue.
+    struct SessionSources
+    {
+        int connections{0};
+        QHash<QString, QObject *> byConnectPoint;
+    };
+    QHash<QByteArray, SessionSources> m_sessionSources;
 
     /// Connection caps.
     int m_activeGlobal{0};

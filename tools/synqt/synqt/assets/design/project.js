@@ -75,23 +75,16 @@ function isWebEdge(entity) {
     return entityType(entity || {}) === "web_edge";
 }
 
-// What a caller is on a link that does not say, the same rule appmodel.instance_of
-// applies. There is one Source per caller either way: a Source shared by every caller
-// could not be told who was calling, so its slots had no `Caller` at all.
+// How many Sources a link mints when it does not say, the same rule appmodel.instance_of
+// applies: one per caller, so a user's second tab continues the first tab's Source. The
+// alternative, `connection`, is one per link. Neither is one Source for everybody, which
+// could not be told who was calling and so had no `Caller` at all.
 export function instanceOf(design, link) {
     const declared = String((link && link.instance) || "");
     if (declared) {
         return declared;
     }
-    const consumers = (link && link.consumers) || [];
-    const entities = (design && design.entities) || [];
-    const owner = entities.find((entity) => entity.name === link.owner);
-    const clients = entities.filter((entity) => entityType(entity) === "client")
-        .map((entity) => entity.name);
-    if (owner && isWebEdge(owner) && consumers.some((name) => clients.includes(name))) {
-        return "per_session";
-    }
-    return "per_peer";
+    return "caller";
 }
 
 function linkLines(design, link) {

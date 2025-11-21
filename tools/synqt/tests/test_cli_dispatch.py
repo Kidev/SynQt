@@ -239,9 +239,9 @@ class TestAdd:
         monkeypatch.setattr(addcontract, "scaffold_connect_point", scaffold)
         assert _run(["add", "connect-point", "todo", "--project-dir", str(tmp_path),
                      "--owner", "web", "--contract", "Todo",
-                     "--consumers", "client,database", "--instance", "per_session"])[0] == 0
+                     "--consumers", "client,database", "--instance", "caller"])[0] == 0
         assert seen == {"name": "todo", "owner": "web", "consumers": ["client", "database"],
-                        "contract": "Todo", "instance": "per_session"}
+                        "contract": "Todo", "instance": "caller"}
 
     def test_an_empty_consumer_list_is_no_consumers_not_one_empty_name(self, tmp_path,
                                                                       monkeypatch):

@@ -40,7 +40,7 @@ ConnectPointConfig thingConnectPoint(quint16 port)
     connectPoint.owner = QStringLiteral("a");
     connectPoint.consumers = {QStringLiteral("b")};
     connectPoint.serverFile = QStringLiteral(M4_SRCDIR "/a/Thing.qml");
-    connectPoint.instance = ConnectPointInstance::PerPeer;
+    connectPoint.instance = ConnectPointInstance::PerCaller;
     connectPoint.endpoint.mode = MeshTransportMode::MutualTls;
     connectPoint.endpoint.host = QStringLiteral("127.0.0.1");
     connectPoint.endpoint.port = port;
@@ -111,7 +111,7 @@ private slots:
                 "owner": "database",
                 "consumers": ["web", "jobs"],
                 "server": "database/Access.qml",
-                "instance": "per_peer",
+                "instance": "caller",
                 "endpoint": {"transport": "mtls", "host": "127.0.0.1", "port": 9440}
             }]
         })json"};
@@ -128,7 +128,7 @@ private slots:
         QCOMPARE(access.name, QStringLiteral("access"));
         QCOMPARE(access.contract, QStringLiteral("Access"));
         QCOMPARE(access.serverFile, QStringLiteral("database/Access.qml"));
-        QVERIFY(access.instance == ConnectPointInstance::PerPeer);
+        QVERIFY(access.instance == ConnectPointInstance::PerCaller);
         QCOMPARE(access.consumers, QStringList({QStringLiteral("web"), QStringLiteral("jobs")}));
         QVERIFY(access.endpoint.mode == MeshTransportMode::MutualTls);
         QCOMPARE(access.endpoint.port, static_cast<quint16>(9440));

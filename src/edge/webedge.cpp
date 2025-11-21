@@ -1047,6 +1047,68 @@ QObject *WebEdge::createSource(const WebEdgeConnectPoint &connectPoint, QObject 
     return source;
 }
 
+QObject *WebEdge::sourceForConnection(const WebEdgeConnectPoint &connectPoint,
+                                      const QByteArray &sessionId, QWebSocket *socket,
+                                      QString *error)
+{
+    // A Source per connection: parented to the socket, so it dies with it, and nothing is
+    // remembered. This is also where an anonymous browser lands, because a per-caller
+    // Source has to be keyed on a caller and there is no session id to key on.
+    const bool perCaller{connectPoint.instance == InstanceMode::PerCaller
+                         && !sessionId.isEmpty()};
+    if (!perCaller) {
+        Caller *caller{Caller::forUser(connectPoint.contract, m_sessionManager, sessionId,
+                                       nullptr, socket)};
+        caller->setScopeOrder(m_config.scopeOrder, m_config.scopesHierarchical);
+        QObject *source{createSource(connectPoint, caller, socket, error)};
+        if (source) {
+            caller->setParent(source);
+            caller->setSource(source);
+        }
+        return source;
+    }
+
+    SessionSources &sources{m_sessionSources[sessionId]};
+    if (QObject *existing{sources.byConnectPoint.value(connectPoint.name)}) {
+        return existing;
+    }
+    // Parented to the edge, not to the socket: it outlives this connection on purpose, and
+    // releaseSessionSources() is what ends it. The Caller is minted once with it and holds
+    // the session, so `Caller.emitSignal` reaches every tab of that session, which is the
+    // whole point of sharing the Source.
+    Caller *caller{Caller::forUser(connectPoint.contract, m_sessionManager, sessionId,
+                                   nullptr, this)};
+    caller->setScopeOrder(m_config.scopeOrder, m_config.scopesHierarchical);
+    QObject *source{createSource(connectPoint, caller, this, error)};
+    if (!source) {
+        delete caller;
+        return nullptr;
+    }
+    caller->setParent(source);
+    caller->setSource(source);
+    sources.byConnectPoint.insert(connectPoint.name, source);
+    return source;
+}
+
+void WebEdge::releaseSessionSources(const QByteArray &sessionId)
+{
+    const auto entry{m_sessionSources.find(sessionId)};
+    if (entry == m_sessionSources.end()) {
+        return;
+    }
+    if (--entry->connections > 0) {
+        return;
+    }
+    // The last connection of this session is gone, so the state it was holding goes with
+    // it. A user who comes back gets a fresh Source, which is the same thing a restart
+    // would give them. A Source is live state, not storage. What must survive belongs in
+    // the entity singleton or behind a persistence connect point.
+    for (QObject *source : std::as_const(entry->byConnectPoint)) {
+        delete source;
+    }
+    m_sessionSources.erase(entry);
+}
+
 void WebEdge::onNewWebSocketConnection()
 {
     while (std::unique_ptr<QWebSocket> pending{m_httpServer->nextPendingWebSocketConnection()}) {
@@ -1065,18 +1127,28 @@ void WebEdge::hostConnection(QWebSocket *socket)
     const QString ip{socket->peerAddress().toString()};
     ++m_activeGlobal;
     ++m_activePerIp[ip];
-    connect(socket, &QWebSocket::disconnected, this, [this, socket, ip]() {
-        --m_activeGlobal;
-        if (--m_activePerIp[ip] <= 0) {
-            m_activePerIp.remove(ip);
-        }
-        socket->deleteLater();  // deletes the per-connection node/sources/caller parented to it
-    });
 
     // Identify the session behind this socket: the id the verifier stashed for this peer
     // (the accepted socket's handshake headers are not re-readable server-side).
     const QString key{peerKey(socket->peerAddress().toString(), socket->peerPort())};
     const QByteArray sessionId{m_pendingSessions.take(key).id};
+
+    // Claimed before any Source is reached for, and released when the socket closes. The
+    // count is what keeps a session's shared Sources alive across a tab closing while
+    // another tab is still open, and what destroys them when the last one goes.
+    if (!sessionId.isEmpty()) {
+        ++m_sessionSources[sessionId].connections;
+    }
+    connect(socket, &QWebSocket::disconnected, this, [this, socket, ip, sessionId]() {
+        --m_activeGlobal;
+        if (--m_activePerIp[ip] <= 0) {
+            m_activePerIp.remove(ip);
+        }
+        if (!sessionId.isEmpty()) {
+            releaseSessionSources(sessionId);
+        }
+        socket->deleteLater();  // deletes the per-connection node/sources/caller parented to it
+    });
 
     // One QtRO host node per connection, and one Source per connect point on it, minted
     // fresh with a Caller bound to this session. The node is per connection whatever the
@@ -1097,18 +1169,16 @@ void WebEdge::hostConnection(QWebSocket *socket)
         if (!connectPoint.scope.isEmpty() && !gate->hasScope(connectPoint.scope)) {
             continue;
         }
-        Caller *caller{Caller::forUser(connectPoint.contract, m_sessionManager,
-                                       sessionId, nullptr, socket)};
-        caller->setScopeOrder(m_config.scopeOrder, m_config.scopesHierarchical);
         QString error;
-        QObject *source{createSource(connectPoint, caller, socket, &error)};
+        QObject *source{sourceForConnection(connectPoint, sessionId, socket, &error)};
         if (!source) {
             emit upgradeRejected(error);
             continue;
         }
-        caller->setParent(source);
-        caller->setSource(source);  // Caller.emitSignal reaches this one caller
-        if (source && !node->enableRemoting(source, connectPoint.name)) {
+        // Remoted on this connection's own node. A per-caller Source is remoted on one node
+        // per tab, which QtRO allows: each host gets its own view of the same object, and
+        // every replica tracks it.
+        if (!node->enableRemoting(source, connectPoint.name)) {
             emit upgradeRejected(
                 QStringLiteral("enableRemoting failed for %1").arg(connectPoint.name));
         }

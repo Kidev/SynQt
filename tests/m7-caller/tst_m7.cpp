@@ -1,9 +1,9 @@
 // SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 // SPDX-License-Identifier: Apache-2.0
 
-// M7 acceptance: the three-entity todo authorization matrix, proven end to end.
-//   database (owner of `items`, per_peer)  authorizes the calling ENTITY (Caller.entity)
-//   web edge (owner of `todo`, per_session) authorizes the USER (Caller.hasScope/identity)
+// M7 acceptance. The three-entity todo authorization matrix, proven end to end.
+//   database (owner of `items`)  authorizes the calling ENTITY (Caller.entity)
+//   web edge (owner of `todo`)    authorizes the USER (Caller.hasScope/identity)
 //   client  (browser)                        presents a session, no secret, no cert
 // Verifies: anonymous cannot participate (scope-gated), a user removes only their own
 // items, a moderator removes any, the database refuses any caller other than the edge,
@@ -25,6 +25,7 @@
 
 #include "todo_sourcehelper.h"   // synqtRegisterTodoSources()
 #include "items_sourcehelper.h"  // synqtRegisterItemsSources()
+#include "draft_sourcehelper.h"  // synqtRegisterDraftSources()
 
 #include <QHostAddress>
 #include <QQmlEngine>
@@ -60,7 +61,7 @@ ConnectPointConfig itemsConnectPoint(quint16 port)
     connectPoint.owner = QStringLiteral("database");
     connectPoint.consumers = {QStringLiteral("web"), QStringLiteral("reporter")};
     connectPoint.serverFile = QStringLiteral(M7_SRCDIR "/database/Items.qml");
-    connectPoint.instance = ConnectPointInstance::PerPeer;
+    connectPoint.instance = ConnectPointInstance::PerCaller;
     connectPoint.endpoint.mode = MeshTransportMode::MutualTls;
     connectPoint.endpoint.host = QStringLiteral("127.0.0.1");
     connectPoint.endpoint.port = port;
@@ -84,7 +85,9 @@ SynClientConfig clientConfig(quint16 port, const QByteArray &cookie)
 {
     SynClientConfig config;
     config.edgeUrl = QUrl{QStringLiteral("wss://127.0.0.1:%1/sync").arg(port)};
-    config.connectPoints = {{QStringLiteral("todo"), QStringLiteral("Todo")}};
+    config.connectPoints = {{QStringLiteral("todo"), QStringLiteral("Todo")},
+                            {QStringLiteral("draft"), QStringLiteral("Draft")},
+                            {QStringLiteral("scratch"), QStringLiteral("Draft")}};
     config.pinnedCaCertPath = QStringLiteral(M7_CERT_DIR "/ca.crt");
     config.sessionCookie = cookie;
     config.scopeOrder = {QStringLiteral("anonymous"), QStringLiteral("user"),
@@ -96,6 +99,12 @@ SynClientConfig clientConfig(quint16 port, const QByteArray &cookie)
 QObject *todoReplica(SynClient *client)
 {
     return client->server()->value(QStringLiteral("todo")).value<QObject *>();
+}
+
+QRemoteObjectDynamicReplica *replicaNamed(SynClient *client, const QString &name)
+{
+    return qobject_cast<QRemoteObjectDynamicReplica *>(
+        client->server()->value(name).value<QObject *>());
 }
 
 } // namespace
@@ -124,8 +133,9 @@ private slots:
         QVERIFY2(QSslSocket::supportsSsl(), "TLS backend unavailable");
         synqtRegisterTodoSources();
         synqtRegisterItemsSources();
+        synqtRegisterDraftSources();
 
-        // The database entity owns `items` (per_peer), on an OS-assigned mTLS port.
+        // The database entity owns `items`, on an OS-assigned mTLS port.
         m_dbEngine = std::make_unique<QQmlEngine>();
         Topology dbTopology;
         dbTopology.entity = QStringLiteral("database");
@@ -150,7 +160,7 @@ private slots:
         QTRY_VERIFY((view = databaseView()) != nullptr);
         QTRY_VERIFY(qobject_cast<QRemoteObjectDynamicReplica *>(view)->isReplicaValid());
 
-        // The web edge: it owns `todo` (per_session, scope "user") and reaches the
+        // The web edge. It owns `todo` (scope "user") and reaches the
         // database through the "Database" accessor of its mesh runtime.
         WebEdgeConfig config;
         config.bundleDir = QStringLiteral(M7_SRCDIR "/bundle");
@@ -165,8 +175,21 @@ private slots:
         todo.contract = QStringLiteral("Todo");
         todo.serverFile = QStringLiteral(M7_SRCDIR "/web/Todo.qml");
         todo.scope = QStringLiteral("user");           // anonymous cannot acquire it
-        todo.instance = InstanceMode::PerSession;      // one instance per user, with Caller
-        config.connectPoints = {todo};
+        todo.instance = InstanceMode::PerCaller;      // one instance per user, with Caller
+
+        // The same Source file on two points, differing only in `instance:`. `draft` mints
+        // one Source per caller, so a user's second tab continues the first tab's; `scratch`
+        // mints one per connection, so it does not. Nothing but the Source holds their
+        // state, so what a caller reads back says which Source it reached.
+        WebEdgeConnectPoint draft;
+        draft.name = QStringLiteral("draft");
+        draft.contract = QStringLiteral("Draft");
+        draft.serverFile = QStringLiteral(M7_SRCDIR "/web/Draft.qml");
+        draft.instance = InstanceMode::PerCaller;
+        WebEdgeConnectPoint scratch{draft};
+        scratch.name = QStringLiteral("scratch");
+        scratch.instance = InstanceMode::PerConnection;
+        config.connectPoints = {todo, draft, scratch};
 
         m_edge = std::make_unique<WebEdge>(config, m_edgeEngine.get());
         m_edge->setContextObject(QStringLiteral("Database"),
@@ -183,6 +206,75 @@ private slots:
         m_database.reset();
         m_edgeEngine.reset();
         m_dbEngine.reset();
+    }
+
+    // `instance:` is a promise about how many Sources a connect point mints, and it used
+    // to be one the runtime did not keep. Every value minted a Source per connection, so a
+    // user's second tab always started blank. Both answers are checked here, on one Source
+    // file hosted twice, because the whole difference between them is the setting.
+    void instanceDecidesWhatASecondTabContinues()
+    {
+        const QByteArray aliceToken{
+            m_edge->sessionManager()->createSession(QStringLiteral("user"),
+                                                    identityFor(QStringLiteral("alice")))};
+        const QByteArray bobToken{
+            m_edge->sessionManager()->createSession(QStringLiteral("user"),
+                                                    identityFor(QStringLiteral("bob")))};
+
+        QQmlEngine clientEngine;
+        // Two tabs of one signed-in user. The same session credential, two sockets.
+        SynClient aliceTabOne{clientConfig(m_edgePort, cookieFor(aliceToken)), &clientEngine};
+        SynClient aliceTabTwo{clientConfig(m_edgePort, cookieFor(aliceToken)), &clientEngine};
+        SynClient bob{clientConfig(m_edgePort, cookieFor(bobToken)), &clientEngine};
+        aliceTabOne.start();
+        aliceTabTwo.start();
+        bob.start();
+        QTRY_COMPARE_WITH_TIMEOUT(aliceTabOne.session()->state(),
+                                  QStringLiteral("connected"), 8000);
+        QTRY_COMPARE_WITH_TIMEOUT(aliceTabTwo.session()->state(),
+                                  QStringLiteral("connected"), 8000);
+        QTRY_COMPARE_WITH_TIMEOUT(bob.session()->state(), QStringLiteral("connected"), 8000);
+
+        QRemoteObjectDynamicReplica *draftOne{replicaNamed(&aliceTabOne,
+                                                           QStringLiteral("draft"))};
+        QRemoteObjectDynamicReplica *draftTwo{replicaNamed(&aliceTabTwo,
+                                                           QStringLiteral("draft"))};
+        QRemoteObjectDynamicReplica *draftBob{replicaNamed(&bob, QStringLiteral("draft"))};
+        QRemoteObjectDynamicReplica *scratchOne{replicaNamed(&aliceTabOne,
+                                                             QStringLiteral("scratch"))};
+        QRemoteObjectDynamicReplica *scratchTwo{replicaNamed(&aliceTabTwo,
+                                                             QStringLiteral("scratch"))};
+        QVERIFY(draftOne && draftTwo && draftBob && scratchOne && scratchTwo);
+        QTRY_VERIFY(draftOne->isReplicaValid());
+        QTRY_VERIFY(draftTwo->isReplicaValid());
+        QTRY_VERIFY(draftBob->isReplicaValid());
+        QTRY_VERIFY(scratchOne->isReplicaValid());
+        QTRY_VERIFY(scratchTwo->isReplicaValid());
+
+        // PerCaller: one Source for alice, whatever number of tabs she opens. Her second
+        // tab sees what she typed in the first, and it is stamped with her own identity,
+        // so it is her Source and not somebody's.
+        QVERIFY(QMetaObject::invokeMethod(draftOne, "save",
+                                          Q_ARG(QString, QStringLiteral("milk"))));
+        QTRY_COMPARE(draftTwo->property("text").toString(), QStringLiteral("alice:milk"));
+        QCOMPARE(draftOne->property("text").toString(), QStringLiteral("alice:milk"));
+
+        // And not one Source for everybody. Bob is a different caller, so a different
+        // Source, and alice's draft is not in it.
+        QTest::qWait(300);
+        QVERIFY(draftBob->property("text").toString().isEmpty());
+        QVERIFY(QMetaObject::invokeMethod(draftBob, "save",
+                                          Q_ARG(QString, QStringLiteral("eggs"))));
+        QTRY_COMPARE(draftBob->property("text").toString(), QStringLiteral("bob:eggs"));
+        QCOMPARE(draftOne->property("text").toString(), QStringLiteral("alice:milk"));
+
+        // PerConnection: the same user, the same two tabs, and the state does not cross.
+        QVERIFY(QMetaObject::invokeMethod(scratchOne, "save",
+                                          Q_ARG(QString, QStringLiteral("note"))));
+        QTRY_COMPARE(scratchOne->property("text").toString(), QStringLiteral("alice:note"));
+        QTest::qWait(300);
+        QVERIFY2(scratchTwo->property("text").toString().isEmpty(),
+                 "instance: connection must give the second tab its own Source");
     }
 
     // Clauses 1, 2, 3, 5: the user authorization matrix and ownerSub non-leakage.

@@ -53,7 +53,7 @@ entities:
     type: relational
 
 connect_points:
-  # The whole live world. per_session gives each player their own private view (interest
+  # The whole live world. One Source per caller gives each player their own private view (interest
   # management): the edge simulates once in the World singleton and publishes each player
   # only their slice. scope: player is the real barrier; an unapproved account never has
   # `arena` acquired for it, so steer, ping, and the roster are out of reach.

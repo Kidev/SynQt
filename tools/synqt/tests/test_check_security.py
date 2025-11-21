@@ -456,24 +456,26 @@ class LayoutCollisionTest(unittest.TestCase):
 
 
 class InstanceDefaultTest(unittest.TestCase):
-    """Every connect point gets one Source per caller; `instance:` only says what a
-    caller is.
+    """`instance:` says how many Sources a point mints: one per `caller`, or per
+    `connection`.
 
-    There is no third answer. `shared` built one Source with no Caller bound to it at all,
-    so a slot's `Caller.hasScope(...)` or `Caller.entity` was a reference to something that
-    was not there, and an author who wrote an authorization line and no `instance:` had
-    written a line that could not run.
+    `caller` is the default everywhere, browser link and mesh alike, because continuing a
+    caller's own Source is what an author expects from a point that holds their state. The
+    two spellings it replaced are refused rather than translated: they claimed
+    per-identity and delivered per-connection, so an author who relied on the old
+    behaviour has to be told, not silently switched.
     """
 
     def _points(self, config):
         return {point["name"]: point["instance"]
                 for point in appmodel.normalized(config)["connect_points"]}
 
-    def test_a_browser_facing_point_defaults_to_per_session(self):
-        self.assertEqual(self._points(base_config())["app"], "per_session")
-
-    def test_a_service_to_service_point_defaults_to_per_peer(self):
-        self.assertEqual(self._points(base_config())["items"], "per_peer")
+    def test_both_sides_default_to_one_source_per_caller(self):
+        # The browser-facing point and the mesh point resolve the same way, which is the
+        # point of naming the value after the caller rather than after the transport.
+        points = self._points(base_config())
+        self.assertEqual(points["app"], "caller")
+        self.assertEqual(points["items"], "caller")
 
     def test_a_point_with_no_consumers_is_still_per_caller(self):
         # Nothing consumes it yet, which is not a reason to build a Source that could not
@@ -481,12 +483,27 @@ class InstanceDefaultTest(unittest.TestCase):
         config = base_config()
         config["connect_points"].append(
             {"name": "internal", "owner": "database", "consumers": [], "contract": "Internal"})
-        self.assertEqual(self._points(config)["internal"], "per_peer")
+        self.assertEqual(self._points(config)["internal"], "caller")
 
     def test_what_the_author_wrote_is_what_they_get(self):
         config = base_config()
-        config["connect_points"][0]["instance"] = "per_peer"
-        self.assertEqual(self._points(config)["app"], "per_peer")
+        config["connect_points"][0]["instance"] = "connection"
+        self.assertEqual(self._points(config)["app"], "connection")
+
+    def test_the_old_spellings_are_refused_and_say_what_changed(self):
+        """Not a rename the tool can apply for you. `per_session` and `per_peer` both mint
+        one Source per caller now, where they used to mint one per connection, so a
+        project written against them behaves differently and has to be told which it
+        wants."""
+        for retired in ("per_session", "per_peer"):
+            with self.subTest(retired):
+                config = base_config()
+                config["connect_points"][0]["instance"] = retired
+                ok, messages = check.validate(config)
+                self.assertFalse(ok)
+                refusal = next(m for m in messages if f"instance: {retired}" in m)
+                self.assertIn("caller", refusal)
+                self.assertIn("instance: connection", refusal)
 
     def test_asking_for_shared_is_refused_and_names_the_singleton(self):
         """The rule that would have caught the whole class. `shared` is gone, and a

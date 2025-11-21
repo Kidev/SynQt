@@ -45,7 +45,7 @@ browser only ever ends with an httpOnly session cookie.
 
 `providerEntityCentralizedLogin` and `providerEntityDistributedSessions` cover the shape
 where identity is not on the edge: an auth entity owns an `identity` and a `sessions`
-connect point (both `per_peer`, both over mutual TLS), each edge consumes them, and the
+connect point (one Source per calling edge on both, both over mutual TLS), each edge consumes them, and the
 edge holds no OAuth backend, no secret and no token; it only issues the session cookie.
 
 Those two connect points are framework contracts, not app contracts. They live in

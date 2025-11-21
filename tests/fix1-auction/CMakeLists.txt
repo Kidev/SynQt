@@ -3,7 +3,7 @@
 
 # FIX-1 acceptance: the auction tutorial's owner-side authorization, proven end to end on
 # the real three-entity gavel system (examples/gavel). The web edge owns the live auction
-# (per_session, so Caller is the bidding user) and authorizes every bid; the database owns
+# (one Source per caller, so Caller is the bidding user) and authorizes every bid; the database owns
 # the durable ledger and authorizes the calling entity (Caller.entity === "edge"). The
 # client is a browser presenting a session, no secret and no mesh certificate. Native host
 # kit; throwaway CA + entity certs and a localhost edge cert are generated at configure

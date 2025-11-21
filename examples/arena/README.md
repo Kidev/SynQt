@@ -11,8 +11,8 @@ all-time Hall of Fame behind the records entity.
 ```
 many players --wss+session--> web edge --mesh mTLS--> records
                               owns + simulates the    (all-time
-                              one authoritative arena; scores)
-                              per_session interest mgmt
+                              one authoritative arena, scores)
+                              per-caller interest mgmt
 ```
 
 ## Files, by tutorial page
@@ -23,7 +23,7 @@ many players --wss+session--> web edge --mesh mTLS--> records
 | `web/edge/Arena.syn`, `web/edge/identity/map.qml` | [The arena the edge owns](../../docs/tutorial-multiplayer-world.md) |
 | `client/app/Main.qml` (prediction, interpolation, HUD) | [See the others](../../docs/tutorial-multiplayer-client.md) |
 | `db/relational/records/Scores.syn`, `db/relational/records/Scores.qml`, `db/relational/records/schema.sql` | [The round and the Hall of Fame](../../docs/tutorial-multiplayer-rounds.md) |
-| `web/edge/World.qml` (singleton), `web/edge/Arena.qml` (per_session) | [Only what you can see](../../docs/tutorial-multiplayer-run.md) |
+| `web/edge/World.qml` (singleton), `web/edge/Arena.qml` (one Source per player) | [Only what you can see](../../docs/tutorial-multiplayer-run.md) |
 
 ## The three hands-on checks
 
@@ -45,7 +45,7 @@ The tutorial's three "try it, then think" checks are kept as acceptance fixtures
 The edge owns one authoritative arena, simulated once in the `web/edge/World.qml` singleton, and
 gives each player a `web/edge/Arena.qml` Source that publishes only their slice; the interest
 management the last tutorial page builds. Because every rule reads `Caller`, `arena` is
-`per_session`: the framework instantiates the shared world once and injects it into each
+one Source per caller: the framework instantiates the shared world once and injects it into each
 per-session Source by name (`World`), the same way it injects the mesh accessor `Records`.
 The `tests/fix2-arena` acceptance test drives that exact structure (a world instantiated
 once, injected as `World`, a per-session `Arena` over it) to prove the movement authority

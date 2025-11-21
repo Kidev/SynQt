@@ -383,7 +383,7 @@ class AppGenTest(unittest.TestCase):
             ],
             "connect_points": [
                 {"name": "auction", "contract": "Auction", "owner": "web",
-                 "consumers": ["client"], "instance": "per_session"},
+                 "consumers": ["client"], "instance": "caller"},
                 {"name": "ledger", "contract": "Ledger", "owner": "database",
                  "consumers": ["web"]}],
         }
@@ -532,7 +532,7 @@ class AppGenTest(unittest.TestCase):
             ],
             "connect_points": [
                 {"name": "arena", "contract": "Arena", "owner": "web",
-                 "consumers": ["client"], "instance": "per_session"}],
+                 "consumers": ["client"], "instance": "caller"}],
         }
         edge_main = maingen.render_edge_main(config, config["entities"][1], ["World"])
         self.assertIn("qmlRegisterSingletonType", edge_main)

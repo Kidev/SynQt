@@ -266,9 +266,9 @@ def build_parser() -> argparse.ArgumentParser:
                                     "name capitalized; name it only where two points "
                                     "carry one shape)")
     connect_point.add_argument("--instance", default="",
-                               choices=["", "per_session", "per_peer"],
-                               help="what a caller is on this point (default: read off "
-                                    "its ends; there is one Source per caller either way)")
+                               choices=["", "caller", "connection"],
+                               help="how many Sources this point mints (default: caller, "
+                                    "one per caller, shared by that caller's tabs)")
     for ap in (auth, entity, provider, contract, connect_point):
         ap.add_argument("--project-dir", default=".")
     return parser

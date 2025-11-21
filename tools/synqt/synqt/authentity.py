@@ -30,8 +30,8 @@ IDENTITY_SOURCE_QML = _HEADER_QML + """
 import QtQuick
 import SynQt
 
-// The authoritative identity Source on the auth entity (a per_peer instance: one per
-// consuming edge, so each edge's answer reaches only that edge). It bridges the connect
+// The authoritative identity Source on the auth entity (one instance per consuming
+// edge, so each edge's answer reaches only that edge). It bridges the connect
 // point to a single shared IdentityService (the `IdentityEngine` context object), which owns
 // the client secret, the token exchange and the stored tokens. The service methods are
 // synchronous, so this Source emits each result on itself and answers only the edge that
@@ -67,8 +67,8 @@ SESSION_SOURCE_QML = _HEADER_QML + """
 import QtQuick
 import SynQt
 
-// The authoritative session Source on the auth entity (a per_peer instance: one per
-// consuming edge, so each edge's emit reaches only that edge). It bridges the connect
+// The authoritative session Source on the auth entity (one instance per consuming
+// edge, so each edge's emit reaches only that edge). It bridges the connect
 // point to a single shared SessionManager (the `Sessions` context object): edge writes go
 // into the store, and the store's changes are forwarded to every edge. A newly connected
 // edge is replayed the current table (late join).

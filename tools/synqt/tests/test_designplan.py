@@ -128,7 +128,7 @@ def test_adding_a_link_creates_its_contract(tmp_path):
     document = designdoc.read(project)
     document["links"].append({
         "id": "new", "name": "prices", "contract": "Prices", "owner": "edge",
-        "consumers": ["app"], "instance": "per_session",
+        "consumers": ["app"], "instance": "caller",
         "members": [{"kind": "prop", "name": "spot", "type": "real",
                      "params": [], "roles": []}]})
     plan = designplan.compute(project, document)
@@ -146,7 +146,7 @@ def test_a_member_named_after_a_keyword_is_refused_rather_than_written(tmp_path)
     document = designdoc.read(project)
     document["links"].append({
         "id": "new", "name": "prices", "contract": "Prices", "owner": "edge",
-        "consumers": ["app"], "instance": "per_session",
+        "consumers": ["app"], "instance": "caller",
         "members": [{"kind": "slot", "name": "record", "type": "",
                      "params": [{"type": "string", "name": "who"}], "roles": []}]})
     plan = designplan.compute(project, document)
@@ -169,7 +169,7 @@ def test_a_new_link_gets_an_empty_source_on_its_owner(tmp_path):
     document = designdoc.read(project)
     document["links"].append({
         "id": "new", "name": "prices", "contract": "Prices", "owner": "edge",
-        "consumers": ["app"], "instance": "per_session", "members": []})
+        "consumers": ["app"], "instance": "caller", "members": []})
     plan = designplan.compute(project, document)
     source = next(c for c in plan.changes if c.path == "web/edge/Prices.qml")
     assert source.action == "create"
@@ -328,7 +328,7 @@ def test_execute_writes_exactly_what_the_plan_said(tmp_path):
     document = designdoc.read(project)
     document["links"].append({
         "id": "new", "name": "prices", "contract": "Prices", "owner": "edge",
-        "consumers": ["app"], "instance": "per_session",
+        "consumers": ["app"], "instance": "caller",
         "members": [{"kind": "slot", "name": "refresh", "type": "", "params": [],
                      "roles": []}]})
     plan = designplan.compute(project, document)

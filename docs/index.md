@@ -409,17 +409,17 @@ entities:
 connect_points:
   - name: feed
     owner: edge
-    instance: per_session
+    instance: caller
     consumers: [app]
     server: web/edge/Feed.qml
   - name: access
     owner: store
-    instance: per_peer
+    instance: caller
     consumers: [edge]
     server: db/relational/store/Access.qml
   - name: upstream
     owner: feeds
-    instance: per_peer
+    instance: caller
     consumers: [edge]
     server: api/feeds/Upstream.qml
 ```
@@ -431,7 +431,7 @@ connect_points:
 <li data-code="type: web_edge" data-href="entities/">The one entity allowed to face the internet, on the one public port. Nothing else gets one.</li>
 <li data-code="type: relational" data-href="providers/">A database entity: embedded SQLite by default, PostgreSQL or MySQL behind the same interface with one config value.</li>
 <li data-code="type: api" data-href="entities/">The outbound HTTP gateway. It holds the third-party credentials, and it is the only entity that calls out.</li>
-<li data-code="instance: per_session" data-href="programming-model/">One Source per browser connection, which is what gives its slots a Caller. The mesh equivalent is per_peer: one Source per calling entity.</li>
+<li data-code="instance: caller" data-href="programming-model/">One Source per caller, so a user's second tab continues the first tab's. Write instance: connection for one per link instead.</li>
 <li data-code="consumers: [app]" data-href="project-layout-and-config/">The browser's one way in, and deny by default: an entity that is not on this list cannot open this connect point at all.</li>
 <li data-code="consumers: [edge]" data-href="entities/">The database is reachable by the edge, over mutual TLS, and by nothing else, browser included.</li>
 </ul>

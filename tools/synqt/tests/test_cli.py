@@ -27,11 +27,11 @@ class AddContractTest(unittest.TestCase):
         addcontract.scaffold_contract(self.root, "Todo", owner="edge")
         message = addcontract.scaffold_connect_point(
             self.root, "todo", owner="edge", consumers=[], contract="Todo",
-            instance="per_session")
+            instance="caller")
         self.assertIn("deny-by-default", message.lower())
         cps = yaml.safe_load((self.root / "synqt.yaml").read_text())["connect_points"]
         self.assertEqual(cps[0]["name"], "todo")
-        self.assertEqual(cps[0]["instance"], "per_session")
+        self.assertEqual(cps[0]["instance"], "caller")
 
     def test_connect_point_rejects_unknown_entity(self):
         with self.assertRaises(addcontract.AddContractError):

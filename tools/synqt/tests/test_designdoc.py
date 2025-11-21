@@ -39,7 +39,7 @@ def test_a_link_carries_its_owner_consumers_and_instance():
     ledger = next(l for l in document["links"] if l["name"] == "ledger")
     assert ledger["owner"] == "books"
     assert ledger["consumers"] == ["edge"]
-    assert ledger["instance"] == "per_peer"
+    assert ledger["instance"] == "caller"
 
 
 def test_a_link_carries_the_contract_members():
@@ -175,7 +175,7 @@ def test_to_config_gives_back_the_topology_it_was_read_from():
     ledger = next(p for p in config["connect_points"] if p["name"] == "ledger")
     assert ledger["owner"] == "books"
     assert ledger["consumers"] == ["edge"]
-    assert ledger["instance"] == "per_peer"
+    assert ledger["instance"] == "caller"
 
 
 def test_to_config_keeps_what_the_document_does_not_model():

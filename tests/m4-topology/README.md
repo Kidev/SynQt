@@ -67,7 +67,7 @@ configure time (project CA + `a`/`b`/`c` entity certs) into `build/m4-topology/c
 - One `ConnectPointHost` (own mesh endpoint) per connect point gives per-connect-point
   access control for free; a peer connects to a specific connect point's endpoint, and
   that endpoint enforces exactly its consumers.
-- `instance: shared` is implemented; `per_peer`/`per_session` Source instances are
+- `instance: caller` and `instance: connection` are implemented; the Source instances are
   structured in the topology but come with the caller/session machinery in M7.
 - The generator now includes `<QStandardItemModel>` (QtGui) only when a contract has a
   model, so a model-less service entity does not pull in QtGui.

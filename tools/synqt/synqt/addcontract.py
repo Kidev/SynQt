@@ -213,10 +213,10 @@ def scaffold_connect_point(project_dir: os.PathLike[str] | str, name: str, *,
                            owner: str, consumers: List[str],
                            contract: Optional[str] = None,
                            instance: Optional[str] = None) -> str:
-    if instance is not None and instance not in ("per_session", "per_peer"):
+    if instance is not None and instance not in appmodel.INSTANCE_MODES:
         raise AddContractError(
-            "instance must be per_session or per_peer; there is one Source per caller and "
-            "the only question is what a caller is on this point")
+            "instance must be caller or connection: one Source for each caller (the "
+            "default, shared by that caller's tabs) or one for each link")
     contract = contract or appmodel.contract_of({"name": name})
     check_qml_name(contract, entity_type=appmodel.entity_type(owner_entity(project_dir,
                                                                           owner)))

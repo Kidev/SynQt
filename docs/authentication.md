@@ -230,7 +230,7 @@ talks to identity through a connect point boundary.
 
 It is also literally one line, because everything the line implies is generated. Declare
 the entity, name it, and `synqt build` writes the two connect points (`identity` and
-`sessions`, `per_peer` so one edge's answer never reaches another), the Source QML that
+`sessions`, one Source per caller so one edge's answer never reaches another), the Source QML that
 bridges each to its engine, and the entity's `main.cpp` holding the OAuth engine and the
 authoritative session store. Their contracts ship in the runtime library, so no project
 carries an `Identity.syn` of its own and none has to.

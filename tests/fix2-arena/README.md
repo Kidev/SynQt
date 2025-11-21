@@ -5,7 +5,7 @@
 
 Proves the [multiplayer tutorial](../../docs/tutorial-multiplayer.md)'s hands-on checks end
 to end on the tutorial's own architecture: a `pragma Singleton` `World` (registered as a QML
-singleton type) simulates the one authoritative arena, and a `per_session` `Arena` Source
+singleton type) simulates the one authoritative arena, and a per-caller `Arena` Source
 over it carries each player's view. Native host kit; the edge runs in one process, driven by
 native `SynClient`s acting as browsers.
 

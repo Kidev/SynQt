@@ -51,7 +51,7 @@ DOCUMENT = {
     ],
     "links": [
         {"name": "auction", "contract": "Auction", "owner": "edge", "consumers": ["app"],
-         "instance": "per_session", "transport": "", "members": [
+         "instance": "caller", "transport": "", "members": [
              {"kind": "prop", "name": "highest", "type": "int", "params": [], "roles": []},
              {"kind": "model", "name": "bids", "type": "", "params": [],
               "roles": [{"type": "string", "name": "who"},
@@ -63,7 +63,7 @@ DOCUMENT = {
              {"kind": "slot", "name": "watch", "type": "", "params": [], "roles": []},
          ]},
         {"name": "records", "contract": "Records", "owner": "books",
-         "consumers": ["edge"], "instance": "per_peer", "transport": "", "members": []},
+         "consumers": ["edge"], "instance": "caller", "transport": "", "members": []},
     ],
 }
 
@@ -400,7 +400,7 @@ def test_the_page_and_the_cli_resolve_one_instance_the_same_way():
     cli = {point["name"]: point["instance"]
            for point in appmodel.normalized(config)["connect_points"]}
     assert page == cli
-    assert page == {"feed": "per_session", "items": "per_peer", "quiet": "per_peer"}
+    assert page == {"feed": "caller", "items": "caller", "quiet": "caller"}
 
 
 def test_the_home_pages_project_is_the_one_the_home_page_reads():

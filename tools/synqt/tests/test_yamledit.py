@@ -107,8 +107,8 @@ def test_patch_changes_one_field_and_nothing_else():
 
 def test_patch_adds_a_field_the_item_did_not_have():
     out = yamledit.patch_item(SAMPLE, "connect_points", "auction",
-                              {"instance": "per_session"})
-    assert yaml.safe_load(out)["connect_points"][0]["instance"] == "per_session"
+                              {"instance": "caller"})
+    assert yaml.safe_load(out)["connect_points"][0]["instance"] == "caller"
 
 
 def test_patch_replaces_a_field_that_spans_several_lines():

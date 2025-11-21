@@ -218,7 +218,7 @@ def entity_topology(config: Dict[str, Any], entity: Dict[str, Any], project_dir:
             "owner": owner,
             "consumers": consumers,
             "server": _server_file(root, connect_point, owners),
-            "instance": connect_point.get("instance", "shared"),
+            "instance": appmodel.instance_of(connect_point, config),
             "endpoint": endpoints.get(connect_point.get("name"),
                                       {"transport": "mtls", "host": "127.0.0.1",
                                        "port": MESH_PORT_BASE}),

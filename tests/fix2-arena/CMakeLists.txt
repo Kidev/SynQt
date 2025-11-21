@@ -3,7 +3,7 @@
 
 # FIX-2 acceptance: the multiplayer tutorial's movement authority and guest-list gate. The
 # web edge owns one authoritative arena (a World simulated once, injected into each
-# per_session Arena Source by name) and integrates every blob itself from an aim point;
+# per-caller Arena Source by name) and integrates every blob itself from an aim point;
 # `scope: player` on the connect point means an under-scoped session never acquires the
 # arena at all. Native host kit; a localhost edge cert is generated at configure time.
 

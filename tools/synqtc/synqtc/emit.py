@@ -197,7 +197,7 @@ def _source_helper_class(contract: Contract, records, path) -> str:
         lines.append("")
     if contract.signals:
         lines.append("    // Deliver a contract signal to the acquiring consumer(s). On a")
-        lines.append("    // per_session/per_peer instance the sole consumer is the caller, so")
+        lines.append("    // one Source per caller the sole consumer is that caller, so")
         lines.append("    // Caller.emitSignal(\"<Signal>\", ...) routes here to answer one caller.")
         for signal in contract.signals:
             params = _param_list(signal.params, records, path)

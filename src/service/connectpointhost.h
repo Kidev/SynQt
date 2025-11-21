@@ -53,11 +53,26 @@ signals:
 private:
     void onPeerConnected(QIODevice *device, const SynQt::MeshPeer &peer);
     QObject *createSource(QObject *caller, QObject *parent, QString *error);
+    /// The Source this link acquires, minted or continued. `PerCaller` (the default) keys
+    /// it on the verified entity name, so a consumer that opens a second link reaches the
+    /// Source its first link has been using. Returns nullptr on a load failure.
+    QObject *sourceForPeer(const MeshPeer &peer, QIODevice *device, QString *error);
+    /// Drop one link's claim on its entity's Source, destroying it with the last link.
+    void releasePeerSource(const QString &entity);
 
     ConnectPointConfig m_config;
     MeshCredentials m_credentials;
     QQmlEngine *m_engine;
     MeshServer *m_server{nullptr};
+    /// The Source one consuming entity's links share, under `PerCaller`. Counted for the
+    /// same reason the edge counts sessions: it outlives the link that built it, so
+    /// something has to end it, and that is the last link closing.
+    struct PeerSource
+    {
+        int connections{0};
+        QObject *source{nullptr};
+    };
+    QHash<QString, PeerSource> m_peerSources;
     /// No Source and no host node here: both are per peer, parented to that peer's device
     /// (see onPeerConnected), so a disconnect takes its Source and its Caller with it.
     QHash<QString, QObject *> m_contextObjects;

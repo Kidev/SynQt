@@ -24,7 +24,7 @@
       ],
       "links": [
         {"name": "feed", "contract": "Feed", "owner": "edge", "consumers": ["app"],
-         "instance": "per_session", "members": [
+         "instance": "caller", "members": [
            {"kind": "prop", "name": "loaded", "type": "bool", "params": [], "roles": []},
            {"kind": "model", "name": "rows", "type": "", "params": [],
             "roles": [{"type": "int", "name": "id"}, {"type": "string", "name": "title"}]},
@@ -33,12 +33,12 @@
             "params": [{"type": "string", "name": "reason"}], "roles": []}
          ]},
         {"name": "access", "contract": "Access", "owner": "store", "consumers": ["edge"],
-         "instance": "per_peer", "members": [
+         "instance": "caller", "members": [
            {"kind": "slot", "name": "allows", "type": "bool",
             "params": [{"type": "string", "name": "sub"}], "roles": []}
          ]},
         {"name": "upstream", "contract": "Upstream", "owner": "feeds", "consumers": ["edge"],
-         "instance": "per_peer", "members": [
+         "instance": "caller", "members": [
            {"kind": "slot", "name": "fetch", "type": "var", "params": [], "roles": []}
          ]}
       ]

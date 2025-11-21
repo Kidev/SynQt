@@ -1,0 +1,10 @@
+// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+// SPDX-License-Identifier: Apache-2.0
+
+// State that lives in the Source and nowhere else. No database behind it, so what a
+// caller reads back is exactly what some Source instance was told. That is what makes it
+// the probe for `shared:` (how many Sources one connect point mints).
+contract Draft {
+    prop string text                     // the caller's unsent draft
+    slot save(string value)              // the edge stamps it with the caller
+}

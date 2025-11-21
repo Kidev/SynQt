@@ -4,7 +4,7 @@
 # M7 acceptance: SessionManager, the Caller accessor in every slot, connect-point scope
 # gating, and per-peer authorization, proven end to end on the three-entity todo. The
 # database (owner of `items`) authorizes the calling entity; the edge (owner of `todo`,
-# per_session) authorizes the user; the client is a browser. Native host kit; throwaway
+# a Source per caller) authorizes the user; the client is a browser. Native host kit; throwaway
 # CA + entity certs and a localhost edge cert are generated at configure time.
 
 cmake_minimum_required(VERSION 3.21)
@@ -42,6 +42,9 @@ qt_add_executable(tst_m7 tst_m7.cpp)
 # database); every consumer uses dynamic replicas, so no replica headers are generated.
 synqt_add_contract(tst_m7 ROLE source SYN "${CMAKE_CURRENT_SOURCE_DIR}/shared/Todo.syn")
 synqt_add_contract(tst_m7 ROLE source SYN "${CMAKE_CURRENT_SOURCE_DIR}/shared/Items.syn")
+# Draft holds state in the Source and nowhere else, which is what lets a test see how
+# many Sources one connect point minted.
+synqt_add_contract(tst_m7 ROLE source SYN "${CMAKE_CURRENT_SOURCE_DIR}/shared/Draft.syn")
 
 target_compile_definitions(tst_m7 PRIVATE
     M7_CERT_DIR="${M7_CERTS}"

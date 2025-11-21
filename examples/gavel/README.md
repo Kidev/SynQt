@@ -44,5 +44,5 @@ handlers (no `target`) and returning-slot `.then(...)` promises
 (`Books.ledger.recentWinners().then(rows => ...)`). The imperative
 `signal.connect(...)` and a `Connections` block remain available for a dynamic target.
 The `tests/fix1-auction` acceptance test drives these exact Source files, so this is the
-proven, runnable rendering. The `auction` connect point is `per_session` because every rule
+proven, runnable rendering. The `auction` connect point mints a Source per caller because every rule
 it enforces reads `Caller`, and only a per-session (or per-peer) instance binds one.

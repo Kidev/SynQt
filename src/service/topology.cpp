@@ -43,10 +43,11 @@ MeshTransportMode transportModeFromString(const QString &value)
 
 ConnectPointInstance instanceFromString(const QString &value)
 {
-    // Per-peer is the fallback because the mesh is where an unqualified topology lands: a
-    // browser-facing point is written by the edge, which says per_session explicitly.
-    return value == QLatin1String("per_session") ? ConnectPointInstance::PerSession
-                                                 : ConnectPointInstance::PerPeer;
+    // Per-caller is the fallback, and the fallback is the safe one: continuing a caller's
+    // own Source is what an author expects from a point that holds their state, and asking
+    // for a Source per link is the deliberate choice.
+    return value == QLatin1String("connection") ? ConnectPointInstance::PerConnection
+                                                : ConnectPointInstance::PerCaller;
 }
 
 } // namespace

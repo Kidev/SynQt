@@ -4,8 +4,8 @@
 import QtQuick
 import SynQt
 
-// The authoritative session Source on the auth entity (a per_peer instance: one per
-// consuming edge, so each edge's emit reaches only that edge). It bridges the connect
+// The authoritative session Source on the auth entity (one instance per consuming
+// edge, so each edge's emit reaches only that edge). It bridges the connect
 // point to a single shared SessionManager (the `Sessions` context object): edge writes go
 // into the store, and the store's changes are forwarded to every edge. A newly connected
 // edge is replayed the current table (late join).

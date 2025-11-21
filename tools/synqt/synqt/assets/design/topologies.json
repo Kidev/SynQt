@@ -27,7 +27,7 @@
         ],
         "links": [
           {"name": "ledger", "contract": "Ledger", "owner": "database",
-           "consumers": ["web", "client"], "instance": "per_peer"}
+           "consumers": ["web", "client"], "instance": "caller"}
         ]
       }
     },
@@ -45,7 +45,7 @@
         ],
         "links": [
           {"name": "ledger", "contract": "Ledger", "owner": "records",
-           "consumers": ["web"], "instance": "per_peer"}
+           "consumers": ["web"], "instance": "caller"}
         ]
       }
     },
@@ -63,7 +63,7 @@
         ],
         "links": [
           {"name": "ledger", "contract": "Ledger", "owner": "web",
-           "consumers": ["reports"], "instance": "per_peer"}
+           "consumers": ["reports"], "instance": "caller"}
         ]
       }
     },
@@ -81,7 +81,7 @@
         ],
         "links": [
           {"name": "ledger", "contract": "Ledger", "owner": "web",
-           "consumers": ["web"], "instance": "per_peer"}
+           "consumers": ["web"], "instance": "caller"}
         ]
       }
     },
@@ -116,9 +116,9 @@
         ],
         "links": [
           {"name": "ledger", "contract": "Ledger", "owner": "database",
-           "consumers": ["web"], "instance": "per_peer"},
+           "consumers": ["web"], "instance": "caller"},
           {"name": "ledger", "contract": "Bids", "owner": "web",
-           "consumers": ["client"], "instance": "per_peer"}
+           "consumers": ["client"], "instance": "caller"}
         ]
       }
     },
@@ -126,7 +126,7 @@
       "id": "instance-that-is-not-a-mode",
       "rule": "invalid-instance",
       "level": "error",
-      "why": "A misspelled per_session is not per_session, and the point of that setting is which caller a Source belongs to.",
+      "why": "A misspelled connection is not connection, and the point of that setting is how many Sources the point mints.",
       "document": {
         "version": 1,
         "project": "rules",
@@ -170,7 +170,7 @@
         ],
         "links": [
           {"name": "ledger", "contract": "Ledger", "owner": "database",
-           "consumers": ["web"], "instance": "per_peer", "transport": "local"}
+           "consumers": ["web"], "instance": "caller", "transport": "local"}
         ]
       }
     },
@@ -188,7 +188,7 @@
         ],
         "links": [
           {"name": "clientToWeb", "contract": "ClientToWeb", "owner": "client",
-           "consumers": ["web"], "instance": "per_peer"}
+           "consumers": ["web"], "instance": "caller"}
         ]
       }
     },
@@ -207,7 +207,7 @@
         ],
         "links": [
           {"name": "feed", "contract": "Feed", "owner": "edge",
-           "consumers": ["app"], "instance": "per_peer"}
+           "consumers": ["app"], "instance": "caller"}
         ]
       }
     }

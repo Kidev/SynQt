@@ -21,13 +21,26 @@ namespace SynQt {
 /// socket is an explicit opt-in and is never selected implicitly.
 enum class MeshTransportMode { MutualTls, LocalSocket };
 
-/// What a caller is on a connect point: another entity (per-peer) or a browser session
-/// (per-session). Either way there is one Source per caller, which is the only way a
-/// slot can be told who invoked it: QtRO hands enableRemoting() a single object and
-/// never reports the calling connection, so a Source shared by every caller could carry
-/// no Caller at all. State the callers genuinely share lives in the entity's own
-/// singleton, which outlives all of them.
-enum class ConnectPointInstance { PerSession, PerPeer };
+/// How many Sources a connect point mints, and therefore who shares the state one holds.
+///
+/// PerCaller (the default) is one Source per caller *identity*: every link a signed-in
+/// user's browser opens reaches the same Source, and so does every link one calling
+/// entity opens. A user's second tab continues the first tab's Source rather than
+/// starting a blank one.
+///
+/// PerConnection is one Source per link. Two tabs of one user get two, and neither sees
+/// the other's state. Ask for it when a Source holds something that belongs to the link
+/// rather than to the person: a cursor position, a live view window, a stream cursor.
+///
+/// Neither is "one Source for everybody", and there is no such value. QtRO hands
+/// enableRemoting() a single object and never reports which connection invoked a slot,
+/// so a Source shared by every caller could carry no Caller at all. State that really is
+/// shared by everyone lives in the entity's own singleton, which outlives every Source.
+///
+/// Sharing one Source across a caller's links is possible because a Source may be
+/// remoted by more than one QRemoteObjectHost: the edge keeps one host node per socket,
+/// enables the same Source on each, and every replica tracks it.
+enum class ConnectPointInstance { PerCaller, PerConnection };
 
 /// Where the owner hosts a connect point (and where its consumers reach it).
 struct MeshEndpoint
@@ -56,7 +69,7 @@ struct ConnectPointConfig
     QString owner;
     QStringList consumers;
     QString serverFile;  ///< the owner-side QML that implements the Source
-    ConnectPointInstance instance{ConnectPointInstance::PerPeer};
+    ConnectPointInstance instance{ConnectPointInstance::PerCaller};
     MeshEndpoint endpoint;
 };
 

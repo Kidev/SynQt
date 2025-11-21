@@ -11,7 +11,7 @@ include or a CMake target collision, because a string that is absent asserts not
 
 This fixture closes that gap by building the generated code on the native host kit. Running
 appgen over the real three-entity gavel topology (client + web edge + persistence database, with
-connect points, `per_session`, identity, and a provider) and then compiling every entity is the
+connect points, a scope-gated point, identity, and a provider) and then compiling every entity is the
 only check that exercises the whole service/edge/provider main path as a compiler sees it.
 
 It earned its place: the first time it ran it found three defects the string tests had missed;

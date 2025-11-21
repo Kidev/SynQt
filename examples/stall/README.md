@@ -62,4 +62,4 @@ sends the fresh seed even when the page body itself is unchanged (a `notModified
 durable stock and authorizes the calling entity itself: only the web edge
 (`Caller.entity === "edge"`) may `restock`. The `catalog` connect
 point is `shared` (one live list for every browser); the `inventory` connect point is
-`per_peer` over mutual TLS, reachable only by the edge.
+one Source per calling entity, over mutual TLS, reachable only by the edge.

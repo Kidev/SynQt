@@ -786,8 +786,8 @@ def render_edge_main(config: Dict[str, Any], edge: Dict[str, Any],
     for cp in client_facing:
         cp_name = cp.get("name")
         contract = cp.get("contract", "")
-        instance = ("InstanceMode::PerSession"
-                    if cp.get("instance") == "per_session" else "InstanceMode::Shared")
+        instance = ("InstanceMode::PerConnection"
+                    if cp.get("instance") == "connection" else "InstanceMode::PerCaller")
         var = re.sub(r"[^0-9A-Za-z]", "", cp_name) or "connectPoint"
         server_file = cp.get("server") or appmodel.source_path(edge, contract)
         # The declared scope is the barrier that decides whether this connect point is

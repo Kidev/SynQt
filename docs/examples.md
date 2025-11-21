@@ -52,7 +52,7 @@ connect_points:
     owner: edge               # the edge holds the authoritative Source
     consumers: [app]          # the browser may acquire it
     server: web/edge/Counter.qml
-    # no instance: a browser-facing point is per_session, so each connection gets its
+    # no instance: one Source per caller is the default, so each session gets its
     # own Source and each slot gets its Caller. The counter itself is one number for
     # everybody, so it lives in the edge entity's own file below.
     # no scope: any session may use it
@@ -212,7 +212,7 @@ connect_points:
     owner: edge
     consumers: [app]
     server: web/edge/Todo.qml
-    # no instance: per_session, so each slot has its Caller. The list everyone sees
+    # no instance: caller, so each slot has its Caller. The list everyone sees
     # lives in the edge entity's own file, which outlives any one connection.
     # no scope on the connect point: anonymous users may acquire it and read.
     # write permission is enforced inside the slots, not at acquisition.
@@ -438,7 +438,7 @@ connect_points:
     consumers: [app]
     server: web/edge/Draft.qml
     scope: user               # only signed in users may acquire it at all
-    instance: per_session     # each session has its own draft Source
+    instance: caller     # each session has its own draft Source
 ```
 
 One user's draft is a different Source instance from another's, and this one touches no
@@ -500,14 +500,14 @@ connect_points:
     owner: edge               # the edge owns the user facing object
     consumers: [app]          # the browser may acquire it
     server: web/edge/Todo.qml
-    # no instance: a browser-facing point defaults to per_session, which is what gives
+    # no instance: one Source per caller is the default, which is what gives
     # the slots below their Caller
 
   - name: items
     owner: store              # the store entity owns durable storage
     consumers: [edge]         # only the edge may reach it; never the browser
     server: db/relational/store/Items.qml
-    # no instance: a service-to-service point defaults to per_peer, so Caller.entity is
+    # no instance: one Source per calling entity, so Caller.entity is
     # the verified name of the entity that called
 ```
 
@@ -724,7 +724,7 @@ connect_points:
     owner: stock              # the stock entity owns the durable stock
     consumers: [edge]         # only the edge; a client consumer here fails synqt check
     server: db/relational/stock/Inventory.qml
-    instance: per_peer
+    instance: caller
 ```
 
 ### The delivered page, `web/edge/pages/Campaign.qml`

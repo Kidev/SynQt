@@ -268,33 +268,46 @@ def contract_of(point: Dict[str, Any]) -> str:
     return f"{name[:1].upper()}{name[1:]}" if name else ""
 
 
+#: How many Sources a connect point mints, and therefore who shares what one holds.
+#:
+#: `caller` (the default) is one Source per caller identity: every link one signed-in user
+#: opens reaches the same Source, and so does every link one consuming entity opens. A
+#: second tab continues the first tab's Source. `connection` is one Source per link, for
+#: state that belongs to the link rather than to the person.
+#:
+#: There is no third value meaning one Source for everybody. QtRO hands `enableRemoting()`
+#: a single object and never tells a slot which connection invoked it, so such a Source
+#: could carry no `Caller` at all: every `Caller.hasScope(...)` written in one was a
+#: reference to something that was not there. State shared by everyone lives in the
+#: entity's own singleton, which outlives every Source.
+INSTANCE_MODES = frozenset({"caller", "connection"})
+
+#: The spellings this pair replaced, and what each one now is. `per_session` and `per_peer`
+#: named which *kind* of caller a point served, which the consumer list already says; both
+#: are `caller` now, since one Source per caller is what they both described. `shared` is
+#: not translated, because it meant one Source for everybody and there is no such thing.
+RETIRED_INSTANCE_MODES: Dict[str, str] = {
+    "per_session": "caller",
+    "per_peer": "caller",
+}
+
+
 def instance_of(point: Dict[str, Any], config: Dict[str, Any]) -> str:
-    """Which kind of caller a connect point's Sources are minted for.
+    """How many Sources this connect point mints: one per `caller`, or one per `connection`.
 
-    Always one Source per caller, because there is no such thing as a call without one.
-    The only question is what a caller *is* on this point: a browser session
-    (`per_session`) or another entity (`per_peer`). A point that says nothing is read off
-    its own ends, and saying it changes nothing about how many Sources exist.
+    `caller` is the default and the one that surprises nobody: a Source holds that caller's
+    state, and their next tab or their reconnect continues it. Ask for `connection` when
+    what the Source holds belongs to the link and not to the person, like a live view
+    window or a stream cursor, and two tabs should not share it.
 
-    There used to be a third answer, `shared`, meaning one Source for everyone. QtRO hands
-    `enableRemoting()` a single object and never tells a slot which connection invoked it,
-    so that one Source had no `Caller` to give: every `Caller.hasScope(...)` and
-    `Caller.entity` an author had written in it was a reference to something that was not
-    there. It bought almost nothing to pay for that (the edge builds a `QRemoteObjectHost`
-    per connection either way, so it saved one QObject per browser), and state that really
-    is shared has a better home in the entity's own singleton, which outlives every Source
-    and which the framework's own Pages connect point already uses that way.
+    `config` is unused now and kept in the signature because the resolution used to depend
+    on the point's ends. It no longer does: the answer is the same on the mesh and at the
+    edge, which is the point of naming it after the caller rather than after the transport.
     """
     declared = point.get("instance")
     if isinstance(declared, str) and declared.strip():
         return declared.strip()
-    by_name = {str(entity.get("name") or ""): entity for entity in entities(config)}
-    owner = by_name.get(str(point.get("owner") or ""))
-    consumers = [str(name) for name in (point.get("consumers") or [])]
-    clients = {name for name, entity in by_name.items() if is_client(entity)}
-    if owner is not None and is_edge(owner) and (clients & set(consumers)):
-        return "per_session"
-    return "per_peer"
+    return "caller"
 
 
 def normalized(config: Dict[str, Any]) -> Dict[str, Any]:
@@ -776,8 +789,8 @@ def app_points(points: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 def auth_connect_points(config: Dict[str, Any]) -> List[Dict[str, Any]]:
     """The identity and session links `identity.provider_entity` implies, or [].
 
-    Owned by the named auth entity, consumed by every web edge that serves login, and
-    `per_peer` on both: each edge gets its own Source instance, so one edge's answer (a
+    Owned by the named auth entity and consumed by every web edge that serves login. One
+    Source per caller on both, so each edge gets its own instance and one edge's answer (a
     user's normalized identity, an authorization URL) never crosses to another. The
     transport is left to the usual resolution, which means mutual TLS on loopback unless
     the auth entity's `mesh:` block says otherwise, like any other mesh link.
@@ -798,7 +811,7 @@ def auth_connect_points(config: Dict[str, Any]) -> List[Dict[str, Any]]:
              "contract": contract,
              "owner": owner,
              "consumers": consumers,
-             "instance": "per_peer",
+             "instance": "caller",
              "server": source_path(owning, contract),
              "framework": True}
             for name, contract in _AUTH_POINTS if name not in declared]
