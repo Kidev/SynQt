@@ -34,43 +34,20 @@ def _duplicate_messages(names: List[Any], what: str, consequence: str) -> List[s
 
 
 def _entity_type_messages(declared: List[Dict[str, Any]]) -> List[str]:
-    """Refuse an unknown `type:`, and refuse the three fields it replaced.
+    """Refuse a `type:` that is not one of the eight.
 
-    An entity used to say what it was three times over (`kind:`, `capability:` and
-    `blueprint:`, with `blueprint: service` restating `kind: service`), and the folder rule
-    already collapsed all three into one answer. They are refused by name rather than
-    ignored: a config still written the old way would otherwise read as a plain service,
-    put its files in the wrong folder, and lose its provider, all without a word.
-
-    An unknown type is refused for the same reason. `type: relational` misspelled is an
-    entity with no `Db`, whose files go to `service/`, and whose provider block nothing
-    reads; every symptom points somewhere other than the typo.
+    `type: relational` misspelled is an entity with no `Db`, whose files go to `service/`,
+    and whose provider block nothing reads. Every symptom points somewhere other than the
+    typo, so the typo is named here.
     """
     messages: List[str] = []
     for entity in declared:
         name = str(entity.get("name") or "?")
-        for retired, replacement in appmodel.RETIRED_ENTITY_FIELDS.items():
-            if retired in entity:
-                messages.append(
-                    f"error: entity '{name}' sets '{retired}:', which no longer exists; "
-                    f"write '{replacement}' instead. One field says what an entity is: "
-                    "https://synqt.org/project-layout-and-config/")
         declared_type = str(entity.get("type") or "").strip()
         if declared_type and declared_type not in appmodel.TYPE_FOLDERS:
             messages.append(
                 f"error: entity '{name}' has type '{declared_type}', which is not one of "
                 f"{sorted(appmodel.TYPE_FOLDERS)}")
-        # `inbound: true` on an api entity is a promise version 1 does not keep yet: nothing
-        # generates the QHttpServer surface it asks for. Said here rather than left silent,
-        # because the alternative is a gateway that looks exposed, is not, and whose
-        # THIRD-PARTY-LICENSES correctly says it links no HTTP Server while the config says
-        # it should.
-        if declared_type == "api" and entity.get("inbound"):
-            messages.append(
-                f"warn: entity '{name}' sets 'inbound: true', which version 1 does not "
-                "implement: the entity makes outbound calls through `Http` but serves no "
-                "public HTTP surface. Expose it through the web edge instead: "
-                "https://synqt.org/entities/")
     return messages
 
 
@@ -206,43 +183,6 @@ def _inbound_messages(name: str, entity: Dict[str, Any],
     return messages
 
 
-def _instance_messages(config: Dict[str, Any]) -> List[str]:
-    """Refuse the spellings `instance:` used to take, each by name.
-
-    `shared` meant one Source for everybody, and it cannot come back: QtRO hands
-    `enableRemoting()` one object and never tells a slot which connection invoked it, so
-    that Source could be given no `Caller` at all. State every caller shares belongs in the
-    entity's own singleton, which outlives all of them.
-
-    `per_session` and `per_peer` are refused rather than translated even though both now
-    mean `caller`, because they were also a claim the runtime did not keep: both minted a
-    Source per *connection*, so a user's second tab got a blank one. Saying so is the only
-    way an author who relied on that learns their app changed under them.
-    """
-    messages: List[str] = []
-    for point in appmodel.connect_points(config):
-        declared = str(point.get("instance") or "").strip()
-        name = point.get("name")
-        owner = str(point.get("owner") or "?")
-        if declared == "shared":
-            messages.append(
-                f"error: connect point '{name}' asks for 'instance: shared', which no longer "
-                "exists: one Source for every caller could not be told who was calling, so "
-                "its slots had no 'Caller'. Drop the line (a Source is minted per caller), "
-                f"and put anything the callers share in the '{owner}' entity's own "
-                "singleton: https://synqt.org/programming-model/")
-        elif declared in appmodel.RETIRED_INSTANCE_MODES:
-            replacement = appmodel.RETIRED_INSTANCE_MODES[declared]
-            messages.append(
-                f"error: connect point '{name}' asks for 'instance: {declared}', which is "
-                f"now spelled '{replacement}'. It is more than a rename: '{declared}' minted "
-                "a Source per connection, so one user's second tab started blank; "
-                f"'{replacement}' is one Source per caller, shared by that caller's tabs and "
-                "reconnects. Write 'instance: connection' to keep a Source per link: "
-                "https://synqt.org/programming-model/")
-    return messages
-
-
 def _own_contract_messages(config: Dict[str, Any],
                            declared: List[Dict[str, Any]]) -> List[str]:
     """Refuse an entity that owns a connect point named after the entity itself.
@@ -354,7 +294,6 @@ def validate(config: Dict[str, Any], *, release: bool = False,
 
     messages += _entity_type_messages(declared)
     messages += _network_messages(declared)
-    messages += _instance_messages(config)
     messages += _own_contract_messages(config, declared)
     messages += _orphan_messages(config, declared)
 
@@ -398,11 +337,7 @@ def validate(config: Dict[str, Any], *, release: bool = False,
         # the point falls back to one Source per caller and quietly stops being what it was
         # written to be. Caught here, by name.
         instance = connect_point.get("instance")
-        retired = set(appmodel.RETIRED_INSTANCE_MODES) | {"shared"}
-        if (instance is not None and str(instance) not in INSTANCE_MODES
-                and str(instance).strip() not in retired):
-            # A retired spelling is skipped here only because `_instance_messages` says
-            # something far more useful about it than "not one of these two".
+        if instance is not None and str(instance) not in INSTANCE_MODES:
             messages.append(
                 f"error: connect point '{name}' has instance '{instance}'; it must be one of "
                 f"{', '.join(sorted(INSTANCE_MODES))}")

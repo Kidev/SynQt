@@ -490,32 +490,17 @@ class InstanceDefaultTest(unittest.TestCase):
         config["connect_points"][0]["instance"] = "connection"
         self.assertEqual(self._points(config)["app"], "connection")
 
-    def test_the_old_spellings_are_refused_and_say_what_changed(self):
-        """Not a rename the tool can apply for you. `per_session` and `per_peer` both mint
-        one Source per caller now, where they used to mint one per connection, so a
-        project written against them behaves differently and has to be told which it
-        wants."""
-        for retired in ("per_session", "per_peer"):
-            with self.subTest(retired):
-                config = base_config()
-                config["connect_points"][0]["instance"] = retired
-                ok, messages = check.validate(config)
-                self.assertFalse(ok)
-                refusal = next(m for m in messages if f"instance: {retired}" in m)
-                self.assertIn("caller", refusal)
-                self.assertIn("instance: connection", refusal)
-
-    def test_asking_for_shared_is_refused_and_names_the_singleton(self):
-        """The rule that would have caught the whole class. `shared` is gone, and a
-        project still asking for it is told where the state it wanted belongs rather than
-        quietly getting a Source whose every `Caller` line is a ReferenceError."""
+    def test_anything_that_is_not_one_of_the_two_is_refused(self):
+        """A misspelled `connection` would fall back to `caller` and quietly share what
+        the point was written to keep apart, so the spelling is checked rather than the
+        behaviour left to surprise somebody."""
         config = base_config()
-        config["connect_points"][0]["instance"] = "shared"
+        config["connect_points"][0]["instance"] = "conection"
         ok, messages = check.validate(config)
         self.assertFalse(ok)
-        refusal = next(m for m in messages if "instance: shared" in m)
-        self.assertIn("no 'Caller'", refusal)
-        self.assertIn("singleton", refusal)
+        refusal = next(m for m in messages if "instance 'conection'" in m)
+        self.assertIn("caller", refusal)
+        self.assertIn("connection", refusal)
 
 
 class OrphanEntityTest(unittest.TestCase):

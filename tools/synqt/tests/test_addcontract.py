@@ -65,11 +65,11 @@ class AddConnectPointTest(unittest.TestCase):
         point = yaml.safe_load((root / "synqt.yaml").read_text())["connect_points"][0]
         self.assertEqual(point["instance"], "connection")
 
-    def test_shared_is_refused_because_it_no_longer_exists(self):
+    def test_an_instance_that_is_not_one_of_the_two_is_refused(self):
         root = self._project()
         with self.assertRaises(addcontract.AddContractError) as raised:
             addcontract.scaffold_connect_point(root, "prices", owner="feeds",
-                                               consumers=["edge"], instance="shared")
+                                               consumers=["edge"], instance="everybody")
         self.assertIn("caller", str(raised.exception))
 
     def test_a_contract_that_is_not_the_points_own_name_is_written_down(self):

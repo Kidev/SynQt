@@ -140,30 +140,15 @@ TYPE_HELPERS: Dict[str, str] = {
     "jobs": "Jobs",
 }
 
-#: The helpers a `network:` block grants, on any type. `Http` used to belong to the `api`
-#: type, which meant a gateway could call anywhere and a database could call nowhere, and
-#: neither was the deployment's decision. Both are now granted by what the topology allows:
-#: `network.outbound` installs `Http` restricted to the prefixes it names, and
+#: The helpers a `network:` block grants, on any type. Where an entity may connect is a
+#: deployment's decision, not a property of what it is, so it is the topology that grants
+#: these: `network.outbound` installs `Http` restricted to the prefixes it names, and
 #: `network.inbound` installs `Api` and opens the port it names. An entity with no
 #: `network:` block gets neither and is reachable only by its mesh consumers.
 NETWORK_HELPERS: Dict[str, str] = {
     "outbound": "Http",
     "inbound": "Api",
 }
-
-#: The fields this one replaced. An entity used to carry three overlapping words: `kind:`
-#: (client or service), `capability:` (web_edge) and `blueprint:` (the engine family), with
-#: `blueprint: service` restating `kind: service` and the folder rule already collapsing all
-#: three into one decision. They are refused by name rather than ignored, so a project
-#: written against the old spelling is told what to write instead of silently coming up as
-#: a plain service; see `validate()`.
-RETIRED_ENTITY_FIELDS: Dict[str, str] = {
-    "kind": "type",
-    "capability": "type",
-    "blueprint": "type",
-    "web_edge": "type: web_edge",
-}
-
 
 def entity_type(entity: Dict[str, Any]) -> str:
     """The one word an entity is: `client`, `web_edge`, or the engine family it runs on.
@@ -357,15 +342,6 @@ def contract_of(point: Dict[str, Any]) -> str:
 #: entity's own singleton, which outlives every Source.
 INSTANCE_MODES = frozenset({"caller", "connection"})
 
-#: The spellings this pair replaced, and what each one now is. `per_session` and `per_peer`
-#: named which *kind* of caller a point served, which the consumer list already says; both
-#: are `caller` now, since one Source per caller is what they both described. `shared` is
-#: not translated, because it meant one Source for everybody and there is no such thing.
-RETIRED_INSTANCE_MODES: Dict[str, str] = {
-    "per_session": "caller",
-    "per_peer": "caller",
-}
-
 
 def instance_of(point: Dict[str, Any], config: Dict[str, Any]) -> str:
     """How many Sources this connect point mints: one per `caller`, or one per `connection`.
@@ -375,9 +351,9 @@ def instance_of(point: Dict[str, Any], config: Dict[str, Any]) -> str:
     what the Source holds belongs to the link and not to the person, like a live view
     window or a stream cursor, and two tabs should not share it.
 
-    `config` is unused now and kept in the signature because the resolution used to depend
-    on the point's ends. It no longer does: the answer is the same on the mesh and at the
-    edge, which is the point of naming it after the caller rather than after the transport.
+    `config` is unused and kept in the signature because every reader passes the topology
+    to every resolver here. The answer is the same on the mesh and at the edge, which is
+    the point of naming the value after the caller rather than after the transport.
     """
     declared = point.get("instance")
     if isinstance(declared, str) and declared.strip():

@@ -1190,13 +1190,9 @@ fast. Non negotiable checks:
 - A name declared twice, whether an entity or a connect point, is rejected. Both are
   keyed by name, so the second declaration replaces the first rather than colliding
   with it, and a consumer list narrowed on the first would disappear without a word.
-- An `instance` that is not `caller` or `connection` is rejected, and the three
-  spellings it used to take are named in the refusal. `shared` meant one Source for
-  everybody, which could not be told who was calling. `per_session` and `per_peer` both
-  mean `caller` now, and are refused rather than translated because they were also a
-  claim the runtime did not keep: both minted a Source per connection, so a user's second
-  tab started blank. Anything unrecognised falls back to `caller`, so a misspelled
-  `connection` would quietly share what it was written to keep apart.
+- An `instance` that is not `caller` or `connection` is rejected. Anything
+  unrecognised falls back to `caller`, so a misspelled `connection` would quietly share
+  what the point was written to keep apart.
 - A connect point `scope` not in `scopes.order` is rejected.
 - `client_threads: multi` without cross origin isolation is rejected (the CLI
   offers to set it).
