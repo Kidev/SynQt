@@ -14,7 +14,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from synqt import appmodel, check, topologywriter
+from synqt import appmodel, check, licenses, topologywriter
 
 
 def base_config(**overrides):
@@ -596,6 +596,112 @@ class CallerOutsideASourceTest(unittest.TestCase):
             "web/web/Elsewhere.qml": 'App {\n    function add() { Caller.hasScope("user"); }\n}\n',
         })
         self.assertEqual(check.lint_caller_use(config, root), [])
+
+
+class NetworkBlockTest(unittest.TestCase):
+    """`network:` is what an entity may reach and who may reach it, and it is closed until
+    somebody writes it.
+
+    Every refusal here is one of two shapes. A surface that reads as configured and is not,
+    or one that is open wider than whoever wrote it meant. The API key rule is the one that
+    matters most, because leaving a line out is exactly how an internal API ends up
+    answering the internet.
+    """
+
+    def _config(self, network):
+        return {"project": {"name": "app"},
+                "entities": [{"name": "app", "type": "client"},
+                             {"name": "edge", "type": "web_edge"},
+                             {"name": "gw", "type": "api", "network": network}],
+                "connect_points": [{"name": "app", "owner": "edge", "consumers": ["app"]}]}
+
+    def _messages(self, network, level="error"):
+        ok, messages = check.validate(self._config(network))
+        return [m for m in messages if m.startswith(level) and "'gw'" in m]
+
+    def test_no_network_block_is_the_default_and_says_nothing(self):
+        config = self._config({})
+        del config["entities"][2]["network"]
+        ok, messages = check.validate(config)
+        self.assertEqual([m for m in messages if "network" in m], [])
+        self.assertEqual(appmodel.network_helpers(config["entities"][2]), [])
+
+    def test_declaring_outbound_grants_http_even_when_it_allows_nothing(self):
+        entity = self._config({"outbound": []})["entities"][2]
+        self.assertEqual(appmodel.network_helpers(entity), ["Http"])
+        self.assertEqual(appmodel.outbound_allowlist(entity), [])
+
+    def test_a_prefix_that_is_not_an_absolute_url_is_refused(self):
+        self.assertTrue(any("absolute http(s) URL prefix" in m
+                            for m in self._messages({"outbound": ["api.example.com"]})))
+
+    def test_a_plaintext_prefix_is_a_warning_that_names_what_breaks(self):
+        warnings = self._messages({"outbound": ["http://api.example.com/"]}, "warn")
+        self.assertTrue(any("release" in m for m in warnings), warnings)
+
+    def test_a_client_may_not_declare_either_half(self):
+        config = self._config({})
+        del config["entities"][2]["network"]
+        config["entities"][0]["network"] = {"outbound": ["https://x.example/"],
+                                            "inbound": {"port": 8443}}
+        ok, messages = check.validate(config)
+        self.assertFalse(ok)
+        self.assertTrue(any("client 'app' declares network.outbound" in m for m in messages))
+        self.assertTrue(any("client 'app' declares network.inbound" in m for m in messages))
+
+    def test_an_edge_may_not_declare_inbound_because_it_already_serves(self):
+        config = self._config({})
+        del config["entities"][2]["network"]
+        config["entities"][1]["network"] = {"inbound": {"port": 9000, "api_keys": "env:K"}}
+        ok, messages = check.validate(config)
+        self.assertFalse(ok)
+        self.assertTrue(any("already\nserves the public" in m or "already serves the public" in m
+                            for m in messages), messages)
+
+    def test_inbound_needs_a_port(self):
+        self.assertTrue(any("no port" in m
+                            for m in self._messages({"inbound": {"api_keys": "env:K"}})))
+
+    def test_inbound_with_no_keys_is_refused_unless_it_says_public(self):
+        refusals = self._messages({"inbound": {"port": 8443}})
+        self.assertTrue(any("no api_keys" in m for m in refusals), refusals)
+        # And saying so explicitly is accepted, because then it was a decision.
+        self.assertEqual(self._messages({"inbound": {"port": 8443, "public": True}}), [])
+
+    def test_a_key_written_in_the_file_is_refused(self):
+        refusals = self._messages({"inbound": {"port": 8443, "api_keys": "s3cret"}})
+        self.assertTrue(any("not an env: reference" in m for m in refusals), refusals)
+
+    def test_plaintext_inbound_warns_that_the_key_travels_in_the_clear(self):
+        warnings = self._messages({"inbound": {"port": 8443, "api_keys": "env:K"}}, "warn")
+        self.assertTrue(any("plaintext" in m for m in warnings), warnings)
+        # Silenced by saying a proxy terminates TLS, which is a real deployment.
+        quiet = self._messages({"inbound": {"port": 8443, "api_keys": "env:K",
+                                            "tls_terminated_upstream": True}}, "warn")
+        self.assertEqual(quiet, [])
+
+    def test_an_inbound_entity_is_not_reported_as_unreachable(self):
+        # It owns no connect point, and it is still reachable. Its callers are outside the
+        # mesh, so no consumer list names them.
+        warnings = self._messages({"inbound": {"port": 8443, "api_keys": "env:K",
+                                               "tls_terminated_upstream": True}}, "warn")
+        self.assertFalse(any("owns no connect point" in m for m in warnings), warnings)
+
+    def test_inbound_adds_the_gateway_library_and_its_gpl_module(self):
+        config = self._config({"inbound": {"port": 8443, "api_keys": "env:K"}})
+        gateway = config["entities"][2]
+        self.assertEqual(appmodel.service_libraries(config, gateway),
+                         ["SynQtService", "SynQtGateway"])
+        modules = licenses.entity_modules(gateway, config=config)
+        self.assertIn("Qt HTTP Server", modules)
+        self.assertNotIn("Qt Network Authorization", modules)
+        self.assertEqual(licenses.effective_license(modules), "GPL-3.0-only")
+
+    def test_an_outbound_only_entity_stays_lgpl(self):
+        config = self._config({"outbound": ["https://api.example.com/"]})
+        modules = licenses.entity_modules(config["entities"][2], config=config)
+        self.assertNotIn("Qt HTTP Server", modules)
+        self.assertEqual(licenses.effective_license(modules), "LGPL-3.0-only")
 
 
 if __name__ == "__main__":

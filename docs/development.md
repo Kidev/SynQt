@@ -52,6 +52,7 @@ two it is allowed to.
 | `SynQtService`   | [`src/service`](https://github.com/Kidev/SynQt/tree/main/src/service)    | Qt Core, Network, Qml, RemoteObjects, WebSockets, OpenSSL | What every service entity needs and nothing more: `EntityRuntime` and `ConnectPointHost` (topology and hosting), the mesh transport (`MeshServer`, `MeshClient`, `MeshPeer`), `SessionManager` and `Caller`. Every module here is LGPLv3, which is what makes a relational, cache, document, jobs or plain service entity LGPLv3. |
 | `SynQtIdentity`  | [`src/identity`](https://github.com/Kidev/SynQt/tree/main/src/identity)   | `SynQtService`, Qt NetworkAuth, jwt-cpp | The login engine: `OAuthBackend` (the client secret and the tokens), `EdgeReplyHandler`, `JwksVerifier` (ID token signatures against the provider JWKS), and `IdentityService` with the `Identity` and `SessionStore` connect points a dedicated auth entity owns. Qt Network Authorization is GPLv3-only, so this is a library of its own and only the edge and the auth entity link it. |
 | `SynQtEdge`      | [`src/edge`](https://github.com/Kidev/SynQt/tree/main/src/edge)      | `SynQtIdentity`, Qt HttpServer | The one entity a browser reaches: `WebEdge` (bundle serving, the header policy, the WebSocket upgrade pipeline), `IdentityProvider` (the login, callback and logout routes), the `Pages` connect point (`PageStore`, `PagesService`, `PagesEdgeSource`) and the dev-only `StubIdentityServer`. Qt HTTP Server is GPLv3-only, so only a `type: web_edge` entity links this. |
+| `SynQtGateway`   | [`src/gateway`](https://github.com/Kidev/SynQt/tree/main/src/gateway)   | `SynQtService`, Qt HttpServer | The inbound HTTP surface an entity's `network.inbound` opens: `ApiServer` (the rate, key, origin and body-size checks, run before any handler exists) and the `Api` helper the entity's own singleton declares its routes on. Qt HTTP Server again, and deliberately not `SynQtIdentity`: a gateway authenticates machine callers with a key, so it has no reason to carry Qt Network Authorization. |
 | `SynQtProviders` | [`src/providers`](https://github.com/Kidev/SynQt/tree/main/src/providers)  | Qt Sql, optional hiredis and mongo-c                               | The backend facing family interfaces (`IPersistenceProvider`, `IDocumentProvider`, `ICacheProvider`), the bundled providers (`sqlite`, `postgres`, `mysql`, the `memory` cache), the optional external ones (`redis`, `mongodb`, gated by their client libraries), the `ProviderRegistry` a custom provider registers with, and the entity QML helpers `Db`, `Cache`, `Docs`, `Http`, and `Jobs`. |
 
 The client links only `SynQtTransport`, `SynQtClient`, and `SynQtConsumer`. It never links
@@ -60,8 +61,9 @@ carry storage drivers and credentials that must never reach the browser.
 
 The line between the last three is the license, not tidiness. Qt HTTP Server and Qt Network
 Authorization are GPLv3-only, and linking one makes that entity's binary GPLv3, so they are
-reached only through `SynQtEdge` and `SynQtIdentity`. `appmodel.service_library` says which
-of the three an entity links, and both the generated CMake and its generated
+reached only through `SynQtEdge`, `SynQtIdentity` and `SynQtGateway`.
+`appmodel.service_libraries` says which of the four an entity links, and both the
+generated CMake and its generated
 `THIRD-PARTY-LICENSES` read that one function, so what the file claims and what the binary
 links cannot drift apart. A topology with no web edge and no auth entity never adds those
 directories at all, so those modules need not even be installed.
@@ -204,6 +206,7 @@ five commits without ever running.
 | [`m8-auth`](https://github.com/Kidev/SynQt/tree/main/tests/m8-auth)                | Provider login, the browser holding only a session cookie, and tokens never leaving the edge. |
 | [`m9-providers`](https://github.com/Kidev/SynQt/tree/main/tests/m9-providers)           | The persistence and cache providers behind their interfaces, injection safety, and write serialization. |
 | [`prov4-runtime`](https://github.com/Kidev/SynQt/tree/main/tests/prov4-runtime)          | The entity runtime injects the configured provider into a typed entity, and refuses to start when the provider cannot be built. |
+| [`api-inbound`](https://github.com/Kidev/SynQt/tree/main/tests/api-inbound)            | The inbound HTTP surface `network.inbound` opens: routes declared on `Api` from the entity's own QML, and the API key, origin, body-size and rate checks `ApiServer` runs before any handler is reached. |
 | [`custom-provider`](https://github.com/Kidev/SynQt/tree/main/tests/custom-provider)        | The skeletons `synqt add provider` scaffolds compile, register themselves, and are selectable by `provider.name: custom:<Name>`. |
 | [`consumer-facade`](https://github.com/Kidev/SynQt/tree/main/tests/consumer-facade)        | The `Contract.on<Signal>` handlers and the returning slot promise. |
 | [`fix1-auction`](https://github.com/Kidev/SynQt/tree/main/tests/fix1-auction)           | The auction tutorial as an acceptance fixture. |

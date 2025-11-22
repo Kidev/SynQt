@@ -236,27 +236,55 @@ Purpose: expose selected connect points to the outside world as a plain HTTP or
 REST API for non SynQt consumers (mobile apps, partner integrations, webhooks), and
 consume external HTTP APIs on behalf of the system.
 
-Backend: QHttpServer for the inbound API surface (with the same TLS, origin, and
-auth discipline as the web edge, plus API key or token auth for machine callers),
-and QNetworkAccessManager for outbound calls to third party APIs. The entity type
-exposes outbound HTTP to the entity's QML as an `Http` helper: a promise returning
-wrapper over QNetworkAccessManager (`Http.get(url).then(...)`, and the other verbs
-likewise) that enforces TLS verification and refuses plaintext in release, so
-gateway code never touches sockets. The gateway maps
-between its public HTTP surface and the internal connect points it consumes, so the
-rest of the system never speaks raw HTTP to the outside.
+Backend: QNetworkAccessManager for outbound calls and QHttpServer for the inbound
+surface. Both arrive as QML helpers, and both are granted by the entity's
+[`network:` block](project-layout-and-config.md#network-what-an-entity-may-reach-and-who-may-reach-it)
+rather than by the type, so the same two lines work on any entity and an entity that
+writes neither can neither call out nor be called.
 
-Security: a gateway that accepts inbound public traffic carries the `web_edge`
-style exposure and must be treated like the edge (public TLS, strict input
-validation, rate limiting, authentication of callers). A gateway that only makes
-outbound calls is internal only. The type defaults to outbound only and makes
-inbound exposure an explicit, reviewed choice.
+`Http` is the outbound half, a promise returning wrapper (`Http.get(url).then(...)`,
+and the other verbs likewise) that enforces TLS verification, refuses plaintext in a
+release build, and refuses any URL that is not under one of the prefixes
+`network.outbound` names. Gateway code never touches a socket and never reaches
+somewhere the topology did not list.
 
-Version 1 ships the outbound half only. `inbound: true` is accepted in `synqt.yaml`
-and `synqt check` warns that nothing serves it yet: the api entity links no HTTP
-server, so it opens no port. Until the inbound surface lands, put the public route on
-the web edge, which already has the TLS, the origin check and the rate limits, and let
-it reach the gateway over a connect point.
+`Api` is the inbound half: the entity's own singleton declares its routes on it, and
+each handler is ordinary JavaScript that can validate a body, reach several connect
+points, and shape an answer.
+
+```qml
+// api/gateway/Gateway.qml
+pragma Singleton
+
+import QtQuick
+
+QtObject {
+    Component.onCompleted: {
+        Api.get("/lots/:id", request => {
+            Books.ledger.lot(request.params.id)
+                .then(lot => request.reply(lot),
+                      error => request.fail(404, error));
+        });
+    }
+}
+```
+
+A handler that returns a value answers with it as 200; one that will answer later
+returns nothing and calls `request.reply(...)` or `request.fail(...)` when it can. The
+gateway maps between its public HTTP surface and the internal connect points it
+consumes, so the rest of the system never speaks raw HTTP to the outside.
+
+Security: everything a public caller can influence is checked before a handler exists,
+in the same shape as the web edge's upgrade pipeline and for the same reason. In order:
+the per IP rate limit, the API key, the request origin, and the body size. A request
+that fails any of them is answered by the framework and never reaches QML.
+
+The keys come from the entity's own environment (`api_keys: env:GATEWAY_API_KEYS`,
+comma separated so rotating one is a deployment change), and `synqt check` refuses an
+inbound surface that names none unless it also says `public: true`: leaving a line out
+is how an internal API ends up answering the internet, so the omission is an error and
+the exposure is a sentence you have to write. A request carrying an `Origin` the block
+does not list is refused, so a key that leaked into a page still buys nothing.
 
 ### Jobs (scheduled and background work)
 

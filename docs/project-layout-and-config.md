@@ -354,6 +354,73 @@ Notes:
   Windows/macOS/Linux build; a `desktop` target adds a
   [`build.desktop`](#builddesktop) section. See [desktop clients](desktop.md).
 
+### `network`: what an entity may reach, and who may reach it { #network-what-an-entity-may-reach-and-who-may-reach-it }
+
+Every entity may carry a `network:` block, and none has to. Absent, which is the
+default on every type, means closed: the entity makes no outbound call and serves no
+public surface, and the only things that can reach it are the consumers its connect
+points list. Opening it is a deployment's decision, written next to those consumer
+lists because it is the same kind of decision.
+
+```yaml
+entities:
+  - name: gateway
+    type: api
+    network:
+      # Where this entity may call. Http refuses anything not under one of these.
+      outbound:
+        - https://api.stripe.com/v1/
+        - https://api.github.com/
+
+      # The public HTTP surface it serves. Omit the whole block and it serves none.
+      inbound:
+        port: 8443
+        bind: 0.0.0.0                    # default
+        tls:
+          cert_file: certs/gateway/fullchain.pem
+          key_file: certs/gateway/privkey.pem
+        api_keys: env:GATEWAY_API_KEYS   # comma-separated, from this entity's .env
+        key_header: X-API-Key            # default
+        allowed_origins: []              # browser callers; default none
+        max_body_bytes: 1048576          # default
+        rate_per_minute: 600             # per IP; default
+```
+
+`outbound` is a list of URL prefixes. Declaring the key is what puts the `Http` helper
+in the entity's QML scope; the list is what `Http` will allow. The two are separate on
+purpose: `outbound: []` gives the entity the helper and lets it reach nowhere, so a
+call is refused by name and tells you which key to add, where no key at all would have
+been a ReferenceError on a helper that is not there. A prefix is matched against the
+normalized URL, so a traversal cannot escape it.
+
+`inbound` opens a port and puts the `Api` helper in scope, which the entity's own
+singleton declares its routes on (see [the gateway](entities.md#gateway-the-api-entity)).
+Everything a caller can influence is checked before a handler exists: the rate limit,
+the API key, the origin, then the body size.
+
+Validation of the block:
+
+- `api_keys` is required, and must be an `env:` reference. A surface with no keys is
+  refused unless it also says `public: true`, because leaving a line out is how an
+  internal API ends up answering the internet. A key written into `synqt.yaml` is
+  refused too, because it is a secret in a file you commit.
+- `port` is required, because a public surface has to name the port it occupies.
+- No TLS is a warning rather than an error, and it names what it costs. An API key
+  travels in a header, so anyone on the path reads it. Write `tls_terminated_upstream: true`
+  when a proxy in front of it terminates TLS, and the warning goes.
+- A `http://` prefix in `outbound` is a warning, because the runtime refuses a plaintext
+  outbound call in a release build, so it works in development and stops working when
+  you ship.
+- A client may declare neither half. A browser calls nothing but its own edge, and it
+  cannot listen at all.
+- A web edge may not declare `inbound`. It already serves the public through its own
+  `public:` and `tls:` blocks, and two listeners in one entity would be two policies to
+  keep in step.
+
+An entity with `inbound` links Qt HTTP Server, which is GPLv3 only, so its artifact is
+GPLv3 and its generated `THIRD-PARTY-LICENSES` says so. An outbound only entity links
+neither and stays LGPLv3. See [licensing](licensing.md).
+
 ### `connect_points` (ownership and consumers)
 
 A block sequence with one entry per connect point. A connect point is a named,

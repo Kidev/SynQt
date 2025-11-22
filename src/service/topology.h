@@ -90,6 +90,19 @@ struct Topology
     QVariantMap provider;
     QStringList schema;
 
+    /// The URL prefixes this entity is allowed to call out to (`network.outbound`), and
+    /// the whole of what it may reach: `Http` refuses anything not under one of them.
+    ///
+    /// It is here, in the resolved topology, rather than in the entity's own code, because
+    /// where an entity may connect is a deployment's decision and has to be reviewable in
+    /// one file next to the mesh links it is the counterpart of.
+    QStringList outbound;
+    /// Whether the entity declared `network.outbound` at all. The list being empty and the
+    /// key being absent are different: the first installs `Http` and lets it reach nowhere,
+    /// so a call is refused by name; the second installs no `Http`, because the entity is
+    /// not one that calls out.
+    bool outboundDeclared{false};
+
     QList<ConnectPointConfig> owned() const;
     QList<ConnectPointConfig> consumed() const;
 };

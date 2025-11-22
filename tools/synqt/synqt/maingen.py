@@ -131,6 +131,64 @@ def _option_default(value: Any) -> str:
     return f',\n        QStringLiteral("{cxx_string_literal(value.strip())}")'
 
 
+def _api_config_lines(entity: Dict[str, Any], inbound: Dict[str, Any]) -> List[str]:
+    """The `ApiConfig` assignments one entity's `network.inbound` block asks for.
+
+    Only what the topology declared gets a line, so the defaults stay in `apiconfig.h`
+    rather than being restated here in a second place that can drift from them. The API
+    keys are the exception worth naming: they come through `env:` like every other secret,
+    so what lands in the generated source is the variable's name and never its value.
+    """
+    lines = ["    ApiConfig apiConfig;"]
+    if "port" in inbound:
+        lines.append("    apiConfig.port = static_cast<quint16>(%s);"
+                     % _int_literal("network.inbound.port", inbound["port"]))
+    bind = inbound.get("bind")
+    if isinstance(bind, str) and bind.strip():
+        lines.append('    apiConfig.host = QStringLiteral("%s");'
+                     % cxx_string_literal(bind.strip()))
+
+    tls = inbound.get("tls") if isinstance(inbound.get("tls"), dict) else {}
+    for key, member in (("cert_file", "certFile"), ("key_file", "keyFile")):
+        value = tls.get(key)
+        if isinstance(value, str) and value.strip():
+            lines.append("    apiConfig.%s = %s;" % (member, _configured_value(value.strip())))
+
+    keys = inbound.get("api_keys")
+    if isinstance(keys, str) and keys.strip():
+        # One environment variable holding a comma-separated list, so rotating a key is a
+        # deployment change and never a rebuild. Split at startup, empties dropped, because
+        # a stray comma would otherwise admit an empty key.
+        lines += ["    for (const QString &apiKey : %s.split(QLatin1Char(','),"
+                  % _configured_value(keys.strip()),
+                  "                                          Qt::SkipEmptyParts)) {",
+                  "        apiConfig.apiKeys.append(apiKey.trimmed().toUtf8());",
+                  "    }"]
+    if inbound.get("public") is True:
+        lines.append("    apiConfig.anonymous = true;  // `public: true`, written on purpose")
+
+    header = inbound.get("key_header")
+    if isinstance(header, str) and header.strip():
+        lines.append('    apiConfig.keyHeader = QByteArrayLiteral("%s");'
+                     % cxx_string_literal(header.strip()))
+
+    origins = inbound.get("allowed_origins")
+    if isinstance(origins, list) and origins:
+        rendered = ", ".join('QStringLiteral("%s")' % cxx_string_literal(str(origin))
+                             for origin in origins)
+        lines.append("    apiConfig.allowedOrigins = {%s};" % rendered)
+
+    if "max_body_bytes" in inbound:
+        lines.append("    apiConfig.maxBodyBytes = %s;"
+                     % _int_literal("network.inbound.max_body_bytes",
+                                    inbound["max_body_bytes"]))
+    if "rate_per_minute" in inbound:
+        lines.append("    apiConfig.ratePerMinutePerIp = %s;"
+                     % _int_literal("network.inbound.rate_per_minute",
+                                    inbound["rate_per_minute"]))
+    return lines
+
+
 def _env_file_section(entity: Dict[str, Any]) -> str:
     """The env-file load that answers this entity's ``env:`` references.
 
@@ -977,8 +1035,15 @@ def render_service_main(config: Dict[str, Any], entity: Dict[str, Any],
     # describe, so they are constructed here and handed to the Sources as context.
     is_auth = bool(name) and appmodel.provider_entity(config) == name
 
+    inbound = appmodel.inbound_settings(entity)
+
     includes = ['#include "entityruntime.h"', '#include "envfile.h"',
                 '#include "topology.h"']
+    if inbound:
+        # api.h too, because `apiServer.api()` returns an `Api *` and handing it to
+        # setContextObject needs the upcast to QObject, which needs the definition.
+        includes += ['#include "api.h"', '#include "apiconfig.h"',
+                     '#include "apiserver.h"']
     if is_auth:
         includes += ['#include "identityconfig.h"', '#include "identityservice.h"',
                      '#include "sessionmanager.h"']
@@ -1052,6 +1117,29 @@ def render_service_main(config: Dict[str, Any], entity: Dict[str, Any],
         auth_block = ""
         auth_inject = ""
 
+    # The inbound HTTP surface (`network.inbound`). The server is built before
+    # `runtime.start()` so `Api` is on the root context when the entity's own singleton is
+    # created and declares its routes, and it starts listening after, so no caller can
+    # arrive at a surface whose routes do not exist yet.
+    if inbound:
+        api_block = ("\n    // The public HTTP surface `network.inbound` opens. Everything a\n"
+                     "    // caller can influence is checked in ApiServer before a route runs.\n"
+                     + "\n".join(_api_config_lines(entity, inbound))
+                     + "\n    ApiServer apiServer{apiConfig, &engine};\n")
+        api_inject = ('    runtime.setContextObject(QStringLiteral("Api"), apiServer.api());\n')
+        api_start = ("    if (!apiServer.start()) {\n"
+                     f'        qCritical().noquote() << "{name} cannot serve its API:"\n'
+                     "                              << apiServer.errorString();\n"
+                     "        return 1;\n"
+                     "    }\n"
+                     '    qInfo().noquote() << QStringLiteral("%s API on port %%1")\n'
+                     "                             .arg(apiServer.serverPort());\n"
+                     % cxx_string_literal(str(name)))
+    else:
+        api_block = ""
+        api_inject = ""
+        api_start = ""
+
     body = f"""{_HEADER_CPP}
 // The {name} service entity: it resolves its slice of the topology (a JSON produced by
 // `synqt build` from synqt.yaml), brings up the connect points it owns, and opens only
@@ -1093,12 +1181,12 @@ int main(int argc, char *argv[])
         QJsonDocument::fromJson(topologyFile.readAll()).object()}};
 
     QQmlEngine engine;
-{auth_block}    EntityRuntime runtime{{topologyFromJson(topologyJson), &engine}};
-{auth_inject}    if (!runtime.start()) {{
+{auth_block}{api_block}    EntityRuntime runtime{{topologyFromJson(topologyJson), &engine}};
+{auth_inject}{api_inject}    if (!runtime.start()) {{
         qCritical().noquote() << "{name} failed to start:" << runtime.errorString();
         return 1;
     }}
-{singleton_instances}    qInfo().noquote() << QStringLiteral("{name} entity up");
+{singleton_instances}{api_start}    qInfo().noquote() << QStringLiteral("{name} entity up");
     return app.exec();
 }}
 """

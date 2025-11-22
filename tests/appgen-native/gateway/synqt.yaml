@@ -1,0 +1,56 @@
+# SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+# SPDX-License-Identifier: Apache-2.0
+
+# The smallest project with an entity that talks to the outside world: one client, one edge,
+# and a gateway whose `network:` block opens both halves. `outbound` is the list of URL
+# prefixes it may call. `inbound` is the port it serves, the keys that admit a caller, and
+# the limits. Everything else about the gateway is its own QML.
+#
+# What a green build proves that a string test cannot. The generated main compiles against
+# SynQtGateway, builds an ApiConfig from this block, puts `Api` on the root context before
+# the entity singleton is created, and starts listening after. And what running it proves:
+# the routes that singleton declared are the ones being served, behind the key check.
+project:
+  name: gateway
+  version: 0.1.0
+  qt_version: 6.11.1
+
+scopes:
+  order: [anonymous, user]
+  hierarchical: true
+  default: anonymous
+
+entities:
+  - name: app
+    type: client
+    targets: [wasm]
+
+  - name: edge
+    type: web_edge
+    public:
+      port: 8443
+    tls:
+      cert_file: deploy/edge.crt
+      key_file: deploy/edge.key
+
+  - name: gw
+    type: api
+    network:
+      # Where it may call. Anything else is refused by Http before a request is sent.
+      outbound:
+        - https://api.example.com/v1/
+      # Who may call it. The keys come from the entity's own environment, never from here.
+      inbound:
+        port: 18456
+        bind: 127.0.0.1
+        api_keys: env:GW_API_KEYS
+        max_body_bytes: 4096
+        rate_per_minute: 600
+        tls_terminated_upstream: true # plaintext on loopback, on purpose, for the test
+
+connect_points:
+  # One ordinary browser-facing point, so the edge is a real edge and the generated CMake
+  # still resolves a contract the app owns.
+  - name: greeting
+    owner: edge
+    consumers: [app]

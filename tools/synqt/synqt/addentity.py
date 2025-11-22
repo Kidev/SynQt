@@ -141,10 +141,47 @@ def _entity_qml(entity_type: str, name: str) -> str:
             "}\n")
     if entity_type == "api":
         return header + (
-            f"// The '{name}' entity itself, outbound only by default: it reaches external\n"
-            "// HTTP through the `Http` helper (TLS-verified, plaintext refused in release)\n"
-            "// and never touches a socket itself.\n"
+            f"// The '{name}' entity itself: the two halves of talking to the outside.\n"
+            "//\n"
+            "// Outbound is `Http`, and it can reach exactly the prefixes network.outbound\n"
+            "// names in synqt.yaml and nothing else. TLS is verified and plaintext is\n"
+            "// refused in release, so this file never touches a socket or a certificate.\n"
+            "//\n"
+            "// Inbound is `Api`, and the routes below are this entity's whole public\n"
+            "// surface. Who may call them was decided in synqt.yaml (the API keys, the\n"
+            "// browser origins, the limits) and checked before a handler runs, so a\n"
+            "// handler is about the answer and not about the caller.\n"
             "QtObject {\n"
+            "    // Uncomment network.inbound in synqt.yaml and these start serving.\n"
+            "    Component.onCompleted: {\n"
+            "        if (typeof Api === \"undefined\") {\n"
+            "            return;   // outbound only: this entity opens no port\n"
+            "        }\n"
+            "\n"
+            "        // Return a value and it is the 200.\n"
+            "        Api.get(\"/health\", () => {\n"
+            "            return {\n"
+            "                ok: true\n"
+            "            };\n"
+            "        });\n"
+            "\n"
+            "        // A captured `:name` segment, and a body the handler validates before\n"
+            "        // it trusts it. `request.body` is the parsed JSON for a JSON request.\n"
+            "        Api.post(\"/things/:id\", request => {\n"
+            "            if (!request.body || !request.body.value) {\n"
+            "                request.fail(422, \"value is required\");\n"
+            "                return;\n"
+            "            }\n"
+            "            return {\n"
+            "                id: request.params.id,\n"
+            "                value: request.body.value\n"
+            "            };\n"
+            "        });\n"
+            "    }\n"
+            "\n"
+            "    // Outbound, for whatever this gateway fronts. Answer later by calling\n"
+            "    // request.reply(...) from the promise, which is what lets one route wait\n"
+            "    // for an upstream or for a connect point before it answers.\n"
             "    function upstream(url) {\n"
             "        return Http.get(url);\n"
             "    }\n"
@@ -178,7 +215,11 @@ def entity_block(name: str, entity_type: str, provider: Optional[str]) -> Dict[s
         else:
             block["provider"] = {"name": chosen}
     if entity_type == "api":
-        block["inbound"] = False  # opt-in, reviewed choice
+        # Outbound with an empty allowlist and no inbound at all. The entity is closed, and
+        # opening it is one edit in one place. The empty list is written rather than left
+        # out so there is somewhere obvious to put the first prefix. `synqt check` says
+        # nothing about it, because an allowlist that allows nothing allows nothing.
+        block["network"] = {"outbound": []}
     return block
 
 
@@ -192,9 +233,13 @@ def scaffold(project_dir: os.PathLike[str] | str, name: str,
         raise AddEntityError(
             f"provider '{provider}' is not a {entity_type} provider; "
             f"one of {PROVIDERS[family]}")
+    # Built before the name is checked, because what the block grants is part of what the
+    # name may collide with: an entity that declares `network.outbound` has `Http` in scope,
+    # and one that does not may be called `http` like any other word.
+    block = entity_block(name, entity_type, provider)
     try:
         addcontract.check_qml_name(f"{name[:1].upper()}{name[1:]}",
-                                   entity_type=entity_type)
+                                   entity_type=entity_type, entity=block)
     except addcontract.AddContractError as error:
         raise AddEntityError(str(error)) from error
 
@@ -207,8 +252,7 @@ def scaffold(project_dir: os.PathLike[str] | str, name: str,
     if any(isinstance(e, dict) and e.get("name") == name for e in entities):
         raise AddEntityError(f"an entity named '{name}' already exists")
 
-    block = entity_block(name, entity_type, provider)
-    # Spliced into the text rather than dumped over it: the file is the author's, and one
+    # Spliced into the text rather than dumped over it. The file is the author's, and one
     # added entity is not a reason to lose their comments and their formatting.
     if not config_path.exists():
         config_path.write_text("entities: []\n")

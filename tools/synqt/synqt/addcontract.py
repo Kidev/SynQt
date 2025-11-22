@@ -58,23 +58,31 @@ class AddContractError(Exception):
     """A scaffolding error surfaced to the CLI (no traceback for the user)."""
 
 
-def reserved_for(entity_type: Optional[str]) -> frozenset:
-    """The names that cannot be used inside an entity of this type.
+def reserved_for(entity_type: Optional[str] = None,
+                 entity: Optional[Dict[str, Any]] = None) -> frozenset:
+    """The names that cannot be used inside this entity.
 
-    The always-reserved set, plus the ONE helper this type installs: `Db` in a relational
-    entity, `Cache` in a cache entity, and so on (`appmodel.TYPE_HELPERS`). `EntityRuntime`
-    builds exactly one of them, so `Cache` is a name in scope in a cache entity and a name
-    like any other everywhere else. Reserving the whole set globally, which is what this
-    used to do, made every one of those words unusable in every entity in the project to
-    prevent a collision that only exists in one of them.
+    The always-reserved set, plus the helpers this entity actually has in scope: the ONE
+    its type installs (`Db` in a relational entity, `Cache` in a cache entity, and so on,
+    from `appmodel.TYPE_HELPERS`), and the ones its `network:` block grants (`Http` when it
+    may call out, `Api` when it serves an inbound surface). `EntityRuntime` installs
+    exactly these, so `Cache` is a name in scope in a cache entity and a name like any
+    other everywhere else. Reserving every helper globally, which is what this used to do,
+    made all of those words unusable in every entity in the project to prevent a collision
+    that exists in one of them.
     """
-    if entity_type is None:
-        return ALWAYS_RESERVED
-    helper = appmodel.TYPE_HELPERS.get(entity_type)
-    return (ALWAYS_RESERVED | {helper}) if helper else ALWAYS_RESERVED
+    reserved = set(ALWAYS_RESERVED)
+    if entity_type is not None:
+        helper = appmodel.TYPE_HELPERS.get(entity_type)
+        if helper:
+            reserved.add(helper)
+    if entity is not None:
+        reserved.update(appmodel.network_helpers(entity))
+    return frozenset(reserved)
 
 
-def check_qml_name(name: str, *, entity_type: Optional[str] = None) -> str:
+def check_qml_name(name: str, *, entity_type: Optional[str] = None,
+                   entity: Optional[Dict[str, Any]] = None) -> str:
     """`name` back, or an error saying why it cannot name a QML type here.
 
     A contract name is also a file name and a QML type name (``Items`` becomes
@@ -88,7 +96,7 @@ def check_qml_name(name: str, *, entity_type: Optional[str] = None) -> str:
         raise AddContractError(
             f"'{name}' cannot name a QML type; use a name that starts with a capital "
             "letter and holds only letters, digits and underscores (for example Items)")
-    if name in reserved_for(entity_type):
+    if name in reserved_for(entity_type, entity):
         where = (f"every entity of type '{entity_type}'" if name not in ALWAYS_RESERVED
                  else "every entity")
         raise AddContractError(
@@ -197,7 +205,7 @@ def _root_note(project_dir: os.PathLike[str] | str, owner: Dict[str, Any],
 
 def scaffold_contract(project_dir: os.PathLike[str] | str, name: str, *, owner: str) -> str:
     entity = owner_entity(project_dir, owner)
-    check_qml_name(name, entity_type=appmodel.entity_type(entity))
+    check_qml_name(name, entity_type=appmodel.entity_type(entity), entity=entity)
     relative = appmodel.contract_path(entity, name)
     path = Path(project_dir) / relative
     if path.exists():
@@ -218,8 +226,8 @@ def scaffold_connect_point(project_dir: os.PathLike[str] | str, name: str, *,
             "instance must be caller or connection: one Source for each caller (the "
             "default, shared by that caller's tabs) or one for each link")
     contract = contract or appmodel.contract_of({"name": name})
-    check_qml_name(contract, entity_type=appmodel.entity_type(owner_entity(project_dir,
-                                                                          owner)))
+    owning = owner_entity(project_dir, owner)
+    check_qml_name(contract, entity_type=appmodel.entity_type(owning), entity=owning)
     config_path = Path(project_dir) / "synqt.yaml"
     if not config_path.exists():
         raise AddContractError("no synqt.yaml (run 'synqt new' first)")

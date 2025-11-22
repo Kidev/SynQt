@@ -113,15 +113,16 @@ the port is GPLv3 or commercial.
 | client (WASM) | WebAssembly platform (GPLv3) plus LGPL modules | GPLv3 | Yes, downloaded and run by every visitor |
 | web edge (native) | HTTP Server and Network Authorization (GPLv3) plus LGPL | GPLv3 | Usually no (self hosted) |
 | auth entity (native) | Network Authorization (GPLv3) plus LGPL | GPLv3 | Usually no |
+| api entity with `network.inbound` (native) | HTTP Server (GPLv3) plus LGPL | GPLv3 | Usually no |
 | database, cache, jobs (native) | only LGPL modules | LGPLv3 | Usually no |
 
 The services row is enforced by how the runtime is built, not by care. The framework
-ships three service libraries rather than one: `SynQtService` (mesh, entity runtime,
+ships four service libraries rather than one: `SynQtService` (mesh, entity runtime,
 sessions, Caller) links only LGPL modules, `SynQtIdentity` adds Network Authorization,
-and `SynQtEdge` adds HTTP Server. A database, cache, document, jobs or plain service
-entity links the first and never the other two, so its binary carries no GPLv3 only
-module at all, and a topology with no web edge and no auth entity does not even need
-them installed.
+`SynQtEdge` adds HTTP Server, and `SynQtGateway` adds HTTP Server for an entity that
+serves its own inbound API. A database, cache, document, jobs or plain service entity
+links the first and none of the others, so its binary carries no GPLv3 only module at
+all, and a topology with none of those three does not even need them installed.
 
 The row still describes only what SynQt links for you. Linking a GPL only module into a
 service yourself (Qt Quick 3D for a rendering service, HTTP Server for a custom inbound

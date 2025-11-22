@@ -24,11 +24,16 @@ entities:
   - name: edge
     type: web_edge
 
+  # A gateway that is allowed to call one upstream, which is what puts `Http` in its
+  # scope. An entity with no network. Block has no Http and no Api at all.
   - name: feeds
     type: api
+    network:
+      outbound:
+        - https://api.example.com/
 """
 
-# Where the `feeds` entity's files go: its type's folder, then its own name.
+# Where the `feeds` entity's files go. Its type's folder, then its own name.
 FEEDS = "api/feeds"
 
 
@@ -155,9 +160,9 @@ class AddConnectPointTest(unittest.TestCase):
 
     def test_a_contract_name_qml_cannot_use_is_refused_before_anything_is_written(self):
         root = self._project()
-        # `Http` is refused because `feeds` is an api entity and that is the helper its
-        # own Sources call; `Caller` is refused in any entity. A lower-case name and one
-        # with a space are not QML type names at all.
+        # `Http` is refused because `feeds` declares network.outbound and that is the
+        # helper it therefore has in scope; `Caller` is refused in any entity. A lower-case
+        # name and one with a space are not QML type names at all.
         for refused in ("prices", "Http", "Caller", "Prices List"):
             with self.subTest(contract=refused):
                 with self.assertRaises(addcontract.AddContractError):
@@ -167,13 +172,17 @@ class AddConnectPointTest(unittest.TestCase):
         self.assertFalse((root / FEEDS).exists())
 
     def test_a_helper_this_entity_does_not_have_is_an_ordinary_name(self):
-        """`feeds` is an api entity, so its QML has `Http` and nothing else. `Cache` is a
-        word like any other there, and reserving it would have banned it project-wide to
-        prevent a collision in cache entities only."""
+        """`feeds` may call out, so its QML has `Http` and nothing else. `Cache` is a word
+        like any other there, and reserving it would have banned it project-wide to
+        prevent a collision in cache entities only. `Api` likewise: `feeds` serves no
+        inbound surface, so nothing of that name is in scope."""
         root = self._project()
         addcontract.scaffold_connect_point(root, "prices", owner="feeds",
                                            consumers=["edge"], contract="Cache")
         self.assertTrue((root / FEEDS / "Cache.qml").exists())
+        addcontract.scaffold_connect_point(root, "quotes", owner="feeds",
+                                           consumers=["edge"], contract="Api")
+        self.assertTrue((root / FEEDS / "Api.qml").exists())
 
     def test_a_duplicate_name_is_refused(self):
         root = self._project()

@@ -916,8 +916,11 @@ private slots:
         Probe probe;
         engine.globalObject().setProperty(QStringLiteral("probe"), engine.newQObject(&probe));
 
-        // Release refuses a plaintext outbound request; the rejection settles synchronously.
-        Http release{&network, &engine, /*release*/ true};
+        // Release refuses a plaintext outbound request. The rejection settles synchronously.
+        // The allowlist is the entity's `network.outbound`, and it has to name the place
+        // being called or the plaintext check is never the one that speaks.
+        Http release{&network, &engine, /*release*/ true,
+                     {QStringLiteral("http://example.internal/")}};
         HttpPromise *refused{release.get(QStringLiteral("http://example.internal/data"))};
         refused->then(QJSValue(),
                       engine.evaluate(QStringLiteral("(function(m){ probe.record(m); })")));
@@ -937,10 +940,20 @@ private slots:
                 socket->disconnectFromHost();
             });
         });
-        Http dev{&network, &engine, /*release*/ false};
-        HttpPromise *ok{dev.get(QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()))};
+        const QString base{QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort())};
+        Http dev{&network, &engine, /*release*/ false, {base}};
+        HttpPromise *ok{dev.get(base)};
         ok->then(engine.evaluate(QStringLiteral("(function(r){ probe.record(r.body); })")));
         QTRY_COMPARE(probe.last.toString(), QStringLiteral("hi"));
+        probe.last = QVariant{};
+
+        // And nowhere else. The allowlist is the whole of what this entity may reach, so a
+        // URL outside it is refused here rather than sent and refused by somebody else.
+        HttpPromise *elsewhere{dev.get(QStringLiteral("http://127.0.0.1:1/other"))};
+        elsewhere->then(QJSValue(),
+                        engine.evaluate(QStringLiteral("(function(m){ probe.record(m); })")));
+        QVERIFY2(probe.last.toString().contains(QStringLiteral("network.outbound")),
+                 "a URL outside the allowlist must be refused before it is sent");
     }
 
     void jobsQueueIsBounded()

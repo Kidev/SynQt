@@ -10,8 +10,8 @@ Network Authorization, Qt Quick 3D/Physics) are GPLv3-only and make their entity
 Under a commercial Qt license none of the GPL terms apply.
 
 The GPLv3-only modules are read off :data:`appmodel.LIBRARY_GPL_MODULES`, keyed by the
-runtime library :func:`appmodel.service_library` gives the entity, which is the same
-function ``cmakegen`` links with. A module cannot appear in one and not the other.
+runtime libraries :func:`appmodel.service_libraries` gives the entity, which are the same
+ones ``cmakegen`` links. A module cannot appear in one and not the other.
 """
 
 from __future__ import annotations
@@ -75,8 +75,8 @@ def entity_modules(entity: Dict[str, Any], target: str = "wasm",
     # The GPLv3-only modules come from the runtime library this entity links, so the file
     # cannot claim one the build does not link, or miss one it does. The auth entity
     # (`identity.provider_entity`) is the case that reads as an ordinary service otherwise.
-    modules += appmodel.LIBRARY_GPL_MODULES[
-        appmodel.service_library(config or {}, entity)]
+    for library in appmodel.service_libraries(config or {}, entity):
+        modules += appmodel.LIBRARY_GPL_MODULES[library]
     # De-duplicate, preserve order.
     seen: List[str] = []
     for module in modules:
@@ -91,7 +91,8 @@ def entity_third_party(entity: Dict[str, Any],
     provider = (entity.get("provider") or {}).get("name", "")
     # jwt-cpp verifies an OIDC ID token's signature, and it is linked by the same library
     # that carries the OAuth engine: the edge, and the auth entity when identity is promoted.
-    if appmodel.service_library(config or {}, entity) != "SynQtService":
+    if any(library in ("SynQtIdentity", "SynQtEdge")
+           for library in appmodel.service_libraries(config or {}, entity)):
         libs += ["jwt-cpp", "picojson"]
     if provider == "mysql":
         libs.append("MariaDB Connector/C")

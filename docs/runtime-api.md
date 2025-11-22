@@ -22,7 +22,8 @@ in an owned connect point's implementation.
 | `Caller` | any owner slot (any entity) | who invoked this slot: a browser user, or a calling entity |
 | `Client` | web edge owner slots | alias for `Caller` when the caller is a browser user |
 | generated Source | an owned connect point's implementation | the owner-side write surface (`set<Model>`, property setters, signals) |
-| `Db`, `Docs`, `Cache`, `Http`, `Jobs` | a typed entity's QML | the helper that type provides, one per entity (see [the type helpers](#service-the-type-helpers)) |
+| `Db`, `Docs`, `Cache`, `Jobs` | a typed entity's QML | the helper that type provides, one per entity (see [the type helpers](#service-the-type-helpers)) |
+| `Http`, `Api` | an entity with a `network:` block | outbound calls within its allowlist, and the inbound surface it serves |
 
 `<Contract>.on<Signal>` attached handlers (for reacting to a connect point's
 signals) are covered in [Handling a connect point's signals](programming-model.md#handling-a-connect-points-signals);
@@ -452,12 +453,19 @@ rather than an import. An entity whose type has none (client, web_edge, service)
 | `Db` | a `persistence` entity | the selected `IPersistenceProvider` (`sqlite`, `postgres`, `mysql`, ...) |
 | `Docs` | a `document` entity | the selected `IDocumentProvider` (`memory`, `mongodb`, ...) |
 | `Cache` | a `cache` entity | the selected `ICacheProvider` (`memory`, `redis`, ...) |
-| `Http` | a `gateway` entity | `QNetworkAccessManager`, outbound only |
 | `Jobs` | a `jobs` entity | Qt timers and a bounded work queue |
+| `Http` | any entity declaring `network.outbound` | `QNetworkAccessManager`, outbound only, restricted to the allowlist |
+| `Api` | any entity declaring `network.inbound` | `QHttpServer`, behind the key, origin, size and rate checks |
 
-Errors are reported, never thrown across the QML boundary: a failed call returns an
+The last two are granted by the entity's
+[`network:` block](project-layout-and-config.md#network-what-an-entity-may-reach-and-who-may-reach-it)
+rather than by its type, so a relational entity that has to call one upstream can, and
+a gateway that declares nothing cannot. An entity with no `network:` block has neither
+name in scope.
+
+Errors are reported, never thrown across the QML boundary. A failed call returns an
 empty result and, for `Db`, sets `Db.lastError` and emits `Db.errorOccurred`. No
-helper ever logs the credentials it was configured with; those stay inside the
+helper ever logs the credentials it was configured with. Those stay inside the
 provider.
 
 ### `Db`: relational persistence
@@ -506,12 +514,13 @@ That is what keeps one Source working across `memory` and `mongodb`.
 The cache is bounded and evicts. Anything that has to survive a restart or an
 eviction belongs in a relational entity, not here.
 
-### `Http`: outbound calls from a gateway
+### `Http`: outbound calls, within the allowlist
 
 | Member | Returns | Description |
 |--------|---------|-------------|
 | `Http.get(url)` | promise | issue a GET. |
 | `Http.post(url, body?)` | promise | issue a POST. |
+| `Http.put(url, body?)` | promise | issue a PUT. |
 | `Http.del(url)` | promise | issue a DELETE. |
 | `promise.then(onOk, onError?)` | - | `onOk({ status, body })` on success, `onError(message)` on failure. Settles once; a handler attached in the same statement fires as soon as it settles. |
 
@@ -529,6 +538,58 @@ outlives every call, so a promise nobody retires is a call nobody can ever free.
 
 `Http` is outbound only and verifies TLS. In a release build it refuses a plaintext
 URL rather than downgrading, so a gateway cannot quietly stop encrypting.
+
+It also refuses any URL that is not under one of the prefixes this entity's
+`network.outbound` names, and the rejection message carries the list, because the
+mistake is nearly always a prefix that does not cover the path being composed. The
+comparison is against the normalized URL, so a traversal or a percent-encoded one
+cannot spell its way out of a prefix.
+
+### `Api`: the inbound HTTP surface
+
+| Member | Returns | Description |
+|--------|---------|-------------|
+| `Api.get(path, handler)` | - | declare a GET route. `path` is absolute, with `:name` placeholders. |
+| `Api.post(path, handler)` | - | declare a POST route. |
+| `Api.put(path, handler)` | - | declare a PUT route. |
+| `Api.del(path, handler)` | - | declare a DELETE route. |
+| `Api.route(method, path, handler)` | - | any other method (PATCH, HEAD). |
+
+Routes are declared once, from the entity's own singleton, and the more literal route
+wins whichever was declared first, so `/lots/open` takes precedence over `/lots/:id`.
+
+The handler is called with one argument, the request:
+
+| Member | Type | Description |
+|--------|------|-------------|
+| `request.method` | string | GET, POST, PUT, DELETE, ... |
+| `request.path` | string | the routed path, without the query string. |
+| `request.params` | object | the `:name` placeholders this route captured. |
+| `request.query` | object | the decoded query string pairs. |
+| `request.headers` | object | request headers, lower-cased. The API key header is removed before a handler sees it. |
+| `request.body` | object \| string | the parsed JSON for an `application/json` request, the raw text otherwise. |
+| `request.reply(body, status?)` | - | answer. A map or a list is sent as JSON; anything else as text. Default status 200. |
+| `request.fail(status, message)` | - | answer with `{"error": message}` and that status. |
+
+```qml
+Api.get("/lots/:id", request => {
+    Books.ledger.lot(request.params.id)
+        .then(lot => request.reply(lot),
+              error => request.fail(404, error));
+});
+
+Api.get("/health", () => { return { ok: true }; });
+```
+
+A handler that returns a value and has not answered yet replies with it as 200, which
+is what makes the synchronous case the one-liner above. A handler that will answer
+later returns nothing and calls `reply` or `fail` when it can. Every request is
+answered exactly once: a second `reply` is ignored rather than writing twice.
+
+Nothing about who may call reaches the handler, because it was settled before the
+handler existed. `synqt check` refuses an inbound surface with no API keys unless it
+says `public: true`, and the framework checks the rate limit, the key, the origin and
+the body size in that order, answering the request itself when any of them fails.
 
 ### `Jobs`: timers and a bounded queue
 

@@ -82,6 +82,15 @@ Topology topologyFromJson(const QJsonObject &object)
         topology.schema.append(step.toString());
     }
 
+    // network.outbound: absent or empty leaves this entity closed, which is the default
+    // for every type. Copy initialization for the same reason as the arrays above.
+    const QJsonObject network = object.value(QStringLiteral("network")).toObject();
+    topology.outboundDeclared = network.contains(QStringLiteral("outbound"));
+    const QJsonArray outbound = network.value(QStringLiteral("outbound")).toArray();
+    for (const QJsonValue &prefix : outbound) {
+        topology.outbound.append(prefix.toString());
+    }
+
     const QJsonArray connectPoints = object.value(QStringLiteral("connect_points")).toArray();
     for (const QJsonValue &value : connectPoints) {
         const QJsonObject entry{value.toObject()};

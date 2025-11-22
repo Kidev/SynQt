@@ -71,12 +71,23 @@ class AddEntityTest(unittest.TestCase):
         self.assertNotIn("secret", yaml.safe_dump(entity))
         self.assertIn("DB_PASSWORD=", (root / ".env.example").read_text())
 
-    def test_gateway_is_outbound_only_by_default(self):
+    def test_gateway_is_closed_by_default_and_says_where_to_open_it(self):
+        """It gets `Http` and an allowlist that allows nothing, and no inbound at all.
+
+        The empty list rather than no list. The key is what puts `Http` in scope, so the
+        stub's `Http.get(...)` is a call that resolves and is refused by name until a
+        prefix is added, and not a ReferenceError on a helper that is not there.
+        """
         root = self._project()
         addentity.scaffold(root, "api", "api")
         entity = yaml.safe_load((root / "synqt.yaml").read_text())["entities"][0]
-        self.assertFalse(entity["inbound"])  # inbound exposure is an explicit choice
-        self.assertIn("Http.get", (root / "api/api" / "Api.qml").read_text())
+        self.assertEqual(entity["network"], {"outbound": []})
+        self.assertNotIn("inbound", entity["network"])  # opening a port is a reviewed choice
+        self.assertTrue(appmodel.declares_outbound(entity))
+        self.assertEqual(appmodel.outbound_allowlist(entity), [])
+        stub = (root / "api/api" / "Api.qml").read_text()
+        self.assertIn("Http.get", stub)
+        self.assertIn("Api.get(", stub)   # the inbound half, ready for the port
 
     def test_document_stub_calls_the_docs_helper_with_its_own_filter(self):
         root = self._project()

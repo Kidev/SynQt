@@ -137,13 +137,21 @@ bool EntityRuntime::buildTypeContext()
                      qUtf8Printable(m_document->name()), qUtf8Printable(error));
         }
         m_typeContext.insert(QStringLiteral("Docs"), new Docs{m_document.get(), this});
-    } else if (type == QLatin1String("api")) {
+    } else if (type == QLatin1String("jobs")) {
+        m_typeContext.insert(QStringLiteral("Jobs"), new Jobs{1000, this});
+    }
+
+    // `Http` is granted by the topology, not by the type: any entity that declares
+    // `network.outbound` gets it, restricted to exactly the prefixes in that list, and an
+    // entity that declares none does not get it at all. An empty list still installs the
+    // helper and allows nothing, so a call names the config key it is missing instead of
+    // dying on an undefined `Http`. An entity is closed until a deployment opens it, and it
+    // is opened onto named places rather than onto the internet.
+    if (m_topology.outboundDeclared) {
         m_network = new QNetworkAccessManager{this};
         const bool release{m_topology.provider.value(QStringLiteral("release"), true).toBool()};
         m_typeContext.insert(QStringLiteral("Http"),
-                             new Http{m_network, m_engine, release, this});
-    } else if (type == QLatin1String("jobs")) {
-        m_typeContext.insert(QStringLiteral("Jobs"), new Jobs{1000, this});
+                             new Http{m_network, m_engine, release, m_topology.outbound, this});
     }
     return true;
 }
@@ -210,8 +218,17 @@ bool EntityRuntime::start()
     // cannot reach the engine behind it. Without this, `Db.exec(...)` in an entity singleton
     // is a ReferenceError that reads like a working line. Each Source's own context sets the
     // same objects again, which is what keeps the shadowing check below meaningful.
+    // The same is true of anything the entity's main contributed (`Api` for an inbound
+    // surface, the auth entity's engines). The singleton is where routes are declared and
+    // where startup work happens, so what it needs has to be in scope there too.
     if (m_engine) {
         for (auto it{m_typeContext.constBegin()}; it != m_typeContext.constEnd(); ++it) {
+            m_engine->rootContext()->setContextProperty(it.key(), it.value());
+        }
+        for (auto it{m_entityContext.constBegin()}; it != m_entityContext.constEnd(); ++it) {
+            if (m_typeContext.contains(it.key())) {
+                continue;  // reported once per owned Source below. Not twice more here
+            }
             m_engine->rootContext()->setContextProperty(it.key(), it.value());
         }
     }

@@ -9,6 +9,8 @@
 #include <QNetworkRequest>
 #include <QUrl>
 
+#include <utility>
+
 namespace SynQt {
 
 HttpPromise::HttpPromise(QJSEngine *engine, QObject *parent)
@@ -62,12 +64,34 @@ void HttpPromise::deliver()
     deleteLater();
 }
 
-Http::Http(QNetworkAccessManager *network, QJSEngine *engine, bool release, QObject *parent)
+Http::Http(QNetworkAccessManager *network, QJSEngine *engine, bool release,
+           QStringList allowed, QObject *parent)
     : QObject{parent}
     , m_network{network}
     , m_engine{engine}
     , m_release{release}
+    , m_allowed{std::move(allowed)}
 {
+}
+
+QStringList Http::allowed() const
+{
+    return m_allowed;
+}
+
+bool Http::isAllowed(const QUrl &url) const
+{
+    // Compared on the normalized, fully-encoded URL, so a prefix cannot be escaped by
+    // spelling: `https://api.example.com/v1/../../admin` and its percent-encoded twin both
+    // collapse before they reach the comparison.
+    const QString normalized{
+        url.adjusted(QUrl::NormalizePathSegments).toString(QUrl::FullyEncoded)};
+    for (const QString &prefix : m_allowed) {
+        if (normalized.startsWith(prefix)) {
+            return true;
+        }
+    }
+    return false;
 }
 
 HttpPromise *Http::get(const QString &url)
@@ -80,6 +104,11 @@ HttpPromise *Http::post(const QString &url, const QVariant &body)
     return send(QStringLiteral("POST"), url, body);
 }
 
+HttpPromise *Http::put(const QString &url, const QVariant &body)
+{
+    return send(QStringLiteral("PUT"), url, body);
+}
+
 HttpPromise *Http::del(const QString &url)
 {
     return send(QStringLiteral("DELETE"), url, QVariant{});
@@ -90,7 +119,19 @@ HttpPromise *Http::send(const QString &method, const QString &url, const QVarian
     HttpPromise *promise{new HttpPromise{m_engine, this}};
     const QUrl target{url};
 
-    // Refuse plaintext in release: an outbound call must be TLS-verified. https requests
+    // The allowlist first, because it is the narrower question and the one the topology
+    // answered: this entity may call these places and nowhere else. Rejected with the list
+    // in the message, since the mistake is nearly always a prefix that does not cover the
+    // path being composed.
+    if (!isAllowed(target)) {
+        promise->reject(
+            QStringLiteral("%1 is not in this entity's network.outbound allowlist (%2)")
+                .arg(url, m_allowed.isEmpty() ? QStringLiteral("empty")
+                                              : m_allowed.join(QStringLiteral(", "))));
+        return promise;
+    }
+
+    // Refuse plaintext in release. An outbound call must be TLS-verified. https requests
     // are certificate-verified by QNetworkAccessManager by default.
     if (m_release && target.scheme() != QLatin1String("https")) {
         promise->reject(QStringLiteral("refusing a plaintext outbound request in release: %1")
@@ -104,6 +145,10 @@ HttpPromise *Http::send(const QString &method, const QString &url, const QVarian
         reply = m_network->get(request);
     } else if (method == QLatin1String("DELETE")) {
         reply = m_network->deleteResource(request);
+    } else if (method == QLatin1String("PUT")) {
+        request.setHeader(QNetworkRequest::ContentTypeHeader,
+                          QByteArrayLiteral("application/json"));
+        reply = m_network->put(request, body.toByteArray());
     } else {
         request.setHeader(QNetworkRequest::ContentTypeHeader,
                           QByteArrayLiteral("application/json"));

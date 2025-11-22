@@ -112,15 +112,18 @@ private:
     QTemporaryDir m_dir;
 
     /// A one connect point topology of `entityType`, owned by `entity`, whose Source is
-    /// `sourceFile`. A local socket keeps the owner cert-free: these tests prove injection,
+    /// `sourceFile`. A local socket keeps the owner cert-free. These tests prove injection,
     /// not the mesh, which M3 and M4 already cover.
     static Topology typeTopology(const QString &entity, const QString &entityType,
-                                 const QString &sourceFile, QVariantMap provider)
+                                 const QString &sourceFile, QVariantMap provider,
+                                 QStringList outbound = {}, bool declaresOutbound = false)
     {
         Topology topology;
         topology.entity = entity;
         topology.type = entityType;
         topology.provider = std::move(provider);
+        topology.outbound = std::move(outbound);
+        topology.outboundDeclared = declaresOutbound || !topology.outbound.isEmpty();
 
         ConnectPointConfig connectPoint;
         connectPoint.name = QStringLiteral("items");
@@ -321,20 +324,24 @@ private slots:
         QCOMPARE(engine.globalObject().property(QStringLiteral("ran")).toInt(), afterCancel);
     }
 
-    void runtimeInjectsHttpFromBlueprintAndItRefusesPlaintextInRelease()
+    void runtimeInjectsHttpFromTheAllowlistAndItRefusesPlaintextInRelease()
     {
+        // `Http` comes from `network.outbound`, not from the type. An entity that declares
+        // one gets it whatever it is, and one that declares none never has it in scope.
         QQmlEngine engine;
         EntityRuntime runtime{
             typeTopology(QStringLiteral("api"), QStringLiteral("api"),
                               QStringLiteral(PROV4_SRCDIR "/api/Upstream.qml"),
-                              QVariantMap{{QStringLiteral("release"), true}}),
+                              QVariantMap{{QStringLiteral("release"), true}},
+                              {QStringLiteral("http://127.0.0.1:1/")}),
             &engine};
         QVERIFY2(runtime.start(), qPrintable(runtime.errorString()));
 
         ConnectPointHost *host{onlyHost(runtime)};
         QVERIFY(host != nullptr);
         Http *http{qobject_cast<Http *>(host->contextObject(QStringLiteral("Http")))};
-        QVERIFY2(http != nullptr, "the runtime must inject Http for an api entity");
+        QVERIFY2(http != nullptr,
+                 "an entity that declares network.outbound must have Http");
 
         // Release is the runtime's default and the topology said so explicitly: a plaintext
         // call is refused before a socket is opened, and the promise says why.
@@ -358,7 +365,8 @@ private slots:
         EntityRuntime runtime{
             typeTopology(QStringLiteral("api"), QStringLiteral("api"),
                               QStringLiteral(PROV4_SRCDIR "/api/Upstream.qml"),
-                              QVariantMap{{QStringLiteral("release"), false}}),
+                              QVariantMap{{QStringLiteral("release"), false}},
+                              {QStringLiteral("http://127.0.0.1:1/")}),
             &engine};
         QVERIFY2(runtime.start(), qPrintable(runtime.errorString()));
 
@@ -387,6 +395,69 @@ private slots:
         QVERIFY2(runtime.start(), qPrintable(runtime.errorString()));
         QCOMPARE(runtime.ownedHosts().size(), 1);
         QVERIFY(runtime.ownedHosts().first()->contextObject(QStringLiteral("Db")) == nullptr);
+        // And no Http either. This entity declares no network.outbound, so it is closed.
+        QVERIFY(runtime.ownedHosts().first()->contextObject(QStringLiteral("Http")) == nullptr);
+    }
+
+    void anEmptyAllowlistStillGivesHttpAndRefusesEverything()
+    {
+        // Declaring `network.outbound: []` is different from declaring nothing. The helper
+        // is there, so a call resolves and is refused by name. Without it the same line
+        // would be a ReferenceError on an undefined `Http`, which says nothing about the
+        // prefix that is missing.
+        QQmlEngine engine;
+        EntityRuntime runtime{
+            typeTopology(QStringLiteral("api"), QStringLiteral("api"),
+                              QStringLiteral(PROV4_SRCDIR "/api/Upstream.qml"),
+                              QVariantMap{{QStringLiteral("release"), false}},
+                              {}, /*declaresOutbound*/ true),
+            &engine};
+        QVERIFY2(runtime.start(), qPrintable(runtime.errorString()));
+
+        ConnectPointHost *host{onlyHost(runtime)};
+        QVERIFY(host != nullptr);
+        Http *http{qobject_cast<Http *>(host->contextObject(QStringLiteral("Http")))};
+        QVERIFY2(http != nullptr, "an empty allowlist still installs the helper");
+        QVERIFY(http->allowed().isEmpty());
+
+        engine.globalObject().setProperty(QStringLiteral("failure"), QString{});
+        http->get(QStringLiteral("https://api.example.com/v1/ping"))
+            ->then(QJSValue{},
+                   engine.evaluate(QStringLiteral("(function(e) { failure = e; })")));
+        QVERIFY(engine.globalObject()
+                    .property(QStringLiteral("failure"))
+                    .toString()
+                    .contains(QStringLiteral("network.outbound allowlist")));
+    }
+
+    void aUrlOutsideTheAllowlistIsRefusedBeforeItIsSent()
+    {
+        QQmlEngine engine;
+        EntityRuntime runtime{
+            typeTopology(QStringLiteral("api"), QStringLiteral("api"),
+                              QStringLiteral(PROV4_SRCDIR "/api/Upstream.qml"),
+                              QVariantMap{{QStringLiteral("release"), false}},
+                              {QStringLiteral("https://api.example.com/v1/")}),
+            &engine};
+        QVERIFY2(runtime.start(), qPrintable(runtime.errorString()));
+        Http *http{qobject_cast<Http *>(
+            onlyHost(runtime)->contextObject(QStringLiteral("Http")))};
+        QVERIFY(http != nullptr);
+
+        // A prefix is matched against the normalized URL, so neither a traversal nor a
+        // percent-encoded one escapes it. Both of these resolve outside /v1/.
+        for (const QString &escape : {QStringLiteral("https://api.example.com/v1/../admin"),
+                                      QStringLiteral("https://api.example.com/v1/%2e%2e/admin"),
+                                      QStringLiteral("https://elsewhere.example/v1/ping")}) {
+            engine.globalObject().setProperty(QStringLiteral("failure"), QString{});
+            http->get(escape)->then(
+                QJSValue{}, engine.evaluate(QStringLiteral("(function(e) { failure = e; })")));
+            QVERIFY2(engine.globalObject()
+                         .property(QStringLiteral("failure"))
+                         .toString()
+                         .contains(QStringLiteral("network.outbound allowlist")),
+                     qPrintable(escape));
+        }
     }
 
     void anEntityCannotShadowItsOwnBlueprintHelper()

@@ -104,9 +104,12 @@ framework headers):
 
 The entity's QML never holds the interface itself. Each type exposes one helper,
 injected into every owned connect point Source by the entity runtime: `Db` for
-persistence, `Docs` for document, `Cache` for cache (and, outside the provider
-families, `Http` for a gateway and `Jobs` for a jobs entity). The helper forwards to
-whichever provider the config selected, which is why the Source never names an engine.
+persistence, `Docs` for document, `Cache` for cache, and, outside the provider
+families, `Jobs` for a jobs entity. The helper forwards to whichever provider the
+config selected, which is why the Source never names an engine. (`Http` and `Api` are
+helpers too, but they come from the entity's
+[`network:` block](project-layout-and-config.md#network-what-an-entity-may-reach-and-who-may-reach-it)
+rather than from its type, because what an entity may reach is a deployment's decision.)
 Every member of every helper is listed under [the type
 helpers](runtime-api.md#service-the-type-helpers).
 

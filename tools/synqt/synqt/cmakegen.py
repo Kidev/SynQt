@@ -5,7 +5,7 @@
 
 Every entity is a CMake target that links the matching SynQt runtime library
 (``SynQtClient`` for the client, and one of ``SynQtService`` / ``SynQtIdentity`` /
-``SynQtEdge`` for a service, per :func:`appmodel.service_library`) and wires in its
+``SynQtEdge`` for a service, per :func:`appmodel.service_libraries`) and wires in its
 contracts through ``synqt_add_contract``: the client generates typed Replicas, an owner
 generates the Source helper. Services are built inside ``if(NOT EMSCRIPTEN)``, so the
 WebAssembly configure never sees a target that links HttpServer, NetworkAuth or Sql.
@@ -98,9 +98,10 @@ def _runtime_library_cmake(config: Dict[str, Any],
     dependencies with `if(NOT TARGET ...)`, so listing several here is safe and the order
     only decides which scope creates a target.
     """
-    needed = {appmodel.service_library(config, entity) for entity in services}
+    needed = {library for entity in services
+              for library in appmodel.service_libraries(config, entity)}
     lines: List[str] = []
-    for library in ("SynQtService", "SynQtIdentity", "SynQtEdge"):
+    for library in ("SynQtService", "SynQtIdentity", "SynQtEdge", "SynQtGateway"):
         if library not in needed:
             continue
         folder = appmodel.SERVICE_LIBRARIES[library]
@@ -313,7 +314,7 @@ def _service_cmake(config: Dict[str, Any], entity: Dict[str, Any]) -> List[str]:
     consumed = appmodel.app_points(appmodel.mesh_consumed(config, name))
     # SynQtService, SynQtIdentity or SynQtEdge, by what this entity is. The same call
     # decides what its THIRD-PARTY-LICENSES says it links (licenses.py).
-    libs = [appmodel.service_library(config, entity)]
+    libs = list(appmodel.service_libraries(config, entity))
     if appmodel.entity_type(entity) in appmodel.TYPE_HELPERS or entity.get("provider"):
         libs.append("SynQtProviders")
     folder = appmodel.entity_dir(entity)

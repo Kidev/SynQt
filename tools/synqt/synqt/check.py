@@ -74,6 +74,138 @@ def _entity_type_messages(declared: List[Dict[str, Any]]) -> List[str]:
     return messages
 
 
+def _network_messages(declared: List[Dict[str, Any]]) -> List[str]:
+    """The `network:` block: what an entity may call, and who may call it.
+
+    Absent is the default and is closed, so everything here is about an entity somebody
+    opened. The refusals are all the same shape, a surface that looks
+    configured and is not, or one that is open wider than whoever wrote it meant. An
+    inbound API with no key and no `public: true` is the one worth naming twice, because
+    leaving a line out is exactly how an internal API ends up answering the internet.
+    """
+    messages: List[str] = []
+    for entity in declared:
+        name = str(entity.get("name") or "?")
+        block = entity.get("network")
+        if block is None:
+            continue
+        if not isinstance(block, dict):
+            messages.append(
+                f"error: entity '{name}' has a network: that is not a mapping; it holds "
+                "'outbound' (where this entity may call) and 'inbound' (who may call it)")
+            continue
+
+        outbound = block.get("outbound")
+        if outbound is not None and not isinstance(outbound, list):
+            messages.append(
+                f"error: entity '{name}' has network.outbound that is not a list; it is "
+                "the URL prefixes this entity may call, as a list")
+        elif isinstance(outbound, list):
+            if appmodel.is_client(entity) and outbound:
+                messages.append(
+                    f"error: client '{name}' declares network.outbound; a browser client "
+                    "calls nothing but its own edge, and a prefix list here would be a "
+                    "rule nothing enforces (https://synqt.org/entities/)")
+            for prefix in outbound:
+                text = str(prefix).strip()
+                if not text.startswith(("http://", "https://")):
+                    messages.append(
+                        f"error: entity '{name}' has network.outbound entry '{prefix}', "
+                        "which is not an absolute http(s) URL prefix; a prefix is matched "
+                        "against the whole URL, so it has to start at the scheme")
+                elif text.startswith("http://"):
+                    messages.append(
+                        f"warn: entity '{name}' allows the plaintext prefix '{text}'. The "
+                        "runtime refuses a plaintext outbound call in a release build, so "
+                        "this works in development and stops working when you ship")
+
+        inbound = block.get("inbound")
+        if inbound is None:
+            continue
+        if not isinstance(inbound, dict):
+            messages.append(
+                f"error: entity '{name}' has a network.inbound that is not a mapping; it "
+                "holds at least a port, and the API keys that admit a caller")
+            continue
+        messages += _inbound_messages(name, entity, inbound)
+    return messages
+
+
+def _inbound_messages(name: str, entity: Dict[str, Any],
+                      inbound: Dict[str, Any]) -> List[str]:
+    """One entity's public HTTP surface. Split out only because there is a lot of it."""
+    messages: List[str] = []
+    if appmodel.is_client(entity):
+        messages.append(
+            f"error: client '{name}' declares network.inbound; a browser cannot listen "
+            "(https://synqt.org/entities/)")
+        return messages
+    if appmodel.is_edge(entity):
+        messages.append(
+            f"error: web edge '{name}' declares network.inbound, but a web edge already "
+            "serves the public: its port, TLS and headers are its `public:` and `tls:` "
+            "blocks. Two listeners in one entity would be two policies to keep in step. "
+            "Put the API on an entity of its own: https://synqt.org/entities/")
+        return messages
+
+    port = inbound.get("port")
+    if port is None:
+        messages.append(
+            f"error: entity '{name}' has network.inbound with no port; a public surface "
+            "has to name the port it occupies")
+    elif isinstance(port, bool) or not isinstance(port, int) or not 1 <= port <= 65535:
+        messages.append(
+            f"error: entity '{name}' has network.inbound.port {port!r}; it must be a whole "
+            "number between 1 and 65535")
+
+    keys = inbound.get("api_keys")
+    if inbound.get("public") is True:
+        if keys:
+            messages.append(
+                f"warn: entity '{name}' sets network.inbound.public and also names "
+                "api_keys; public means no key is checked, so the keys do nothing")
+    elif not keys:
+        messages.append(
+            f"error: entity '{name}' has network.inbound with no api_keys; a public API "
+            "that checks nothing is open to the internet. Name an env: variable holding "
+            "the keys, or write 'public: true' to say you meant it")
+    elif not str(keys).startswith("env:"):
+        messages.append(
+            f"error: entity '{name}' has network.inbound.api_keys that is not an env: "
+            "reference; a key written here is a secret in a file you commit. Write "
+            "'api_keys: env:<VARIABLE>' and put the value in that entity's .env")
+
+    tls = inbound.get("tls")
+    if not isinstance(tls, dict) or not (tls.get("cert_file") and tls.get("key_file")):
+        if inbound.get("tls_terminated_upstream") is not True:
+            messages.append(
+                f"warn: entity '{name}' serves network.inbound over plaintext. An API key "
+                "travels in a header, so anyone on the path reads it. Give it a tls: block "
+                "with cert_file and key_file, or write tls_terminated_upstream: true if a "
+                "proxy in front of it terminates TLS")
+
+    origins = inbound.get("allowed_origins")
+    if origins is not None and not isinstance(origins, list):
+        messages.append(
+            f"error: entity '{name}' has network.inbound.allowed_origins that is not a "
+            "list; it is the browser origins allowed to call in, and [] (the default) "
+            "means none")
+
+    for key in ("max_body_bytes", "rate_per_minute"):
+        value = inbound.get(key)
+        if value is None:
+            continue
+        if isinstance(value, bool) or not isinstance(value, int):
+            messages.append(
+                f"error: entity '{name}' has network.inbound.{key} {value!r}; it must be a "
+                "whole number")
+        elif value <= 0:
+            messages.append(
+                f"error: entity '{name}' has network.inbound.{key} {value}; a limit of "
+                "zero or less would refuse every request rather than disable the limit")
+    return messages
+
+
 def _instance_messages(config: Dict[str, Any]) -> List[str]:
     """Refuse the spellings `instance:` used to take, each by name.
 
@@ -149,6 +281,8 @@ def _orphan_messages(config: Dict[str, Any], declared: List[Dict[str, Any]]) -> 
         name = str(entity.get("name") or "")
         if not name or appmodel.is_client(entity) or appmodel.is_edge(entity):
             continue   # a client and an edge both have a browser to serve
+        if appmodel.serves_inbound(entity):
+            continue   # its callers are outside the mesh, so no connect point names them
         if appmodel.owned_by(config, name) or appmodel.consumed_by(config, name):
             continue
         messages.append(
@@ -219,6 +353,7 @@ def validate(config: Dict[str, Any], *, release: bool = False,
                 "only reach a web edge (see https://synqt.org/entities/)")
 
     messages += _entity_type_messages(declared)
+    messages += _network_messages(declared)
     messages += _instance_messages(config)
     messages += _own_contract_messages(config, declared)
     messages += _orphan_messages(config, declared)

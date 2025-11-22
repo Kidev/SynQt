@@ -26,6 +26,7 @@ set(SYNQT_HOST_SUITES
     m8-auth
     m9-providers
     prov4-runtime
+    api-inbound
     fix1-auction
     fix2-arena
     fix3-stall

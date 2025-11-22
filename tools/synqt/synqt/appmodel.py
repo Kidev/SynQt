@@ -137,8 +137,18 @@ TYPE_HELPERS: Dict[str, str] = {
     "relational": "Db",
     "cache": "Cache",
     "document": "Docs",
-    "api": "Http",
     "jobs": "Jobs",
+}
+
+#: The helpers a `network:` block grants, on any type. `Http` used to belong to the `api`
+#: type, which meant a gateway could call anywhere and a database could call nowhere, and
+#: neither was the deployment's decision. Both are now granted by what the topology allows:
+#: `network.outbound` installs `Http` restricted to the prefixes it names, and
+#: `network.inbound` installs `Api` and opens the port it names. An entity with no
+#: `network:` block gets neither and is reachable only by its mesh consumers.
+NETWORK_HELPERS: Dict[str, str] = {
+    "outbound": "Http",
+    "inbound": "Api",
 }
 
 #: The fields this one replaced. An entity used to carry three overlapping words: `kind:`
@@ -236,6 +246,71 @@ def is_client(entity: Dict[str, Any]) -> bool:
 
 def is_edge(entity: Dict[str, Any]) -> bool:
     return entity_type(entity) == "web_edge"
+
+
+# What an entity is allowed to reach, and what may reach it
+#
+# Absent, which is the default on every type, means closed: the entity makes no outbound
+# calls and serves no public surface, and the only things that can reach it are the mesh
+# consumers its connect points list. Opening it is a deployment's decision, written in one
+# place next to those consumer lists, and it opens onto named places rather than onto the
+# internet.
+
+
+def network_settings(entity: Dict[str, Any]) -> Dict[str, Any]:
+    """The declared ``network:`` block of an entity, empty when it declares none."""
+    settings = entity.get("network")
+    return dict(settings) if isinstance(settings, dict) else {}
+
+
+def declares_outbound(entity: Dict[str, Any]) -> bool:
+    """Does this entity say it is in the business of calling out at all?
+
+    The key being there is what installs `Http`; the list in it is what `Http` will allow.
+    The two are separate. An entity with `outbound: []` has the helper and can
+    reach nowhere, so a call is refused by name ("not in this entity's network.outbound
+    allowlist") instead of dying as a ReferenceError on a helper that is not there, which
+    is a much worse way to learn that you have a prefix to add. An entity with no
+    `outbound:` key at all does not have the helper: it is not that kind of entity.
+    """
+    return isinstance(network_settings(entity).get("outbound"), list)
+
+
+def outbound_allowlist(entity: Dict[str, Any]) -> List[str]:
+    """``network.outbound``: the URL prefixes this entity may call, or [].
+
+    Empty allows nothing, which is what every entity is until somebody writes down where
+    it needs to go. See :func:`declares_outbound` for why empty and absent differ.
+    """
+    declared = network_settings(entity).get("outbound")
+    if not isinstance(declared, list):
+        return []
+    return [str(prefix).strip() for prefix in declared if str(prefix).strip()]
+
+
+def inbound_settings(entity: Dict[str, Any]) -> Dict[str, Any]:
+    """``network.inbound``: the public HTTP surface this entity serves, or {}."""
+    declared = network_settings(entity).get("inbound")
+    return dict(declared) if isinstance(declared, dict) else {}
+
+
+def serves_inbound(entity: Dict[str, Any]) -> bool:
+    """Does this entity open a port for callers outside the mesh?"""
+    return bool(inbound_settings(entity))
+
+
+def network_helpers(entity: Dict[str, Any]) -> List[str]:
+    """The helper names this entity's `network:` block puts in its QML scope.
+
+    Read by the reserved-name rule as well as by the runtime, so `synqt add contract Http`
+    is refused in an entity that has `Http` and allowed in one that does not.
+    """
+    helpers: List[str] = []
+    if declares_outbound(entity):
+        helpers.append(NETWORK_HELPERS["outbound"])
+    if serves_inbound(entity):
+        helpers.append(NETWORK_HELPERS["inbound"])
+    return helpers
 
 
 def is_service(entity: Dict[str, Any]) -> bool:
@@ -751,6 +826,7 @@ SERVICE_LIBRARIES: Dict[str, str] = {
     "SynQtService": "src/service",
     "SynQtIdentity": "src/identity",
     "SynQtEdge": "src/edge",
+    "SynQtGateway": "src/gateway",
 }
 
 # GPLv3-only Qt modules, by the library that links them.
@@ -758,21 +834,34 @@ LIBRARY_GPL_MODULES: Dict[str, List[str]] = {
     "SynQtService": [],
     "SynQtIdentity": ["Qt Network Authorization"],
     "SynQtEdge": ["Qt Network Authorization", "Qt HTTP Server"],
+    "SynQtGateway": ["Qt HTTP Server"],
 }
 
 
-def service_library(config: Dict[str, Any], entity: Dict[str, Any]) -> str:
-    """The SynQt runtime library this service entity links, and links transitively from.
+def service_libraries(config: Dict[str, Any], entity: Dict[str, Any]) -> List[str]:
+    """The SynQt runtime libraries this service entity links, most general first.
 
-    The edge serves HTTP and runs the login routes; the auth entity
+    One base library says what the entity fundamentally is. The edge serves HTTP and runs
+    the login routes, so it takes `SynQtEdge`. The auth entity
     (`identity.provider_entity`) runs the OAuth engine but no HTTP surface, because the
-    routes stay on the edge and reach it over the mesh; everything else needs neither.
+    routes stay on the edge and reach it over the mesh, so it takes `SynQtIdentity`.
+    Everything else takes `SynQtService`, which links no GPLv3-only module at all.
+
+    `SynQtGateway` is added on top for an entity whose `network.inbound` opens a port,
+    whatever its type. The edge is the exception: it already serves HTTP through its own
+    library, and `synqt check` refuses `network.inbound` on it rather than letting one
+    entity carry two listeners.
     """
+    libraries: List[str] = []
     if is_edge(entity):
-        return "SynQtEdge"
-    if entity.get("name") and provider_entity(config) == entity.get("name"):
-        return "SynQtIdentity"
-    return "SynQtService"
+        libraries.append("SynQtEdge")
+    elif entity.get("name") and provider_entity(config) == entity.get("name"):
+        libraries.append("SynQtIdentity")
+    else:
+        libraries.append("SynQtService")
+    if serves_inbound(entity) and not is_edge(entity):
+        libraries.append("SynQtGateway")
+    return libraries
 
 
 def app_points(points: List[Dict[str, Any]]) -> List[Dict[str, Any]]:

@@ -47,7 +47,7 @@ export QTDIR="$QT_HOST"
 
 WORK="$REPO_ROOT/build/appgen-native"
 SRC="$WORK/gavel"
-echo "== [1/5] Materialize the gavel topology and run appgen over it =="
+echo "== [1/6] Materialize the gavel topology and run appgen over it =="
 rm -rf "$WORK"
 mkdir -p "$WORK"
 cp -r "$REPO_ROOT/examples/gavel" "$SRC"
@@ -68,14 +68,14 @@ written = appgen.generate(app, config, synqt_root=repo)
 print("  appgen wrote:", ", ".join(written))
 PY
 
-echo "== [2/5] Configure + build every entity with the native host kit =="
+echo "== [2/6] Configure + build every entity with the native host kit =="
 cmake -S "$SRC" -B "$SRC/build" -G Ninja \
     -DCMAKE_PREFIX_PATH="$QT_HOST" \
     -DSYNQT_ROOT="$REPO_ROOT" \
     -DCMAKE_BUILD_TYPE=Release
 cmake --build "$SRC/build"
 
-echo "== [3/5] Assert each generated entity produced a native executable =="
+echo "== [3/6] Assert each generated entity produced a native executable =="
 rc=0
 for entity in app edge books; do
     assert_native_exe "$SRC/build/$entity" "$entity" || rc=1
@@ -85,7 +85,7 @@ if [ "$rc" -ne 0 ]; then
     exit 1
 fi
 
-echo "== [4/5] A generated client with routes: build it, and watch the router resolve them =="
+echo "== [4/6] A generated client with routes: build it, and watch the router resolve them =="
 # Compiling is not enough for URL routing. Every route's view has to be IN the client's QML
 # module, and so does everything a view reaches (a helper component, a singleton), or the
 # qrc URL resolves to nothing and the router reports Error on a bundle that built perfectly.
@@ -151,7 +151,7 @@ if grep -nE '\.qml:[0-9]+:' "$routed_log"; then
 fi
 echo "  routed client : OK (every route resolved Ready, each to the view it names)"
 
-echo "== [5/5] Promoted identity: one line moves the OAuth engine off the edge =="
+echo "== [5/6] Promoted identity: one line moves the OAuth engine off the edge =="
 # `identity.provider_entity: auth` is documented as a one-line change, so everything else it
 # needs is generated: two mesh connect points nobody declared, a Source QML bridge for each,
 # an auth main holding the OAuth engine and the authoritative session store, and an edge main
@@ -320,6 +320,119 @@ echo "  promoted pair : OK (both mesh links up, the edge holds no client id, no 
 echo "                  endpoint and no secret; the auth entity holds the first two and"
 echo "                  reads the secret from its own environment)"
 
+echo "== [6/6] An entity with a network: block: build it, and call the API it serves =="
+# The generated main is what is under test. It has to build an ApiConfig from the topology,
+# link SynQtGateway, put `Api` on the root context BEFORE the entity singleton is created
+# (or the singleton's routes go nowhere) and start listening AFTER (or a caller can arrive
+# at a surface with no routes). None of that is visible in a build, so this phase runs it
+# and calls it, with and without the key.
+GATEWAY="$WORK/gateway"
+cp -r "$REPO_ROOT/tests/appgen-native/gateway" "$GATEWAY"
+PYTHONPATH="$REPO_ROOT/tools/synqt" python3 - "$GATEWAY" "$REPO_ROOT" <<'PY'
+import sys, yaml
+from pathlib import Path
+from synqt import appgen, check, topologywriter
+
+app, repo = Path(sys.argv[1]), sys.argv[2]
+ok, messages = check.check_project(app)
+for message in messages:
+    print("  synqt check:", message)
+if not ok:
+    raise SystemExit("the gateway fixture does not pass synqt check")
+config = yaml.safe_load((app / "synqt.yaml").read_text())
+print("  appgen wrote:", ", ".join(appgen.generate(app, config, synqt_root=repo)))
+print("  topology:", ", ".join(topologywriter.write(app, config)))
+PY
+
+cmake -S "$GATEWAY" -B "$GATEWAY/out" -G Ninja \
+    -DCMAKE_PREFIX_PATH="$QT_HOST" \
+    -DSYNQT_ROOT="$REPO_ROOT" \
+    -DCMAKE_BUILD_TYPE=Release
+cmake --build "$GATEWAY/out"
+
+rc=0
+for entity in app edge gw; do
+    assert_native_exe "$GATEWAY/out/$entity" "$entity" || rc=1
+done
+if [ "$rc" -ne 0 ]; then
+    echo "APPGEN-NATIVE GATE: NO-GO"
+    exit 1
+fi
+
+cleanup_gateway() {
+    kill "${gw_pid:-}" 2>/dev/null || true
+}
+trap cleanup_gateway EXIT
+export GW_API_KEYS="appgen-native-key,second-key"
+(cd "$GATEWAY" && exec ./out/gw --topology build/gw/topology.json --qml-dir . \
+    >"$WORK/gateway-gw.log" 2>&1) &
+gw_pid=$!
+
+gateway_call() {
+    SYNQT_KEY="${2:-}" SYNQT_PATH="$1" SYNQT_BODY="${3:-}" python3 - <<'PY'
+import json, os, urllib.error, urllib.request
+
+body = os.environ["SYNQT_BODY"].encode() or None
+request = urllib.request.Request("http://127.0.0.1:18456" + os.environ["SYNQT_PATH"],
+                                 data=body, method="POST" if body else "GET")
+request.add_header("Content-Type", "application/json")
+if os.environ["SYNQT_KEY"]:
+    request.add_header("X-API-Key", os.environ["SYNQT_KEY"])
+try:
+    with urllib.request.urlopen(request, timeout=2) as reply:
+        print("%d %s" % (reply.status, reply.read().decode().strip()))
+except urllib.error.HTTPError as error:
+    print("%d %s" % (error.code, error.read().decode().strip()))
+except Exception:
+    print("")
+PY
+}
+
+gateway_health=""
+for _ in $(seq 1 30); do
+    gateway_health="$(gateway_call /health appgen-native-key)"
+    case "$gateway_health" in 200*) break ;; esac
+    sleep 1
+done
+echo "  GET /health with a key    -> ${gateway_health:-<no answer>}"
+gateway_nokey="$(gateway_call /health)"
+echo "  GET /health with no key   -> ${gateway_nokey:-<no answer>}"
+gateway_echo="$(gateway_call /echo/7 appgen-native-key '{"value":"hi"}')"
+echo "  POST /echo/7 with a body  -> ${gateway_echo:-<no answer>}"
+
+gateway_rc=0
+case "$gateway_health" in
+    200*'"ok"'*) ;;
+    *) echo "  the gateway must answer its own declared route"; gateway_rc=1 ;;
+esac
+case "$gateway_nokey" in
+    401*) ;;
+    *) echo "  a caller with no API key must be refused before the handler"; gateway_rc=1 ;;
+esac
+case "$gateway_echo" in
+    200*'"7"'*'"hi"'*) ;;
+    *) echo "  a captured :id and a JSON body must both reach the handler"; gateway_rc=1 ;;
+esac
+# The outbound half, from the same run: the entity's own file calls two URLs and only one of
+# them is under the single prefix network.outbound names.
+if ! grep -q "refused:.*network.outbound" "$WORK/gateway-gw.log"; then
+    echo "  a URL outside network.outbound must be refused by Http, naming the allowlist"
+    gateway_rc=1
+fi
+if grep -q "allowed:.*network.outbound" "$WORK/gateway-gw.log"; then
+    echo "  a URL under the allowed prefix must not be refused by the allowlist"
+    gateway_rc=1
+fi
+if [ "$gateway_rc" -ne 0 ]; then
+    sed 's/^/  /' "$WORK/gateway-gw.log"
+    echo "APPGEN-NATIVE GATE: NO-GO"
+    exit 1
+fi
+cleanup_gateway
+echo "  gateway       : OK (serves the routes its own QML declared, refuses an unkeyed"
+echo "                  caller before the handler, and calls only what it is allowed to)"
+
 echo "APPGEN-NATIVE GATE: GO (appgen output compiles and links for every entity, a"
 echo "                       generated client resolves every declared route to its view,"
-echo "                       and a promoted identity signs in from the auth entity)"
+echo "                       a promoted identity signs in from the auth entity, and a"
+echo "                       gateway serves the surface its network: block opened)"

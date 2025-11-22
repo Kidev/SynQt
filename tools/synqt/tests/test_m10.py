@@ -241,19 +241,23 @@ class LicenseTest(unittest.TestCase):
     def test_the_file_and_the_build_read_the_same_table(self):
         """A GPLv3-only module is named if and only if the entity links the library with it.
 
-        `licenses.py` and `cmakegen.py` both go through `appmodel.service_library`. This is
-        what stops the two from drifting: the old file keyed the auth obligations off a
+        `licenses.py` and `cmakegen.py` both go through `appmodel.service_libraries`. This
+        is what stops the two from drifting. The old file keyed the auth obligations off a
         field nothing wrote, and reported LGPL for entities that were linking HttpServer.
         """
         config = {"entities": [{"name": "web", "type": "web_edge"},
                                {"name": "auth", "type": "service"},
-                               {"name": "database", "type": "relational"}],
+                               {"name": "database", "type": "relational"},
+                               {"name": "gateway", "type": "api",
+                                "network": {"inbound": {"port": 8443,
+                                                        "api_keys": "env:K"}}}],
                   "identity": {"provider_entity": "auth",
                                "providers": [{"name": "github"}]}}
         for entity in config["entities"]:
             with self.subTest(entity["name"]):
-                library = appmodel.service_library(config, entity)
-                expected = appmodel.LIBRARY_GPL_MODULES[library]
+                expected = [module
+                            for library in appmodel.service_libraries(config, entity)
+                            for module in appmodel.LIBRARY_GPL_MODULES[library]]
                 modules = licenses.entity_modules(entity, config=config)
                 self.assertEqual([m for m in modules
                                   if licenses._MODULE_LICENSE[m] == "GPL-3.0-only"],

@@ -42,6 +42,7 @@ add_subdirectory(src/client)
 add_subdirectory(src/service)
 add_subdirectory(src/identity)
 add_subdirectory(src/edge)
+add_subdirectory(src/gateway)
 # After src/service: the harness links it, and this is the scope that creates the target.
 add_subdirectory(src/testing)
 
@@ -58,6 +59,7 @@ synqt_enable_coverage(
     SynQtService
     SynQtIdentity
     SynQtEdge
+    SynQtGateway
     SynQtTesting
 )
 
