@@ -61,7 +61,6 @@
 #endif
 
 using SynQt::ConnectPointConfig;
-using SynQt::ConnectPointInstance;
 using SynQt::EntityRuntime;
 using SynQt::MeshTransportMode;
 using SynQt::SessionManager;
@@ -197,7 +196,7 @@ WebEdgeConfig edgeConfig()
     connectPoint.name = QStringLiteral("probe");
     connectPoint.contract = QStringLiteral("Probe");
     connectPoint.serverFile = QStringLiteral(MEMORY_SRCDIR "/owner/Probe.qml");
-    connectPoint.instance = SynQt::InstanceMode::PerCaller;  // a Source per session
+    connectPoint.shared = false;                             // a Source per session
     config.connectPoints = {connectPoint};
     return config;
 }
@@ -210,7 +209,7 @@ ConnectPointConfig localProbe(const QString &socketName)
     connectPoint.owner = QStringLiteral("a");
     connectPoint.consumers = {QStringLiteral("b")};
     connectPoint.serverFile = QStringLiteral(MEMORY_SRCDIR "/owner/Probe.qml");
-    connectPoint.instance = ConnectPointInstance::PerCaller;
+    connectPoint.shared = false;
     // The local socket, so this test needs no certificate authority of its own. What is
     // being measured is what the runtime retires when a link is replaced, which is the
     // same work on either transport.

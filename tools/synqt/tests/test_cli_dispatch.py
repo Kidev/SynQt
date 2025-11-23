@@ -230,18 +230,16 @@ class TestAdd:
     def test_add_connect_point_splits_the_consumer_list(self, tmp_path, monkeypatch):
         seen = {}
 
-        def scaffold(project_dir, name, owner=None, consumers=None, contract=None,
-                     instance=None):
-            seen.update(name=name, owner=owner, consumers=consumers, contract=contract,
-                        instance=instance)
+        def scaffold(project_dir, name, owner=None, consumers=None, contract=None):
+            seen.update(name=name, owner=owner, consumers=consumers, contract=contract)
             return "connect point added"
 
         monkeypatch.setattr(addcontract, "scaffold_connect_point", scaffold)
         assert _run(["add", "connect-point", "todo", "--project-dir", str(tmp_path),
                      "--owner", "web", "--contract", "Todo",
-                     "--consumers", "client,database", "--instance", "caller"])[0] == 0
+                     "--consumers", "client,database"])[0] == 0
         assert seen == {"name": "todo", "owner": "web", "consumers": ["client", "database"],
-                        "contract": "Todo", "instance": "caller"}
+                        "contract": "Todo"}
 
     def test_an_empty_consumer_list_is_no_consumers_not_one_empty_name(self, tmp_path,
                                                                       monkeypatch):

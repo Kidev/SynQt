@@ -14,7 +14,10 @@ Grammar (whitespace and ``//`` or ``/* */`` comments are insignificant)::
     record   := 'record' IDENT '(' [param (',' param)*] ')'
     param    := TYPE IDENT
     role     := TYPE IDENT
-    TYPE     := IDENT
+    TYPE     := IDENT ['[' NUMBER ']']
+
+A bracketed number bounds the value (`string[64]` is at most 64 characters); which
+types accept one, and what the bound means, is in :mod:`synqtc.types`.
 
 The parser is deliberately strict: anything it cannot read is a :class:`SynError`
 with a source location, so a malformed contract fails the build clearly.
@@ -39,11 +42,12 @@ MAX_SIGNAL_PARAMS = 8
 KEYWORDS = {"contract", "record", "prop", "model", "signal", "slot"}
 
 _IDENT_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+_NUMBER_RE = re.compile(r"[0-9]+")
 
 
 @dataclass
 class Token:
-    kind: str  # "ident", "{", "}", "(", ")", ",", "eof"
+    kind: str  # "ident", "number", "{", "}", "(", ")", ",", "[", "]", "eof"
     value: str
     line: int
     col: int
@@ -81,13 +85,18 @@ def tokenize(text: str, path: str) -> List[Token]:
                 raise SynError("unterminated /* comment", path=path, line=line, col=col)
             advance(end + 2 - index)
             continue
-        if char in "{}(),":
+        if char in "{}(),[]":
             tokens.append(Token(char, char, line, col))
             advance(1)
             continue
         match = _IDENT_RE.match(text, index)
         if match:
             tokens.append(Token("ident", match.group(0), line, col))
+            advance(match.end() - index)
+            continue
+        match = _NUMBER_RE.match(text, index)
+        if match:
+            tokens.append(Token("number", match.group(0), line, col))
             advance(match.end() - index)
             continue
         raise SynError(f"unexpected character '{char}'", path=path, line=line, col=col)
@@ -172,8 +181,23 @@ class Parser:
             return self._parse_signal(keyword)
         return self._parse_slot(keyword)
 
+    def _parse_type(self, what: str) -> Token:
+        """A type name and, when it carries one, the bound in brackets after it.
+
+        Returned as one token spelling the whole thing (`string[64]`), so every node keeps
+        the type as it was written and the one place that has to take it apart is
+        :mod:`synqtc.types`.
+        """
+        token = self._expect("ident", what)
+        if self._peek().kind != "[":
+            return token
+        self._next()  # '['
+        bound = self._expect("number", f"the bound of a {what}, as in string[64]")
+        self._expect("]", "']' to close the bound")
+        return Token("ident", f"{token.value}[{bound.value}]", token.line, token.col)
+
     def _parse_prop(self, keyword: Token) -> Prop:
-        type_token = self._expect("ident", "a property type")
+        type_token = self._parse_type("a property type")
         name = self._expect_name("property name")
         return Prop(type=type_token.value, name=name.value, line=keyword.line, col=keyword.col)
 
@@ -192,7 +216,7 @@ class Parser:
         return Model(name=name.value, roles=roles, line=keyword.line, col=keyword.col)
 
     def _parse_role(self) -> Role:
-        type_token = self._expect("ident", "a model role type")
+        type_token = self._parse_type("a model role type")
         name = self._expect_name("a model role name")
         return Role(
             type=type_token.value,
@@ -207,11 +231,17 @@ class Parser:
         return Signal(name=name.value, params=params, line=keyword.line, col=keyword.col)
 
     def _parse_slot(self, keyword: Token) -> Slot:
-        first = self._expect("ident", "a slot name or return type")
-        # 'slot NAME(' -> void return; 'slot TYPE NAME(' -> returning slot.
+        first = self._parse_type("a slot name or return type")
+        # 'slot NAME(' -> void return; 'slot TYPE NAME(' -> returning slot. A bound after
+        # the first word settles it early: only a type can carry one.
         if self._peek().kind == "(":
             if first.value in KEYWORDS:
                 raise self._error(f"'{first.value}' is a reserved keyword and cannot be a slot name", first)
+            if "[" in first.value:
+                raise self._error(
+                    f"'{first.value}' bounds a slot name; a bound belongs on a type, so "
+                    "either this is the return type and the slot still needs a name, or "
+                    "the brackets do not belong here", first)
             name = first.value
             return_type = None
         else:
@@ -247,7 +277,7 @@ class Parser:
         return params
 
     def _parse_param(self) -> Param:
-        type_token = self._expect("ident", "a parameter type")
+        type_token = self._parse_type("a parameter type")
         name = self._expect_name("parameter name")
         return Param(
             type=type_token.value,

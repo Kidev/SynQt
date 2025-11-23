@@ -10,7 +10,7 @@
 // with it, because leaving either behind would leave the project naming an entity that is
 // not there.
 
-import { INSTANCE_MODES, entityType } from "./rules.js";
+import { entityType } from "./rules.js";
 import { ROLE_HELP, roleOf } from "./canvas.js";
 
 // The .syn type vocabulary, from synqtc/types.py. `var` is in it because a model role may
@@ -163,6 +163,18 @@ function entityPanel(design, entity, actions) {
         panel.append(note("The engine behind the type, swapped with this one value. "
                           + "Its credentials come from this entity's own environment and "
                           + "never from here."));
+    }
+
+    if (role !== "client") {
+        const shared = typeof entity.shared === "boolean" ? entity.shared : true;
+        panel.append(check("One of it, for everybody", shared, (on) => {
+            entity.shared = on;
+            actions.changed();
+        }));
+        panel.append(note("On: one Source everybody reaches, each caller through a mirror "
+                          + "of it, and every slot still knows who is calling. Off: one "
+                          + "Source per caller, so what it holds is theirs alone and a "
+                          + "second tab continues the first."));
     }
 
     const actionsRow = tag("div", {class: "inspector__actions"});
@@ -325,16 +337,6 @@ function linkPanel(design, link, actions) {
     panel.append(field("Consumers", consumers));
     panel.append(note("This list is the authorization. An entity that is not on it is "
                       + "refused the replica, and nothing it does can talk its way on."));
-
-    panel.append(field("Instance", choice(INSTANCE_MODES, link.instance || "caller",
-                                          (value) => {
-        link.instance = value;
-        actions.changed();
-    })));
-    panel.append(note("How many Sources this point mints. caller is one per caller, so a "
-                      + "user's second tab continues the first tab's Source; connection is "
-                      + "one per link, so it does not. State every caller shares belongs in "
-                      + "the owner's own singleton, which outlives all of them."));
 
     panel.append(field("Transport", choice(["", "local"], link.transport, (value) => {
         link.transport = value;

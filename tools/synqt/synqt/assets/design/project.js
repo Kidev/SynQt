@@ -53,6 +53,9 @@ function entityLines(entity) {
     if (entity.identity) {
         lines.push("    identity: true");
     }
+    if (!isShared(entity) && entityType(entity) !== "client") {
+        lines.push("    shared: false");
+    }
     if ((entity.targets || []).length) {
         lines.push(`    targets: ${listing(entity.targets)}`);
     }
@@ -75,24 +78,21 @@ function isWebEdge(entity) {
     return entityType(entity || {}) === "web_edge";
 }
 
-// How many Sources a link mints when it does not say, the same rule appmodel.instance_of
-// applies: one per caller, so a user's second tab continues the first tab's Source. The
-// alternative, `connection`, is one per link. Neither is one Source for everybody, which
-// could not be told who was calling and so had no `Caller` at all.
-export function instanceOf(design, link) {
-    const declared = String((link && link.instance) || "");
-    if (declared) {
-        return declared;
+// Whether there is one of this entity for everybody or one per caller, the same rule
+// appmodel.is_shared applies. Shared unless it says otherwise, and never for a client,
+// which is one browser.
+export function isShared(entity) {
+    if (entityType(entity || {}) === "client") {
+        return false;
     }
-    return "caller";
+    return typeof (entity || {}).shared === "boolean" ? entity.shared : true;
 }
 
 function linkLines(design, link) {
     const lines = [`  - name: ${scalar(link.name)}`,
                    `    contract: ${scalar(link.contract)}`,
                    `    owner: ${scalar(link.owner)}`,
-                   `    consumers: ${listing(link.consumers || [])}`,
-                   `    instance: ${scalar(instanceOf(design, link))}`];
+                   `    consumers: ${listing(link.consumers || [])}`];
     if (link.transport) {
         lines.push(`    transport: ${scalar(link.transport)}`);
     }

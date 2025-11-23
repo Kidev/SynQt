@@ -61,7 +61,7 @@ ConnectPointConfig itemsConnectPoint(quint16 port)
     connectPoint.owner = QStringLiteral("database");
     connectPoint.consumers = {QStringLiteral("web"), QStringLiteral("reporter")};
     connectPoint.serverFile = QStringLiteral(M7_SRCDIR "/database/Items.qml");
-    connectPoint.instance = ConnectPointInstance::PerCaller;
+    connectPoint.shared = false;
     connectPoint.endpoint.mode = MeshTransportMode::MutualTls;
     connectPoint.endpoint.host = QStringLiteral("127.0.0.1");
     connectPoint.endpoint.port = port;
@@ -175,20 +175,23 @@ private slots:
         todo.contract = QStringLiteral("Todo");
         todo.serverFile = QStringLiteral(M7_SRCDIR "/web/Todo.qml");
         todo.scope = QStringLiteral("user");           // anonymous cannot acquire it
-        todo.instance = InstanceMode::PerCaller;      // one instance per user, with Caller
+        todo.shared = false;                          // one Source per user, with Caller
 
-        // The same Source file on two points, differing only in `instance:`. `draft` mints
-        // one Source per caller, so a user's second tab continues the first tab's; `scratch`
-        // mints one per connection, so it does not. Nothing but the Source holds their
-        // state, so what a caller reads back says which Source it reached.
+        // The same Source file on two points, differing only in whether the owner is
+        // shared. `draft` is not. One Source per caller, so a user's second tab continues
+        // the first tab's and another user's is a different object. `board` is: one Source
+        // for everybody, reached through a mirror per caller, so what one writes the next
+        // one reads and each still calls with their own Caller. Both on one edge because
+        // this is the runtime under test, not the configuration: `shared:` is written on
+        // the entity, so a project's points all carry the same answer.
         WebEdgeConnectPoint draft;
         draft.name = QStringLiteral("draft");
         draft.contract = QStringLiteral("Draft");
         draft.serverFile = QStringLiteral(M7_SRCDIR "/web/Draft.qml");
-        draft.instance = InstanceMode::PerCaller;
+        draft.shared = false;
         WebEdgeConnectPoint scratch{draft};
         scratch.name = QStringLiteral("scratch");
-        scratch.instance = InstanceMode::PerLink;
+        scratch.shared = true;
         config.connectPoints = {todo, draft, scratch};
 
         m_edge = std::make_unique<WebEdge>(config, m_edgeEngine.get());
@@ -244,14 +247,18 @@ private slots:
                                                              QStringLiteral("scratch"))};
         QRemoteObjectDynamicReplica *scratchTwo{replicaNamed(&aliceTabTwo,
                                                              QStringLiteral("scratch"))};
-        QVERIFY(draftOne && draftTwo && draftBob && scratchOne && scratchTwo);
+        QRemoteObjectDynamicReplica *scratchBob{replicaNamed(&bob,
+                                                             QStringLiteral("scratch"))};
+        QVERIFY(draftOne && draftTwo && draftBob);
+        QVERIFY(scratchOne && scratchTwo && scratchBob);
         QTRY_VERIFY(draftOne->isReplicaValid());
         QTRY_VERIFY(draftTwo->isReplicaValid());
         QTRY_VERIFY(draftBob->isReplicaValid());
         QTRY_VERIFY(scratchOne->isReplicaValid());
         QTRY_VERIFY(scratchTwo->isReplicaValid());
+        QTRY_VERIFY(scratchBob->isReplicaValid());
 
-        // PerCaller: one Source for alice, whatever number of tabs she opens. Her second
+        // Not shared. One Source for alice, whatever number of tabs she opens. Her second
         // tab sees what she typed in the first, and it is stamped with her own identity,
         // so it is her Source and not somebody's.
         QVERIFY(QMetaObject::invokeMethod(draftOne, "save",
@@ -268,13 +275,19 @@ private slots:
         QTRY_COMPARE(draftBob->property("text").toString(), QStringLiteral("bob:eggs"));
         QCOMPARE(draftOne->property("text").toString(), QStringLiteral("alice:milk"));
 
-        // PerLink: the same user, the same two tabs, and the state does not cross.
+        // Shared: one Source for everybody. What alice writes, her other tab and bob both
+        // read, because all three are mirrors of the one object.
         QVERIFY(QMetaObject::invokeMethod(scratchOne, "save",
                                           Q_ARG(QString, QStringLiteral("note"))));
         QTRY_COMPARE(scratchOne->property("text").toString(), QStringLiteral("alice:note"));
-        QTest::qWait(300);
-        QVERIFY2(scratchTwo->property("text").toString().isEmpty(),
-                 "instance: link must give the second tab its own Source");
+        QTRY_COMPARE(scratchTwo->property("text").toString(), QStringLiteral("alice:note"));
+        QTRY_COMPARE(scratchBob->property("text").toString(), QStringLiteral("alice:note"));
+
+        // And it still knows who is calling. The stamp is bob's when bob writes, which is
+        // the whole difference between a shared Source and one nobody can authorize.
+        QVERIFY(QMetaObject::invokeMethod(scratchBob, "save",
+                                          Q_ARG(QString, QStringLiteral("eggs"))));
+        QTRY_COMPARE(scratchOne->property("text").toString(), QStringLiteral("bob:eggs"));
     }
 
     // Clauses 1, 2, 3, 5: the user authorization matrix and ownerSub non-leakage.

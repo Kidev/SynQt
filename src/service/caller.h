@@ -98,6 +98,20 @@ public:
                                 const QVariant &arg6 = QVariant(),
                                 const QVariant &arg7 = QVariant());
 
+    /// Become `other`: whoever it identifies, and the Source it answers through.
+    ///
+    /// A shared entity answers everyone from one Source, so the Caller its QML names cannot
+    /// be minted with that Source and left alone. It is made to be the caller of the slot
+    /// currently running, just before the mirror hands the call over. Invokable because the
+    /// generated helper reaches it by name, having no way to include this header.
+    ///
+    /// It follows that on a shared entity `Caller` means "whoever is calling right now".
+    /// Read it in the slot, and keep what you need from it in a local if the work finishes
+    /// later. The object itself will have moved on. An entity that is not shared has a
+    /// Source per caller and a Caller that never changes, which is why this is only ever
+    /// called on the shared one.
+    Q_INVOKABLE void adopt(QObject *other);
+
     /// The scope vocabulary for hierarchical checks (order low->high). Empty == set-based.
     void setScopeOrder(const QStringList &order, bool hierarchical);
 

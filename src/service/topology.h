@@ -18,33 +18,12 @@ QT_END_NAMESPACE
 
 namespace SynQt {
 
-/// How a mesh link is carried. Mutual TLS is the default on every link; the local
+/// How a mesh link is carried. Mutual TLS is the default on every link. The local
 /// socket is an explicit opt-in and is never selected implicitly.
 enum class MeshTransportMode { MutualTls, LocalSocket };
 
-/// How many Sources a connect point mints, and therefore who shares the state one holds.
-///
-/// PerCaller (the default) is one Source per caller *identity*: every link a signed-in
-/// user's browser opens reaches the same Source, and so does every link one calling
-/// entity opens. A user's second tab continues the first tab's Source rather than
-/// starting a blank one.
-///
-/// PerLink is one Source per link. Two tabs of one user get two, and neither sees
-/// the other's state. Ask for it when a Source holds something that belongs to the link
-/// rather than to the person: a cursor position, a live view window, a stream cursor.
-///
-/// Neither is "one Source for everybody", and there is no such value. QtRO hands
-/// enableRemoting() a single object and never reports which connection invoked a slot,
-/// so a Source shared by every caller could carry no Caller at all. State that really is
-/// shared by everyone lives in the entity's own singleton, which outlives every Source.
-///
-/// Sharing one Source across a caller's links is possible because a Source may be
-/// remoted by more than one QRemoteObjectHost: the edge keeps one host node per socket,
-/// enables the same Source on each, and every replica tracks it.
-enum class ConnectPointInstance { PerCaller, PerLink };
-
 /// One entry of `network.outbound`: somewhere this entity may call, and what it sends when
-/// it does. `name` is what `Http.api(name)` resolves; a bare prefix has none. `headers`
+/// it does. `name` is what `Http.api(name)` resolves, and a bare prefix has none. `headers`
 /// values are still as declared (an `env:` reference is resolved when Http is built), so a
 /// secret never lands in the resolved topology on disk.
 struct OutboundEndpoint
@@ -81,7 +60,19 @@ struct ConnectPointConfig
     QString owner;
     QStringList consumers;
     QString serverFile;  ///< the owner-side QML that implements the Source
-    ConnectPointInstance instance{ConnectPointInstance::PerCaller};
+
+    /// Whether the owning entity is shared, copied onto every point it owns because the
+    /// host is what reads it. It is the entity's property and not the point's: an entity
+    /// is one thing everybody reaches, or one thing per caller, and it cannot be both at
+    /// once for two of its own surfaces.
+    ///
+    /// Shared (the default) is one Source for the whole entity. Every caller acquires a
+    /// mirror of it, so all of them see the same props and the same rows, and each slot
+    /// still runs with that caller's Caller bound. Not shared is one Source per caller,
+    /// with everything it holds that caller's alone. A browser caller is a session, so
+    /// their second tab continues the Source their first tab has been using.
+    bool shared{true};
+
     MeshEndpoint endpoint;
 };
 
@@ -93,10 +84,16 @@ struct Topology
     MeshCredentials credentials;
     QList<ConnectPointConfig> connectPoints;
 
+    /// One of this entity for everybody, or one per caller. See ConnectPointConfig::shared,
+    /// which every owned point carries a copy of. The entity's own singleton is one either
+    /// way. It is the entity itself, not a caller's view of it, and it is where a shared
+    /// entity's state naturally lives when a connect point is not the right place for it.
+    bool shared{true};
+
     /// What the entity is, which decides the one backend helper the runtime injects into its
     /// owned Sources (relational -> Db, cache -> Cache, document -> Docs, api -> Http,
-    /// jobs -> Jobs; client, web_edge and service get none). `provider` is the resolved
-    /// provider/settings block for that type; `schema` is the forward-only migration steps a
+    /// jobs -> Jobs, and client, web_edge and service get none). `provider` is the resolved
+    /// provider/settings block for that type. `schema` is the forward-only migration steps a
     /// relational entity applies at startup.
     QString type;
     QVariantMap provider;

@@ -556,7 +556,7 @@ private slots:
         config.owner = QStringLiteral("auth");
         config.consumers = {QStringLiteral("web"), QStringLiteral("web2")};
         config.serverFile = QStringLiteral(M8_SRCDIR "/auth/SessionStore.qml");
-        config.instance = ConnectPointInstance::PerCaller;
+        config.shared = false;
         config.endpoint.mode = MeshTransportMode::MutualTls;
         config.endpoint.host = QStringLiteral("127.0.0.1");
         config.endpoint.port = 0;
@@ -673,7 +673,7 @@ private slots:
         cp.owner = QStringLiteral("auth");
         cp.consumers = {QStringLiteral("web")};
         cp.serverFile = QStringLiteral(M8_SRCDIR "/auth/Identity.qml");
-        cp.instance = ConnectPointInstance::PerCaller;
+        cp.shared = false;
         cp.endpoint.mode = MeshTransportMode::MutualTls;
         cp.endpoint.host = QStringLiteral("127.0.0.1");
         cp.endpoint.port = 0;

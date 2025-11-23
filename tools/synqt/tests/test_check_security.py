@@ -455,50 +455,55 @@ class LayoutCollisionTest(unittest.TestCase):
         self.assertEqual(errors(config), [])
 
 
-class InstanceDefaultTest(unittest.TestCase):
-    """`instance:` says how many Sources a point mints: one per `caller`, or one per
-    `link`.
+class SharedEntityTest(unittest.TestCase):
+    """`shared:` says how many of an entity there are: one for everybody, or one per caller.
 
-    `caller` is the default everywhere, browser link and mesh alike, because continuing a
-    caller's own Source is what an author expects from a point that holds their state.
+    It is the entity's answer and not a link's, because an entity is one thing everybody
+    reaches or one thing per caller, and it cannot be both at once for two of its own
+    surfaces.
     """
 
-    def _points(self, config):
-        return {point["name"]: point["instance"]
-                for point in appmodel.normalized(config)["connect_points"]}
+    def _entity(self, config, name):
+        return next(entity for entity in config["entities"] if entity["name"] == name)
 
-    def test_both_sides_default_to_one_source_per_caller(self):
-        # The browser-facing point and the mesh point resolve the same way, which is the
-        # point of naming the value after the caller rather than after the transport.
-        points = self._points(base_config())
-        self.assertEqual(points["app"], "caller")
-        self.assertEqual(points["items"], "caller")
-
-    def test_a_point_with_no_consumers_is_still_per_caller(self):
-        # Nothing consumes it yet, which is not a reason to build a Source that could not
-        # be told who was calling once something does.
+    def test_an_entity_is_shared_unless_it_says_otherwise(self):
         config = base_config()
-        config["connect_points"].append(
-            {"name": "internal", "owner": "database", "consumers": [], "contract": "Internal"})
-        self.assertEqual(self._points(config)["internal"], "caller")
+        self.assertTrue(appmodel.is_shared(self._entity(config, "web")))
+        self.assertTrue(appmodel.is_shared(self._entity(config, "database")))
+
+    def test_a_client_is_never_shared(self):
+        # One browser, nobody to share with, and no way to write otherwise.
+        config = base_config()
+        self.assertFalse(appmodel.is_shared(self._entity(config, "client")))
 
     def test_what_the_author_wrote_is_what_they_get(self):
         config = base_config()
-        config["connect_points"][0]["instance"] = "link"
-        self.assertEqual(self._points(config)["app"], "link")
+        self._entity(config, "web")["shared"] = False
+        self.assertFalse(appmodel.is_shared(self._entity(config, "web")))
 
-    def test_anything_that_is_not_one_of_the_two_is_refused(self):
-        """A misspelled `link` would fall back to `caller` and quietly share what
-        the point was written to keep apart, so the spelling is checked rather than the
-        behaviour left to surprise somebody."""
+    def test_shared_on_the_client_is_refused(self):
         config = base_config()
-        config["connect_points"][0]["instance"] = "linkk"
+        self._entity(config, "client")["shared"] = True
         ok, messages = check.validate(config)
         self.assertFalse(ok)
-        refusal = next(m for m in messages if "instance 'linkk'" in m)
-        self.assertIn("caller", refusal)
-        self.assertIn("link", refusal)
+        self.assertTrue(any("shares with nobody" in m for m in messages), messages)
 
+    def test_something_that_is_not_a_yes_or_no_is_refused(self):
+        config = base_config()
+        self._entity(config, "web")["shared"] = "sometimes"
+        ok, messages = check.validate(config)
+        self.assertFalse(ok)
+        self.assertTrue(any("shared 'sometimes'" in m for m in messages), messages)
+
+    def test_instance_on_a_point_is_refused_and_says_where_it_moved(self):
+        """The key lives on the entity, it does nothing here, and a line that does nothing
+        reads exactly like a line that works."""
+        config = base_config()
+        config["connect_points"][0]["instance"] = "link"
+        ok, messages = check.validate(config)
+        self.assertFalse(ok)
+        refusal = next(m for m in messages if "sets 'instance'" in m)
+        self.assertIn("shared: false", refusal)
 
 class OrphanEntityTest(unittest.TestCase):
     def test_an_entity_nothing_reaches_is_a_warning_not_an_error(self):

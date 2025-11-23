@@ -343,7 +343,7 @@ connect_points:
     consumers: [app]          # the browser mirrors it
     server: web/edge/Arena.qml
     scope: player             # only approved players get the arena at all
-    # no instance: one Source per caller is the default, which is what puts a Caller in
+    # the edge says shared: false, which is what puts a Caller in
     # the slots above. The arena itself is shared because World.qml is.
 ```
 

@@ -258,9 +258,10 @@ Layers, outermost to innermost:
 - Consumer allowlist. Only listed consumer entities may acquire a connect point.
 - Connect point scope (browser users). The edge does not acquire a scoped connect
   point's Replica for an under scoped user.
-- Instances. One Source per caller keeps one user's authoritative state separate from
-  another's, and one calling entity's separate from another's. `instance: link`
-  narrows it further, to one open link.
+- Sharing. `shared: false` on an entity keeps one user's authoritative state separate
+  from another's, and one calling entity's separate from another's. A shared entity
+  answers everyone from one Source, and each caller reaches it through a mirror carrying
+  their own `Caller`, so a slot can still refuse them.
 - Push only properties. Consumers cannot set owner properties directly, only
   request a change the owner controls.
 - In slot checks. Every slot checks `Caller` (a user scope and ownership, or a
@@ -569,9 +570,9 @@ Authorization and data:
 - Every privileged slot authorizes `Caller` (user scope and ownership, or calling
   entity) and validates input before acting. No slot relies on a consumer side
   check.
-- Connect points holding private per user or per entity state keep the default
-  `instance: caller`, so one caller's state is never in another caller's Source.
-- Contracts expose only the model roles and objects consumers need; private fields
+- An entity holding private per user or per entity state says `shared: false`, so one
+  caller's state is never in another caller's Source.
+- Contracts expose only the model roles and objects consumers need. Private fields
   stay off the contract.
 - The database (and any sensitive entity) is reachable only through authorized
   connect points, never from the browser, never from the internet.

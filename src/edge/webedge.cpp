@@ -10,6 +10,7 @@
 #include "pagesservice.h"
 #include "pagestore.h"
 #include "sessionmanager.h"
+#include "sourcefactory.h"
 #include "topology.h"           // loadCertificate / loadPrivateKey
 #include "websockettransport.h" // reused host-side (from src/transport)
 
@@ -1047,23 +1048,49 @@ QObject *WebEdge::createSource(const WebEdgeConnectPoint &connectPoint, QObject 
     return source;
 }
 
+QObject *WebEdge::sharedSource(const WebEdgeConnectPoint &connectPoint, QString *error)
+{
+    SharedSource &entry{m_sharedSources[connectPoint.name]};
+    if (entry.source) {
+        return entry.source;
+    }
+    // The Caller in a shared Source's context starts as nobody and is made to be whoever is
+    // calling, one forwarded call at a time (SynQt::Caller::adopt). It is minted here rather
+    // than in a mirror so the QML context that names it is built once, with the Source.
+    Caller *caller{Caller::forUser(connectPoint.contract, m_sessionManager, QByteArray{},
+                                   nullptr, this)};
+    caller->setScopeOrder(m_config.scopeOrder, m_config.scopesHierarchical);
+    QObject *source{createSource(connectPoint, caller, this, error)};
+    if (!source) {
+        delete caller;
+        m_sharedSources.remove(connectPoint.name);
+        return nullptr;
+    }
+    caller->setParent(source);
+    SourceFactory::bindCaller(source, caller);
+    entry.source = source;
+    entry.caller = caller;
+    return source;
+}
+
 QObject *WebEdge::sourceForConnection(const WebEdgeConnectPoint &connectPoint,
                                       const QByteArray &sessionId, QWebSocket *socket,
                                       QString *error)
 {
-    // A Source per connection: parented to the socket, so it dies with it, and nothing is
-    // remembered. This is also where an anonymous browser lands, because a per-caller
-    // Source has to be keyed on a caller and there is no session id to key on.
-    const bool perCaller{connectPoint.instance == InstanceMode::PerCaller
-                         && !sessionId.isEmpty()};
-    if (!perCaller) {
+    // An anonymous browser holds no session, so there is nothing to key a continuing Source
+    // on: it gets one per connection, parented to the socket, and nothing is remembered.
+    if (sessionId.isEmpty()) {
         Caller *caller{Caller::forUser(connectPoint.contract, m_sessionManager, sessionId,
                                        nullptr, socket)};
         caller->setScopeOrder(m_config.scopeOrder, m_config.scopesHierarchical);
-        QObject *source{createSource(connectPoint, caller, socket, error)};
+        QObject *source{connectPoint.shared
+                            ? mirrorFor(connectPoint, caller, socket, error)
+                            : createSource(connectPoint, caller, socket, error)};
         if (source) {
             caller->setParent(source);
             caller->setSource(source);
+        } else {
+            delete caller;
         }
         return source;
     }
@@ -1072,14 +1099,16 @@ QObject *WebEdge::sourceForConnection(const WebEdgeConnectPoint &connectPoint,
     if (QObject *existing{sources.byConnectPoint.value(connectPoint.name)}) {
         return existing;
     }
-    // Parented to the edge, not to the socket: it outlives this connection on purpose, and
+    // Parented to the edge rather than to the socket. It outlives this connection, and
     // releaseSessionSources() is what ends it. The Caller is minted once with it and holds
-    // the session, so `Caller.emitSignal` reaches every tab of that session, which is the
-    // whole point of sharing the Source.
+    // the session, so `Caller.emitSignal` reaches every tab of that session, which is what
+    // makes an answer arrive in the tab that did not ask.
     Caller *caller{Caller::forUser(connectPoint.contract, m_sessionManager, sessionId,
                                    nullptr, this)};
     caller->setScopeOrder(m_config.scopeOrder, m_config.scopesHierarchical);
-    QObject *source{createSource(connectPoint, caller, this, error)};
+    QObject *source{connectPoint.shared
+                        ? mirrorFor(connectPoint, caller, this, error)
+                        : createSource(connectPoint, caller, this, error)};
     if (!source) {
         delete caller;
         return nullptr;
@@ -1088,6 +1117,28 @@ QObject *WebEdge::sourceForConnection(const WebEdgeConnectPoint &connectPoint,
     caller->setSource(source);
     sources.byConnectPoint.insert(connectPoint.name, source);
     return source;
+}
+
+QObject *WebEdge::mirrorFor(const WebEdgeConnectPoint &connectPoint, Caller *caller,
+                            QObject *parent, QString *error)
+{
+    QObject *shared{sharedSource(connectPoint, error)};
+    if (!shared) {
+        return nullptr;
+    }
+    QObject *mirror{SourceFactory::create(connectPoint.contract, parent)};
+    if (!mirror) {
+        if (error) {
+            *error = QStringLiteral("no Source registered for contract %1")
+                         .arg(connectPoint.contract);
+        }
+        return nullptr;
+    }
+    // The Caller is bound before the mirroring, so a call that arrives in the same turn
+    // already carries whose it is.
+    caller->setSource(mirror);
+    SourceFactory::mirror(mirror, shared, caller);
+    return mirror;
 }
 
 void WebEdge::releaseSessionSources(const QByteArray &sessionId)

@@ -848,8 +848,7 @@ def render_edge_main(config: Dict[str, Any], edge: Dict[str, Any],
     for cp in client_facing:
         cp_name = cp.get("name")
         contract = cp.get("contract", "")
-        instance = ("InstanceMode::PerLink"
-                    if cp.get("instance") == "link" else "InstanceMode::PerCaller")
+        shared = "true" if appmodel.is_shared(edge) else "false"
         var = re.sub(r"[^0-9A-Za-z]", "", cp_name) or "connectPoint"
         server_file = cp.get("server") or appmodel.source_path(edge, contract)
         # The declared scope is the barrier that decides whether this connect point is
@@ -866,7 +865,7 @@ def render_edge_main(config: Dict[str, Any], edge: Dict[str, Any],
         {var}.name = QStringLiteral("{cxx_string_literal(cp_name)}");
         {var}.contract = QStringLiteral("{cxx_string_literal(contract)}");
         {var}.serverFile = qmlDir + QStringLiteral("/{cxx_string_literal(server_file)}");
-        {scope_line}{var}.instance = {instance};
+        {scope_line}{var}.shared = {shared};
         config.connectPoints.append({var});
     }}"""
         cp_blocks.append(block)

@@ -25,7 +25,7 @@ import { NODE_RADIUS, ROLE_HELP, describe, draw, element, entityAt, extent, glyp
 import { inspect } from "./inspector.js";
 import { forgetDesign, keepDesign, keepPane, keptDesign,
          readPanes } from "./keep.js";
-import { entityDir, entityFiles, entityQmlPath, instanceOf, projectFiles }
+import { entityDir, entityFiles, entityQmlPath, projectFiles }
     from "./project.js";
 import { declarations, references, runsFor, withoutNotice } from "./source.js";
 import { zipBytes } from "./zip.js";
@@ -671,7 +671,7 @@ function absorbReferences(consumer, found) {
         let link = (state.design.links || []).find((held) => held.name === one.point);
         if (!link) {
             link = {id: one.point, name: one.point, contract: capitalised(one.point),
-                    owner: owner.name, consumers: [], instance: "", transport: "",
+                    owner: owner.name, consumers: [], transport: "",
                     members: []};
             state.design.links.push(link);
             said.push(`'${consumer.name}' reaches ${one.accessor}.${one.point}, so `
@@ -903,7 +903,6 @@ function tipFor(what) {
     box.append(tipRow("owned by", `${link.owner || "nobody"}, which decides`));
     box.append(tipRow("consumed by", (link.consumers || []).join(", ")
         || "nobody yet, so nothing can acquire it"));
-    box.append(tipRow("instance", instanceOf(state.design, link)));
     box.append(tipRow("carried over", link.transport === "local"
         ? "a local socket: the caller is trusted by colocation, not authenticated"
         : "mutual TLS, verified against the project CA"));
@@ -1383,7 +1382,6 @@ function addLink(owner, consumer, toward, at) {
         contract: capitalised(name),
         owner: owner.name,
         consumers: [consumer.name],
-        instance: "",
         transport: "",
         members: [],
         slot: nearestFreeSlot(held, turnsToward(owner, toward || consumer)),

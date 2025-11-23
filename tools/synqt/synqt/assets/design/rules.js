@@ -13,10 +13,10 @@
 // Pure functions over the document, no DOM: the node checker imports this file directly, and
 // a rule that reached for the page could not be checked outside a browser.
 
-// What a caller is on a link. There is one Source per caller either way; these two say
-// what a caller *is*. There is no "shared": QtRO never tells a slot which connection
-// invoked it, so a Source shared by every caller had no `Caller` at all.
-const INSTANCE_MODES = ["caller", "connection"];
+// How many of an entity there are. One for everybody, or one per caller. It is the
+// entity's answer and not a link's, because an entity is one thing everybody reaches or
+// one thing per caller, and it cannot be both at once for two of its own surfaces.
+// A client is never shared. It is one browser.
 
 // One field says what an entity is, the same answer appmodel.entity_type gives. Defined
 // here because this is the file with no DOM and no imports, so every other module can
@@ -173,19 +173,6 @@ function linkFindings(design, link) {
         }
     }
 
-    const instance = link && link.instance;
-    if (instance && !INSTANCE_MODES.includes(String(instance))) {
-        found.push({
-            rule: "invalid-instance",
-            level: "error",
-            link: name,
-            message: `'${name}' has instance '${instance}'. It must be one of `
-                + `${INSTANCE_MODES.join(", ")}. 'shared' used to mean one Source for `
-                + `everybody, which could carry no Caller at all; put state the callers `
-                + `share in the owner entity's own singleton instead.`,
-        });
-    }
-
     // Not a mistake, and not silent either. On a local socket the operating system
     // identifies the connecting user, not the entity, so any process running as that user
     // can present any entity name.
@@ -222,6 +209,22 @@ function orphanEntities(design) {
         }));
 }
 
+// A client is one browser. There is nobody for it to be shared with, so the word says
+// nothing there, and reading it in a project would teach the wrong thing about what it is
+// for.
+function sharedOnAClient(design) {
+    return entitiesOf(design)
+        .filter((entity) => entityType(entity) === "client" && entity.shared === true)
+        .map((entity) => ({
+            rule: "shared-on-a-client",
+            level: "error",
+            entity: nameOf(entity),
+            message: `'${nameOf(entity)}' is the client and is marked shared. A client is `
+                + `one browser and shares with nobody. Mark the edge instead if what you `
+                + `meant is a Source per session.`,
+        }));
+}
+
 // Every rule the page paints, over one design document. Entity-level findings first, then
 // each link in the order it was drawn, so the list is stable between two runs on the same
 // document and a reader can follow it down the canvas.
@@ -230,6 +233,7 @@ export function findings(design) {
         ...duplicateEntities(design),
         ...duplicateLinks(design),
         ...clientWithoutEdge(design),
+        ...sharedOnAClient(design),
         ...orphanEntities(design),
     ];
     for (const link of linksOf(design)) {
@@ -238,4 +242,3 @@ export function findings(design) {
     return found;
 }
 
-export { INSTANCE_MODES };

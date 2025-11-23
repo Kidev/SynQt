@@ -242,6 +242,10 @@ class MalformedInputTest(unittest.TestCase):
         "slot with two type words": "contract C { slot int foo bar() }",
         "unterminated comment": "contract C { /* nope }",
         "stray character": "contract C { prop int x @ }",
+        "bound of zero": "contract C { prop string[0] name }",
+        "bound on a type that has none": "contract C { prop int16[4] tally }",
+        "bound with no number": "contract C { prop string[] name }",
+        "bound on a slot name": "contract C { slot post[2](string text) }",
     }
 
     def test_each_malformed_input_raises_synerror_with_location(self):
@@ -252,6 +256,92 @@ class MalformedInputTest(unittest.TestCase):
                 message = ctx.exception.format()
                 self.assertIn("error:", message)
                 self.assertTrue(message.startswith("bad.syn"))
+
+
+class SizedTypeTest(unittest.TestCase):
+    """A bound written in a contract is a rule the boundary keeps, not a comment on it."""
+
+    SYN = """
+        contract Players {
+            prop string[16] region
+            prop int16 season
+            model rows(string[64] playerId, uint8 rate, var extra)
+            slot lookup(string[64] playerId)
+        }
+    """
+
+    def setUp(self):
+        self.syn = parse_text(self.SYN, path="players.syn", stem="players")
+        self.header = emit_source_helper_header(self.syn, "players")
+        self.source = emit_source_helper_source(self.syn, "players")
+
+    def test_a_sized_integer_is_that_wide_on_the_wire(self):
+        rep = emit_rep(self.syn)
+        self.assertIn("PROP(qint16 season READPUSH)", rep)
+        self.assertIn("PROP(QString region READPUSH)", rep)
+
+    def test_a_bounded_prop_refuses_a_value_that_does_not_fit(self):
+        # repc makes every setter virtual, so overriding it is the whole interception.
+        self.assertIn("void setRegion(QString region) override;", self.header)
+        self.assertIn("if (regionLength > 16) {", self.source)
+
+    def test_a_bounded_role_refuses_the_publish(self):
+        self.assertIn("if (playerIdLength > 64) {", self.source)
+        self.assertIn("qDeleteAll(items);", self.source)
+
+    def test_an_integer_role_is_range_checked_before_it_is_converted(self):
+        # Converting is what would wrap it: after that a too-large number looks ordinary.
+        checked = self.source.index("rateAsNumber > 255.0")
+        converted = self.source.index("rateValue.convert(")
+        self.assertLess(checked, converted)
+
+    def test_a_var_role_carries_whatever_arrives(self):
+        self.assertIn("extra: declared var", self.source)
+
+    def test_a_bounded_slot_argument_is_refused_before_the_owners_qml_sees_it(self):
+        slot = self.source[self.source.index("void PlayersSourceHelper::lookup"):]
+        refusal = slot.index("playerIdLength > 64")
+        dispatch = slot.index("synqtQmlSlotIndex")
+        self.assertLess(refusal, dispatch)
+
+
+class SharedSourceTest(unittest.TestCase):
+    """A shared entity answers everyone from one Source; each caller reaches it through a
+    mirror carrying their own Caller."""
+
+    SYN = """
+        contract Board {
+            prop string topic
+            model notes(string author)
+            slot post(string text)
+            signal rejected(string reason)
+        }
+    """
+
+    def setUp(self):
+        self.syn = parse_text(self.SYN, path="board.syn", stem="board")
+        self.header = emit_source_helper_header(self.syn, "board")
+        self.source = emit_source_helper_source(self.syn, "board")
+
+    def test_the_runtime_reaches_both_hooks_by_name(self):
+        # It knows the contract's name and nothing about its type, so both are invokable.
+        self.assertIn("Q_INVOKABLE void synqtSetCaller(QObject *caller);", self.header)
+        self.assertIn("Q_INVOKABLE void synqtMirror(QObject *shared);", self.header)
+
+    def test_a_mirror_follows_every_pushed_thing(self):
+        self.assertIn("setTopic(source->topic());", self.source)
+        self.assertIn("&BoardSource::topicChanged", self.source)
+        self.assertIn("setNotes(source->notesRows());", self.source)
+        self.assertIn("&BoardSource::rejected", self.source)
+
+    def test_a_slot_forwards_with_the_caller_bound(self):
+        post = self.source[self.source.index("void BoardSourceHelper::post"):]
+        self.assertIn("m_synqtShared->synqtAdoptCaller(m_synqtCaller);", post)
+        self.assertIn("m_synqtShared->post(text);", post)
+
+    def test_the_type_registers_a_way_to_build_one(self):
+        self.assertIn("SynQt::SourceFactory::registerSource(QStringLiteral(\"Board\")",
+                      self.source)
 
 
 if __name__ == "__main__":

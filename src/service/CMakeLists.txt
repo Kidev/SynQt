@@ -57,6 +57,8 @@ qt_add_library(SynQtService STATIC
     sessionmanager.h
     caller.cpp
     caller.h
+    sourcefactory.cpp
+    sourcefactory.h
 )
 
 set_target_properties(SynQtService PROPERTIES AUTOMOC ON)

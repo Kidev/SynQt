@@ -52,7 +52,7 @@ connect_points:
     owner: edge               # the edge holds the authoritative Source
     consumers: [app]          # the browser may acquire it
     server: web/edge/Counter.qml
-    # no instance: one Source per caller is the default, so each session gets its
+    # the edge says shared: false, so each session gets its
     # own Source and each slot gets its Caller. The counter itself is one number for
     # everybody, so it lives in the edge entity's own file below.
     # no scope: any session may use it
@@ -212,7 +212,7 @@ connect_points:
     owner: edge
     consumers: [app]
     server: web/edge/Todo.qml
-    # no instance: caller, so each slot has its Caller. The list everyone sees
+    # the edge is not shared, so each slot has its Caller. The list everyone sees
     # lives in the edge entity's own file, which outlives any one connection.
     # no scope on the connect point: anonymous users may acquire it and read.
     # write permission is enforced inside the slots, not at acquisition.
@@ -428,7 +428,7 @@ connect_points:
     consumers: [app]
     server: web/edge/Draft.qml
     scope: user               # only signed in users may acquire it at all
-    instance: caller     # each session has its own draft Source
+                         # the edge is not shared: a draft Source per session
 ```
 
 One user's draft is a different Source instance from another's, and this one touches no
@@ -490,14 +490,14 @@ connect_points:
     owner: edge               # the edge owns the user facing object
     consumers: [app]          # the browser may acquire it
     server: web/edge/Todo.qml
-    # no instance: one Source per caller is the default, which is what gives
+    # the edge says shared: false, which is what gives
     # the slots below their Caller
 
   - name: items
     owner: store              # the store entity owns durable storage
     consumers: [edge]         # only the edge may reach it; never the browser
     server: db/relational/store/Items.qml
-    # no instance: one Source per calling entity, so Caller.entity is
+    # shared: false on the owner, so one Source per calling entity and Caller.entity is
     # the verified name of the entity that called
 ```
 
@@ -714,7 +714,6 @@ connect_points:
     owner: stock              # the stock entity owns the durable stock
     consumers: [edge]         # only the edge; a client consumer here fails synqt check
     server: db/relational/stock/Inventory.qml
-    instance: caller
 ```
 
 ### The delivered page, `web/edge/pages/Campaign.qml`

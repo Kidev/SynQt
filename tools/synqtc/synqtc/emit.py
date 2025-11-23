@@ -17,7 +17,7 @@ from __future__ import annotations
 from typing import List
 
 from .model import Contract, Model, Signal, Slot, SynFile
-from .types import cpp_type
+from .types import base_of, bound_of, cpp_type, int_range
 
 SPDX_CPP = (
     "// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux\n"
@@ -35,6 +35,59 @@ def _param_list(params, record_names, path) -> str:
         f"{cpp_type(param.type, record_names, path=path, line=param.line, col=param.col)} {param.name}"
         for param in params
     )
+
+
+# What a declared bound is worth at run time
+#
+# A bound written in a contract (`string[64]`, `int16`) is a rule about what may cross,
+# so the generated boundary enforces it rather than describing it. A value that breaks
+# the rule is refused and named in a warning; nothing is quietly truncated into something
+# that looks right, because a silently shortened name and a silently wrapped counter are
+# exactly the bugs a bound exists to prevent.
+
+#: Integers above this are not exactly representable as a double, so the range guard
+#: (which compares through toDouble, the one conversion every numeric QVariant answers)
+#: would start rejecting values it should accept. For int64 and uint64 the C++ type
+#: itself is the bound, and that is where the check happens instead.
+EXACT_IN_DOUBLE = 2 ** 53
+
+
+def _range_guard(spelling: str, value: str, where: str, field: str,
+                 refuse: List[str], indent: str) -> List[str]:
+    """Refuse `value` (a QVariant) when it is outside the declared integer's range."""
+    limits = int_range(spelling)
+    if limits is None:
+        return []
+    low, high = limits
+    if abs(low) > EXACT_IN_DOUBLE or high > EXACT_IN_DOUBLE:
+        return []
+    guard = [
+        f"bool {field}IsNumber{{false}};",
+        f"const double {field}AsNumber{{{value}.toDouble(&{field}IsNumber)}};",
+        f"if ({field}IsNumber && ({field}AsNumber < {low}.0"
+        f" || {field}AsNumber > {high}.0)) {{",
+        f'    qWarning("%s: \'%s\' is declared %s, which holds {low} to {high}, and %f '
+        'does not fit; refused",',
+        f'             "{where}", "{field}", "{spelling}", {field}AsNumber);',
+    ] + [f"    {line}" for line in refuse] + ["}"]
+    return [indent + line for line in guard]
+
+
+def _length_guard(spelling: str, text: str, where: str, field: str,
+                  refuse: List[str], indent: str) -> List[str]:
+    """Refuse `text` (a QString expression) when it is longer than the declared bound."""
+    bound = bound_of(spelling)
+    if bound is None or base_of(spelling) != "string":
+        return []
+    guard = [
+        f"const qsizetype {field}Length{{{text}.size()}};",
+        f"if ({field}Length > {bound}) {{",
+        f'    qWarning("%s: \'%s\' is declared %s and the value is %lld characters; '
+        'refused",',
+        f'             "{where}", "{field}", "{spelling}",'
+        f" static_cast<long long>({field}Length));",
+    ] + [f"    {line}" for line in refuse] + ["}"]
+    return [indent + line for line in guard]
 
 
 # rep
@@ -98,9 +151,10 @@ def emit_source_helper_header(syn: SynFile, lstem: str) -> str:
                       f'#include "{lstem}_rep.h"', "",
                       "#include <QList>",
                       "#include <QObject>",
+                      "#include <QPointer>",
                       "#include <QQmlListProperty>", ""]
     # SourceModel is a QStandardItemModel that refuses a write arriving from a consumer,
-    # and it is QtGui through its base; only pull it in when a contract actually has a
+    # and it is QtGui through its base. Only pull it in when a contract has a
     # model, so a model-less service does not need QtGui.
     if _has_models(syn):
         out += ["#include <sourcemodel.h>", "#include <QVariantList>", ""]
@@ -195,6 +249,14 @@ def _source_helper_class(contract: Contract, records, path) -> str:
         "",
         "    QQmlListProperty<QObject> data();",
         "",
+        "    // Shared entities. An entity that is shared answers everyone from one Source,",
+        "    // and each caller reaches it through a mirror: the mirror is what that caller's",
+        "    // links acquire, it republishes the shared Source's props, models and signals",
+        "    // outward, and it forwards every slot back with that caller bound. Both calls",
+        "    // are the runtime's, invoked by name so it needs none of these types.",
+        "    Q_INVOKABLE void synqtSetCaller(QObject *caller);",
+        "    Q_INVOKABLE void synqtMirror(QObject *shared);",
+        "",
     ]
     if contract.models:
         # repc gives the Source a virtual set<Model>(QAbstractItemModel *) that the
@@ -216,6 +278,15 @@ def _source_helper_class(contract: Contract, records, path) -> str:
                          f"{{ return m_{model.name}Rows; }}")
             lines.append(f"    void set{_cap(model.name)}Rows(const QVariantList &rows) "
                          f"{{ set{_cap(model.name)}(rows); }}")
+        lines.append("")
+    bounded = _bounded_props(contract)
+    if bounded:
+        lines.append("    // Bounded props. repc makes every setter virtual, so the bound is")
+        lines.append("    // kept here: an assignment that breaks it is refused and named,")
+        lines.append("    // and what the Source pushes is always inside the contract.")
+        for prop in bounded:
+            ctype = cpp_type(prop.type, records, path=path, line=prop.line, col=prop.col)
+            lines.append(f"    void set{_cap(prop.name)}({ctype} {prop.name}) override;")
         lines.append("")
     if contract.slots:
         lines.append("    // Consumer -> owner requests. Each dispatches to the owner's QML")
@@ -239,7 +310,12 @@ def _source_helper_class(contract: Contract, records, path) -> str:
         lines.append("")
     lines.append("private:")
     lines.append("    static void appendData(QQmlListProperty<QObject> *list, QObject *object);")
+    lines.append("    // Make the shared Source's Caller be whoever is calling right now.")
+    lines.append("    void synqtAdoptCaller(QObject *caller);")
+    lines.append("")
     lines.append("    QList<QObject *> m_data;")
+    lines.append("    QPointer<QObject> m_synqtCaller;")
+    lines.append(f"    QPointer<{name}SourceHelper> m_synqtShared;")
     for model in contract.models:
         lines.append(f"    SynQt::SourceModel m_{model.name}Model;")
         lines.append(f"    QVariantList m_{model.name}Rows;")
@@ -288,6 +364,11 @@ def emit_source_helper_source(syn: SynFile, lstem: str) -> str:
         out += ["#include <QMetaType>",
                 "#include <QStandardItem>", "",
                 "#include <utility>", ""]
+    # Present whenever a service runtime is linked, absent for a contract-only target; the
+    # registration below is guarded the same way.
+    out += ["#if __has_include(<sourcefactory.h>)",
+            "#  include <sourcefactory.h>",
+            "#endif", ""]
     has_slots = any(contract.slots for contract in syn.contracts)
     if has_slots:
         out += [SLOT_DISPATCH_HELPER, ""]
@@ -318,6 +399,19 @@ def emit_source_helper_source(syn: SynFile, lstem: str) -> str:
                 f"{{ return new {contract.name}Caller{{parent}}; }});"
             )
         out.append("#endif")
+    # The mirror factory, on the same terms. A shared entity's runtime has to build one more
+    # instance of this Source per caller and knows only the contract's name, so the one place
+    # that knows the type registers a way to make one.
+    out.append("#if __has_include(<sourcefactory.h>)")
+    for contract in syn.contracts:
+        out.append(
+            f'    SynQt::SourceFactory::registerSource(QStringLiteral("{contract.name}"),'
+        )
+        out.append(
+            f"        [](QObject *parent) -> QObject * "
+            f"{{ return new {contract.name}SourceHelper{{parent}}; }});"
+        )
+    out.append("#endif")
     out.append("}")
     out.append("")
     return "\n".join(out)
@@ -366,6 +460,13 @@ def _source_helper_impl(contract: Contract, records, path) -> str:
     lines.append("}")
     lines.append("")
 
+    lines.append(_mirror_impl(contract, records, path))
+    lines.append("")
+
+    for prop in _bounded_props(contract):
+        lines.append(_bounded_prop_impl(name, prop, records, path))
+        lines.append("")
+
     for model in contract.models:
         lines.append(_set_model_impl(name, model, records, path))
         lines.append("")
@@ -380,6 +481,95 @@ def _source_helper_impl(contract: Contract, records, path) -> str:
         lines.append("")
 
     return "\n".join(lines).rstrip("\n")
+
+
+def _mirror_impl(contract: Contract, records, path) -> str:
+    """The three methods that make one Source answerable to many callers.
+
+    A shared entity keeps one Source and hands each caller a mirror of it. Everything the
+    shared Source pushes is copied outward as it changes, so every mirror shows the same
+    values; everything a caller asks for is forwarded back with that caller bound, so the
+    shared Source's slots still see a Caller and can still refuse one. A signal the shared
+    Source raises reaches every mirror (it is the whole point of sharing), while
+    `Caller.emit<Signal>` runs on the one mirror the caller acquired and reaches them
+    alone.
+    """
+    name = contract.name
+    helper = f"{name}SourceHelper"
+    lines = [
+        f"void {helper}::synqtSetCaller(QObject *caller)",
+        "{",
+        "    m_synqtCaller = caller;",
+        "}",
+        "",
+        f"void {helper}::synqtAdoptCaller(QObject *caller)",
+        "{",
+        "    // By name, so a contract target that links no service runtime still compiles:",
+        "    // SynQt::Caller::adopt takes this caller's identity and the mirror it answers",
+        "    // through, which is what makes one shared Source able to tell its callers apart.",
+        "    if (m_synqtCaller && caller && m_synqtCaller != caller) {",
+        '        QMetaObject::invokeMethod(m_synqtCaller.data(), "adopt", Qt::DirectConnection,',
+        "                                  Q_ARG(QObject *, caller));",
+        "    }",
+        "}",
+        "",
+        f"void {helper}::synqtMirror(QObject *shared)",
+        "{",
+        f"    {helper} *source{{qobject_cast<{helper} *>(shared)}};",
+        "    if (!source || source == this) {",
+        "        return;",
+        "    }",
+        "    m_synqtShared = source;",
+    ]
+    if contract.props:
+        lines.append("")
+        lines.append("    // Pushed state: taken as it stands, then followed.")
+        for prop in contract.props:
+            cap = _cap(prop.name)
+            lines.append(f"    set{cap}(source->{prop.name}());")
+            lines.append(f"    connect(source, &{name}Source::{prop.name}Changed, this,")
+            lines.append(f"            &{name}SimpleSource::set{cap});")
+    if contract.models:
+        lines.append("")
+        lines.append("    // Rows: republished from the shared Source's last publish, which")
+        lines.append("    // already dropped everything the contract does not declare.")
+        for model in contract.models:
+            cap = _cap(model.name)
+            lines.append(f"    set{cap}(source->{model.name}Rows());")
+            lines.append(f"    connect(source, &{helper}::{model.name}RowsChanged, this,")
+            lines.append(f"            [this, source]() {{ set{cap}(source->{model.name}Rows()); }});")
+    if contract.signals:
+        lines.append("")
+        lines.append("    // A signal the shared Source raises is everyone's, so every mirror")
+        lines.append("    // raises it too. One addressed to a single caller is emitted on that")
+        lines.append("    // caller's mirror instead and never comes through here.")
+        for signal in contract.signals:
+            lines.append(f"    connect(source, &{name}Source::{signal.name}, this,")
+            lines.append(f"            &{name}Source::{signal.name});")
+    lines.append("}")
+    return "\n".join(lines)
+
+
+def _bounded_props(contract: Contract):
+    """The contract's props that were written with a bound, in declaration order."""
+    return [prop for prop in contract.props if bound_of(prop.type) is not None]
+
+
+def _bounded_prop_impl(class_name: str, prop, records, path) -> str:
+    """The setter that keeps a bounded prop inside its bound.
+
+    repc makes every property setter virtual, so overriding it is the whole
+    interception. The owner assigns in QML as usual, and a value that breaks the bound
+    never reaches the member the Source pushes from.
+    """
+    ctype = cpp_type(prop.type, records, path=path, line=prop.line, col=prop.col)
+    helper = f"{class_name}SourceHelper"
+    where = f"{class_name}.{prop.name}"
+    guard = _length_guard(prop.type, prop.name, where, prop.name, ["return;"], "    ")
+    body = "\n".join(guard + [
+        f"    {class_name}SimpleSource::set{_cap(prop.name)}({prop.name});",
+    ])
+    return f"void {helper}::set{_cap(prop.name)}({ctype} {prop.name})\n{{\n{body}\n}}"
 
 
 def _emit_signal_impl(class_name: str, signal: Signal, records, path) -> str:
@@ -441,29 +631,44 @@ def _role_conversion(class_name: str, model: Model, role, index: int, records, p
     its declared type, and a value that will not convert refuses the publish.
     """
     key = f'QStringLiteral("{role.name}")'
-    if role.type == "var":
+    if base_of(role.type) == "var":
         return [
             f"        // {role.name}: declared var, so whatever arrives is what crosses.",
             f"        item->setData(row.value({key}), Qt::UserRole + {index});",
         ]
     ctype = cpp_type(role.type, records, path=path, line=role.line, col=role.col)
     where = f"{class_name}.{model.name}"
-    return [
+    refuse = ["qDeleteAll(items);", "return;"]
+    lines = [
         f"        // {role.name}: declared {role.type}.",
         f"        QVariant {role.name}Value{{row.value({key})}};",
         f"        if (!{role.name}Value.isValid()) {{",
         f"            {role.name}Value = QVariant{{QMetaType::fromType<{ctype}>()}};",
-        f"        }} else if (!{role.name}Value.convert(QMetaType::fromType<{ctype}>())) {{",
-        '            qWarning("%s row %lld: role \'%s\' is declared %s and a %s does not "',
-        '                     "convert to it; the publish is refused",',
-        f'                     "{where}", static_cast<long long>(rowIndex),'
+        "        } else {",
+    ]
+    # The range is read before the conversion, because converting is what would wrap the
+    # value: past this point a too-large number looks like a perfectly ordinary small one.
+    lines += _range_guard(role.type, f"{role.name}Value", where, role.name, refuse,
+                          " " * 12)
+    lines += [
+        f"            if (!{role.name}Value.convert(QMetaType::fromType<{ctype}>())) {{",
+        '                qWarning("%s row %lld: role \'%s\' is declared %s and a %s does '
+        'not "',
+        '                         "convert to it; the publish is refused",',
+        f'                         "{where}", static_cast<long long>(rowIndex),'
         f' "{role.name}", "{role.type}",',
-        f"                     row.value({key}).typeName());",
-        "            qDeleteAll(items);",
-        "            return;",
+        f"                         row.value({key}).typeName());",
+        "                qDeleteAll(items);",
+        "                return;",
+        "            }",
+    ]
+    lines += _length_guard(role.type, f"{role.name}Value.toString()", where, role.name,
+                           refuse, " " * 12)
+    lines += [
         "        }",
         f"        item->setData({role.name}Value, Qt::UserRole + {index});",
     ]
+    return lines
 
 
 def _slot_impl(class_name: str, slot: Slot, records, path) -> str:
@@ -483,7 +688,26 @@ def _slot_impl(class_name: str, slot: Slot, records, path) -> str:
     ]
     arg_suffix = ("".join(", " + term for term in arg_terms))
 
-    lines = [
+    # Checked before the owner's QML ever sees the call. A bound in the contract is a rule
+    # about what a caller may send, so an over-long argument is refused here rather than
+    # handed on to be stored, echoed, or written to a column that is exactly that wide.
+    where = f"{class_name}.{slot.name}"
+    refuse = ["return;"] if is_void else [f"return {ret}{{}};"]
+    lines: List[str] = []
+    for param in slot.params:
+        lines += _length_guard(param.type, param.name, where, param.name, refuse, "    ")
+    # A mirror of a shared Source answers nothing itself: it binds its caller and hands the
+    # call to the Source everybody shares, which is where the slot is implemented.
+    forward = f"m_synqtShared->{slot.name}({', '.join(p.name for p in slot.params)})"
+    lines += [
+        "    if (m_synqtShared) {",
+        "        m_synqtShared->synqtAdoptCaller(m_synqtCaller);",
+        f"        {'return ' if not is_void else ''}{forward};",
+    ]
+    if is_void:
+        lines.append("        return;")
+    lines.append("    }")
+    lines += [
         f'    const int index{{synqtQmlSlotIndex(this, "{slot.name}", {len(slot.params)},',
         f"                                     {helper}::staticMetaObject.methodCount())}};",
     ]

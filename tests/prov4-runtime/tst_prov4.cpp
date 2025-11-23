@@ -132,7 +132,7 @@ private:
         connectPoint.owner = entity;
         connectPoint.consumers = QStringList{QStringLiteral("web")};
         connectPoint.serverFile = sourceFile;
-        connectPoint.instance = ConnectPointInstance::PerCaller;
+        connectPoint.shared = false;
         connectPoint.endpoint.mode = MeshTransportMode::LocalSocket;
         connectPoint.endpoint.socketName =
             QStringLiteral("synqt-prov4-%1")

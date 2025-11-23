@@ -426,7 +426,8 @@ each `.syn` construct lowers.
 There are two ways to emit a contract signal, and the difference is the audience:
 
 - Calling the Source's signal (`rejected(reason)`) delivers it to every consumer of that
-  Source instance, which is one caller: there is a Source per caller.
+  Source. On an entity that is not shared, that is the one caller it belongs to. On a
+  shared entity it is everybody, because their mirrors all follow the one Source.
 - `Caller.emit<Signal>(...)` (`Caller.emitRejected(reason)`) delivers it to the one caller
   currently in the slot.
 

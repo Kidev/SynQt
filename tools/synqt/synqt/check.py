@@ -17,10 +17,6 @@ import yaml
 from . import (addentity, appmodel, clientcache, config as configmod, designdoc,
                graphics, infer, qmlscan, toolchain, topologywriter, typebackend)
 
-#: How many Sources an owner keeps for one connect point. Read from appmodel so the check
-#: and the resolution cannot disagree about what is spellable.
-INSTANCE_MODES = appmodel.INSTANCE_MODES
-
 
 def _duplicate_messages(names: List[Any], what: str, consequence: str) -> List[str]:
     """One message per name declared more than once.
@@ -272,6 +268,33 @@ def _own_contract_messages(config: Dict[str, Any],
     return messages
 
 
+def _shared_messages(declared: List[Dict[str, Any]]) -> List[str]:
+    """Refuse a `shared:` that is not a yes-or-no, and one written on a client.
+
+    A client is one browser. There is nobody for it to be shared with, so `shared: true`
+    there is not a setting with a surprising effect, it is a sentence that does not mean
+    anything, and reading it in a project would teach the wrong thing about what the word
+    is for.
+    """
+    messages: List[str] = []
+    for entity in declared:
+        if "shared" not in entity:
+            continue
+        name = str(entity.get("name") or "")
+        value = entity.get("shared")
+        if not isinstance(value, bool):
+            messages.append(
+                f"error: entity '{name}' has shared '{value}'; it is true (one of this "
+                "entity for everybody, the default) or false (one per caller)")
+            continue
+        if appmodel.is_client(entity):
+            messages.append(
+                f"error: entity '{name}' is the client and sets 'shared'; a client is one "
+                "browser and shares with nobody, so the word says nothing there. Put it on "
+                "the edge if what you meant is a Source per session")
+    return messages
+
+
 def _orphan_messages(config: Dict[str, Any], declared: List[Dict[str, Any]]) -> List[str]:
     """Note an entity that owns nothing and consumes nothing.
 
@@ -359,6 +382,7 @@ def validate(config: Dict[str, Any], *, release: bool = False,
     messages += _entity_type_messages(declared)
     messages += _network_messages(declared)
     messages += _own_contract_messages(config, declared)
+    messages += _shared_messages(declared)
     messages += _orphan_messages(config, declared)
 
     # The endpoints the build will actually write, not the keys as spelled: a link's
@@ -397,14 +421,14 @@ def validate(config: Dict[str, Any], *, release: bool = False,
                 "owner listens for consumers and a browser cannot listen, so a connect point "
                 "the client takes part in must be owned by a web_edge entity")
 
-        # A misspelled `link` is not `link`, and downstream nothing says so:
-        # the point falls back to one Source per caller and quietly stops being what it was
-        # written to be. Caught here, by name.
-        instance = connect_point.get("instance")
-        if instance is not None and str(instance) not in INSTANCE_MODES:
+        # How many Sources a point mints is not the point's to say any more: it follows
+        # from `shared:` on the entity that owns it. Left on a point it would read like a
+        # setting and do nothing, so it is refused where it is written.
+        if "instance" in connect_point:
             messages.append(
-                f"error: connect point '{name}' has instance '{instance}'; it must be one of "
-                f"{', '.join(sorted(INSTANCE_MODES))}")
+                f"error: connect point '{name}' sets 'instance'; how many Sources there are "
+                f"is the owning entity's answer now, so write 'shared: false' on '{owner}' "
+                "to give each caller their own")
 
         for consumer in consumers:
             if consumer not in entities:

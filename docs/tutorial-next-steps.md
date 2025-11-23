@@ -162,8 +162,8 @@ contract Proxy {
 }
 ```
 
-The connect point, in `synqt.yaml`. `instance: caller` is the default, written out here
-because it is the line that makes the value private:
+The connect point, in `synqt.yaml`. What makes the value private is `shared: false` on
+the edge, which gives each bidder a Source of their own:
 
 ```yaml
 connect_points:
@@ -172,7 +172,6 @@ connect_points:
     consumers: [app]
     server: web/Proxy.qml
     scope: user               # only signed in users get one at all
-    instance: caller          # one private Source per bidder (the default)
 ```
 
 `web/edge/Proxy.qml`:

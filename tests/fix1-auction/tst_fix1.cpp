@@ -64,7 +64,7 @@ ConnectPointConfig ledgerConnectPoint(quint16 port)
     connectPoint.owner = QStringLiteral("books");
     connectPoint.consumers = {QStringLiteral("edge"), QStringLiteral("auditor")};
     connectPoint.serverFile = QStringLiteral(FIX1_GAVEL_DIR "/db/relational/books/Ledger.qml");
-    connectPoint.instance = ConnectPointInstance::PerCaller;
+    connectPoint.shared = false;
     connectPoint.endpoint.mode = MeshTransportMode::MutualTls;
     connectPoint.endpoint.host = QStringLiteral("127.0.0.1");
     connectPoint.endpoint.port = port;
@@ -179,7 +179,7 @@ private slots:
         auction.name = QStringLiteral("auction");
         auction.contract = QStringLiteral("Auction");
         auction.serverFile = QStringLiteral(FIX1_GAVEL_DIR "/web/edge/Auction.qml");
-        auction.instance = InstanceMode::PerCaller;   // one per user, so Caller is the bidder
+        auction.shared = false;                       // one per user, so Caller is the bidder
         WebEdgeConnectPoint hall;
         hall.name = QStringLiteral("hall");
         hall.contract = QStringLiteral("Hall");
@@ -187,7 +187,7 @@ private slots:
         // Per session like every other point. The hall is the same for everyone, and the
         // state behind it lives in the edge entity's own singleton; the Source is this
         // session's window onto it, and it has a Caller because every caller does.
-        hall.instance = InstanceMode::PerCaller;
+        hall.shared = false;
         config.connectPoints = {auction, hall};
 
         m_edge = std::make_unique<WebEdge>(config, m_edgeEngine.get());

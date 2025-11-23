@@ -359,8 +359,38 @@ def network_helpers(entity: Dict[str, Any]) -> List[str]:
     return helpers
 
 
+# One of you, or one per caller
+#
+# Read the system as chains. Every chain starts at a client, which is one browser and is
+# never shared. Next comes the edge it connects to, and after that whatever the edge
+# reaches. `shared:` is each entity's answer to how many of it there are along that chain,
+# and it belongs to the entity rather than to a link because an entity is one thing
+# everybody reaches or one thing per caller, and it cannot be both at once for two of its
+# own surfaces.
+#
+#   shared. True    one Source for everybody (the default). Every caller acquires a mirror
+#                   of it, so all of them see the same props and the same rows, and each
+#                   slot still runs with that caller's Caller bound.
+#   shared. False   one Source per caller. What it holds is that caller's alone. A browser
+#                   caller is a session, so their second tab continues what their first tab
+#                   was using and their private window gets its own.
+
+
+def is_shared(entity: Dict[str, Any]) -> bool:
+    """Is there one of this entity for everybody, or one per caller?
+
+    Shared unless the entity says otherwise, except for a client, which is one browser and
+    has nobody to share with. `synqt check` refuses `shared: true` written on a client
+    rather than quietly ignoring it.
+    """
+    if is_client(entity):
+        return False
+    declared = entity.get("shared")
+    return bool(declared) if isinstance(declared, bool) else True
+
+
 def is_service(entity: Dict[str, Any]) -> bool:
-    """Everything that is not the client: the edge and every other entity type.
+    """Everything that is not the client. The edge and every other entity type.
 
     The one distinction the build turns on, because it is the line between what is
     compiled to WebAssembly and served to a browser and what is compiled native and run by
@@ -389,43 +419,10 @@ def contract_of(point: Dict[str, Any]) -> str:
     return f"{name[:1].upper()}{name[1:]}" if name else ""
 
 
-#: How many Sources a connect point mints, and therefore who shares what one holds.
-#:
-#: `caller` (the default) is one Source per caller identity: every link one signed-in user
-#: opens reaches the same Source, and so does every link one consuming entity opens. A
-#: second tab continues the first tab's Source. `link` is one Source per open link, for
-#: state that belongs to the link rather than to the person.
-#:
-#: There is no third value meaning one Source for everybody. QtRO hands `enableRemoting()`
-#: a single object and never tells a slot which link invoked it, so such a Source
-#: could carry no `Caller` at all: every `Caller.hasScope(...)` written in one was a
-#: reference to something that was not there. State shared by everyone lives in the
-#: entity's own singleton, which outlives every Source.
-INSTANCE_MODES = frozenset({"caller", "link"})
-
-
-def instance_of(point: Dict[str, Any], config: Dict[str, Any]) -> str:
-    """How many Sources this connect point mints: one per `caller`, or one per `link`.
-
-    `caller` is the default and the one that surprises nobody: a Source holds that caller's
-    state, and their next tab or their reconnect continues it. Ask for `link` when
-    what the Source holds belongs to the one open link and not to the person, like a live
-    view window or a stream cursor, and two tabs should not share it.
-
-    `config` is unused and kept in the signature because every reader passes the topology
-    to every resolver here. The answer is the same on the mesh and at the edge, which is
-    the point of naming the value after the caller rather than after the transport.
-    """
-    declared = point.get("instance")
-    if isinstance(declared, str) and declared.strip():
-        return declared.strip()
-    return "caller"
-
-
 def normalized(config: Dict[str, Any]) -> Dict[str, Any]:
-    """`config` with every connect point carrying the contract and instance it resolves to.
+    """`config` with every connect point carrying the contract it resolves to.
 
-    Done once, where the configuration is read, so that no reader has to remember either
+    Done once, where the configuration is read, so that no reader has to remember the
     default and none of them can disagree about it. A point that names one keeps what it
     named.
     """
@@ -440,8 +437,6 @@ def normalized(config: Dict[str, Any]) -> Dict[str, Any]:
                 contract = contract_of(point)
                 if contract:
                     resolved["contract"] = contract
-            if not resolved.get("instance"):
-                resolved["instance"] = instance_of(point, config)
             point = resolved
         filled.append(point)
     return {**config, "connect_points": filled}
@@ -914,9 +909,7 @@ def app_points(points: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 def auth_connect_points(config: Dict[str, Any]) -> List[Dict[str, Any]]:
     """The identity and session links `identity.provider_entity` implies, or [].
 
-    Owned by the named auth entity and consumed by every web edge that serves login. One
-    Source per caller on both, so each edge gets its own instance and one edge's answer (a
-    user's normalized identity, an authorization URL) never crosses to another. The
+    Owned by the named auth entity and consumed by every web edge that serves login. The
     transport is left to the usual resolution, which means mutual TLS on loopback unless
     the auth entity's `mesh:` block says otherwise, like any other mesh link.
 
@@ -936,9 +929,8 @@ def auth_connect_points(config: Dict[str, Any]) -> List[Dict[str, Any]]:
              "contract": contract,
              "owner": owner,
              "consumers": consumers,
-             "instance": "caller",
              # Generated, so it lives with the rest of the generated tree rather than in
-             # the auth entity's folder: nobody writes this file and nobody edits it.
+             # the auth entity's folder. Nobody writes this file and nobody edits it.
              "server": f"{GENERATED_DIR}/{source_path(owning, contract)}",
              "framework": True}
             for name, contract in _AUTH_POINTS if name not in declared]

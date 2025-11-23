@@ -61,8 +61,6 @@ class AuthConnectPoints(unittest.TestCase):
         for point in points:
             self.assertEqual(point["owner"], "auth")
             self.assertEqual(point["consumers"], ["web"])
-            # One Source per caller, so one edge's answer never reaches another edge.
-            self.assertEqual(point["instance"], "caller")
             self.assertTrue(appmodel.is_framework_point(point))
 
     def test_in_process_identity_implies_nothing(self):

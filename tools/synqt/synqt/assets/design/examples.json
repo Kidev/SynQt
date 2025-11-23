@@ -16,31 +16,127 @@
       "version": 1,
       "project": "my-app",
       "entities": [
-        {"name": "app", "type": "client", "targets": ["wasm"], "x": 40, "y": 40},
-        {"name": "edge", "type": "web_edge", "x": 360, "y": 40},
-        {"name": "store", "type": "relational",
-         "provider": "sqlite", "x": 680, "y": 40},
-        {"name": "feeds", "type": "api", "x": 680, "y": 200}
+        {
+          "name": "app",
+          "type": "client",
+          "targets": [
+            "wasm"
+          ],
+          "x": 40,
+          "y": 40
+        },
+        {
+          "name": "edge",
+          "type": "web_edge",
+          "x": 360,
+          "y": 40
+        },
+        {
+          "name": "store",
+          "type": "relational",
+          "provider": "sqlite",
+          "x": 680,
+          "y": 40
+        },
+        {
+          "name": "feeds",
+          "type": "api",
+          "x": 680,
+          "y": 200
+        }
       ],
       "links": [
-        {"name": "feed", "contract": "Feed", "owner": "edge", "consumers": ["app"],
-         "instance": "caller", "members": [
-           {"kind": "prop", "name": "loaded", "type": "bool", "params": [], "roles": []},
-           {"kind": "model", "name": "rows", "type": "", "params": [],
-            "roles": [{"type": "int", "name": "id"}, {"type": "string", "name": "title"}]},
-           {"kind": "slot", "name": "load", "type": "", "params": [], "roles": []},
-           {"kind": "signal", "name": "denied", "type": "",
-            "params": [{"type": "string", "name": "reason"}], "roles": []}
-         ]},
-        {"name": "access", "contract": "Access", "owner": "store", "consumers": ["edge"],
-         "instance": "caller", "members": [
-           {"kind": "slot", "name": "allows", "type": "bool",
-            "params": [{"type": "string", "name": "sub"}], "roles": []}
-         ]},
-        {"name": "upstream", "contract": "Upstream", "owner": "feeds", "consumers": ["edge"],
-         "instance": "caller", "members": [
-           {"kind": "slot", "name": "fetch", "type": "var", "params": [], "roles": []}
-         ]}
+        {
+          "name": "feed",
+          "contract": "Feed",
+          "owner": "edge",
+          "consumers": [
+            "app"
+          ],
+          "members": [
+            {
+              "kind": "prop",
+              "name": "loaded",
+              "type": "bool",
+              "params": [],
+              "roles": []
+            },
+            {
+              "kind": "model",
+              "name": "rows",
+              "type": "",
+              "params": [],
+              "roles": [
+                {
+                  "type": "int",
+                  "name": "id"
+                },
+                {
+                  "type": "string",
+                  "name": "title"
+                }
+              ]
+            },
+            {
+              "kind": "slot",
+              "name": "load",
+              "type": "",
+              "params": [],
+              "roles": []
+            },
+            {
+              "kind": "signal",
+              "name": "denied",
+              "type": "",
+              "params": [
+                {
+                  "type": "string",
+                  "name": "reason"
+                }
+              ],
+              "roles": []
+            }
+          ]
+        },
+        {
+          "name": "access",
+          "contract": "Access",
+          "owner": "store",
+          "consumers": [
+            "edge"
+          ],
+          "members": [
+            {
+              "kind": "slot",
+              "name": "allows",
+              "type": "bool",
+              "params": [
+                {
+                  "type": "string",
+                  "name": "sub"
+                }
+              ],
+              "roles": []
+            }
+          ]
+        },
+        {
+          "name": "upstream",
+          "contract": "Upstream",
+          "owner": "feeds",
+          "consumers": [
+            "edge"
+          ],
+          "members": [
+            {
+              "kind": "slot",
+              "name": "fetch",
+              "type": "var",
+              "params": [],
+              "roles": []
+            }
+          ]
+        }
       ]
     }
   }

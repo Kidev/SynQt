@@ -21,12 +21,6 @@ namespace SynQt {
 /// `security.session_transport` is refused at `synqt check` until then.
 enum class SessionTransport { Cookie };
 
-/// How many Sources a browser-facing connect point mints. The edge's spelling of
-/// ConnectPointInstance (topology.h), which carries the full explanation: PerCaller is
-/// one Source per session, so a user's tabs share it, and PerLink is one per open
-/// link, so they do not.
-enum class InstanceMode { PerCaller, PerLink };
-
 /// One client-facing connect point owned by the web edge (consumed by the client). The
 /// browser can only reach a web_edge entity, so these are the objects it acquires.
 struct WebEdgeConnectPoint
@@ -35,7 +29,12 @@ struct WebEdgeConnectPoint
     QString contract;
     QString serverFile;  ///< the owner-side QML implementing the Source
     QString scope;       ///< minimum session scope; empty == reachable by any session
-    InstanceMode instance{InstanceMode::PerCaller};
+
+    /// Whether the edge is shared, copied onto each point it owns (ConnectPointConfig::
+    /// shared in topology.h carries the full explanation). Shared is one Source for
+    /// everybody, mirrored to each session; not shared is one Source per session, so what
+    /// it holds is that person's and their second tab continues it.
+    bool shared{true};
 };
 
 /// One page the edge delivers rather than the bundle carrying it.

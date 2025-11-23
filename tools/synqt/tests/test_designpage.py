@@ -368,39 +368,36 @@ def test_every_example_contract_parses_as_the_members_it_declares(examples):
                 f"example '{name}', contract {link['contract']}"
 
 
-def test_the_page_and_the_cli_resolve_one_instance_the_same_way():
-    """`shared` builds a Source with no Caller, so which instancing an unwritten `instance:`
-    resolves to decides whether the authorization in a slot can run at all. The page writes
-    the synqt.yaml a download holds and the CLI writes the one `synqt add connect-point`
-    produces; the two disagreeing here would be a topology that is safe from one door and
-    not from the other."""
+def test_the_page_and_the_cli_write_sharing_the_same_way():
+    """Whether an entity is shared decides whether one Source answers everybody or each
+    caller gets their own, so it decides what a slot's Caller can be. The page writes the
+    synqt.yaml a download holds and the CLI writes the one the commands produce. The two
+    disagreeing here would be a topology that behaves one way from one door and another way
+    from the other."""
     document = {
         "version": 1, "project": "p",
         "entities": [
             {"name": "app", "type": "client"},
-            {"name": "edge", "type": "web_edge"},
+            {"name": "edge", "type": "web_edge", "shared": False},
             {"name": "store", "type": "relational"},
         ],
         "links": [
             {"name": "feed", "contract": "Feed", "owner": "edge", "consumers": ["app"],
-             "instance": "", "members": []},
+             "members": []},
             {"name": "items", "contract": "Items", "owner": "store", "consumers": ["edge"],
-             "instance": "", "members": []},
-            {"name": "quiet", "contract": "Quiet", "owner": "store", "consumers": [],
-             "instance": "", "members": []},
+             "members": []},
         ],
     }
     rendered = _node(f"""
         import {{ renderYaml }} from {_module('project.js')};
         process.stdout.write(renderYaml({json.dumps(document)}));
     """, raw=True)
-    page = {point["name"]: point["instance"]
-            for point in yaml.safe_load(rendered)["connect_points"]}
+    page = {entity["name"]: appmodel.is_shared(entity)
+            for entity in yaml.safe_load(rendered)["entities"]}
     config = designdoc.to_config(document, base={})
-    cli = {point["name"]: point["instance"]
-           for point in appmodel.normalized(config)["connect_points"]}
+    cli = {entity["name"]: appmodel.is_shared(entity) for entity in config["entities"]}
     assert page == cli
-    assert page == {"feed": "caller", "items": "caller", "quiet": "caller"}
+    assert page == {"app": False, "edge": False, "store": True}
 
 
 def test_the_home_pages_project_is_the_one_the_home_page_reads():
@@ -424,7 +421,6 @@ def test_the_home_pages_project_is_the_one_the_home_page_reads():
         assert appmodel.contract_of(point) == link["contract"]
         assert point["owner"] == link["owner"]
         assert point["consumers"] == link["consumers"]
-        assert point["instance"] == link["instance"]
 
     for link in feed["links"]:
         source = re.search(rf"```syn\n(contract {link['contract']} \{{.*?\}})\n```",

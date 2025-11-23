@@ -50,27 +50,10 @@ class AddConnectPointTest(unittest.TestCase):
         point = yaml.safe_load((root / "synqt.yaml").read_text())["connect_points"][0]
         self.assertEqual(point["owner"], "feeds")
         self.assertEqual(point["consumers"], ["edge"])
-        # Neither `contract:` nor `instance:` is written: both are what the point resolves
-        # to on its own, and the same answer twice is a line to keep in step for nothing.
+        # `contract:` is not written: it is what the point resolves to on its own, and the
+        # same answer twice is a line to keep in step for nothing.
         self.assertNotIn("contract", point)
-        self.assertNotIn("instance", point)
         self.assertEqual(appmodel.contract_of(point), "Prices")
-        config = yaml.safe_load((root / "synqt.yaml").read_text())
-        self.assertEqual(appmodel.instance_of(point, config), "caller")
-
-    def test_an_instance_the_author_chose_is_written_down(self):
-        root = self._project()
-        addcontract.scaffold_connect_point(root, "prices", owner="feeds",
-                                           consumers=["edge"], instance="link")
-        point = yaml.safe_load((root / "synqt.yaml").read_text())["connect_points"][0]
-        self.assertEqual(point["instance"], "link")
-
-    def test_an_instance_that_is_not_one_of_the_two_is_refused(self):
-        root = self._project()
-        with self.assertRaises(addcontract.AddContractError) as raised:
-            addcontract.scaffold_connect_point(root, "prices", owner="feeds",
-                                               consumers=["edge"], instance="everybody")
-        self.assertIn("caller", str(raised.exception))
 
     def test_a_contract_that_is_not_the_points_own_name_is_written_down(self):
         root = self._project()
@@ -104,11 +87,10 @@ class AddConnectPointTest(unittest.TestCase):
         addcontract.scaffold_connect_point(root, "prices", owner="feeds",
                                            consumers=["edge"], contract="Prices")
         addcontract.scaffold_connect_point(root, "auction", owner="edge",
-                                           consumers=["app"], contract="Auction",
-                                           instance="link")
+                                           consumers=["app"], contract="Auction")
         points = yaml.safe_load((root / "synqt.yaml").read_text())["connect_points"]
         self.assertEqual([p["name"] for p in points], ["prices", "auction"])
-        self.assertEqual(points[1]["instance"], "link")
+        self.assertEqual(points[1]["owner"], "edge")
 
     def test_an_unknown_owner_is_refused_before_anything_is_written(self):
         root = self._project()

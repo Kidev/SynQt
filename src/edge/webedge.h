@@ -121,12 +121,20 @@ private:
                           QObject *parent, QString *error);
     /// The Source this connection acquires for one connect point, minted or continued.
     ///
-    /// `InstanceMode::PerCaller` looks the session up first, so a user's second tab reaches
-    /// the Source their first tab has been using rather than a blank one. Returns nullptr
-    /// on a load failure, with the reason in *error.
+    /// The session is looked up first, so a user's second tab reaches what their first tab
+    /// has been using rather than a blank one. On a shared edge that object is a mirror of
+    /// the one Source everybody is answered from; otherwise it is that session's own
+    /// Source. Returns nullptr on a load failure, with the reason in *error.
     QObject *sourceForConnection(const WebEdgeConnectPoint &connectPoint,
                                  const QByteArray &sessionId, QWebSocket *socket,
                                  QString *error);
+    /// The one Source a shared edge answers a connect point from, loaded on first use and
+    /// kept for the life of the edge.
+    QObject *sharedSource(const WebEdgeConnectPoint &connectPoint, QString *error);
+    /// One caller's window onto that shared Source: what their links acquire, carrying
+    /// their Caller and forwarding to the Source everybody shares.
+    QObject *mirrorFor(const WebEdgeConnectPoint &connectPoint, Caller *caller,
+                       QObject *parent, QString *error);
     /// Drop this connection's claim on its session's Sources, and destroy them when it was
     /// the last one. Called from the socket's disconnected handler.
     void releaseSessionSources(const QByteArray &sessionId);
@@ -192,8 +200,8 @@ private:
     };
     QHash<QString, VerifiedSession> m_pendingSessions;
 
-    /// The Sources one session's connections share, for every `InstanceMode::PerCaller`
-    /// connect point (which is the default). Keyed by session id, so a user's second tab
+    /// The Sources one session's connections share, for every connect point. Keyed by
+    /// session id, so a user's second tab
     /// continues the first tab's Source rather than starting a blank one, and so does a
     /// reconnect after the network dropped.
     ///
@@ -210,6 +218,16 @@ private:
         QHash<QString, QObject *> byConnectPoint;
     };
     QHash<QByteArray, SessionSources> m_sessionSources;
+
+    /// On a shared edge, the single Source per connect point that every session's mirror
+    /// answers through, with the Caller its QML names alongside it (adopted per call into
+    /// whoever is asking). Empty on an edge that is not shared.
+    struct SharedSource
+    {
+        QObject *source{nullptr};
+        Caller *caller{nullptr};
+    };
+    QHash<QString, SharedSource> m_sharedSources;
 
     /// Connection caps.
     int m_activeGlobal{0};

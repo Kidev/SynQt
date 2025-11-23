@@ -41,21 +41,17 @@ MeshTransportMode transportModeFromString(const QString &value)
                                             : MeshTransportMode::MutualTls;
 }
 
-ConnectPointInstance instanceFromString(const QString &value)
-{
-    // Per-caller is the fallback, and the fallback is the safe one: continuing a caller's
-    // own Source is what an author expects from a point that holds their state, and asking
-    // for a Source per link is the deliberate choice.
-    return value == QLatin1String("link") ? ConnectPointInstance::PerLink
-                                          : ConnectPointInstance::PerCaller;
-}
-
 } // namespace
 
 Topology topologyFromJson(const QJsonObject &object)
 {
     Topology topology;
     topology.entity = object.value(QStringLiteral("entity")).toString();
+    // The entity's own answer to "one of you, or one per caller", defaulting to shared the
+    // way the configuration does. Copied onto every point below, because the host of a
+    // point is what acts on it.
+    const bool shared{object.value(QStringLiteral("shared")).toBool(true)};
+    topology.shared = shared;
 
     const QJsonObject credentials{object.value(QStringLiteral("credentials")).toObject()};
     topology.credentials.caCertPath = credentials.value(QStringLiteral("ca")).toString();
@@ -115,8 +111,7 @@ Topology topologyFromJson(const QJsonObject &object)
         connectPoint.contract = entry.value(QStringLiteral("contract")).toString();
         connectPoint.owner = entry.value(QStringLiteral("owner")).toString();
         connectPoint.serverFile = entry.value(QStringLiteral("server")).toString();
-        connectPoint.instance =
-            instanceFromString(entry.value(QStringLiteral("instance")).toString());
+        connectPoint.shared = shared;
         const QJsonArray consumers = entry.value(QStringLiteral("consumers")).toArray();
         for (const QJsonValue &consumer : consumers) {
             connectPoint.consumers.append(consumer.toString());

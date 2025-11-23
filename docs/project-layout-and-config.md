@@ -465,16 +465,14 @@ connect_points:
     consumers: [app]          # the entities allowed to acquire the Replica
     server: web/edge/Todo.qml
     scope: user               # for browser consumers: minimum session scope
-    instance: caller          # one Source per caller (the default), or one per link
 
   - name: items
     owner: store
     consumers: [edge]         # only the edge may reach the items connect point
     server: db/relational/store/Items.qml
-    instance: caller
 ```
 
-`contract`, `server`, `scope` and `instance` are all optional.
+`contract`, `server` and `scope` are all optional.
 
 `contract` defaults to the point's own name capitalized, which is what a point carrying
 one contract always wanted: `- name: todo` carries `Todo`. Write it only when two points
@@ -485,14 +483,10 @@ be left off; they are there to show where the file goes.
 Omitting `scope` means any session, including an anonymous one, may acquire the connect
 point; write protection then lives inside the slots, as in the examples.
 
-`instance` says how many Sources this point mints. `caller` is the default and what most
-points want: one Source per caller, so every link one signed-in user opens reaches the
-same one, and so does every link one consuming entity opens. Their second tab continues
-what they started in the first, and their reconnect after a dropped network does too.
-
-Write `connection` for one Source per link. Ask for it when what the Source holds belongs
-to the link rather than to the person: a live view window, a stream cursor, anything two
-tabs of one user should not share.
+How many Sources a point mints is not written here. It follows from `shared:` on the
+entity that owns it: shared (the default) is one Source everybody reaches through a mirror
+of their own, and `shared: false` is one Source per caller. See
+[the programming model](programming-model.md#how-many-of-an-entity-there-are-shared).
 
 There is no value meaning "one Source for everybody": such a Source could not be told who
 was calling, so its slots had no `Caller`. State every caller shares belongs in the owner
@@ -1222,9 +1216,11 @@ fast. Non negotiable checks:
 - A name declared twice, whether an entity or a connect point, is rejected. Both are
   keyed by name, so the second declaration replaces the first rather than colliding
   with it, and a consumer list narrowed on the first would disappear without a word.
-- An `instance` that is not `caller` or `link` is rejected. Anything
-  unrecognised falls back to `caller`, so a misspelled `link` would quietly share
-  what the point was written to keep apart.
+- An `instance` written on a connect point is rejected, naming the entity to write
+  `shared:` on instead. It is the entity's answer now, and a line that no longer does
+  anything reads exactly like a line that works.
+- A `shared` that is not true or false is rejected, and so is one written on a client:
+  a client is one browser and shares with nobody.
 - A connect point `scope` not in `scopes.order` is rejected.
 - `client_threads: multi` without cross origin isolation is rejected (the CLI
   offers to set it).

@@ -125,7 +125,7 @@ private slots:
         arena.contract = QStringLiteral("Arena");
         arena.serverFile = QStringLiteral(FIX2_SRCDIR "/web/Arena.qml");
         arena.scope = QStringLiteral("player");        // only approved players acquire it
-        arena.instance = InstanceMode::PerCaller;     // one per player, so Caller is bound
+        arena.shared = false;                         // one per player, so Caller is bound
         config.connectPoints = {arena};
 
         m_edge = std::make_unique<WebEdge>(config, m_engine.get());

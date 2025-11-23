@@ -36,8 +36,8 @@ _IGNORED = ("build", ".git", ".synqt", "__pycache__", "node_modules", ".venv")
 
 # The entity fields the document models. Anything else in an entity block (TLS files,
 # provider settings, an env file) is the author's and is left where it is.
-_ENTITY_FIELDS = ("type", "provider", "targets", "identity")
-_LINK_FIELDS = ("contract", "owner", "consumers", "instance", "transport")
+_ENTITY_FIELDS = ("type", "provider", "targets", "identity", "shared")
+_LINK_FIELDS = ("contract", "owner", "consumers", "transport")
 
 
 class DesignPlanError(Exception):
@@ -435,10 +435,6 @@ def _link_field(link: Dict[str, Any], key: str) -> Any:
     value = link.get(key)
     if key == "consumers":
         return list(value or [])
-    if key == "instance":
-        # Left out when the drawing does not say, so the same resolution the runtime
-        # applies decides it rather than one answer being frozen in by the writer.
-        return str(value) if value else None
     # A contract named the same as its point is what the runtime resolves anyway, so the
     # line is left out rather than written and then kept in step with the point's name.
     if key == "contract" and value and value == appmodel.contract_of({"name": link["name"]}):

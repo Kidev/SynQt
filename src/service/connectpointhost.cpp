@@ -5,6 +5,7 @@
 
 #include "caller.h"
 #include "meshserver.h"
+#include "sourcefactory.h"
 
 #include <QAbstractSocket>
 #include <QHostAddress>
@@ -84,36 +85,65 @@ QObject *ConnectPointHost::createSource(QObject *caller, QObject *parent, QStrin
     return source;
 }
 
-QObject *ConnectPointHost::sourceForPeer(const MeshPeer &peer, QIODevice *device,
-                                         QString *error)
+QObject *ConnectPointHost::sharedSource(QString *error)
 {
-    // A Source per link: parented to the device, so it dies with it.
-    if (m_config.instance == ConnectPointInstance::PerLink) {
-        Caller *caller{Caller::forEntity(m_config.contract, peer.entity, peer.authenticated,
-                                         nullptr, device)};
-        QObject *source{createSource(caller, device, error)};
-        if (source) {
-            caller->setParent(source);
-            caller->setSource(source);
-        }
-        return source;
+    if (m_sharedSource) {
+        return m_sharedSource;
     }
-
-    // Per caller: one Source for this consuming entity, whatever number of links it opens.
-    // Parented to the host, because it outlives any one of them.
-    PeerSource &entry{m_peerSources[peer.entity]};
-    if (entry.source) {
-        return entry.source;
-    }
-    Caller *caller{Caller::forEntity(m_config.contract, peer.entity, peer.authenticated,
-                                     nullptr, this)};
+    // The Caller in a shared Source's context starts as nobody and is made to be whoever is
+    // calling, one forwarded call at a time (SynQt::Caller::adopt). It is minted here rather
+    // than in a mirror so the QML context that names it is built once, with the Source.
+    Caller *caller{Caller::forEntity(m_config.contract, QString{}, false, nullptr, this)};
     QObject *source{createSource(caller, this, error)};
     if (!source) {
         delete caller;
         return nullptr;
     }
     caller->setParent(source);
-    caller->setSource(source);
+    SourceFactory::bindCaller(source, caller);
+    m_sharedSource = source;
+    m_sharedCaller = caller;
+    return source;
+}
+
+QObject *ConnectPointHost::sourceForPeer(const MeshPeer &peer, QString *error)
+{
+    // One object per consuming entity, whatever number of links it opens, parented to the
+    // host because it outlives any one of them. What that object is depends on the owner:
+    // its own Source when the owner is not shared, and a mirror of the one shared Source
+    // when it is. Either way it is what this entity's links acquire, and the Caller bound
+    // to it is this entity.
+    PeerSource &entry{m_peerSources[peer.entity]};
+    if (entry.source) {
+        return entry.source;
+    }
+    Caller *caller{Caller::forEntity(m_config.contract, peer.entity, peer.authenticated,
+                                     nullptr, this)};
+    QObject *source{nullptr};
+    if (m_config.shared) {
+        QObject *shared{sharedSource(error)};
+        if (shared) {
+            source = SourceFactory::create(m_config.contract, this);
+            if (!source && error) {
+                *error = QStringLiteral("no Source registered for contract %1")
+                             .arg(m_config.contract);
+            }
+            if (source) {
+                caller->setSource(source);
+                SourceFactory::mirror(source, shared, caller);
+            }
+        }
+    } else {
+        source = createSource(caller, this, error);
+        if (source) {
+            caller->setSource(source);
+        }
+    }
+    if (!source) {
+        delete caller;
+        return nullptr;
+    }
+    caller->setParent(source);
     entry.source = source;
     return source;
 }
@@ -177,14 +207,12 @@ void ConnectPointHost::onPeerConnected(QIODevice *device, const MeshPeer &peer)
     }
     emit consumerAttached(peer.entity);
 
-    // Claimed before the Source is reached for, and released when the link goes away, so a
-    // per-caller Source lives exactly as long as this entity has a link open.
+    // Claimed before the Source is reached for, and released when the link goes away, so
+    // this entity's Source lives exactly as long as it has a link open.
     const QString entity{peer.entity};
-    if (m_config.instance == ConnectPointInstance::PerCaller) {
-        ++m_peerSources[entity].connections;
-        connect(device, &QObject::destroyed, this,
-                [this, entity]() { releasePeerSource(entity); });
-    }
+    ++m_peerSources[entity].connections;
+    connect(device, &QObject::destroyed, this,
+            [this, entity]() { releasePeerSource(entity); });
 
     // Its own node for this link, with a Caller carrying the certificate-verified entity
     // name for the owner's per-slot authorization.
@@ -194,7 +222,7 @@ void ConnectPointHost::onPeerConnected(QIODevice *device, const MeshPeer &peer)
                                    QUuid::createUuid().toString(QUuid::WithoutBraces))},
                      QRemoteObjectHost::AllowExternalRegistration);
     QString error;
-    QObject *source{sourceForPeer(peer, device, &error)};
+    QObject *source{sourceForPeer(peer, &error)};
     if (!source) {
         emit connectionRefused(peer.entity);
         device->close();

@@ -200,4 +200,22 @@ void Caller::setSource(QObject *source)
     m_source = source;
 }
 
+void Caller::adopt(QObject *other)
+{
+    const Caller *from{qobject_cast<const Caller *>(other)};
+    if (!from || from == this) {
+        return;
+    }
+    // Everything, including the Source: a signal this Caller sends has to leave through the
+    // mirror the adopted caller acquired, or it would reach the wrong browser.
+    m_sessions = from->m_sessions;
+    m_sessionId = from->m_sessionId;
+    m_entity = from->m_entity;
+    m_source = from->m_source;
+    m_scopeOrder = from->m_scopeOrder;
+    m_isUser = from->m_isUser;
+    m_entityVerified = from->m_entityVerified;
+    m_hierarchical = from->m_hierarchical;
+}
+
 } // namespace SynQt

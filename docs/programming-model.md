@@ -93,7 +93,6 @@ connect_points:
     consumers: [app]              # the entities allowed to acquire the Replica
     server: web/edge/Todo.qml     # the authoritative implementation
     scope: user                   # for browser consumers: minimum session scope
-    instance: caller         # one Source per caller (the default), or one per link
 ```
 
 The configurable parts that matter:
@@ -107,31 +106,6 @@ The configurable parts that matter:
 - `scope` (for browser consumers). The minimum session scope a browser user must
   hold before the framework will acquire the Replica for that client. A user below
   the required scope never gets the object, so cannot call its slots at all.
-- `instance`. How many Sources this point mints, and therefore who shares the state one
-  holds. `caller` is the default and almost always right: one Source per caller, so every
-  link a signed-in user opens reaches the same one and their second tab continues the
-  draft they started in the first. On the mesh it reads the same way, with the calling
-  entity as the caller. Write `link` for one Source per open link, when what it holds
-  belongs to that one link and not to the person: a live view window, a stream cursor.
-
-    There is no third value meaning one Source for everybody, and that is the point.
-    QtRO hands `enableRemoting()` a single object and never tells a slot which link
-    invoked it, so a Source shared by every caller could not be given a `Caller` at all:
-    `Caller.hasScope(...)`, `Caller.entity` and `Caller.emit<Signal>` in one were reading
-    something that was not there, and an authorization line written in one was not
-    weakened, it was absent.
-
-    State that really is shared has a better home anyway. The entity's own
-    `pragma Singleton` file outlives every Source the entity mints, so a public feed
-    lives there and each caller's Source is that caller's window onto it: one
-    subscription, one copy of the data, and a `Caller` in every slot. The framework's own
-    Pages connect point is built exactly that way, and so is the Hall of Fame in the
-    auction example.
-
-    A Source is live state, not storage, whichever value you pick. A per-caller Source
-    lasts as long as that caller has at least one link open and is gone once they all
-    close, so what has to survive a user closing the last tab belongs in the singleton or
-    behind a persistence connect point.
 - `contract`. What may cross, declared in `<Contract>.syn` in the owner's folder. It
   defaults to the point's own name capitalized, so `- name: todo` carries `Todo` and most
   points never write the line; name it only where two points carry one shape.
@@ -144,6 +118,60 @@ The configurable parts that matter:
   [a connect point's signals](#handling-a-connect-points-signals). Which one you are
   looking at is answered by the file: a Source is the `server:` of a connect point its
   entity owns.
+
+## How many of an entity there are: `shared`
+
+Read a system as chains. Every chain starts at a browser, which is one person and is never
+shared. Next comes the edge it connects to, and after that whatever the edge reaches.
+`shared:` is each entity's answer to how many of it there are along that chain:
+
+```yaml
+entities:
+  - name: app
+    type: client            # one browser, so never shared, and it cannot say otherwise
+
+  - name: edge
+    type: web_edge
+    shared: false           # a Source of its own for each session
+
+  - name: books
+    type: relational        # shared: true is the default
+```
+
+`shared: true` is one Source for the whole entity. Every caller acquires a mirror of it, so
+all of them see the same props and the same rows, and each slot still runs with that
+caller's `Caller` bound: the mirror is what the caller acquired, so `Caller.hasScope(...)`
+still gates, `Caller.entity` still names the calling entity, and `Caller.emit<Signal>`
+still reaches that caller and nobody else. It is the natural home for anything everybody
+sees: an auction, a leaderboard, the live state of a game.
+
+`shared: false` is one Source per caller. What it holds is that caller's alone. A browser
+caller is a session, so their second tab continues what the first tab was using and a
+private window gets its own; a mesh caller is the calling entity, so each consuming entity
+gets its own. It is what a draft, a wizard's half-filled form or a per-player slice of a
+world wants.
+
+It is the entity's answer and not a connect point's, because an entity is one thing
+everybody reaches or one thing per caller, and it cannot be both at once for two of its own
+surfaces. A point that writes `instance:` is refused by `synqt check`, which names the
+entity to write `shared:` on instead.
+
+Two things follow from that:
+
+- **The entity's own `pragma Singleton` file is one either way.** It is the entity itself,
+  not a caller's view of it, so it is where state that everybody shares lives when the
+  entity is not shared. A not-shared edge with a public feed keeps the feed there and each
+  session's Source publishes it.
+- **On a shared entity, `Caller` is whoever is calling right now.** Read it in the slot.
+  If the work finishes on a later turn, keep what you need in a local first
+  (`const who = Caller.session`), because the object itself will have moved on to the next
+  caller. On an entity that is not shared there is a Source per caller and its `Caller`
+  never changes.
+
+A Source is live state, not storage, whichever answer you give. A per-caller Source lasts
+as long as that caller has at least one link open and is gone once they all close, so what
+has to survive a user closing the last tab belongs in the singleton or behind a persistence
+connect point.
 
 ## Reaching a connect point: accessors
 

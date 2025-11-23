@@ -51,8 +51,8 @@ entities:
 
 connect_points:
   # The live auction: the edge is the single authority; the browser may watch and bid.
-  # No instance: one Source per caller is the default, so each request carries its
-  # Caller (the signed-in user the edge authorizes).
+  # The edge is shared (the default), so one Source answers everybody and each bid still
+  # arrives with its Caller: the signed-in user the edge authorizes.
   - name: auction
     owner: edge
     consumers: [app]

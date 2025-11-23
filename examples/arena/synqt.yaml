@@ -40,9 +40,12 @@ entities:
 
   - name: edge
     type: web_edge
+    # A Source per player session: Arena.qml publishes only that player's
+    # slice of the world, so it cannot be one object everybody reaches.
+    shared: false
     identity: true
     # Serving the browser over TLS in a release build. `synqt dev` ignores this and
-    # runs plaintext on localhost; `synqt build --release` and `synqt serve` require
+    # runs plaintext on localhost. `synqt build --release` and `synqt serve` require
     # either this block or public.tls_terminated_upstream, so that nothing ships
     # reachable over http:// with nobody named as the one who was meant to stop it.
     tls:

@@ -40,7 +40,7 @@ ConnectPointConfig thingConnectPoint(quint16 port)
     connectPoint.owner = QStringLiteral("a");
     connectPoint.consumers = {QStringLiteral("b")};
     connectPoint.serverFile = QStringLiteral(M4_SRCDIR "/a/Thing.qml");
-    connectPoint.instance = ConnectPointInstance::PerCaller;
+    connectPoint.shared = false;
     connectPoint.endpoint.mode = MeshTransportMode::MutualTls;
     connectPoint.endpoint.host = QStringLiteral("127.0.0.1");
     connectPoint.endpoint.port = port;
@@ -102,6 +102,7 @@ private slots:
         // bare raw string in the middle of the literal.
         const QByteArray json{R"json({
             "entity": "database",
+            "shared": false,
             "credentials": {"ca": "ca.crt", "cert": "database.crt", "key": "database.key"},
             "type": "relational",
             "schema": ["CREATE TABLE grants (sub TEXT)", "CREATE INDEX i ON grants (sub)"],
@@ -111,7 +112,6 @@ private slots:
                 "owner": "database",
                 "consumers": ["web", "jobs"],
                 "server": "database/Access.qml",
-                "instance": "caller",
                 "endpoint": {"transport": "mtls", "host": "127.0.0.1", "port": 9440}
             }]
         })json"};
@@ -128,7 +128,10 @@ private slots:
         QCOMPARE(access.name, QStringLiteral("access"));
         QCOMPARE(access.contract, QStringLiteral("Access"));
         QCOMPARE(access.serverFile, QStringLiteral("database/Access.qml"));
-        QVERIFY(access.instance == ConnectPointInstance::PerCaller);
+        // The entity's answer, copied onto every point it owns, because the host of a
+        // point is what acts on it.
+        QVERIFY(!topology.shared);
+        QVERIFY(!access.shared);
         QCOMPARE(access.consumers, QStringList({QStringLiteral("web"), QStringLiteral("jobs")}));
         QVERIFY(access.endpoint.mode == MeshTransportMode::MutualTls);
         QCOMPARE(access.endpoint.port, static_cast<quint16>(9440));

@@ -169,6 +169,10 @@ def _entity(entity: Dict[str, Any]) -> Dict[str, Any]:
         "provider": str(provider or ""),
         "targets": [str(target) for target in (entity.get("targets") or [])],
         "identity": bool(entity.get("identity")),
+        # One of this entity for everybody, or one per caller. Carried as the resolved
+        # answer rather than as "what the file happened to write", so the drawing shows
+        # what runs.
+        "shared": appmodel.is_shared(entity),
         "x": 0,
         "y": 0,
     }
@@ -272,7 +276,6 @@ def _link(point: Dict[str, Any], root: Path, seats: Dict[str, Dict[str, Any]],
         "contract": contract,
         "owner": owner,
         "consumers": [str(consumer) for consumer in (point.get("consumers") or [])],
-        "instance": str(point.get("instance") or ""),
         "transport": str(point.get("transport") or ""),
         "members": members,
         "server": server,
@@ -379,6 +382,16 @@ def _entity_config(entity: Dict[str, Any], base: Dict[str, Any]) -> Dict[str, An
         written["identity"] = True
     else:
         written.pop("identity", None)
+    # Written only when it is not what the entity resolves to on its own, so a drawing that
+    # says nothing about sharing leaves the file saying nothing about it either. A client
+    # marked shared is carried through rather than dropped. It is a mistake, and `synqt
+    # check` is what says so.
+    declared = entity.get("shared")
+    default = appmodel.is_shared({"type": entity["type"]})
+    if isinstance(declared, bool) and declared is not default:
+        written["shared"] = declared
+    else:
+        written.pop("shared", None)
     return written
 
 
@@ -388,11 +401,6 @@ def _link_config(link: Dict[str, Any], base: Dict[str, Any]) -> Dict[str, Any]:
     written["contract"] = link["contract"]
     written["owner"] = link["owner"]
     written["consumers"] = list(link["consumers"])
-    instance = str(link.get("instance") or "")
-    if instance:
-        written["instance"] = instance
-    else:
-        written.pop("instance", None)
     if link.get("transport"):
         written["transport"] = link["transport"]
     else:

@@ -21,13 +21,29 @@
         "version": 1,
         "project": "rules",
         "entities": [
-          {"name": "client", "type": "client"},
-          {"name": "web", "type": "web_edge"},
-          {"name": "database", "type": "relational"}
+          {
+            "name": "client",
+            "type": "client"
+          },
+          {
+            "name": "web",
+            "type": "web_edge"
+          },
+          {
+            "name": "database",
+            "type": "relational"
+          }
         ],
         "links": [
-          {"name": "ledger", "contract": "Ledger", "owner": "database",
-           "consumers": ["web", "client"], "instance": "caller"}
+          {
+            "name": "ledger",
+            "contract": "Ledger",
+            "owner": "database",
+            "consumers": [
+              "web",
+              "client"
+            ]
+          }
         ]
       }
     },
@@ -40,12 +56,24 @@
         "version": 1,
         "project": "rules",
         "entities": [
-          {"name": "client", "type": "client"},
-          {"name": "web", "type": "web_edge"}
+          {
+            "name": "client",
+            "type": "client"
+          },
+          {
+            "name": "web",
+            "type": "web_edge"
+          }
         ],
         "links": [
-          {"name": "ledger", "contract": "Ledger", "owner": "records",
-           "consumers": ["web"], "instance": "caller"}
+          {
+            "name": "ledger",
+            "contract": "Ledger",
+            "owner": "records",
+            "consumers": [
+              "web"
+            ]
+          }
         ]
       }
     },
@@ -58,12 +86,24 @@
         "version": 1,
         "project": "rules",
         "entities": [
-          {"name": "client", "type": "client"},
-          {"name": "web", "type": "web_edge"}
+          {
+            "name": "client",
+            "type": "client"
+          },
+          {
+            "name": "web",
+            "type": "web_edge"
+          }
         ],
         "links": [
-          {"name": "ledger", "contract": "Ledger", "owner": "web",
-           "consumers": ["reports"], "instance": "caller"}
+          {
+            "name": "ledger",
+            "contract": "Ledger",
+            "owner": "web",
+            "consumers": [
+              "reports"
+            ]
+          }
         ]
       }
     },
@@ -76,12 +116,24 @@
         "version": 1,
         "project": "rules",
         "entities": [
-          {"name": "client", "type": "client"},
-          {"name": "web", "type": "web_edge"}
+          {
+            "name": "client",
+            "type": "client"
+          },
+          {
+            "name": "web",
+            "type": "web_edge"
+          }
         ],
         "links": [
-          {"name": "ledger", "contract": "Ledger", "owner": "web",
-           "consumers": ["web"], "instance": "caller"}
+          {
+            "name": "ledger",
+            "contract": "Ledger",
+            "owner": "web",
+            "consumers": [
+              "web"
+            ]
+          }
         ]
       }
     },
@@ -94,9 +146,18 @@
         "version": 1,
         "project": "rules",
         "entities": [
-          {"name": "client", "type": "client"},
-          {"name": "web", "type": "web_edge"},
-          {"name": "web", "type": "jobs"}
+          {
+            "name": "client",
+            "type": "client"
+          },
+          {
+            "name": "web",
+            "type": "web_edge"
+          },
+          {
+            "name": "web",
+            "type": "jobs"
+          }
         ],
         "links": []
       }
@@ -110,33 +171,67 @@
         "version": 1,
         "project": "rules",
         "entities": [
-          {"name": "client", "type": "client"},
-          {"name": "web", "type": "web_edge"},
-          {"name": "database", "type": "relational"}
+          {
+            "name": "client",
+            "type": "client"
+          },
+          {
+            "name": "web",
+            "type": "web_edge"
+          },
+          {
+            "name": "database",
+            "type": "relational"
+          }
         ],
         "links": [
-          {"name": "ledger", "contract": "Ledger", "owner": "database",
-           "consumers": ["web"], "instance": "caller"},
-          {"name": "ledger", "contract": "Bids", "owner": "web",
-           "consumers": ["client"], "instance": "caller"}
+          {
+            "name": "ledger",
+            "contract": "Ledger",
+            "owner": "database",
+            "consumers": [
+              "web"
+            ]
+          },
+          {
+            "name": "ledger",
+            "contract": "Bids",
+            "owner": "web",
+            "consumers": [
+              "client"
+            ]
+          }
         ]
       }
     },
     {
-      "id": "instance-that-is-not-a-mode",
-      "rule": "invalid-instance",
+      "id": "shared-written-on-a-client",
+      "rule": "shared-on-a-client",
       "level": "error",
-      "why": "A misspelled connection is not connection, and the point of that setting is how many Sources the point mints.",
+      "why": "A client is one browser and shares with nobody, so the word says nothing there and reads like a setting that works.",
       "document": {
         "version": 1,
         "project": "rules",
         "entities": [
-          {"name": "client", "type": "client"},
-          {"name": "web", "type": "web_edge"}
+          {
+            "name": "client",
+            "type": "client",
+            "shared": true
+          },
+          {
+            "name": "web",
+            "type": "web_edge"
+          }
         ],
         "links": [
-          {"name": "ledger", "contract": "Ledger", "owner": "web",
-           "consumers": ["client"], "instance": "per_user"}
+          {
+            "name": "ledger",
+            "contract": "Ledger",
+            "owner": "web",
+            "consumers": [
+              "client"
+            ]
+          }
         ]
       }
     },
@@ -149,8 +244,14 @@
         "version": 1,
         "project": "rules",
         "entities": [
-          {"name": "client", "type": "client"},
-          {"name": "database", "type": "relational"}
+          {
+            "name": "client",
+            "type": "client"
+          },
+          {
+            "name": "database",
+            "type": "relational"
+          }
         ],
         "links": []
       }
@@ -164,13 +265,29 @@
         "version": 1,
         "project": "rules",
         "entities": [
-          {"name": "client", "type": "client"},
-          {"name": "web", "type": "web_edge"},
-          {"name": "database", "type": "relational"}
+          {
+            "name": "client",
+            "type": "client"
+          },
+          {
+            "name": "web",
+            "type": "web_edge"
+          },
+          {
+            "name": "database",
+            "type": "relational"
+          }
         ],
         "links": [
-          {"name": "ledger", "contract": "Ledger", "owner": "database",
-           "consumers": ["web"], "instance": "caller", "transport": "local"}
+          {
+            "name": "ledger",
+            "contract": "Ledger",
+            "owner": "database",
+            "consumers": [
+              "web"
+            ],
+            "transport": "local"
+          }
         ]
       }
     },
@@ -183,12 +300,24 @@
         "version": 1,
         "project": "rules",
         "entities": [
-          {"name": "client", "type": "client"},
-          {"name": "web", "type": "web_edge"}
+          {
+            "name": "client",
+            "type": "client"
+          },
+          {
+            "name": "web",
+            "type": "web_edge"
+          }
         ],
         "links": [
-          {"name": "clientToWeb", "contract": "ClientToWeb", "owner": "client",
-           "consumers": ["web"], "instance": "caller"}
+          {
+            "name": "clientToWeb",
+            "contract": "ClientToWeb",
+            "owner": "client",
+            "consumers": [
+              "web"
+            ]
+          }
         ]
       }
     },
@@ -201,13 +330,28 @@
         "version": 1,
         "project": "rules",
         "entities": [
-          {"name": "app", "type": "client"},
-          {"name": "edge", "type": "web_edge"},
-          {"name": "rollups", "type": "jobs"}
+          {
+            "name": "app",
+            "type": "client"
+          },
+          {
+            "name": "edge",
+            "type": "web_edge"
+          },
+          {
+            "name": "rollups",
+            "type": "jobs"
+          }
         ],
         "links": [
-          {"name": "feed", "contract": "Feed", "owner": "edge",
-           "consumers": ["app"], "instance": "caller"}
+          {
+            "name": "feed",
+            "contract": "Feed",
+            "owner": "edge",
+            "consumers": [
+              "app"
+            ]
+          }
         ]
       }
     }

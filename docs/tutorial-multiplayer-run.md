@@ -349,14 +349,14 @@ would use for anything else.
 
 - Sharpen the movement. Swap the drift-easing reconciliation for input-replay
   reconciliation as above, so a correction after a lag spike is exact rather than
-  smoothed. The owner as authority is already in place; this only sharpens how your own
+  smoothed. The owner as authority is already in place. This only sharpens how your own
   blob recovers.
 - Scale the arena. Replace the linear interest scan with a spatial grid, and send only the
   blob and pellet rows that changed since the last tick instead of a whole slice.
-- Grow the game: splitting and ejecting mass, viruses, teams. Each is new rules in the
-  singleton's simulation, not a new architecture.
-- Give the round a history. Record every round's winner and margin in the database, not
-  just a running point total, and show a "recent rounds" list beside the Hall of Fame.
+- Grow the game with splitting and ejecting mass, viruses, or teams. Each is new rules in
+  the singleton's simulation rather than a new architecture.
+- Give the round a history. Record every round's winner and margin in the database rather
+  than only a running point total, and show a "recent rounds" list beside the Hall of Fame.
 - Read [the programming model](programming-model.md) to formalize the connect points,
-  scopes, `instance` modes, and `Caller` checks you used, and [security](security.md) for
+  scopes, `shared:` answers, and `Caller` checks you used, and [security](security.md) for
   why the boundaries fall where they do.

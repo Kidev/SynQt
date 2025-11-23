@@ -67,7 +67,7 @@ never by the browser, exactly as in [the Hall of Fame](tutorial-hall-of-fame.md)
   letting your guess become the truth.
 - Entity interpolation: drawing everyone else smoothly between snapshots that arrive
   ten times a second, rather than teleporting them on each one.
-- Interest management with `instance: caller`, so one simulation serves everybody
+- Interest management with `shared: false` on the edge, so one simulation serves everybody
   while each browser is sent only the slice it can actually see.
 - What it costs to publish to N consumers, and where a single edge stops scaling.
 - How a round, a clock, and a permanent leaderboard sit behind the edge in a database

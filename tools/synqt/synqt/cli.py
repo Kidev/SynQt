@@ -265,10 +265,6 @@ def build_parser() -> argparse.ArgumentParser:
                                help="the contract it carries (default: the point's own "
                                     "name capitalized; name it only where two points "
                                     "carry one shape)")
-    connect_point.add_argument("--instance", default="",
-                               choices=["", "caller", "link"],
-                               help="how many Sources this point mints (default: caller, "
-                                    "one per caller, shared by that caller's tabs)")
     for ap in (auth, entity, provider, contract, connect_point):
         ap.add_argument("--project-dir", default=".")
     return parser
@@ -315,7 +311,7 @@ def _run_add(args: argparse.Namespace) -> int:
         consumers = [c for c in args.consumers.split(",") if c]
         message = addcontract.scaffold_connect_point(
             args.project_dir, args.name, owner=args.owner, consumers=consumers,
-            contract=args.contract or None, instance=args.instance or None)
+            contract=args.contract or None)
     print(message)
     return 0
 

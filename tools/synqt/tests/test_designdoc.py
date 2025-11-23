@@ -34,12 +34,18 @@ def test_an_entity_carries_what_the_editor_draws_it_with():
     assert client["targets"] == ["wasm"]
 
 
-def test_a_link_carries_its_owner_consumers_and_instance():
+def test_a_link_carries_its_owner_and_consumers():
     document = designdoc.read(EXAMPLES / "gavel")
     ledger = next(l for l in document["links"] if l["name"] == "ledger")
     assert ledger["owner"] == "books"
     assert ledger["consumers"] == ["edge"]
-    assert ledger["instance"] == "caller"
+
+
+def test_an_entity_carries_whether_it_is_shared():
+    document = designdoc.read(EXAMPLES / "gavel")
+    shared = {entity["name"]: entity["shared"] for entity in document["entities"]}
+    assert shared["books"] is True
+    assert shared["app"] is False
 
 
 def test_a_link_carries_the_contract_members():
@@ -175,7 +181,6 @@ def test_to_config_gives_back_the_topology_it_was_read_from():
     ledger = next(p for p in config["connect_points"] if p["name"] == "ledger")
     assert ledger["owner"] == "books"
     assert ledger["consumers"] == ["edge"]
-    assert ledger["instance"] == "caller"
 
 
 def test_to_config_keeps_what_the_document_does_not_model():

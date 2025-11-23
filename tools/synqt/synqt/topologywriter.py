@@ -180,6 +180,9 @@ def entity_topology(config: Dict[str, Any], entity: Dict[str, Any], project_dir:
     mesh = root / "synqt" / "mesh"
     topology: Dict[str, Any] = {
         "entity": name,
+        # One of this entity for everybody, or one per caller. Written only when it is not
+        # the default, so a topology stays as short as the configuration it came from.
+        **({} if appmodel.is_shared(entity) else {"shared": False}),
         "credentials": {
             "ca": _path(mesh / "ca.crt"),
             "cert": _path(mesh / f"{name}.crt"),
@@ -228,7 +231,6 @@ def entity_topology(config: Dict[str, Any], entity: Dict[str, Any], project_dir:
             "owner": owner,
             "consumers": consumers,
             "server": _server_file(root, connect_point, owners),
-            "instance": appmodel.instance_of(connect_point, config),
             "endpoint": endpoints.get(connect_point.get("name"),
                                       {"transport": "mtls", "host": "127.0.0.1",
                                        "port": MESH_PORT_BASE}),

@@ -480,7 +480,6 @@ def _link_of(edge: Edge, config: Dict[str, Any]) -> Dict[str, Any]:
         "contract": contract_name(edge),
         "owner": edge.owner,
         "consumers": list(edge.consumers),
-        "instance": str(declared.get("instance") or "shared"),
         "transport": str(declared.get("transport") or ""),
         "members": [_record_of(member) for member in edge.members],
     }

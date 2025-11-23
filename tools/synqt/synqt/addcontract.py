@@ -219,12 +219,7 @@ def scaffold_contract(project_dir: os.PathLike[str] | str, name: str, *, owner: 
 
 def scaffold_connect_point(project_dir: os.PathLike[str] | str, name: str, *,
                            owner: str, consumers: List[str],
-                           contract: Optional[str] = None,
-                           instance: Optional[str] = None) -> str:
-    if instance is not None and instance not in appmodel.INSTANCE_MODES:
-        raise AddContractError(
-            "instance must be caller or link: one Source for each caller (the "
-            "default, shared by that caller's tabs) or one for each open link")
+                           contract: Optional[str] = None) -> str:
     contract = contract or appmodel.contract_of({"name": name})
     owning = owner_entity(project_dir, owner)
     check_qml_name(contract, entity_type=appmodel.entity_type(owning), entity=owning)
@@ -246,22 +241,18 @@ def scaffold_connect_point(project_dir: os.PathLike[str] | str, name: str, *,
 
     # Spliced into the text rather than dumped over it: the file is the author's, and one
     # added entry is not a reason to lose their comments and their formatting.
-    # `contract:` and `instance:` only where they are not what the point resolves to on
-    # its own. Writing the same answer twice is a line to keep in step for nothing.
+    # `contract:` only where it is not what the point resolves to on its own. Writing the
+    # same answer twice is a line to keep in step for nothing.
     block: Dict[str, Any] = {"name": name, "owner": owner, "consumers": consumers}
     if contract != appmodel.contract_of({"name": name}):
         block = {"name": name, "contract": contract, "owner": owner,
                  "consumers": consumers}
-    if instance is not None:
-        block["instance"] = instance
     config_path.write_text(yamledit.append_item(
         config_path.read_text(), "connect_points", block))
     owning = owner_entity(project_dir, owner)
     written = write_source(project_dir, owning, contract, point=name)
-    resolved = instance or appmodel.instance_of(
-        {"name": name, "owner": owner, "consumers": consumers}, config)
     steps = [f"Added connect point '{name}' (contract {contract}, owner {owner}, "
-             f"consumers {', '.join(consumers) or 'none'}, instance {resolved}). "
+             f"consumers {', '.join(consumers) or 'none'}). "
              "Deny-by-default: only listed consumers may acquire it."]
     if written:
         steps.append(f"  - Wrote {written}, empty. Fill in the slots there and authorize "
