@@ -156,20 +156,21 @@ ApplicationWindow {
         Canvas {
             id: grid
             anchors.fill: parent
-            Connections {
-                target: root
-                function onMyXChanged() { grid.requestPaint() }
-                function onMyYChanged() { grid.requestPaint() }
-                function onMyMassChanged() { grid.requestPaint() }
-            }
+
+            // A Canvas does not repaint when a value its onPaint reads changes, so the
+            // two values this drawing depends on are bindings that ask for one.
+            readonly property point origin: Qt.point(view.sx(0), view.sy(0))
+            readonly property real step: 200 * view.zoom
+
+            onOriginChanged: grid.requestPaint()
+            onStepChanged: grid.requestPaint()
             onPaint: {
                 const ctx = getContext("2d"); ctx.reset()
                 ctx.strokeStyle = "#182042"; ctx.lineWidth = 1
-                const step = 200 * view.zoom
                 const mod = (a, n) => ((a % n) + n) % n
-                for (let x = mod(view.sx(0), step); x < width; x += step) {
+                for (let x = mod(grid.origin.x, grid.step); x < width; x += grid.step) {
                     ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, height); ctx.stroke() }
-                for (let y = mod(view.sy(0), step); y < height; y += step) {
+                for (let y = mod(grid.origin.y, grid.step); y < height; y += grid.step) {
                     ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(width, y); ctx.stroke() }
             }
         }

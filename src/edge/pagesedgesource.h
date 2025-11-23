@@ -15,18 +15,14 @@ class Caller;
 class PageStore;
 class PagesService;
 
-/// The web edge's own Source for the framework-supplied Pages connect point (see
-/// docs on remote pages, Plan B). WebEdge hosts one instance of this per accepted
-/// connection, exactly the way it hosts a per_session application connect point: a
-/// fresh Source carrying that connection's own Caller. The PageStore and
-/// PagesService it is built over are shared across every connection (the page
-/// table is the same for everyone), so this class holds no state of its own beyond
-/// what the generated base already tracks (the published routeTable).
+/// The web edge's own Source for the framework-supplied Pages connect point. WebEdge hosts
+/// one per accepted connection, carrying that connection's own Caller. The PageStore and
+/// PagesService behind it are shared across every connection, so this class holds no state
+/// beyond the published routeTable.
 ///
-/// fetchPage() does not decide anything: it hands the concrete request path, the
-/// caller-held hash, and this connection's own Caller to
-/// PagesService::fetchPageFor() and returns its answer unchanged. The
-/// confidentiality boundary lives in PagesService, once, and only there.
+/// fetchPage() decides nothing: it hands the request path, the caller-held hash and this
+/// connection's Caller to PagesService::fetchPageFor() and returns its answer unchanged. The
+/// confidentiality boundary lives in PagesService only.
 class PagesEdgeSource : public PagesSimpleSource
 {
     Q_OBJECT

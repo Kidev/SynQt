@@ -138,17 +138,7 @@ import QtQuick
 import SynQt
 
 Hall {
-    id: hall
-
-    Component.onCompleted: hall.setWinners(Edge.winners)
-
-    Connections {
-        function onWinnersChanged() {
-            hall.setWinners(Edge.winners);   // push the list to this browser
-        }
-
-        target: Edge
-    }
+    winnersRows: Edge.winners    // one binding: a new winner reaches every session
 }
 ```
 

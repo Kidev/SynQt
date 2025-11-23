@@ -3,6 +3,7 @@
 
 #include "apirequest.h"
 
+#include <QJSValue>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -11,6 +12,25 @@
 #include <utility>
 
 namespace SynQt {
+
+namespace {
+
+// A value as QML handed it over. An object literal reaches a `QVariant` parameter as a
+// QVariantMap when the engine can see the parameter's type at the call site, and as a
+// QJSValue when it cannot, which is what happens inside a closure that runs on a later
+// turn. Both are the same object to whoever wrote the handler, so both become the same
+// QVariant here. Without this, `request.reply({ok: true})` from a `.then(...)` sent an
+// empty body. The map branch below did not match, and the text branch stringified a
+// QJSValue to nothing.
+QVariant fromQml(const QVariant &value)
+{
+    if (value.metaType().id() == qMetaTypeId<QJSValue>()) {
+        return value.value<QJSValue>().toVariant();
+    }
+    return value;
+}
+
+} // namespace
 
 ApiRequest::ApiRequest(QString method, QString path, QVariantMap params, QVariantMap query,
                        QVariantMap headers, QVariant body, QObject *parent)
@@ -64,9 +84,10 @@ void ApiRequest::setParams(QVariantMap params)
     m_params = std::move(params);
 }
 
-void ApiRequest::reply(const QVariant &body, int status)
+void ApiRequest::reply(const QVariant &value, int status)
 {
-    // A map or a list is what a JSON API returns, so those are serialized; anything else
+    const QVariant body{fromQml(value)};
+    // A map or a list is what a JSON API returns, so those are serialized. Anything else
     // is sent as the text it is. Deciding here rather than making the handler say means a
     // handler returning an object cannot accidentally send its QVariant spelling.
     if (body.metaType().id() == QMetaType::QVariantMap

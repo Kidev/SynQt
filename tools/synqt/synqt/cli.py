@@ -266,7 +266,7 @@ def build_parser() -> argparse.ArgumentParser:
                                     "name capitalized; name it only where two points "
                                     "carry one shape)")
     connect_point.add_argument("--instance", default="",
-                               choices=["", "caller", "connection"],
+                               choices=["", "caller", "link"],
                                help="how many Sources this point mints (default: caller, "
                                     "one per caller, shared by that caller's tabs)")
     for ap in (auth, entity, provider, contract, connect_point):
@@ -407,10 +407,17 @@ def main(argv: Optional[List[str]] = None) -> int:
             print(designmod.serve(args.project_dir, port=args.port,
                                   open_browser=not args.no_open, profile=args.profile))
         elif args.command == "clean":
-            build_dir = Path(args.project_dir) / "build"
-            if build_dir.exists():
-                shutil.rmtree(build_dir)
-            print("Removed build/ (kept the toolchain cache and the CA).")
+            # Both of the trees SynQt writes. The compiled output and the generated source
+            # it was compiled from. Neither is anybody's to edit, and the next build writes
+            # both again from synqt.yaml.
+            removed = []
+            for name in ("build", appmodel.GENERATED_DIR):
+                target = Path(args.project_dir) / name
+                if target.exists():
+                    shutil.rmtree(target)
+                    removed.append(f"{name}/")
+            print(f"Removed {' and '.join(removed) or 'nothing'} "
+                  "(kept the toolchain cache and the CA).")
         elif args.command in ("build", "dev"):
             release = args.release and not args.debug
             if args.command == "dev":

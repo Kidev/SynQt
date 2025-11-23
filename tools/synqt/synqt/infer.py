@@ -259,9 +259,13 @@ def _scan(project_dir: os.PathLike[str] | str, config: Dict[str, Any],
         accessors = accessors_for(config, name)
         if not accessors:
             continue
+        attached = {appmodel.contract_of(point): (str(point.get("owner") or ""),
+                                                  str(point.get("name") or ""))
+                    for point in points
+                    if name in (point.get("consumers") or [])}
         for path in _entity_files(root, entity):
             relative = path.relative_to(root).as_posix()
-            for use in scan_consumer(relative, _read_text(path), accessors, types):
+            for use in scan_consumer(relative, _read_text(path), accessors, types, attached):
                 reached.append(use)
                 if not use.point:
                     unknown.append(use.owner)
@@ -612,22 +616,62 @@ def _root_identifier(tokens: Sequence[qmlscan.Token]) -> str:
 
 
 def scan_consumer(relative_path: str, source: str, accessors: Dict[str, str],
-                  types: Optional["_Types"] = None) -> List[Use]:
+                  types: Optional["_Types"] = None,
+                  attached: Optional[Dict[str, Tuple[str, str]]] = None) -> List[Use]:
     """Every connect point member a consumer file names, and how it named it.
 
     `accessors` maps the name a file writes to the entity behind it: `Server` is the
     client's edge, and a service reaches `database` as `Database`. Nothing outside that
     map is a connect point, so an entity's own ids and Qt's own types are passed over
     without having to be listed.
+
+    `attached` maps a contract name to the link it carries, for the attached handler form
+    (`Ledger.onWinnerRecorded: ...`). That form names the contract rather than the
+    accessor, so it cannot be read through `accessors` at all, and it is the form every
+    consumer is written in now.
     """
     reading = _Reading(relative_path, source, types)
     tokens = qmlscan.tokenize(source)
     uses: List[Use] = []
     _read_connections(reading, tokens, accessors, uses)
+    _read_attached_handlers(reading, tokens, attached or {}, uses)
     index = 0
     while index < len(tokens):
         index += _read_reference(reading, tokens, index, accessors, uses) or 1
     return uses
+
+
+def _read_attached_handlers(reading: "_Reading", tokens: Sequence[qmlscan.Token],
+                            attached: Dict[str, Tuple[str, str]], uses: List[Use]) -> None:
+    """`Ledger.onWinnerRecorded: (item, winner) => ...`: a signal, received.
+
+    The contract's own name is the attached type, so a file handles a signal without ever
+    naming the accessor it arrives through. Parameters are read from the arrow function
+    when the handler is written as one, and left unknown otherwise. A handler that ignores
+    its arguments says nothing about them.
+    """
+    for index, token in enumerate(tokens):
+        if not _is_ident(token) or token.text not in attached:
+            continue
+        if _is_punct(_at(tokens, index - 1), "."):
+            continue
+        handler = _at(tokens, index + 2)
+        if not (_is_punct(_at(tokens, index + 1), ".") and _is_ident(handler)):
+            continue
+        if not _is_punct(_at(tokens, index + 3), ":"):
+            continue
+        name = _suffix_after(handler.text, _HANDLER_PREFIX)
+        if not name:
+            continue
+        owner, point = attached[token.text]
+        params: Tuple[Param, ...] = ()
+        if _is_punct(_at(tokens, index + 4), "("):
+            paren = _matching(tokens, index + 4)
+            if paren > 0:
+                params = _declared_parameters(tokens, index + 5, paren)
+        uses.append(Use(owner, point,
+                        _settled(Member("signal", name, params=params,
+                                        evidence=(_where(reading, handler),)))))
 
 
 def _read_reference(reading: "_Reading", tokens: Sequence[qmlscan.Token], index: int,
@@ -944,7 +988,11 @@ def _read_raised_signal(reading: "_Reading", tokens: Sequence[qmlscan.Token], in
     close = _matching(tokens, index + 3)
     if close < 0:
         return 0
-    raised.append(Member("signal", call.text,
+    # `scouting.emitFound(...)` and `scouting.found(...)` raise the same signal. The first
+    # is the generated helper's method and the documented way to write it. Read as spelled
+    # it would report a contract member called `emitFound` that no `.syn` will ever declare.
+    name = _suffix_after(call.text, _EMIT_PREFIX) or call.text
+    raised.append(Member("signal", name,
                          params=_argument_types(reading, tokens, index + 4, close),
                          evidence=(_where(reading, call),)))
     return close + 1 - index

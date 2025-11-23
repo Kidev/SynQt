@@ -258,7 +258,7 @@ class AppGenTest(unittest.TestCase):
         parent = Path(tempfile.mkdtemp())
         newproject.scaffold(parent, "app")
         root = parent / "app"
-        cmake = (root / "CMakeLists.txt").read_text()
+        cmake = (root / "generated" / "CMakeLists.txt").read_text()
         # The client is always a target; services are guarded behind the WASM check so a
         # WebAssembly configure builds only the client.
         self.assertIn("qt_add_executable(app", cmake)
@@ -268,10 +268,10 @@ class AppGenTest(unittest.TestCase):
         # The absolute-path QML needs a resource alias, or Qt refuses to configure.
         self.assertIn("QT_RESOURCE_ALIAS", cmake)
         # Each entity gets a main.cpp of the right shape.
-        client_main = (root / "client" / "app" / "main.cpp").read_text()
+        client_main = (root / "generated" / "client" / "app" / "main.cpp").read_text()
         self.assertIn("SynClient", client_main)
         self.assertIn("resolveEdgeUrl", client_main)
-        edge_main = (root / "web" / "edge" / "main.cpp").read_text()
+        edge_main = (root / "generated" / "web" / "edge" / "main.cpp").read_text()
         self.assertIn("WebEdge edge", edge_main)
 
     def test_connect_point_drives_source_and_replica_wiring(self):

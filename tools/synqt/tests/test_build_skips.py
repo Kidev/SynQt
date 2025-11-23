@@ -85,7 +85,9 @@ class ConfigureSkipping(unittest.TestCase):
         return build._configure_if_needed(list(command), self.build_dir, self.root, False)
 
     def write_presets(self, text):
-        (self.root / "CMakePresets.json").write_text(text)
+        presets = self.root / "generated" / "CMakePresets.json"
+        presets.parent.mkdir(parents=True, exist_ok=True)
+        presets.write_text(text)
 
     def test_the_first_build_configures(self):
         self.assertTrue(self.configure())
@@ -151,7 +153,8 @@ class IncompatibleCache(unittest.TestCase):
         self.root = Path(self._dir.name)
         self.build_dir = self.root / "build" / "host"
         self.build_dir.mkdir(parents=True)
-        (self.root / "CMakePresets.json").write_text(json.dumps({
+        (self.root / "generated").mkdir(parents=True, exist_ok=True)
+        (self.root / "generated" / "CMakePresets.json").write_text(json.dumps({
             "version": 6,
             "configurePresets": [
                 {"name": "host", "generator": "Ninja"},
@@ -208,7 +211,7 @@ class IncompatibleCache(unittest.TestCase):
         self.assertTrue(artifact.exists())
 
     def test_an_inherits_cycle_does_not_hang(self):
-        (self.root / "CMakePresets.json").write_text(json.dumps({
+        (self.root / "generated" / "CMakePresets.json").write_text(json.dumps({
             "version": 6,
             "configurePresets": [{"name": "a", "inherits": "b"},
                                  {"name": "b", "inherits": "a"}],

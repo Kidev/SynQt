@@ -456,14 +456,11 @@ class LayoutCollisionTest(unittest.TestCase):
 
 
 class InstanceDefaultTest(unittest.TestCase):
-    """`instance:` says how many Sources a point mints: one per `caller`, or per
-    `connection`.
+    """`instance:` says how many Sources a point mints: one per `caller`, or one per
+    `link`.
 
     `caller` is the default everywhere, browser link and mesh alike, because continuing a
-    caller's own Source is what an author expects from a point that holds their state. The
-    two spellings it replaced are refused rather than translated: they claimed
-    per-identity and delivered per-connection, so an author who relied on the old
-    behaviour has to be told, not silently switched.
+    caller's own Source is what an author expects from a point that holds their state.
     """
 
     def _points(self, config):
@@ -487,20 +484,20 @@ class InstanceDefaultTest(unittest.TestCase):
 
     def test_what_the_author_wrote_is_what_they_get(self):
         config = base_config()
-        config["connect_points"][0]["instance"] = "connection"
-        self.assertEqual(self._points(config)["app"], "connection")
+        config["connect_points"][0]["instance"] = "link"
+        self.assertEqual(self._points(config)["app"], "link")
 
     def test_anything_that_is_not_one_of_the_two_is_refused(self):
-        """A misspelled `connection` would fall back to `caller` and quietly share what
+        """A misspelled `link` would fall back to `caller` and quietly share what
         the point was written to keep apart, so the spelling is checked rather than the
         behaviour left to surprise somebody."""
         config = base_config()
-        config["connect_points"][0]["instance"] = "conection"
+        config["connect_points"][0]["instance"] = "linkk"
         ok, messages = check.validate(config)
         self.assertFalse(ok)
-        refusal = next(m for m in messages if "instance 'conection'" in m)
+        refusal = next(m for m in messages if "instance 'linkk'" in m)
         self.assertIn("caller", refusal)
-        self.assertIn("connection", refusal)
+        self.assertIn("link", refusal)
 
 
 class OrphanEntityTest(unittest.TestCase):
@@ -623,6 +620,40 @@ class NetworkBlockTest(unittest.TestCase):
     def test_a_plaintext_prefix_is_a_warning_that_names_what_breaks(self):
         warnings = self._messages({"outbound": ["http://api.example.com/"]}, "warn")
         self.assertTrue(any("release" in m for m in warnings), warnings)
+
+    def test_a_named_entry_carries_a_base_url_and_the_headers_to_send(self):
+        """The preset form: a handle, a base, and what to send with every call under it."""
+        entity = self._config({"outbound": [
+            "https://plain.example/",
+            {"name": "ltd2", "url": "https://api.example.com/",
+             "headers": {"accept": "application/json", "x-api-key": "env:LTD2_KEY"}},
+        ]})["entities"][2]
+        self.assertEqual(appmodel.outbound_allowlist(entity),
+                         ["https://plain.example/", "https://api.example.com/"])
+        endpoints = appmodel.outbound_endpoints(entity)
+        # A bare prefix is the same record with nothing else on it, so one reader serves
+        # both spellings.
+        self.assertEqual(endpoints[0], {"url": "https://plain.example/"})
+        self.assertEqual(endpoints[1]["name"], "ltd2")
+        self.assertEqual(endpoints[1]["headers"]["x-api-key"], "env:LTD2_KEY")
+
+    def test_a_literal_credential_header_is_refused(self):
+        """The same rule as an identity provider's client_secret, for the same reason."""
+        refusals = self._messages({"outbound": [
+            {"url": "https://api.example.com/", "headers": {"x-api-key": "s3cret"}}]})
+        self.assertTrue(any("env: reference" in m for m in refusals), refusals)
+        # And the env. Form is accepted.
+        self.assertEqual(self._messages({"outbound": [
+            {"url": "https://api.example.com/", "headers": {"x-api-key": "env:K"}}]}), [])
+
+    def test_a_header_the_transport_owns_is_refused(self):
+        refusals = self._messages({"outbound": [
+            {"url": "https://api.example.com/", "headers": {"Host": "elsewhere.example"}}]})
+        self.assertTrue(any("transport owns" in m for m in refusals), refusals)
+
+    def test_a_named_entry_with_no_url_is_refused(self):
+        refusals = self._messages({"outbound": [{"name": "nowhere"}]})
+        self.assertTrue(any("no url" in m for m in refusals), refusals)
 
     def test_a_client_may_not_declare_either_half(self):
         config = self._config({})

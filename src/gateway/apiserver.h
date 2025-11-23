@@ -6,7 +6,9 @@
 
 #include "apiconfig.h"
 
+#include <QFuture>
 #include <QHash>
+#include <QHttpServerResponse>
 #include <QList>
 #include <QObject>
 #include <QString>
@@ -14,7 +16,6 @@
 QT_BEGIN_NAMESPACE
 class QHttpServer;
 class QHttpServerRequest;
-class QHttpServerResponse;
 class QJSEngine;
 class QTcpServer;
 QT_END_NAMESPACE
@@ -55,7 +56,14 @@ signals:
     void requestRefused(const QString &reason);
 
 private:
-    QHttpServerResponse handle(const QHttpServerRequest &request);
+    /// The answer to one request, which may not exist yet.
+    ///
+    /// A future rather than a response, because a handler that reaches a connect point or
+    /// calls an upstream answers on a later turn. `Api`'s own documentation is written in
+    /// that shape (`.then(lot => request.reply(lot))`) and a synchronous return could only
+    /// have refused it. A handler that answers immediately settles the future before this
+    /// returns, so the ordinary case costs one already-finished future.
+    QFuture<QHttpServerResponse> handle(const QHttpServerRequest &request);
     /// The refusal this request earns before routing, or an empty string when it earns
     /// none. Ordered cheapest-first so a flood costs the least work possible.
     QString refuse(const QHttpServerRequest &request, int *status) const;

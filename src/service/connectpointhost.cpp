@@ -88,7 +88,7 @@ QObject *ConnectPointHost::sourceForPeer(const MeshPeer &peer, QIODevice *device
                                          QString *error)
 {
     // A Source per link: parented to the device, so it dies with it.
-    if (m_config.instance == ConnectPointInstance::PerConnection) {
+    if (m_config.instance == ConnectPointInstance::PerLink) {
         Caller *caller{Caller::forEntity(m_config.contract, peer.entity, peer.authenticated,
                                          nullptr, device)};
         QObject *source{createSource(caller, device, error)};

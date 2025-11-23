@@ -95,6 +95,7 @@ private slots:
         config.allowedOrigins = {QStringLiteral("https://partner.example")};
         config.maxBodyBytes = 512;
         config.ratePerMinutePerIp = 0;  // off unless a case turns it on
+        config.replyTimeoutMs = 300;    // short, so the deadline case is not a slow test
 
         m_server = std::make_unique<ApiServer>(config, m_engine.get());
         // `Api` on the root context before the entity's own file is created, exactly as
@@ -162,6 +163,25 @@ private slots:
         QCOMPARE(refused.status, 422);
         QCOMPARE(refused.json().value(QStringLiteral("error")).toString(),
                  QStringLiteral("a lot needs a name"));
+    }
+
+    void aHandlerMayAnswerOnALaterTurn()
+    {
+        // The shape `Api`'s own documentation is written in. The handler takes the request,
+        // returns nothing, and replies once something it was waiting for arrives. The
+        // connection is held open for it rather than answered with a 500.
+        const Answer slow{send(QStringLiteral("GET"), QStringLiteral("/slow"))};
+        QCOMPARE(slow.status, 200);
+        QCOMPARE(slow.json().value(QStringLiteral("late")).toBool(), true);
+    }
+
+    void aHandlerThatNeverAnswersIsA504AndNotAHeldSocket()
+    {
+        QSignalSpy refused{m_server.get(), &ApiServer::requestRefused};
+        const Answer silent{send(QStringLiteral("GET"), QStringLiteral("/silent"))};
+        QCOMPARE(silent.status, 504);
+        QCOMPARE(refused.count(), 1);
+        QVERIFY(refused.at(0).at(0).toString().contains(QStringLiteral("did not answer")));
     }
 
     void anUnroutedPathIs404()

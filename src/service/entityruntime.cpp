@@ -150,8 +150,24 @@ bool EntityRuntime::buildTypeContext()
     if (m_topology.outboundDeclared) {
         m_network = new QNetworkAccessManager{this};
         const bool release{m_topology.provider.value(QStringLiteral("release"), true).toBool()};
+        // A declared header may be an `env:` reference, and this is where it stops being
+        // one: read from this process's environment, held in the helper, and attached to
+        // the request. It is never written to the resolved topology, never reaches the
+        // entity's QML, and so cannot be logged by it.
+        QList<HttpEndpointConfig> endpoints;
+        endpoints.reserve(m_topology.outbound.size());
+        for (const OutboundEndpoint &declared : std::as_const(m_topology.outbound)) {
+            HttpEndpointConfig endpoint;
+            endpoint.name = declared.name;
+            endpoint.url = declared.url;
+            for (auto it{declared.headers.constBegin()};
+                 it != declared.headers.constEnd(); ++it) {
+                endpoint.headers.insert(it.key(), resolveEnv(it.value()));
+            }
+            endpoints.append(endpoint);
+        }
         m_typeContext.insert(QStringLiteral("Http"),
-                             new Http{m_network, m_engine, release, m_topology.outbound, this});
+                             new Http{m_network, m_engine, release, endpoints, this});
     }
     return true;
 }

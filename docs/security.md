@@ -259,8 +259,8 @@ Layers, outermost to innermost:
 - Connect point scope (browser users). The edge does not acquire a scoped connect
   point's Replica for an under scoped user.
 - Instances. One Source per caller keeps one user's authoritative state separate from
-  another's, and one calling entity's separate from another's. `instance: connection`
-  narrows it further, to one link.
+  another's, and one calling entity's separate from another's. `instance: link`
+  narrows it further, to one open link.
 - Push only properties. Consumers cannot set owner properties directly, only
   request a change the owner controls.
 - In slot checks. Every slot checks `Caller` (a user scope and ownership, or a

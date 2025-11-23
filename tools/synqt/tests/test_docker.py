@@ -231,7 +231,7 @@ class ComposeTest(unittest.TestCase):
         entity_env = compose["services"]["store"]["env_file"]
         engine_env = compose["services"]["store-postgres"]["env_file"]
         self.assertEqual(entity_env, engine_env)
-        self.assertEqual(entity_env[0]["path"], "store/.env")
+        self.assertEqual(entity_env[0]["path"], "db/relational/store/.env")
 
     def test_a_redis_password_is_left_for_the_container_shell_to_expand(self):
         # `$$` in the file is how compose is told to hand a literal `$` to the container,
@@ -434,7 +434,7 @@ class InitTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = self._project(tmp, config)
             docker.init(root, config, source=None)
-            values = docker._read_env(root / "store" / ".env")
+            values = docker._read_env(root / "db" / "relational" / "store" / ".env")
         self.assertTrue(len(values["DB_PASSWORD"]) >= 16, values)
         # The engine's image reads it under its own name, out of the same file.
         self.assertEqual(values["POSTGRES_PASSWORD"], values["DB_PASSWORD"])
@@ -448,7 +448,7 @@ class InitTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = self._project(tmp, config)
             docker.init(root, config, source=None)
-            values = docker._read_env(root / "web" / ".env")
+            values = docker._read_env(root / "web" / "web" / ".env")
         self.assertEqual(values["GITHUB_CLIENT_SECRET"], "")
 
     def test_rerunning_never_resets_a_value_that_was_already_set(self):
@@ -458,9 +458,9 @@ class InitTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = self._project(tmp, config)
             docker.init(root, config, source=None)
-            first = docker._read_env(root / "store" / ".env")["DB_PASSWORD"]
+            first = docker._read_env(root / "db" / "relational" / "store" / ".env")["DB_PASSWORD"]
             docker.init(root, config, force=True, source=None)
-            second = docker._read_env(root / "store" / ".env")["DB_PASSWORD"]
+            second = docker._read_env(root / "db" / "relational" / "store" / ".env")["DB_PASSWORD"]
         self.assertEqual(first, second)
 
 

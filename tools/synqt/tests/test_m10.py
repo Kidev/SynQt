@@ -362,7 +362,11 @@ class NewBuildDoctorTest(unittest.TestCase):
         names = {e["name"] for e in config["entities"]}
         self.assertEqual(names, {"app", "edge"})
         self.assertTrue((root / "client" / "app" / "Main.qml").exists())
-        self.assertTrue((root / "CMakePresets.json").exists())
+        self.assertTrue((root / "generated" / "CMakePresets.json").exists())
+        # Nothing generated lands in the folders their authors write in.
+        self.assertFalse((root / "CMakeLists.txt").exists())
+        self.assertFalse((root / "web" / "edge" / "main.cpp").exists())
+        self.assertIn("generated/", (root / ".gitignore").read_text())
         self.assertIn("synqt/mesh/*.key", (root / ".gitignore").read_text())
         self.assertIn("GPLv3", message)  # the conveyance reminder
 

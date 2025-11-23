@@ -5,6 +5,7 @@
 #define SYNQT_TOPOLOGY_H
 
 #include <QList>
+#include <QMap>
 #include <QString>
 #include <QStringList>
 #include <QVariantMap>
@@ -28,7 +29,7 @@ enum class MeshTransportMode { MutualTls, LocalSocket };
 /// entity opens. A user's second tab continues the first tab's Source rather than
 /// starting a blank one.
 ///
-/// PerConnection is one Source per link. Two tabs of one user get two, and neither sees
+/// PerLink is one Source per link. Two tabs of one user get two, and neither sees
 /// the other's state. Ask for it when a Source holds something that belongs to the link
 /// rather than to the person: a cursor position, a live view window, a stream cursor.
 ///
@@ -40,7 +41,18 @@ enum class MeshTransportMode { MutualTls, LocalSocket };
 /// Sharing one Source across a caller's links is possible because a Source may be
 /// remoted by more than one QRemoteObjectHost: the edge keeps one host node per socket,
 /// enables the same Source on each, and every replica tracks it.
-enum class ConnectPointInstance { PerCaller, PerConnection };
+enum class ConnectPointInstance { PerCaller, PerLink };
+
+/// One entry of `network.outbound`: somewhere this entity may call, and what it sends when
+/// it does. `name` is what `Http.api(name)` resolves; a bare prefix has none. `headers`
+/// values are still as declared (an `env:` reference is resolved when Http is built), so a
+/// secret never lands in the resolved topology on disk.
+struct OutboundEndpoint
+{
+    QString name;
+    QString url;
+    QMap<QString, QString> headers;
+};
 
 /// Where the owner hosts a connect point (and where its consumers reach it).
 struct MeshEndpoint
@@ -90,16 +102,18 @@ struct Topology
     QVariantMap provider;
     QStringList schema;
 
-    /// The URL prefixes this entity is allowed to call out to (`network.outbound`), and
-    /// the whole of what it may reach: `Http` refuses anything not under one of them.
+    /// Where this entity is allowed to call out to (`network.outbound`), and the whole of
+    /// what it may reach. `Http` refuses anything not under one of these prefixes.
     ///
     /// It is here, in the resolved topology, rather than in the entity's own code, because
     /// where an entity may connect is a deployment's decision and has to be reviewable in
-    /// one file next to the mesh links it is the counterpart of.
-    QStringList outbound;
+    /// one file next to the mesh links it is the counterpart of. So is what it sends: an
+    /// entry may name headers (an API key as an `env:` reference), and the runtime attaches
+    /// them, so the entity's QML never holds the credential it calls with.
+    QList<OutboundEndpoint> outbound;
     /// Whether the entity declared `network.outbound` at all. The list being empty and the
-    /// key being absent are different: the first installs `Http` and lets it reach nowhere,
-    /// so a call is refused by name; the second installs no `Http`, because the entity is
+    /// key being absent are different. The first installs `Http` and lets it reach nowhere,
+    /// so a call is refused by name. The second installs no `Http`, because the entity is
     /// not one that calls out.
     bool outboundDeclared{false};
 

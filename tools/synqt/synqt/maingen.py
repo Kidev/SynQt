@@ -186,6 +186,10 @@ def _api_config_lines(entity: Dict[str, Any], inbound: Dict[str, Any]) -> List[s
         lines.append("    apiConfig.ratePerMinutePerIp = %s;"
                      % _int_literal("network.inbound.rate_per_minute",
                                     inbound["rate_per_minute"]))
+    if "reply_timeout_ms" in inbound:
+        lines.append("    apiConfig.replyTimeoutMs = %s;"
+                     % _int_literal("network.inbound.reply_timeout_ms",
+                                    inbound["reply_timeout_ms"]))
     return lines
 
 
@@ -193,7 +197,7 @@ def _env_file_section(entity: Dict[str, Any]) -> str:
     """The env-file load that answers this entity's ``env:`` references.
 
     Two files, most specific first, because two conventions are both real: the entity's
-    own file (``web/.env``, which is what the tutorials tell a developer to create) keeps
+    own file (``web/edge/.env``, which the tutorials tell a developer to create) keeps
     one entity's secrets away from another's, and the project ``.env`` is what `synqt new`
     gitignores and what `synqt add auth` documents through ``.env.example``. Loading both
     in that order costs nothing and means both instructions work as written.
@@ -844,8 +848,8 @@ def render_edge_main(config: Dict[str, Any], edge: Dict[str, Any],
     for cp in client_facing:
         cp_name = cp.get("name")
         contract = cp.get("contract", "")
-        instance = ("InstanceMode::PerConnection"
-                    if cp.get("instance") == "connection" else "InstanceMode::PerCaller")
+        instance = ("InstanceMode::PerLink"
+                    if cp.get("instance") == "link" else "InstanceMode::PerCaller")
         var = re.sub(r"[^0-9A-Za-z]", "", cp_name) or "connectPoint"
         server_file = cp.get("server") or appmodel.source_path(edge, contract)
         # The declared scope is the barrier that decides whether this connect point is

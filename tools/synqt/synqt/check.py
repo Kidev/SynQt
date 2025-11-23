@@ -51,6 +51,67 @@ def _entity_type_messages(declared: List[Dict[str, Any]]) -> List[str]:
     return messages
 
 
+#: Header names an outbound entry must not set. The transport derives each of them from the
+#: request, and a value written over one is either ignored or corrupts the message.
+_TRANSPORT_HEADERS = frozenset({"host", "content-length", "connection", "keep-alive",
+                                "transfer-encoding", "te", "trailer", "upgrade"})
+
+#: Header names that carry a credential. Anything under one of these has to be an `env:`
+#: reference, for the same reason an identity provider's client secret does: synqt.yaml is
+#: committed, copied and pasted into issues.
+#:
+#: A bare `key` is deliberately not on the list. It would catch `X-Idempotency-Key`, which
+#: is a request identifier and not a secret, and a rule that refuses a correct config is
+#: one people learn to route around. `x-api-key` is still caught, by `api-key`.
+_CREDENTIAL_HEADERS = ("authorization", "api-key", "apikey", "token", "secret",
+                       "cookie", "password")
+
+
+def _outbound_entry_messages(name: str, entry: Any) -> List[str]:
+    """One `network.outbound` entry: a bare prefix, or a named endpoint with headers."""
+    messages: List[str] = []
+    if isinstance(entry, dict):
+        url = str(entry.get("url") or "").strip()
+        if not url:
+            messages.append(
+                f"error: entity '{name}' has a network.outbound entry with no url:; a named "
+                "endpoint is a url: to call and, optionally, a name: to call it by and the "
+                "headers: to send")
+            return messages
+        headers = entry.get("headers")
+        if headers is not None and not isinstance(headers, dict):
+            messages.append(
+                f"error: entity '{name}' has network.outbound '{url}' with headers: that is "
+                "not a mapping; it is header names to values")
+            headers = None
+        for header, value in (headers or {}).items():
+            lowered = str(header).lower()
+            if lowered in _TRANSPORT_HEADERS:
+                messages.append(
+                    f"error: entity '{name}' sets the '{header}' header on network.outbound "
+                    f"'{url}'; the transport owns that one and derives it from the request")
+            elif (any(word in lowered for word in _CREDENTIAL_HEADERS)
+                    and not str(value).startswith("env:")):
+                messages.append(
+                    f"error: entity '{name}' has a literal '{header}' header on "
+                    f"network.outbound '{url}'; a credential must be an env: reference "
+                    "(e.g. env:LTD2_API_KEY) so it lives in the entity environment and "
+                    "never in synqt.yaml (https://synqt.org/security/)")
+    else:
+        url = str(entry).strip()
+    if not url.startswith(("http://", "https://")):
+        messages.append(
+            f"error: entity '{name}' has network.outbound entry '{url}', "
+            "which is not an absolute http(s) URL prefix; a prefix is matched "
+            "against the whole URL, so it has to start at the scheme")
+    elif url.startswith("http://"):
+        messages.append(
+            f"warn: entity '{name}' allows the plaintext prefix '{url}'. The "
+            "runtime refuses a plaintext outbound call in a release build, so "
+            "this works in development and stops working when you ship")
+    return messages
+
+
 def _network_messages(declared: List[Dict[str, Any]]) -> List[str]:
     """The `network:` block: what an entity may call, and who may call it.
 
@@ -83,18 +144,8 @@ def _network_messages(declared: List[Dict[str, Any]]) -> List[str]:
                     f"error: client '{name}' declares network.outbound; a browser client "
                     "calls nothing but its own edge, and a prefix list here would be a "
                     "rule nothing enforces (https://synqt.org/entities/)")
-            for prefix in outbound:
-                text = str(prefix).strip()
-                if not text.startswith(("http://", "https://")):
-                    messages.append(
-                        f"error: entity '{name}' has network.outbound entry '{prefix}', "
-                        "which is not an absolute http(s) URL prefix; a prefix is matched "
-                        "against the whole URL, so it has to start at the scheme")
-                elif text.startswith("http://"):
-                    messages.append(
-                        f"warn: entity '{name}' allows the plaintext prefix '{text}'. The "
-                        "runtime refuses a plaintext outbound call in a release build, so "
-                        "this works in development and stops working when you ship")
+            for entry in outbound:
+                messages += _outbound_entry_messages(name, entry)
 
         inbound = block.get("inbound")
         if inbound is None:
@@ -180,6 +231,19 @@ def _inbound_messages(name: str, entity: Dict[str, Any],
             messages.append(
                 f"error: entity '{name}' has network.inbound.{key} {value}; a limit of "
                 "zero or less would refuse every request rather than disable the limit")
+
+    # Separate from the two above because zero means something here: no deadline at all.
+    timeout = inbound.get("reply_timeout_ms")
+    if timeout is not None:
+        if isinstance(timeout, bool) or not isinstance(timeout, int) or timeout < 0:
+            messages.append(
+                f"error: entity '{name}' has network.inbound.reply_timeout_ms {timeout!r}; "
+                "it is milliseconds, as a whole number, and 0 means wait with no deadline")
+        elif timeout == 0:
+            messages.append(
+                f"warn: entity '{name}' sets network.inbound.reply_timeout_ms to 0, so a "
+                "handler that never answers holds its connection open for as long as the "
+                "entity runs")
     return messages
 
 
@@ -333,7 +397,7 @@ def validate(config: Dict[str, Any], *, release: bool = False,
                 "owner listens for consumers and a browser cannot listen, so a connect point "
                 "the client takes part in must be owned by a web_edge entity")
 
-        # A misspelled `connection` is not `connection`, and downstream nothing says so:
+        # A misspelled `link` is not `link`, and downstream nothing says so:
         # the point falls back to one Source per caller and quietly stops being what it was
         # written to be. Caught here, by name.
         instance = connect_point.get("instance")

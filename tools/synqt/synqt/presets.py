@@ -33,7 +33,7 @@ def _presets(config: Dict[str, Any]) -> Dict[str, Any]:
         {
             "name": "host",
             "displayName": "Host (native services + desktop client)",
-            "binaryDir": "${sourceDir}/build/host",
+            "binaryDir": "${sourceParentDir}/build/host",
             # Named, not defaulted. CMake's default generator is per platform, and on Windows
             # it is Visual Studio, a multi-config generator, which changes two things this
             # build takes for granted: it ignores CMAKE_BUILD_TYPE below (the config is chosen
@@ -51,7 +51,7 @@ def _presets(config: Dict[str, Any]) -> Dict[str, Any]:
                 # The host kit directory is per platform (gcc_64 / macos / msvc2022_64);
                 # naming gcc_64 here pointed the preset at a Linux kit on every host.
                 "CMAKE_PREFIX_PATH":
-                    f"${{sourceDir}}/synqt/toolchain/qt/{qt_version}/"
+                    f"${{sourceParentDir}}/synqt/toolchain/qt/{qt_version}/"
                     f"{toolchain.host_kit_dir()}",
             },
         },
@@ -60,10 +60,10 @@ def _presets(config: Dict[str, Any]) -> Dict[str, Any]:
             "displayName": "WebAssembly (browser client)",
             # Keyed to the kit: the two kits must never share a build directory (see
             # clientbuild.wasm_build_dir), and the preset must agree with the CLI.
-            "binaryDir": "${sourceDir}/" + clientbuild.wasm_build_dir(config),
+            "binaryDir": "${sourceParentDir}/" + clientbuild.wasm_build_dir(config),
             "cacheVariables": wasm_cache,
             "toolchainFile":
-                f"${{sourceDir}}/synqt/toolchain/qt/{qt_version}/{kit}/lib/cmake/"
+                f"${{sourceParentDir}}/synqt/toolchain/qt/{qt_version}/{kit}/lib/cmake/"
                 "Qt6/qt.toolchain.cmake",
         },
     ]
@@ -86,12 +86,19 @@ def _presets(config: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def write(project_dir: os.PathLike[str] | str, config: Dict[str, Any]) -> None:
-    """Write CMakePresets.json (checked in) and a CMakeUserPresets.json stub (local)."""
-    root = Path(project_dir)
+    """Write CMakePresets.json and a CMakeUserPresets.json stub.
+
+    Both land beside the generated CMakeLists, in the project's generated/ tree: CMake
+    reads presets from the source directory and nowhere else, and the source directory is
+    now that folder. `${sourceParentDir}` is therefore the project root, which is where
+    the toolchain and the build directories are.
+    """
+    root = appmodel.generated_dir(project_dir)
+    root.mkdir(parents=True, exist_ok=True)
     writer.write_if_changed(root / "CMakePresets.json",
                             json.dumps(_presets(config), indent=2) + "\n")
     # The user preset is where a contributor overrides local toolchain locations; it is
-    # generated once and git-ignored.
+    # generated once and never overwritten.
     user = {
         "version": 6,
         "configurePresets": [{
@@ -100,10 +107,8 @@ def write(project_dir: os.PathLike[str] | str, config: Dict[str, Any]) -> None:
             "cacheVariables": {"SYNQT_LOCAL": "ON"},
         }],
     }
+    # Never overwritten once written: it is the one file here a person may edit, and the
+    # whole generated tree is git-ignored, so it needs no entry of its own.
     user_path = root / "CMakeUserPresets.json"
     if not user_path.exists():
         writer.write_if_changed(user_path, json.dumps(user, indent=2) + "\n")
-    gitignore = root / ".gitignore"
-    if gitignore.exists() and "CMakeUserPresets.json" not in gitignore.read_text():
-        with gitignore.open("a") as handle:
-            handle.write("CMakeUserPresets.json\n")

@@ -1,15 +1,15 @@
 // SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 // SPDX-License-Identifier: Apache-2.0
 
-// M1 acceptance: prove the generated contract layer compiles and behaves. The
+// M1 acceptance. Prove the generated contract layer compiles and behaves. The
 // generated Source and Replica headers compile (Todo's are #included here; Catalog's
 // compile in their own generated translation units and exercise records -> POD). The
-// rep must carry READPUSH props and declared-role-only models; the Source helper's
-// set<Model>(rows) must replicate only declared roles, dropping undeclared row
-// fields. A short in-process QtRO round trip over a local socket exercises all four
-// directions.
+// rep must carry READPUSH props and declared-role-only models. The Source helper's
+// two ways into a model (the bindable <model>Rows property and set<Model>(rows)) must
+// replicate only declared roles, dropping undeclared row fields. A short in-process
+// QtRO round trip over a local socket exercises all four directions.
 //
-// Catalog's raw rep headers are intentionally NOT included here: a rep with a POD
+// Catalog's raw rep headers are intentionally NOT included here. A rep with a POD
 // defines it in both its _source.h and _replica.h, and a single owner-or-consumer
 // entity only ever includes one of them. Only the registration declarations are used.
 
@@ -23,6 +23,8 @@
 #include <QAbstractItemModelReplica>
 #include <QCoreApplication>
 #include <QFile>
+#include <QQmlComponent>
+#include <QQmlContext>
 #include <QQmlEngine>
 #include <QRemoteObjectHost>
 #include <QRemoteObjectNode>
@@ -136,6 +138,59 @@ private slots:
         const int textRole{roleNames.key(QByteArrayLiteral("text"), -1)};
         QVERIFY(textRole != -1);
         QTRY_COMPARE(model->index(0, 0).data(textRole).toString(), QStringLiteral("buy milk"));
+    }
+
+    void bindingTheRowsPropertyPublishes()
+    {
+        // The declarative half of the model API: an owner binds <model>Rows to wherever
+        // the rows live instead of calling set<Model>() from a Component.onCompleted and
+        // again from a Connections block. Driven here through the QML engine, because a
+        // binding is what is being tested, not the setter it ends in.
+        synqtRegisterTodoSources();
+
+        const QUrl url{QStringLiteral("local:m1bind")};
+        QQmlEngine engine;
+        QQmlComponent component{&engine};
+        // `held` stands in for the entity singleton an owner would bind to.
+        component.setData("import SynQt\n"
+                          "Todo {\n"
+                          "    id: todo\n"
+                          "    property var held: []\n"
+                          "    itemsRows: todo.held\n"
+                          "}\n", QUrl{});
+        QScopedPointer<QObject> object{component.create()};
+        QVERIFY2(!object.isNull(), qPrintable(component.errorString()));
+        TodoSourceHelper *source{qobject_cast<TodoSourceHelper *>(object.data())};
+        QVERIFY(source != nullptr);
+        object->setProperty("held", QVariantList{
+            QVariantMap{{QStringLiteral("text"), QStringLiteral("first")},
+                        {QStringLiteral("author"), QStringLiteral("ada")},
+                        {QStringLiteral("done"), false}}});
+
+        QRemoteObjectHost host{url};
+        QVERIFY(host.enableRemoting<TodoSourceAPI>(source));
+        QRemoteObjectNode node{url};
+        QScopedPointer<TodoReplica> replica{node.acquire<TodoReplica>()};
+        QVERIFY(replica->waitForSource(3000));
+
+        QAbstractItemModelReplica *model{replica->items()};
+        QVERIFY(model != nullptr);
+        QTRY_COMPARE(model->rowCount(), 1);
+
+        // The binding is live. Changing what it reads republishes with nothing else
+        // written on the owner side.
+        object->setProperty("held", QVariantList{
+            QVariantMap{{QStringLiteral("text"), QStringLiteral("first")},
+                        {QStringLiteral("author"), QStringLiteral("ada")},
+                        {QStringLiteral("done"), true}},
+            QVariantMap{{QStringLiteral("text"), QStringLiteral("second")},
+                        {QStringLiteral("author"), QStringLiteral("grace")},
+                        {QStringLiteral("done"), false}}});
+        QTRY_COMPARE(model->rowCount(), 2);
+
+        const int textRole{model->roleNames().key(QByteArrayLiteral("text"), -1)};
+        QVERIFY(textRole != -1);
+        QTRY_COMPARE(model->index(1, 0).data(textRole).toString(), QStringLiteral("second"));
     }
 
     void qmlRegistrationsAreEmitted()

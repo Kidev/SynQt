@@ -223,8 +223,8 @@ def scaffold_connect_point(project_dir: os.PathLike[str] | str, name: str, *,
                            instance: Optional[str] = None) -> str:
     if instance is not None and instance not in appmodel.INSTANCE_MODES:
         raise AddContractError(
-            "instance must be caller or connection: one Source for each caller (the "
-            "default, shared by that caller's tabs) or one for each link")
+            "instance must be caller or link: one Source for each caller (the "
+            "default, shared by that caller's tabs) or one for each open link")
     contract = contract or appmodel.contract_of({"name": name})
     owning = owner_entity(project_dir, owner)
     check_qml_name(contract, entity_type=appmodel.entity_type(owning), entity=owning)

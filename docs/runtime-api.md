@@ -402,19 +402,20 @@ exposes:
 
 | Surface | From | Description |
 |---------|------|-------------|
-| `count = n` | `prop count` | assign to push a new value to every consumer. The owner is the only writer; consumers get a read-only mirror. |
-| `setItems(rows)` | `model items(...)` | replace the model with `rows`. Only the declared roles cross; any extra field on a row (an owner id, a timestamp) is dropped at the boundary and never serializes to a consumer. Each role carries a type, and a row whose value will not convert to it is refused rather than published, naming the model, the role and the row. |
-| `rejected(reason)` | `signal rejected` | emit the signal to **all** consumers of this Source instance. |
-| `add(text) { ... }` | `slot add` | the slot body you write; `Caller` is available inside it. |
+| `count = n` | `prop count` | assign to push a new value to every consumer. The owner is the only writer, and consumers get a read-only mirror. |
+| `itemsRows: <list>` | `model items(...)` | bind the model to where the rows live, and every change to them republishes. This is the usual form, because the rows almost always live on the entity's singleton, which outlives the Source. |
+| `setItems(rows)` | `model items(...)` | the same publish, called rather than bound, for rows that arrive from an event (a reply, a tick). Either way only the declared roles cross. Any extra field on a row (an owner id, a timestamp) is dropped at the boundary and never serializes to a consumer. Each role carries a type, and a row whose value will not convert to it is refused rather than published, naming the model, the role and the row. |
+| `rejected(reason)` | `signal rejected` | emit the signal to all consumers of this Source instance. |
+| `add(text) { ... }` | `slot add` | the slot body you write. `Caller` is available inside it. |
 
-The `set<Model>` name follows the model name: `model winners(...)` gives
-`setWinners(rows)`, `model players(...)` gives `setPlayers(rows)`. Replacing the
-rows wholesale is the owner surface today; finer-grained updates are an
-optimization behind the same declaration. Declare a role `var` where it genuinely
-carries anything, and only there: a type is what makes the refusal above possible.
+Both names follow the model name. `model winners(...)` gives `winnersRows` and
+`setWinners(rows)`, and `model players(...)` gives `playersRows` and `setPlayers(rows)`.
+Replacing the rows wholesale is the owner surface today. Finer-grained updates are an
+optimization behind the same declaration. Declare a role `var` where it carries
+anything, and only there, because a type is what makes the refusal above possible.
 
-`set<Model>` is the only way into a model. It travels from the owner to its consumers
-and no further, and a consumer's write is refused at the boundary even though the Qt type
+Those two are the only way into a model. It travels from the owner to its consumers and
+no further, and a consumer's write is refused at the boundary even though the Qt type
 underneath has a `setData`. A consumer that wants a row changed calls a slot, which is
 where `Caller` exists and where the owner decides. See the [contract
 generator](programming-model.md#contracts-the-shape-of-what-may-cross) for how
@@ -518,22 +519,48 @@ eviction belongs in a relational entity, not here.
 
 | Member | Returns | Description |
 |--------|---------|-------------|
-| `Http.get(url)` | promise | issue a GET. |
-| `Http.post(url, body?)` | promise | issue a POST. |
-| `Http.put(url, body?)` | promise | issue a PUT. |
-| `Http.del(url)` | promise | issue a DELETE. |
-| `promise.then(onOk, onError?)` | - | `onOk({ status, body })` on success, `onError(message)` on failure. Settles once; a handler attached in the same statement fires as soon as it settles. |
+| `Http.api(name)` | endpoint | the named `network.outbound` entry: its base URL, and the headers the runtime attaches to every call under it. |
+| `Http.get(url, headers?)` | promise | issue a GET. |
+| `Http.post(url, body?, headers?)` | promise | issue a POST. A body that is not a string is sent as JSON. |
+| `Http.put(url, body?, headers?)` | promise | issue a PUT. |
+| `Http.del(url, headers?)` | promise | issue a DELETE. |
+| `endpoint.get(path?, headers?)` | promise | the same four, with `path` resolved against the endpoint's base. |
+| `endpoint.url` | string | the base this endpoint resolves against. |
+| `promise.then(onOk, onError?)` | - | `onOk({ status, body, json })` on success, `onError(message)` on failure. `json` is there when the reply said it was JSON. Settles once; a handler attached in the same statement fires as soon as it settles. |
 
 ```qml
 Http.get("https://api.example.com/rates")
-    .then(response => { rates.value = response.body.usd },
+    .then(response => { rates.value = response.json.usd },
           message => { rates.error = message })
 ```
 
+A named entry is the form to reach for when the API wants a key, because the key is
+then not something a call site holds:
+
+```yaml
+    network:
+      outbound:
+        - name: rates
+          url: https://api.example.com/
+          headers:
+            x-api-key: env:RATES_API_KEY
+```
+
+```qml
+Http.api("rates").get("v1/rates").then(response => { rates.value = response.json.usd })
+```
+
+The value is read from the entity's environment when the entity starts and attached to
+the request by the runtime, so the QML that makes the call never holds the credential
+and cannot print it. `synqt check` refuses a credential-looking header written as a
+literal, for the same reason it refuses one in an identity provider's `client_secret`.
+The headers a request derives from itself (`Host`, `Content-Length`, and the rest of the
+hop-by-hop set) are refused, because the transport owns those.
+
 Attach the handler where the call is made, as above. A promise is retired once it has
 settled and delivered, so it is not an object to store in a property and come back to
-later: keeping one across an event loop turn and calling `then` on it then is the one
-use this does not support. The reason is that the promise belongs to the entity, which
+later. Keeping one across an event loop turn and calling `then` on it then is the one
+use this does not support, because the promise belongs to the entity, which
 outlives every call, so a promise nobody retires is a call nobody can ever free.
 
 `Http` is outbound only and verifies TLS. In a release build it refuses a plaintext

@@ -188,7 +188,7 @@ private slots:
         draft.instance = InstanceMode::PerCaller;
         WebEdgeConnectPoint scratch{draft};
         scratch.name = QStringLiteral("scratch");
-        scratch.instance = InstanceMode::PerConnection;
+        scratch.instance = InstanceMode::PerLink;
         config.connectPoints = {todo, draft, scratch};
 
         m_edge = std::make_unique<WebEdge>(config, m_edgeEngine.get());
@@ -268,13 +268,13 @@ private slots:
         QTRY_COMPARE(draftBob->property("text").toString(), QStringLiteral("bob:eggs"));
         QCOMPARE(draftOne->property("text").toString(), QStringLiteral("alice:milk"));
 
-        // PerConnection: the same user, the same two tabs, and the state does not cross.
+        // PerLink: the same user, the same two tabs, and the state does not cross.
         QVERIFY(QMetaObject::invokeMethod(scratchOne, "save",
                                           Q_ARG(QString, QStringLiteral("note"))));
         QTRY_COMPARE(scratchOne->property("text").toString(), QStringLiteral("alice:note"));
         QTest::qWait(300);
         QVERIFY2(scratchTwo->property("text").toString().isEmpty(),
-                 "instance: connection must give the second tab its own Source");
+                 "instance: link must give the second tab its own Source");
     }
 
     // Clauses 1, 2, 3, 5: the user authorization matrix and ownerSub non-leakage.

@@ -16,8 +16,6 @@ Arena {
         // Relay the world's global events to this session's browser.
         World.eaten.connect((prey, predator) => arena.eaten(prey, predator));
         World.roundEnded.connect(winner => arena.roundEnded(winner));
-        World.championsChanged.connect(() => arena.setChampions(World.champions));
-        arena.setChampions(World.champions);
     }
 
     function steer(x, y) {
@@ -29,6 +27,10 @@ Arena {
         if (Caller.hasScope("player")) World.keepAlive(arena.mySub);
         return Date.now();
     }
+
+    // The Hall of Fame is the world's, not this session's, and it changes when a round
+    // ends rather than on the tick below: one binding, and every session has it.
+    championsRows: World.champions
 
     // Publish this player's slice a few times a second, plus the global lists.
     Timer {

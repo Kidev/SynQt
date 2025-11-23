@@ -248,6 +248,12 @@ release build, and refuses any URL that is not under one of the prefixes
 `network.outbound` names. Gateway code never touches a socket and never reaches
 somewhere the topology did not list.
 
+A named `network.outbound` entry is also a preset: `Http.api("github").get("user/repos")`
+resolves the base URL the entry declared and sends the headers it declared with it. That
+is how an upstream that wants an API key is reached without the key appearing in the
+QML, since a header value written as `env:GITHUB_TOKEN` is read from the entity's
+environment and attached by the runtime.
+
 `Api` is the inbound half: the entity's own singleton declares its routes on it, and
 each handler is ordinary JavaScript that can validate a body, reach several connect
 points, and shape an answer.
@@ -269,10 +275,13 @@ QtObject {
 }
 ```
 
-A handler that returns a value answers with it as 200; one that will answer later
-returns nothing and calls `request.reply(...)` or `request.fail(...)` when it can. The
-gateway maps between its public HTTP surface and the internal connect points it
-consumes, so the rest of the system never speaks raw HTTP to the outside.
+A handler that returns a value answers with it as 200. One that will answer later
+returns nothing and calls `request.reply(...)` or `request.fail(...)` when it can, as
+the one above does. The connection is held open for it until
+`network.inbound.reply_timeout_ms`, after which the request is failed with 504, so a
+handler that never answers costs one status code rather than a socket. The gateway maps
+between its public HTTP surface and the internal connect points it consumes, so the rest
+of the system never speaks raw HTTP to the outside.
 
 Security: everything a public caller can influence is checked before a handler exists,
 in the same shape as the web edge's upgrade pipeline and for the same reason. In order:

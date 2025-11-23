@@ -18,11 +18,11 @@ class OAuthBackend;
 /// the OAuthBackend (the client secret, the token exchange, ID-token verification, the
 /// stored tokens and their server-side refresh) and exposes it to the Identity connect
 /// point Source over the mesh. The edges consuming that connect point hold no secret and no
-/// token; they only drive login/callback and issue the session cookie.
+/// token. They only drive login/callback and issue the session cookie.
 ///
 /// The begin/exchange methods are synchronous (the backend runs a bounded nested loop for the
-/// token exchange), so the per_peer Source can emit each result on itself and answer only the
-/// edge that asked; a user's identity never crosses to another edge.
+/// token exchange), so the per-caller Source can emit each result on itself and answer only the
+/// edge that asked. A user's identity never crosses to another edge.
 class IdentityService : public QObject
 {
     Q_OBJECT

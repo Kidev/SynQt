@@ -31,6 +31,11 @@ from .errors import SynError
 from .model import Contract, Model, Param, Prop, Record, Role, Signal, Slot, SynFile
 from .types import cpp_type
 
+#: The most parameters a `signal` may declare. A signal is delivered to one caller through
+#: `Caller.emit<Signal>(...)`, which forwards into `SynQt::Caller::emitSignal`, and that has
+#: a fixed argument pack (SynQt::Caller::MaxSignalArgs). The two numbers have to agree.
+MAX_SIGNAL_PARAMS = 8
+
 KEYWORDS = {"contract", "record", "prop", "model", "signal", "slot"}
 
 _IDENT_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
@@ -290,6 +295,17 @@ def _validate(syn: SynFile, path: str) -> None:
             for role in model.roles:
                 resolve(role.type, role.line, role.col)
         for signal in contract.signals:
+            # A signal is deliverable to one caller through `Caller.emit<Signal>(...)`, and
+            # that path carries a bounded number of arguments (SynQt::Caller::MaxSignalArgs).
+            # Refused here, by name. Past the bound the generated forwarder does not compile,
+            # and what a reader gets instead is a template error in a file they did not write.
+            if len(signal.params) > MAX_SIGNAL_PARAMS:
+                raise SynError(
+                    f"signal '{signal.name}' takes {len(signal.params)} parameters; the most "
+                    f"a signal may carry to one caller is {MAX_SIGNAL_PARAMS}. Group the "
+                    "extra ones into a record and send that.",
+                    path=path, line=signal.line, col=signal.col,
+                )
             for param in signal.params:
                 resolve(param.type, param.line, param.col)
         for slot in contract.slots:

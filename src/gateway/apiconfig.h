@@ -44,6 +44,14 @@ struct ApiConfig
     /// Resource limits, enforced before a handler sees anything.
     qint64 maxBodyBytes{1048576};
     int ratePerMinutePerIp{600};
+
+    /// How long a handler may take to answer before the request is failed with 504.
+    /// A handler answers on a later turn whenever it reaches a connect point or calls out
+    /// (`Api.get("/x", r => Http.api("y").get(...).then(v => r.reply(v)))`), so the
+    /// connection has to be held open for it; a handler that never answers must not hold
+    /// it open forever. Zero waits with no deadline, which is a deliberate choice and not
+    /// the default.
+    int replyTimeoutMs{15000};
 };
 
 } // namespace SynQt

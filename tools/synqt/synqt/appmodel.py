@@ -181,6 +181,22 @@ def entity_dir(entity: Dict[str, Any]) -> str:
     return f"{type_dir(entity)}/{name}" if name else type_dir(entity)
 
 
+#: Where everything SynQt writes for a project lands, relative to the project root.
+#:
+#: One folder, and nothing generated outside it: the root CMakeLists, the CMake presets, a
+#: `main.cpp` per entity, the test runner, and the Source QML the auth entity gets when
+#: identity is promoted out of the edge. An entity's own folder therefore holds only what
+#: its author wrote, which is what makes "do not edit generated files" a rule about a path
+#: rather than a rule about remembering which files those are. It is git-ignored by the
+#: scaffold and rebuilt from `synqt.yaml` on every build.
+GENERATED_DIR = "generated"
+
+
+def generated_dir(project_dir: os.PathLike[str] | str) -> Path:
+    """The project's generated tree, as a path."""
+    return Path(project_dir) / GENERATED_DIR
+
+
 def entity_dirs(config: Dict[str, Any]) -> Dict[str, str]:
     """Every entity's folder, by entity name."""
     return {str(entity.get("name") or ""): entity_dir(entity)
@@ -261,8 +277,24 @@ def declares_outbound(entity: Dict[str, Any]) -> bool:
     return isinstance(network_settings(entity).get("outbound"), list)
 
 
-def outbound_allowlist(entity: Dict[str, Any]) -> List[str]:
-    """``network.outbound``: the URL prefixes this entity may call, or [].
+def outbound_endpoints(entity: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """``network.outbound``, as records. Where this entity may call, and what it sends.
+
+    Two spellings, one meaning, because most entries need nothing but a prefix and a few
+    need a key:
+
+        outbound:
+          - https://api.example.com/
+          - name: ltd2
+            url: https://apiv2.legiontd2.com/
+            headers:
+              x-api-key: env:LTD2_API_KEY
+
+    A bare string becomes ``{"url": ...}``. A named entry is also what the entity calls
+    through (``Http.api("ltd2").get("players/stats/" + id)``), so the base URL and the key
+    are declared once here rather than repeated at every call site. Header values keep
+    their ``env:`` form: the secret is read from the entity's environment when the runtime
+    builds the helper, so it never lands in the resolved topology on disk.
 
     Empty allows nothing, which is what every entity is until somebody writes down where
     it needs to go. See :func:`declares_outbound` for why empty and absent differ.
@@ -270,7 +302,36 @@ def outbound_allowlist(entity: Dict[str, Any]) -> List[str]:
     declared = network_settings(entity).get("outbound")
     if not isinstance(declared, list):
         return []
-    return [str(prefix).strip() for prefix in declared if str(prefix).strip()]
+    endpoints: List[Dict[str, Any]] = []
+    for entry in declared:
+        if isinstance(entry, dict):
+            url = str(entry.get("url") or "").strip()
+            if not url:
+                continue
+            endpoint: Dict[str, Any] = {"url": url}
+            name = str(entry.get("name") or "").strip()
+            if name:
+                endpoint["name"] = name
+            headers = entry.get("headers")
+            if isinstance(headers, dict) and headers:
+                endpoint["headers"] = {str(key): str(value)
+                                       for key, value in headers.items()}
+            endpoints.append(endpoint)
+            continue
+        url = str(entry).strip()
+        if url:
+            endpoints.append({"url": url})
+    return endpoints
+
+
+def outbound_allowlist(entity: Dict[str, Any]) -> List[str]:
+    """Just the URL prefixes of :func:`outbound_endpoints`, in order.
+
+    What the allowlist check is made of, and what a refusal message names. Kept separate
+    from the records because a reader asking "where may this entity reach" is asking about
+    the prefixes and nothing else.
+    """
+    return [endpoint["url"] for endpoint in outbound_endpoints(entity)]
 
 
 def inbound_settings(entity: Dict[str, Any]) -> Dict[str, Any]:
@@ -332,24 +393,24 @@ def contract_of(point: Dict[str, Any]) -> str:
 #:
 #: `caller` (the default) is one Source per caller identity: every link one signed-in user
 #: opens reaches the same Source, and so does every link one consuming entity opens. A
-#: second tab continues the first tab's Source. `connection` is one Source per link, for
+#: second tab continues the first tab's Source. `link` is one Source per open link, for
 #: state that belongs to the link rather than to the person.
 #:
 #: There is no third value meaning one Source for everybody. QtRO hands `enableRemoting()`
-#: a single object and never tells a slot which connection invoked it, so such a Source
+#: a single object and never tells a slot which link invoked it, so such a Source
 #: could carry no `Caller` at all: every `Caller.hasScope(...)` written in one was a
 #: reference to something that was not there. State shared by everyone lives in the
 #: entity's own singleton, which outlives every Source.
-INSTANCE_MODES = frozenset({"caller", "connection"})
+INSTANCE_MODES = frozenset({"caller", "link"})
 
 
 def instance_of(point: Dict[str, Any], config: Dict[str, Any]) -> str:
-    """How many Sources this connect point mints: one per `caller`, or one per `connection`.
+    """How many Sources this connect point mints: one per `caller`, or one per `link`.
 
     `caller` is the default and the one that surprises nobody: a Source holds that caller's
-    state, and their next tab or their reconnect continues it. Ask for `connection` when
-    what the Source holds belongs to the link and not to the person, like a live view
-    window or a stream cursor, and two tabs should not share it.
+    state, and their next tab or their reconnect continues it. Ask for `link` when
+    what the Source holds belongs to the one open link and not to the person, like a live
+    view window or a stream cursor, and two tabs should not share it.
 
     `config` is unused and kept in the signature because every reader passes the topology
     to every resolver here. The answer is the same on the mesh and at the edge, which is
@@ -576,25 +637,24 @@ def env_file(entity: Dict[str, Any]) -> str:
     synqt.yaml holds only its name. Project-root relative, like every other path in the
     topology.
 
-    Defaulted rather than left empty because ``<entity>/.env`` is the convention the
-    tutorials and the scaffolded projects already use ("the client secret lives only in
-    ``web/.env``"), and a convention that every document states but nothing loads is the
-    same kind of gap as a setting nothing reads.
+    Defaulted rather than left empty because the entity's own folder is where the
+    tutorials and the scaffolded projects already put it ("the client secret lives only in
+    ``web/edge/.env``"), and a convention that every document states but nothing loads is
+    the same kind of gap as a setting nothing reads.
 
-    The directory is the entity's name, which is the one rule the rest of the tool
-    already follows: the CMake generator, the main generator, and the client root lint
-    all locate an entity's sources at ``<name>/``. This used to prefer an ``entity.path``
-    key that nothing else consulted, so a project that set it moved its ``.env`` and
-    nothing else, and the build went looking for its QML somewhere the secret no longer
-    was. One spelling, everywhere; ``env.file`` above stays as the explicit override.
+    The directory is :func:`entity_dir`, the same answer the CMake generator, the main
+    generator and the client root lint all get for where an entity's files are. It has to
+    be that one call and not a second spelling of it. This returned ``<name>/.env`` for a
+    while after entities moved into ``<type>/<name>/``, so every generated main loaded a
+    path that did not exist and every ``env:`` reference fell through to the project file
+    or to nothing. ``env.file`` above stays as the explicit override.
     """
     env = entity.get("env")
     if isinstance(env, dict):
         path = env.get("file")
         if isinstance(path, str) and path.strip():
             return path.strip()
-    directory = entity.get("name")
-    return f"{directory}/.env" if directory else ""
+    return f"{entity_dir(entity)}/.env" if entity.get("name") else ""
 
 
 def origin_model(config: Dict[str, Any]) -> str:
@@ -877,7 +937,9 @@ def auth_connect_points(config: Dict[str, Any]) -> List[Dict[str, Any]]:
              "owner": owner,
              "consumers": consumers,
              "instance": "caller",
-             "server": source_path(owning, contract),
+             # Generated, so it lives with the rest of the generated tree rather than in
+             # the auth entity's folder: nobody writes this file and nobody edits it.
+             "server": f"{GENERATED_DIR}/{source_path(owning, contract)}",
              "framework": True}
             for name, contract in _AUTH_POINTS if name not in declared]
 

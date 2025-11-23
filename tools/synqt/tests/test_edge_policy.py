@@ -294,12 +294,14 @@ class TestEnvFile(unittest.TestCase):
         self.assertIn('loadEnvFile(QStringLiteral(".env"));', service)
 
     def test_the_entity_directory_is_the_default_env_file(self):
-        # "The client secret lives only in web/.env" is what the tutorials tell a
-        # developer to do, so it has to work without also declaring an `env:` key.
-        self.assertIn('loadEnvFile(QStringLiteral("web/.env"));', render(base_config()))
+        # "The client secret lives only in web/edge/.env" is what the tutorials tell a
+        # developer to do, so it has to work without also declaring an `env:` key. The
+        # directory is the entity's, `<type>/<name>/`, which is where its QML is. This
+        # asked for `<name>/` for a while after entities moved and loaded nothing.
+        self.assertIn('loadEnvFile(QStringLiteral("web/web/.env"));', render(base_config()))
 
     def test_an_entity_env_file_is_loaded_first(self):
-        # Order is precedence: loadEnvFile never overwrites, so the entity's own file wins
+        # Order is precedence. loadEnvFile never overwrites, so the entity's own file wins
         # over the project's, and the real environment wins over both.
         config = base_config()
         edge_of(config)["env"] = {"file": "secrets/edge.env"}
@@ -307,7 +309,7 @@ class TestEnvFile(unittest.TestCase):
         entity_load = source.index('loadEnvFile(QStringLiteral("secrets/edge.env"));')
         project_load = source.index('loadEnvFile(QStringLiteral(".env"));')
         self.assertLess(entity_load, project_load)
-        self.assertNotIn('loadEnvFile(QStringLiteral("web/.env"));', source)
+        self.assertNotIn('loadEnvFile(QStringLiteral("web/web/.env"));', source)
 
     def test_the_client_never_loads_one(self):
         # Secrets belong to the service side of the connect-point boundary. The browser is

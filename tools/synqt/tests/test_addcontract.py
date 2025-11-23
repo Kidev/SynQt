@@ -61,9 +61,9 @@ class AddConnectPointTest(unittest.TestCase):
     def test_an_instance_the_author_chose_is_written_down(self):
         root = self._project()
         addcontract.scaffold_connect_point(root, "prices", owner="feeds",
-                                           consumers=["edge"], instance="connection")
+                                           consumers=["edge"], instance="link")
         point = yaml.safe_load((root / "synqt.yaml").read_text())["connect_points"][0]
-        self.assertEqual(point["instance"], "connection")
+        self.assertEqual(point["instance"], "link")
 
     def test_an_instance_that_is_not_one_of_the_two_is_refused(self):
         root = self._project()
@@ -105,10 +105,10 @@ class AddConnectPointTest(unittest.TestCase):
                                            consumers=["edge"], contract="Prices")
         addcontract.scaffold_connect_point(root, "auction", owner="edge",
                                            consumers=["app"], contract="Auction",
-                                           instance="connection")
+                                           instance="link")
         points = yaml.safe_load((root / "synqt.yaml").read_text())["connect_points"]
         self.assertEqual([p["name"] for p in points], ["prices", "auction"])
-        self.assertEqual(points[1]["instance"], "connection")
+        self.assertEqual(points[1]["instance"], "link")
 
     def test_an_unknown_owner_is_refused_before_anything_is_written(self):
         root = self._project()

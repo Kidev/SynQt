@@ -430,8 +430,8 @@ connect_points:
 <li data-code="name: app" data-href="desktop/">The browser client, built to WebAssembly. The same QML also builds as a native app for Windows, macOS, and Linux, against this same edge.</li>
 <li data-code="type: web_edge" data-href="entities/">The one entity allowed to face the internet, on the one public port. Nothing else gets one.</li>
 <li data-code="type: relational" data-href="providers/">A database entity: embedded SQLite by default, PostgreSQL or MySQL behind the same interface with one config value.</li>
-<li data-code="type: api" data-href="entities/">The outbound HTTP gateway. It holds the third-party credentials, and it is the only entity that calls out.</li>
-<li data-code="instance: caller" data-href="programming-model/">One Source per caller, so a user's second tab continues the first tab's. Write instance: connection for one per link instead.</li>
+<li data-code="type: api" data-href="entities/">A gateway: it holds the third-party credentials and speaks HTTP. Calling out is granted by network:, which any entity may carry, so this is the folder and the scaffold rather than the permission.</li>
+<li data-code="instance: caller" data-href="programming-model/">One Source per caller, so a user's second tab continues the first tab's. Write instance: link for one per open link instead.</li>
 <li data-code="consumers: [app]" data-href="project-layout-and-config/">The browser's one way in, and deny by default: an entity that is not on this list cannot open this connect point at all.</li>
 <li data-code="consumers: [edge]" data-href="entities/">The database is reachable by the edge, over mutual TLS, and by nothing else, browser included.</li>
 </ul>

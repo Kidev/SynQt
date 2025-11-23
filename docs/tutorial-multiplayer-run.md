@@ -45,7 +45,6 @@ Item {
 
     signal eaten(string prey, string predator)
     signal roundEnded(string winner)
-    signal championsChanged()
 
     Component.onCompleted: {
         for (let i = 0; i < world.pelletCount; i++)
@@ -101,7 +100,7 @@ Item {
 
     // Hall of Fame
     function refreshChampions() {
-        Records.scores.top().then(rows => { world.champions = rows; world.championsChanged() })
+        Records.scores.top().then(rows => { world.champions = rows })
     }
     Scores.onStandingsChanged: world.refreshChampions()
 
@@ -190,9 +189,11 @@ Arena {
         // Relay the world's global events to this session's browser.
         World.eaten.connect((prey, predator) => arena.eaten(prey, predator))
         World.roundEnded.connect(winner => arena.roundEnded(winner))
-        World.championsChanged.connect(() => arena.setChampions(World.champions))
-        arena.setChampions(World.champions)
     }
+
+    // The Hall of Fame is the world's rather than this session's. One binding, and every
+    // session publishes it.
+    championsRows: World.champions
 
     function steer(x, y) {
         if (!Caller.hasScope("player")) return           // approved players only

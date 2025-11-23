@@ -41,10 +41,13 @@ Mapping to the QtRO semantics the generated rep encodes:
   This is the QtRO READPUSH default, and it is deliberate.
 - `model` generates a QtRO MODEL exposing only the named roles. Any other field on
   an owner row is invisible to consumers. On the owner, the generated Source
-  provides `set<Model>(rows)` (for `model items(...)`, `setItems(rows)`): it takes
-  an array of row objects as the new authoritative model state and replicates only
-  the declared roles, so a row may carry extra owner only fields (an owner id, a
-  timestamp) that are dropped at the boundary and never serialize to any consumer.
+  publishes it two ways, both from the row objects: bind `<model>Rows` to where the
+  rows live (for `model items(...)`, `itemsRows: Edge.items`) and every change to them
+  republishes, or call `set<Model>(rows)` (`setItems(rows)`) when the rows arrive from
+  an event. Either takes an array of row objects as the new authoritative state and
+  replicates only the declared roles, so a row may carry extra owner only fields (an
+  owner id, a timestamp) that are dropped at the boundary and never serialize to any
+  consumer.
   Each role is declared with its type, and a value that will not convert to it
   refuses the publish with a message naming the model, the role and the row, so a
   row that does not match the contract never reaches a consumer at all. Declare a
@@ -90,7 +93,7 @@ connect_points:
     consumers: [app]              # the entities allowed to acquire the Replica
     server: web/edge/Todo.qml     # the authoritative implementation
     scope: user                   # for browser consumers: minimum session scope
-    instance: caller         # one Source per caller (the default), or per connection
+    instance: caller         # one Source per caller (the default), or one per link
 ```
 
 The configurable parts that matter:
@@ -108,11 +111,11 @@ The configurable parts that matter:
   holds. `caller` is the default and almost always right: one Source per caller, so every
   link a signed-in user opens reaches the same one and their second tab continues the
   draft they started in the first. On the mesh it reads the same way, with the calling
-  entity as the caller. Write `connection` for one Source per link, when what it holds
-  belongs to the link and not to the person: a live view window, a stream cursor.
+  entity as the caller. Write `link` for one Source per open link, when what it holds
+  belongs to that one link and not to the person: a live view window, a stream cursor.
 
     There is no third value meaning one Source for everybody, and that is the point.
-    QtRO hands `enableRemoting()` a single object and never tells a slot which connection
+    QtRO hands `enableRemoting()` a single object and never tells a slot which link
     invoked it, so a Source shared by every caller could not be given a `Caller` at all:
     `Caller.hasScope(...)`, `Caller.entity` and `Caller.emit<Signal>` in one were reading
     something that was not there, and an authorization line written in one was not

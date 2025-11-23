@@ -284,8 +284,6 @@ import QtQuick
 import SynQt
 
 Todo {
-    id: todo
-
     count: Edge.rows.length
 
     function add(text) {
@@ -321,17 +319,9 @@ Todo {
     }
 
     // Every session's Source republishes when the entity's list changes, so a change one
-    // user makes reaches all of them. setItems keeps only the roles `items` declares, so
+    // user makes reaches all of them. `itemsRows` keeps only the roles `items` declares, so
     // ownerId is dropped at this boundary and never crosses to a browser.
-    Component.onCompleted: todo.setItems(Edge.rows)
-
-    Connections {
-        function onRowsChanged() {
-            todo.setItems(Edge.rows);
-        }
-
-        target: Edge
-    }
+    itemsRows: Edge.rows
 }
 ```
 

@@ -920,7 +920,7 @@ private slots:
         // The allowlist is the entity's `network.outbound`, and it has to name the place
         // being called or the plaintext check is never the one that speaks.
         Http release{&network, &engine, /*release*/ true,
-                     {QStringLiteral("http://example.internal/")}};
+                     {HttpEndpointConfig{{}, QStringLiteral("http://example.internal/"), {}}}};
         HttpPromise *refused{release.get(QStringLiteral("http://example.internal/data"))};
         refused->then(QJSValue(),
                       engine.evaluate(QStringLiteral("(function(m){ probe.record(m); })")));
@@ -941,7 +941,7 @@ private slots:
             });
         });
         const QString base{QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort())};
-        Http dev{&network, &engine, /*release*/ false, {base}};
+        Http dev{&network, &engine, /*release*/ false, {HttpEndpointConfig{{}, base, {}}}};
         HttpPromise *ok{dev.get(base)};
         ok->then(engine.evaluate(QStringLiteral("(function(r){ probe.record(r.body); })")));
         QTRY_COMPARE(probe.last.toString(), QStringLiteral("hi"));
@@ -954,6 +954,58 @@ private slots:
                         engine.evaluate(QStringLiteral("(function(m){ probe.record(m); })")));
         QVERIFY2(probe.last.toString().contains(QStringLiteral("network.outbound")),
                  "a URL outside the allowlist must be refused before it is sent");
+    }
+
+    void aNamedEndpointResolvesPathsAndSendsItsDeclaredHeaders()
+    {
+        // The `network.outbound` preset: a base URL and the headers the runtime attaches.
+        // What is under test is that a call site writes a path and nothing else, and that
+        // the credential it never mentioned is on the wire anyway.
+        QJSEngine engine;
+        QNetworkAccessManager network;
+        Probe probe;
+        engine.globalObject().setProperty(QStringLiteral("probe"), engine.newQObject(&probe));
+
+        QTcpServer server;
+        QVERIFY(server.listen(QHostAddress::LocalHost, 0));
+        QByteArray seen;
+        connect(&server, &QTcpServer::newConnection, this, [&server, &seen]() {
+            QTcpSocket *socket{server.nextPendingConnection()};
+            connect(socket, &QTcpSocket::readyRead, socket, [socket, &seen]() {
+                // Appended, not assigned. A request can arrive in more than one chunk, and
+                // the headers are exactly what tends to land in the second one.
+                seen += socket->readAll();
+                if (!seen.contains("\r\n\r\n")) {
+                    return;
+                }
+                const QByteArray body{"{\"ok\":true}"};
+                socket->write("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"
+                              "Content-Length: " + QByteArray::number(body.size())
+                              + "\r\n\r\n" + body);
+                socket->flush();
+                socket->disconnectFromHost();
+            });
+        });
+
+        HttpEndpointConfig endpoint;
+        endpoint.name = QStringLiteral("upstream");
+        endpoint.url = QStringLiteral("http://127.0.0.1:%1/v1/").arg(server.serverPort());
+        endpoint.headers.insert(QStringLiteral("x-api-key"), QStringLiteral("s3cret"));
+        Http http{&network, &engine, /*release*/ false, {endpoint}};
+
+        HttpEndpoint *upstream{http.api(QStringLiteral("upstream"))};
+        QVERIFY2(upstream, "a declared endpoint must be reachable by its name");
+        QVERIFY(http.api(QStringLiteral("nothing")) == nullptr);
+
+        // A JSON reply arrives parsed as well as raw, so a call site does not JSON.parse.
+        upstream->get(QStringLiteral("thing"))
+            ->then(engine.evaluate(QStringLiteral("(function(r){ probe.record(r.json.ok); })")));
+        QTRY_COMPARE(probe.last.toBool(), true);
+
+        QVERIFY2(seen.contains("GET /v1/thing "), seen.constData());
+        // Case-insensitively: Qt title-cases a raw header name on the way out, and which
+        // spelling reaches the wire is its business, not this test's.
+        QVERIFY2(seen.toLower().contains("x-api-key: s3cret"), seen.constData());
     }
 
     void jobsQueueIsBounded()

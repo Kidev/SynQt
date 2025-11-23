@@ -9,18 +9,10 @@ import SynQt
 // fills it from the books entity's ledger.
 //
 // One of these per browser session, like every connect point Source. The list itself is not
-// per session, so it lives in the `Edge` singleton and this binds to it: setWinners keeps only
-// the declared roles, so nothing the ledger holds beyond them reaches a browser.
+// per session, so it lives in the `Edge` singleton and this publishes it: one binding, so a
+// new winner arriving at the entity reaches every session's Source with nothing else
+// written. `winnersRows` keeps only the roles the contract declares, so nothing the ledger
+// holds beyond them reaches a browser.
 Hall {
-    id: hall
-
-    Component.onCompleted: hall.setWinners(Edge.winners)
-
-    Connections {
-        function onWinnersChanged() {
-            hall.setWinners(Edge.winners);
-        }
-
-        target: Edge
-    }
+    winnersRows: Edge.winners
 }

@@ -203,10 +203,14 @@ def entity_topology(config: Dict[str, Any], entity: Dict[str, Any], project_dir:
         topology["schema"] = schema
     # The outbound allowlist, whenever the entity declared one. Written even when it is
     # empty, because the key being there is what gives the entity its `Http` helper and an
-    # empty list is what makes every call it tries fail by name; leaving the key out is a
+    # empty list is what makes every call it tries fail by name. Leaving the key out is a
     # different thing, and means the entity does not call out at all.
     if appmodel.declares_outbound(entity):
-        topology["network"] = {"outbound": appmodel.outbound_allowlist(entity)}
+        # The records, not only the prefixes: a named entry is what `Http.api(name)`
+        # resolves, and its headers are what the runtime attaches. An `env:` header value
+        # is passed through as written, exactly like a provider password, so this file
+        # carries the name of a secret and never the secret.
+        topology["network"] = {"outbound": appmodel.outbound_endpoints(entity)}
 
     owners = {str(one.get("name") or ""): one for one in appmodel.entities(config)}
     connect_points: List[Dict[str, Any]] = []

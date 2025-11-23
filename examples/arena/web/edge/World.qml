@@ -32,7 +32,6 @@ Item {
 
     signal eaten(string prey, string predator)
     signal roundEnded(string winner)
-    signal championsChanged()
 
     Component.onCompleted: {
         for (let i = 0; i < world.pelletCount; i++) {
@@ -90,7 +89,7 @@ Item {
 
     // Hall of Fame
     function refreshChampions() {
-        Records.scores.top().then(rows => { world.champions = rows; world.championsChanged(); });
+        Records.scores.top().then(rows => { world.champions = rows; });
     }
     Scores.onStandingsChanged: world.refreshChampions()
 

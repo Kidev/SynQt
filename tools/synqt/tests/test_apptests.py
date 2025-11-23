@@ -76,7 +76,7 @@ class GeneratedCMakeTest(unittest.TestCase):
     def test_a_project_with_tests_gets_the_target(self):
         text = cmakegen.render_root_cmakelists(CONFIG, "/synqt", _project())
         self.assertIn("enable_testing()", text)
-        self.assertIn("build/generated", text)
+        self.assertIn('add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/tests"', text)
         self.assertIn("SYNQT_APP_ROOT", text)
 
     def test_the_test_target_never_builds_for_webassembly(self):
@@ -142,15 +142,15 @@ class GenerationTest(unittest.TestCase):
     def test_generate_writes_both_generated_files(self):
         root = _project()
         written = appgen.generate(root, CONFIG, synqt_root="/synqt")
-        self.assertIn("build/generated/tests_main.cpp", written)
-        self.assertIn("build/generated/CMakeLists.txt", written)
-        self.assertTrue((root / "build" / "generated" / "tests_main.cpp").exists())
+        self.assertIn("generated/tests/tests_main.cpp", written)
+        self.assertIn("generated/tests/CMakeLists.txt", written)
+        self.assertTrue((root / "generated" / "tests" / "tests_main.cpp").exists())
 
     def test_a_project_without_tests_generates_neither(self):
         root = _project(with_tests=False)
         written = appgen.generate(root, CONFIG, synqt_root="/synqt")
-        self.assertNotIn("build/generated/tests_main.cpp", written)
-        self.assertFalse((root / "build" / "generated").exists())
+        self.assertNotIn("generated/tests/tests_main.cpp", written)
+        self.assertFalse((root / "generated" / "tests").exists())
 
 
 class EmptyProjectTest(unittest.TestCase):

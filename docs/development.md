@@ -101,7 +101,10 @@ directories at all, so those modules need not even be installed.
   auth entity needs when `identity.provider_entity` promotes identity off the edge.
   `appgen` is the entry point that drives them. `check` reads routes and views through
   `appmodel` too, so the check and the build can never disagree about which file a route
-  means.
+  means. All of it lands in the project's `generated/` directory
+  (`appmodel.GENERATED_DIR`), which mirrors the entity folders, so an entity folder holds
+  only what its author wrote and the generated root CMakeLists resolves the sources it
+  names through `SYNQT_APP_ROOT`, one directory up from itself.
 - Every generated file is written through `writer.write_if_changed`, never with
   `write_text`. `synqt build` regenerates the whole app from the topology each time, and an
   unconditional write moves a modification time whether or not a byte changed, which is what

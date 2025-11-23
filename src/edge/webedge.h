@@ -67,7 +67,7 @@ public:
     /// check to it, so a caller reaches through it exactly what it may reach directly.
     PagesService *pagesService() const;
 
-    /// Expose a consumed-mesh accessor (e.g. "Database") to every per_session Source's QML
+    /// Expose a consumed-mesh accessor (e.g. "Database") to every owned Source's QML
     /// context, so an owner Source can delegate across the mesh (Database.items.insert).
     void setContextObject(const QString &name, QObject *object);
 
@@ -175,7 +175,7 @@ private:
     /// ROUTE (the pattern, e.g. "/c/:campaign"), which is what PagesService hands the seed
     /// provider. Empty for a project whose routes declare no seed.
     QHash<QString, PageSeedHook> m_pageSeedHooks;
-    /// Consumed-mesh accessors exposed to per_session Source QML contexts (e.g. Database).
+    /// Consumed-mesh accessors exposed to owned Source QML contexts (e.g. Database).
     QHash<QString, QObject *> m_contextObjects;
 
     /// Pending upgrades, for the framework-enforced handshake timeout.

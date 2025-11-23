@@ -1021,7 +1021,7 @@ void WebEdge::rememberVerifiedSession(const QString &peer, const QByteArray &ses
 QObject *WebEdge::createSource(const WebEdgeConnectPoint &connectPoint, QObject *caller,
                               QObject *parent, QString *error)
 {
-    // Each Source gets its own QML context so a per_session instance can see its Caller
+    // Each Source gets its own QML context so an instance can see its own Caller
     // (and its Client alias) and the edge's consumed-mesh accessors (Database, ...).
     QQmlContext *context{new QQmlContext{m_engine->rootContext(), parent}};
     if (caller) {
@@ -1185,7 +1185,7 @@ void WebEdge::hostConnection(QWebSocket *socket)
     }
 
     // The framework's own Pages connect point, hosted the same way as every
-    // per_session connect point above: a fresh Source per connection, carrying this
+    // application connect point above: a fresh Source per connection, carrying this
     // connection's own Caller, over the PageStore/PagesService shared by every
     // connection. Page-level scope gating happens inside PagesService, per request,
     // so there is no single connect-point-level scope to check here.

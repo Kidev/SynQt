@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """Generate the buildable app from the declared topology: the multi-binary root
-``CMakeLists.txt`` and one ``main.cpp`` per entity.
+``CMakeLists.txt`` and one ``main.cpp`` per entity, into the project's ``generated/``
+directory and nowhere else.
 
 This is the piece that turns ``synqt.yaml`` into something the pinned toolchain can
 compile, and it is the entry point the rest of the CLI calls: :func:`generate` writes
@@ -56,24 +57,26 @@ def generate(project_dir: os.PathLike[str] | str, config: Dict[str, Any], *,
     # (check.lint_graphics), which runs the same resolution.
     config, _ = graphicsmod.resolve(config, root)
     written: List[str] = []
+    # Everything below lands here and nowhere else, so an entity's own folder holds only
+    # what its author wrote (appmodel.GENERATED_DIR).
+    generated = appmodel.generated_dir(root)
+    generated.mkdir(parents=True, exist_ok=True)
 
-    cmake_path = root / "CMakeLists.txt"
-    writer.write_if_changed(cmake_path,
+    writer.write_if_changed(generated / "CMakeLists.txt",
                             cmakegen.render_root_cmakelists(config, synqt_root, root))
-    written.append("CMakeLists.txt")
+    written.append(f"{appmodel.GENERATED_DIR}/CMakeLists.txt")
 
-    # The test runner, whenever the project has tests to run. It lands under build/ rather
-    # than in the source tree because it is generated and never hand edited, and the CMake
-    # above points the target at exactly this path.
+    # The test runner, whenever the project has tests to run. Its own directory, because
+    # repc writes its output into the *directory's* binary dir and the test target owns
+    # every contract at ROLE source, exactly as each owning entity does.
     if appmodel.test_qml_files(root):
-        generated = root / "build" / "generated"
-        generated.mkdir(parents=True, exist_ok=True)
-        writer.write_if_changed(generated / "tests_main.cpp",
-                                maingen.render_tests_main(config))
-        written.append("build/generated/tests_main.cpp")
-        writer.write_if_changed(generated / "CMakeLists.txt",
+        tests = generated / "tests"
+        tests.mkdir(parents=True, exist_ok=True)
+        writer.write_if_changed(tests / "tests_main.cpp", maingen.render_tests_main(config))
+        written.append(f"{appmodel.GENERATED_DIR}/tests/tests_main.cpp")
+        writer.write_if_changed(tests / "CMakeLists.txt",
                                 cmakegen.render_tests_cmakelists(config))
-        written.append("build/generated/CMakeLists.txt")
+        written.append(f"{appmodel.GENERATED_DIR}/tests/CMakeLists.txt")
 
     for entity in appmodel.entities(config):
         name = entity.get("name")
@@ -81,6 +84,10 @@ def generate(project_dir: os.PathLike[str] | str, config: Dict[str, Any], *,
             continue
         entity_dir = root / appmodel.entity_dir(entity)
         entity_dir.mkdir(parents=True, exist_ok=True)
+        # The generated main mirrors the entity's folder under generated/, so two entities
+        # of the same type keep separate mains and the author's folder gains nothing.
+        main_dir = generated / appmodel.entity_dir(entity)
+        main_dir.mkdir(parents=True, exist_ok=True)
         singletons = appmodel.discover_singletons(entity_dir)
         if appmodel.is_client(entity):
             # The same QML module URI the client target is configured with in
@@ -92,8 +99,8 @@ def generate(project_dir: os.PathLike[str] | str, config: Dict[str, Any], *,
             source = maingen.render_edge_main(config, entity, singletons)
         else:
             source = maingen.render_service_main(config, entity, singletons)
-        writer.write_if_changed(entity_dir / "main.cpp", source)
-        written.append(f"{appmodel.entity_dir(entity)}/main.cpp")
+        writer.write_if_changed(main_dir / "main.cpp", source)
+        written.append(f"{appmodel.GENERATED_DIR}/{appmodel.entity_dir(entity)}/main.cpp")
 
         # The auth entity's Sources: one bridge per framework connect point it owns, from
         # the connect point's own `server:` path, so the file and the topology cannot

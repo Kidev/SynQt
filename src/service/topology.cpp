@@ -46,8 +46,8 @@ ConnectPointInstance instanceFromString(const QString &value)
     // Per-caller is the fallback, and the fallback is the safe one: continuing a caller's
     // own Source is what an author expects from a point that holds their state, and asking
     // for a Source per link is the deliberate choice.
-    return value == QLatin1String("connection") ? ConnectPointInstance::PerConnection
-                                                : ConnectPointInstance::PerCaller;
+    return value == QLatin1String("link") ? ConnectPointInstance::PerLink
+                                          : ConnectPointInstance::PerCaller;
 }
 
 } // namespace
@@ -87,8 +87,24 @@ Topology topologyFromJson(const QJsonObject &object)
     const QJsonObject network = object.value(QStringLiteral("network")).toObject();
     topology.outboundDeclared = network.contains(QStringLiteral("outbound"));
     const QJsonArray outbound = network.value(QStringLiteral("outbound")).toArray();
-    for (const QJsonValue &prefix : outbound) {
-        topology.outbound.append(prefix.toString());
+    for (const QJsonValue &value : outbound) {
+        OutboundEndpoint endpoint;
+        // Two spellings, one meaning. A bare string is a prefix and nothing else, which is
+        // every entry that needs no key. An object adds a name to call it by and the
+        // headers to send. Writing the short form must never be the reason a project loses
+        // a capability, so both land here as the same record.
+        if (value.isString()) {
+            endpoint.url = value.toString();
+        } else {
+            const QJsonObject entry{value.toObject()};
+            endpoint.name = entry.value(QStringLiteral("name")).toString();
+            endpoint.url = entry.value(QStringLiteral("url")).toString();
+            const QJsonObject headers{entry.value(QStringLiteral("headers")).toObject()};
+            for (auto it{headers.constBegin()}; it != headers.constEnd(); ++it) {
+                endpoint.headers.insert(it.key(), it.value().toString());
+            }
+        }
+        topology.outbound.append(endpoint);
     }
 
     const QJsonArray connectPoints = object.value(QStringLiteral("connect_points")).toArray();

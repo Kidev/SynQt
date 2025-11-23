@@ -23,9 +23,9 @@ enum class SessionTransport { Cookie };
 
 /// How many Sources a browser-facing connect point mints. The edge's spelling of
 /// ConnectPointInstance (topology.h), which carries the full explanation: PerCaller is
-/// one Source per session, so a user's tabs share it, and PerConnection is one per
-/// socket, so they do not.
-enum class InstanceMode { PerCaller, PerConnection };
+/// one Source per session, so a user's tabs share it, and PerLink is one per open
+/// link, so they do not.
+enum class InstanceMode { PerCaller, PerLink };
 
 /// One client-facing connect point owned by the web edge (consumed by the client). The
 /// browser can only reach a web_edge entity, so these are the objects it acquires.

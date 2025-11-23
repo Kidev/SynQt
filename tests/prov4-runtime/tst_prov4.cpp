@@ -122,7 +122,9 @@ private:
         topology.entity = entity;
         topology.type = entityType;
         topology.provider = std::move(provider);
-        topology.outbound = std::move(outbound);
+        for (const QString &prefix : std::as_const(outbound)) {
+            topology.outbound.append(OutboundEndpoint{{}, prefix, {}});
+        }
         topology.outboundDeclared = declaresOutbound || !topology.outbound.isEmpty();
 
         ConnectPointConfig connectPoint;

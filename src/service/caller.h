@@ -20,14 +20,13 @@ namespace SynQt {
 
 /// The identity of whoever is calling the owner's slot, exposed to the owner QML as the
 /// context property \qmlCaller (and, for browser callers, aliased as \qmlClient). Bound to
-/// one per-connection Source instance: a per_session instance carries a browser user
-/// (isUser), a per_peer instance carries a verified calling entity (isEntity). The two
-/// identity systems never mix; a user value is never treated as an entity, and vice versa.
+/// one Source instance. A Source minted for a browser session carries a user (isUser), one
+/// minted for a mesh peer carries a verified calling entity (isEntity). The two identity
+/// systems never mix. A user value is never treated as an entity, and vice versa.
 ///
-/// User callers expose session/identity/scope/hasScope/setScope; entity callers expose the
+/// User callers expose session/identity/scope/hasScope/setScope. Entity callers expose the
 /// certificate-verified entity name. emitSignal delivers a contract signal to this one
-/// caller (the per-connection instance has a single consumer, so emitting on it targets the
-/// caller alone).
+/// caller (the Source is that caller's, so emitting on it targets the caller alone).
 ///
 /// \sa \ref qmlcaller "the Caller accessor page", \ref qmlclient "the Client alias"
 class Caller : public QObject
@@ -78,16 +77,26 @@ public:
     Q_INVOKABLE void setScope(const QString &scope,
                               const QVariantMap &identity = QVariantMap());
 
+    /// The number of arguments a contract signal may carry to one caller. Bounded because
+    /// each one is a defaulted parameter of the Q_INVOKABLE below and QMetaObject::invokeMethod
+    /// takes a fixed argument pack. Synqtc refuses a longer signal by name, rather than
+    /// letting it become an unreadable template error in generated code.
+    static constexpr int MaxSignalArgs{8};
+
     /// Deliver a contract signal to this caller by invoking the Source helper's generated
     /// emit<Signal> method (e.g. emitSignal("rejected", reason)). Positional arguments keep
-    /// the QML call site unambiguous; up to four are supported. The typed sugar
+    /// the QML call site unambiguous. Up to MaxSignalArgs are supported. The typed sugar
     /// Caller.emit<Signal>(...) (e.g. Caller.emitRejected(reason)) is a thin forwarder on
     /// the generated `\<Contract\>Caller` subclass that calls straight into this.
     Q_INVOKABLE void emitSignal(const QString &signalName,
                                 const QVariant &arg0 = QVariant(),
                                 const QVariant &arg1 = QVariant(),
                                 const QVariant &arg2 = QVariant(),
-                                const QVariant &arg3 = QVariant());
+                                const QVariant &arg3 = QVariant(),
+                                const QVariant &arg4 = QVariant(),
+                                const QVariant &arg5 = QVariant(),
+                                const QVariant &arg6 = QVariant(),
+                                const QVariant &arg7 = QVariant());
 
     /// The scope vocabulary for hierarchical checks (order low->high). Empty == set-based.
     void setScopeOrder(const QStringList &order, bool hierarchical);

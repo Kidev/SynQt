@@ -54,7 +54,7 @@ public:
 
     /// Answer with a body and a status (200 by default). A map or a list is sent as JSON;
     /// anything else as text.
-    Q_INVOKABLE void reply(const QVariant &body, int status = 200);
+    Q_INVOKABLE void reply(const QVariant &value, int status = 200);
     /// Answer with an error status and a message, as `{"error": message}`.
     Q_INVOKABLE void fail(int status, const QString &message);
 

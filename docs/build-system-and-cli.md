@@ -6,6 +6,12 @@ how QML becomes a WebAssembly bundle, and the `synqt` CLI. Underneath it is
 `CMakePresets.json` plus a generated user preset, vcpkg for native dependencies, and an
 Emscripten driven WebAssembly path.
 
+Everything SynQt writes for a project lands in its `generated/` directory: the root
+`CMakeLists.txt`, the presets, and one `main.cpp` per entity, mirroring the entity
+folders. That directory is the CMake source directory (`cmake -S generated`), it is
+git ignored, and it is rewritten from `synqt.yaml` on every build. Nothing generated is
+ever written into an entity's own folder, so what is in one is what its author put there.
+
 ## The artifacts
 
 Every `synqt build` produces one artifact per entity:

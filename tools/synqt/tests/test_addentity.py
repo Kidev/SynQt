@@ -20,10 +20,7 @@ class AddEntityTest(unittest.TestCase):
         return root
 
     def test_the_scaffold_keeps_the_comments_already_in_the_file(self):
-        """The file belongs to whoever wrote it. Adding one entity is not permission to
-        reformat the rest of it, and a scaffold command that silently drops the comments
-        explaining a topology is worse than one that refuses to run.
-        """
+        """The scaffold keeps the existing comments in synqt.yaml."""
         root = Path(tempfile.mkdtemp())
         written_by_hand = ("# Hand written, and it stays.\n"
                            "project:\n"
@@ -72,11 +69,8 @@ class AddEntityTest(unittest.TestCase):
         self.assertIn("DB_PASSWORD=", (root / ".env.example").read_text())
 
     def test_gateway_is_closed_by_default_and_says_where_to_open_it(self):
-        """It gets `Http` and an allowlist that allows nothing, and no inbound at all.
-
-        The empty list rather than no list. The key is what puts `Http` in scope, so the
-        stub's `Http.get(...)` is a call that resolves and is refused by name until a
-        prefix is added, and not a ReferenceError on a helper that is not there.
+        """A gateway gets `Http` with an empty allowlist and no inbound. The empty list keeps
+        `Http` in scope, so the stub's `Http.get(...)` is refused by name.
         """
         root = self._project()
         addentity.scaffold(root, "api", "api")
@@ -98,19 +92,12 @@ class AddEntityTest(unittest.TestCase):
         source = (root / "db/document/notes" / "Notes.qml").read_text()
         self.assertIn("Docs.insert", source)
         self.assertIn("Docs.find", source)
-        # A filter map is the engine's query language, so the stub builds its own from a
-        # value rather than forwarding a caller's map, and it names no engine.
+        # The stub builds its own filter from a value and names no engine.
         self.assertNotIn("mongo", source.lower())
         self.assertIn('"author": String(author)', source)
 
     def test_every_type_stub_calls_its_own_helper_and_names_no_engine(self):
-        """One assertion per entity type, over the whole family at once.
-
-        The stub is the first SynQt code anyone reads after `synqt add entity`, and what
-        it demonstrates is the rule the type exists to enforce. The Source calls the
-        family helper, and the engine is the provider's business. A stub that reached past
-        its helper would teach the opposite on day one.
-        """
+        """Every type stub calls its own helper and names no engine."""
         helpers = {"relational": "Db.", "cache": "Cache.", "document": "Docs.",
                    "api": "Http.", "jobs": "Jobs."}
         engines = ("QSqlDatabase", "sqlite", "postgres", "mongo", "redis",
@@ -129,20 +116,15 @@ class AddEntityTest(unittest.TestCase):
                     self.assertNotIn(engine.lower(), source.lower())
 
     def test_a_new_entity_gets_its_own_file_and_no_source_nobody_asked_for(self):
-        """A Source answers one connect point and is named after it. A new entity has no
-        connect points, so a Source here could only be named by inventing one, and the
-        invented name is the one somebody then has to live with or rename. The entity's
-        own file is written. The Source waits for `synqt add connect-point`.
-
-        `main.cpp` is generated, not authored: every entity is its own binary and needs
-        one, and the command regenerates the buildable app so the project is complete when
-        it returns rather than after the next build.
+        """A new entity gets its own file and no Source (it has no connect point yet). Its
+        `main.cpp` is generated, so the project is complete when the command returns.
         """
         root = self._project()
         addentity.scaffold(root, "rollups", "jobs")
         folder = root / "jobs/rollups"
-        self.assertEqual(sorted(path.name for path in folder.iterdir()),
-                         ["Rollups.qml", "main.cpp"])
+        # Only what its author writes. The generated main.cpp is under generated/.
+        self.assertEqual(sorted(path.name for path in folder.iterdir()), ["Rollups.qml"])
+        self.assertTrue((root / "generated" / "jobs" / "rollups" / "main.cpp").exists())
 
     def test_the_message_names_the_file_it_wrote(self):
         root = self._project()
@@ -150,14 +132,8 @@ class AddEntityTest(unittest.TestCase):
         self.assertIn("cache/hits/Hits.qml", message)
 
     def test_an_entity_may_be_called_after_a_helper_it_does_not_have(self):
-        """The reservation is per entity, because the collision is.
-
-        A QML file in the entity directory becomes a type of that name, and a type from
-        the directory beats one from an import. But `EntityRuntime` builds exactly ONE
-        helper, the one its type calls for, so `Cache` is a name in scope in a cache
-        entity and an ordinary word everywhere else. Reserving all five in every entity
-        banned five good nouns across the whole project to prevent a collision that
-        exists in one of them.
+        """The reservation is per entity: `EntityRuntime` installs only the one helper the type
+        needs, so `Cache` is reserved in a cache entity and an ordinary name elsewhere.
         """
         for name, entity_type in [("cache", "relational"), ("jobs", "cache"),
                                   ("db", "jobs"), ("docs", "api"), ("http", "document")]:
@@ -168,8 +144,7 @@ class AddEntityTest(unittest.TestCase):
                 self.assertTrue((root / appmodel.entity_file_path(block)).exists())
 
     def test_an_entity_named_after_its_own_helper_is_refused(self):
-        """The one case that collides. A cache entity called `cache` writes a
-        `Cache.qml` beside the Sources that call the `Cache` helper, and the file wins."""
+        """A cache entity called `cache` would write `Cache.qml`, which beats the helper."""
         for name, entity_type in [("cache", "cache"), ("db", "relational"),
                                   ("docs", "document"), ("http", "api"),
                                   ("jobs", "jobs")]:
@@ -180,8 +155,7 @@ class AddEntityTest(unittest.TestCase):
                 self.assertIn(entity_type, str(raised.exception))
 
     def test_a_name_synqt_uses_in_every_entity_is_refused_everywhere(self):
-        """`Caller`, `Server`, `Session` and their neighbours are in scope whatever the
-        entity is, so these stay refused for every type."""
+        """`Caller`, `Server`, `Session` and their neighbours are refused for every type."""
         for name in ("caller", "server", "session", "router", "client"):
             with self.subTest(name=name):
                 root = self._project()
@@ -217,10 +191,7 @@ class AddEntityTest(unittest.TestCase):
         self.assertIn("custom:MyEngine", skeleton)
 
     def test_every_family_skeleton_registers_itself(self):
-        """Implementing the interface is only half of it. A provider that never registers
-        is not selectable, and the entity refuses to start with the name unresolved. The
-        skeleton must therefore ship the registration, not tell the user to add one.
-        """
+        """Every family skeleton registers itself; an unregistered provider is not selectable."""
         for family, macro in addprovider.FAMILY_REGISTER_MACRO.items():
             with self.subTest(family=family):
                 root = self._project()
@@ -228,8 +199,7 @@ class AddEntityTest(unittest.TestCase):
                 skeleton = (root / "providers" / "custom" / "myengineprovider.cpp").read_text()
                 self.assertIn(f'{macro}("MyEngine", MyEngineProvider)', skeleton)
                 self.assertIn('#include "providerregistry.h"', skeleton)
-                # The message must not send the user looking for a registration step that
-                # the file already contains.
+                # The message does not ask for a registration the file already has.
                 self.assertIn(macro, message)
 
     def test_skeleton_register_macro_exists_in_the_framework(self):

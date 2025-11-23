@@ -163,29 +163,30 @@ void Caller::setScope(const QString &scope, const QVariantMap &identity)
 }
 
 void Caller::emitSignal(const QString &signalName, const QVariant &arg0, const QVariant &arg1,
-                        const QVariant &arg2, const QVariant &arg3)
+                        const QVariant &arg2, const QVariant &arg3, const QVariant &arg4,
+                        const QVariant &arg5, const QVariant &arg6, const QVariant &arg7)
 {
     if (m_source.isNull() || signalName.isEmpty()) {
         return;
     }
     // Invoke the Source helper's generated emit<Signal> method (emit + capitalized name).
-    // The instance is per-connection, so the signal reaches this caller alone.
+    // The Source is one caller's, so the signal reaches this caller alone.
     const QByteArray method{"emit" + signalName.left(1).toUpper().toUtf8()
                             + signalName.mid(1).toUtf8()};
     QVariantList callArgs;
-    for (const QVariant &arg : {arg0, arg1, arg2, arg3}) {
+    for (const QVariant &arg : {arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7}) {
         if (!arg.isValid()) {
             break;
         }
         callArgs.append(arg);
     }
-    QGenericArgument a[4];
+    QGenericArgument a[MaxSignalArgs];
     for (qsizetype i{0}; i < callArgs.size(); ++i) {
         a[i] = QGenericArgument(callArgs.at(i).typeName(),
                                 const_cast<void *>(callArgs.at(i).constData()));
     }
     QMetaObject::invokeMethod(m_source, method.constData(), Qt::DirectConnection,
-                              a[0], a[1], a[2], a[3]);
+                              a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7]);
 }
 
 void Caller::setScopeOrder(const QStringList &order, bool hierarchical)

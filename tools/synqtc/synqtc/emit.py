@@ -158,17 +158,37 @@ def _source_helper_class(contract: Contract, records, path) -> str:
         f"// from (registered as \"{name}\", the contract's own name: the file is that",
         "// point's server, so its location already says which side of the link it is on,",
         "// and an entity never consumes a contract it owns, so the name is free here).",
-        "// Props and signals are inherited from",
-        "// the generated Source; set<Model>(rows) publishes a model limited to its",
-        "// declared roles, dropping any undeclared owner-only fields at the boundary.",
+        "// Props and signals are inherited from the generated Source. A model is published",
+        "// either way round: bind <model>Rows to where the rows live, or call",
+        "// set<Model>(rows) when something happens. Both keep only the declared roles,",
+        "// dropping any undeclared owner-only field at the boundary.",
         f"class {name}SourceHelper : public {name}SimpleSource",
         "{",
         "    Q_OBJECT",
         "    // A generated Source is not a visual item, so its default property is a plain",
         "    // QObject child list: this lets the owner's server file declare non-visual QML",
-        "    // children (Timer, Connections, ...) inside the Source to drive itself.",
+        "    // children (a Timer, an Instantiator, ...) inside the Source to drive itself.",
         '    Q_CLASSINFO("DefaultProperty", "data")',
         "    Q_PROPERTY(QQmlListProperty<QObject> data READ data DESIGNABLE false)",
+    ]
+    if contract.models:
+        # The declarative way to publish a model. Bind `<model>Rows` to whatever holds the
+        # rows (usually a list on the entity's own singleton) and every change to it
+        # republishes. Without it an owner had to call set<Model>(rows) from
+        # Component.onCompleted and again from a Connections block watching the singleton,
+        # which is three lines of bookkeeping saying what one binding says.
+        #
+        # A name of its own rather than the model's. The generated Source already carries
+        # `Q_PROPERTY(QAbstractItemModel *<model> ...)`, and QtRO resolves that property by
+        # name off the most derived meta-object (qtro_property_index calls
+        # indexOfProperty), so a property here with the same name would be the one it tried
+        # to remote as the model.
+        lines.append("")
+        for model in contract.models:
+            lines.append(f"    Q_PROPERTY(QVariantList {model.name}Rows READ {model.name}Rows")
+            lines.append(f"               WRITE set{_cap(model.name)}Rows"
+                         f" NOTIFY {model.name}RowsChanged)")
+    lines += [
         "",
         "public:",
         f"    explicit {name}SourceHelper(QObject *parent = nullptr);",
@@ -188,6 +208,15 @@ def _source_helper_class(contract: Contract, records, path) -> str:
             lines.append(
                 f"    Q_INVOKABLE void set{_cap(model.name)}(const QVariantList &rows);")
         lines.append("")
+        # The rows last published, so the bindable property has something to read back.
+        # A QVariantList copy is a reference count, so holding the rows the owner handed
+        # over costs nothing until one side changes them.
+        for model in contract.models:
+            lines.append(f"    QVariantList {model.name}Rows() const "
+                         f"{{ return m_{model.name}Rows; }}")
+            lines.append(f"    void set{_cap(model.name)}Rows(const QVariantList &rows) "
+                         f"{{ set{_cap(model.name)}(rows); }}")
+        lines.append("")
     if contract.slots:
         lines.append("    // Consumer -> owner requests. Each dispatches to the owner's QML")
         lines.append("    // implementation (a QML function of the same name); a slot the owner")
@@ -203,11 +232,17 @@ def _source_helper_class(contract: Contract, records, path) -> str:
             params = _param_list(signal.params, records, path)
             lines.append(f"    Q_INVOKABLE void emit{_cap(signal.name)}({params});")
         lines.append("")
+    if contract.models:
+        lines.append("Q_SIGNALS:")
+        for model in contract.models:
+            lines.append(f"    void {model.name}RowsChanged();")
+        lines.append("")
     lines.append("private:")
     lines.append("    static void appendData(QQmlListProperty<QObject> *list, QObject *object);")
     lines.append("    QList<QObject *> m_data;")
     for model in contract.models:
         lines.append(f"    SynQt::SourceModel m_{model.name}Model;")
+        lines.append(f"    QVariantList m_{model.name}Rows;")
     lines.append("};")
     return "\n".join(lines)
 
@@ -389,6 +424,10 @@ def _set_model_impl(class_name: str, model: Model, records, path) -> str:
         f"        m_{model.name}Model.appendRow(item);",
         "    }",
         f"    {class_name}SimpleSource::set{_cap(model.name)}(&m_{model.name}Model);",
+        # Recorded after the commit, so a refused publish (an unconvertible role above)
+        # leaves the property reading what is on the wire.
+        f"    m_{model.name}Rows = rows;",
+        f"    Q_EMIT {model.name}RowsChanged();",
         "}",
     ]
     return "\n".join(lines)

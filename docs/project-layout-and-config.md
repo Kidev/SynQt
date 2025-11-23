@@ -46,6 +46,13 @@ my-app/
   .synqt/                 # written by the visual editor
     design.json           # where each entity sits on the canvas, and nothing else
 
+  generated/              # everything SynQt writes; never edited, never committed
+    CMakeLists.txt        # the multi binary build, from the topology
+    CMakePresets.json
+    client/app/main.cpp   # one per entity, mirroring the entity folders
+    web/edge/main.cpp
+    tests/                # the test runner, when the project has tests
+
   build/                  # build outputs, one subfolder per entity
     app/
     edge/
@@ -70,8 +77,13 @@ Principles:
   added to the client target.
 - Secrets live in a per entity `.env` read only by that entity's process. The
   build refuses to let any client target reference a secret (see security).
-- `synqt/` (generated code, toolchain cache, the mesh CA and certs) and `build/`
-  are derived and git ignored. The mesh private key in `synqt/mesh/` must never be
+- Nothing generated is written into an entity's folder. The CMake, the presets, and
+  each entity's `main.cpp` are written to `generated/`, which mirrors the entity
+  folders so two entities of the same type keep their own. An entity folder therefore
+  holds only what its author wrote, and "do not edit generated files" is a rule about
+  one path rather than a list of filenames to remember.
+- `generated/`, `synqt/` (toolchain cache, the mesh CA and certs) and `build/` are
+  derived and git ignored. The mesh private key in `synqt/mesh/` must never be
   committed.
 
 ## The `synqt.yaml` schema
@@ -368,9 +380,15 @@ entities:
     type: api
     network:
       # Where this entity may call. Http refuses anything not under one of these.
+      # A bare prefix is the short form; a named entry adds the headers to send and a
+      # handle to call it by (Http.api("github")).
       outbound:
         - https://api.stripe.com/v1/
-        - https://api.github.com/
+        - name: github
+          url: https://api.github.com/
+          headers:
+            accept: application/vnd.github+json
+            authorization: env:GITHUB_TOKEN
 
       # The public HTTP surface it serves. Omit the whole block and it serves none.
       inbound:
@@ -384,6 +402,7 @@ entities:
         allowed_origins: []              # browser callers; default none
         max_body_bytes: 1048576          # default
         rate_per_minute: 600             # per IP; default
+        reply_timeout_ms: 15000          # default; 0 waits with no deadline
 ```
 
 `outbound` is a list of URL prefixes. Declaring the key is what puts the `Http` helper
@@ -393,10 +412,23 @@ call is refused by name and tells you which key to add, where no key at all woul
 been a ReferenceError on a helper that is not there. A prefix is matched against the
 normalized URL, so a traversal cannot escape it.
 
+An entry may be a record instead of a string, with a `name`, a `url` and `headers`.
+The headers are attached by the runtime to every call under that prefix, which is how
+an API key reaches an upstream without the entity's QML ever holding it: write it as an
+`env:` reference and it is read from that entity's environment at startup. A literal
+credential is refused by `synqt check`. The `name` is the handle
+[`Http.api(name)`](runtime-api.md#http-outbound-calls-within-the-allowlist) resolves, so
+a call site writes a path and the base URL stays a configuration decision.
+
 `inbound` opens a port and puts the `Api` helper in scope, which the entity's own
 singleton declares its routes on (see [the gateway](entities.md#gateway-the-api-entity)).
 Everything a caller can influence is checked before a handler exists: the rate limit,
 the API key, the origin, then the body size.
+
+A handler may answer on a later turn, which is what any handler reaching a connect point
+or an upstream does. The connection is held open for it until `reply_timeout_ms`, after
+which the request is failed with 504 and the refusal is reported, so a handler that
+never answers costs one status code rather than a socket.
 
 Validation of the block:
 
@@ -433,7 +465,7 @@ connect_points:
     consumers: [app]          # the entities allowed to acquire the Replica
     server: web/edge/Todo.qml
     scope: user               # for browser consumers: minimum session scope
-    instance: caller          # one Source per caller (the default), or per connection
+    instance: caller          # one Source per caller (the default), or one per link
 
   - name: items
     owner: store
@@ -1190,8 +1222,8 @@ fast. Non negotiable checks:
 - A name declared twice, whether an entity or a connect point, is rejected. Both are
   keyed by name, so the second declaration replaces the first rather than colliding
   with it, and a consumer list narrowed on the first would disappear without a word.
-- An `instance` that is not `caller` or `connection` is rejected. Anything
-  unrecognised falls back to `caller`, so a misspelled `connection` would quietly share
+- An `instance` that is not `caller` or `link` is rejected. Anything
+  unrecognised falls back to `caller`, so a misspelled `link` would quietly share
   what the point was written to keep apart.
 - A connect point `scope` not in `scopes.order` is rejected.
 - `client_threads: multi` without cross origin isolation is rejected (the CLI

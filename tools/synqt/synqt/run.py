@@ -288,17 +288,17 @@ def dev(project_dir: os.PathLike[str] | str, *, port: int = 8080,
 
 class SourceWatcher:
     """Poll the project's edit surface for changes. Watches ``*.qml`` and ``*.syn`` sources
-    and the configuration files in play; ignores generated output and tooling (``build/``,
-    ``synqt/``, ``.git``). Deliberately does not watch the generated
-    ``main.cpp``/``CMakeLists.txt`` so regenerating them during a rebuild cannot re-trigger
-    the watcher.
+    and the configuration files in play. Ignores generated output and tooling
+    (``generated/``, ``build/``, ``synqt/``, ``.git``). Everything SynQt writes is under
+    ``generated/``, so a rebuild that rewrites it cannot re-trigger the watcher.
 
     ``config_names`` carries the active profile's file as well as ``synqt.yaml``: under
     ``--profile production`` the profile file is part of the topology, and a watcher that
     did not know it would keep serving the old wiring with nothing to say it had missed
     the save."""
 
-    _IGNORED_DIRS = {"build", ".git", "synqt", "node_modules", "toolchain"}
+    _IGNORED_DIRS = {appmodel.GENERATED_DIR, "build", ".git", "synqt", "node_modules",
+                     "toolchain"}
     _WATCHED_SUFFIXES = {".qml", ".syn"}
 
     def __init__(self, root: os.PathLike[str] | str,

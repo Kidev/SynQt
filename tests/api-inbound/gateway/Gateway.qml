@@ -9,9 +9,11 @@ import QtQuick
 // `Api`, in `Component.onCompleted`, with the handlers as ordinary JavaScript. Nothing
 // here touches a socket, and nothing here decides who may call: the topology's
 // `network.inbound` did that before this file was loaded. No `import SynQt`, because
-// `Api` is a context object the runtime installs rather than a type to import; an entity
+// `Api` is a context object the runtime installs rather than a type to import. An entity
 // that also used a SynQt QML type would import it for that.
 QtObject {
+    id: root
+
     property int settled: 0
 
     Component.onCompleted: {
@@ -35,5 +37,14 @@ QtObject {
 
         // A handler that throws must not take the process with it.
         Api.get("/broken", () => { throw new Error("deliberate"); });
+
+        // The deferred shape, which is what a handler reaching a connect point or an
+        // upstream does: take the request, return nothing, answer on a later turn.
+        Api.get("/slow", request => {
+            Qt.callLater(() => { request.reply({ late: true }); });
+        });
+
+        // And the one that never answers, which must cost a 504 and not a held socket.
+        Api.get("/silent", () => {});
     }
 }

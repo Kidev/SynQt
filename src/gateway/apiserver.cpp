@@ -8,6 +8,7 @@
 #include "topology.h"  // loadCertificate / loadPrivateKey
 
 #include <QDateTime>
+#include <QFuture>
 #include <QHostAddress>
 #include <QHttpHeaders>
 #include <QHttpServer>
@@ -16,13 +17,16 @@
 #include <QHttpServerResponder>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QPromise>
 #include <QSslConfiguration>
 #include <QSslKey>
 #include <QSslServer>
 #include <QSslSocket>
 #include <QTcpServer>
+#include <QTimer>
 #include <QUrlQuery>
 
+#include <memory>
 #include <utility>
 
 namespace SynQt {
@@ -239,19 +243,34 @@ QString ApiServer::refuse(const QHttpServerRequest &request, int *status) const
     return QString{};
 }
 
-QHttpServerResponse ApiServer::handle(const QHttpServerRequest &request)
+namespace {
+
+// A future already holding `response`, for every answer this server has before it returns.
+QFuture<QHttpServerResponse> settled(QHttpServerResponse &&response)
+{
+    QPromise<QHttpServerResponse> promise;
+    QFuture<QHttpServerResponse> future{promise.future()};
+    promise.start();
+    promise.addResult(std::move(response));
+    promise.finish();
+    return future;
+}
+
+} // namespace
+
+QFuture<QHttpServerResponse> ApiServer::handle(const QHttpServerRequest &request)
 {
     const QString peer{request.remoteAddress().toString()};
     if (!withinRate(peer)) {
         emit requestRefused(QStringLiteral("rate limit for %1").arg(peer));
-        return errorResponse(429, QStringLiteral("too many requests"));
+        return settled(errorResponse(429, QStringLiteral("too many requests")));
     }
 
     int status{400};
     const QString refusal{refuse(request, &status)};
     if (!refusal.isEmpty()) {
         emit requestRefused(refusal);
-        return errorResponse(status, refusal);
+        return settled(errorResponse(status, refusal));
     }
 
     // QHttpServerRequest hands the path and the query already separated, so the query is
@@ -271,39 +290,55 @@ QHttpServerResponse ApiServer::handle(const QHttpServerRequest &request)
                                           headersOf(request, m_config.keyHeader),
                                           bodyOf(request), this}};
 
-    QHttpServerResponse response{QHttpServerResponse::StatusCode::NotFound};
-    bool answered{false};
-    QByteArray contentType;
-    QByteArray body;
-    int replyStatus{200};
+    // Shared, because three things may settle it and only the first one counts: the
+    // handler answering, the deadline below, and a route that never matched. The promise
+    // outlives this function whenever the handler does.
+    auto promise{std::make_shared<QPromise<QHttpServerResponse>>()};
+    QFuture<QHttpServerResponse> future{promise->future()};
+    promise->start();
+    auto answer = [promise](QHttpServerResponse &&response) {
+        if (promise->future().isFinished()) {
+            return;
+        }
+        promise->addResult(std::move(response));
+        promise->finish();
+    };
+
     connect(apiRequest, &ApiRequest::answered, this,
-            [&answered, &contentType, &body, &replyStatus](int code, const QByteArray &type,
-                                                           const QByteArray &payload) {
-        answered = true;
-        replyStatus = code;
-        contentType = type;
-        body = payload;
+            [answer, apiRequest](int code, const QByteArray &type, const QByteArray &payload) {
+        answer(QHttpServerResponse{type, payload,
+                                   static_cast<QHttpServerResponse::StatusCode>(code)});
+        apiRequest->deleteLater();
     });
 
-    const bool routed{m_api->dispatch(apiRequest)};
-    if (!routed) {
+    if (!m_api->dispatch(apiRequest)) {
         apiRequest->deleteLater();
-        return errorResponse(404, QStringLiteral("no route for %1 %2")
-                                      .arg(methodOf(request), path));
+        return settled(errorResponse(404, QStringLiteral("no route for %1 %2")
+                                              .arg(methodOf(request), path)));
     }
-    if (!answered) {
-        // The handler took the request and will answer later, which this route shape
-        // cannot express: QHttpServer wants the response now. Deferred answering is what
-        // the async overload is for; until an entity needs it, say so rather than hang.
-        apiRequest->deleteLater();
-        return errorResponse(
-            500, QStringLiteral("the handler for %1 %2 did not answer; call "
-                                "request.reply(...) or request.fail(...) before returning")
-                     .arg(methodOf(request), path));
+    if (apiRequest->isAnswered()) {
+        return future;  // answered synchronously, which is the ordinary case
     }
-    apiRequest->deleteLater();
-    return QHttpServerResponse{contentType, body,
-                               static_cast<QHttpServerResponse::StatusCode>(replyStatus)};
+
+    // The handler is answering later. Hold the connection open for it, with a deadline, so
+    // a handler that never answers costs one 504 rather than a socket held forever. The
+    // timer is a child of the request, so answering first destroys it.
+    if (m_config.replyTimeoutMs > 0) {
+        const QString method{methodOf(request)};
+        QTimer *deadline{new QTimer{apiRequest}};
+        deadline->setSingleShot(true);
+        connect(deadline, &QTimer::timeout, this, [this, answer, apiRequest, method, path]() {
+            const QString reason{QStringLiteral("the handler for %1 %2 did not answer within "
+                                                "%3 ms")
+                                     .arg(method, path)
+                                     .arg(m_config.replyTimeoutMs)};
+            emit requestRefused(reason);
+            answer(errorResponse(504, reason));
+            apiRequest->deleteLater();
+        });
+        deadline->start(m_config.replyTimeoutMs);
+    }
+    return future;
 }
 
 } // namespace SynQt
