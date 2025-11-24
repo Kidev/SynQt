@@ -129,11 +129,19 @@ class Record:
 
 @dataclass
 class SynFile:
-    """One parsed ``.syn`` file: its records and contracts, in source order."""
+    """One parsed ``.syn`` file: its records and contracts, in source order.
+
+    ``forwards_session`` is not written in the file. It is how the build asked for the file
+    to be compiled. A connect point that a service consumes is reached over the mesh, where
+    the calling entity may be answering someone further up the chain, so every slot on it
+    carries the session that entity is acting for. A point only a browser consumes carries
+    nothing extra, and there is then no field a browser could fill.
+    """
 
     stem: str
     records: List[Record] = field(default_factory=list)
     contracts: List[Contract] = field(default_factory=list)
+    forwards_session: bool = False
 
     @property
     def record_names(self) -> List[str]:

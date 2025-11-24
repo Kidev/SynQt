@@ -1089,6 +1089,7 @@ QObject *WebEdge::sourceForConnection(const WebEdgeConnectPoint &connectPoint,
         if (source) {
             caller->setParent(source);
             caller->setSource(source);
+            SourceFactory::bindCaller(source, caller);
         } else {
             delete caller;
         }
@@ -1115,6 +1116,7 @@ QObject *WebEdge::sourceForConnection(const WebEdgeConnectPoint &connectPoint,
     }
     caller->setParent(source);
     caller->setSource(source);
+    SourceFactory::bindCaller(source, caller);
     sources.byConnectPoint.insert(connectPoint.name, source);
     return source;
 }

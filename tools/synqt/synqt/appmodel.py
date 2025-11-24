@@ -22,7 +22,7 @@ import os
 import re
 import sys
 from pathlib import Path, PurePosixPath
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
 # The OAuth provider templates are one table: `synqt add auth` writes it into synqt.yaml,
 # and this module reads it back to fill in what a hand-written short form left out. Read
@@ -470,6 +470,35 @@ def contracts_of(points: List[Dict[str, Any]]) -> List[str]:
         if contract and contract not in seen:
             seen.append(contract)
     return seen
+
+
+def forwards_session(config: Dict[str, Any], point: Dict[str, Any]) -> bool:
+    """Does a call on this connect point carry the session the caller is acting for?
+
+    A system is a chain, and only its first link authenticates a person: the browser reaches
+    the web edge, the edge reaches a service, that service reaches another. So a point a
+    service consumes carries one thing more than its contract declares, the session the
+    calling entity is answering, and `Caller` two links from the browser still knows who
+    that is.
+
+    A point only the browser consumes carries nothing extra, which is the point: the one
+    caller that could put a session of its own choosing on the wire has no field to put it
+    in. (The owner would ignore it anyway, but not being there is better than being
+    ignored.)
+    """
+    client = client_entity(config)
+    client_name = str(client.get("name") or "") if client else ""
+    return any(str(name) != client_name for name in (point.get("consumers") or []))
+
+
+def session_forwarding_contracts(config: Dict[str, Any]) -> Set[str]:
+    """Every contract whose slots carry a forwarded session, by name.
+
+    Read by both sides of every link, so an owner and its consumers cannot disagree about
+    a signature that only the topology decides.
+    """
+    return {contract_of(point) for point in connect_points(config)
+            if forwards_session(config, point) and contract_of(point)}
 
 
 def contract_paths(config: Dict[str, Any]) -> Dict[str, str]:

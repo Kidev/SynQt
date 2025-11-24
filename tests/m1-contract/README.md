@@ -40,8 +40,12 @@ acceptance test.
 | `signal rejected(string reason)` | `SIGNAL(rejected(QString reason))` | owner -> consumer |
 | `record ItemRow(string text, ...)` | `POD ItemRow(QString text, ...)` | passed by value |
 
-Types: `int`->`int`, `string`->`QString`, `bool`->`bool`, `real`/`double`->`double`,
-`float`->`float`, `var`->`QVariant`, a record name -> its POD.
+Types are QML's built-in value types: `bool`->`bool`, `date`->`QDateTime`,
+`int`->`int`, `list`->`QVariantList`, `real`/`double`->`double`, `string`->`QString`,
+`url`->`QUrl`, `var`/`variant`->`QVariant`, a record name -> its POD. Four of them take
+a bound: `string[n]` and `url[n]` in characters, `list[n]` in elements, `var[n]` in
+serialized bytes. The owner-side boundary refuses a value over its bound rather than
+truncating it.
 
 ## The owner surface
 

@@ -332,10 +332,11 @@ without any ambient global.
 |--------|----------------|------|-------------|
 | `Caller.isUser` | always | bool | true when the call came from a browser client. Only possible on a web edge connect point. |
 | `Caller.isEntity` | always | bool | true when the call came from another entity over a mesh link. |
-| `Caller.session` | `isUser` | object | the caller's session record (`id`, `identity`, `scope`). |
-| `Caller.identity` | `isUser` | object \| null | the caller's normalized identity (same fields as [`Session.identity`](#client-session)), or `null` if anonymous. |
-| `Caller.scope` | `isUser` | string \| list | the caller's scope. |
-| `Caller.hasScope(name)` | `isUser` | bool | whether the caller holds `name` (hierarchical where configured). |
+| `Caller.hasSession` | always | bool | whether there is a person behind this call: the browser's own session when `isUser`, or the session the calling entity is acting for (see [down the chain](#the-session-down-the-chain)). |
+| `Caller.session` | `hasSession` | object | the session: `key`, `scope`, `identity`, and on the edge that authenticated it, `id`. |
+| `Caller.identity` | `hasSession` | object \| null | the caller's normalized identity (same fields as [`Session.identity`](#client-session)), or `null` if anonymous. |
+| `Caller.scope` | `hasSession` | string \| list | the caller's scope. |
+| `Caller.hasScope(name)` | `hasSession` | bool | whether the caller holds `name` (hierarchical where configured). |
 | `Caller.setScope(scope)` | `isUser` | action | set the session's scope. Used by the identity flow after login; rotates the session id on privilege change. The live connection carries on with the new id, and the browser is handed it on its next page load, so a refresh keeps the raised scope rather than starting over. |
 | `Caller.emit<Signal>(...)` | `isUser` | action | emit a contract signal back to **this one caller** (see [targeting](#emitting-a-signal-to-one-caller-versus-all)). |
 | `Caller.id` | `isUser` | string | the session id (also `Client.id`). |
@@ -368,6 +369,53 @@ function insert(row) {
     name. A user-supplied value is never an entity identity. The single exception is
     a link the project explicitly moved to `transport: local`; `isEntityVerified` is
     how a slot refuses that. See [security](security.md).
+
+### The session down the chain
+
+A system is a chain, and only its first link authenticates a person. The browser reaches
+the web edge, the edge reaches a service, that service reaches another. The database in
+the example above is two links from the browser and can never be reached by it, so the
+call it answers is the edge's; without help, all it would know is that the edge called.
+
+So a connect point that a service consumes carries one thing more than its contract
+declares: the session the calling entity is acting for. It is filled in by the framework,
+not by the call site, and it travels for as long as the chain does, so a service four
+entities deep still answers a named person.
+
+```qml
+// db/relational/store/Items.qml, reached only by the edge
+function insert(row) {
+    if (Caller.entity !== "edge") return    // the certificate: this is the authorization
+    // And this is who the edge is answering. `Caller.isUser` is still false: the caller is
+    // the edge. It simply has somebody behind it.
+    Log.write(Caller.session.key, Caller.identity.sub, row.text)
+}
+```
+
+What travels is the session's `key`, its `scope` and its `identity`. Never the browser's
+credential, which stays at the edge: `key` is derived from it, is the same string for the
+same session on every entity that sees it, and cannot be replayed at the edge. It is what
+a downstream service keys its own per-session state on. It changes when the credential
+rotates, which happens on a scope change, because an elevated session is a different
+session.
+
+!!! warning "A forwarded session is an assertion, not an authentication"
+    The certificate authenticated the calling entity. Everything that rides along with the
+    call is that entity's word about who it is acting for, and is worth exactly as much as
+    trusting that entity, which is a decision the connect point's consumer list already
+    made. Authorize the entity first, always, and read the session after.
+
+    A browser can never do this. A point only the client consumes has no such field on the
+    wire at all, and a user's `Caller` ignores one if it somehow arrives, because a session reaches
+    the edge as a credential the edge looks up, and nothing inside a call can change who
+    that is.
+
+Two limits worth knowing. `Caller.setScope` is the edge's alone: a downstream service
+cannot elevate a session it did not authenticate. And a downstream entity answers each
+call for whoever it is for, but its Sources are still one per calling entity, not one per
+person: one mesh link can carry one copy of a pushed property or model, so state that must
+differ per browser user belongs on the web edge, which does have a link per browser. Below
+that, keep it in the entity's own singleton under `Caller.session.key`.
 
 Outside a call that originated from a consumer (for example an owner-side timer, or the
 entity's own singleton) there is no caller, and `Caller` is not in scope at all. `synqt

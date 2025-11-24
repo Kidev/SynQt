@@ -24,6 +24,8 @@
 #include "synclientconfig.h"
 
 #include "todo_sourcehelper.h"   // synqtRegisterTodoSources()
+#include "consumerfactory.h"
+#include "items_consumer.h"      // ItemsConsumer, the edge's facade for the mesh half
 #include "items_sourcehelper.h"  // synqtRegisterItemsSources()
 #include "draft_sourcehelper.h"  // synqtRegisterDraftSources()
 
@@ -133,6 +135,17 @@ private slots:
         QVERIFY2(QSslSocket::supportsSsl(), "TLS backend unavailable");
         synqtRegisterTodoSources();
         synqtRegisterItemsSources();
+        // The edge reaches the database through the generated consumer facade, which is
+        // what fills in the session it is acting for. A raw dynamic Replica would not.
+        //
+        // Only the factory, not synqtRegisterItemsConsumers(): that also registers the
+        // `Items` attached type under the same QML name as the Source helper, and in a real
+        // system the owner and the consumer are two binaries so the two never meet. Here
+        // they are one process, and whichever registered last would be what `Items {}` in
+        // the database's QML resolves to.
+        SynQt::registerConsumerFactory(
+            QStringLiteral("Items"),
+            []() -> SynQt::ConsumerBase * { return new ItemsConsumer{}; });
         synqtRegisterDraftSources();
 
         // The database entity owns `items`, on an OS-assigned mTLS port.
@@ -386,6 +399,7 @@ private slots:
     void databaseRefusesNonEdgeEntity()
     {
         const int before{databaseView()->property("count").toInt()};
+        const QString actingBefore{databaseView()->property("actingFor").toString()};
 
         // "reporter" is a listed consumer, so deny-by-default lets it connect, but the
         // ItemsSource insert checks Caller.entity === "web", so its write is a no-op.
@@ -405,12 +419,49 @@ private slots:
             loadPrivateKey(QStringLiteral(M7_CERT_DIR "/reporter.key"))));
 
         QTRY_VERIFY(reporterItems && reporterItems->isReplicaValid());
+        // And it forges the session too, claiming to be acting for a moderator. The
+        // session travelling down the chain is an assertion by the calling entity, so a
+        // rogue entity can assert anything it likes. What it cannot do is be the edge, and
+        // that is the check the write dies on.
+        QVariantMap forged;
+        forged.insert(QStringLiteral("key"), QStringLiteral("forged"));
+        forged.insert(QStringLiteral("scope"), QStringLiteral("moderator"));
+        forged.insert(QStringLiteral("identity"),
+                      QVariantMap{{QStringLiteral("sub"), QStringLiteral("alice")}});
         QVERIFY(QMetaObject::invokeMethod(reporterItems.get(), "insert",
+                                          Q_ARG(QVariantMap, forged),
                                           Q_ARG(QString, QStringLiteral("smuggled")),
                                           Q_ARG(QString, QStringLiteral("r@x")),
                                           Q_ARG(QString, QStringLiteral("reporter"))));
         QTest::qWait(500);
         QCOMPARE(databaseView()->property("count").toInt(), before);  // refused, no write
+        // Nor is the forged session recorded. The slot returned before it read it.
+        QCOMPARE(databaseView()->property("actingFor").toString(), actingBefore);
+    }
+
+    // The session travels down the chain. The database is two links from the browser and
+    // is never reached by it, yet a write arrives knowing whose it is: `Caller.entity` is
+    // still the edge (the certificate is what the database authorizes on), and the session
+    // the edge is answering rides along with the call.
+    void theSessionReachesTheDatabase()
+    {
+        const QByteArray carolToken{
+            m_edge->sessionManager()->createSession(QStringLiteral("user"),
+                                                    identityFor(QStringLiteral("carol")))};
+        QQmlEngine clientEngine;
+        SynClient carol{clientConfig(m_edgePort, cookieFor(carolToken)), &clientEngine};
+        carol.start();
+        QTRY_COMPARE_WITH_TIMEOUT(carol.session()->state(), QStringLiteral("connected"),
+                                  8000);
+        QRemoteObjectDynamicReplica *carolTodo{
+            qobject_cast<QRemoteObjectDynamicReplica *>(todoReplica(&carol))};
+        QVERIFY(carolTodo != nullptr);
+        QTRY_VERIFY(carolTodo->isReplicaValid());
+
+        QVERIFY(QMetaObject::invokeMethod(carolTodo, "add",
+                                          Q_ARG(QString, QStringLiteral("bread"))));
+        QTRY_COMPARE(databaseView()->property("actingFor").toString(),
+                     QStringLiteral("carol"));
     }
 
     // Clause 7: an entity not on the consumer allowlist is refused at the mesh handshake

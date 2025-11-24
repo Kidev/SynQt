@@ -72,6 +72,17 @@ bool ConsumerBase::isReady() const
 
 void ConsumerBase::handleInitialized()
 {
+    if (m_dynamic) {
+        // A dynamic Replica has no API at all until it is initialized: no properties, no
+        // signals, nothing for a relay to connect to. So the relays wired when the Replica
+        // was bound found nothing and quietly did nothing, and a facade over the mesh
+        // relayed no signal it was ever asked to. They are wired again here, where the API
+        // exists, and the connection this slot came in on is re-made with them.
+        clearConnections();
+        addConnection(connect(m_replica, SIGNAL(initialized()), this,
+                              SLOT(handleInitialized())));
+        bindReplica();
+    }
     emit readyChanged();
     emitAllChanged();
 }

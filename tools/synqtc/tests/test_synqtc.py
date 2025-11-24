@@ -60,13 +60,12 @@ class RepLoweringTest(unittest.TestCase):
 
     def test_type_mapping(self):
         rep = self.rep(
-            "contract T { prop real r prop var v prop bool b prop float f prop double d }"
+            "contract T { prop real r prop var v prop bool b prop double d }"
         )
         for expected in (
             "PROP(double r READPUSH)",
             "PROP(QVariant v READPUSH)",
             "PROP(bool b READPUSH)",
-            "PROP(float f READPUSH)",
             "PROP(double d READPUSH)",
         ):
             self.assertIn(expected, rep)
@@ -243,9 +242,11 @@ class MalformedInputTest(unittest.TestCase):
         "unterminated comment": "contract C { /* nope }",
         "stray character": "contract C { prop int x @ }",
         "bound of zero": "contract C { prop string[0] name }",
-        "bound on a type that has none": "contract C { prop int16[4] tally }",
+        "bound on a type that has none": "contract C { prop int[4] tally }",
         "bound with no number": "contract C { prop string[] name }",
         "bound on a slot name": "contract C { slot post[2](string text) }",
+        "a width that QML does not spell": "contract C { prop int16 tally }",
+        "void as a declared type": "contract C { slot void post(string text) }",
     }
 
     def test_each_malformed_input_raises_synerror_with_location(self):
@@ -258,15 +259,56 @@ class MalformedInputTest(unittest.TestCase):
                 self.assertTrue(message.startswith("bad.syn"))
 
 
-class SizedTypeTest(unittest.TestCase):
+class ValueTypeTest(unittest.TestCase):
+    """The vocabulary is QML's own value types, lowered to the C++ each one means."""
+
+    SYN = """
+        contract Every {
+            prop bool live
+            prop date opened
+            prop double ratio
+            prop int tally
+            prop list entries
+            prop real share
+            prop string title
+            prop url home
+            prop var payload
+            prop variant legacy
+        }
+    """
+
+    def setUp(self):
+        self.syn = parse_text(self.SYN, path="every.syn", stem="every")
+        self.rep = emit_rep(self.syn)
+
+    def test_each_value_type_lowers_to_its_qt_spelling(self):
+        expected = {
+            "live": "bool", "opened": "QDateTime", "ratio": "double", "tally": "int",
+            "entries": "QVariantList", "share": "double", "title": "QString",
+            "home": "QUrl", "payload": "QVariant", "legacy": "QVariant",
+        }
+        for name, ctype in expected.items():
+            with self.subTest(prop=name):
+                self.assertIn(f"PROP({ctype} {name} READPUSH)", self.rep)
+
+    def test_the_rep_includes_the_headers_its_types_need(self):
+        # repc copies single-line directives into its output. Its own includes stop at
+        # qvariant.h, so a date or a URL would otherwise compile only by luck.
+        for header in ("QDateTime", "QUrl", "QString", "QVariantList", "QVariant"):
+            with self.subTest(header=header):
+                self.assertIn(f"#include <{header}>", self.rep)
+
+
+class BoundedTypeTest(unittest.TestCase):
     """A bound written in a contract is a rule the boundary keeps, not a comment on it."""
 
     SYN = """
         contract Players {
             prop string[16] region
-            prop int16 season
-            model rows(string[64] playerId, uint8 rate, var extra)
-            slot lookup(string[64] playerId)
+            prop list[8] recent
+            model rows(string[64] playerId, url[200] avatar, var[4096] extra)
+            slot lookup(string[64] playerId, var[512] filter)
+            signal refused(string[32] reason)
         }
     """
 
@@ -275,38 +317,113 @@ class SizedTypeTest(unittest.TestCase):
         self.header = emit_source_helper_header(self.syn, "players")
         self.source = emit_source_helper_source(self.syn, "players")
 
-    def test_a_sized_integer_is_that_wide_on_the_wire(self):
-        rep = emit_rep(self.syn)
-        self.assertIn("PROP(qint16 season READPUSH)", rep)
-        self.assertIn("PROP(QString region READPUSH)", rep)
-
     def test_a_bounded_prop_refuses_a_value_that_does_not_fit(self):
         # repc makes every setter virtual, so overriding it is the whole interception.
         self.assertIn("void setRegion(QString region) override;", self.header)
-        self.assertIn("if (regionLength > 16) {", self.source)
+        self.assertIn("const qsizetype regionSize{region.size()};", self.source)
+        self.assertIn("if (regionSize > 16) {", self.source)
+
+    def test_a_bounded_list_counts_its_elements(self):
+        self.assertIn("const qsizetype recentSize{recent.size()};", self.source)
+        self.assertIn("is declared %s and the value is %lld elements", self.source)
+        self.assertIn('"Players.recent", "recent", "list[8]"', self.source)
 
     def test_a_bounded_role_refuses_the_publish(self):
-        self.assertIn("if (playerIdLength > 64) {", self.source)
+        self.assertIn("if (playerIdSize > 64) {", self.source)
         self.assertIn("qDeleteAll(items);", self.source)
 
-    def test_an_integer_role_is_range_checked_before_it_is_converted(self):
-        # Converting is what would wrap it: after that a too-large number looks ordinary.
-        checked = self.source.index("rateAsNumber > 255.0")
-        converted = self.source.index("rateValue.convert(")
-        self.assertLess(checked, converted)
+    def test_a_bounded_url_is_measured_as_the_text_it_is(self):
+        self.assertIn("qvariant_cast<QUrl>(avatarValue).toString().size()", self.source)
 
-    def test_a_var_role_carries_whatever_arrives(self):
-        self.assertIn("extra: declared var", self.source)
+    def test_a_bounded_var_is_measured_by_what_it_serializes_to(self):
+        self.assertIn("qsizetype synqtVariantBytes(const QVariant &value)", self.source)
+        self.assertIn("const qsizetype extraSize{synqtVariantBytes(extraValue)};",
+                      self.source)
+        self.assertIn("is declared %s and the value is %lld bytes", self.source)
+        self.assertIn('"Players.rows", "extra", "var[4096]"', self.source)
+
+    def test_an_unbounded_var_role_carries_whatever_arrives(self):
+        plain = parse_text("contract P { model rows(var extra) }", path="p.syn", stem="p")
+        source = emit_source_helper_source(plain, "p")
+        self.assertIn("extra: declared var", source)
+        self.assertNotIn("synqtVariantBytes", source)
 
     def test_a_bounded_slot_argument_is_refused_before_the_owners_qml_sees_it(self):
         slot = self.source[self.source.index("void PlayersSourceHelper::lookup"):]
-        refusal = slot.index("playerIdLength > 64")
+        refusal = slot.index("playerIdSize > 64")
         dispatch = slot.index("synqtQmlSlotIndex")
         self.assertLess(refusal, dispatch)
 
+    def test_a_bounded_signal_argument_is_refused_on_the_way_out(self):
+        # Caller.emit<Signal> forwards here too, so one guard covers both ways of sending.
+        emitter = self.source[self.source.index("void PlayersSourceHelper::emitRefused"):]
+        refusal = emitter.index("reasonSize > 32")
+        raised = emitter.index("Q_EMIT refused(")
+        self.assertLess(refusal, raised)
+
+
+class ForwardedSessionTest(unittest.TestCase):
+    """A contract a service consumes carries the session the calling entity is acting for,
+    so the chain keeps its person past the edge."""
+
+    SYN = """
+        contract Ledger {
+            prop int count
+            slot note(string item)
+            slot bool clear()
+            signal noted(string item)
+        }
+    """
+
+    def parse(self, forwards: bool):
+        syn = parse_text(self.SYN, path="ledger.syn", stem="ledger")
+        syn.forwards_session = forwards
+        return syn
+
+    def test_a_forwarding_contract_carries_the_session_on_every_slot(self):
+        rep = emit_rep(self.parse(True))
+        self.assertIn("SLOT(void note(QVariantMap synqtSession, QString item))", rep)
+        self.assertIn("SLOT(bool clear(QVariantMap synqtSession))", rep)
+        # Owner to consumer, so there is nobody to be acting for on the way out.
+        self.assertIn("SIGNAL(noted(QString item))", rep)
+
+    def test_a_browser_only_contract_has_no_field_to_forge(self):
+        rep = emit_rep(self.parse(False))
+        self.assertIn("SLOT(void note(QString item))", rep)
+        self.assertNotIn("synqtSession", rep)
+
+    def test_the_owner_takes_the_session_before_it_does_anything_else(self):
+        source = emit_source_helper_source(self.parse(True), "ledger")
+        slot = source[source.index("void LedgerSourceHelper::note"):]
+        taken = slot.index('"assumeSession"')
+        dispatch = slot.index("synqtQmlSlotIndex")
+        self.assertLess(taken, dispatch)
+
+    def test_the_owner_does_not_hand_the_session_to_the_owners_qml(self):
+        # The QML implementation takes the arguments the contract declares and no others.
+        source = emit_source_helper_source(self.parse(True), "ledger")
+        slot = source[source.index("void LedgerSourceHelper::note"):]
+        self.assertIn('synqtQmlSlotIndex(this, "note", 1,', slot)
+        self.assertNotIn("QVariant::fromValue(synqtSession)", slot)
+
+    def test_every_slot_names_the_caller_it_is_answering(self):
+        # Whether or not the contract forwards. This is where a chain starts, on the edge's
+        # browser-facing point, as much as where it continues.
+        for forwards in (True, False):
+            with self.subTest(forwards=forwards):
+                source = emit_source_helper_source(self.parse(forwards), "ledger")
+                self.assertIn("const SynqtActingFor synqtActing{m_synqtCaller.data()};",
+                              source)
+
+    def test_the_consumer_fills_the_session_in_rather_than_the_call_site(self):
+        consumer = emit_consumer_source(self.parse(True), "ledger")
+        self.assertIn("void LedgerConsumer::note(QString item)", consumer)
+        self.assertIn("Q_ARG(QVariantMap, SynQt::ActingFor::current()), Q_ARG(QString, item)",
+                      consumer)
+
 
 class SharedSourceTest(unittest.TestCase):
-    """A shared entity answers everyone from one Source; each caller reaches it through a
+    """A shared entity answers everyone from one Source. Each caller reaches it through a
     mirror carrying their own Caller."""
 
     SYN = """

@@ -74,6 +74,44 @@ QtRO POD types passed by value:
 record Address(string street, string city, string zip)
 ```
 
+### The types a contract can name
+
+The vocabulary is QML's. A value crossing a connect point is read from QML on the owner
+side and handed to QML on the consumer side, so the types a contract can name are the
+[built-in QML value types](https://doc.qt.io/qt-6/qtqml-typesystem-valuetypes.html) and
+nothing invented beside them. What a name means is what the QML documentation says it
+means.
+
+| written | on the wire | notes |
+|---------|-------------|-------|
+| `bool` | `bool` | |
+| `date` | `QDateTime` | |
+| `double` | `double` | |
+| `int` | `int` | |
+| `list` | `QVariantList` | a list of `var`, and a typed list of rows is a `model` |
+| `real` | `double` | |
+| `string` | `QString` | |
+| `url` | `QUrl` | |
+| `var` | `QVariant` | anything, checked by nobody |
+| `variant` | `QVariant` | the older spelling of `var` |
+
+Four of them can be given a size in brackets, and they are the four with no natural
+limit:
+
+| written | bounds |
+|---------|--------|
+| `string[64]` | at most 64 characters |
+| `url[200]` | at most 200 characters |
+| `list[100]` | at most 100 elements |
+| `var[4096]` | at most 4096 bytes once serialized |
+
+A bound is a rule, not a comment. The owner-side boundary enforces it at every place a
+value crosses: an assignment to a bounded `prop`, a role on a published row, an argument
+arriving on a `slot`, and an argument leaving on a `signal`. A value that does not fit is
+refused and named in a warning, and nothing is truncated: a silently shortened name and a
+silently dropped tail are the bugs a bound exists to prevent. Bound the fields that reach
+a database column, a filename, or a rendered label, and leave the rest unbounded.
+
 Why a friendlier surface instead of raw rep files. Rep defaults (push versus read
 or write, which roles a model exposes) are exactly the places a mistake becomes a
 security hole. The `.syn` surface keeps the safe defaults obvious and emits
@@ -282,6 +320,14 @@ global object. The caller is one of two things.
   link the name is trusted by colocation instead, and `Caller.isEntityVerified` is
   false; see [security](security.md).) The owner authorizes by entity: for example a
   store slot can require `Caller.entity === "edge"`.
+
+A calling entity is usually answering somebody, and the framework carries that along:
+a connect point a service consumes carries the session the caller is acting for, so
+`Caller.identity` and `Caller.hasScope(...)` still mean something on an entity the browser
+can never reach. `Caller.isEntity` stays true, because the caller is still that entity;
+what it gained is a person behind it, asserted by the entity its certificate identified.
+The rules, the limits and what exactly travels are in
+[the session down the chain](runtime-api.md#the-session-down-the-chain).
 
 `Client` remains available on web edge connect points as a convenience alias for
 `Caller` when the caller is a browser user, so existing edge code reads

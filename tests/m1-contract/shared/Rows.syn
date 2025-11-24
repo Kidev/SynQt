@@ -14,3 +14,16 @@ contract Rows {
 contract Checked {
     model rows(string id, int n, var payload)
 }
+
+// The types that take a bound, one of each, so that what the generator emits is compiled
+// and run rather than only inspected. Each is measured the way its kind of value is:
+// characters for text and a URL, elements for a list, serialized bytes for a var. `date`
+// carries no bound and is here to prove the rep pulls in the header its type needs.
+contract Bounded {
+    prop string[8] label
+    prop url[24] home
+    prop list[3] recent
+    prop date opened
+    model rows(string[4] code, var[64] blob)
+    signal refused(string[6] reason)
+}

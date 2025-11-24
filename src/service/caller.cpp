@@ -3,6 +3,7 @@
 
 #include "caller.h"
 
+#include <QCryptographicHash>
 #include <QGenericArgument>
 #include <QHash>
 #include <QMetaObject>
@@ -10,6 +11,29 @@
 namespace SynQt {
 
 namespace {
+
+// The keys a forwarded session is made of. Nothing else is read off one, so a peer that
+// puts anything more in the map is handing over something nobody looks at.
+const QLatin1StringView kKey{"key"};
+const QLatin1StringView kScope{"scope"};
+const QLatin1StringView kIdentity{"identity"};
+
+// The name one session answers to everywhere in a system, derived from the credential and
+// never the credential itself. A downstream entity keys its own per-session state on this,
+// and correlating two entities' logs is reading the same string in both; what it cannot do
+// is be replayed at the edge, which is the whole reason the browser's own id stops there.
+//
+// It changes when the credential rotates, which happens on a scope change: an elevated
+// session is a different session, and state a service kept for the anonymous visitor is
+// not state it should go on keeping for the signed-in one.
+QString sessionKey(const QByteArray &id)
+{
+    if (id.isEmpty()) {
+        return QString{};
+    }
+    const QByteArray digest{QCryptographicHash::hash(id, QCryptographicHash::Sha256)};
+    return QString::fromLatin1(digest.toHex().left(32));
+}
 
 // The per-contract Caller factories the generated synqtRegister<Contract>Sources() install,
 // so forUser/forEntity can mint the typed <Contract>Caller that carries the emit<Signal>
@@ -88,6 +112,11 @@ bool Caller::isEntityVerified() const
     return !m_isUser && m_entityVerified;
 }
 
+bool Caller::hasSession() const
+{
+    return record() != nullptr || !m_forwarded.isEmpty();
+}
+
 QString Caller::id() const
 {
     if (m_isUser) {
@@ -100,10 +129,14 @@ QVariant Caller::session() const
 {
     const SessionRecord *rec{record()};
     if (!rec) {
-        return QVariant{};
+        // A calling entity's assertion, or nothing. It is already in the shape a session
+        // takes here, minus the credential, which a downstream entity has no business
+        // holding and is never sent one.
+        return m_forwarded.isEmpty() ? QVariant{} : QVariant{m_forwarded};
     }
     QVariantMap map;
     map.insert(QStringLiteral("id"), QString::fromLatin1(rec->id));
+    map.insert(QStringLiteral("key"), sessionKey(rec->id));
     map.insert(QStringLiteral("scope"), rec->scope);
     map.insert(QStringLiteral("identity"),
                rec->identity.isEmpty() ? QVariant{} : QVariant{rec->identity});
@@ -113,7 +146,10 @@ QVariant Caller::session() const
 QVariant Caller::identity() const
 {
     const SessionRecord *rec{record()};
-    if (!rec || rec->identity.isEmpty()) {
+    if (!rec) {
+        return m_forwarded.value(kIdentity);
+    }
+    if (rec->identity.isEmpty()) {
         return QVariant{};
     }
     return rec->identity;
@@ -122,7 +158,7 @@ QVariant Caller::identity() const
 QString Caller::scope() const
 {
     const SessionRecord *rec{record()};
-    return rec ? rec->scope : QString{};
+    return rec ? rec->scope : m_forwarded.value(kScope).toString();
 }
 
 QString Caller::entity() const
@@ -132,14 +168,13 @@ QString Caller::entity() const
 
 bool Caller::hasScope(const QString &scope) const
 {
-    if (!m_isUser) {
-        return false;  // entity callers are not scoped; use Caller.entity
-    }
-    const SessionRecord *rec{record()};
-    if (!rec) {
+    // An entity caller with no session behind it is not scoped. Gate it on Caller.entity.
+    // One that is acting for a session is checked against that session's scope, which the
+    // calling entity asserted and its certificate is the warrant for.
+    const QString granted{Caller::scope()};
+    if (granted.isEmpty() && !hasSession()) {
         return false;
     }
-    const QString granted{rec->scope};
     if (granted == scope) {
         return true;
     }
@@ -189,6 +224,42 @@ void Caller::emitSignal(const QString &signalName, const QVariant &arg0, const Q
                               a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7]);
 }
 
+QVariantMap Caller::forwardedSession() const
+{
+    const SessionRecord *rec{record()};
+    if (!rec) {
+        // Either this caller is already acting for someone, and the chain continues past
+        // this entity unchanged, or it is not, and there is nothing to pass on.
+        return m_forwarded;
+    }
+    QVariantMap session;
+    session.insert(kKey, sessionKey(rec->id));
+    session.insert(kScope, rec->scope);
+    session.insert(kIdentity, rec->identity.isEmpty() ? QVariant{} : QVariant{rec->identity});
+    return session;
+}
+
+void Caller::assumeSession(const QVariantMap &session)
+{
+    if (m_isUser) {
+        // The browser is the one place a caller could put this on the wire itself, so it is
+        // the one place it is not read. A user's session is the credential the edge looked
+        // up when the connection was accepted; nothing in a call can change who that is.
+        return;
+    }
+    if (session.isEmpty()) {
+        m_forwarded.clear();
+        return;
+    }
+    // Only the three keys a session is made of, so nothing else a peer sent is carried
+    // further or read by anything downstream.
+    QVariantMap taken;
+    taken.insert(kKey, session.value(kKey).toString());
+    taken.insert(kScope, session.value(kScope).toString());
+    taken.insert(kIdentity, session.value(kIdentity));
+    m_forwarded = taken;
+}
+
 void Caller::setScopeOrder(const QStringList &order, bool hierarchical)
 {
     m_scopeOrder = order;
@@ -210,6 +281,7 @@ void Caller::adopt(QObject *other)
     // mirror the adopted caller acquired, or it would reach the wrong browser.
     m_sessions = from->m_sessions;
     m_sessionId = from->m_sessionId;
+    m_forwarded = from->m_forwarded;
     m_entity = from->m_entity;
     m_source = from->m_source;
     m_scopeOrder = from->m_scopeOrder;

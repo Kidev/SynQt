@@ -41,7 +41,11 @@ qt_add_executable(tst_m7 tst_m7.cpp)
 # Both entities host Sources from their QML (TodoSource on the edge, ItemsSource on the
 # database); every consumer uses dynamic replicas, so no replica headers are generated.
 synqt_add_contract(tst_m7 ROLE source SYN "${CMAKE_CURRENT_SOURCE_DIR}/shared/Todo.syn")
-synqt_add_contract(tst_m7 ROLE source SYN "${CMAKE_CURRENT_SOURCE_DIR}/shared/Items.syn")
+# Items is the mesh half: the database owns it and the edge consumes it, so the edge needs
+# the consumer facade (ROLE both) and every call on it carries the session the edge is
+# acting for (FORWARDS_SESSION), which is how the database knows who a write is really for.
+synqt_add_contract(tst_m7 ROLE both FORWARDS_SESSION
+    SYN "${CMAKE_CURRENT_SOURCE_DIR}/shared/Items.syn")
 # Draft holds state in the Source and nowhere else, which is what lets a test see how
 # many Sources one connect point minted.
 synqt_add_contract(tst_m7 ROLE source SYN "${CMAKE_CURRENT_SOURCE_DIR}/shared/Draft.syn")

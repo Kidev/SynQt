@@ -17,7 +17,7 @@ from __future__ import annotations
 from typing import List
 
 from .model import Contract, Model, Signal, Slot, SynFile
-from .types import base_of, bound_of, cpp_type, int_range
+from .types import base_of, bound_of, cpp_type, is_generic, measure, unit_of
 
 SPDX_CPP = (
     "// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux\n"
@@ -26,8 +26,32 @@ SPDX_CPP = (
 )
 
 
+#: The extra leading argument every slot takes on a contract a service consumes: the
+#: session the calling entity is acting for. Written in one place, because the rep, the
+#: owner-side override and the consumer's invoke all have to spell it the same way.
+SESSION_PARAM = "QVariantMap synqtSession"
+SESSION_ARG = "synqtSession"
+
+
 def _cap(name: str) -> str:
     return name[:1].upper() + name[1:]
+
+
+def _slot_params(syn: SynFile, slot, records, path) -> str:
+    """A slot's parameter list as it is declared, session first when there is one."""
+    declared = [f"{cpp_type(p.type, records, path=path, line=p.line, col=p.col)} {p.name}"
+                for p in slot.params]
+    if syn.forwards_session:
+        declared.insert(0, SESSION_PARAM)
+    return ", ".join(declared)
+
+
+def _slot_args(syn: SynFile, slot) -> str:
+    """A slot's arguments as they are passed on, session first when there is one."""
+    passed = [param.name for param in slot.params]
+    if syn.forwards_session:
+        passed.insert(0, SESSION_ARG)
+    return ", ".join(passed)
 
 
 def _param_list(params, record_names, path) -> str:
@@ -39,55 +63,115 @@ def _param_list(params, record_names, path) -> str:
 
 # What a declared bound is worth at run time
 #
-# A bound written in a contract (`string[64]`, `int16`) is a rule about what may cross,
-# so the generated boundary enforces it rather than describing it. A value that breaks
-# the rule is refused and named in a warning; nothing is quietly truncated into something
-# that looks right, because a silently shortened name and a silently wrapped counter are
-# exactly the bugs a bound exists to prevent.
+# A bound written in a contract (`string[64]`, `list[100]`, `var[4096]`) is a rule about
+# what may cross, so the generated boundary enforces it rather than describing it. A value
+# that breaks the rule is refused and named in a warning. Nothing is quietly truncated into
+# something that looks right, because a silently shortened name and a silently dropped tail
+# are exactly the bugs a bound exists to prevent.
 
-#: Integers above this are not exactly representable as a double, so the range guard
-#: (which compares through toDouble, the one conversion every numeric QVariant answers)
-#: would start rejecting values it should accept. For int64 and uint64 the C++ type
-#: itself is the bound, and that is where the check happens instead.
-EXACT_IN_DOUBLE = 2 ** 53
+#: The QtCore header a contract type needs. repc copies single-line directives from the
+#: top of a `.rep` into the header it generates, and its own includes stop at qvariant.h,
+#: so a contract that names a date or a URL says so there.
+TYPE_INCLUDES = {
+    "date": "QDateTime",
+    "list": "QVariantList",
+    "string": "QString",
+    "url": "QUrl",
+    "var": "QVariant",
+    "variant": "QVariant",
+}
 
 
-def _range_guard(spelling: str, value: str, where: str, field: str,
+def _bound_guard(spelling: str, value: str, where: str, field: str,
                  refuse: List[str], indent: str) -> List[str]:
-    """Refuse `value` (a QVariant) when it is outside the declared integer's range."""
-    limits = int_range(spelling)
-    if limits is None:
-        return []
-    low, high = limits
-    if abs(low) > EXACT_IN_DOUBLE or high > EXACT_IN_DOUBLE:
-        return []
-    guard = [
-        f"bool {field}IsNumber{{false}};",
-        f"const double {field}AsNumber{{{value}.toDouble(&{field}IsNumber)}};",
-        f"if ({field}IsNumber && ({field}AsNumber < {low}.0"
-        f" || {field}AsNumber > {high}.0)) {{",
-        f'    qWarning("%s: \'%s\' is declared %s, which holds {low} to {high}, and %f '
-        'does not fit; refused",',
-        f'             "{where}", "{field}", "{spelling}", {field}AsNumber);',
-    ] + [f"    {line}" for line in refuse] + ["}"]
-    return [indent + line for line in guard]
+    """Refuse `value` when it is over the bound its type was written with.
 
-
-def _length_guard(spelling: str, text: str, where: str, field: str,
-                  refuse: List[str], indent: str) -> List[str]:
-    """Refuse `text` (a QString expression) when it is longer than the declared bound."""
+    `value` is an expression already of the type's C++ spelling, because how a value is
+    measured depends on what it is: characters for text, elements for a list, and for a
+    `var` the bytes it serializes to, which is the only workable answer to how big something
+    generic is.
+    """
     bound = bound_of(spelling)
-    if bound is None or base_of(spelling) != "string":
+    size = measure(spelling, value)
+    if bound is None or size is None:
         return []
+    unit = unit_of(spelling)
     guard = [
-        f"const qsizetype {field}Length{{{text}.size()}};",
-        f"if ({field}Length > {bound}) {{",
-        f'    qWarning("%s: \'%s\' is declared %s and the value is %lld characters; '
+        f"const qsizetype {field}Size{{{size}}};",
+        f"if ({field}Size > {bound}) {{",
+        f'    qWarning("%s: \'%s\' is declared %s and the value is %lld {unit}; '
         'refused",',
         f'             "{where}", "{field}", "{spelling}",'
-        f" static_cast<long long>({field}Length));",
+        f" static_cast<long long>({field}Size));",
     ] + [f"    {line}" for line in refuse] + ["}"]
     return [indent + line for line in guard]
+
+
+def _written_types(syn: SynFile) -> List[str]:
+    """Every type spelling the file writes, in no particular order."""
+    written: List[str] = []
+    for record in syn.records:
+        written += [field.type for field in record.fields]
+    for contract in syn.contracts:
+        written += [prop.type for prop in contract.props]
+        for model in contract.models:
+            written += [role.type for role in model.roles]
+        for signal in contract.signals:
+            written += [param.type for param in signal.params]
+        for slot in contract.slots:
+            written += [param.type for param in slot.params]
+            if slot.return_type is not None:
+                written.append(slot.return_type)
+    return written
+
+
+def _type_includes(syn: SynFile) -> List[str]:
+    """The Qt headers this file's types need, as `.rep` directives, sorted."""
+    needed = {TYPE_INCLUDES[base_of(written)] for written in _written_types(syn)
+              if base_of(written) in TYPE_INCLUDES}
+    if syn.forwards_session and any(contract.slots for contract in syn.contracts):
+        needed.add("QVariantMap")
+    return sorted(needed)
+
+
+def _bounds_a_var(syn: SynFile) -> bool:
+    """Does anything here bound a `var`, and so need the serialized-size helper?"""
+    return any(is_generic(written) and bound_of(written) is not None
+               for written in _written_types(syn))
+
+
+ACTING_FOR_SHIM = """// A slot names the Caller it is answering for as long as it runs, so that a call the
+// owner's implementation makes on to another entity carries the same person. That lives in
+// the consumer runtime, which a contract-only target does not link and has nothing to call
+// out to either, so there it is a name that does nothing.
+#if __has_include(<actingfor.h>)
+#  include <actingfor.h>
+using SynqtActingFor = SynQt::ActingFor;
+#else
+namespace {
+struct SynqtActingFor
+{
+    explicit SynqtActingFor(QObject *) {}
+    ~SynqtActingFor() = default;
+};
+} // namespace
+#endif
+"""
+
+
+VARIANT_BYTES_HELPER = """namespace {
+// What a var costs on the wire. `var[n]` bounds a value whose type says nothing about how
+// big it is, so the only measure that means anything is what it serializes to, and that is
+// measured rather than estimated.
+qsizetype synqtVariantBytes(const QVariant &value)
+{
+    QByteArray buffer;
+    QDataStream stream{&buffer, QIODevice::WriteOnly};
+    stream << value;
+    return buffer.size();
+}
+} // namespace
+"""
 
 
 # rep
@@ -97,6 +181,14 @@ def emit_rep(syn: SynFile) -> str:
     records = syn.record_names
     path = f"{syn.stem}.syn"
     lines: List[str] = [SPDX_CPP.rstrip("\n"), ""]
+
+    # repc copies these into the header it generates, ahead of the declarations that need
+    # them. Without them a contract naming a date or a URL compiles only by the luck of
+    # something else having included it first.
+    includes = _type_includes(syn)
+    if includes:
+        lines += [f"#include <{header}>" for header in includes]
+        lines.append("")
 
     for record in syn.records:
         fields = ", ".join(
@@ -111,22 +203,22 @@ def emit_rep(syn: SynFile) -> str:
         lines.append(f"class {contract.name}")
         lines.append("{")
         for member in contract.members:
-            lines.append("    " + _lower_member(member, records, path))
+            lines.append("    " + _lower_member(syn, member, records, path))
         lines.append("}")
         lines.append("")
 
     return "\n".join(lines).rstrip("\n") + "\n"
 
 
-def _lower_member(member, records, path) -> str:
+def _lower_member(syn: SynFile, member, records, path) -> str:
     if isinstance(member, Model):
-        # repc's roles are names. The declared types are ours to enforce, at the
+        # repc's roles are names. The declared types are the generator's to enforce, at the
         # publish boundary in the Source helper.
         return f"MODEL {member.name}({', '.join(role.name for role in member.roles)})"
     if isinstance(member, Signal):
         return f"SIGNAL({member.name}({_param_list(member.params, records, path)}))"
     if isinstance(member, Slot):
-        params = _param_list(member.params, records, path)
+        params = _slot_params(syn, member, records, path)
         if member.return_type is None:
             return f"SLOT(void {member.name}({params}))"
         ret = cpp_type(member.return_type, records, path=path, line=member.line, col=member.col)
@@ -161,7 +253,7 @@ def emit_source_helper_header(syn: SynFile, lstem: str) -> str:
     records = syn.record_names
     path = f"{syn.stem}.syn"
     for contract in syn.contracts:
-        out.append(_source_helper_class(contract, records, path))
+        out.append(_source_helper_class(syn, contract, records, path))
         out.append("")
     # The typed Caller subclass (emit<Signal> sugar) is only meaningful when this Source is
     # hosted by the service runtime, which is the only thing that binds a Caller. Guard it on
@@ -205,7 +297,7 @@ def _caller_subclass(contract: Contract, records, path) -> str:
     return "\n".join(lines)
 
 
-def _source_helper_class(contract: Contract, records, path) -> str:
+def _source_helper_class(syn: SynFile, contract: Contract, records, path) -> str:
     name = contract.name
     lines = [
         "// Owner-side helper: the QML type the connect point's server file derives",
@@ -293,7 +385,7 @@ def _source_helper_class(contract: Contract, records, path) -> str:
         lines.append("    // implementation (a QML function of the same name); a slot the owner")
         lines.append("    // did not implement is a no-op (or returns a default).")
         for slot in contract.slots:
-            lines.append("    " + _slot_signature(slot, records, path) + " override;")
+            lines.append("    " + _slot_signature(syn, slot, records, path) + " override;")
         lines.append("")
     if contract.signals:
         lines.append("    // Deliver a contract signal to the acquiring consumer(s). On a")
@@ -323,8 +415,8 @@ def _source_helper_class(contract: Contract, records, path) -> str:
     return "\n".join(lines)
 
 
-def _slot_signature(slot: Slot, records, path) -> str:
-    params = _param_list(slot.params, records, path)
+def _slot_signature(syn: SynFile, slot: Slot, records, path) -> str:
+    params = _slot_params(syn, slot, records, path)
     if slot.return_type is None:
         return f"void {slot.name}({params})"
     ret = cpp_type(slot.return_type, records, path=path, line=slot.line, col=slot.col)
@@ -364,18 +456,26 @@ def emit_source_helper_source(syn: SynFile, lstem: str) -> str:
         out += ["#include <QMetaType>",
                 "#include <QStandardItem>", "",
                 "#include <utility>", ""]
-    # Present whenever a service runtime is linked, absent for a contract-only target; the
+    if _bounds_a_var(syn):
+        out += ["#include <QByteArray>",
+                "#include <QDataStream>",
+                "#include <QIODevice>", ""]
+    # Present whenever a service runtime is linked, absent for a contract-only target. The
     # registration below is guarded the same way.
     out += ["#if __has_include(<sourcefactory.h>)",
             "#  include <sourcefactory.h>",
             "#endif", ""]
+    if any(contract.slots for contract in syn.contracts):
+        out += [ACTING_FOR_SHIM, ""]
+    if _bounds_a_var(syn):
+        out += [VARIANT_BYTES_HELPER, ""]
     has_slots = any(contract.slots for contract in syn.contracts)
     if has_slots:
         out += [SLOT_DISPATCH_HELPER, ""]
     records = syn.record_names
     path = f"{syn.stem}.syn"
     for contract in syn.contracts:
-        out.append(_source_helper_impl(contract, records, path))
+        out.append(_source_helper_impl(syn, contract, records, path))
         out.append("")
 
     out.append(f"void synqtRegister{_cap(syn.stem)}Sources()")
@@ -417,7 +517,7 @@ def emit_source_helper_source(syn: SynFile, lstem: str) -> str:
     return "\n".join(out)
 
 
-def _source_helper_impl(contract: Contract, records, path) -> str:
+def _source_helper_impl(syn: SynFile, contract: Contract, records, path) -> str:
     name = contract.name
     lines: List[str] = []
 
@@ -472,7 +572,7 @@ def _source_helper_impl(contract: Contract, records, path) -> str:
         lines.append("")
 
     for slot in contract.slots:
-        lines.append(_slot_impl(name, slot, records, path))
+        lines.append(_slot_impl(syn, name, slot, records, path))
     if contract.slots:
         lines.append("")
 
@@ -565,7 +665,7 @@ def _bounded_prop_impl(class_name: str, prop, records, path) -> str:
     ctype = cpp_type(prop.type, records, path=path, line=prop.line, col=prop.col)
     helper = f"{class_name}SourceHelper"
     where = f"{class_name}.{prop.name}"
-    guard = _length_guard(prop.type, prop.name, where, prop.name, ["return;"], "    ")
+    guard = _bound_guard(prop.type, prop.name, where, prop.name, ["return;"], "    ")
     body = "\n".join(guard + [
         f"    {class_name}SimpleSource::set{_cap(prop.name)}({prop.name});",
     ])
@@ -575,10 +675,20 @@ def _bounded_prop_impl(class_name: str, prop, records, path) -> str:
 def _emit_signal_impl(class_name: str, signal: Signal, records, path) -> str:
     params = _param_list(signal.params, records, path)
     args = ", ".join(p.name for p in signal.params)
+    # The owner is the one raising this, but a bound is a statement about what crosses the
+    # link, not about who wrote the value. An over-long reason string is refused on the way
+    # out too, so a consumer never receives something the contract says cannot arrive.
+    # Caller.emit<Signal>(...) lands here as well, so one guard covers both ways of sending.
+    where = f"{class_name}.{signal.name}"
+    lines: List[str] = []
+    for param in signal.params:
+        lines += _bound_guard(param.type, param.name, where, param.name, ["return;"], "    ")
+    lines.append(f"    Q_EMIT {signal.name}({args});")
+    body = "\n".join(lines)
     return "\n".join([
         f"void {class_name}SourceHelper::emit{_cap(signal.name)}({params})",
         "{",
-        f"    Q_EMIT {signal.name}({args});",
+        body,
         "}",
     ])
 
@@ -631,14 +741,19 @@ def _role_conversion(class_name: str, model: Model, role, index: int, records, p
     its declared type, and a value that will not convert refuses the publish.
     """
     key = f'QStringLiteral("{role.name}")'
-    if base_of(role.type) == "var":
-        return [
-            f"        // {role.name}: declared var, so whatever arrives is what crosses.",
-            f"        item->setData(row.value({key}), Qt::UserRole + {index});",
-        ]
-    ctype = cpp_type(role.type, records, path=path, line=role.line, col=role.col)
     where = f"{class_name}.{model.name}"
     refuse = ["qDeleteAll(items);", "return;"]
+    if is_generic(role.type):
+        lines = [
+            f"        // {role.name}: declared {role.type}, so whatever arrives is what "
+            "crosses.",
+            f"        const QVariant {role.name}Value{{row.value({key})}};",
+        ]
+        lines += _bound_guard(role.type, f"{role.name}Value", where, role.name, refuse,
+                              " " * 8)
+        lines.append(f"        item->setData({role.name}Value, Qt::UserRole + {index});")
+        return lines
+    ctype = cpp_type(role.type, records, path=path, line=role.line, col=role.col)
     lines = [
         f"        // {role.name}: declared {role.type}.",
         f"        QVariant {role.name}Value{{row.value({key})}};",
@@ -646,10 +761,6 @@ def _role_conversion(class_name: str, model: Model, role, index: int, records, p
         f"            {role.name}Value = QVariant{{QMetaType::fromType<{ctype}>()}};",
         "        } else {",
     ]
-    # The range is read before the conversion, because converting is what would wrap the
-    # value: past this point a too-large number looks like a perfectly ordinary small one.
-    lines += _range_guard(role.type, f"{role.name}Value", where, role.name, refuse,
-                          " " * 12)
     lines += [
         f"            if (!{role.name}Value.convert(QMetaType::fromType<{ctype}>())) {{",
         '                qWarning("%s row %lld: role \'%s\' is declared %s and a %s does '
@@ -662,8 +773,8 @@ def _role_conversion(class_name: str, model: Model, role, index: int, records, p
         "                return;",
         "            }",
     ]
-    lines += _length_guard(role.type, f"{role.name}Value.toString()", where, role.name,
-                           refuse, " " * 12)
+    lines += _bound_guard(role.type, f"qvariant_cast<{ctype}>({role.name}Value)", where,
+                          role.name, refuse, " " * 12)
     lines += [
         "        }",
         f"        item->setData({role.name}Value, Qt::UserRole + {index});",
@@ -671,12 +782,12 @@ def _role_conversion(class_name: str, model: Model, role, index: int, records, p
     return lines
 
 
-def _slot_impl(class_name: str, slot: Slot, records, path) -> str:
+def _slot_impl(syn: SynFile, class_name: str, slot: Slot, records, path) -> str:
     helper = f"{class_name}SourceHelper"
     is_void = slot.return_type is None
     ret = "void" if is_void else cpp_type(
         slot.return_type, records, path=path, line=slot.line, col=slot.col)
-    params = _param_list(slot.params, records, path)
+    params = _slot_params(syn, slot, records, path)
     head = f"{ret} {helper}::{slot.name}({params})"
 
     # The owner implements the slot as a QML `function`, whose parameters are untyped
@@ -694,11 +805,26 @@ def _slot_impl(class_name: str, slot: Slot, records, path) -> str:
     where = f"{class_name}.{slot.name}"
     refuse = ["return;"] if is_void else [f"return {ret}{{}};"]
     lines: List[str] = []
+    if syn.forwards_session:
+        # Who the calling entity says it is acting for, taken before anything else so that
+        # every check below already sees the right Caller. Sent on every call, an empty one
+        # included, so a Caller reused by the next call never keeps the last one's session.
+        # A browser's Caller ignores it outright; see SynQt::Caller::assumeSession.
+        lines += [
+            "    if (m_synqtCaller) {",
+            '        QMetaObject::invokeMethod(m_synqtCaller.data(), "assumeSession",',
+            "                                  Qt::DirectConnection,",
+            f"                                  Q_ARG(QVariantMap, {SESSION_ARG}));",
+            "    }",
+        ]
     for param in slot.params:
-        lines += _length_guard(param.type, param.name, where, param.name, refuse, "    ")
+        lines += _bound_guard(param.type, param.name, where, param.name, refuse, "    ")
+    # Whoever this slot is answering, for as long as it runs: a call the owner's
+    # implementation makes on to another entity carries them, so the chain keeps its person.
+    lines.append(f"    const SynqtActingFor synqtActing{{m_synqtCaller.data()}};")
     # A mirror of a shared Source answers nothing itself: it binds its caller and hands the
     # call to the Source everybody shares, which is where the slot is implemented.
-    forward = f"m_synqtShared->{slot.name}({', '.join(p.name for p in slot.params)})"
+    forward = f"m_synqtShared->{slot.name}({_slot_args(syn, slot)})"
     lines += [
         "    if (m_synqtShared) {",
         "        m_synqtShared->synqtAdoptCaller(m_synqtCaller);",
@@ -914,7 +1040,8 @@ QMetaObject::Connection synqtRelay(QObject *from, const QByteArray &fromSignal,
 
 def emit_consumer_source(syn: SynFile, lstem: str) -> str:
     out: List[str] = [SPDX_CPP, f'#include "{lstem}_consumer.h"', "", "#if __has_include(<consumerbase.h>)"]
-    out += ['#  include "connectpointresolver.h"',
+    out += ['#  include "actingfor.h"',
+            '#  include "connectpointresolver.h"',
             '#  include "consumerfactory.h"', "",
             "#  include <QJSEngine>",
             "#  include <QMetaMethod>",
@@ -926,7 +1053,7 @@ def emit_consumer_source(syn: SynFile, lstem: str) -> str:
     records = syn.record_names
     path = f"{syn.stem}.syn"
     for contract in syn.contracts:
-        out.append(_consumer_impl(contract, records, path))
+        out.append(_consumer_impl(syn, contract, records, path))
         out.append("")
         out.append(_attached_impl(contract, records, path))
         out.append("")
@@ -947,7 +1074,7 @@ def emit_consumer_source(syn: SynFile, lstem: str) -> str:
     return "\n".join(out)
 
 
-def _consumer_impl(contract: Contract, records, path) -> str:
+def _consumer_impl(syn: SynFile, contract: Contract, records, path) -> str:
     name = contract.name
     cls = f"{name}Consumer"
     lines: List[str] = [
@@ -990,7 +1117,7 @@ def _consumer_impl(contract: Contract, records, path) -> str:
         ]
 
     for slot in contract.slots:
-        lines.append(_consumer_slot_impl(name, slot, records, path))
+        lines.append(_consumer_slot_impl(syn, name, slot, records, path))
         lines.append("")
 
     # bindReplica: (re)wire the property, model and signal relays from the Replica.
@@ -1028,10 +1155,16 @@ def _consumer_impl(contract: Contract, records, path) -> str:
     return "\n".join(lines)
 
 
-def _consumer_slot_impl(class_name: str, slot: Slot, records, path) -> str:
+def _consumer_slot_impl(syn: SynFile, class_name: str, slot: Slot, records, path) -> str:
     cls = f"{class_name}Consumer"
     params = _param_list(slot.params, records, path)
     qargs = _qarg_suffix(slot.params, records, path)
+    if syn.forwards_session:
+        # The session this entity is acting for right now, filled by the framework rather
+        # than by the call site. The caller writes the arguments the contract declares, and
+        # who they are answering is not one of them. Empty in a browser, which has nobody
+        # else's session to be acting for.
+        qargs = ", Q_ARG(QVariantMap, SynQt::ActingFor::current())" + qargs
     if slot.return_type is None:
         return "\n".join([
             f"void {cls}::{slot.name}({params})",

@@ -270,6 +270,28 @@ Layers, outermost to innermost:
 Client and consumer side checks (hiding a button, or an entity choosing not to
 call) are convenience only. The owner repeats every check.
 
+### The session that travels with a mesh call
+
+Only the first link of a chain authenticates a person. A connect point a service consumes
+therefore carries the session the calling entity is acting for, so that a service the
+browser can never reach still knows who a request is for (see
+[the session down the chain](runtime-api.md#the-session-down-the-chain)). Three properties
+make that safe to build on:
+
+- **It is authorization by certificate, then information.** The forwarded session is the
+  calling entity's assertion. It is worth trusting that entity and no more, which is a
+  decision the consumer allowlist already made. `Caller.entity` remains the check;
+  `Caller.identity` is what the check lets you read.
+- **The browser has no such field.** A connect point only the client consumes carries no
+  session on the wire at all, so there is nothing for a hand-crafted client to fill in. On
+  a point with both browser and service consumers the field exists, and a user's `Caller`
+  discards it: a browser's session is the credential the edge looked up at the upgrade,
+  and nothing inside a call can change who that is.
+- **The credential stays at the edge.** What travels is a key derived from the session id,
+  not the id. A downstream entity can correlate and can key its own state on it, and
+  cannot replay it at the edge. `Caller.setScope` stays the edge's alone, since only the
+  entity that authenticated a session may elevate it.
+
 ## Data minimization in the contract
 
 The contract is an allowlist of what may cross any link, and the framework cannot

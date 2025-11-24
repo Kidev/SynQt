@@ -91,7 +91,9 @@ class GeneratedCMakeTest(unittest.TestCase):
         text = cmakegen.render_tests_cmakelists(CONFIG)
         self.assertIn('synqt_add_contract(app_tests ROLE source '
                       'SYN "${SYNQT_APP_ROOT}/web/web/Auction.syn")', text)
-        self.assertIn('synqt_add_contract(app_tests ROLE source '
+        # The ledger is the mesh half, so its slots carry the session the edge is acting
+        # for, and the test target has to compile it the same way the entities do.
+        self.assertIn('synqt_add_contract(app_tests ROLE source FORWARDS_SESSION '
                       'SYN "${SYNQT_APP_ROOT}/db/relational/database/Ledger.syn")', text)
         self.assertNotIn("ROLE replica", text)
 

@@ -22,14 +22,8 @@ from .parser import parse_file
 
 
 def _write(path: str, content: str) -> None:
-    """Write only when the content differs.
-
-    The generator runs at CMake configure time, and `synqt build` reconfigures on every
-    invocation. Rewriting an identical header still moves its timestamp, which invalidates
-    every translation unit that includes it. With an unconditional write, a build with
-    nothing changed recompiled the whole entity, and the edit-rebuild cycle (and every
-    `synqt dev` hot reload) paid for it. Measured on the gavel example, a no-op build cost
-    72% of a clean one before this and 3% after. See benchmarks/buildtime/.
+    """Write only when the content differs, so an unchanged header keeps its timestamp and
+    dependents are not recompiled (see benchmarks/buildtime/).
     """
     try:
         with open(path, "r", encoding="utf-8") as handle:
@@ -41,13 +35,12 @@ def _write(path: str, content: str) -> None:
         handle.write(content)
 
 
-def generate(input_path: str, out_dir: str) -> List[str]:
-    """Parse ``input_path`` and write the generated artifacts into ``out_dir``.
-
-    Returns the list of written file paths. Raises :class:`SynError` on malformed
-    input.
+def generate(input_path: str, out_dir: str, forwards_session: bool = False) -> List[str]:
+    """Parse ``input_path`` and write the generated artifacts into ``out_dir``. Returns the
+    written paths. Raises :class:`SynError` on malformed input.
     """
     syn = parse_file(input_path)
+    syn.forwards_session = forwards_session
     lstem = syn.stem.lower()
     os.makedirs(out_dir, exist_ok=True)
 
@@ -76,6 +69,11 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("inputs", nargs="+", metavar="INPUT.syn", help="contract files to compile")
     parser.add_argument("--out", required=True, metavar="DIR", help="output directory")
     parser.add_argument("--quiet", action="store_true", help="do not list written files")
+    parser.add_argument(
+        "--forwards-session", action="store_true",
+        help="a service consumes this contract, so every slot carries the session the "
+             "calling entity is acting for",
+    )
     args = parser.parse_args(argv)
 
     for input_path in args.inputs:
@@ -83,7 +81,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             print(f"{input_path}: error: no such file", file=sys.stderr)
             return 1
         try:
-            written = generate(input_path, args.out)
+            written = generate(input_path, args.out, args.forwards_session)
         except SynError as error:
             print(error.format(), file=sys.stderr)
             return 1

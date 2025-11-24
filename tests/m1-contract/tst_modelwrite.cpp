@@ -14,7 +14,9 @@
 #include <QAbstractItemModelReplica>
 #include <QRemoteObjectHost>
 #include <QRemoteObjectNode>
+#include <QSignalSpy>
 #include <QTest>
+#include <QUrl>
 
 class TestModelWrite : public QObject
 {
@@ -85,7 +87,7 @@ private slots:
         QVERIFY(!(m_model->flags(m_model->index(0, 0)) & Qt::ItemIsEditable));
     }
 
-    // The other half of the same boundary. What the owner is allowed to publish. A
+    // The other half of the same boundary: what the owner is allowed to publish. A
     // declared role type is checked here, where the row is still the owner's, rather
     // than trusted and serialized.
 
@@ -148,6 +150,64 @@ private slots:
                                                 {QStringLiteral("secret"), QStringLiteral("x")}}});
         const QList<QByteArray> names{source.rows()->roleNames().values()};
         QVERIFY(!names.contains(QByteArrayLiteral("secret")));
+    }
+
+    // A bound written in the contract, at each boundary that has to keep it. What is
+    // refused stays refused. Nothing is truncated into a value that looks right.
+
+    void aPropOverItsBoundIsRefused()
+    {
+        BoundedSourceHelper source;
+        source.setLabel(QStringLiteral("fits"));
+        source.setLabel(QStringLiteral("far too long"));
+        QCOMPARE(source.label(), QStringLiteral("fits"));
+    }
+
+    void aUrlIsMeasuredAsTheTextItIs()
+    {
+        BoundedSourceHelper source;
+        source.setHome(QUrl{QStringLiteral("https://synqt.org")});
+        source.setHome(QUrl{QStringLiteral("https://synqt.org/a/rather/long/path")});
+        QCOMPARE(source.home(), QUrl{QStringLiteral("https://synqt.org")});
+    }
+
+    void aListIsMeasuredInElements()
+    {
+        BoundedSourceHelper source;
+        source.setRecent(QVariantList{1, 2, 3});
+        source.setRecent(QVariantList{1, 2, 3, 4});
+        QCOMPARE(source.recent().size(), 3);
+    }
+
+    void aRoleOverItsBoundRefusesThePublish()
+    {
+        BoundedSourceHelper source;
+        source.setRows(QVariantList{QVariantMap{{QStringLiteral("code"),
+                                                 QStringLiteral("ok")}}});
+        source.setRows(QVariantList{QVariantMap{{QStringLiteral("code"),
+                                                 QStringLiteral("toolong")}}});
+        QCOMPARE(source.rows()->rowCount(), 1);
+        QCOMPARE(source.rows()->index(0, 0).data(Qt::UserRole).toString(),
+                 QStringLiteral("ok"));
+    }
+
+    void aVarIsMeasuredByWhatItSerializesTo()
+    {
+        BoundedSourceHelper source;
+        source.setRows(QVariantList{QVariantMap{
+            {QStringLiteral("code"), QStringLiteral("ok")},
+            {QStringLiteral("blob"), QString{200, QLatin1Char('x')}}}});
+        QCOMPARE(source.rows()->rowCount(), 0);
+    }
+
+    void aSignalArgumentOverItsBoundIsNeverRaised()
+    {
+        BoundedSourceHelper source;
+        QSignalSpy spy{&source, &BoundedSource::refused};
+        source.emitRefused(QStringLiteral("short"));
+        QCOMPARE(spy.count(), 1);
+        source.emitRefused(QStringLiteral("much too long"));
+        QCOMPARE(spy.count(), 1);
     }
 
     void cleanupTestCase()

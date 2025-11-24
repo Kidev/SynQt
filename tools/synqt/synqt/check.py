@@ -1699,7 +1699,7 @@ def lint_contracts(project_dir: os.PathLike[str] | str) -> List[str]:
 # made), and a string handed to an int is a defect wherever it was written. A declared type
 # outside these, a record or a `var`, takes whatever it is given and is not judged here.
 _TYPE_FAMILIES = {
-    "int": "number", "real": "number", "double": "number", "float": "number",
+    "int": "number", "real": "number", "double": "number",
     "string": "text", "url": "text", "date": "text",
     "bool": "truth",
 }

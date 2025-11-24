@@ -16,8 +16,9 @@ Grammar (whitespace and ``//`` or ``/* */`` comments are insignificant)::
     role     := TYPE IDENT
     TYPE     := IDENT ['[' NUMBER ']']
 
-A bracketed number bounds the value (`string[64]` is at most 64 characters); which
-types accept one, and what the bound means, is in :mod:`synqtc.types`.
+A type is a built-in QML value type. A bracketed number bounds it (`string[64]` is at
+most 64 characters, `list[100]` at most 100 elements, `var[4096]` at most 4096 bytes on
+the wire); which types accept one, and what the bound counts, is in :mod:`synqtc.types`.
 
 The parser is deliberately strict: anything it cannot read is a :class:`SynError`
 with a source location, so a malformed contract fails the build clearly.

@@ -322,10 +322,11 @@ pragma Singleton
 
 import QtQuick
 
-// The '${name}' entity itself: one of it, for as long as the entity runs. State
-// that belongs to the whole entity goes here rather than in a Source, because a
-// Source can be created per session or per peer and anything shared has to
-// outlive any one of them. Every Source this entity owns reaches it as \`${type}\`.
+// The '${name}' entity itself: one of it, for as long as the entity runs, and one
+// whatever the entity answers to \`shared:\`. State that belongs to the whole
+// entity goes here rather than in a Source when the entity is not shared,
+// because a Source is then one caller's and dies with them.
+// Every Source this entity owns reaches it as \`${type}\`.
 QtObject {
     id: root
 }

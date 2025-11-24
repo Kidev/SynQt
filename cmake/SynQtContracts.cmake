@@ -9,10 +9,16 @@
 #
 #   synqt_add_contract(<target>
 #       ROLE source|replica|both        # which side(s) to generate for this target
+#       [FORWARDS_SESSION]              # a service consumes it, so calls carry the session
+#                                       # the calling entity is acting for
 #       SYN <file.syn> [<file.syn> ...]  # the contracts
 #   )
 #
-# The generator runs at configure time; editing a .syn or the generator itself
+# FORWARDS_SESSION has to match on both sides of a link. It changes the slot signatures in
+# the rep, so an owner compiled with it and a consumer compiled without would disagree about
+# the API. The build derives it from the topology, so the two always agree.
+#
+# The generator runs at configure time. Editing a .syn or the generator itself
 # re-runs CMake (and thus regenerates) automatically.
 
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
@@ -46,7 +52,7 @@ function(_synqt_write_if_changed path content)
 endfunction()
 
 function(synqt_add_contract target)
-    cmake_parse_arguments(ARG "" "ROLE" "SYN" ${ARGN})
+    cmake_parse_arguments(ARG "FORWARDS_SESSION" "ROLE" "SYN" ${ARGN})
     if(NOT ARG_ROLE)
         set(ARG_ROLE "both")
     endif()
@@ -69,6 +75,11 @@ function(synqt_add_contract target)
         target_link_libraries(${target} PRIVATE SynQtContract)
     endif()
 
+    set(gen_flags "")
+    if(ARG_FORWARDS_SESSION)
+        list(APPEND gen_flags "--forwards-session")
+    endif()
+
     # Per-target so several targets in one directory (owner, consumer, and a both-
     # sided test) can compile the same contracts with different roles without their
     # role-specific rep indirection headers colliding.
@@ -85,6 +96,7 @@ function(synqt_add_contract target)
             "${syn_abs}" ${SYNQTC_SOURCES})
         execute_process(
             COMMAND "${Python3_EXECUTABLE}" -m synqtc "${syn_abs}" --out "${gendir}" --quiet
+                    ${gen_flags}
             WORKING_DIRECTORY "${SYNQTC_ROOT}"
             RESULT_VARIABLE _gen_rc
             OUTPUT_VARIABLE _gen_out

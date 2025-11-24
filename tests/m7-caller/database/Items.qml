@@ -19,6 +19,11 @@ Items {
         if (Caller.entity !== "web") {
             return;   // the database refuses any caller other than the edge
         }
+        // The call is the edge's, and the edge is answering somebody: the session travels
+        // down the chain, so the person behind a write is knowable here without the edge
+        // having to spell them out in an argument. Still an assertion by the edge, worth
+        // exactly the certificate that got it through the handshake above.
+        items.actingFor = Caller.hasSession ? Caller.identity.sub : "";
         const id = nextId++;
         store.push({ id: id, text: text, author: author, ownerSub: ownerSub });
         items.count = store.length;

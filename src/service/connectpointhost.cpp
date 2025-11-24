@@ -137,6 +137,9 @@ QObject *ConnectPointHost::sourceForPeer(const MeshPeer &peer, QString *error)
         source = createSource(caller, this, error);
         if (source) {
             caller->setSource(source);
+            // The Source is told its Caller as well as the other way round, so a slot can
+            // name whoever it is answering when it calls on to the next entity in the chain.
+            SourceFactory::bindCaller(source, caller);
         }
     }
     if (!source) {

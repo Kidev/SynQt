@@ -35,6 +35,7 @@ class Caller : public QObject
     Q_PROPERTY(bool isUser READ isUser CONSTANT)
     Q_PROPERTY(bool isEntity READ isEntity CONSTANT)
     Q_PROPERTY(bool isEntityVerified READ isEntityVerified CONSTANT)
+    Q_PROPERTY(bool hasSession READ hasSession CONSTANT)
     Q_PROPERTY(QString id READ id CONSTANT)
     Q_PROPERTY(QVariant session READ session CONSTANT)
     Q_PROPERTY(QVariant identity READ identity CONSTANT)
@@ -66,12 +67,13 @@ public:
 
     bool isUser() const;
     bool isEntity() const;
-    bool isEntityVerified() const; ///< entity: certificate-verified; colocation-trusted: false
+    bool isEntityVerified() const; ///< entity: certificate-verified. Colocation-trusted: false
+    bool hasSession() const;   ///< is there a session behind this call, either way it arrived
     QString id() const;
-    QVariant session() const;  ///< user: {id, scope, identity}; entity: null
-    QVariant identity() const; ///< user: {sub, login, name, email} or null; entity: null
-    QString scope() const;     ///< user's granted scope; entity: empty
-    QString entity() const;    ///< verified entity name; user: empty
+    QVariant session() const;  ///< {key, scope, identity} and, on the edge, the id. Else null
+    QVariant identity() const; ///< {sub, login, name, email}, or null when anonymous
+    QString scope() const;     ///< the granted scope, empty when there is no session
+    QString entity() const;    ///< verified entity name. User: empty
 
     Q_INVOKABLE bool hasScope(const QString &scope) const;
     Q_INVOKABLE void setScope(const QString &scope,
@@ -112,6 +114,31 @@ public:
     /// called on the shared one.
     Q_INVOKABLE void adopt(QObject *other);
 
+    /// The session to hand a downstream entity, empty when there is none.
+    ///
+    /// A system is a chain, and only the first link authenticates a person: the browser
+    /// reaches the web edge, the edge reaches a service, that service reaches another. So
+    /// a slot call on a connect point reached over the mesh carries the session the calling
+    /// entity is acting for, and this is what it carries: the session's key, its scope, and
+    /// the identity behind it. Never the browser's credential, which stays at the edge and
+    /// is the one thing that could be replayed there.
+    ///
+    /// Reached by name from SynQt::ActingFor, which is in a library that knows nothing
+    /// about Caller.
+    Q_INVOKABLE QVariantMap forwardedSession() const;
+
+    /// Take the session the calling entity says it is acting for.
+    ///
+    /// Honored only for an entity caller. A browser's Caller ignores this outright: a
+    /// session arrives at the edge as a credential the edge looks up, and a value the
+    /// browser could put in a call is not that. Between entities it is an assertion, trusted
+    /// exactly as far as the certificate that authenticated the peer, and no further. The
+    /// caller stays the entity (\ref isUser is still false) with a session attached.
+    ///
+    /// Called on every mesh slot call, an empty map included, so a Caller reused by the next
+    /// call never keeps the last one's session.
+    Q_INVOKABLE void assumeSession(const QVariantMap &session);
+
     /// The scope vocabulary for hierarchical checks (order low->high). Empty == set-based.
     void setScopeOrder(const QStringList &order, bool hierarchical);
 
@@ -133,6 +160,10 @@ private:
 
     QPointer<SessionManager> m_sessions;
     QByteArray m_sessionId;
+    /// The session a calling entity said it was acting for, empty when it said nothing.
+    /// Read only through the accessors below, which prefer a live session of this edge's
+    /// own over any assertion, so a user caller can never be talked into being someone else.
+    QVariantMap m_forwarded;
     QString m_entity;
     QPointer<QObject> m_source;
     QStringList m_scopeOrder;

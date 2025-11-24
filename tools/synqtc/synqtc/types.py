@@ -3,62 +3,64 @@
 
 """The contract type vocabulary and its lowering to C++/rep types.
 
-A type is a name and, for the ones that can be bounded, a size in brackets:
-``string[64]`` is at most 64 characters, ``int16`` is a 16-bit integer. The size is
-part of the contract, not a comment about it: it decides how wide the value is on the
-wire, and the generated owner-side boundary refuses a value that does not fit rather
-than truncating it into something that looks fine.
+The vocabulary is the built-in QML value types: `bool`, `date`, `double`, `int`, `list`,
+`real`, `string`, `url`, `var`, `variant`. Four take a size in brackets: `string[64]` is at
+most 64 characters, `list[100]` at most 100 elements, `var[4096]` at most 4096 serialized
+bytes. The generated boundary refuses a value that does not fit.
 """
 
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Iterable, Optional, Tuple
+from typing import Iterable, Optional
 
 from .errors import SynError
 
-# The built-in scalar types a contract may use, mapped to their C++ spelling.
-#
-# The sized integers are here for the same reason a schema has them: a score that cannot
-# exceed a few thousand does not need eight bytes on every snapshot, and writing the width
-# down is also the only way a reader learns what the value is allowed to be. `int` is
-# int32 under another name, kept because most values are just numbers.
+#: The built-in QML value types, mapped to their C++ spelling
+#: (https://doc.qt.io/qt-6/qtqml-typesystem-valuetypes.html). `list` is a list of `var`; a
+#: typed list of rows is a `model`.
 BUILTIN_TYPES = {
-    "int": "int",
-    "int8": "qint8",
-    "int16": "qint16",
-    "int32": "int",
-    "int64": "qint64",
-    "uint8": "quint8",
-    "uint16": "quint16",
-    "uint32": "quint32",
-    "uint64": "quint64",
-    "string": "QString",
     "bool": "bool",
-    "real": "double",
-    "float": "float",
+    "date": "QDateTime",
     "double": "double",
+    "int": "int",
+    "list": "QVariantList",
+    "real": "double",
+    "string": "QString",
+    "url": "QUrl",
     "var": "QVariant",
+    "variant": "QVariant",
 }
 
-#: The inclusive range of each sized integer, for the boundary check the generator emits.
-#: Written out rather than computed so the generated code reads as the numbers a reviewer
-#: can check against the contract.
-INT_RANGES = {
-    "int": (-2147483648, 2147483647),
-    "int8": (-128, 127),
-    "int16": (-32768, 32767),
-    "int32": (-2147483648, 2147483647),
-    "int64": (-9223372036854775808, 9223372036854775807),
-    "uint8": (0, 255),
-    "uint16": (0, 65535),
-    "uint32": (0, 4294967295),
-    "uint64": (0, 18446744073709551615),
+#: The types that accept a bracketed size, and what the size counts.
+SIZED_TYPES = {
+    "string": "characters",
+    "url": "characters",
+    "list": "elements",
+    "var": "bytes",
+    "variant": "bytes",
 }
 
-#: Types that accept a bracketed size, and what the size means for each.
-SIZED_TYPES = {"string": "characters"}
+#: How the generated boundary measures a value of each bounded type, given an expression of
+#: its C++ type. `var` is measured by its serialized size.
+MEASURES = {
+    "string": lambda expr: f"{expr}.size()",
+    "url": lambda expr: f"{expr}.toString().size()",
+    "list": lambda expr: f"{expr}.size()",
+    "var": lambda expr: f"synqtVariantBytes({expr})",
+    "variant": lambda expr: f"synqtVariantBytes({expr})",
+}
+
+#: The types a value crosses as-is, with no conversion. `var` and its older spelling.
+GENERIC_TYPES = {"var", "variant"}
+
+#: Spelled by QML but not declarable, and each with a better answer in this grammar.
+NOT_A_DECLARATION = {
+    "void": "a slot with no return type is already void, so write 'slot {name}(...)'",
+    "enumeration": "an enumeration is not a value a contract can carry; send the "
+                   "'int' or the 'string' it stands for",
+}
 
 _TYPE_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)(?:\[([0-9]+)\])?$")
 
@@ -81,11 +83,8 @@ def parse_type(
     line: int,
     col: int,
 ) -> TypeRef:
-    """Split a written type into its base name and its bound.
-
-    Only the shape is checked here (``name`` or ``name[123]``). Whether the name resolves
-    and whether it may carry a bound at all is :func:`cpp_type`'s job, because that is
-    where the records declared alongside it are known.
+    """Split a written type into its base name and bound. Only the shape is checked;
+    :func:`cpp_type` validates the name and whether it may carry a bound.
     """
     match = _TYPE_RE.match(spelling)
     if not match:
@@ -117,9 +116,22 @@ def bound_of(spelling: str) -> Optional[int]:
     return int(match.group(2))
 
 
-def int_range(spelling: str) -> Optional[Tuple[int, int]]:
-    """The inclusive range of a written integer type, or None for anything else."""
-    return INT_RANGES.get(base_of(spelling))
+def is_generic(spelling: str) -> bool:
+    """Does this type carry whatever it is handed, with no conversion?"""
+    return base_of(spelling) in GENERIC_TYPES
+
+
+def measure(spelling: str, expr: str) -> Optional[str]:
+    """How to measure `expr` against this type's bound, or None if it has none."""
+    if bound_of(spelling) is None:
+        return None
+    sizer = MEASURES.get(base_of(spelling))
+    return None if sizer is None else sizer(expr)
+
+
+def unit_of(spelling: str) -> str:
+    """What a bound on this type counts: characters, elements, or bytes."""
+    return SIZED_TYPES.get(base_of(spelling), "units")
 
 
 def cpp_type(
@@ -130,14 +142,19 @@ def cpp_type(
     line: int,
     col: int,
 ) -> str:
-    """Lower a written type to its C++/rep spelling.
-
-    A type is valid if it is a built-in scalar or a record declared in the same contract
-    (records lower to their POD type by name). A bound is valid only on a type that has
-    something to bound; anything else is a clear error.
+    """Lower a written type to its C++/rep spelling: a built-in QML value type, or a record
+    declared in the same file (lowered to its POD). A bound only on a boundable type.
     """
     reference = parse_type(syn_type, path=path, line=line, col=col)
     known = sorted(BUILTIN_TYPES) + sorted(record_names)
+    if reference.base in NOT_A_DECLARATION and reference.base not in record_names:
+        advice = NOT_A_DECLARATION[reference.base].replace("{name}", "<name>")
+        raise SynError(
+            f"'{reference.base}' is not a type a contract declares; {advice}",
+            path=path,
+            line=line,
+            col=col,
+        )
     if reference.base not in BUILTIN_TYPES and reference.base not in record_names:
         raise SynError(
             f"unknown type '{reference.base}' (known types: {', '.join(known)})",
@@ -146,10 +163,10 @@ def cpp_type(
             col=col,
         )
     if reference.size is not None and reference.base not in SIZED_TYPES:
-        bounded = ", ".join(sorted(SIZED_TYPES))
+        bounded = ", ".join(f"{name}[n] ({unit})" for name, unit in sorted(SIZED_TYPES.items()))
         raise SynError(
             f"'{reference.base}' takes no bound in brackets; the types that do are "
-            f"{bounded} (an integer says its width in its name: int16, uint8, ...)",
+            f"{bounded}",
             path=path,
             line=line,
             col=col,

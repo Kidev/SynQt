@@ -174,8 +174,10 @@ def render_tests_cmakelists(config: Dict[str, Any]) -> str:
              "qt_add_executable(app_tests tests_main.cpp)"]
     # Every contract's Source half, because a test drives an owner and any connect point in
     # the project may be the one under test.
+    forwarding = appmodel.session_forwarding_contracts(config)
     for contract, relative in contracts.items():
-        lines.append(f"synqt_add_contract(app_tests ROLE source "
+        carries = " FORWARDS_SESSION" if contract in forwarding else ""
+        lines.append(f"synqt_add_contract(app_tests ROLE source{carries} "
                      f'SYN "${{SYNQT_APP_ROOT}}/{relative}")')
     lines += [
         "",
@@ -232,8 +234,10 @@ def _client_cmake(config: Dict[str, Any], client: Dict[str, Any], uri: str,
     lines += ["        " + qml_file for qml_file in qml_files]
     lines.append(")")
     paths = appmodel.contract_paths(config)
+    forwarding = appmodel.session_forwarding_contracts(config)
     for contract in contracts:
-        lines.append(f"synqt_add_contract({name} ROLE replica "
+        carries = " FORWARDS_SESSION" if contract in forwarding else ""
+        lines.append(f"synqt_add_contract({name} ROLE replica{carries} "
                      f'SYN "${{SYNQT_APP_ROOT}}/{paths[contract]}")')
     lines += [f'target_compile_definitions({name} PRIVATE SYNQT_EDGE_URL="${{SYNQT_EDGE_URL}}")',
               f"target_link_libraries({name} PRIVATE",
@@ -327,12 +331,14 @@ def _service_cmake(config: Dict[str, Any], entity: Dict[str, Any]) -> List[str]:
     paths = appmodel.contract_paths(config)
     lines = ["", f"    qt_add_executable({name} "
              f'"${{CMAKE_CURRENT_SOURCE_DIR}}/{folder}/main.cpp")']
-    for contract in appmodel.contracts_of(owned):
-        lines.append(f"    synqt_add_contract({name} ROLE source "
-                     f'SYN "${{SYNQT_APP_ROOT}}/{paths[contract]}")')
-    for contract in appmodel.contracts_of(consumed):
-        lines.append(f"    synqt_add_contract({name} ROLE replica "
-                     f'SYN "${{SYNQT_APP_ROOT}}/{paths[contract]}")')
+    # Whether a contract's slots carry a forwarded session is the topology's answer, not the
+    # contract's, and both sides of a link read it from here so they cannot disagree.
+    forwarding = appmodel.session_forwarding_contracts(config)
+    for role, points in (("source", owned), ("replica", consumed)):
+        for contract in appmodel.contracts_of(points):
+            carries = " FORWARDS_SESSION" if contract in forwarding else ""
+            lines.append(f"    synqt_add_contract({name} ROLE {role}{carries} "
+                         f'SYN "${{SYNQT_APP_ROOT}}/{paths[contract]}")')
     # Qt6::Gui for the edge because its main runs a QGuiApplication. A service runs a
     # QCoreApplication and gets Gui only if it owns a connect point, where it arrives with
     # SynQtContract (the published model is a QStandardItemModel).

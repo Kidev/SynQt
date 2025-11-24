@@ -17,6 +17,8 @@
 find_package(Qt6 6.11 REQUIRED COMPONENTS Core Qml RemoteObjects GLOBAL)
 
 qt_add_library(SynQtConsumer STATIC
+    actingfor.cpp
+    actingfor.h
     connectpointresolver.cpp
     connectpointresolver.h
     consumerbase.cpp

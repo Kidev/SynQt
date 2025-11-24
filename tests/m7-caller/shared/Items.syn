@@ -8,6 +8,10 @@
 // params replicate reliably) and the edge maintains its view from them.
 contract Items {
     prop int count                                            // number of stored rows
+    // Who the edge said it was acting for on the last write, as the database saw it. The
+    // browser is two links away and never reaches here, so this is the forwarded session
+    // and nothing else could have set it.
+    prop string actingFor
     slot insert(string text, string author, string ownerSub)
     slot remove(int id)
     signal itemAdded(int id, string text, string author, string ownerSub)
