@@ -59,9 +59,9 @@ Every node has a handle on each of its four sides; drag any of them and drop the
 consumer. That direction is the whole meaning of the line, so it is the thing the canvas asks
 you to say first, it is drawn as a filled cap on the owner and an arrowhead on the consumer,
 and the point is named for it: dropping a line from `edge` onto `app` gives you
-`edgeToApp`, carrying the `EdgeToApp` contract in `web/edge/EdgeToApp.syn`, implemented in
-`web/edge/EdgeToApp.qml`. Rename it to whatever it actually carries the moment you know; nothing
-depends on the name it arrived with.
+`edgeToApp`, exporting the `EdgeToApp` type and implemented in `web/edge/EdgeToApp.qml`.
+Rename it to whatever it actually carries the moment you know; nothing depends on the name it
+arrived with, and the type is named after the point, so renaming one renames both.
 
 Drop the line on empty canvas instead and the palette opens there: pick a kind and that entity
 is made where you let go, consuming the point in the same gesture.
@@ -89,8 +89,8 @@ deleting one takes the connect points it owned with it.
 ## The same project as text
 
 The pane under the canvas is the project this drawing is, open from the start: `synqt.yaml`,
-the QML of every entity under its own directory, and one contract per connect point
-beside the Source that answers it. It is rebuilt from the drawing on every edit, so it can never be showing an older
+which carries what crosses every connect point, and the QML of every entity under its own
+directory. It is rebuilt from the drawing on every edit, so it can never be showing an older
 design than the canvas above it. **Hide** collapses it to the strip along the bottom, which is
 also what opens it again.
 

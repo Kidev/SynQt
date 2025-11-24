@@ -386,6 +386,12 @@ def _render_field(key: str, value: Any) -> List[str]:
     keeps the flow form, because `consumers: [client]` is how it is written by hand, and a
     list of mappings is indented under its key, which safe_dump declines to do.
     """
+    if isinstance(value, str) and "\n" in value.strip("\n"):
+        # A block scalar, because the value is lines and a reader has to read them. The
+        # quoted form safe_dump would pick is correct YAML and unreadable prose, and this
+        # is how a connect point's `export:` is written by hand.
+        body = [line.rstrip() for line in value.strip("\n").splitlines()]
+        return [f"{key}: |"] + [f"  {line}" if line else "" for line in body]
     if _is_scalar(value):
         return [f"{key}: {_scalar_text(value)}"]
     if isinstance(value, (list, tuple)):

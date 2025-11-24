@@ -35,12 +35,9 @@ def _config():
             {"name": "jobs", "type": "jobs"},
         ],
         "connect_points": [
-            {"name": "items", "owner": "database", "contract": "Items",
-             "consumers": ["web"]},
-            {"name": "todo", "owner": "web", "contract": "Todo",
-             "consumers": ["client"]},
-            {"name": "rollup", "owner": "jobs", "contract": "Rollup",
-             "consumers": ["database"], "transport": "local"},
+            {"name": "items", "owner": "database", "consumers": ["web"]},
+            {"name": "todo", "owner": "web", "consumers": ["client"]},
+            {"name": "rollup", "owner": "jobs", "consumers": ["database"], "transport": "local"},
         ],
     }
 
@@ -159,7 +156,7 @@ class WriteTest(unittest.TestCase):
         # no EntityRuntime and thus no topology.
         config = _config()
         config["connect_points"] = [
-            {"name": "todo", "owner": "web", "contract": "Todo", "consumers": ["client"]}]
+            {"name": "todo", "owner": "web", "consumers": ["client"]}]
         root = Path(tempfile.mkdtemp())
         written = topologywriter.write(root, config)
         self.assertNotIn("build/web/topology.json", written)
@@ -170,24 +167,17 @@ class WriteTest(unittest.TestCase):
         root = parent / "app"
         # Wire the edge to the relational entity so there is a real mesh link.
         config = yaml.safe_load((root / "synqt.yaml").read_text())
+        # The point says what crosses it. Declaring `items` and saying nothing leaves a
+        # project that cannot configure, and this test used to pass anyway: build() caught
+        # the CMake failure, returned it as a note, and carried on writing the topology
+        # this asserts on. It raises now, so the fixture has to be a project that really
+        # builds, which is the only version of it that proves anything.
         config["connect_points"] = [
-            {"name": "items", "owner": "orders", "contract": "Items",
-             "consumers": ["edge"]}]
+            {"name": "items", "owner": "orders", "consumers": ["edge"],
+             "export": "prop int count\n"}]
         (root / "synqt.yaml").write_text(yaml.safe_dump(config, sort_keys=False))
-        # The declared contract has to exist on disk. Declaring `items` without writing
-        # its file leaves a project that cannot configure, and this test used to pass
-        # anyway: build() caught the CMake failure, returned it as a note, and carried on
-        # writing the topology this asserts on. It raises now, so the fixture has to be a
-        # project that really builds, which is the only version of it that proves anything.
         owner = root / "db" / "relational" / "orders"
         owner.mkdir(parents=True, exist_ok=True)
-        (owner / "Items.syn").write_text(
-            "// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux\n"
-            "// SPDX-License-Identifier: Apache-2.0\n"
-            "\n"
-            "contract Items {\n"
-            "    prop int count\n"
-            "}\n")
 
         buildmod.build(root, release=True, client="wasm")
         topology_path = root / "build" / "orders" / "topology.json"

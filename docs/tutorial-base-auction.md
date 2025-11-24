@@ -3,33 +3,41 @@
 Goal: one item up for auction, with a current high bid that everyone sees update
 live. Anyone can place a bid.
 
-## Step 1: Declare what crosses the wire (a contract)
+## Step 1: Declare what crosses the wire (a connect point)
 
-In SynQt, two entities talk through a connect point: a named live object that one
-entity owns and others see a live copy of. You declare its shape once, in a
-contract, so both sides agree on it and the compiler checks it.
+In SynQt, two entities talk through a connect point, a named live object that one
+entity owns and others see a live copy of. You declare it once, in `synqt.yaml`, with who
+owns it, who may use it, and the shape of what crosses it. Both sides agree on that shape and
+the compiler checks it.
 
-Create `web/edge/Auction.syn`:
+Open `synqt.yaml` and add:
 
-```syn
-// The shape of the auction that the browser and the edge share.
-//   prop   : a value the owner sets and consumers see update
-//   slot   : a request a consumer makes; the owner decides what to do
-//   signal : a message the owner sends back to consumers
-contract Auction {
-    prop string itemName        // what is up for auction
-    prop int highBid            // the current highest bid
-    prop string highBidder      // who holds the high bid right now
-    slot placeBid(string bidder, int amount)
-    signal bidRejected(string reason)
-}
+```yaml
+connect_points:
+  - name: auction
+    owner: edge               # the edge holds the real auction
+    consumers: [app]          # the browser may watch and bid
+    # The shape of the auction that the browser and the edge share.
+    #   prop   : a value the owner sets and consumers see update
+    #   slot   : a request a consumer makes, and the owner decides what to do
+    #   signal : a message the owner sends back to consumers
+    export: |
+      prop string[120] itemName   // what is up for auction
+      prop int highBid            // the current highest bid
+      prop string[80] highBidder  // who holds the high bid right now
+      slot placeBid(string[80] bidder, int amount)
+      signal bidRejected(string[120] reason)
 ```
+
+The point is called `auction`, so the type it exports is `Auction`. That is the name you
+will write in QML in a moment, and nothing else names it.
 
 > [!NOTE]
 > Notice the directions. Properties flow from the owner out to everyone watching.
 > Slots flow the other way: a consumer asks, and the owner decides. That one
 > directional trust is the whole point, and you will feel why in a moment. The
-> full contract format is in [the programming model](programming-model.md).
+> full contract format, and the sizes in those brackets, are in
+> [the programming model](programming-model.md#the-types-a-contract-can-name).
 
 ## Step 2: Hold the lot
 
@@ -94,20 +102,7 @@ There is one of these per browser session, which is exactly why `Caller` means a
 a single Source shared by every browser could not be told which of them was calling. The
 lot is shared and the answering is not, and the two files above are that split.
 
-## Step 4: Wire it into the project
-
-Tell SynQt this connect point exists, who owns it, and who may use it. Open
-`synqt.yaml` and add:
-
-```yaml
-connect_points:
-  - name: auction
-    owner: edge               # the edge holds the real auction
-    consumers: [app]          # the browser may watch and bid
-    server: web/edge/Auction.qml
-```
-
-## Step 5: Build the UI
+## Step 4: Build the UI
 
 Open `client/app/Main.qml` and replace its contents:
 
@@ -174,7 +169,7 @@ ApplicationWindow {
 `Server` is how the browser reaches the edge's connect points. `Server.auction` is
 the live copy of the auction the edge owns.
 
-## Step 6: Run it
+## Step 5: Run it
 
 Save everything and look at the browser. You should see the lasagna and a current
 bid of 0. Place a bid of 50. The current bid jumps to 50 with your name.

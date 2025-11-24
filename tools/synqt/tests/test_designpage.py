@@ -50,8 +50,8 @@ DOCUMENT = {
          "provider": "sqlite", "targets": [], "identity": False, "x": 680, "y": 40},
     ],
     "links": [
-        {"name": "auction", "contract": "Auction", "owner": "edge", "consumers": ["app"],
-         "instance": "caller", "transport": "", "members": [
+        {"name": "auction", "owner": "edge", "consumers": ["app"],
+         "transport": "", "members": [
              {"kind": "prop", "name": "highest", "type": "int", "params": [], "roles": []},
              {"kind": "model", "name": "bids", "type": "", "params": [],
               "roles": [{"type": "string", "name": "who"},
@@ -62,8 +62,8 @@ DOCUMENT = {
               "params": [{"type": "int", "name": "amount"}], "roles": []},
              {"kind": "slot", "name": "watch", "type": "", "params": [], "roles": []},
          ]},
-        {"name": "records", "contract": "Records", "owner": "books",
-         "consumers": ["edge"], "instance": "caller", "transport": "", "members": []},
+        {"name": "records", "owner": "books",
+         "consumers": ["edge"], "transport": "", "members": []},
     ],
 }
 
@@ -192,12 +192,13 @@ def test_the_downloaded_project_passes_the_real_check(rendered):
     assert ok, messages
 
 
-def test_the_downloaded_contract_is_what_the_member_table_said(rendered):
-    source = next(file["text"] for file in rendered["files"]
-                  if file["name"].endswith("Auction.syn"))
+def test_the_downloaded_export_is_what_the_member_table_said(rendered):
+    written = next(file["text"] for file in rendered["files"]
+                   if file["name"] == "gavel/synqt.yaml")
+    point = next(one for one in yaml.safe_load(written)["connect_points"]
+                 if one["name"] == "auction")
     # Parsed by the compiler the build runs, not by a reading of our own.
-    members = designdoc.parse_from_text(source, "Auction")
-    assert members == DOCUMENT["links"][0]["members"]
+    assert designdoc.parse_export("Auction", point) == DOCUMENT["links"][0]["members"]
 
 
 def test_the_downloaded_source_is_the_one_the_cli_would_have_written(rendered):
@@ -208,11 +209,11 @@ def test_the_downloaded_source_is_the_one_the_cli_would_have_written(rendered):
     for link in DOCUMENT["links"]:
         owner = next(entity for entity in DOCUMENT["entities"]
                      if entity["name"] == link["owner"])
-        relative = appmodel.source_path(owner, link["contract"])
+        contract = appmodel.contract_of(link)
+        relative = appmodel.source_path(owner, contract)
         written = next(file["text"] for file in rendered["files"]
                        if file["name"] == f"gavel/{relative}")
-        assert written == addcontract.source_stub(link["contract"], link["name"],
-                                                  link["members"])
+        assert written == addcontract.source_stub(contract, link["name"], link["members"])
 
 
 def test_a_source_declares_the_members_the_contract_carries(rendered):
@@ -261,12 +262,10 @@ def test_a_services_own_file_is_the_singleton_the_build_registers(rendered):
     assert "\npragma Singleton\n" in written
 
 
-def test_the_download_is_a_zip_holding_the_configuration_and_every_contract(rendered):
+def test_the_download_is_a_zip_holding_the_configuration_and_every_file(rendered):
     archive = zipfile.ZipFile(io.BytesIO(base64.b64decode(rendered["zip"])))
     assert archive.testzip() is None
     assert archive.namelist() == ["gavel/synqt.yaml",
-                                  "gavel/web/edge/Auction.syn",
-                                  "gavel/db/relational/books/Records.syn",
                                   "gavel/client/app/Main.qml",
                                   "gavel/web/edge/Edge.qml",
                                   "gavel/web/edge/Auction.qml",
@@ -355,17 +354,19 @@ def test_every_example_is_a_project_the_real_check_passes(examples):
         assert ok, f"example '{name}': {messages}"
 
 
-def test_every_example_contract_parses_as_the_members_it_declares(examples):
+def test_every_example_export_parses_as_the_members_it_declares(examples):
     for name, document in examples.items():
         rendered = _node(f"""
             import {{ projectFiles }} from {_module('project.js')};
             process.stdout.write(JSON.stringify(projectFiles({json.dumps(document)})));
         """)
+        written = next(file["text"] for file in rendered
+                       if file["name"].endswith("/synqt.yaml"))
+        points = {one["name"]: one for one in yaml.safe_load(written)["connect_points"]}
         for link in document["links"]:
-            source = next(file["text"] for file in rendered
-                          if file["name"].endswith(f"/{link['contract']}.syn"))
-            assert designdoc.parse_from_text(source, link["contract"]) == link["members"], \
-                f"example '{name}', contract {link['contract']}"
+            contract = appmodel.contract_of(link)
+            assert designdoc.parse_export(contract, points[link["name"]]) == link["members"], \
+                f"example '{name}', connect point {link['name']}"
 
 
 def test_the_page_and_the_cli_write_sharing_the_same_way():
@@ -382,9 +383,9 @@ def test_the_page_and_the_cli_write_sharing_the_same_way():
             {"name": "store", "type": "relational"},
         ],
         "links": [
-            {"name": "feed", "contract": "Feed", "owner": "edge", "consumers": ["app"],
+            {"name": "feed", "owner": "edge", "consumers": ["app"],
              "members": []},
-            {"name": "items", "contract": "Items", "owner": "store", "consumers": ["edge"],
+            {"name": "items", "owner": "store", "consumers": ["edge"],
              "members": []},
         ],
     }
@@ -402,8 +403,9 @@ def test_the_page_and_the_cli_write_sharing_the_same_way():
 
 def test_the_home_pages_project_is_the_one_the_home_page_reads():
     """The button under "What it looks like" opens this example, so the two have to be one
-    system. The page is markdown with the configuration and the contracts written out in
-    full, which is what makes this checkable rather than a promise in a comment."""
+    system. The page is markdown with the configuration written out in full, and the
+    configuration is what crosses every link, which is what makes this checkable rather
+    than a promise in a comment."""
     home = Path(__file__).resolve().parents[3] / "docs" / "index.md"
     if not home.is_file():                       # the tests, without the repository
         pytest.skip("the documentation is not beside these tests")
@@ -416,18 +418,14 @@ def test_the_home_pages_project_is_the_one_the_home_page_reads():
     assert [point["name"] for point in shown["connect_points"]] == \
         [link["name"] for link in feed["links"]]
     for point, link in zip(shown["connect_points"], feed["links"]):
-        # The page leaves `contract:` out where it is the point's own name, exactly as the
-        # writers do, so the two are compared on what each resolves to.
-        assert appmodel.contract_of(point) == link["contract"]
+        # Nothing names the contract on either side: the type a point exports is the point's
+        # own name, so the two are compared on what each resolves to.
+        assert appmodel.contract_of(point) == appmodel.contract_of(link)
         assert point["owner"] == link["owner"]
         assert point["consumers"] == link["consumers"]
-
-    for link in feed["links"]:
-        source = re.search(rf"```syn\n(contract {link['contract']} \{{.*?\}})\n```",
-                           page, re.S)
-        assert source, f"the home page no longer shows contract {link['contract']}"
-        assert designdoc.parse_from_text(source.group(1), link["contract"]) == \
-            link["members"]
+        # And what crosses it, which the page now shows on the point rather than in a
+        # contract file of its own.
+        assert designdoc.parse_export(appmodel.contract_of(point), point) == link["members"]
 
 
 if __name__ == "__main__":

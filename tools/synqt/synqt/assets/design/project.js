@@ -90,11 +90,19 @@ export function isShared(entity) {
 
 function linkLines(design, link) {
     const lines = [`  - name: ${scalar(link.name)}`,
-                   `    contract: ${scalar(link.contract)}`,
                    `    owner: ${scalar(link.owner)}`,
                    `    consumers: ${listing(link.consumers || [])}`];
     if (link.transport) {
         lines.push(`    transport: ${scalar(link.transport)}`);
+    }
+    // What crosses the point, written on the point: the same block designdoc.render_export
+    // writes on the server side, as a YAML literal so it reads as the lines it is.
+    const members = link.members || [];
+    if (members.length) {
+        lines.push("    export: |");
+        for (const member of members) {
+            lines.push(`      ${memberLine(member)}`);
+        }
     }
     return lines;
 }
@@ -170,6 +178,13 @@ const TYPE_FOLDERS = {
     service: "service",
 };
 
+// The type a connect point exports: its own name, capitalized, the same rule
+// appmodel.contract_of applies. Nothing names it separately, because the point is named.
+export function contractOf(link) {
+    const name = String((link || {}).name || "");
+    return name ? name[0].toUpperCase() + name.slice(1) : "";
+}
+
 export function entityDir(entity) {
     const folder = TYPE_FOLDERS[entityType(entity)] || TYPE_FOLDERS.service;
     return `${folder}/${entity.name}`;
@@ -183,10 +198,6 @@ export function entityDir(entity) {
 // `synqt design` on it.
 export function sourcePath(owner, contract) {
     return `${entityDir(owner)}/${contract}.qml`;
-}
-
-export function contractPath(owner, contract) {
-    return `${entityDir(owner)}/${contract}.syn`;
 }
 
 export function sourceQml(contract, point, members) {
@@ -243,16 +254,6 @@ ApplicationWindow {
 `;
 }
 
-// One `.syn` source, matching what designdoc.render_contract writes on the server side.
-export function renderContract(name, members) {
-    const lines = [CONTRACT_HEADER, `contract ${name} {`];
-    for (const member of members || []) {
-        lines.push(`    ${memberLine(member)}`);
-    }
-    lines.push("}");
-    return `${lines.join("\n")}\n`;
-}
-
 // Where each entity's own QML lives, in the order the tree reads: its own file first, then one
 // Source per connect point it owns. A `qml` written on the entity or the link wins over the
 // generated one, because that is what the editor stores when somebody types into the pane; the
@@ -267,7 +268,7 @@ export function entityFiles(design, entity) {
     const sources = [];
     const seen = new Set();
     for (const link of design.links || []) {
-        const contract = String(link.contract || "");
+        const contract = contractOf(link);
         if (link.owner !== entity.name || !contract) {
             continue;
         }
@@ -334,27 +335,12 @@ QtObject {
 }
 
 // Every file the download holds, each under a directory named after the project: the
-// configuration, one contract per link that names one, and the QML of every entity. A link
-// whose contract has no members yet still gets both files, because the connect point already
-// refers to them and an entity with a connect point and no Source for it does not start.
+// configuration, which carries what crosses every link, and the QML of every entity. A link
+// with nothing on it yet still gets its Source, because the connect point already refers to
+// it and an entity with a connect point and no Source for it does not start.
 export function projectFiles(design) {
     const root = String(design.project || "app");
     const files = [{name: `${root}/synqt.yaml`, text: renderYaml(design)}];
-    const owners = new Map();
-    for (const entity of design.entities || []) {
-        owners.set(entity.name, entity);
-    }
-    const written = new Set();
-    for (const link of design.links || []) {
-        const contract = String(link.contract || "");
-        const owner = owners.get(link.owner);
-        if (!contract || !owner || written.has(contract)) {
-            continue;
-        }
-        written.add(contract);
-        files.push({name: `${root}/${contractPath(owner, contract)}`,
-                    text: renderContract(contract, link.members)});
-    }
     for (const entity of design.entities || []) {
         for (const file of entityFiles(design, entity)) {
             files.push({name: `${root}/${file.name}`, text: file.text,

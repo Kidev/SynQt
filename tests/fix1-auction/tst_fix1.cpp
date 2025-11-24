@@ -26,6 +26,8 @@
 #include "synclientconfig.h"
 
 #include "auction_sourcehelper.h"  // synqtRegisterAuctionSources()
+#include "consumerfactory.h"
+#include "ledger_consumer.h"       // LedgerConsumer, the edge's facade for the mesh half
 #include "ledger_sourcehelper.h"   // synqtRegisterLedgerSources()
 #include "hall_sourcehelper.h"     // synqtRegisterHallSources()
 
@@ -129,6 +131,17 @@ private slots:
         QVERIFY2(QSslSocket::supportsSsl(), "TLS backend unavailable");
         synqtRegisterAuctionSources();
         synqtRegisterLedgerSources();
+        // The edge reaches the books entity through the generated consumer facade, which is
+        // what fills in the session it is acting for; a raw dynamic Replica would not.
+        //
+        // Only the factory, not synqtRegisterLedgerConsumers(): that also registers the
+        // `Ledger` attached type under the same QML name as the Source helper, and in a real
+        // system the owner and the consumer are two binaries so the two never meet. Here
+        // they are one process, and whichever registered last would be what `Ledger {}` in
+        // the books entity's QML resolves to.
+        SynQt::registerConsumerFactory(
+            QStringLiteral("Ledger"),
+            []() -> SynQt::ConsumerBase * { return new LedgerConsumer{}; });
         synqtRegisterHallSources();
 
         // The database entity owns `ledger`, on an OS-assigned mTLS port.
@@ -307,7 +320,14 @@ private slots:
             loadPrivateKey(QStringLiteral(FIX1_CERT_DIR "/auditor.key"))));
 
         QTRY_VERIFY(auditorLedger && auditorLedger->isReplicaValid());
+        // The auditor forges the session too, claiming to be acting for an admin. A
+        // forwarded session is an assertion by the calling entity, so a rogue one may assert
+        // anything; what it cannot do is be the edge, and that is the check it dies on.
+        QVariantMap forged;
+        forged.insert(QStringLiteral("key"), QStringLiteral("forged"));
+        forged.insert(QStringLiteral("scope"), QStringLiteral("admin"));
         QVERIFY(QMetaObject::invokeMethod(auditorLedger.get(), "recordWinner",
+                                          Q_ARG(QVariantMap, forged),
                                           Q_ARG(QString, QStringLiteral("smuggled lot")),
                                           Q_ARG(QString, QStringLiteral("impostor")),
                                           Q_ARG(int, 1000000)));

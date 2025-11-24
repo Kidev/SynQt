@@ -75,19 +75,19 @@ pinning a stale worker forever.
 
 Two consequences worth planning for:
 
-- **A visitor mid-session keeps the client they loaded with.** They are not interrupted,
+- A visitor mid-session keeps the client they loaded with. They are not interrupted,
   and they are also not on your new code until they come back. Roll out edge changes that
   the old client can still talk to, or accept a window where both are live. A contract is
-  the boundary that makes this manageable: the same `.syn` generates both ends, so an
+  the boundary that makes this manageable. One declaration generates both ends, so an
   incompatible change is a compile error somewhere rather than a mystery in production.
-- **If your deployment does not allow service workers**, set `build.client_cache: http`
+- If your deployment does not allow service workers, set `build.client_cache: http`
   and the edge's `ETag` layer does the job with one conditional request per visit. Slower,
   simpler, no CacheStorage quota.
 
 ## Step 4: The desktop client, if you ship one
 
 The auction's client entity can also be built as a native app. Nothing about the
-deployment changes: it reaches the same edge over the same `wss://` link, holds no secret
+deployment changes. It reaches the same edge over the same `wss://` link, holds no secret
 and no mesh certificate, and is authorized by the same user sessions. What changes is that
 you are now handing an executable to a stranger's machine.
 

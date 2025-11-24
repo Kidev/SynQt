@@ -268,7 +268,7 @@ def dev(project_dir: os.PathLike[str] | str, *, port: int = 8080,
     print(summary)
     if watch:
         names = " and ".join(configmod.config_filenames(profile))
-        print(f"  Watching *.qml, *.syn and {names} for changes (hot reload on). "
+        print(f"  Watching *.qml and {names} for changes (hot reload on). "
               "Press Ctrl-C to stop.")
         state = {"processes": processes, "config": config, "profile": profile}
         _watch_loop(root, state, port, client)
@@ -299,7 +299,7 @@ class SourceWatcher:
 
     _IGNORED_DIRS = {appmodel.GENERATED_DIR, "build", ".git", "synqt", "node_modules",
                      "toolchain"}
-    _WATCHED_SUFFIXES = {".qml", ".syn"}
+    _WATCHED_SUFFIXES = {".qml"}
 
     def __init__(self, root: os.PathLike[str] | str,
                  config_names: Tuple[str, ...] = ("synqt.yaml",)) -> None:
@@ -335,15 +335,15 @@ class SourceWatcher:
 def _categorize(changed: Set[Path], root: Path, config: Dict[str, Any],
                 config_names: Tuple[str, ...] = ("synqt.yaml",)) -> Tuple[bool, bool]:
     """Decide whether a change touches the host side (services/edge), the client side, or
-    both. A topology (a configuration file) or contract (.syn) change affects both; an
-    entity's QML is attributed to that entity's side."""
+    both. A configuration file is the topology and what crosses every link, so a change to
+    one affects both. An entity's QML is attributed to that entity's side."""
     services = {e.get("name") for e in appmodel.entities(config)
                 if appmodel.is_service(e)}
     client_name = next((e.get("name") for e in appmodel.entities(config)
                         if appmodel.is_client(e)), None)
     host = client = False
     for path in changed:
-        if path.name in config_names or path.suffix == ".syn":
+        if path.name in config_names:
             return True, True
         try:
             top = path.relative_to(root).parts[0]

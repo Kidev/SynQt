@@ -219,27 +219,25 @@ class TestAdd:
                      "--family", "cache"])[0] == 0
         assert seen == {"name": "Acme", "family": "cache"}
 
-    def test_add_contract_reaches_the_contract_scaffolder(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(addcontract, "scaffold_contract",
-                            lambda project_dir, name, owner: f"contract {name} on {owner}")
-        code, out, _ = _run(["add", "contract", "Todo", "--owner", "edge",
-                             "--project-dir", str(tmp_path)])
-        assert code == 0
-        assert "contract Todo on edge" in out
+    def test_there_is_no_add_contract_because_a_contract_is_not_a_thing_to_add(self,
+                                                                               tmp_path):
+        # What crosses a link is written on the link, so adding one is the whole gesture.
+        with pytest.raises(SystemExit):
+            _run(["add", "contract", "Todo", "--owner", "edge",
+                  "--project-dir", str(tmp_path)])
 
     def test_add_connect_point_splits_the_consumer_list(self, tmp_path, monkeypatch):
         seen = {}
 
-        def scaffold(project_dir, name, owner=None, consumers=None, contract=None):
-            seen.update(name=name, owner=owner, consumers=consumers, contract=contract)
+        def scaffold(project_dir, name, owner=None, consumers=None):
+            seen.update(name=name, owner=owner, consumers=consumers)
             return "connect point added"
 
         monkeypatch.setattr(addcontract, "scaffold_connect_point", scaffold)
         assert _run(["add", "connect-point", "todo", "--project-dir", str(tmp_path),
-                     "--owner", "web", "--contract", "Todo",
+                     "--owner", "web",
                      "--consumers", "client,database"])[0] == 0
-        assert seen == {"name": "todo", "owner": "web", "consumers": ["client", "database"],
-                        "contract": "Todo"}
+        assert seen == {"name": "todo", "owner": "web", "consumers": ["client", "database"]}
 
     def test_an_empty_consumer_list_is_no_consumers_not_one_empty_name(self, tmp_path,
                                                                       monkeypatch):
@@ -248,7 +246,7 @@ class TestAdd:
                             lambda project_dir, name, **kwargs:
                             seen.update(kwargs) or "added")
         assert _run(["add", "connect-point", "scores", "--project-dir", str(tmp_path),
-                     "--owner", "database", "--contract", "Scores"])[0] == 0
+                     "--owner", "database"])[0] == 0
         assert seen["consumers"] == []
 
 

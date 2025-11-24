@@ -58,3 +58,5 @@ connect_points:
   - name: greeting
     owner: edge
     consumers: [app, gw]
+    export: |
+      prop string[120] message

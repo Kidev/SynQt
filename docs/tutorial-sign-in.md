@@ -67,10 +67,10 @@ GITHUB_CLIENT_SECRET=your-generated-secret
 ## Step 2: Use the real identity, not a typed name
 
 Now that the edge knows who the caller is, the bidder should come from their
-identity, not a text field. Change the contract in `web/edge/Auction.syn`:
+identity, not a text field. Change the `auction` point's `export:` in `synqt.yaml`:
 
-```syn
-slot placeBid(int amount)   // no more bidder argument; the edge knows who you are
+```yaml
+      slot placeBid(int amount)   // no more bidder argument; the edge knows who you are
 ```
 
 Update `web/edge/Auction.qml` to authorize the user and use their identity:
@@ -178,10 +178,10 @@ laid out in [security](security.md).
 Let us give one person, the auctioneer, the power to close the current lot and put
 up the next one. This shows a higher permission level (admin).
 
-Add to `web/edge/Auction.syn`:
+Add to the `auction` point's `export:`:
 
-```syn
-slot closeLot(string nextItem)
+```yaml
+      slot closeLot(string[120] nextItem)
 ```
 
 Resetting the lot is a change to the lot, which lives in the edge entity, so add the

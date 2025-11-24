@@ -33,7 +33,8 @@ import os
 from pathlib import Path
 from typing import Any, Dict, List
 
-from . import appmodel, authentity, cmakegen, graphics as graphicsmod, maingen, writer
+from . import (appmodel, authentity, cmakegen, contractgen, graphics as graphicsmod,
+               maingen, writer)
 
 
 def generate(project_dir: os.PathLike[str] | str, config: Dict[str, Any], *,
@@ -61,6 +62,10 @@ def generate(project_dir: os.PathLike[str] | str, config: Dict[str, Any], *,
     # what its author wrote (appmodel.GENERATED_DIR).
     generated = appmodel.generated_dir(root)
     generated.mkdir(parents=True, exist_ok=True)
+
+    # The contracts first. Everything below points a compiler at them, and a connect point
+    # declares its shape in `synqt.yaml` rather than in a file of its own.
+    written += contractgen.write_contracts(root, config)
 
     writer.write_if_changed(generated / "CMakeLists.txt",
                             cmakegen.render_root_cmakelists(config, synqt_root, root))

@@ -46,6 +46,10 @@ connect_points:
   - name: greeting
     owner: edge
     consumers: [app]
+    # One ordinary browser-facing point, so this fixture's edge is a real edge and its
+    # generated CMake still resolves an app contract. What is under test is elsewhere.
+    export: |
+      prop string[120] message
 
 identity:
   provider_entity: auth

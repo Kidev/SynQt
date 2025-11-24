@@ -254,18 +254,10 @@ def build_parser() -> argparse.ArgumentParser:
     entity.add_argument("--provider")
     provider = add_sub.add_parser("provider"); provider.add_argument("name")
     provider.add_argument("--family", required=True)
-    contract = add_sub.add_parser("contract"); contract.add_argument("name")
-    contract.add_argument("--owner", required=True,
-                          help="the entity that owns it; the contract is written in that "
-                               "entity's folder, beside the Source that answers it")
     connect_point = add_sub.add_parser("connect-point"); connect_point.add_argument("name")
     connect_point.add_argument("--owner", required=True)
     connect_point.add_argument("--consumers", default="", help="comma-separated entity names")
-    connect_point.add_argument("--contract", default="",
-                               help="the contract it carries (default: the point's own "
-                                    "name capitalized; name it only where two points "
-                                    "carry one shape)")
-    for ap in (auth, entity, provider, contract, connect_point):
+    for ap in (auth, entity, provider, connect_point):
         ap.add_argument("--project-dir", default=".")
     return parser
 
@@ -304,14 +296,10 @@ def _run_add(args: argparse.Namespace) -> int:
                                      provider=args.provider)
     elif args.what == "provider":
         message = addprovider.scaffold(args.project_dir, args.name, args.family)
-    elif args.what == "contract":
-        message = addcontract.scaffold_contract(args.project_dir, args.name,
-                                                owner=args.owner)
     else: # connect-point
         consumers = [c for c in args.consumers.split(",") if c]
         message = addcontract.scaffold_connect_point(
-            args.project_dir, args.name, owner=args.owner, consumers=consumers,
-            contract=args.contract or None)
+            args.project_dir, args.name, owner=args.owner, consumers=consumers)
     print(message)
     return 0
 

@@ -20,16 +20,6 @@ The smallest non trivial app: a counter every connected client sees update in
 real time. It demonstrates state shared by every browser, an edge owned property, and
 a client to edge request.
 
-### Contract, `web/edge/Counter.syn`
-
-```syn
-contract Counter {
-    prop int value          // edge owned; clients read, edge writes
-    slot increment()        // a request; the edge performs the change
-    slot decrement()
-}
-```
-
 ### Configuration, `synqt.yaml`
 
 ```yaml
@@ -52,6 +42,10 @@ connect_points:
     owner: edge               # the edge holds the authoritative Source
     consumers: [app]          # the browser may acquire it
     server: web/edge/Counter.qml
+    export: |
+      prop int value          // edge owned; clients read, edge writes
+      slot increment()        // a request; the edge performs the change
+      slot decrement()
     # the edge says shared: false, so each session gets its
     # own Source and each slot gets its Caller. The counter itself is one number for
     # everybody, so it lives in the edge entity's own file below.
@@ -149,23 +143,11 @@ but only signed in users may add, and a user may only remove their own items.
 Moderators may remove anything. It demonstrates login, scopes, per row ownership
 that never leaves the edge, and an edge to client refusal channel.
 
-### Contract, `web/edge/Todo.syn`
+### Configuration, `synqt.yaml`
 
-```syn
-contract Todo {
-    prop int count                          // number of items, edge owned
-    model items(string text, string author, bool done)   // only these cross to clients
-    slot add(string text)
-    slot remove(int index)
-    signal rejected(string reason)          // the edge explains a refusal to one client
-}
-```
-
-Note what is absent from the model role list: there is no `ownerId`. The edge
+Note what is absent from the model role list below: there is no `ownerId`. The edge
 will keep an owner id per row for authorization, and it will never reach any
 client because it is not a declared role.
-
-### Configuration, `synqt.yaml`
 
 ```yaml
 project:
@@ -212,6 +194,12 @@ connect_points:
     owner: edge
     consumers: [app]
     server: web/edge/Todo.qml
+    export: |
+      prop int count                        // number of items, edge owned
+      model items(string[280] text, string[80] author, bool done)  // only these cross
+      slot add(string[280] text)
+      slot remove(int index)
+      signal rejected(string[120] reason)   // the edge explains a refusal to one client
     # the edge is not shared, so each slot has its Caller. The list everyone sees
     # lives in the edge entity's own file, which outlives any one connection.
     # no scope on the connect point: anonymous users may acquire it and read.
@@ -429,6 +417,9 @@ connect_points:
     server: web/edge/Draft.qml
     scope: user               # only signed in users may acquire it at all
                          # the edge is not shared: a draft Source per session
+    export: |
+      prop string[4000] body
+      slot save(string[4000] text)
 ```
 
 One user's draft is a different Source instance from another's, and this one touches no
@@ -490,6 +481,11 @@ connect_points:
     owner: edge               # the edge owns the user facing object
     consumers: [app]          # the browser may acquire it
     server: web/edge/Todo.qml
+    export: |
+      model items(string[280] text, string[80] author, bool done)  // only these cross
+      slot add(string[280] text)
+      slot remove(int index)
+      signal rejected(string[120] reason)
     # the edge says shared: false, which is what gives
     # the slots below their Caller
 
@@ -497,6 +493,12 @@ connect_points:
     owner: store              # the store entity owns durable storage
     consumers: [edge]         # only the edge may reach it; never the browser
     server: db/relational/store/Items.qml
+    export: |
+      record ItemRow(string[280] text, string[80] author, string[64] ownerSub)
+      slot var list()                  // rows { id, text, author, ownerSub } to the edge
+      slot insert(ItemRow row)
+      slot remove(int id)
+      signal changed()                 // tells the edge the data moved
     # shared: false on the owner, so one Source per calling entity and Caller.entity is
     # the verified name of the entity that called
 ```
@@ -508,34 +510,9 @@ database's `Caller.entity` check below rests on a verified certificate.
 `synqt mesh cert --all` issues the certificates for deployment; `synqt dev`
 provisions throwaway development ones automatically.
 
-### Contracts
-
-`web/edge/Todo.syn` (browser facing, owned by the edge):
-
-```syn
-contract Todo {
-    model items(string text, string author, bool done)   // only these cross to the browser
-    slot add(string text)
-    slot remove(int index)
-    signal rejected(string reason)
-}
-```
-
-`db/relational/store/Items.syn` (internal, owned by the database, consumed by the edge):
-
-```syn
-contract Items {
-    slot var list()                    // rows { id, text, author, ownerSub } to the edge
-    slot insert(ItemRow row)
-    slot remove(int id)
-    signal changed()                   // tells the edge the data moved
-}
-
-record ItemRow(string text, string author, string ownerSub)
-```
-
-Note `ownerSub` exists on the internal contract (the edge needs it to enforce
-ownership) but is absent from `Todo.items` roles, so it never reaches the browser.
+Note below that `ownerSub` exists on the internal `items` point (the edge needs it to
+enforce ownership) but is absent from `todo`'s `items` roles, so it never reaches the
+browser.
 
 ### The database entity, `db/relational/store/Items.qml`
 
@@ -709,11 +686,18 @@ connect_points:
     owner: edge               # the edge owns the browser-facing live catalog
     consumers: [app]
     server: web/edge/Catalog.qml
+    export: |
+      model offers(string[80] title, int price)
+      slot addToCart(string[40] sku)
 
   - name: inventory
     owner: stock              # the stock entity owns the durable stock
     consumers: [edge]         # only the edge; a client consumer here fails synqt check
     server: db/relational/stock/Inventory.qml
+    export: |
+      model items(string[40] sku, string[80] title, int price)
+      slot restock(string[40] sku, string[80] title, int price)
+      signal itemStocked(string[40] sku, string[80] title, int price)
 ```
 
 ### The delivered page, `web/edge/pages/Campaign.qml`

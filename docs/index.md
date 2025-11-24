@@ -159,14 +159,13 @@ allow. Here the browser asks for some data, the web edge checks the database
 whether that caller is allowed, and only then fetches the data from the api and
 sends it back.
 
-Nine files are that whole system: one configuration file, one contract per link,
-one QML file per entity, and the table the database keeps them in. Hover (or
+Six files are that whole system: one configuration file, which says what crosses each
+link, one QML file per entity, and the table the database keeps them in. Hover (or
 focus) any part of the diagram to read the file
 behind it, or pick the file out of the project tree beside it; it stays open
 until you move to another one. The database opens two, its QML and the table
 that QML queries, since neither says much without the other, and a directory in
-the tree opens everything in it, so the store's folder shows its contract, its
-QML and its table at once.
+the tree opens everything in it, so the store's folder shows both at once.
 Hover any line of
 a file to see what that line does, and a line that ends in an arrow opens the
 page covering it, whether that is a page of this guide or the class in the C++
@@ -225,8 +224,8 @@ reference.
   </g>
 
   <!-- One contract per link, each on the link it is shared across, because that is
-       what a connect point is: every one of the three in synqt.yaml names a
-       contract, and drawing it only on the browser link would say the two mesh
+       what a connect point is: every one of the three in synqt.yaml says what
+       crosses it, and drawing it only on the browser link would say the two mesh
        links are held together by something else. They are triggers like the four
        entities, so they are drawn like them: a document glyph at the size of an
        entity's own icon. Neutral, not colored like either side, since a contract
@@ -236,9 +235,8 @@ reference.
        None of the three carries a name in the label row (below): three of them
        repeated would crowd the two diagonal links, which already carry their own
        edge label and lock, and one name over one of them reads as a name for that
-       file rather than for the glyph. Each opens the contract its own link carries,
-       and all three are named in the tree, each in the folder of the entity that
-       owns it. -->
+       file rather than for the glyph. All three open the configuration, which is
+       where a link's shape is written. -->
   <g transform="translate(132,166) scale(1.5)" fill="none" stroke="#e5e7ff" stroke-width="0.9">
     <rect x="-4" y="-5" width="8" height="10" rx="1"/>
     <line x1="-2" y1="-1.5" x2="2" y2="-1.5"/>
@@ -373,9 +371,9 @@ reference.
 
 <div class="synqt-flow__hotspot synqt-flow__hotspot--user" data-file="client" tabindex="0" role="button" aria-label="Show client/app/Main.qml"></div>
 <div class="synqt-flow__hotspot synqt-flow__hotspot--hub" data-file="web" tabindex="0" role="button" aria-label="Show web/edge/Feed.qml"></div>
-<div class="synqt-flow__hotspot synqt-flow__hotspot--contract" data-file="contract" tabindex="0" role="button" aria-label="Show web/edge/Feed.syn"></div>
-<div class="synqt-flow__hotspot synqt-flow__hotspot--access-contract" data-file="access-contract" tabindex="0" role="button" aria-label="Show db/relational/store/Access.syn"></div>
-<div class="synqt-flow__hotspot synqt-flow__hotspot--upstream-contract" data-file="upstream-contract" tabindex="0" role="button" aria-label="Show api/feeds/Upstream.syn"></div>
+<div class="synqt-flow__hotspot synqt-flow__hotspot--contract" data-file="config" tabindex="0" role="button" aria-label="Show what the feed connect point carries"></div>
+<div class="synqt-flow__hotspot synqt-flow__hotspot--access-contract" data-file="config" tabindex="0" role="button" aria-label="Show what the access connect point carries"></div>
+<div class="synqt-flow__hotspot synqt-flow__hotspot--upstream-contract" data-file="config" tabindex="0" role="button" aria-label="Show what the upstream connect point carries"></div>
 <div class="synqt-flow__hotspot synqt-flow__hotspot--config" data-file="config" tabindex="0" role="button" aria-label="Show synqt.yaml"></div>
 <div class="synqt-flow__hotspot synqt-flow__hotspot--database" data-file="database schema" tabindex="0" role="button" aria-label="Show db/relational/store/Access.qml and db/relational/store/schema.sql"></div>
 <div class="synqt-flow__hotspot synqt-flow__hotspot--api" data-file="api" tabindex="0" role="button" aria-label="Show api/feeds/Upstream.qml"></div>
@@ -410,15 +408,21 @@ connect_points:
   - name: feed
     owner: edge
     consumers: [app]
-    server: web/edge/Feed.qml
+    export: |
+      prop bool loaded
+      model rows(int id, string[120] title)
+      slot load()
+      signal denied(string[120] reason)
   - name: access
     owner: store
     consumers: [edge]
-    server: db/relational/store/Access.qml
+    export: |
+      slot bool allows(string[64] sub)
   - name: upstream
     owner: feeds
     consumers: [edge]
-    server: api/feeds/Upstream.qml
+    export: |
+      slot var fetch()
 ```
 
 <ul class="synqt-flow__glossary" hidden>
@@ -430,6 +434,13 @@ connect_points:
 <li data-code="type: api" data-href="entities/">A gateway: it holds the third-party credentials and speaks HTTP. Calling out is granted by network:, which any entity may carry, so this is the folder and the scaffold rather than the permission.</li>
 <li data-code="consumers: [app]" data-href="project-layout-and-config/">The browser's one way in, and deny by default: an entity that is not on this list cannot open this connect point at all.</li>
 <li data-code="consumers: [edge]" data-href="entities/">The database is reachable by the edge, over mutual TLS, and by nothing else, browser included.</li>
+<li data-code="export: |" data-href="programming-model/">What may cross the link, and the whole of it. The point is named, so the type it exports takes that name: `feed` exports `Feed`, which is what both sides compile against.</li>
+<li data-code="prop bool loaded" data-href="programming-model/">Owner to consumers, pushed. A consumer sees it change; it cannot set it.</li>
+<li data-code="model rows(int id, string[120] title)" data-href="programming-model/">The roles listed here are the whole of what a row is allowed to carry to a browser, and the 120 is a rule the owner keeps, not a comment.</li>
+<li data-code="slot load()" data-href="programming-model/">Consumer to owner: the one direction a request travels.</li>
+<li data-code="signal denied(string[120] reason)" data-href="programming-model/">The owner's answer when it refuses, addressed to the caller that asked.</li>
+<li data-code="slot bool allows" data-href="programming-model/">A slot with a return type. The caller gets a promise, so the edge can wait on the answer without blocking anything else it is serving.</li>
+<li data-code="slot var fetch" data-href="programming-model/">The rows the gateway last brought back. Untyped because they are the third party's shape, not this system's; the edge is what turns them into a declared model.</li>
 </ul>
 
 </div>
@@ -484,60 +495,6 @@ ApplicationWindow {
 <li data-code="Server.feed.loaded" data-href="programming-model/">The contract's property, pushed by the edge. Read-only here: a consumer can never write owner state.</li>
 <li data-code="model: Server.feed.rows" data-href="programming-model/">A live model. The edge replaces the rows and every open tab redraws itself.</li>
 <li data-code="Server.feed.load()" data-href="api/?p=classSynQt_1_1ServerAccessor.html">A request, not a command. It runs in the edge, which is free to refuse it.</li>
-</ul>
-
-</div>
-
-<div class="synqt-file" data-file="contract" markdown>
-<span class="synqt-file__name"><strong>contract</strong><span class="synqt-flow__path">web/edge/Feed.syn</span></span>
-
-```syn
-contract Feed {
-    prop bool loaded
-    model rows(int id, string title)
-    slot load()
-    signal denied(string reason)
-}
-```
-
-<ul class="synqt-flow__glossary" hidden>
-<li data-code="contract Feed" data-href="programming-model/">The only thing both sides share. It compiles to the typed layer each of them links.</li>
-<li data-code="prop bool loaded" data-href="programming-model/">Owner to consumers, pushed. A consumer sees it change; it cannot set it.</li>
-<li data-code="model rows(int id, string title)" data-href="programming-model/">The roles listed here are the whole of what a row is allowed to carry to a browser.</li>
-<li data-code="slot load()" data-href="programming-model/">Consumer to owner: the one direction a request travels.</li>
-<li data-code="signal denied(string reason)" data-href="programming-model/">The owner's answer when it refuses, addressed to the caller that asked.</li>
-</ul>
-
-</div>
-
-<div class="synqt-file" data-file="access-contract" markdown>
-<span class="synqt-file__name"><strong>contract</strong><span class="synqt-flow__path">db/relational/store/Access.syn</span></span>
-
-```syn
-contract Access {
-    slot bool allows(string sub)
-}
-```
-
-<ul class="synqt-flow__glossary" hidden>
-<li data-code="contract Access" data-href="entities/">The database's link to the edge, written the same way as the browser's. Nothing in a contract says which side of the mesh it is on.</li>
-<li data-code="slot bool allows" data-href="programming-model/">A slot with a return type. The caller gets a promise, so the edge can wait on the answer without blocking anything else it is serving.</li>
-</ul>
-
-</div>
-
-<div class="synqt-file" data-file="upstream-contract" markdown>
-<span class="synqt-file__name"><strong>contract</strong><span class="synqt-flow__path">api/feeds/Upstream.syn</span></span>
-
-```syn
-contract Upstream {
-    slot var fetch()
-}
-```
-
-<ul class="synqt-flow__glossary" hidden>
-<li data-code="contract Upstream" data-href="programming-model/">Three connect points, three contracts. A contract is what one link carries, so each one is only as big as its link needs.</li>
-<li data-code="slot var fetch" data-href="programming-model/">The rows the gateway last brought back. Untyped here because they are the third party's shape, not this system's; the edge is what turns them into a declared model.</li>
 </ul>
 
 </div>
@@ -685,18 +642,15 @@ Upstream {
 <li class="synqt-tree__dir"><span class="synqt-tree__folder" data-file="client" tabindex="0" role="button" aria-label="Show the client entity">client</span></li>
 <li class="synqt-tree__dir synqt-tree__dir--nested"><span class="synqt-tree__folder" data-file="client" tabindex="0" role="button" aria-label="Show client/app/Main.qml">app</span></li>
 <li class="synqt-tree__leaf synqt-tree__leaf--deep"><span class="synqt-tree__file" data-file="client" tabindex="0" role="button" aria-label="Show client/app/Main.qml">Main.qml</span></li>
-<li class="synqt-tree__dir"><span class="synqt-tree__folder" data-file="web contract" tabindex="0" role="button" aria-label="Show the web edge entity">web</span></li>
-<li class="synqt-tree__dir synqt-tree__dir--nested"><span class="synqt-tree__folder" data-file="web contract" tabindex="0" role="button" aria-label="Show the edge's files">edge</span></li>
-<li class="synqt-tree__leaf synqt-tree__leaf--deep"><span class="synqt-tree__file" data-file="contract" tabindex="0" role="button" aria-label="Show web/edge/Feed.syn">Feed.syn</span></li>
+<li class="synqt-tree__dir"><span class="synqt-tree__folder" data-file="web" tabindex="0" role="button" aria-label="Show the web edge entity">web</span></li>
+<li class="synqt-tree__dir synqt-tree__dir--nested"><span class="synqt-tree__folder" data-file="web" tabindex="0" role="button" aria-label="Show the edge's files">edge</span></li>
 <li class="synqt-tree__leaf synqt-tree__leaf--deep"><span class="synqt-tree__file" data-file="web" tabindex="0" role="button" aria-label="Show web/edge/Feed.qml">Feed.qml</span></li>
-<li class="synqt-tree__dir"><span class="synqt-tree__folder" data-file="database schema access-contract" tabindex="0" role="button" aria-label="Show the relational entities">db/relational</span></li>
-<li class="synqt-tree__dir synqt-tree__dir--nested"><span class="synqt-tree__folder" data-file="database schema access-contract" tabindex="0" role="button" aria-label="Show the store entity's files">store</span></li>
-<li class="synqt-tree__leaf synqt-tree__leaf--deep"><span class="synqt-tree__file" data-file="access-contract" tabindex="0" role="button" aria-label="Show db/relational/store/Access.syn">Access.syn</span></li>
+<li class="synqt-tree__dir"><span class="synqt-tree__folder" data-file="database schema" tabindex="0" role="button" aria-label="Show the relational entities">db/relational</span></li>
+<li class="synqt-tree__dir synqt-tree__dir--nested"><span class="synqt-tree__folder" data-file="database schema" tabindex="0" role="button" aria-label="Show the store entity's files">store</span></li>
 <li class="synqt-tree__leaf synqt-tree__leaf--deep"><span class="synqt-tree__file" data-file="database schema" tabindex="0" role="button" aria-label="Show db/relational/store/Access.qml and db/relational/store/schema.sql">Access.qml</span></li>
 <li class="synqt-tree__leaf synqt-tree__leaf--deep"><span class="synqt-tree__file" data-file="database schema" tabindex="0" role="button" aria-label="Show db/relational/store/Access.qml and db/relational/store/schema.sql">schema.sql</span></li>
-<li class="synqt-tree__dir"><span class="synqt-tree__folder" data-file="api upstream-contract" tabindex="0" role="button" aria-label="Show the api entities">api</span></li>
-<li class="synqt-tree__dir synqt-tree__dir--nested"><span class="synqt-tree__folder" data-file="api upstream-contract" tabindex="0" role="button" aria-label="Show the feeds entity's files">feeds</span></li>
-<li class="synqt-tree__leaf synqt-tree__leaf--deep"><span class="synqt-tree__file" data-file="upstream-contract" tabindex="0" role="button" aria-label="Show api/feeds/Upstream.syn">Upstream.syn</span></li>
+<li class="synqt-tree__dir"><span class="synqt-tree__folder" data-file="api" tabindex="0" role="button" aria-label="Show the api entities">api</span></li>
+<li class="synqt-tree__dir synqt-tree__dir--nested"><span class="synqt-tree__folder" data-file="api" tabindex="0" role="button" aria-label="Show the feeds entity's files">feeds</span></li>
 <li class="synqt-tree__leaf synqt-tree__leaf--deep"><span class="synqt-tree__file" data-file="api" tabindex="0" role="button" aria-label="Show api/feeds/Upstream.qml">Upstream.qml</span></li>
 </ul>
 </div>

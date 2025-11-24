@@ -46,6 +46,11 @@ connect_points:
   - name: catalog
     owner: edge
     consumers: [app]
+    # Only these two roles cross the wire: the internal sku the edge keys stock on never
+    # reaches the browser-facing offers model.
+    export: |
+      model offers(string[80] title, int price)  // the live list the browser watches
+      slot addToCart(string[40] sku)   // a browser asks to add one to its cart
 
   # The durable stock: owned by the database, reachable only by the edge (never the
   # browser; a client consumer here fails `synqt check`, since the database is not a
@@ -53,9 +58,16 @@ connect_points:
   - name: inventory
     owner: stock
     consumers: [edge]
+    # The stock entity authorizes the calling ENTITY (Caller.entity === "edge"), never a
+    # user. A restocked item is announced as a scalar signal (scalars replicate reliably),
+    # and the edge maintains the browser-facing Catalog from it.
+    export: |
+      model items(string[40] sku, string[80] title, int price)        // the durable stock
+      slot restock(string[40] sku, string[80] title, int price)       // edge -> stock
+      signal itemStocked(string[40] sku, string[80] title, int price) // stock -> edge
 
 # The route table (top level, docs/project-layout-and-config.md). A route with `view:` is
-# compiled into the client bundle; a route with `remote:` is delivered by the edge at
+# compiled into the client bundle. A route with `remote:` is delivered by the edge at
 # navigation time, so it can be added or changed without a client rebuild.
 routes:
   - path: /

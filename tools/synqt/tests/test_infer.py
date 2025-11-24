@@ -13,7 +13,7 @@ import pytest
 import yaml
 
 from synqt import config as configmod
-from synqt import designdoc, designplan, infer
+from synqt import designdoc, designplan, infer, yamledit
 
 EXAMPLES = Path(__file__).resolve().parents[3] / "examples"
 
@@ -214,8 +214,7 @@ def _project(tmp_path):
         """), encoding="utf-8")
     return {"entities": [{"name": "app", "type": "client", "targets": ["wasm"]},
                          {"name": "edge", "type": "web_edge"}],
-            "connect_points": [{"name": "auction", "contract": "Auction",
-                                "owner": "edge", "consumers": ["app"]}]}
+            "connect_points": [{"name": "auction", "owner": "edge", "consumers": ["app"]}]}
 
 
 def test_collect_unions_both_ends_and_lists_the_consumers(tmp_path):
@@ -284,47 +283,54 @@ def test_what_the_scan_cannot_prove_is_marked_rather_than_asserted():
     edges = _example("arena")
     award = _member(edges["scores"].members, "award")
     assert award.certain is False
-    assert "check this type" in infer.render_syn(edges["scores"])
+    assert "check this type" in infer.render_export(edges["scores"])
 
 
-def test_a_rendered_contract_parses_as_a_contract():
+def test_a_rendered_export_parses_as_a_contract():
     config = yaml.safe_load((EXAMPLES / "gavel" / "synqt.yaml").read_text(encoding="utf-8"))
     edges = infer.collect(EXAMPLES / "gavel", config)
     for edge in edges:
-        assert designdoc.parse_from_text(infer.render_syn(edge), edge.contract)
+        assert designdoc.parse_export(
+            edge.contract, {"name": edge.point, "export": infer.render_export(edge)})
 
 
 def test_every_rendered_member_says_which_file_it_came_from():
-    rendered = infer.render_syn(_example("gavel")["auction"])
+    rendered = infer.render_export(_example("gavel")["auction"])
     assert "web/edge/Auction.qml:" in rendered
     assert "client/app/Main.qml:" in rendered
 
 
-def test_write_refuses_an_existing_contract_without_force(tmp_path):
+def test_write_refuses_a_point_that_already_says_what_crosses_it(tmp_path):
     project = _copy(tmp_path, "gavel")
     config = yaml.safe_load((project / "synqt.yaml").read_text(encoding="utf-8"))
     edges = infer.collect(project, config)
-    # gavel already has its contracts written. Overwriting a hand-written file with a
-    # guess is the one thing this command must never do without being told to.
+    # gavel's points already say. Overwriting somebody's own words with a guess is the one
+    # thing this command must never do without being told to.
     with pytest.raises(infer.InferError) as caught:
         infer.write(project, edges, config)
-    assert "web/edge/Auction.syn" in str(caught.value)
+    assert "'auction'" in str(caught.value)
     assert "--force" in str(caught.value)
 
     written = infer.write(project, edges, config, force=True)
-    assert "web/edge/Auction.syn" in written
-    assert designdoc.parse_contract(project / "web" / "edge" / "Auction.syn")
+    assert "auction" in written
+    rewritten = yaml.safe_load((project / "synqt.yaml").read_text(encoding="utf-8"))
+    point = next(p for p in rewritten["connect_points"] if p["name"] == "auction")
+    assert designdoc.parse_export("Auction", point)
 
 
-def test_write_creates_the_contracts_that_were_never_written(tmp_path):
+def test_write_fills_in_the_points_that_never_said(tmp_path):
     project = _copy(tmp_path, "gavel")
-    config = yaml.safe_load((project / "synqt.yaml").read_text(encoding="utf-8"))
-    for existing in project.rglob("*.syn"):
-        existing.unlink()
+    text = (project / "synqt.yaml").read_text(encoding="utf-8")
+    config = yaml.safe_load(text)
+    for point in config["connect_points"]:
+        text = yamledit.remove_field(text, "connect_points", point["name"], "export")
+    (project / "synqt.yaml").write_text(text, encoding="utf-8")
+    config = yaml.safe_load(text)
     written = infer.write(project, infer.collect(project, config), config)
-    assert sorted(written) == ["db/relational/books/Ledger.syn",
-                               "web/edge/Auction.syn", "web/edge/Hall.syn"]
-    assert designdoc.parse_contract(project / "web" / "edge" / "Hall.syn")
+    assert sorted(written) == ["auction", "hall", "ledger"]
+    rewritten = yaml.safe_load((project / "synqt.yaml").read_text(encoding="utf-8"))
+    hall = next(p for p in rewritten["connect_points"] if p["name"] == "hall")
+    assert designdoc.parse_export("Hall", hall)
 
 
 def test_the_json_output_is_a_design_document(tmp_path):
@@ -339,7 +345,7 @@ def test_the_json_output_is_a_design_document(tmp_path):
     # planner can be handed: what it reports is the drift between the two.
     plan = designplan.compute(project, document)
     assert plan.ok, "\n".join(plan.findings)
-    assert all(change.path.endswith(".syn") for change in plan.changes), \
+    assert all(change.path == "synqt.yaml" for change in plan.changes), \
         [change.path for change in plan.changes]
 
 

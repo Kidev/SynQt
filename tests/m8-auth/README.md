@@ -52,7 +52,7 @@ Those two connect points are framework contracts, not app contracts. They live i
 `src/identity/contracts/{Identity,SessionStore}.syn` and compile into `SynQtIdentity`, which is
 what lets `identity.provider_entity: auth` be a single line in a project's `synqt.yaml`:
 the generated auth `main.cpp` registers the Sources out of the runtime library, and no app
-carries a `shared/Identity.syn`. This suite hosts them exactly as that generated main does.
+writes an `export:` for either. This suite hosts them exactly as that generated main does.
 
 `auth/Identity.qml` and `auth/Session.qml` are the generator's own output, checked in here
 as the fixture. `tools/synqt/synqt/authentity.py` emits them and

@@ -284,7 +284,7 @@ def resolve(project_dir: os.PathLike[str] | str, *, profile: Optional[str] = Non
     sources.extend(applied)
     # Filled in here rather than at each of the two dozen places a contract name is read,
     # so no reader carries its own idea of the default and none of them can drift.
-    return Resolved(config=appmodel.normalized(config), sources=sources)
+    return Resolved(config=config, sources=sources)
 
 
 def load(project_dir: os.PathLike[str] | str, *, profile: Optional[str] = None,

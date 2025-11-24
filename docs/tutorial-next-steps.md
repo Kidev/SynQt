@@ -11,11 +11,11 @@ done several times already (creating a file, wiring a `connect_point`, running
 A restart keeps the Hall of Fame but forgets the bid in progress. Persist the
 current lot too.
 
-Add to `db/relational/books/Ledger.syn`:
+Add to the `ledger` point's `export:` in `synqt.yaml`:
 
-```syn
-slot saveCurrent(string item, int amount, string bidder)
-slot var loadCurrent()    // returns the saved lot, or null if none
+```yaml
+      slot saveCurrent(string[120] item, int amount, string[80] bidder)
+      slot var loadCurrent()    // returns the saved lot, or null if none
 ```
 
 Add one row to `db/relational/books/schema.sql` (a single row table for "the current lot"):
@@ -153,15 +153,6 @@ Let a signed in user set a private maximum that only they can see. One Source pe
 caller is already the default, so the value lives in that user's own object and is
 invisible to everyone else, while still following them from tab to tab.
 
-`web/edge/Proxy.syn`:
-
-```syn
-contract Proxy {
-    prop int maxBid
-    slot setMax(int amount)
-}
-```
-
 The connect point, in `synqt.yaml`. What makes the value private is `shared: false` on
 the edge, which gives each bidder a Source of their own:
 
@@ -172,6 +163,9 @@ connect_points:
     consumers: [app]
     server: web/Proxy.qml
     scope: user               # only signed in users get one at all
+    export: |
+      prop int maxBid
+      slot setMax(int amount)
 ```
 
 `web/edge/Proxy.qml`:

@@ -12,7 +12,7 @@ import pytest
 import yaml
 
 from synqt import check as checkmod
-from synqt import typebackend
+from synqt import typebackend, yamledit
 
 EXAMPLES = Path(__file__).resolve().parents[3] / "examples"
 
@@ -43,10 +43,20 @@ def test_a_slot_the_qml_calls_and_the_contract_lacks_is_an_error(tmp_path):
     assert any(m.startswith("error:") and "placeBidNow" in m for m in messages)
 
 
+def _declare(project, point, line):
+    """Add one member to what a connect point exports."""
+    path = project / "synqt.yaml"
+    text = path.read_text(encoding="utf-8")
+    config = yaml.safe_load(text)
+    export = next(p for p in config["connect_points"] if p["name"] == point)["export"]
+    path.write_text(yamledit.patch_item(text, "connect_points", point,
+                                        {"export": export + line + "\n"}),
+                    encoding="utf-8")
+
+
 def test_a_declared_member_nobody_uses_is_a_note(tmp_path):
     project = _copy(tmp_path, "gavel")
-    syn = project / "web" / "edge" / "Auction.syn"
-    syn.write_text(syn.read_text().replace("}", "    prop int unused\n}"))
+    _declare(project, "auction", "prop int unused")
     messages = checkmod.lint_contract_drift(_config(project), project)
     assert any(m.startswith("note:") and "unused" in m for m in messages)
 
@@ -56,8 +66,7 @@ def test_dynamic_access_suppresses_the_unused_note_for_that_point(tmp_path):
     main = project / "client" / "app" / "Main.qml"
     main.write_text(main.read_text()
                     + "\nQtObject { property var v: Server[n].x }\n")
-    syn = project / "web" / "edge" / "Auction.syn"
-    syn.write_text(syn.read_text().replace("}", "    prop int unused\n}"))
+    _declare(project, "auction", "prop int unused")
     assert not any("unused" in m for m in
                    checkmod.lint_contract_drift(_config(project), project))
 

@@ -1,7 +1,12 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-"""``synqt add contract`` and ``synqt add connect-point``: scaffold the typed boundary."""
+"""``synqt add connect-point``: scaffold the typed boundary.
+
+One command, because a connect point and the shape of what crosses it are one thing: the
+point is written into ``synqt.yaml`` with a starter ``export:`` block, and the owner-side
+Source is written beside the owner's other files. There is nothing else to add.
+"""
 
 from __future__ import annotations
 
@@ -13,17 +18,13 @@ import yaml
 
 from synqt import appmodel, qmlscan, yamledit
 
-_CONTRACT_TEMPLATE = """// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
-// SPDX-License-Identifier: Apache-2.0
-
-// A SynQt contract: the typed shape of what may cross a connect point. Only declared
-// model roles ever reach a consumer; props are READPUSH (consumers read, cannot set).
-contract {name} {{
-    prop int count                       // owner writes, consumers read
-    model rows(int id, string text)      // only these roles cross to consumers
-    slot add(string text)             // a consumer -> owner request; authorize Caller
-    signal changed()                  // the owner notifies consumers
-}}
+#: The starter `export:` a new connect point is written with: the typed shape of what may
+#: cross it. Only declared model roles ever reach a consumer, and props are READPUSH
+#: (consumers read them, and cannot set them).
+_EXPORT_TEMPLATE = """prop int count                    // owner writes, consumers read
+model rows(int id, string[200] text)   // only these roles cross to consumers
+slot add(string[200] text)        // a consumer -> owner request, so authorize Caller
+signal changed()                  // the owner notifies consumers
 """
 
 _SOURCE_TEMPLATE = """// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
@@ -203,24 +204,9 @@ def _root_note(project_dir: os.PathLike[str] | str, owner: Dict[str, Any],
             "another file with 'server:'."]
 
 
-def scaffold_contract(project_dir: os.PathLike[str] | str, name: str, *, owner: str) -> str:
-    entity = owner_entity(project_dir, owner)
-    check_qml_name(name, entity_type=appmodel.entity_type(entity), entity=entity)
-    relative = appmodel.contract_path(entity, name)
-    path = Path(project_dir) / relative
-    if path.exists():
-        raise AddContractError(f"{path} already exists")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(_CONTRACT_TEMPLATE.format(name=name))
-    return (f"Scaffolded {relative}.\n"
-            f"  - Wire it into a connect point: synqt add connect-point <name> "
-            f"--contract {name} --owner {owner} --consumers <a,b>")
-
-
 def scaffold_connect_point(project_dir: os.PathLike[str] | str, name: str, *,
-                           owner: str, consumers: List[str],
-                           contract: Optional[str] = None) -> str:
-    contract = contract or appmodel.contract_of({"name": name})
+                           owner: str, consumers: List[str]) -> str:
+    contract = appmodel.contract_of({"name": name})
     owning = owner_entity(project_dir, owner)
     check_qml_name(contract, entity_type=appmodel.entity_type(owning), entity=owning)
     config_path = Path(project_dir) / "synqt.yaml"
@@ -240,13 +226,10 @@ def scaffold_connect_point(project_dir: os.PathLike[str] | str, name: str, *,
         raise AddContractError(f"a connect point named '{name}' already exists")
 
     # Spliced into the text rather than dumped over it: the file is the author's, and one
-    # added entry is not a reason to lose their comments and their formatting.
-    # `contract:` only where it is not what the point resolves to on its own. Writing the
-    # same answer twice is a line to keep in step for nothing.
-    block: Dict[str, Any] = {"name": name, "owner": owner, "consumers": consumers}
-    if contract != appmodel.contract_of({"name": name}):
-        block = {"name": name, "contract": contract, "owner": owner,
-                 "consumers": consumers}
+    # added entry is not a reason to lose their comments and their formatting. What crosses
+    # the point is written on the point, so the starter block goes in with it.
+    block: Dict[str, Any] = {"name": name, "owner": owner, "consumers": consumers,
+                             "export": _EXPORT_TEMPLATE}
     config_path.write_text(yamledit.append_item(
         config_path.read_text(), "connect_points", block))
     owning = owner_entity(project_dir, owner)
@@ -261,7 +244,6 @@ def scaffold_connect_point(project_dir: os.PathLike[str] | str, name: str, *,
         steps.extend(_root_note(project_dir, owning, contract)
                      or [f"  - {appmodel.source_path(owning, contract)} is already there; "
                          "authorize Caller in every slot it implements."])
-    if not (Path(project_dir) / appmodel.contract_path(owning, contract)).exists():
-        steps.append(f"  - Declare what crosses: synqt add contract {contract} "
-                     f"--owner {owner}")
+    steps.append("  - What crosses it is the point's 'export:' block in synqt.yaml; "
+                 "the starter one there is an example to replace.")
     return "\n".join(steps)

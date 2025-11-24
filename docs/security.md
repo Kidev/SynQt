@@ -538,10 +538,10 @@ page protects the page's markup, never the data the page later reads.
   installers, so every entity builds on the same tested toolchain.
 - Native dependencies, if any, go through vcpkg with a pinned baseline, recorded and
   auditable.
-- The generated contract layer is reproducible from the project's `.syn` files and is
-  not edited by hand, so it cannot hide unreviewed behavior.
+- The generated contract layer is reproducible from what the connect points in
+  `synqt.yaml` export, and is not edited by hand, so it cannot hide unreviewed behavior.
 - The official entity types (relational, cache, document, api, jobs) are part
-  of the framework and reviewed; using one does not pull in an unaudited third party
+  of the framework and reviewed. Using one does not pull in an unaudited third party
   product.
 
 ## Logging and observability

@@ -107,20 +107,21 @@ is what a fresh project uses with no configuration.
 
 The type provides a `Db` helper exposed to the entity's QML for parameterized
 queries (always parameterized, never string built, to prevent SQL injection). With
-the SQLite provider it talks to the embedded engine; with another relational
-provider it talks to that engine through the same helper. The connect point's
-contract declares a model whose listed roles are all that ever reach a consumer,
-and the generated Source exposes `set<Model>` to publish rows (see
+the SQLite provider it talks to the embedded engine. With another relational
+provider it talks to that engine through the same helper. The connect point declares a
+model whose listed roles are all that ever reach a consumer, and the generated Source
+exposes `set<Model>` to publish rows (see
 [the programming model](programming-model.md#contracts-the-shape-of-what-may-cross)):
 
-```syn
-// db/relational/store/Items.syn
-contract Items {
-    model rows(string text, string author)   // only these roles cross to consumers
-    slot insert(ItemRow row)
-}
-
-record ItemRow(string text, string author, string ownerSub)
+```yaml
+connect_points:
+  - name: items
+    owner: store
+    consumers: [edge]
+    export: |
+      record ItemRow(string[280] text, string[80] author, string[64] ownerSub)
+      model rows(string[280] text, string[80] author)  // only these roles cross
+      slot insert(ItemRow row)
 ```
 
 ```qml
@@ -313,12 +314,11 @@ When no other type fits, `synqt add entity <name>` scaffolds a bare service enti
 a folder, a config block, an empty owned connect point, and its mesh binding. You
 then:
 
-1. Declare its contracts in its own folder, one `.syn` per connect point it owns.
-2. Declare its connect points in `synqt.yaml` with `owner: <name>` and a
-   `consumers` allowlist.
-3. Implement the owned Sources in the entity's folder, authorizing `Caller` in
+1. Declare its connect points in `synqt.yaml` with `owner: <name>`, a `consumers`
+   allowlist, and an `export:` block saying what crosses each.
+2. Implement the owned Sources in the entity's folder, authorizing `Caller` in
    every slot.
-4. List the connect points it consumes from other entities; the framework opens
+3. List the connect points it consumes from other entities. The framework opens
    only those mesh links, mutually authenticated.
 
 A custom entity is a full peer: it can own connect points, consume others, run any

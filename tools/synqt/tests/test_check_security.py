@@ -27,8 +27,8 @@ def base_config(**overrides):
             {"name": "database", "type": "relational", "path": "database"},
         ],
         "connect_points": [
-            {"name": "app", "owner": "web", "consumers": ["client"], "contract": "App"},
-            {"name": "items", "owner": "database", "consumers": ["web"], "contract": "Items"},
+            {"name": "app", "owner": "web", "consumers": ["client"]},
+            {"name": "items", "owner": "database", "consumers": ["web"]},
         ],
     }
     config.update(overrides)
@@ -438,20 +438,19 @@ class LayoutCollisionTest(unittest.TestCase):
     point with.
     """
 
-    def test_an_entity_owning_a_contract_of_its_own_name_is_refused(self):
+    def test_an_entity_owning_a_point_of_its_own_name_is_refused(self):
         config = base_config()
         config["connect_points"].append(
-            {"name": "records", "owner": "database", "consumers": ["web"],
-             "contract": "Database"})
+            {"name": "database", "owner": "database", "consumers": ["web"]})
         failures = errors(config)
         self.assertTrue(any("Database" in m and "database" in m for m in failures), failures)
 
-    def test_a_contract_named_after_another_entity_is_fine(self):
-        # Only a collision inside one folder matters. `Web` owned by the database writes
-        # db/relational/database/Web.qml, which nothing else claims.
+    def test_a_point_named_after_another_entity_is_fine(self):
+        # Only a collision inside one folder matters. A point called `web` owned by the
+        # database writes db/relational/database/Web.qml, which nothing else claims.
         config = base_config()
         config["connect_points"].append(
-            {"name": "records", "owner": "database", "consumers": ["web"], "contract": "Web"})
+            {"name": "web", "owner": "database", "consumers": ["web"]})
         self.assertEqual(errors(config), [])
 
 
@@ -544,8 +543,7 @@ class CallerOutsideASourceTest(unittest.TestCase):
         return {
             "project": {"name": "app"},
             "entities": [{"name": "web", "type": "web_edge"}],
-            "connect_points": [{"name": "app", "owner": "web", "consumers": [],
-                                "contract": "App"}],
+            "connect_points": [{"name": "app", "owner": "web", "consumers": []}],
         }
 
     def test_a_source_may_authorize_its_caller(self):

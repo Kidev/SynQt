@@ -10,9 +10,9 @@ renders that change set as one unified diff, and :func:`digest` fingerprints it 
 finally applied is provably the thing that was shown.
 
 Nothing here writes into the project. The changes are worked out in a throwaway copy of it,
-by running the same scaffolders `synqt add entity` and `synqt add contract` run, so the files
-a plan promises are the files those commands would actually produce rather than a second
-guess at their output.
+by running the same scaffolders `synqt add entity` and `synqt add connect-point` run, so the
+files a plan promises are the files those commands would produce rather than a
+second guess at their output.
 """
 
 from __future__ import annotations
@@ -37,7 +37,7 @@ _IGNORED = ("build", ".git", ".synqt", "__pycache__", "node_modules", ".venv")
 # The entity fields the document models. Anything else in an entity block (TLS files,
 # provider settings, an env file) is the author's and is left where it is.
 _ENTITY_FIELDS = ("type", "provider", "targets", "identity", "shared")
-_LINK_FIELDS = ("contract", "owner", "consumers", "transport")
+_LINK_FIELDS = ("owner", "consumers", "transport", "export")
 
 
 class DesignPlanError(Exception):
@@ -106,12 +106,13 @@ def _uncompilable_contracts(wanted: Dict[str, Any]) -> List[str]:
     """
     problems: List[str] = []
     for link in wanted.get("links", []):
-        contract = link.get("contract")
+        contract = appmodel.contract_of(link)
         if not contract or not (link.get("members") or []):
             continue
         try:
-            designdoc.parse_from_text(
-                designdoc.render_contract(contract, link["members"]), contract)
+            designdoc.parse_export(
+                contract, {"name": link.get("name"),
+                           "export": designdoc.render_export(link["members"])})
         except designdoc.DesignDocError as error:
             problems.append(f"error: '{link.get('name')}': the {contract} contract would "
                             f"not compile: {error}")
@@ -253,7 +254,6 @@ def _apply_links(work: Path, current: Dict[str, Any], wanted: Dict[str, Any],
               + list(wanted["entities"])}
 
     for name, link in now.items():
-        _write_contract(work, link, was.get(name), owners, reasons)
         _write_source(work, link, points, alive, owners, reasons)
         if name not in was:
             block = {key: _link_field(link, key) for key in _LINK_FIELDS
@@ -272,46 +272,8 @@ def _apply_links(work: Path, current: Dict[str, Any], wanted: Dict[str, Any],
         _edit_config(work, lambda text: yamledit.remove_item(text, "connect_points", name))
         _note(reasons, "synqt.yaml", f"connect point '{name}' removed")
 
-    # A contract nothing carries any more goes with the last link that carried it, whether
-    # the link was removed or just pointed at a different contract.
-    kept = {link["contract"] for link in now.values() if link.get("contract")}
-    orphaned = {(link["contract"], link.get("owner"))
-                for link in was.values() if link.get("contract")}
-    for contract, owner in sorted(orphaned):
-        if contract in kept:
-            continue
-        owning = owners.get(str(owner or ""))
-        if owning is None:
-            continue
-        relative = appmodel.contract_path(owning, contract)
-        source = work / relative
-        if source.exists():
-            source.unlink()
-            _note(reasons, relative,
-                  f"no connect point carries the {contract} contract any more")
-
-
-def _write_contract(work: Path, link: Dict[str, Any], was: Optional[Dict[str, Any]],
-                    owners: Dict[str, Dict[str, Any]],
-                    reasons: Dict[str, List[str]]) -> None:
-    contract = link.get("contract")
-    owning = owners.get(str(link.get("owner") or ""))
-    if not contract or owning is None:
-        return
-    members = link.get("members") or []
-    if was is not None and was.get("members") == members and was.get("contract") == contract:
-        return
-    relative = appmodel.contract_path(owning, contract)
-    source = work / relative
-    if not members and not source.exists():
-        return
-    # A rewrite is written whole, so a hand-written comment in the file does not survive
-    # one. That is why it happens only when the members actually differ, and why the diff
-    # shows the loss rather than the plan absorbing it silently.
-    _note(reasons, relative, f"the {contract} contract was drawn afresh"
-          if source.exists() else f"the {contract} contract is new")
-    source.parent.mkdir(parents=True, exist_ok=True)
-    source.write_text(designdoc.render_contract(contract, members), encoding="utf-8")
+    # Nothing to clean up for a link that went. What crossed it was written on it, so
+    # removing the point took the shape with it.
 
 
 def _write_source(work: Path, link: Dict[str, Any], points: Dict[str, Dict[str, Any]],
@@ -330,7 +292,7 @@ def _write_source(work: Path, link: Dict[str, Any], points: Dict[str, Dict[str, 
     loaded, and a file changed in somebody's own editor since then would otherwise be reverted
     to what it said at that moment.
     """
-    contract, owner = link.get("contract"), link.get("owner")
+    contract, owner = appmodel.contract_of(link), link.get("owner")
     owning = owners.get(str(owner or ""))
     if not contract or owner not in alive or owning is None:
         return
@@ -435,10 +397,10 @@ def _link_field(link: Dict[str, Any], key: str) -> Any:
     value = link.get(key)
     if key == "consumers":
         return list(value or [])
-    # A contract named the same as its point is what the runtime resolves anyway, so the
-    # line is left out rather than written and then kept in step with the point's name.
-    if key == "contract" and value and value == appmodel.contract_of({"name": link["name"]}):
-        return None
+    # What crosses the link, written on the link. The document carries it as members, which
+    # is what the panel edits; the file carries it as the lines they render to.
+    if key == "export":
+        return designdoc.render_export(link.get("members") or []) or None
     return str(value) if value else None
 
 

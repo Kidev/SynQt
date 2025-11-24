@@ -42,7 +42,7 @@ A project is a set of entities. Two are always there, and you add the rest:
 ```
 your-app/
   synqt.yaml          # project, topology, and security configuration
-  shared/             # contracts: the typed APIs that may cross between entities
+  synqt.yaml          # the topology, and what may cross each link between entities
   client/             # the browser UI (WebAssembly), and the desktop app
   web/                # the web edge (serves the client, faces the internet)
   database/           # a persistence entity (official blueprint, embeds SQLite)
@@ -50,16 +50,18 @@ your-app/
 ```
 
 Entities never write network code. They share connect points: named live objects
-owned by exactly one entity and mirrored to the others, with their shape declared
-once in a contract.
+owned by exactly one entity and mirrored to the others, each declaring once, on
+itself, the typed shape of what may cross it.
 
-```solidity
-// shared/Todo.syn : the typed API the browser and the edge share.
-contract Todo {
-    model items(text, author, done)   // a live list; only these fields cross
-    slot add(string text)             // the browser asks, the edge decides
-    signal rejected(string reason)
-}
+```yaml
+connect_points:
+  - name: todo             # the browser and the edge share this, and nothing else
+    owner: edge
+    consumers: [app]
+    export: |
+      model items(string[280] text, string[80] author, bool done)  // only these cross
+      slot add(string[280] text)          // the browser asks, the edge decides
+      signal rejected(string[120] reason)
 ```
 
 Property changes and signals flow from the owner to the consumers; calls flow the

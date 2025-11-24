@@ -17,6 +17,12 @@ from synqt import designdoc
 EXAMPLES = Path(__file__).resolve().parents[3] / "examples"
 
 
+def _members(example, point):
+    """The members one example's connect point exports."""
+    document = designdoc.read(EXAMPLES / example)
+    return next(link for link in document["links"] if link["name"] == point)["members"]
+
+
 def test_gavel_reads_as_three_entities_and_three_links():
     document = designdoc.read(EXAMPLES / "gavel")
     assert [e["name"] for e in document["entities"]] == ["app", "edge", "books"]
@@ -62,8 +68,8 @@ def test_a_model_member_keeps_its_declared_roles():
     arena = next(l for l in document["links"] if l["name"] == "arena")
     blobs = next(m for m in arena["members"] if m["name"] == "blobs")
     assert blobs["kind"] == "model"
-    assert blobs["roles"] == [{"type": "string", "name": "id"},
-                              {"type": "string", "name": "name"},
+    assert blobs["roles"] == [{"type": "string[32]", "name": "id"},
+                              {"type": "string[40]", "name": "name"},
                               {"type": "real", "name": "x"},
                               {"type": "real", "name": "y"},
                               {"type": "real", "name": "mass"},
@@ -83,44 +89,45 @@ def test_members_keep_the_order_they_were_written_in():
     """A diff of a contract is read by a human. Regrouping the members by kind would show
     every one of them as moved the first time the editor touched a file it did not write.
     """
-    members = designdoc.parse_contract(EXAMPLES / "arena" / "web" / "edge" / "Arena.syn")
+    members = _members("arena", "arena")
     assert [m["name"] for m in members] == [
         "roundEndsAt", "blobs", "board", "pellets", "champions", "steer", "ping",
         "eaten", "roundEnded"]
 
 
-def test_render_contract_round_trips_a_parsed_one():
-    members = designdoc.parse_contract(EXAMPLES / "arena" / "web" / "edge" / "Arena.syn")
-    rendered = designdoc.render_contract("Arena", members)
-    assert designdoc.parse_from_text(rendered, "Arena") == members
+def test_render_export_round_trips_a_parsed_one():
+    members = _members("arena", "arena")
+    rendered = designdoc.render_export(members)
+    assert designdoc.parse_export("Arena", {"name": "arena", "export": rendered}) == members
 
 
-def test_a_rendered_contract_carries_the_licence_header_every_source_file_carries():
-    members = designdoc.parse_contract(EXAMPLES / "gavel" / "web" / "edge" / "Auction.syn")
-    rendered = designdoc.render_contract("Auction", members)
-    assert "SPDX-License-Identifier: Apache-2.0" in rendered
+def test_a_rendered_export_is_the_members_and_no_wrapper_around_them():
+    # The point is already named, so the block holds the lines and nothing else; the
+    # `contract Auction { ... }` around them is the generator's.
+    rendered = designdoc.render_export(_members("gavel", "auction"))
     assert "prop int highBid" in rendered
+    assert "contract" not in rendered
+    assert "{" not in rendered
 
 
-def test_a_contract_that_does_not_parse_is_refused_by_name(tmp_path):
+def test_an_export_that_does_not_parse_is_refused_by_name(tmp_path):
     project = tmp_path / "app"
-    (project / "web" / "edge").mkdir(parents=True)
+    project.mkdir()
     (project / "synqt.yaml").write_text(
         "entities:\n  - name: edge\n    type: web_edge\n"
-        "connect_points:\n  - name: broken\n    contract: Broken\n    owner: edge\n"
-        "    consumers: []\n")
-    (project / "web" / "edge" / "Broken.syn").write_text("contract Broken { prop\n")
+        "connect_points:\n  - name: broken\n    owner: edge\n"
+        "    consumers: []\n    export: |\n      prop\n")
     with pytest.raises(designdoc.DesignDocError) as caught:
         designdoc.read(project)
-    assert "Broken.syn" in str(caught.value)
+    assert "broken" in str(caught.value)
 
 
-def test_a_link_drawn_before_its_contract_exists_has_no_members(tmp_path):
+def test_a_link_drawn_before_anything_crosses_it_has_no_members(tmp_path):
     project = tmp_path / "app"
     project.mkdir()
     (project / "synqt.yaml").write_text(
         "entities:\n  - name: web\n    type: web_edge\n"
-        "connect_points:\n  - name: prices\n    contract: Prices\n    owner: web\n"
+        "connect_points:\n  - name: prices\n    owner: web\n"
         "    consumers: []\n")
     assert designdoc.read(project)["links"][0]["members"] == []
 

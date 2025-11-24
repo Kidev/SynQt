@@ -14,8 +14,9 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 import yaml
 
-from . import (addentity, appmodel, clientcache, config as configmod, designdoc,
-               graphics, infer, qmlscan, toolchain, topologywriter, typebackend)
+from . import (addentity, appmodel, clientcache, config as configmod, contractgen,
+               designdoc, graphics, infer, qmlscan, toolchain, topologywriter,
+               typebackend)
 
 
 def _duplicate_messages(names: List[Any], what: str, consequence: str) -> List[str]:
@@ -334,10 +335,6 @@ def validate(config: Dict[str, Any], *, release: bool = False,
     issued from the CA, and the CA private key is deliberately not on the machine that
     builds (docs/security.md), so a release build that demanded one would be demanding
     the one thing CI must never hold."""
-    # A caller may hand this a configuration it built itself rather than one config.resolve
-    # read, so the connect point defaults are filled in here too: a rule that judged a point
-    # with no contract name would be judging a different topology from the one built.
-    config = appmodel.normalized(config)
     messages: List[str] = []
     declared = [e for e in config.get("entities", []) if isinstance(e, dict)]
     entities = {e.get("name"): e for e in declared}
@@ -429,6 +426,20 @@ def validate(config: Dict[str, Any], *, release: bool = False,
                 f"error: connect point '{name}' sets 'instance'; how many Sources there are "
                 f"is the owning entity's answer now, so write 'shared: false' on '{owner}' "
                 "to give each caller their own")
+
+        # A contract has no name of its own to give: the point is named, and what crosses
+        # it is written on the point, in `export:`. Read from what the file says rather
+        # than from the resolved point, which carries the name the framework derived.
+        if "contract" in connect_point and not appmodel.is_framework_point(connect_point):
+            messages.append(
+                f"error: connect point '{name}' names a 'contract'; what crosses a point is "
+                "written on the point itself, in its 'export:' block, and the type it "
+                f"becomes is named after the point ('{appmodel.contract_of({'name': name})}')")
+        if "export" in connect_point and not isinstance(connect_point.get("export"), str):
+            messages.append(
+                f"error: connect point '{name}': 'export:' is the lines of the contract, "
+                "written as a block (`export: |`), not a "
+                f"{type(connect_point.get('export')).__name__}")
 
         for consumer in consumers:
             if consumer not in entities:
@@ -1655,41 +1666,36 @@ def lint_connect_point_sources(config: Dict[str, Any],
 _CONTRACT_MEMBERS = ("prop", "model", "slot", "signal")
 
 
-def project_contracts(project_dir: os.PathLike[str] | str) -> List[Path]:
-    """Every `.syn` the project holds, wherever its author put it.
+def lint_contracts(config: Dict[str, Any]) -> List[str]:
+    """Structural lint of every connect point's `export:` block.
 
-    A contract lives in its owner's folder, so there is no one directory to look in, and
-    finding them by walking is what lets this lint report a `.syn` that no connect point
-    names as well as one that does not parse.
+    The shape of a link is declared on the point that carries it, so this reads the
+    configuration rather than the tree. There is no `.syn` in a project to find, only the
+    generated one that this block is turned into. (synqtc does the full parse at build
+    time. This is the reading that gives a plain sentence first.)
     """
-    root = Path(project_dir)
-    if not root.is_dir():
-        return []
-    return [path for path in sorted(root.rglob("*.syn"))
-            if not ({"build", "node_modules"} & set(path.parts))
-            and not any(part.startswith(".") for part in path.relative_to(root).parts)]
-
-
-def lint_contracts(project_dir: os.PathLike[str] | str) -> List[str]:
-    """Structural lint of the project's `.syn` files. (synqtc does the full parse.)"""
-    root = Path(project_dir)
     messages: List[str] = []
-    for syn in project_contracts(project_dir):
-        where = syn.relative_to(root).as_posix()
-        code = "\n".join(line.split("//", 1)[0] for line in syn.read_text().splitlines())
-        if code.count("{") != code.count("}"):
-            messages.append(f"error: {where}: unbalanced braces")
-        if not re.search(r"\b(contract|record)\b", code):
-            messages.append(f"error: {where}: declares no contract or record")
-        for block in re.finditer(r"contract\s+\w+\s*\{([^}]*)\}", code, re.S):
-            for line in block.group(1).splitlines():
-                statement = line.strip()
-                if not statement:
-                    continue
-                if statement.split()[0] not in _CONTRACT_MEMBERS:
-                    messages.append(
-                        f"error: {where}: unexpected member '{statement[:32]}' "
-                        "(want prop/model/slot/signal)")
+    for point in appmodel.app_points(appmodel.connect_points(config)):
+        where = f"connect point '{point.get('name')}'"
+        if not contractgen.has_export(point):
+            messages.append(
+                f"error: {where}: no 'export:' block, so nothing may cross it. Write what "
+                "it carries there (prop/model/slot/signal lines), or remove the point")
+            continue
+        text = contractgen.export_text(point)
+        code = "\n".join(line.split("//", 1)[0] for line in text.splitlines())
+        for line in code.splitlines():
+            statement = line.strip()
+            if not statement:
+                continue
+            if statement.split()[0] not in _CONTRACT_MEMBERS + ("record",):
+                messages.append(
+                    f"error: {where}: unexpected declaration '{statement[:32]}' in "
+                    "'export:' (want prop/model/slot/signal, or a record)")
+        if code.count("{") or code.count("}"):
+            messages.append(
+                f"error: {where}: 'export:' holds the members themselves, with no "
+                "'contract' wrapper around them; the point is already named")
     return messages
 
 
@@ -1713,22 +1719,19 @@ def _converts(inferred: str, declared: str) -> bool:
     return families[0] == families[1]
 
 
-def _declared_members(project_dir: Path, paths: Dict[str, str],
-                      contract: str) -> Optional[List[Dict[str, Any]]]:
-    """The members of a contract's file, or None when there is no such file.
+def _declared_members(contract: str,
+                      point: Dict[str, Any]) -> Optional[List[Dict[str, Any]]]:
+    """The members a connect point exports, or None when it declares none yet.
 
-    A contract that is not written yet is not a contract this project has drifted from,
-    and one that does not parse is reported by :func:`lint_contracts` and by the build in
-    their own words rather than a second time here.
+    A point with nothing written on it yet is not a point this project has drifted from,
+    and one whose block does not parse is reported by :func:`lint_contracts` and by the
+    build in their own words rather than a second time here.
     """
-    relative = paths.get(contract)
-    if not contract or not relative:
-        return None
-    path = project_dir / relative
-    if not path.is_file():
+    if not contract or not contractgen.has_export(point):
         return None
     try:
-        return designdoc.parse_contract(path)
+        return designdoc.parse_from_text(
+            contractgen.contract_source(contract, point), contract)
     except designdoc.DesignDocError:
         return None
 
@@ -1772,10 +1775,9 @@ def lint_contract_drift(config: Dict[str, Any], project_dir: os.PathLike[str] | 
 
     points = {str(point.get("name") or ""): point
               for point in appmodel.connect_points(config)}
-    contract_files = appmodel.contract_paths(config)
     declared: Dict[str, List[Dict[str, Any]]] = {}
     for name, point in points.items():
-        members = _declared_members(root, contract_files, appmodel.contract_of(point))
+        members = _declared_members(appmodel.contract_of(point), point)
         if members is not None:
             declared[name] = members
 
@@ -1783,7 +1785,7 @@ def lint_contract_drift(config: Dict[str, Any], project_dir: os.PathLike[str] | 
     for use in found.uses:
         messages += _use_messages(use, points, declared)
     for edge in found.edges:
-        messages += _unused_messages(edge, points, declared, contract_files)
+        messages += _unused_messages(edge, points, declared)
     return messages
 
 
@@ -1831,14 +1833,13 @@ def _argument_messages(use: "infer.Use", contract: str, match: Dict[str, Any],
 
 
 def _unused_messages(edge: "infer.Edge", points: Dict[str, Any],
-                     declared: Dict[str, List[Dict[str, Any]]],
-                     files: Dict[str, str]) -> List[str]:
+                     declared: Dict[str, List[Dict[str, Any]]]) -> List[str]:
     """The declared members neither end of this link mentions anywhere."""
     members = declared.get(edge.point)
     if members is None or edge.dynamic:
         return []
     contract = appmodel.contract_of(points[edge.point])
-    where = files.get(contract) or f"{contract}.syn"
+    where = f"connect point '{edge.point}'"
     seen = {member.name for member in edge.members}
     return [f"note: {where}: '{member['name']}' is declared on the "
             f"{contract} contract and nothing on either end of '{edge.point}' uses it"
@@ -2042,7 +2043,7 @@ def check_project(project_dir: os.PathLike[str] | str, *, release: bool = False,
     ok, messages = validate(config, release=release, project_dir=project_dir,
                             starting=starting)
     messages = [f"note: {source} applied" for source in resolved.sources] + messages
-    contract_messages = lint_contracts(project_dir)
+    contract_messages = lint_contracts(config)
     loading_messages = lint_loading(project_dir)
     client_root_messages = lint_client_root(project_dir)
     source_messages = lint_connect_point_sources(config, project_dir)

@@ -30,6 +30,18 @@ include("${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/SynQtContracts.cmake")
 
 set(GAVEL "${CMAKE_CURRENT_SOURCE_DIR}/../../examples/gavel")
 
+# What crosses gavel's connect points is written on the points, in its synqt.yaml, so the
+# `.syn` the compiler reads is generated. `synqt build` does this as its first step; this
+# fixture drives CMake directly, so it asks for that one step by itself.
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+execute_process(
+    COMMAND "${Python3_EXECUTABLE}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/../write-contracts.py" "${GAVEL}"
+    RESULT_VARIABLE _syn_rc ERROR_VARIABLE _syn_err)
+if(NOT _syn_rc EQUAL 0)
+    message(FATAL_ERROR "FIX-1: could not write gavel's contracts:\n${_syn_err}")
+endif()
+
 set(FIX1_CERTS "${CMAKE_CURRENT_BINARY_DIR}/certs")
 execute_process(
     COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/gen-cert.sh" "${FIX1_CERTS}"
@@ -44,10 +56,14 @@ qt_add_executable(tst_fix1 tst_fix1.cpp)
 
 # The web edge hosts AuctionSource + HallSource from its QML; the books entity hosts
 # LedgerSource. Every consumer uses dynamic replicas, so no replica headers are generated.
-synqt_add_contract(tst_fix1 ROLE source SYN "${GAVEL}/web/edge/Auction.syn")
-synqt_add_contract(tst_fix1 ROLE source SYN
-    "${GAVEL}/db/relational/books/Ledger.syn")
-synqt_add_contract(tst_fix1 ROLE source SYN "${GAVEL}/web/edge/Hall.syn")
+synqt_add_contract(tst_fix1 ROLE source
+    SYN "${GAVEL}/generated/web/edge/Auction.syn")
+# The ledger is the mesh half: the edge consumes it, so it needs the consumer facade
+# (ROLE both) and its slots carry the session the edge is acting for (FORWARDS_SESSION),
+# exactly as `synqt build` compiles it for the two entities separately.
+synqt_add_contract(tst_fix1 ROLE both FORWARDS_SESSION
+    SYN "${GAVEL}/generated/db/relational/books/Ledger.syn")
+synqt_add_contract(tst_fix1 ROLE source SYN "${GAVEL}/generated/web/edge/Hall.syn")
 
 target_compile_definitions(tst_fix1 PRIVATE
     FIX1_CERT_DIR="${FIX1_CERTS}"

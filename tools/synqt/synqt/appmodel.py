@@ -204,13 +204,14 @@ def entity_dirs(config: Dict[str, Any]) -> Dict[str, str]:
 
 
 def contract_path(entity: Dict[str, Any], contract: str) -> str:
-    """Where the contract of a connect point this entity owns lives.
+    """Where the contract of a connect point this entity owns is written.
 
-    Beside the Source that answers it, because the two are one thing seen twice. The file is
-    still on the wire for every consumer named on the point, so changing it is a breaking
-    change even though it sits in one entity's folder.
+    Under `generated/`, mirroring the owner's own folder, because nobody writes this file:
+    it is what `synqt` makes of the point's `export:` block, and the block is where the
+    shape of the link is declared (:mod:`synqt.contractgen`). The compiler wants a
+    file, so it gets one, beside the generated main of the entity that owns the point.
     """
-    return f"{entity_dir(entity)}/{contract}.syn"
+    return f"{GENERATED_DIR}/{entity_dir(entity)}/{contract}.syn"
 
 
 def source_path(entity: Dict[str, Any], contract: str) -> str:
@@ -348,7 +349,7 @@ def serves_inbound(entity: Dict[str, Any]) -> bool:
 def network_helpers(entity: Dict[str, Any]) -> List[str]:
     """The helper names this entity's `network:` block puts in its QML scope.
 
-    Read by the reserved-name rule as well as by the runtime, so `synqt add contract Http`
+    Read by the reserved-name rule as well as by the runtime, so a point called `http`
     is refused in an entity that has `Http` and allowed in one that does not.
     """
     helpers: List[str] = []
@@ -405,41 +406,22 @@ def connect_points(config: Dict[str, Any]) -> List[Dict[str, Any]]:
 
 
 def contract_of(point: Dict[str, Any]) -> str:
-    """The contract a connect point carries: what it says, or its own name capitalized.
+    """The type a connect point's `export:` becomes: the point's own name, capitalized.
 
-    A point and the contract it carries are one thing named twice, and in every project
-    written so far the two words were the same word. So the name is the answer unless the
-    point says otherwise, and `contract:` is left for the case it exists for: two points
-    carrying one shape.
+    A point and the shape of what crosses it are one thing, so only one of them is named.
+    `Auction` is the type the point `auction` exports, the QML type its server file is
+    rooted at, and the name of the file :mod:`synqt.contractgen` writes under `generated/`.
+    Connect point names are unique across a project, so these are too.
+
+    `contract:` is read only for the framework's own points, whose contracts ship in the
+    runtime libraries under names of their own (the `sessions` point carries `SessionStore`).
+    A project that writes it is refused by `synqt check`.
     """
     declared = point.get("contract")
     if isinstance(declared, str) and declared.strip():
         return declared.strip()
     name = str(point.get("name") or "")
     return f"{name[:1].upper()}{name[1:]}" if name else ""
-
-
-def normalized(config: Dict[str, Any]) -> Dict[str, Any]:
-    """`config` with every connect point carrying the contract it resolves to.
-
-    Done once, where the configuration is read, so that no reader has to remember the
-    default and none of them can disagree about it. A point that names one keeps what it
-    named.
-    """
-    points = config.get("connect_points")
-    if not isinstance(points, list):
-        return config
-    filled = []
-    for point in points:
-        if isinstance(point, dict):
-            resolved = dict(point)
-            if not resolved.get("contract"):
-                contract = contract_of(point)
-                if contract:
-                    resolved["contract"] = contract
-            point = resolved
-        filled.append(point)
-    return {**config, "connect_points": filled}
 
 
 def consumed_by(config: Dict[str, Any], entity_name: str) -> List[Dict[str, Any]]:
@@ -854,7 +836,7 @@ def identity_refresh(config: Dict[str, Any]) -> Dict[str, Any]:
 # one: their contracts ship in the runtime library (src/identity/contracts/) rather than in
 # the owning entity's folder, so nothing generates or compiles an app-side copy for them.
 # That is what `is_framework_point` marks, and the two emitters that would otherwise reach
-# for the owner's `<Contract>.syn` filter on it.
+# for the point's own `export:` block filter on it.
 AUTH_IDENTITY_POINT = "identity"
 AUTH_SESSION_POINT = "sessions"
 
@@ -925,11 +907,11 @@ def service_libraries(config: Dict[str, Any], entity: Dict[str, Any]) -> List[st
 
 
 def app_points(points: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Only the connect points whose contract is one of the app's own files.
+    """Only the connect points whose contract the project itself declares.
 
-    Everything that reaches for a project `.syn` (the CMake contract calls, the edge's
-    generated consumer surface) goes through this, because a framework point has no such
-    file and never will: its contract ships with the runtime library that owns it
+    Everything that reaches for an `export:` block (the CMake contract calls, the edge's
+    generated consumer surface) goes through this, because a framework point has none and
+    never will. Its contract ships with the runtime library that owns it
     (src/identity/contracts/ for identity and sessions, src/edge/contracts/ for pages).
     """
     return [cp for cp in points if not is_framework_point(cp)]

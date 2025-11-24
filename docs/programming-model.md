@@ -9,30 +9,38 @@ application, while the boundary stays explicit and one directional in trust.
 ## Contracts: the shape of what may cross
 
 A contract declares the API of one connect point: its live properties, its owner
-to consumer signals, its consumer to owner calls, and any live models. A contract
-lives in the folder of the entity that owns the connect point, beside the Source
-that answers it, and is the single declaration every entity on either end of the
-connect point compiles against. SynQt contracts are a friendly surface over
-QtRemoteObjects rep files; the build generates the QtRO Source and Replica from
-them.
+to consumer signals, its consumer to owner calls, and any live models. It is the single
+declaration every entity on either end of the connect point compiles against.
 
-A contract file uses the `.syn` extension. Example, `web/edge/Todo.syn`:
+It is written on the connect point itself, in `synqt.yaml`, in an `export:` block. A
+point and the shape of what crosses it are one thing, so there is one place to read and
+one thing to name:
 
-```syn
-// Direction of travel is fixed by the keyword:
-//   prop   : owner held value, owner -> consumer updates
-//   model  : owner held list, owner -> consumer updates, only listed roles cross
-//   signal : owner -> consumer event
-//   slot   : consumer -> owner request, the owner decides whether to act
-contract Todo {
-    prop int count                          // read on the consumer, set on the owner
-    model items(string text, string author, bool done)   // private fields never cross
-    slot add(string text)                   // returns nothing; fire and forget request
-    slot remove(int index)
-    slot bool clear()                       // returns a value; becomes an async call
-    signal rejected(string reason)          // owner explains a refusal
-}
+```yaml
+connect_points:
+  - name: todo
+    owner: edge
+    consumers: [app]
+    # Direction of travel is fixed by the keyword:
+    #   prop   : owner held value, owner -> consumer updates
+    #   model  : owner held list, owner -> consumer updates, only listed roles cross
+    #   signal : owner -> consumer event
+    #   slot   : consumer -> owner request, the owner decides whether to act
+    export: |
+      prop int count                        // read on the consumer, set on the owner
+      model items(string[280] text, string[80] author, bool done)  // private fields never cross
+      slot add(string[280] text)            // returns nothing; fire and forget request
+      slot remove(int index)
+      slot bool clear()                     // returns a value; becomes an async call
+      signal rejected(string[120] reason)   // owner explains a refusal
 ```
+
+The point is named, so its contract is not: the type it exports is the point's name,
+capitalized. `todo` exports `Todo`, which is the QML type the owner's Source file is
+rooted at and the name a consumer's attached handlers use. SynQt contracts are a friendly
+surface over QtRemoteObjects rep files; the build writes one `.syn` per point under
+`generated/` and generates the QtRO Source and Replica from it. Nobody edits that file;
+editing the `export:` block rewrites it.
 
 Mapping to the QtRO semantics the generated rep encodes:
 
@@ -67,11 +75,13 @@ Mapping to the QtRO semantics the generated rep encodes:
   rather than storing the promise and coming back to it in a later frame, because a
   promise is retired once it has settled and delivered.
 
-Contracts may declare plain data records for use in signatures, which compile to
-QtRO POD types passed by value:
+An `export:` block may also declare plain data records for use in signatures, which
+compile to QtRO POD types passed by value:
 
-```syn
-record Address(string street, string city, string zip)
+```yaml
+    export: |
+      record Address(string[120] street, string[80] city, string[16] zip)
+      slot deliver(Address to)
 ```
 
 ### The types a contract can name
@@ -114,7 +124,7 @@ a database column, a filename, or a rendered label, and leave the rest unbounded
 
 Why a friendlier surface instead of raw rep files. Rep defaults (push versus read
 or write, which roles a model exposes) are exactly the places a mistake becomes a
-security hole. The `.syn` surface keeps the safe defaults obvious and emits
+security hole. The `export:` surface keeps the safe defaults obvious and emits
 correct rep without the developer memorizing rep keywords. The generated rep is
 available in the build directory for inspection.
 
@@ -126,11 +136,13 @@ schema in [project layout and configuration](project-layout-and-config.md#the-sy
 
 ```yaml
 connect_points:
-  - name: todo                    # the name consumers use to reach it, and the contract's
+  - name: todo                    # the name consumers use to reach it, and the type's
     owner: edge                   # the entity that holds the authoritative Source
     consumers: [app]              # the entities allowed to acquire the Replica
     server: web/edge/Todo.qml     # the authoritative implementation
     scope: user                   # for browser consumers: minimum session scope
+    export: |                     # what may cross it, and nothing else does
+      prop int count
 ```
 
 The configurable parts that matter:
@@ -144,12 +156,11 @@ The configurable parts that matter:
 - `scope` (for browser consumers). The minimum session scope a browser user must
   hold before the framework will acquire the Replica for that client. A user below
   the required scope never gets the object, so cannot call its slots at all.
-- `contract`. What may cross, declared in `<Contract>.syn` in the owner's folder. It
-  defaults to the point's own name capitalized, so `- name: todo` carries `Todo` and most
-  points never write the line; name it only where two points carry one shape.
+- `export`. What may cross, written on the point. The type it becomes is the point's own
+  name capitalized, so `- name: todo` exports `Todo`; nothing names it separately.
 - `server`. The file that implements the connect point, and its root element is the
-  contract itself: `web/edge/Todo.qml` opens with `Todo { ... }`. It defaults to the
-  contract's name in the owner's folder, so most points never write it either. Both ends of a contract are
+  contract itself: `web/edge/Todo.qml` opens with `Todo { ... }`. It defaults to that name
+  in the owner's folder, so most points never write it. Both ends of a contract are
   QML types with that one name, and they never meet, because an entity may not consume a
   connect point it owns. In an owner's binary `Todo` is the owner side; in a consumer's it
   is the consumer side and the attached handler type used for

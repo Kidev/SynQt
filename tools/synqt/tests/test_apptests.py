@@ -25,9 +25,9 @@ CONFIG = {
         {"name": "database", "type": "relational"},
     ],
     "connect_points": [
-        {"name": "auction", "contract": "Auction", "owner": "web",
+        {"name": "auction", "owner": "web",
          "consumers": ["client"]},
-        {"name": "ledger", "contract": "Ledger", "owner": "database",
+        {"name": "ledger", "owner": "database",
          "consumers": ["web"]},
     ],
 }
@@ -90,11 +90,11 @@ class GeneratedCMakeTest(unittest.TestCase):
         # A test drives an owner, and any connect point may be the one under test.
         text = cmakegen.render_tests_cmakelists(CONFIG)
         self.assertIn('synqt_add_contract(app_tests ROLE source '
-                      'SYN "${SYNQT_APP_ROOT}/web/web/Auction.syn")', text)
+                      'SYN "${SYNQT_APP_ROOT}/generated/web/web/Auction.syn")', text)
         # The ledger is the mesh half, so its slots carry the session the edge is acting
         # for, and the test target has to compile it the same way the entities do.
         self.assertIn('synqt_add_contract(app_tests ROLE source FORWARDS_SESSION '
-                      'SYN "${SYNQT_APP_ROOT}/db/relational/database/Ledger.syn")', text)
+                      'SYN "${SYNQT_APP_ROOT}/generated/db/relational/database/Ledger.syn")', text)
         self.assertNotIn("ROLE replica", text)
 
     def test_the_target_lives_in_its_own_directory(self):

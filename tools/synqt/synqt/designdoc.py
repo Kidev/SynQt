@@ -5,10 +5,10 @@
 contract each link carries.
 
 The editor draws this and the inference writes it, so it is the one shape both agree on.
-Everything in it comes from the two things a project already has, ``synqt.yaml`` and the
-``.syn`` contract beside each owner's Source, with a single exception: where a node sits on the canvas is a drawing,
-not a fact about the system, so it lives beside the project in ``.synqt/design.json`` and
-never in the configuration. A project nobody has opened in the editor still lays out, from
+Everything in it comes from ``synqt.yaml``, which holds the topology and, on each connect
+point, what crosses it. One exception: where a node sits on the canvas is a drawing, not a
+fact about the system, so it lives beside the project in ``.synqt/design.json`` and never
+in the configuration. A project nobody has opened in the editor still lays out, from
 the one rule worth stating by default: the browser on the left, the edge it reaches in the
 middle, and everything it must not reach on the right.
 
@@ -31,6 +31,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from . import appmodel
 from . import config as configmod
+from . import contractgen
 from . import newproject
 
 VERSION = 1
@@ -220,10 +221,9 @@ def parse_from_text(text: str, name: str) -> List[Dict[str, Any]]:
     return _members_of(parsed, name, f"{name}.syn", model)
 
 
-def parse_contract(path: os.PathLike[str] | str) -> List[Dict[str, Any]]:
-    """The members declared in one ``.syn`` file."""
-    source = Path(path)
-    return parse_from_text(source.read_text(encoding="utf-8"), source.stem)
+def parse_export(name: str, point: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """The members a connect point's ``export:`` block declares."""
+    return parse_from_text(contractgen.contract_source(name, point), name)
 
 
 def _read_text(path: Path) -> str:
@@ -241,22 +241,19 @@ def _read_text(path: Path) -> str:
 
 def _link(point: Dict[str, Any], root: Path, seats: Dict[str, Dict[str, Any]],
           owners: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
-    contract = str(point.get("contract") or "")
     name = str(point.get("name") or "")
+    contract = appmodel.contract_of(point)
     owner = str(point.get("owner") or "")
     owning = owners.get(owner)
     members: List[Dict[str, Any]] = []
-    where = (appmodel.contract_path(owning, contract)
-             if owning is not None and contract else "")
-    source = root / where if where else None
-    # A link drawn before its contract has been written is an ordinary state in the editor,
-    # so a missing file is empty rather than an error. A file that is there and does not
-    # parse is an error, and it names itself.
-    if source is not None and source.exists():
+    # A link drawn before anything is written on it is an ordinary state in the editor, so
+    # an absent `export:` is empty rather than an error. One that is there and does not
+    # parse is an error, and it names the point it is on.
+    if contract and contractgen.has_export(point):
         try:
-            members = parse_contract(source)
+            members = parse_from_text(contractgen.contract_source(contract, point), contract)
         except DesignDocError as error:
-            raise DesignDocError(f"{where}: {error}") from error
+            raise DesignDocError(f"connect point '{name}': {error}") from error
     # The owner-side QML, carried in the document because the editor's files pane shows the
     # project as it is rather than as it would be scaffolded. Reading a Source that somebody
     # has already implemented and showing them an empty stub instead would be the pane
@@ -329,19 +326,15 @@ def read(project_dir: os.PathLike[str] | str, *,
 # writing back
 
 
-def render_contract(name: str, members: List[Dict[str, Any]]) -> str:
-    """A ``.syn`` source for one contract, in the order its members are given.
+def render_export(members: List[Dict[str, Any]]) -> str:
+    """A connect point's ``export:`` block, in the order its members are given.
 
-    One contract per file, which is what the document models and what ``synqt add contract``
-    writes. Records are not part of the document, so this renders none: it is for creating a
-    contract the editor drew, never for rewriting a hand-written file that may hold more
-    than the document can carry.
+    The members and nothing else. The point is already named, and the wrapper around them
+    is the generator's (:mod:`synqt.contractgen`). Records are not part of the document, so
+    this renders none. It is for writing back a link the editor drew, never for rewriting a
+    hand-written block that may hold more than the document can carry.
     """
-    lines = [LICENCE_HEADER, f"contract {name} {{"]
-    for member in members:
-        lines.append("    " + render_member(member))
-    lines.append("}")
-    return "\n".join(lines) + "\n"
+    return "".join(render_member(member) + "\n" for member in members)
 
 
 def _render_params(params: List[Dict[str, str]]) -> str:
@@ -398,9 +391,16 @@ def _entity_config(entity: Dict[str, Any], base: Dict[str, Any]) -> Dict[str, An
 def _link_config(link: Dict[str, Any], base: Dict[str, Any]) -> Dict[str, Any]:
     written = dict(base)
     written["name"] = link["name"]
-    written["contract"] = link["contract"]
+    # The type the point exports is named after the point, so the document's `contract` is
+    # a reading of the drawing and never something to write back.
+    written.pop("contract", None)
     written["owner"] = link["owner"]
     written["consumers"] = list(link["consumers"])
+    export = render_export(link.get("members") or [])
+    if export:
+        written["export"] = export
+    else:
+        written.pop("export", None)
     if link.get("transport"):
         written["transport"] = link["transport"]
     else:

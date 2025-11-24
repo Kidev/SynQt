@@ -207,7 +207,7 @@ Service runtime (native, used by every service entity):
 
 Generated layer:
 
-- From each `.syn` contract, the build generates a QtRO Source header and
+- From each connect point's `export:` block, the build generates a QtRO Source header and
   Replica header (via repc) and the registrations needed on each side. This gives
   every connect point a compile time checked shape on both ends, so a version skew
   between two entities is a build error, not a runtime surprise.

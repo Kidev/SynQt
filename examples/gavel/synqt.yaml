@@ -56,11 +56,26 @@ connect_points:
   - name: auction
     owner: edge
     consumers: [app]
+    # What may cross, and nothing else does. Properties flow owner -> consumers; a slot
+    # flows the other way (a consumer asks, the owner decides). The bidder is not an
+    # argument: the edge stamps the high bidder from the caller's verified identity, never
+    # from a typed name.
+    export: |
+      prop string[80] itemName        // what is up for auction
+      prop int highBid                // the current highest bid
+      prop string[80] highBidder      // who holds the high bid right now
+      slot placeBid(int amount)       // the edge knows who you are; only signed-in users bid
+      slot closeLot(string[80] nextItem)  // an auctioneer (admin) closes a lot, opens the next
+      signal bidRejected(string[120] reason)
 
   # The Hall of Fame the browser sees: owned by the edge, filled from the database.
   - name: hall
     owner: edge
     consumers: [app]
+    export: |
+      // A live list the browser watches. Every role is typed, so a row that does not
+      // match is refused where it is published rather than serialized.
+      model winners(string[80] item, string[80] winner, int amount)
 
   # The durable ledger: owned by the books, reachable only by the edge (never the
   # browser; a client consumer here fails `synqt check`, since the books entity is not
@@ -68,3 +83,10 @@ connect_points:
   - name: ledger
     owner: books
     consumers: [edge]
+    # The books entity authorizes the calling ENTITY (Caller.entity === "edge"), never a
+    # user. A recorded winner is announced as a scalar signal (scalars replicate reliably),
+    # and the edge maintains the browser-facing Hall from it.
+    export: |
+      prop int count                                                  // recorded winners
+      slot recordWinner(string[80] item, string[80] winner, int amount)  // edge -> books
+      signal winnerRecorded(string[80] item, string[80] winner, int amount)

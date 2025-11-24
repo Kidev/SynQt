@@ -5,26 +5,30 @@ a world to own. This part declares what crosses the wire, adds a GitHub guest li
 and puts the one authoritative arena, blobs, pellets, and all, in the edge's hands.
 Here the edge computes movement itself. Every blob's position is the edge's to decide.
 
-## Step 1: The shared arena (a contract)
+## Step 1: The shared arena (a connect point)
 
-One connect point carries the whole game: every blob's pose and size, the pellets on
-the map, a request to aim somewhere, and an event when one blob eats another. Create
-`web/edge/Arena.syn`:
+One connect point carries the whole game, every blob's pose and size, the pellets on
+the map, a request to aim somewhere, and an event when one blob eats another. Add it to
+`synqt.yaml`:
 
-```syn
-// The arena the edge owns and every browser mirrors.
-//   model  : one row per item, owner -> consumers (only these fields cross)
-//   slot   : a request from a browser to the edge
-//   signal : the edge telling browsers something happened
-contract Arena {
-    // Every player, for drawing.
-    model blobs(string id, string name, real x, real y, real mass, bool online)
-    model board(string name, real mass)           // the live leaderboard, biggest first
-    model pellets(string id, real x, real y)      // food scattered on the map
-    slot steer(real x, real y)                    // "I am aiming at this spot" (a goal)
-    slot real ping()                              // the edge clock in ms, for latency
-    signal eaten(string prey, string predator)    // one blob swallowed another
-}
+```yaml
+connect_points:
+  - name: arena
+    owner: edge
+    consumers: [app]
+    scope: player
+    # The arena the edge owns and every browser mirrors.
+    #   model  : one row per item, owner -> consumers (only these fields cross)
+    #   slot   : a request from a browser to the edge
+    #   signal : the edge telling browsers something happened
+    export: |
+      // Every player, for drawing.
+      model blobs(string[32] id, string[40] name, real x, real y, real mass, bool online)
+      model board(string[40] name, real mass)     // the live leaderboard, biggest first
+      model pellets(string[32] id, real x, real y)  // food scattered on the map
+      slot steer(real x, real y)                  // "I am aiming at this spot" (a goal)
+      slot real ping()                            // the edge clock in ms, for latency
+      signal eaten(string[40] prey, string[40] predator)  // one blob swallowed another
 ```
 
 > [!NOTE]

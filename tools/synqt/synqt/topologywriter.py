@@ -161,7 +161,7 @@ def _server_file(root: Path, connect_point: Dict[str, Any],
     if explicit:
         return _path(root / explicit)
     owner = owners.get(str(connect_point.get("owner") or ""))
-    contract = str(connect_point.get("contract") or "")
+    contract = appmodel.contract_of(connect_point)
     if owner is None:
         return ""
     return _path(root / appmodel.source_path(owner, contract))

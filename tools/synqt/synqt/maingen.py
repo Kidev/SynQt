@@ -568,7 +568,7 @@ def render_client_main(config: Dict[str, Any], uri: str) -> str:
     cp_list = ", ".join(
         '{QStringLiteral("%s"), QStringLiteral("%s")}'
         % (cxx_string_literal(cp.get("name") or ""),
-           cxx_string_literal(cp.get("contract", ""))) for cp in consumed)
+           cxx_string_literal(appmodel.contract_of(cp))) for cp in consumed)
     route_list = ",\n                     ".join(
         _route_literal(r, uri) for r in routes)
     router = config.get("router") or {}
@@ -742,8 +742,8 @@ def render_edge_main(config: Dict[str, Any], edge: Dict[str, Any],
     # into its owner Sources' QML context, so a Source can delegate over the mesh
     # (Database.ledger.record(...)). No mesh-consumed connect point means no runtime.
     mesh_consumed = appmodel.mesh_consumed(config, name)
-    # The generated consumer surface exists only for an app contract; a framework connect
-    # point (the auth entity's identity and sessions) has no `shared/<Contract>.syn` and is
+    # The generated consumer surface exists only for an app contract. A framework connect
+    # point (the auth entity's identity and sessions) declares no `export:` of its own and is
     # adopted by C++ below instead of by QML, so it registers nothing here.
     mesh_contracts = appmodel.contracts_of(appmodel.app_points(mesh_consumed))
     mesh_owners: List[str] = []
@@ -847,7 +847,7 @@ def render_edge_main(config: Dict[str, Any], edge: Dict[str, Any],
     cp_blocks: List[str] = []
     for cp in client_facing:
         cp_name = cp.get("name")
-        contract = cp.get("contract", "")
+        contract = appmodel.contract_of(cp)
         shared = "true" if appmodel.is_shared(edge) else "false"
         var = re.sub(r"[^0-9A-Za-z]", "", cp_name) or "connectPoint"
         server_file = cp.get("server") or appmodel.source_path(edge, contract)

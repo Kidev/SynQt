@@ -19,43 +19,46 @@ class AddContractTest(unittest.TestCase):
         self.root = Path(tempfile.mkdtemp())
         newproject.scaffold(self.root.parent, self.root.name)  # project at self.root
 
-    def test_add_contract_and_connect_point(self):
-        addcontract.scaffold_contract(self.root, "Items", owner="edge")
-        self.assertTrue((self.root / "web" / "edge" / "Items.syn").exists())
-
-        # Wire a connect point owned by the edge, consumed by nothing yet.
-        addcontract.scaffold_contract(self.root, "Todo", owner="edge")
+    def test_add_connect_point(self):
+        # One command: the point, what crosses it, and the Source that answers it.
         message = addcontract.scaffold_connect_point(
-            self.root, "todo", owner="edge", consumers=[], contract="Todo")
+            self.root, "todo", owner="edge", consumers=[])
         self.assertIn("deny-by-default", message.lower())
         cps = yaml.safe_load((self.root / "synqt.yaml").read_text())["connect_points"]
         self.assertEqual(cps[0]["name"], "todo")
+        self.assertIn("prop int count", cps[0]["export"])
+        self.assertTrue((self.root / "web" / "edge" / "Todo.qml").exists())
 
     def test_connect_point_rejects_unknown_entity(self):
         with self.assertRaises(addcontract.AddContractError):
             addcontract.scaffold_connect_point(
-                self.root, "x", owner="ghost", consumers=[], contract="Items")
+                self.root, "x", owner="ghost", consumers=[])
 
 
 class ContractLintTest(unittest.TestCase):
-    def setUp(self):
-        self.root = Path(tempfile.mkdtemp())
-        (self.root / "web" / "edge").mkdir(parents=True)
+    def _config(self, export):
+        point = {"name": "ok", "owner": "edge", "consumers": []}
+        if export is not None:
+            point["export"] = export
+        return {"entities": [{"name": "edge", "type": "web_edge"}],
+                "connect_points": [point]}
 
-    def test_valid_contract_lints_clean(self):
-        (self.root / "web" / "edge" / "Ok.syn").write_text(
-            "contract Ok {\n  prop int count\n  slot add(string t)\n  signal changed()\n}\n")
-        self.assertEqual(check.lint_contracts(self.root), [])
+    def test_valid_export_lints_clean(self):
+        self.assertEqual(check.lint_contracts(self._config(
+            "prop int count\nslot add(string t)\nsignal changed()\n")), [])
 
-    def test_unbalanced_braces_is_an_error(self):
-        (self.root / "web" / "edge" / "Bad.syn").write_text(
-            "contract Bad {\n  prop int count\n")  # missing closing brace
-        self.assertTrue(any("unbalanced braces" in e for e in check.lint_contracts(self.root)))
+    def test_a_point_with_nothing_on_it_is_an_error(self):
+        self.assertTrue(any("no 'export:' block" in e
+                            for e in check.lint_contracts(self._config(None))))
+
+    def test_a_contract_wrapper_inside_the_block_is_an_error(self):
+        # The point is already named. The block holds the members themselves.
+        self.assertTrue(any("no 'contract' wrapper" in e for e in check.lint_contracts(
+            self._config("contract Ok {\n  prop int count\n}\n"))))
 
     def test_bad_member_is_an_error(self):
-        (self.root / "web" / "edge" / "Bad.syn").write_text(
-            "contract Bad {\n  prop int count\n  frobnicate x\n}\n")  # unknown member
-        self.assertTrue(any("unexpected member" in e for e in check.lint_contracts(self.root)))
+        self.assertTrue(any("unexpected declaration" in e for e in check.lint_contracts(
+            self._config("prop int count\nfrobnicate x\n"))))
 
 
 class QtToolPathTest(unittest.TestCase):
@@ -305,7 +308,7 @@ class ConnectPointSourceLintTest(unittest.TestCase):
         self.root = Path(tempfile.mkdtemp())
         newproject.scaffold(self.root.parent, self.root.name)
         addcontract.scaffold_connect_point(self.root, "items", owner="app",
-                                           consumers=["app"], contract="Items")
+                                           consumers=["app"])
         self.config = yaml.safe_load((self.root / "synqt.yaml").read_text())
         self.source = self.root / "client" / "app" / "Items.qml"
 

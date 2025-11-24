@@ -28,7 +28,7 @@ def base_config(**overrides):
             {"name": "web", "type": "web_edge", "path": "web"},
         ],
         "connect_points": [
-            {"name": "app", "owner": "web", "consumers": ["client"], "contract": "App"},
+            {"name": "app", "owner": "web", "consumers": ["client"]},
         ],
     }
     config.update(overrides)

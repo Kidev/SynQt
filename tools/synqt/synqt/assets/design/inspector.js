@@ -309,11 +309,6 @@ function linkPanel(design, link, actions) {
         link.name = value;
         actions.rename("link", value);
     })));
-    panel.append(field("Contract", text(link.contract, (value) => {
-        link.contract = value;
-        actions.changed();
-    }, "Auction")));
-
     const names = (design.entities || []).map((entity) => entity.name);
     panel.append(field("Owner", choice(["", ...names], link.owner, (value) => {
         link.owner = value;

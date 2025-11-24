@@ -72,7 +72,7 @@
                   "name": "id"
                 },
                 {
-                  "type": "string",
+                  "type": "string[120]",
                   "name": "title"
                 }
               ]
@@ -90,7 +90,7 @@
               "type": "",
               "params": [
                 {
-                  "type": "string",
+                  "type": "string[120]",
                   "name": "reason"
                 }
               ],
@@ -112,7 +112,7 @@
               "type": "bool",
               "params": [
                 {
-                  "type": "string",
+                  "type": "string[64]",
                   "name": "sub"
                 }
               ],

@@ -35,7 +35,7 @@ def promoted_config(**overrides):
             {"name": "auth", "type": "service"},
         ],
         "connect_points": [
-            {"name": "app", "owner": "web", "consumers": ["client"], "contract": "App"},
+            {"name": "app", "owner": "web", "consumers": ["client"]},
         ],
         "identity": {
             "provider_entity": "auth",

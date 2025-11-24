@@ -16,15 +16,18 @@ survive a restart. That is a database's job, exactly as in
 synqt add entity database --type relational
 ```
 
-Give it a contract, `db/relational/records/Scores.syn`. This is the database's API, used only by the
+Give it a connect point in `synqt.yaml`. This is the database's API, used only by the
 edge:
 
-```syn
-contract Scores {
-    slot award(string sub, string name)   // give this champion one point
-    slot var top()                         // the highest scorers, back to the edge
-    signal standingsChanged()              // the table moved; repull
-}
+```yaml
+connect_points:
+  - name: scores
+    owner: records
+    consumers: [edge]
+    export: |
+      slot award(string[32] sub, string[40] name)  // give this champion one point
+      slot var top()                               // the highest scorers, to the edge
+      signal standingsChanged()                    // the table moved; repull
 ```
 
 Implement the database side in `db/relational/records/Scores.qml`:
@@ -70,26 +73,25 @@ certificate its mesh link presented. Entity links use mutual TLS even between tw
 processes on your laptop, and `synqt dev` issued throwaway development certificates for
 that automatically when it started. The database refuses anyone but the edge.
 
-## Step 2: Extend the arena contract
+## Step 2: Extend the arena
 
 The browser must never reach the database directly, so the edge will mirror the
 standings into the arena everyone already watches. Add the round clock, the champions
-model, and the round event to `web/edge/Arena.syn` (it already carries `board` from
-[part two](tutorial-multiplayer-world.md#step-1-the-shared-arena-a-contract)):
+model, and the round event to the `arena` point's `export:` (it already carries `board`
+from [part two](tutorial-multiplayer-world.md#step-1-the-shared-arena-a-connect-point)):
 
-```syn
-contract Arena {
-    prop real roundEndsAt                         // edge clock (ms) when the round ends
-    // Players in view, for drawing.
-    model blobs(string id, string name, real x, real y, real mass, bool online)
-    model board(string name, real mass)           // the live leaderboard, biggest first
-    model pellets(string id, real x, real y)      // food in view
-    model champions(string name, int points)      // all-time Hall of Fame, from the DB
-    slot steer(real x, real y)
-    slot real ping()
-    signal eaten(string prey, string predator)
-    signal roundEnded(string winner)              // the round closed; winner named
-}
+```yaml
+    export: |
+      prop real roundEndsAt                       // edge clock (ms) when the round ends
+      // Players in view, for drawing.
+      model blobs(string[32] id, string[40] name, real x, real y, real mass, bool online)
+      model board(string[40] name, real mass)     // the live leaderboard, biggest first
+      model pellets(string[32] id, real x, real y)  // food in view
+      model champions(string[40] name, int points)  // all-time Hall of Fame, from the DB
+      slot steer(real x, real y)                  // "I am aiming at this spot" (a goal)
+      slot real ping()                            // the edge clock in ms, for latency
+      signal eaten(string[40] prey, string[40] predator)  // one blob swallowed another
+      signal roundEnded(string[40] winner)        // the round closed; winner named
 ```
 
 `roundEndsAt` is a single timestamp the whole arena shares, so a property is exactly

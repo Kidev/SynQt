@@ -283,11 +283,11 @@ class AppGenTest(unittest.TestCase):
                 {"name": "web", "type": "web_edge"},
             ],
             "connect_points": [
-                {"name": "counter", "contract": "Counter", "owner": "web",
-                 "consumers": ["client"], "instance": "shared"}],
+                {"name": "counter", "owner": "web", "consumers": ["client"],
+                 "export": "prop int value\n"}],
         }
         cmake = cmakegen.render_root_cmakelists(config, "/opt/synqt")
-        # The consumer (client) generates the typed Replica; the owner (edge) the Source.
+        # The consumer (client) generates the typed Replica. The owner (edge) the Source.
         self.assertIn("synqt_add_contract(client ROLE replica", cmake)
         self.assertIn("synqt_add_contract(web ROLE source", cmake)
         client_main = maingen.render_client_main(config, appmodel.qml_uri(config["project"]["name"]))
@@ -382,9 +382,9 @@ class AppGenTest(unittest.TestCase):
                 {"name": "database", "type": "relational"},
             ],
             "connect_points": [
-                {"name": "auction", "contract": "Auction", "owner": "web",
+                {"name": "auction", "owner": "web",
                  "consumers": ["client"], "instance": "caller"},
-                {"name": "ledger", "contract": "Ledger", "owner": "database",
+                {"name": "ledger", "owner": "database",
                  "consumers": ["web"]}],
         }
         edge_main = maingen.render_edge_main(config, config["entities"][1])
@@ -414,7 +414,7 @@ class AppGenTest(unittest.TestCase):
                 {"name": "database", "type": "relational"},
             ],
             "connect_points": [
-                {"name": "ledger", "contract": "Ledger", "owner": "database",
+                {"name": "ledger", "owner": "database",
                  "consumers": ["web"]}],
         }
         service_main = maingen.render_service_main(config, config["entities"][0])
@@ -456,7 +456,7 @@ class AppGenTest(unittest.TestCase):
                 {"name": "rollups", "type": "jobs"},
             ],
             "connect_points": [
-                {"name": "ledger", "contract": "Ledger", "owner": "database",
+                {"name": "ledger", "owner": "database",
                  "consumers": ["rollups"]}],
         }
         cmake = cmakegen.render_root_cmakelists(config, "/opt/synqt")
@@ -496,8 +496,8 @@ class AppGenTest(unittest.TestCase):
                 {"name": "web", "type": "web_edge"},
             ],
             "connect_points": [
-                {"name": "counter", "contract": "Counter", "owner": "web",
-                 "consumers": ["client"], "instance": "shared"}],
+                {"name": "counter", "owner": "web", "consumers": ["client"],
+                 "export": "prop int value\n"}],
         }
         edge_main = maingen.render_edge_main(config, config["entities"][1])
         self.assertNotIn("EntityRuntime", edge_main)
@@ -531,7 +531,7 @@ class AppGenTest(unittest.TestCase):
                 {"name": "web", "type": "web_edge"},
             ],
             "connect_points": [
-                {"name": "arena", "contract": "Arena", "owner": "web",
+                {"name": "arena", "owner": "web",
                  "consumers": ["client"], "instance": "caller"}],
         }
         edge_main = maingen.render_edge_main(config, config["entities"][1], ["World"])
@@ -696,7 +696,7 @@ class HotReloadTest(unittest.TestCase):
 
 
 class SourceWatcherTest(unittest.TestCase):
-    def test_detects_edited_qml_and_new_contract_but_ignores_build(self):
+    def test_detects_edited_qml_and_a_topology_change_but_ignores_build(self):
         root = Path(tempfile.mkdtemp())
         (root / "client").mkdir()
         qml = root / "client" / "Main.qml"
@@ -709,14 +709,15 @@ class SourceWatcherTest(unittest.TestCase):
         (root / "build" / "wasm" / "client.js").write_text("// runtime")
         self.assertEqual(watcher.poll(), set())
 
-        # A QML edit and a new .syn are both seen.
+        # A QML edit and a change to the configuration are both seen. Nothing watches for
+        # a `.syn`: an app writes none, and the one the build makes of a connect point's
+        # `export:` lands under generated/, which is ignored here.
         import os as _os
         _os.utime(qml, ns=(2 ** 40, 2 ** 40))
-        (root / "shared").mkdir()
-        (root / "shared" / "Counter.syn").write_text("contract Counter {}\n")
+        (root / "synqt.yaml").write_text("entities: []\n")
         changed = watcher.poll()
         self.assertIn(qml, changed)
-        self.assertIn(root / "shared" / "Counter.syn", changed)
+        self.assertIn(root / "synqt.yaml", changed)
 
     def test_categorize_routes_changes_to_the_right_side(self):
         root = Path("/proj")
@@ -730,10 +731,8 @@ class SourceWatcherTest(unittest.TestCase):
         # A service QML edit rebuilds only the host side.
         self.assertEqual(
             runmod._categorize({root / "database" / "Items.qml"}, root, config), (True, False))
-        # Topology and contract changes rebuild both.
+        # A topology change is a change to what crosses every link, so it rebuilds both.
         self.assertEqual(runmod._categorize({root / "synqt.yaml"}, root, config), (True, True))
-        self.assertEqual(
-            runmod._categorize({root / "shared" / "Items.syn"}, root, config), (True, True))
 
 
 if __name__ == "__main__":

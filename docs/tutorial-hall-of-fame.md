@@ -27,16 +27,19 @@ rest of your app only ever talks to connect points.
 > provider system in [providers](providers.md). For this tutorial the default is
 > perfect.
 
-## Step 2: A contract for the ledger (database owns it)
+## Step 2: A connect point for the ledger (the database owns it)
 
-Create `db/relational/books/Ledger.syn`. This is the database's API, used by the edge:
+Add it to `synqt.yaml`. This is the database's API, used by the edge and nobody else:
 
-```syn
-contract Ledger {
-    slot recordWinner(string item, string winner, int amount)
-    slot var recentWinners()    // returns the latest winners to the edge
-    signal winnersChanged()     // tells the edge the list moved
-}
+```yaml
+connect_points:
+  - name: ledger
+    owner: books              # the books entity owns durable storage
+    consumers: [edge]         # only the edge may reach it
+    export: |
+      slot recordWinner(string[120] item, string[80] winner, int amount)
+      slot var recentWinners()    // returns the latest winners to the edge
+      signal winnersChanged()     // tells the edge the list moved
 ```
 
 > [!NOTE]
@@ -98,12 +101,14 @@ The browser must never reach the database directly (more on that in a moment). S
 the edge owns a `Hall` connect point, a live list of winners, and fills it from the
 database.
 
-Create `web/edge/Hall.syn`:
+Add its connect point to `synqt.yaml` too:
 
-```syn
-contract Hall {
-    model winners(string item, string winner, int amount)   // the browser watches it
-}
+```yaml
+  - name: hall
+    owner: edge               # the edge owns what the browser sees
+    consumers: [app]
+    export: |
+      model winners(string[120] item, string[80] winner, int amount)  // browser watches it
 ```
 
 The list is the same for everyone, so it belongs to the edge entity. Add it to
@@ -161,24 +166,7 @@ function closeLot(nextItem) {
 }
 ```
 
-## Step 6: Wire the two new connect points
-
-Add to `synqt.yaml`:
-
-```yaml
-connect_points:
-  - name: ledger
-    owner: books              # the books entity owns durable storage
-    consumers: [edge]         # only the edge may reach it
-    server: db/relational/books/Ledger.qml
-
-  - name: hall
-    owner: edge               # the edge owns what the browser sees
-    consumers: [app]
-    server: web/edge/Hall.qml
-```
-
-## Step 7: Show the Hall of Fame
+## Step 6: Show the Hall of Fame
 
 Add to `client/app/Main.qml`, below the bidding controls:
 
@@ -195,7 +183,7 @@ ListView {
 }
 ```
 
-## Step 8: Run it
+## Step 7: Run it
 
 Save and look at the browser. Sign in as the auctioneer, take a few bids, and close
 the lot. The winner appears in the Hall of Fame for everyone, instantly. Now stop

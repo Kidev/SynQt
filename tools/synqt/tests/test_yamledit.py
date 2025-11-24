@@ -40,7 +40,7 @@ def test_append_keeps_every_comment():
 
 def test_append_writes_its_own_comment_above_the_item():
     out = yamledit.append_item(SAMPLE, "connect_points",
-                               {"name": "prices", "contract": "Prices", "owner": "api",
+                               {"name": "prices", "owner": "api",
                                 "consumers": ["web"]},
                                comment="Drawn in synqt design.")
     assert "# Drawn in synqt design." in out
@@ -50,9 +50,9 @@ def test_append_writes_its_own_comment_above_the_item():
 def test_append_creates_a_list_the_file_does_not_have_yet():
     text = "entities:\n  - name: web\n    type: service\n"
     out = yamledit.append_item(text, "connect_points",
-                               {"name": "prices", "contract": "Prices", "owner": "web",
+                               {"name": "prices", "owner": "web",
                                 "consumers": ["client"]})
-    assert yaml.safe_load(out)["connect_points"][0]["contract"] == "Prices"
+    assert yaml.safe_load(out)["connect_points"][0]["name"] == "prices"
     assert yaml.safe_load(out)["entities"][0]["name"] == "web"
 
 

@@ -24,7 +24,7 @@ import textwrap
 from pathlib import Path, PurePosixPath
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from . import appmodel, designdoc, qmlscan, typebackend
+from . import appmodel, contractgen, designdoc, qmlscan, typebackend, yamledit
 
 #: How an owner file is told from every other QML file in an entity, without reading the
 #: configuration: its root type is the type its own name declares. `web/Auction.qml` opens
@@ -317,23 +317,18 @@ def contract_name(edge: Edge) -> str:
     return edge.point[:1].upper() + edge.point[1:]
 
 
-def render_syn(edge: Edge) -> str:
-    """The `.syn` source this link's evidence adds up to.
+def render_export(edge: Edge) -> str:
+    """The `export:` block this link's evidence adds up to.
 
     Every member carries the lines it was found on, so the first thing a reader can do
     with a guess is go and look at what produced it, and a member the scan had to guess at
     says so on its own line rather than in a note at the top nobody reads twice.
     """
-    contract = contract_name(edge)
-    lines = [designdoc.LICENCE_HEADER.rstrip("\n"), ""]
-    lines.extend(_preamble(edge))
-    lines.append("")
-    lines.append("contract %s {" % contract)
-    for position, member in enumerate(edge.members):
-        if position:
-            lines.append("")
-        lines.extend(_rendered_member(member))
-    lines.append("}")
+    lines = list(_preamble(edge))
+    for member in edge.members:
+        lines.append("")
+        lines.extend(line[4:] if line.startswith("    ") else line
+                     for line in _rendered_member(member))
     return "\n".join(lines) + "\n"
 
 
@@ -381,29 +376,32 @@ def to_document(edges: Sequence[Edge], config: Dict[str, Any]) -> Dict[str, Any]
 
 def write(project_dir: os.PathLike[str] | str, edges: Sequence[Edge],
           config: Dict[str, Any], *, force: bool = False) -> List[str]:
-    """Write each link's contract into its owner's folder, and return what was written.
+    """Write each link's `export:` onto its connect point, and return which points got one.
 
-    A contract that is already there is somebody's own writing, and this one is a guess, so
-    the whole command stops rather than overwriting any of them. Nothing is written when
-    one file would be refused: a half-applied scaffold is worse to unpick than none.
+    A point that already says what crosses it is somebody's own writing, and this is a
+    guess, so the whole command stops rather than overwriting any of them. Nothing is
+    written when one would be refused: a half-applied scaffold is worse to unpick than none.
     """
     root = Path(project_dir)
-    owners = {str(entity.get("name") or ""): entity
-              for entity in appmodel.entities(config)}
-    planned = [(appmodel.contract_path(owners[edge.owner], contract_name(edge)), edge)
-               for edge in edges if edge.members and edge.owner in owners]
-    present = [relative for relative, _ in planned if (root / relative).exists()]
+    points = {str(point.get("name") or ""): point
+              for point in appmodel.connect_points(config)}
+    planned = [(edge.point, edge) for edge in edges
+               if edge.members and edge.point in points]
+    present = [name for name, _ in planned if contractgen.has_export(points[name])]
     if present and not force:
         raise InferError(
-            "%s already written, and this is a guess, not a reading of what runs; "
-            "correct the guess and keep your own file, or pass --force to overwrite it"
-            % ", ".join(sorted(present)))
+            "%s already say what crosses them, and this is a guess, not a reading of what "
+            "runs; correct the guess and keep your own words, or pass --force to overwrite"
+            % ", ".join("'%s'" % name for name in sorted(present)))
+    config_path = root / "synqt.yaml"
+    text = config_path.read_text(encoding="utf-8")
     written: List[str] = []
-    for relative, edge in planned:
-        path = root / relative
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(render_syn(edge), encoding="utf-8")
-        written.append(relative)
+    for name, edge in planned:
+        text = yamledit.patch_item(text, "connect_points", name,
+                                   {"export": render_export(edge)})
+        written.append(name)
+    if written:
+        config_path.write_text(text, encoding="utf-8")
     return written
 
 
@@ -541,7 +539,7 @@ def _point_for(points: Sequence[Dict[str, Any]], relative: str, contract: str,
         if str(point.get("server") or "") == relative and point.get("name"):
             return str(point["name"])
     for point in points:
-        if (str(point.get("contract") or "") == contract
+        if (appmodel.contract_of(point) == contract
                 and str(point.get("owner") or "") == owner and point.get("name")):
             return str(point["name"])
     return contract[:1].lower() + contract[1:]
@@ -550,7 +548,7 @@ def _point_for(points: Sequence[Dict[str, Any]], relative: str, contract: str,
 def _contract_for(points: Sequence[Dict[str, Any]], name: str) -> str:
     for point in points:
         if str(point.get("name") or "") == name:
-            return str(point.get("contract") or "")
+            return appmodel.contract_of(point)
     return ""
 
 

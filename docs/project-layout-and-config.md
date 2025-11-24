@@ -25,8 +25,7 @@ my-app/
   web/                    # every web edge entity
     edge/                 # the edge: serves the client, faces the net
       Edge.qml            # the entity itself: a singleton, one of it while the entity runs
-      Todo.qml            # a connect point the edge owns
-      Todo.syn            # what may cross it
+      Todo.qml            # a connect point the edge owns (what crosses it is in synqt.yaml)
       identity/           # optional identity hooks
       .env                # secrets for this entity only
       .env.example
@@ -35,7 +34,6 @@ my-app/
     store/                # added with: synqt add entity store --type relational
       Store.qml
       Items.qml
-      Items.syn
       schema.sql
       .env
 
@@ -161,7 +159,6 @@ an application and never a directory scheme.
 | Directory | Holds |
 |-----------|-------|
 | `<type>/<entity>/` | one directory per entity, inside the folder its type shares: `client/`, `web/`, `db/relational/`, `db/document/`, `cache/`, `api/`, `jobs/`, `service/` (see [`entities`](#entities-the-topology)) |
-| `<type>/<entity>/<Contract>.syn` | the contract of each connect point that entity owns, beside the Source that answers it |
 | `build/<entity>/` | what `synqt build` produces, one deployable directory per entity |
 | `synqt/mesh/` | the project's private CA and per entity certificates (`synqt/mesh/dev/` for the throwaway development CA) |
 | `synqt/toolchain/` | the pinned Qt and Emscripten kits `synqt` provisions |
@@ -465,20 +462,32 @@ connect_points:
     consumers: [app]          # the entities allowed to acquire the Replica
     server: web/edge/Todo.qml
     scope: user               # for browser consumers: minimum session scope
+    export: |                 # what may cross it, and nothing else does
+      prop int count
+      model items(string[280] text, string[80] author, bool done)
+      slot add(string[280] text)
+      signal rejected(string[120] reason)
 
   - name: items
     owner: store
     consumers: [edge]         # only the edge may reach the items connect point
     server: db/relational/store/Items.qml
+    export: |
+      slot var list()
+      slot insert(string[280] text, string[64] ownerSub)
 ```
 
-`contract`, `server` and `scope` are all optional.
+`export` is the shape of what crosses, written as a block of `prop`/`model`/`slot`/
+`signal` lines (and any `record` they use). The full member grammar and the types they
+can name are in
+[the programming model](programming-model.md#contracts-the-shape-of-what-may-cross).
+Nothing names the contract: the type a point exports is the point's own name capitalized,
+so `- name: todo` exports `Todo`, and that is the QML type the owner's Source is rooted
+at. The build writes it to `generated/<owner's folder>/Todo.syn`, which nobody edits.
 
-`contract` defaults to the point's own name capitalized, which is what a point carrying
-one contract always wanted: `- name: todo` carries `Todo`. Write it only when two points
-carry one shape, and then it names the shape they share. `server` defaults to that
-contract's `.qml` in the owner's folder, so the two lines above spelling it out could both
-be left off; they are there to show where the file goes.
+`server` and `scope` are optional. `server` defaults to that type's `.qml` in the owner's
+folder, so the two lines above spelling it out could both be left off; they are there to
+show where the file goes.
 
 Omitting `scope` means any session, including an anonymous one, may acquire the connect
 point; write protection then lives inside the slots, as in the examples.

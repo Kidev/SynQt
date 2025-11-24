@@ -64,6 +64,21 @@ connect_points:
     owner: edge
     consumers: [app]
     scope: player
+    # Only the declared model roles cross to a browser; the edge keeps more per player (a
+    # GitHub sub, an aim point, timestamps) that never leaves it. `steer` takes intent (an
+    # aim point), never a position; the edge integrates every blob's motion itself, so
+    # there is no position for a client to forge.
+    export: |
+      prop real roundEndsAt                      // edge clock (ms) when the round ends
+      // Players in view, for drawing.
+      model blobs(string[32] id, string[40] name, real x, real y, real mass, bool online)
+      model board(string[40] name, real mass)    // the live leaderboard, biggest first
+      model pellets(string[32] id, real x, real y)     // food in view
+      model champions(string[40] name, int points)     // all-time Hall of Fame, from the DB
+      slot steer(real x, real y)                 // "I am aiming at this spot" (a goal)
+      slot real ping()                           // the edge clock in ms, for latency
+      signal eaten(string[40] prey, string[40] predator)  // one blob swallowed another
+      signal roundEnded(string[40] winner)       // the round closed; winner named
 
   # The permanent scores: owned by the database, reachable only by the edge (never the
   # browser; a client consumer here fails `synqt check`, since the database is not a web
@@ -71,3 +86,9 @@ connect_points:
   - name: scores
     owner: records
     consumers: [edge]
+    # The records entity authorizes the calling entity (Caller.entity === "edge"), never a
+    # user; the browser never reaches it.
+    export: |
+      slot award(string[32] sub, string[40] name)  // give this champion one point
+      slot var top()                               // the highest scorers, back to the edge
+      signal standingsChanged()                    // the table moved; repull

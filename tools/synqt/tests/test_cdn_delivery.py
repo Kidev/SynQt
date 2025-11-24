@@ -36,7 +36,7 @@ def cdn_config(**overrides):
                         "sync_route": "/sync"}},
         ],
         "connect_points": [
-            {"name": "app", "owner": "web", "consumers": ["client"], "contract": "App"},
+            {"name": "app", "owner": "web", "consumers": ["client"]},
         ],
         "security": {"allowed_origins": ["self", "https://cdn.example.com"]},
     }

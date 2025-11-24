@@ -25,7 +25,7 @@ import { NODE_RADIUS, ROLE_HELP, describe, draw, element, entityAt, extent, glyp
 import { inspect } from "./inspector.js";
 import { forgetDesign, keepDesign, keepPane, keptDesign,
          readPanes } from "./keep.js";
-import { entityDir, entityFiles, entityQmlPath, projectFiles }
+import { contractOf, entityDir, entityFiles, entityQmlPath, projectFiles }
     from "./project.js";
 import { declarations, references, runsFor, withoutNotice } from "./source.js";
 import { zipBytes } from "./zip.js";
@@ -366,11 +366,6 @@ function holderOf(file) {
     if (file.owner) {
         return {kind: "entity", name: file.owner};
     }
-    if (file.name.endsWith(".syn")) {
-        const contract = file.name.replace(/^.*\/|\.syn$/g, "");
-        const link = (state.design.links || []).find((one) => one.contract === contract);
-        return link ? {kind: "link", name: link.name} : null;
-    }
     return null;
 }
 
@@ -648,7 +643,7 @@ function absorbMembers(link, declared) {
         if (!already) {
             link.members.push({kind: one.kind, name: one.name, type: one.type,
                                params: one.params, roles: []});
-            said.push(`'${one.name}' is now part of the ${link.contract} contract.`);
+            said.push(`'${one.name}' now crosses '${link.name}'.`);
             continue;
         }
         if (already.kind === "model") {
@@ -690,7 +685,7 @@ function absorbReferences(consumer, found) {
                                         params: [], roles: []}
                                      : {kind: "prop", name: one.member, type: "var",
                                         params: [], roles: []}];
-            said.push(`'${one.member}' was added to ${link.contract}; say what type it is.`);
+            said.push(`'${one.member}' was added to '${link.name}'; say what type it is.`);
         }
     }
     return said;
@@ -715,26 +710,13 @@ function focusOf(file, line) {
         const entity = entityOf(file.name);
         return entity ? {kind: "entity", name: entity.name} : null;
     }
-    if (file.name.endsWith(".syn")) {
-        const contract = file.name.replace(/^.*\/|\.syn$/g, "");
-        const link = (state.design.links || [])
-            .find((one) => one.contract === contract);
-        if (!link) {
-            return null;
-        }
-        // The contract's members are the lines inside its braces, in order, so the line the
-        // caret is on counts down to the member it belongs to.
-        const body = withoutNotice(file.text).split("\n");
-        const opened = body.findIndex((one) => /^\s*contract\s/.test(one));
-        const at = line - opened - 1;
-        const member = (link.members || [])[at];
-        return {kind: "link", name: link.name, member: member ? member.name : ""};
-    }
-    // The configuration: whichever `- name:` this line is under, and whether that block is in
-    // the entity list or the connect point list.
+    // The configuration: whichever `- name:` this line is under, whether that block is in the
+    // entity list or the connect point list, and, inside a connect point's `export:` block,
+    // which member the caret is on.
     const lines = withoutNotice(file.text).split("\n");
     let named = "";
     let inLinks = false;
+    let exportAt = -1;
     for (let at = 0; at <= line && at < lines.length; at += 1) {
         if (/^connect_points:/.test(lines[at])) {
             inLinks = true;
@@ -744,9 +726,21 @@ function focusOf(file, line) {
         const found = lines[at].match(/^\s*-\s+name:\s*(\S+)/);
         if (found) {
             named = found[1];
+            exportAt = -1;
+        }
+        if (/^\s+export:\s*\|/.test(lines[at])) {
+            exportAt = at;
         }
     }
-    return named ? {kind: inLinks ? "link" : "entity", name: named} : null;
+    if (!named) {
+        return null;
+    }
+    if (!inLinks || exportAt < 0) {
+        return {kind: inLinks ? "link" : "entity", name: named};
+    }
+    const link = (state.design.links || []).find((one) => one.name === named);
+    const member = ((link || {}).members || [])[line - exportAt - 1];
+    return {kind: "link", name: named, member: member ? member.name : ""};
 }
 
 function focusFromCaret() {
@@ -897,7 +891,7 @@ function tipFor(what) {
     const head = document.createElement("div");
     head.className = "tip__head tip__head--link";
     const title = document.createElement("span");
-    title.textContent = `${link.name}: ${link.contract || "no contract yet"}`;
+    title.textContent = `${link.name}: ${contractOf(link)}`;
     head.append(title);
     box.append(head);
     box.append(tipRow("owned by", `${link.owner || "nobody"}, which decides`));
@@ -1389,10 +1383,9 @@ function addLink(owner, consumer, toward, at) {
     state.design.links.push(link);
     touched();
     select({kind: "link", name});
-    say(`'${owner.name}' now owns '${name}' and '${consumer.name}' consumes it. That writes `
-        + `${entityDir(owner)}/${link.contract}.syn and `
-        + `${entityDir(owner)}/${link.contract}.qml. Say what `
-        + "crosses it.");
+    say(`'${owner.name}' now owns '${name}' and '${consumer.name}' consumes it. What `
+        + `crosses it is written on the point, and ${entityDir(owner)}/`
+        + `${contractOf(link)}.qml answers it. Say what crosses it.`);
     // Straight into the one question a new link asks. It opens on the link rather than
     // waiting to be found in the panel, because a connect point that carries nothing is a
     // connect point nobody finished.

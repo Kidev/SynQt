@@ -29,8 +29,8 @@ def _config(**overrides):
             {"name": "store", "type": "relational"},
         ],
         "connect_points": [
-            {"name": "feed", "contract": "Feed", "owner": "web", "consumers": ["client"]},
-            {"name": "rows", "contract": "Rows", "owner": "store", "consumers": ["web"]},
+            {"name": "feed", "owner": "web", "consumers": ["client"]},
+            {"name": "rows", "owner": "store", "consumers": ["web"]},
         ],
     }
     config.update(overrides)

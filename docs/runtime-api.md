@@ -467,7 +467,7 @@ no further, and a consumer's write is refused at the boundary even though the Qt
 underneath has a `setData`. A consumer that wants a row changed calls a slot, which is
 where `Caller` exists and where the owner decides. See the [contract
 generator](programming-model.md#contracts-the-shape-of-what-may-cross) for how
-each `.syn` construct lowers.
+each `export:` construct lowers.
 
 ### Emitting a signal to one caller versus all
 

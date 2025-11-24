@@ -25,8 +25,8 @@ Every `synqt build` produces one artifact per entity:
   SynQt service runtime and any engine backend (for example the SQLite driver
   for a relational entity).
 
-Every entity that owns or consumes a connect point compiles the one `.syn` file its
-owner holds, so a contract is identical across all of them. A version skew between two
+Every entity that owns or consumes a connect point compiles the one contract the point
+declares, so it is identical across all of them. A version skew between two
 entities that share a connect point is therefore a compile error, not a runtime
 surprise. Output lands under `build/<entity>/`.
 
@@ -134,9 +134,10 @@ synqt add entity <name> [--type <type>]          # Scaffold a new entity (a plai
 synqt add entity <name> --type <type> --provider <engine>
                                                   # Scaffold an entity backed by a chosen engine.
 synqt add auth <provider> [--required]           # Add secure by default user authentication.
-synqt add contract <Name> --owner <entity>       # Scaffold <Name>.syn in its folder.
 synqt add connect-point <name> --owner <entity> [--consumers a,b]
-                                                 # Scaffold a connect point, owner and consumers.
+                                                 # Scaffold a connect point: the entry in
+                                                 # synqt.yaml with a starter `export:`, and
+                                                 # the owner-side Source that answers it.
 synqt add provider <name> --family <fam>         # Scaffold a provider for a family interface.
 
 synqt providers         # List available providers per entity type.
@@ -407,7 +408,8 @@ WebAssembly one; see [desktop clients](desktop.md).
 
 ## How QML becomes WebAssembly (the client entity)
 
-1. The contract generator turns each `.syn` into a QtRO rep file, runs repc
+1. The contract generator turns each connect point's `export:` block into a `.syn` under
+   `generated/`, then into a QtRO rep file, runs repc
    to produce Source and Replica headers, and emits the QML registrations. Output
    goes to `synqt_generated/<target>/` in the CMake binary directory, so it is a
    build artifact and never something in the project tree to commit or hand edit.

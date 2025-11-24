@@ -18,7 +18,7 @@ is, not why. For the generated class and member reference, see the
 |-----------|---------------|
 | [`src/`](https://github.com/Kidev/SynQt/tree/main/src) | The framework runtime, one library per trust boundary (see below). |
 | [`tools/`](https://github.com/Kidev/SynQt/tree/main/tools) | The command line tooling: the CLI, the contract generator, the docs lexer, the coverage reporter. |
-| [`cmake/`](https://github.com/Kidev/SynQt/tree/main/cmake) | [`SynQtContracts.cmake`](https://github.com/Kidev/SynQt/blob/main/cmake/SynQtContracts.cmake): the `.syn` to rep to repc and QML registration glue. [`SynQtBuildFlags.cmake`](https://github.com/Kidev/SynQt/blob/main/cmake/SynQtBuildFlags.cmake): the language version, the warnings, the release flags (see below). |
+| [`cmake/`](https://github.com/Kidev/SynQt/tree/main/cmake) | [`SynQtContracts.cmake`](https://github.com/Kidev/SynQt/blob/main/cmake/SynQtContracts.cmake): the generated `.syn` to rep to repc and QML registration glue. [`SynQtBuildFlags.cmake`](https://github.com/Kidev/SynQt/blob/main/cmake/SynQtBuildFlags.cmake): the language version, the warnings, the release flags (see below). |
 | [`tests/`](https://github.com/Kidev/SynQt/tree/main/tests) | One self contained CMake project per milestone and per acceptance fixture, plus the tree that builds them all at once. |
 | [`benchmarks/`](https://github.com/Kidev/SynQt/tree/main/benchmarks) | The performance harnesses and their committed baselines. |
 | [`examples/`](https://github.com/Kidev/SynQt/tree/main/examples) | The materialized tutorial systems ([gavel](https://github.com/Kidev/SynQt/tree/main/examples/gavel), the auction; [arena](https://github.com/Kidev/SynQt/tree/main/examples/arena), the game). |
@@ -70,10 +70,10 @@ directories at all, so those modules need not even be installed.
 
 ## The tooling ([`tools/`](https://github.com/Kidev/SynQt/tree/main/tools))
 
-- [`tools/synqtc`](https://github.com/Kidev/SynQt/tree/main/tools/synqtc) is the contract generator. It parses a `.syn` contract (`parser.py`,
+- [`tools/synqtc`](https://github.com/Kidev/SynQt/tree/main/tools/synqtc) is the contract generator. It parses the `.syn` a connect point's `export:` block becomes (`parser.py`,
   `model.py`, `types.py`), reports errors clearly (`errors.py`), and lowers to a QtRO
   `.rep` plus the Source helper and the QML registration (`emit.py`). It runs as
-  `python -m synqtc <file> --out <dir>`; it has no third party dependencies. `cli.py` and
+  `python -m synqtc <file> --out <dir>`. It has no third party dependencies. `cli.py` and
   `__main__.py` are the entry points.
 - [`tools/synqt`](https://github.com/Kidev/SynQt/tree/main/tools/synqt) is the `synqt` command line tool. Each subcommand is its own module:
   `newproject`, `build`, `run` (which covers `dev`, `serve`, and `test`), `check`,
@@ -85,16 +85,17 @@ directories at all, so those modules need not even be installed.
   wires them to the argument parser.
 - `docker` is the `synqt docker` family, and it generates rather than runs: a Dockerfile,
   a compose file, an entrypoint, a `.dockerignore`, and the `synqt.docker.yaml` profile
-  that pins each entity to an address on the container network. Addresses and not service
-  names, because a mesh endpoint is read into a `QHostAddress`. The one arrangement in
-  there worth knowing before reading it: an engine container shares its entity's network
+  that pins each entity to an address on the container network. Addresses rather than
+  service names, because a mesh endpoint is read into a `QHostAddress`. One arrangement in
+  there needs saying before reading it. An engine container shares its entity's network
   namespace and holds that entity's address, so the entity reaches its engine over
   loopback and an external provider's release-time refusal of an unverified connection is
   satisfied honestly rather than switched off. See
   [running in containers](docker.md#engines).
 - Generation itself is split by what it emits, since the outputs share only the topology
-  they read: `appmodel` reads that topology (entities, connect points, scopes, routes,
-  views, the client's QML files) and refuses one it cannot read, `cmakegen` writes the
+  they read. `appmodel` reads that topology (entities, connect points, scopes, routes,
+  views, the client's QML files) and refuses one it cannot read, `contractgen` turns each
+  connect point's `export:` block into the `.syn` the compiler reads, `cmakegen` writes the
   root `CMakeLists.txt`, `maingen` writes one `main.cpp` per entity, `clientshell`
   writes what the browser loads before the client does (`index.html`, `synqt-boot.js`,
   the shell cache worker, the dev reload hook), and `authentity` writes the Source QML an
@@ -119,7 +120,7 @@ directories at all, so those modules need not even be installed.
   link, and `synqt check` holds both to the same mesh rules as any declared link. Their
   contracts live in `src/identity/contracts/` and compile into `SynQtIdentity`, which is why
   they are marked `framework` and filtered back out wherever an app side
-  the owner's `<Contract>.syn` would otherwise be reached for.
+  `export:` block would otherwise be read.
 - The edge's browser-facing policy (the `security` block, `project.origin_model`, the
   starting scope, the public bind and TLS, the `identity` block, and each connect point's
   `scope`) is read by `appmodel` and emitted by `maingen` as one assignment per key the
@@ -128,8 +129,7 @@ directories at all, so those modules need not even be installed.
   where they could drift out of step with the structs they fill.
 - The [visual editor](visual-editor.md) and the inference behind it are the same project read
   two ways, and they share one shape. `designdoc` is that shape: a project as entities,
-  links and members, read from `synqt.yaml` and the project's `.syn` files and written
-  back to them.
+  links and members, all of it read from `synqt.yaml` and written back to it.
   `design` serves the page and answers it, `designplan` turns an edited document into the
   change set Apply is allowed to write (and refuses one the real `synqt check` fails, or a
   contract the compiler could not read back), and `yamledit` is what writes `synqt.yaml`
@@ -198,7 +198,7 @@ five commits without ever running.
 | Directory                | What it proves |
 |--------------------------|----------------|
 | [`m0-transport`](https://github.com/Kidev/SynQt/tree/main/tests/m0-transport)           | QtRemoteObjects over QtWebSockets works in a real browser (the go or no go gate). Driven by the Playwright verifier, also run by [`browser-matrix.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/browser-matrix.yml). |
-| [`m1-contract`](https://github.com/Kidev/SynQt/tree/main/tests/m1-contract)            | `.syn` lowers to the correct rep with push properties and role limited models. |
+| [`m1-contract`](https://github.com/Kidev/SynQt/tree/main/tests/m1-contract)            | a contract lowers to the correct rep with push properties and role limited models. |
 | [`m2-transport`](https://github.com/Kidev/SynQt/tree/main/tests/m2-transport)           | The `WebSocketTransport` carries a replica over a real WebSocket. |
 | [`m3-mesh`](https://github.com/Kidev/SynQt/tree/main/tests/m3-mesh)                | Mesh mutual TLS by default, plus the opt in local socket, with wrong or missing certificates rejected at the handshake. |
 | [`m4-topology`](https://github.com/Kidev/SynQt/tree/main/tests/m4-topology)            | The entity runtime resolves the topology and refuses a link that is not declared (deny by default). |

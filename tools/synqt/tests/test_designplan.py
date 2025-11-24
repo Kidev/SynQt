@@ -123,18 +123,19 @@ def test_adding_an_entity_creates_what_add_entity_creates(tmp_path):
     assert "type: cache" in config.after
 
 
-def test_adding_a_link_creates_its_contract(tmp_path):
+def test_adding_a_link_writes_what_crosses_it_onto_the_point(tmp_path):
     project = _copy(tmp_path, "gavel")
     document = designdoc.read(project)
     document["links"].append({
-        "id": "new", "name": "prices", "contract": "Prices", "owner": "edge",
-        "consumers": ["app"], "instance": "caller",
+        "id": "new", "name": "prices", "owner": "edge", "consumers": ["app"],
         "members": [{"kind": "prop", "name": "spot", "type": "real",
                      "params": [], "roles": []}]})
     plan = designplan.compute(project, document)
-    contract = next(c for c in plan.changes if c.path == "web/edge/Prices.syn")
-    assert contract.action == "create"
-    assert "prop real spot" in contract.after
+    config = next(c for c in plan.changes if c.path == "synqt.yaml")
+    assert "export: |" in config.after
+    assert "prop real spot" in config.after
+    # And no file of its own: the shape of a link is written on the link.
+    assert not any(change.path.endswith(".syn") for change in plan.changes)
 
 
 def test_a_member_named_after_a_keyword_is_refused_rather_than_written(tmp_path):
@@ -145,8 +146,7 @@ def test_a_member_named_after_a_keyword_is_refused_rather_than_written(tmp_path)
     project = _copy(tmp_path, "gavel")
     document = designdoc.read(project)
     document["links"].append({
-        "id": "new", "name": "prices", "contract": "Prices", "owner": "edge",
-        "consumers": ["app"], "instance": "caller",
+        "id": "new", "name": "prices", "owner": "edge", "consumers": ["app"],
         "members": [{"kind": "slot", "name": "record", "type": "",
                      "params": [{"type": "string", "name": "who"}], "roles": []}]})
     plan = designplan.compute(project, document)
@@ -168,7 +168,7 @@ def test_a_new_link_gets_an_empty_source_on_its_owner(tmp_path):
     project = _copy(tmp_path, "gavel")
     document = designdoc.read(project)
     document["links"].append({
-        "id": "new", "name": "prices", "contract": "Prices", "owner": "edge",
+        "id": "new", "name": "prices", "owner": "edge",
         "consumers": ["app"], "instance": "caller", "members": []})
     plan = designplan.compute(project, document)
     source = next(c for c in plan.changes if c.path == "web/edge/Prices.qml")
@@ -203,7 +203,7 @@ def test_changing_a_contract_member_rewrites_only_that_contract(tmp_path):
     auction["members"].append({"kind": "prop", "name": "reserve", "type": "int",
                                "params": [], "roles": []})
     plan = designplan.compute(project, document)
-    assert [c.path for c in plan.changes] == ["web/edge/Auction.syn"]
+    assert [c.path for c in plan.changes] == ["synqt.yaml"]
     assert "prop int reserve" in plan.changes[0].after
 
 
@@ -327,14 +327,14 @@ def test_execute_writes_exactly_what_the_plan_said(tmp_path):
     project = _copy(tmp_path, "gavel")
     document = designdoc.read(project)
     document["links"].append({
-        "id": "new", "name": "prices", "contract": "Prices", "owner": "edge",
-        "consumers": ["app"], "instance": "caller",
+        "id": "new", "name": "prices", "owner": "edge", "consumers": ["app"],
         "members": [{"kind": "slot", "name": "refresh", "type": "", "params": [],
                      "roles": []}]})
     plan = designplan.compute(project, document)
     designplan.execute(project, plan)
-    assert (project / "web" / "edge" / "Prices.syn").exists()
-    assert "prices" in (project / "synqt.yaml").read_text()
+    written = (project / "synqt.yaml").read_text()
+    assert "prices" in written
+    assert "slot refresh()" in written
     # And the same document now plans to nothing.
     assert designplan.compute(project, designdoc.read(project)).changes == ()
 
@@ -414,15 +414,16 @@ def test_the_summary_names_every_change_that_was_made(tmp_path):
     assert "jobs/api/Api.qml" in summary
 
 
-def test_pointing_a_link_at_a_different_contract_retires_the_old_one(tmp_path):
+def test_taking_a_member_off_a_link_takes_it_off_the_point(tmp_path):
+    """A link's shape lives on the link, so retiring part of it is an edit to one block of
+    synqt.yaml and touches nothing else."""
     project = _copy(tmp_path, "gavel")
     document = designdoc.read(project)
     ledger = next(l for l in document["links"] if l["name"] == "ledger")
-    ledger["contract"] = "Archive"
+    ledger["members"] = [m for m in ledger["members"] if m["name"] != "count"]
     plan = designplan.compute(project, document)
-    paths = {c.path: c.action for c in plan.changes}
-    assert paths["db/relational/books/Archive.syn"] == "create"
-    assert paths["db/relational/books/Ledger.syn"] == "delete"
+    assert [c.path for c in plan.changes] == ["synqt.yaml"]
+    assert "prop int count" not in plan.changes[0].after
 
 
 def test_a_type_the_scaffolder_refuses_comes_back_as_a_plan_error(tmp_path):
