@@ -19,6 +19,18 @@ deploy/get.synqt.org/** linguist-documentation
 tools/docs-hooks/**     linguist-documentation
 tools/pygments-synqt/** linguist-documentation
 
+# The `synqt` command is written in Python, and at 1.4 MB across 92 files it is the
+# largest single thing in the checkout, so the bar called a Qt framework a Python
+# project. It is not vendored and never will be: it is this project's own code, it
+# ships the framework inside its own wheel, and it belongs in this repository beside
+# the C++ it compiles. What it is not is a language anyone writes to use SynQt. That
+# is the question the bar answers, and `linguist-detectable` is the switch for it:
+# unlike linguist-vendored it claims nothing about who wrote the code, it only says
+# not to count it. The contract compiler under tools/synqtc stays counted, because
+# cmake/SynQtContracts.cmake resolves it at a fixed path and it is part of every
+# build.
+tools/synqt/** linguist-detectable=false
+
 # A bare .h is ambiguous to GitHub (C, C++ or Objective-C, decided by heuristic on
 # the contents). Every header here is C++, so say so rather than let the answer
 # depend on which files happen to name a class.
