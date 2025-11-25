@@ -119,8 +119,9 @@ synqt build             # Production build of every entity artifact.
 synqt build --deploy --sign <identity>   # ... and run the platform deploy step on a
 synqt build --deploy --unsigned          #     desktop client, signed or knowingly not.
 synqt serve             # Run the built entities, the edge serving the built client.
-synqt check [--release] # Validate config and topology, lint QML and contracts,
-                        # and report a contract and its QML drifting apart.
+synqt check [--release] # Validate config and topology, lint QML and contracts, hold
+                        # each export to the owner that implements it, and report a
+                        # contract and its QML drifting apart.
                         # Every command below that reads a project also takes
                         # --profile <name> (layer synqt.<name>.yaml over synqt.yaml).
 synqt infer [--write]   # Read back the contracts the QML already implies.
@@ -236,6 +237,14 @@ and TypeScript produces the ones it is sure of. What an owner's own Source keeps
 is not judged, because a Source is an ordinary QML object and its `property var store: []`
 crosses nothing; neither is a point some QML reached by a computed name, because the scan
 cannot follow that and "nobody uses this" would be a claim about what it failed to read.
+
+The same reading answers a second question, on the owner's side of the link: does the
+owner implement what its point exports? A member nothing in the Source implements is an
+error, because a slot with no QML function behind it returns a default and says nothing;
+so is a member exported as one kind and written as another, and a property exported as a
+type the owner plainly contradicts. It is also what lets an `export:` line be nothing but
+the name of a member the owner already has, written out from what that owner says. See
+[exporting by name](programming-model.md#exporting-by-name).
 
 `synqt version` answers in three lines:
 

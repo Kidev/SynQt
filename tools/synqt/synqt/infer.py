@@ -22,7 +22,7 @@ import dataclasses
 import os
 import textwrap
 from pathlib import Path, PurePosixPath
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 from . import appmodel, contractgen, designdoc, qmlscan, typebackend, yamledit
 
@@ -39,8 +39,13 @@ _EMIT_PREFIX = "emit"
 #: `auction.setWinners(rows)` replaces the `winners` model, the owner side model API.
 _SET_PREFIX = "set"
 
+#: `winnersRows: Edge.winners` publishes the `winners` model, and is the form the docs and
+#: every example use. The generated Source carries `<model>Rows` for declared models and
+#: nothing else, so a binding to one is a model being published rather than a property.
+_ROWS_SUFFIX = "Rows"
+
 #: `function onEaten(...)` handles the `eaten` signal, and `onClicked:` handles nothing
-#: that belongs to a contract; the same prefix answers both questions.
+#: that belongs to a contract. The same prefix answers both questions.
 _HANDLER_PREFIX = "on"
 
 _LITERAL_KINDS = ("string", "int", "real", "bool")
@@ -104,12 +109,32 @@ class _Reading:
     path: str
     source: str
     types: Optional["_Types"] = None
+    #: What each QML type in this entity declares: `{"Edge": {"itemName": "string"}}`.
+    #: A Source binds most of its properties to the entity's own singleton, so the type
+    #: it means is written down one file away, and reading it there beats guessing.
+    declared: Mapping[str, Mapping[str, str]] = dataclasses.field(default_factory=dict)
 
     def type_of(self, span: Sequence[qmlscan.Token]) -> str:
         """The type of the expression these tokens spell, or `var` when nobody knows."""
         if self.types is None or not span:
             return "var"
         return self.types.of(self.path, _expression(self.source, span), span[0].line)
+
+    def declared_type(self, tokens: Sequence[qmlscan.Token], index: int) -> str:
+        """`Edge.itemName` read as the type `Edge.qml` declares for it, or "".
+
+        One hop and no further. `Edge.itemName` is the shape nearly every Source uses to
+        publish entity state, and the answer is a declaration rather than a guess, so it
+        is worth reading. Anything longer is an expression and belongs to the backend.
+        """
+        holder = _at(tokens, index)
+        name = _at(tokens, index + 2)
+        if not (_is_ident(holder) and _is_punct(_at(tokens, index + 1), ".")
+                and _is_ident(name)):
+            return ""
+        if _is_punct(_at(tokens, index + 3), "."):
+            return ""  # a longer path than this reads
+        return str(self.declared.get(holder.text, {}).get(name.text, ""))
 
 
 class _Types:
@@ -245,9 +270,12 @@ def _scan(project_dir: os.PathLike[str] | str, config: Dict[str, Any],
 
     for entity in entities:
         name = str(entity.get("name") or "")
+        # What this entity's own files declare, read once. A Source publishes the
+        # singleton's state, so the type it means is written down beside it.
+        declared = declared_properties(root, entity)
         for path in _entity_files(root, entity):
             relative = path.relative_to(root).as_posix()
-            contract, members = scan_owner(relative, _read_text(path), types)
+            contract, members = scan_owner(relative, _read_text(path), types, declared)
             if not contract:
                 continue
             entry = _bucket(found, name, _point_for(points, relative, contract, name), contract)
@@ -517,6 +545,67 @@ def _bucket(found: Dict[Tuple[str, str], Dict[str, Any]], owner: str, point: str
     return entry
 
 
+def server_path(config: Dict[str, Any], point: Dict[str, Any]) -> str:
+    """Where the owner-side Source of a connect point is, relative to the project."""
+    owners = {str(one.get("name") or ""): one for one in appmodel.entities(config)}
+    owning = owners.get(str(point.get("owner") or ""))
+    contract = appmodel.contract_of(point)
+    if owning is None or not contract:
+        return ""
+    return str(point.get("server") or appmodel.source_path(owning, contract))
+
+
+def owner_members(project_dir: os.PathLike[str] | str, config: Dict[str, Any],
+                  point: Dict[str, Any]) -> Dict[str, Member]:
+    """What the owner of this connect point implements, by member name.
+
+    The one reading behind both halves of "say it once": `synqt check` holds a point's
+    `export:` to it, and a line that is nothing but a name is written out from it. It is
+    the same shape match the rest of this module does, so the same caveat applies, and it
+    is why a member's `certain` flag decides whether a type it produced may be written
+    into a contract rather than only reported.
+
+    Empty for a point whose Source is missing or is not rooted at its own type;
+    `check.lint_connect_point_sources` reports both in their own words.
+    """
+    root = Path(project_dir)
+    relative = server_path(config, point)
+    if not relative:
+        return {}
+    source = root / relative
+    if not source.is_file():
+        return {}
+    owners = {str(one.get("name") or ""): one for one in appmodel.entities(config)}
+    owning = owners.get(str(point.get("owner") or "")) or {}
+    _, members = scan_owner(relative, _read_text(source), None,
+                            declared_properties(root, owning))
+    return {member.name: member for member in members}
+
+
+def declared_properties(root: Path, entity: Dict[str, Any]) -> Dict[str, Dict[str, str]]:
+    """What each of an entity's QML types declares: `{"Edge": {"itemName": "string"}}`.
+
+    A file is a QML type named after itself, so the map is keyed by file stem, which is
+    exactly the name a Source in the same entity writes to reach it. Only `property <type>
+    <name>` counts. A declaration is a fact, and the point of reading this is to answer
+    with one where the alternative was a guess.
+    """
+    found: Dict[str, Dict[str, str]] = {}
+    for path in _entity_files(root, entity):
+        properties: Dict[str, str] = {}
+        tokens = qmlscan.tokenize(_read_text(path))
+        for index, token in enumerate(tokens):
+            if not _is_keyword(token, "property"):
+                continue
+            type_token = _at(tokens, index + 1)
+            name_token = _at(tokens, index + 2)
+            if _is_ident(type_token) and _is_ident(name_token):
+                properties.setdefault(name_token.text, type_token.text)
+        if properties:
+            found[path.stem] = properties
+    return found
+
+
 def _entity_files(root: Path, entity: Dict[str, Any]) -> List[Path]:
     """The QML an entity is built from: its own directory, never the build output."""
     if not entity.get("name"):
@@ -524,8 +613,13 @@ def _entity_files(root: Path, entity: Dict[str, Any]) -> List[Path]:
     directory = root / appmodel.entity_dir(entity)
     if not directory.is_dir():
         return []
+    # Relative to the entity, because what is skipped is a directory *inside* the project.
+    # Asked of the absolute path, a project that happens to live under one called `build`
+    # had every one of its own files skipped, and the scan then answered `var` to
+    # everything rather than saying it had read nothing.
     return [path for path in sorted(directory.rglob("*.qml"))
-            if not ({"build", "node_modules"} & set(path.parts))]
+            if not ({"build", "node_modules"}
+                    & set(path.relative_to(directory).parts))]
 
 
 def _read_text(path: Path) -> str:
@@ -553,7 +647,9 @@ def _contract_for(points: Sequence[Dict[str, Any]], name: str) -> str:
 
 
 def scan_owner(relative_path: str, source: str,
-               types: Optional["_Types"] = None) -> Tuple[str, List[Member]]:
+               types: Optional["_Types"] = None,
+               declared: Optional[Mapping[str, Mapping[str, str]]] = None,
+               ) -> Tuple[str, List[Member]]:
     """The contract an owner file implements, and the members it shows.
 
     The root type names the contract, so a file whose root does not name the file is not an
@@ -563,7 +659,7 @@ def scan_owner(relative_path: str, source: str,
     if not root or root != PurePosixPath(relative_path).stem:
         return "", []
 
-    reading = _Reading(relative_path, source, types)
+    reading = _Reading(relative_path, source, types, declared or {})
     tokens = qmlscan.tokenize(source)
     members: List[Member] = []
     raised: List[Member] = []
@@ -916,8 +1012,22 @@ def _read_assignment(reading: "_Reading", tokens: Sequence[qmlscan.Token], index
         return 0
     if name_token.text == "id" or _is_handler_name(name_token.text):
         return 0
+    published = _model_published(name_token.text)
+    if published:
+        # The roles are in the rows, which are built somewhere else. The model is real and
+        # its shape is an open question, which is what a role-less model records.
+        _record(members, Member("model", published,
+                                evidence=(_where(reading, name_token),)))
+        return 2
     value = _at(tokens, index + 2)
     type_name = qmlscan.literal_type(value) if value else "var"
+    if type_name == "var":
+        # Not a literal, so the type is somewhere else. `Edge.itemName` is one file away
+        # and written down. Anything longer than that is an expression, and the backend is
+        # who answers those.
+        type_name = (reading.declared_type(tokens, index + 2)
+                     or reading.type_of(_binding_span(tokens, index + 2))
+                     or "var")
     _record(members, Member("prop", name_token.text, type_name,
                             evidence=(_where(reading, name_token),)))
     return 2
@@ -1010,6 +1120,11 @@ def _read_written_property(reading: "_Reading", tokens: Sequence[qmlscan.Token],
     # "=" and not "==": a comparison reads the property, it does not write it.
     if not _is_punct(_at(tokens, index + 3), "=") or _is_punct(_at(tokens, index + 4), "="):
         return 0
+    published = _model_published(name_token.text)
+    if published:
+        _record(members, Member("model", published,
+                                evidence=(_where(reading, name_token),)))
+        return 4
     value = _at(tokens, index + 4)
     after = _at(tokens, index + 5)
     written_whole = _is_punct(after, ";") or _is_punct(after, "}")
@@ -1039,6 +1154,42 @@ def _declared_parameters(tokens: Sequence[qmlscan.Token], start: int,
             continue
         params.append(Param("var", span[0].text))
     return tuple(params)
+
+
+def _model_published(name: str) -> str:
+    """The model `<model>Rows` publishes, or "" when the name is an ordinary property."""
+    stem = name[:-len(_ROWS_SUFFIX)] if name.endswith(_ROWS_SUFFIX) else ""
+    return stem if stem and stem[0].islower() else ""
+
+
+def _binding_span(tokens: Sequence[qmlscan.Token],
+                  start: int) -> Sequence[qmlscan.Token]:
+    """The tokens of a binding's value. What is on its line, brackets kept whole.
+
+    QML ends a binding at the end of the line unless the line cannot have ended, and this
+    reads the ordinary case rather than that whole rule. A value spread over several lines
+    is an expression the backend has to be asked about anyway, and the one line is enough
+    to ask it with.
+    """
+    if start >= len(tokens):
+        return ()
+    line = tokens[start].line
+    depth = 0
+    index = start
+    while index < len(tokens):
+        token = tokens[index]
+        if token.line != line and depth == 0:
+            break
+        if token.kind == "punct" and token.text in "([{":
+            depth += 1
+        elif token.kind == "punct" and token.text in ")]}":
+            if depth == 0:
+                break
+            depth -= 1
+        elif token.kind == "punct" and token.text == ";" and depth == 0:
+            break
+        index += 1
+    return tokens[start:index]
 
 
 def _argument_types(reading: "_Reading", tokens: Sequence[qmlscan.Token], start: int,

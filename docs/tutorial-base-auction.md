@@ -39,6 +39,12 @@ will write in QML in a moment, and nothing else names it.
 > full contract format, and the sizes in those brackets, are in
 > [the programming model](programming-model.md#the-types-a-contract-can-name).
 
+Once the edge implements this, in step 3, those three properties can be exported by name
+alone: `synqt` reads what they are from the owner, and `synqt check` refuses a name the
+owner does not have. Written out is never wrong, and it is the only way to narrow a type
+with a bound, which is why the tutorial writes them out here. See
+[exporting by name](programming-model.md#exporting-by-name).
+
 ## Step 2: Hold the lot
 
 There is one lot under the hammer, however many people are watching it, so it belongs to

@@ -42,6 +42,53 @@ surface over QtRemoteObjects rep files; the build writes one `.syn` per point un
 `generated/` and generates the QtRO Source and Replica from it. Nobody edits that file;
 editing the `export:` block rewrites it.
 
+### Exporting by name
+
+The owner already says what most of these are. `web/edge/Todo.qml` binds a property,
+implements a function, publishes rows, so the kind and often the type are written down
+there. Name the member and `synqt` reads the rest from the owner:
+
+```yaml
+    export: |
+      count                                 // prop int, read off the owner
+      slot add(string[280] text)
+      signal rejected(string[120] reason)
+```
+
+A name resolves only when the owner is unambiguous about it. Where it is not, `synqt
+check` refuses the line and prints what it read, for you to correct and paste:
+
+```
+error: connect point 'todo': 'add' is exported by name, and web/edge/Todo.qml does not
+say what type it is. Write it out: 'slot add(var text)' is what was read, with whatever
+it left open to fill in
+```
+
+That is the rule rather than an accident. A guess is a fine starting point for a person
+and a bad thing to put on a wire, so a type nobody read stays a question rather than
+becoming `var` in a contract. In practice a property bound to the entity's own singleton
+resolves (the declaration is one file away), a slot's parameter types usually do not, and
+a model's roles never do, because the rows are built somewhere else.
+
+### What the owner has to answer for
+
+Whether a member is named or written out in full, `synqt check` holds it to the owner's
+Source:
+
+- a member nothing in the owner implements is an error. A slot with no QML function
+  behind it is the one that always breaks quietly, because the call returns a default and
+  nothing says why.
+- a member exported as one kind and written as another is an error (`prop bidRejected`
+  against a `Caller.emitBidRejected(...)`).
+- a property exported as a type the owner plainly contradicts is an error. `int` against
+  `real` is not a contradiction, because JavaScript keeps one numeric type and which of
+  the two was written was never a promise. `string` against `int` is.
+
+The reading behind all of it is a shape match over QML rather than a compile, so it speaks up
+where the owner plainly means something else and stays quiet where it cannot tell. It is
+the same reading `synqt infer` prints, and
+[`synqt infer --write`](build-system-and-cli.md) fills an empty `export:` in from it.
+
 Mapping to the QtRO semantics the generated rep encodes:
 
 - `prop` generates a property with push semantics. The consumer gets a getter and

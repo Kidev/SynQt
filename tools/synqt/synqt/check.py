@@ -1686,12 +1686,13 @@ def lint_contracts(config: Dict[str, Any]) -> List[str]:
         code = "\n".join(line.split("//", 1)[0] for line in text.splitlines())
         for line in code.splitlines():
             statement = line.strip()
-            if not statement:
-                continue
+            if not statement or contractgen.bare_name(line):
+                continue   # a name on its own: lint_exports resolves it against the owner
             if statement.split()[0] not in _CONTRACT_MEMBERS + ("record",):
                 messages.append(
                     f"error: {where}: unexpected declaration '{statement[:32]}' in "
-                    "'export:' (want prop/model/slot/signal, or a record)")
+                    "'export:' (want prop/model/slot/signal, a record, or the name of a "
+                    "member the owner already has)")
         if code.count("{") or code.count("}"):
             messages.append(
                 f"error: {where}: 'export:' holds the members themselves, with no "
@@ -1699,8 +1700,108 @@ def lint_contracts(config: Dict[str, Any]) -> List[str]:
     return messages
 
 
+def lint_exports(config: Dict[str, Any],
+                 project_dir: os.PathLike[str] | str) -> List[str]:
+    """Hold every exported member to the owner that has to answer for it.
+
+    A contract is a promise the owner keeps, and the owner is QML in the same project, so
+    the promise is checkable. A slot nothing implements is a call that silently returns a
+    default. A member exported as one kind and written as another is a boundary that
+    compiles and then does nothing. Both are read from what the owner's Source
+    does (:func:`synqt.infer.owner_members`), which is a shape match over QML and not a
+    compile, so this speaks up only where the owner plainly has the name and plainly means
+    something else by it.
+
+    It is also what makes a line that is nothing but a name work at all: the name resolves
+    against the owner, or it is refused here with the line written out to paste.
+    """
+    root = Path(project_dir)
+    messages: List[str] = []
+    for point in appmodel.app_points(appmodel.connect_points(config)):
+        if not contractgen.has_export(point):
+            continue   # lint_contracts says so in its own words
+        where = f"connect point '{point.get('name')}'"
+        implemented = infer.owner_members(root, config, point)
+        if not implemented:
+            # No Source, or one that is not rooted at its own type. Both are
+            # lint_connect_point_sources' to report, and a file it has refused says
+            # nothing about the members here.
+            continue
+        server = infer.server_path(config, point)
+        for line in contractgen.export_text(point).splitlines():
+            messages += _export_line_messages(line, where, server, implemented)
+    return messages
+
+
+#: What an owner does with each kind of member, in the words its own QML would use.
+_OWNER_VERBS = {"prop": "writes", "model": "publishes", "signal": "raises",
+                "slot": "implements"}
+
+
+def _export_line_messages(line: str, where: str, server: str,
+                          implemented: Dict[str, Any]) -> List[str]:
+    """What one written export line and the owner say about each other."""
+    named = contractgen.bare_name(line)
+    if named:
+        return _bare_name_messages(named, where, server, implemented)
+    declared = _declared_member(line)
+    if declared is None:
+        return []
+    kind, name, written_type = declared
+    found = implemented.get(name)
+    if found is None:
+        return [f"error: {where}: '{name}' is exported and nothing in {server} "
+                f"{_OWNER_VERBS[kind]} it, so nothing would answer for it"]
+    if found.kind != kind:
+        return [f"error: {where}: '{name}' is exported as a {kind}, and {server} "
+                f"{_OWNER_VERBS[found.kind]} it as a {found.kind}"]
+    if (kind == "prop" and found.certain and found.type and written_type
+            and written_type != "var" and not _converts(found.type, written_type)):
+        return [f"error: {where}: '{name}' is exported as {written_type}, and {server} "
+                f"puts a {found.type} in it"]
+    return []
+
+
+def _bare_name_messages(named: str, where: str, server: str,
+                        implemented: Dict[str, Any]) -> List[str]:
+    """What a line that is only a name needs from the owner, when it does not get it."""
+    found = implemented.get(named)
+    if found is None:
+        known = ", ".join(sorted(implemented))
+        return [f"error: {where}: '{named}' is exported by name, and {server} has no such "
+                f"member to read it from (it has {known}). Write the member out, or name "
+                "one of those"]
+    if not found.certain:
+        return [f"error: {where}: '{named}' is exported by name, and what {server} does "
+                f"with it does not say what type it is. Write it out: "
+                f"'{contractgen.rendered(found)}' is what was read, with whatever it "
+                "left open to fill in"]
+    return []
+
+
+def _declared_member(line: str) -> Optional[Tuple[str, str, str]]:
+    """The (kind, name, written type) a whole member line declares, or None.
+
+    The type is a prop's, which is the only kind whose declaration is one word the owner
+    can be compared against; a slot's parameters and a model's roles are the call sites'
+    to answer, and `lint_contract_drift` is where those are held to anything.
+    """
+    code = line.split("//", 1)[0].strip()
+    head = code.split("(", 1)[0]
+    words = head.split()
+    if len(words) < 2 or words[0] not in _CONTRACT_MEMBERS:
+        return None
+    written = words[1] if (words[0] == "prop" and len(words) > 2) else ""
+    return words[0], words[-1], _base_type(written)
+
+
+def _base_type(written: str) -> str:
+    """A written type without its bound: `string[80]` is a `string` to compare."""
+    return written.split("[", 1)[0]
+
+
 # What a value of one type can be handed to. The three families are what QML converts
-# within and not across: a number reaches an int parameter and a real one alike (JavaScript
+# within and not across. A number reaches an int parameter and a real one alike (JavaScript
 # keeps one numeric type, so which of the two a value is was never a promise the language
 # made), and a string handed to an int is a defect wherever it was written. A declared type
 # outside these, a record or a `var`, takes whatever it is given and is not judged here.
@@ -1719,8 +1820,8 @@ def _converts(inferred: str, declared: str) -> bool:
     return families[0] == families[1]
 
 
-def _declared_members(contract: str,
-                      point: Dict[str, Any]) -> Optional[List[Dict[str, Any]]]:
+def _declared_members(contract: str, point: Dict[str, Any],
+                      owner: Dict[str, Any]) -> Optional[List[Dict[str, Any]]]:
     """The members a connect point exports, or None when it declares none yet.
 
     A point with nothing written on it yet is not a point this project has drifted from,
@@ -1731,7 +1832,7 @@ def _declared_members(contract: str,
         return None
     try:
         return designdoc.parse_from_text(
-            contractgen.contract_source(contract, point), contract)
+            contractgen.contract_source(contract, point, owner), contract)
     except designdoc.DesignDocError:
         return None
 
@@ -1777,7 +1878,8 @@ def lint_contract_drift(config: Dict[str, Any], project_dir: os.PathLike[str] | 
               for point in appmodel.connect_points(config)}
     declared: Dict[str, List[Dict[str, Any]]] = {}
     for name, point in points.items():
-        members = _declared_members(appmodel.contract_of(point), point)
+        members = _declared_members(appmodel.contract_of(point), point,
+                                    contractgen.implemented_by_owner(root, config, point))
         if members is not None:
             declared[name] = members
 
@@ -1942,8 +2044,10 @@ def lint_caller_use(config: Dict[str, Any],
 def project_qml_files(project_dir: os.PathLike[str] | str) -> List[Path]:
     """The project's own QML: not build output, not vendored dependencies."""
     root = Path(project_dir)
+    # Relative to the project: a directory named `build` inside it is output, and one the
+    # project itself happens to sit under is not this scan's business.
     return [qml for qml in sorted(root.rglob("*.qml"))
-            if not ({"build", "node_modules"} & set(qml.parts))]
+            if not ({"build", "node_modules"} & set(qml.relative_to(root).parts))]
 
 
 def wants_qml_format_check(config: Dict[str, Any]) -> bool:
@@ -2044,6 +2148,7 @@ def check_project(project_dir: os.PathLike[str] | str, *, release: bool = False,
                             starting=starting)
     messages = [f"note: {source} applied" for source in resolved.sources] + messages
     contract_messages = lint_contracts(config)
+    export_messages = lint_exports(config, project_dir)
     loading_messages = lint_loading(project_dir)
     client_root_messages = lint_client_root(project_dir)
     source_messages = lint_connect_point_sources(config, project_dir)
@@ -2053,6 +2158,7 @@ def check_project(project_dir: os.PathLike[str] | str, *, release: bool = False,
     graphics_messages = lint_graphics(config, project_dir)
     drift_messages = lint_contract_drift(config, project_dir, types=types)
     messages += contract_messages
+    messages += export_messages
     messages += loading_messages
     messages += source_messages
     messages += caller_messages
@@ -2067,7 +2173,8 @@ def check_project(project_dir: os.PathLike[str] | str, *, release: bool = False,
         messages += check_qml_format(project_dir)
     ok = ok and not any(
         m.startswith("error:")
-        for m in contract_messages + loading_messages + client_root_messages
+        for m in contract_messages + export_messages + loading_messages
+        + client_root_messages
         + source_messages + caller_messages + route_messages + remote_page_messages
         + graphics_messages
         + drift_messages + qml_messages)

@@ -478,9 +478,12 @@ connect_points:
 ```
 
 `export` is the shape of what crosses, written as a block of `prop`/`model`/`slot`/
-`signal` lines (and any `record` they use). The full member grammar and the types they
-can name are in
+`signal` lines (and any `record` they use), or just the name of a member the owner
+already implements. The full member grammar, the types they can name, and what a bare
+name resolves to are in
 [the programming model](programming-model.md#contracts-the-shape-of-what-may-cross).
+`synqt check` holds every line to the owner's Source: a member nothing there implements
+is an error.
 Nothing names the contract: the type a point exports is the point's own name capitalized,
 so `- name: todo` exports `Todo`, and that is the QML type the owner's Source is rooted
 at. The build writes it to `generated/<owner's folder>/Todo.syn`, which nobody edits.

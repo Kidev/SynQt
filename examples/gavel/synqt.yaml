@@ -60,10 +60,14 @@ connect_points:
     # flows the other way (a consumer asks, the owner decides). The bidder is not an
     # argument: the edge stamps the high bidder from the caller's verified identity, never
     # from a typed name.
+    #
+    # The three properties are exported by name: web/edge/Auction.qml binds each of them
+    # to Edge.qml, which declares what they are, so saying it twice here would be a second
+    # place to keep in step. `synqt check` refuses a name the owner does not have.
     export: |
-      prop string[80] itemName        // what is up for auction
-      prop int highBid                // the current highest bid
-      prop string[80] highBidder      // who holds the high bid right now
+      itemName                        // what is up for auction
+      highBid                         // the current highest bid
+      highBidder                      // who holds the high bid right now
       slot placeBid(int amount)       // the edge knows who you are; only signed-in users bid
       slot closeLot(string[80] nextItem)  // an auctioneer (admin) closes a lot, opens the next
       signal bidRejected(string[120] reason)

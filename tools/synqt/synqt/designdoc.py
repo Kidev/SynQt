@@ -221,9 +221,15 @@ def parse_from_text(text: str, name: str) -> List[Dict[str, Any]]:
     return _members_of(parsed, name, f"{name}.syn", model)
 
 
-def parse_export(name: str, point: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """The members a connect point's ``export:`` block declares."""
-    return parse_from_text(contractgen.contract_source(name, point), name)
+def parse_export(name: str, point: Dict[str, Any],
+                 owner: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+    """The members a connect point's ``export:`` block declares.
+
+    `owner` is what the owner's Source implements, which is what a line naming a member
+    and nothing else is read through; without it such a line is not a member and the
+    parse says so.
+    """
+    return parse_from_text(contractgen.contract_source(name, point, owner), name)
 
 
 def _read_text(path: Path) -> str:
@@ -240,7 +246,7 @@ def _read_text(path: Path) -> str:
 
 
 def _link(point: Dict[str, Any], root: Path, seats: Dict[str, Dict[str, Any]],
-          owners: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
+          owners: Dict[str, Dict[str, Any]], config: Dict[str, Any]) -> Dict[str, Any]:
     name = str(point.get("name") or "")
     contract = appmodel.contract_of(point)
     owner = str(point.get("owner") or "")
@@ -251,7 +257,8 @@ def _link(point: Dict[str, Any], root: Path, seats: Dict[str, Dict[str, Any]],
     # parse is an error, and it names the point it is on.
     if contract and contractgen.has_export(point):
         try:
-            members = parse_from_text(contractgen.contract_source(contract, point), contract)
+            members = parse_from_text(
+                contractgen.resolved_source(root, config, point), contract)
         except DesignDocError as error:
             raise DesignDocError(f"connect point '{name}': {error}") from error
     # The owner-side QML, carried in the document because the editor's files pane shows the
@@ -318,7 +325,7 @@ def read(project_dir: os.PathLike[str] | str, *,
         "project": name,
         "sourceHash": source_hash(root),
         "entities": entities,
-        "links": [_link(point, root, seats, by_name)
+        "links": [_link(point, root, seats, by_name, config)
                   for point in appmodel.connect_points(config)],
     }
 
