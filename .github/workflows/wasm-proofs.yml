@@ -426,7 +426,19 @@ jobs:
         run: |
           BUNDLE=examples/arena/build/client
           rc=0
-          for f in client.wasm client.js qtloader.js index.html synqt-boot.js; do
+          # The module is named after the client entity, not after the word "client": the
+          # arena's is `app`. Read the name out of the manifest the bundle publishes rather
+          # than spelling it here, so renaming an entity cannot leave this check hunting for
+          # a file that was never going to exist under that name.
+          MANIFEST="$BUNDLE/synqt-manifest.json"
+          if [ ! -s "$MANIFEST" ]; then
+            echo "  MISSING synqt-manifest.json: nothing says what this bundle is"
+            exit 1
+          fi
+          WASM=$(python -c 'import json,sys;print(json.load(open(sys.argv[1]))["wasm"])' "$MANIFEST")
+          JS="${WASM%.wasm}.js"
+          echo "  bundle names its module $WASM"
+          for f in "$WASM" "$JS" qtloader.js index.html synqt-boot.js; do
             if [ -s "$BUNDLE/$f" ]; then
               echo "  OK      $f ($(stat -c%s "$BUNDLE/$f") bytes)"
             else
@@ -434,7 +446,7 @@ jobs:
             fi
           done
           # Precompression is on the first-visit critical path; the wasm dominates transfer.
-          for f in client.wasm.gz client.js.gz; do
+          for f in "$WASM.gz" "$JS.gz"; do
             if [ -s "$BUNDLE/$f" ]; then echo "  OK      $f"; else echo "  MISSING $f"; rc=1; fi
           done
           # The shell must stay CSP-clean: Qt's own template boots from an inline handler,

@@ -191,6 +191,14 @@ def entity_dir(entity: Dict[str, Any]) -> str:
 #: scaffold and rebuilt from `synqt.yaml` on every build.
 GENERATED_DIR = "generated"
 
+#: The whole build, inside that tree. It is included by the project's root
+#: `CMakeLists.txt` rather than being the root itself, because qmlcachegen names each
+#: compiled QML file after its path relative to the directory that declared the QML
+#: module. Declared from here, a client view one directory up compiles to
+#: `.rcc/qmlcache/<target>_../client/...`, and a path component ending in dots is not a
+#: directory Windows can create.
+GENERATED_CMAKE = "synqt.cmake"
+
 
 def generated_dir(project_dir: os.PathLike[str] | str) -> Path:
     """The project's generated tree, as a path."""

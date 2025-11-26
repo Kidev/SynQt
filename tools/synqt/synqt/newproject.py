@@ -258,9 +258,11 @@ def scaffold(parent_dir: os.PathLike[str] | str, name: str, *,
 
     (root / ".gitignore").write_text(
         "# SynQt: never commit mesh private keys, the toolchain cache, or anything\n"
-        "# generated. generated/ holds the CMake, the presets and one main.cpp per entity,\n"
-        "# all written from synqt.yaml on every build.\n"
-        f"{appmodel.GENERATED_DIR}/\nbuild/\nsynqt/toolchain/\nsynqt/mesh/*.key\n"
+        "# generated. generated/ holds the build and one main.cpp per entity, written\n"
+        "# from synqt.yaml every time. CMakeLists.txt at the root is yours and is kept;\n"
+        "# the presets beside it are regenerated with the toolchain they point at.\n"
+        f"{appmodel.GENERATED_DIR}/\nbuild/\n/CMakePresets.json\n/CMakeUserPresets.json\n"
+        "synqt/toolchain/\nsynqt/mesh/*.key\n"
         "synqt/mesh/dev/\n.env\n")
     (root / ".env.example").write_text("# Entity secrets (env: references), never committed\n")
     _write_qmlformat_settings(root)

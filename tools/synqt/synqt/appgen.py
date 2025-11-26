@@ -67,9 +67,18 @@ def generate(project_dir: os.PathLike[str] | str, config: Dict[str, Any], *,
     # declares its shape in `synqt.yaml` rather than in a file of its own.
     written += contractgen.write_contracts(root, config)
 
-    writer.write_if_changed(generated / "CMakeLists.txt",
+    writer.write_if_changed(generated / appmodel.GENERATED_CMAKE,
                             cmakegen.render_root_cmakelists(config, synqt_root, root))
-    written.append(f"{appmodel.GENERATED_DIR}/CMakeLists.txt")
+    written.append(f"{appmodel.GENERATED_DIR}/{appmodel.GENERATED_CMAKE}")
+
+    # The one CMake file that is the project's own, at its root. It includes the generated
+    # one and is never rewritten over. It has to be at the root rather than in generated/
+    # because qmlcachegen names a compiled QML file after its path relative to the
+    # directory that declared the module (see cmakegen.render_project_cmakelists).
+    project_cmake = root / "CMakeLists.txt"
+    if not project_cmake.exists():
+        writer.write_if_changed(project_cmake, cmakegen.render_project_cmakelists(config))
+    written.append("CMakeLists.txt")
 
     # The test runner, whenever the project has tests to run. Its own directory, because
     # repc writes its output into the *directory's* binary dir and the test target owns

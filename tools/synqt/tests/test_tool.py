@@ -258,8 +258,8 @@ class AppGenTest(unittest.TestCase):
         parent = Path(tempfile.mkdtemp())
         newproject.scaffold(parent, "app")
         root = parent / "app"
-        cmake = (root / "generated" / "CMakeLists.txt").read_text()
-        # The client is always a target; services are guarded behind the WASM check so a
+        cmake = (root / "generated" / "synqt.cmake").read_text()
+        # The client is always a target. Services are guarded behind the WASM check so a
         # WebAssembly configure builds only the client.
         self.assertIn("qt_add_executable(app", cmake)
         self.assertIn("if(NOT EMSCRIPTEN)", cmake)

@@ -362,9 +362,13 @@ class NewBuildDoctorTest(unittest.TestCase):
         names = {e["name"] for e in config["entities"]}
         self.assertEqual(names, {"app", "edge"})
         self.assertTrue((root / "client" / "app" / "Main.qml").exists())
-        self.assertTrue((root / "generated" / "CMakePresets.json").exists())
-        # Nothing generated lands in the folders their authors write in.
-        self.assertFalse((root / "CMakeLists.txt").exists())
+        # CMake reads presets from the top-level source directory and nowhere else, and
+        # that directory is the project. The root CMakeLists.txt beside them is four lines
+        # and hands the build to generated/synqt.cmake.
+        self.assertTrue((root / "CMakePresets.json").exists())
+        self.assertIn("generated/synqt.cmake", (root / "CMakeLists.txt").read_text())
+        self.assertTrue((root / "generated" / "synqt.cmake").exists())
+        # Nothing else generated lands in the folders their authors write in.
         self.assertFalse((root / "web" / "edge" / "main.cpp").exists())
         self.assertIn("generated/", (root / ".gitignore").read_text())
         self.assertIn("synqt/mesh/*.key", (root / ".gitignore").read_text())

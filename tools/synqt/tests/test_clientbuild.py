@@ -77,7 +77,7 @@ class WasmBuildDirTest(unittest.TestCase):
             with self.subTest(kit=kit):
                 root = Path(tempfile.mkdtemp())
                 presets.write(root, config)
-                data = json.loads((root / "generated" / "CMakePresets.json").read_text())
+                data = json.loads((root / "CMakePresets.json").read_text())
                 wasm = next(p for p in data["configurePresets"] if p["name"] == "wasm")
                 # The preset's binaryDir must agree with its toolchainFile, or driving
                 # CMake through the preset reintroduces the stale-cache trap.
@@ -89,7 +89,7 @@ class PresetTest(unittest.TestCase):
     def test_single_uses_the_singlethread_kit_with_no_pthread_pool(self):
         root = Path(tempfile.mkdtemp())
         presets.write(root, _single())
-        data = json.loads((root / "generated" / "CMakePresets.json").read_text())
+        data = json.loads((root / "CMakePresets.json").read_text())
         wasm = next(p for p in data["configurePresets"] if p["name"] == "wasm")
         self.assertIn("wasm_singlethread", wasm["toolchainFile"])
         self.assertNotIn("QT_WASM_PTHREAD_POOL_SIZE", wasm["cacheVariables"])
@@ -97,7 +97,7 @@ class PresetTest(unittest.TestCase):
     def test_multi_uses_the_multithread_kit_and_sizes_the_pool(self):
         root = Path(tempfile.mkdtemp())
         presets.write(root, _multi())
-        data = json.loads((root / "generated" / "CMakePresets.json").read_text())
+        data = json.loads((root / "CMakePresets.json").read_text())
         wasm = next(p for p in data["configurePresets"] if p["name"] == "wasm")
         self.assertIn("wasm_multithread", wasm["toolchainFile"])
         self.assertIn("QT_WASM_PTHREAD_POOL_SIZE", wasm["cacheVariables"])

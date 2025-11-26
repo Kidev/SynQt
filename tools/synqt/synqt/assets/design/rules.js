@@ -111,7 +111,8 @@ function linkFindings(design, link) {
     const found = [];
     const entities = entitiesOf(design);
     const known = new Set(entities.map(nameOf));
-    const clients = new Set(entities.filter((e) => e.kind === "client").map(nameOf));
+    const clients = new Set(entities.filter(
+        (entity) => entityType(entity) === "client").map(nameOf));
     const edges = new Set(entities.filter(isWebEdge).map(nameOf));
     const name = nameOf(link);
     const owner = String((link && link.owner) || "");

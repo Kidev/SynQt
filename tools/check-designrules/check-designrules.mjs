@@ -71,7 +71,7 @@ for (const rule of covered) {
 const desktopOnly = {
     version: 1,
     project: "rules",
-    entities: [{name: "client", kind: "client", targets: ["desktop"]}],
+    entities: [{name: "app", type: "client", targets: ["desktop"]}],
     links: [],
 };
 for (const finding of findings(desktopOnly)) {

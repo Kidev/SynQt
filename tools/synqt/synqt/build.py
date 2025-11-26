@@ -127,7 +127,7 @@ def built_note(host_targets: List[str], client_targets: List[str]) -> str:
 def _preset_generator(project_dir: Path, preset: str) -> Optional[str]:
     """The generator a configure preset names, following `inherits`. None when the preset
     leaves it to CMake's per-platform default, in which case there is nothing to compare."""
-    presets_file = appmodel.generated_dir(project_dir) / "CMakePresets.json"
+    presets_file = Path(project_dir) / "CMakePresets.json"
     try:
         document = json.loads(presets_file.read_text(encoding="utf-8"))
     except (OSError, ValueError):
@@ -208,7 +208,7 @@ def _configure_if_needed(configure: List[str], build_dir: Path, project_dir: Pat
     would not notice a preset that moved the build type or added a cache variable.
     """
     stamp = build_dir / ".synqt-configure"
-    presets_file = appmodel.generated_dir(project_dir) / "CMakePresets.json"
+    presets_file = Path(project_dir) / "CMakePresets.json"
     presets_text = presets_file.read_text(encoding="utf-8") if presets_file.is_file() else ""
     command_line = "\n".join(str(part) for part in configure) + "\n--presets--\n" + presets_text
     if (build_dir / "CMakeCache.txt").is_file():
@@ -235,9 +235,10 @@ def _cmake_build(project_dir: Path, resolved: Dict[str, Optional[str]],
     """Compile the host targets (services + optional desktop client) and, when the wasm
     client is requested, the browser client through the pinned Emscripten Qt kit. A desktop
     client build bakes in edge_url (build.desktop.edge_url) as SYNQT_EDGE_URL."""
+    root = Path(project_dir)
     generated = appmodel.generated_dir(project_dir)
-    if not (generated / "CMakePresets.json").exists() \
-            or not (generated / "CMakeLists.txt").exists():
+    if not (root / "CMakePresets.json").exists() \
+            or not (generated / appmodel.GENERATED_CMAKE).exists():
         return ("note: nothing generated yet; emitting the deploy layout, licenses, and "
                 "manifest; generate the entity build files to compile binaries.")
     need_wasm = "wasm" in client_targets
@@ -247,11 +248,11 @@ def _cmake_build(project_dir: Path, resolved: Dict[str, Optional[str]],
     cmake = resolved["cmake"]
     # Point the host configure at the resolved host Qt kit. The preset carries the
     # provisioned synqt/toolchain path, but a developer with a system Qt (resolved via
-    # /opt/Qt or QTDIR) has not populated it; passing the resolved prefix makes the build
+    # /opt/Qt or QTDIR) has not populated it. Passing the resolved prefix makes the build
     # work either way without editing the preset.
-    # -S names the generated tree: that is where the root CMakeLists and the presets
-    # are, and cmake reads presets from the source directory.
-    host_configure = [cmake, "-S", str(generated), "--preset", "host"]
+    # -S names the project itself: its root CMakeLists.txt includes the generated build,
+    # and cmake reads presets from the top-level source directory.
+    host_configure = [cmake, "-S", str(root), "--preset", "host"]
     if resolved.get("host_qt"):
         host_configure.append(f"-DCMAKE_PREFIX_PATH={resolved['host_qt']}")
     if edge_url:
@@ -281,7 +282,7 @@ def _cmake_build(project_dir: Path, resolved: Dict[str, Optional[str]],
             # published host-independently (all_os/wasm), so nothing rewrites it and the
             # configure dies on "please set the QT_HOST_PATH cache variable". We already
             # resolved the host kit, so say so rather than depend on an installer's patching.
-            _configure_if_needed([str(qt_cmake), "-S", str(generated), "-B", str(wasm_dir),
+            _configure_if_needed([str(qt_cmake), "-S", str(root), "-B", str(wasm_dir),
                                   "-G", "Ninja", "-DCMAKE_BUILD_TYPE=Release",
                                   f"-DQT_HOST_PATH={resolved['host_qt']}"],
                                  wasm_dir, project_dir, verbose)

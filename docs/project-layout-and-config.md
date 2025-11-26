@@ -14,6 +14,7 @@ and a web edge) and room to add more:
 ```text
 my-app/
   synqt.yaml              # project, topology, and security config
+  CMakeLists.txt          # four lines, yours to extend; hands the build to generated/
   .gitignore
 
   client/                 # every client entity
@@ -45,8 +46,7 @@ my-app/
     design.json           # where each entity sits on the canvas, and nothing else
 
   generated/              # everything SynQt writes; never edited, never committed
-    CMakeLists.txt        # the multi binary build, from the topology
-    CMakePresets.json
+    synqt.cmake           # the multi binary build, from the topology
     client/app/main.cpp   # one per entity, mirroring the entity folders
     web/edge/main.cpp
     tests/                # the test runner, when the project has tests
@@ -55,6 +55,8 @@ my-app/
     app/
     edge/
     store/
+
+  CMakePresets.json       # written per build; CMake reads presets from here and nowhere else
 ```
 
 Principles:
@@ -69,6 +71,13 @@ Principles:
   answers it, because the two are one thing seen twice. It is still on the wire for
   every consumer the connect point names, so changing it is a breaking change even
   though it sits in one entity's folder.
+- The root `CMakeLists.txt` is the one CMake file the project owns. It is written
+  once, never rewritten, and all it does is include `generated/synqt.cmake`, so a
+  target you add below the include survives every build. It sits at the root rather
+  than inside `generated/` because the QML compiler names each compiled file after
+  its path relative to the directory that declared the QML module: declared one
+  level down, a view in `client/app/` compiled to a path with `..` in it, which is
+  a directory name Windows cannot create.
 - A service entity is never part of the WebAssembly build, and the client is never
   part of any service build. A connect point's `server` file is compiled into its
   owner entity only. No server file can leak into the client because it is never

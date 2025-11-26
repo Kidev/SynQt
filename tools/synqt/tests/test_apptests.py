@@ -76,7 +76,7 @@ class GeneratedCMakeTest(unittest.TestCase):
     def test_a_project_with_tests_gets_the_target(self):
         text = cmakegen.render_root_cmakelists(CONFIG, "/synqt", _project())
         self.assertIn("enable_testing()", text)
-        self.assertIn('add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/tests"', text)
+        self.assertIn('add_subdirectory("${SYNQT_GENERATED}/tests"', text)
         self.assertIn("SYNQT_APP_ROOT", text)
 
     def test_the_test_target_never_builds_for_webassembly(self):

@@ -1,7 +1,10 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-"""Render the app's multi-binary root ``CMakeLists.txt`` from the declared topology.
+"""Render the app's multi-binary build from the declared topology.
+
+Two files: the project's root ``CMakeLists.txt``, which is four lines and written once,
+and ``generated/synqt.cmake``, which holds every target and is rewritten on every build.
 
 Every entity is a CMake target that links the matching SynQt runtime library
 (``SynQtClient`` for the client, and one of ``SynQtService`` / ``SynQtIdentity`` /
@@ -27,9 +30,44 @@ _HEADER_CMAKE = ("# SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux\n"
                  "# SPDX-License-Identifier: Apache-2.0\n")
 
 
+def render_project_cmakelists(config: Dict[str, Any]) -> str:
+    """The project's own ``CMakeLists.txt``, at the root beside ``synqt.yaml``.
+
+    Four lines that hand the whole build to the generated tree, and the reason they are at
+    the root rather than inside it is qmlcachegen. It names each compiled QML file after
+    that file's path *relative to the directory of the CMakeLists that declared the module*
+    (Qt6QmlMacros.cmake, `file(RELATIVE_PATH ...)`), so a module declared from
+    ``generated/`` over sources in ``client/app/`` compiles into
+    ``.rcc/qmlcache/app_../client/app/Main_qml.cpp``. That path is legal on Unix and
+    unusable on Windows, where a name ending in dots (``app_..``) is not a directory
+    anything can create. Every Windows build of every project died in ninja's mkdir. Rooted
+    here, the same file is ``client/app/Main.qml``, with no ``..`` to encode.
+
+    Written once and never overwritten, because it is the one CMake file in the project a
+    person may extend. Add a target below the include and it survives every later build.
+    """
+    name = str((config.get("project") or {}).get("name") or "app")
+    return "\n".join([
+        _HEADER_CMAKE,
+        "",
+        f"# {name}, built by SynQt.",
+        "#",
+        "# Everything `synqt build` generates lands in generated/, which this hands the",
+        "# build to. This file is yours: anything added below the include is kept.",
+        "",
+        "cmake_minimum_required(VERSION 3.21)",
+        "",
+        'include("${CMAKE_CURRENT_LIST_DIR}/generated/synqt.cmake")',
+    ]) + "\n"
+
+
 def render_root_cmakelists(config: Dict[str, Any], synqt_root: os.PathLike[str] | str,
                            project_dir: os.PathLike[str] | str | None = None) -> str:
-    """The multi-binary root CMakeLists for the whole topology.
+    """The multi-binary build for the whole topology, as ``generated/synqt.cmake``.
+
+    Included by the project's root ``CMakeLists.txt`` (:func:`render_project_cmakelists`),
+    so every path a target names is rooted at the project rather than at this file, and no
+    source ends up addressed through a ``..`` the toolchain has to encode into a filename.
 
     `project_dir` is the app the CMake is being written for. Given it, the client's QML
     module gets every QML file under the client entity's directory, not only the views
@@ -48,12 +86,14 @@ def render_root_cmakelists(config: Dict[str, Any], synqt_root: os.PathLike[str] 
                         "# sources it names are one directory up, in the entity folders,",
                         "# where their authors wrote them.",
                         "",
-                        "cmake_minimum_required(VERSION 3.21)",
                         f"project({name} LANGUAGES CXX)", "",
                         'set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")', "",
-                        "# The project root: this file is <project>/generated/CMakeLists.txt,",
-                        "# so every path below is relative to the directory above this one.",
-                        'get_filename_component(SYNQT_APP_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/.."',
+                        "# Where this file is (<project>/generated) and the project root",
+                        "# above it. Taken from CMAKE_CURRENT_LIST_DIR rather than from the",
+                        "# source directory, because the root CMakeLists includes this file",
+                        "# rather than adding it: the source directory is the project.",
+                        'set(SYNQT_GENERATED "${CMAKE_CURRENT_LIST_DIR}")',
+                        'get_filename_component(SYNQT_APP_ROOT "${SYNQT_GENERATED}/.."',
                         "                       ABSOLUTE)", "",
                         "# The SynQt framework source tree (src/ runtime libraries + cmake/ helpers).",
                         "# Baked at scaffold time; override with -DSYNQT_ROOT=... to point at another checkout.",
@@ -147,7 +187,7 @@ def _tests_cmake(config: Dict[str, Any], qt_version: str,
         "if(NOT EMSCRIPTEN)",
         f"    find_package(Qt6 {qt_version} REQUIRED COMPONENTS QuickTest)",
         # Its own directory under generated/, for the repc reason spelled out above.
-        '    add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/tests"'
+        '    add_subdirectory("${SYNQT_GENERATED}/tests"'
         ' "${CMAKE_BINARY_DIR}/app-tests")',
         "endif()",
     ]
@@ -226,7 +266,7 @@ def _client_cmake(config: Dict[str, Any], client: Dict[str, Any], uri: str,
              'set(SYNQT_EDGE_URL "wss://127.0.0.1:8443/sync" CACHE STRING '
              '"Desktop client edge URL")',
              f'qt_add_executable({name} '
-             f'"${{CMAKE_CURRENT_SOURCE_DIR}}/{folder}/main.cpp")',
+             f'"${{SYNQT_GENERATED}}/{folder}/main.cpp")',
              f"qt_add_qml_module({name}",
              f"    URI {uri}",
              "    VERSION 1.0",
@@ -330,7 +370,7 @@ def _service_cmake(config: Dict[str, Any], entity: Dict[str, Any]) -> List[str]:
     folder = appmodel.entity_dir(entity)
     paths = appmodel.contract_paths(config)
     lines = ["", f"    qt_add_executable({name} "
-             f'"${{CMAKE_CURRENT_SOURCE_DIR}}/{folder}/main.cpp")']
+             f'"${{SYNQT_GENERATED}}/{folder}/main.cpp")']
     # Whether a contract's slots carry a forwarded session is the topology's answer, not the
     # contract's, and both sides of a link read it from here so they cannot disagree.
     forwarding = appmodel.session_forwarding_contracts(config)
