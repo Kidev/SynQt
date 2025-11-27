@@ -531,6 +531,46 @@ body.synqt-dl-open .synqt-scrollbar {
   color: #e6b450;
 }
 
+/* --- Contract members inside a configuration ------------------------------- */
+
+/* A `synqt.yaml` is two languages in one file. Almost all of it is configuration,
+   and YAML's own colors are right for that. A connect point's `export:` block is
+   not configuration. It is the contract, the one place a project says what may
+   cross a link, and YAML hands the whole block over as one string, so every member
+   line arrives in the same color as every other. The lexer
+   (tools/pygments-synqt) reads those lines as the contract language they are. This
+   is what makes the four things a member line says look like four things.
+
+   Most of it needs no rule here. Once the member line is tokens rather than one
+   string, Material's own palette colors the member's name and each parameter's
+   name exactly as it colors a function and a variable everywhere else, which is
+   the point. Two tokens are the exception, and both carry their own class rather
+   than borrowing a shared one, so nothing else on the site moves: the lexer gives
+   them `Keyword.Type.Contract` and `Number.Integer.Width`, which Pygments writes
+   out as `kt-Contract` and `mi-Width`.
+
+   The type is the first. Material paints `.k` and `.kt` the same color, so a
+   member's kind and its type arrived as one blue run. `prop bool loaded` read as
+   two keywords and a name. Purple here, the color a type already carries in a QML
+   block on this scheme, so a type looks like a type wherever it is written.
+
+   The width is the second, and it is the reason this exists at all. `string[80]`
+   is a rule the owner keeps at the boundary, not a note about the intended size,
+   and it should be findable by skimming a page. The digits take the number color
+   and the brackets around them are dimmed, so the eye lands on the number. */
+.highlight .kt-Contract {
+  color: #c973d9;
+}
+
+.highlight .mi-Width {
+  color: var(--md-code-hl-number-color);
+}
+
+.highlight .kt-Contract + .p,
+.highlight .mi-Width + .p {
+  opacity: .55;
+}
+
 /* --- The tutorial picker --------------------------------------------------- */
 
 /* The three cards under "Pick a tutorial" (getting-started.md) carry blurbs of

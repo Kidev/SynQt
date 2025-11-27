@@ -145,6 +145,12 @@ markdown_extensions:
       extend_pygments_lang:
         - name: qml
           lang: synqt-qml
+        # And ```yaml blocks through the SynQt YAML lexer, which reads a connect
+        # point's export: block as the contract it is rather than as one string:
+        # the member kind, each type, each declared width and each name are told
+        # apart, the same way they are on the .syn reference pages.
+        - name: yaml
+          lang: synqt-yaml
   - pymdownx.superfences:
       custom_fences:
         # Renders ```mermaid fenced blocks as diagrams.
