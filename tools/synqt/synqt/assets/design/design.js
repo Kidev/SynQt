@@ -404,15 +404,18 @@ function fileOf(what, files) {
     return found ? found.name : "";
 }
 
-// Every file grouped under the directory it is in, in the order projectFiles lists them. The
-// first segment is the folder each entity's type puts it in, which is the whole of a SynQt
-// project's shape.
+// Every file grouped under the directory it is in, in the order projectFiles lists them.
+//
+// The whole directory, not its first segment. An entity's folder is the folder its type puts
+// it in and then its own name (`db/relational/store`), and grouping by the first segment alone
+// put every database in the project under one `db/` heading with no way to tell whose file was
+// whose. The heading is the entity's own folder, which is the whole of a SynQt project's shape.
 function foldersOf(files) {
     const folders = [];
     const byName = new Map();
     for (const file of files) {
         const parts = inProject(file.name).split("/");
-        const folder = parts.length > 1 ? parts[0] : "";
+        const folder = parts.slice(0, -1).join("/");
         if (!byName.has(folder)) {
             byName.set(folder, {name: folder, files: []});
             folders.push(byName.get(folder));
@@ -1381,7 +1384,10 @@ function adopt(design) {
         project: design.project || "",
         sourceHash: design.sourceHash || "",
         entities: design.entities || [],
-        links: design.links || [],
+        // Without a `contract:` on any of them: it is the framework's own field, for the
+        // points whose contracts ship in the runtime libraries, and a project that writes it
+        // is refused. A document made before that rule carried one on every point.
+        links: (design.links || []).map(({contract, ...link}) => link),
     };
     state.selected = null;
     // No name, no label. `synqt design` always has a project to name; the copy on the site
@@ -1475,7 +1481,11 @@ function addLink(owner, consumer, toward, at) {
     const link = {
         id: name,
         name,
-        contract: capitalised(name),
+        // No `contract:`. A point and the shape of what crosses it are one thing, so only one
+        // of them is named: the type is the point's name capitalised (appmodel.contract_of),
+        // and `synqt check` refuses a project that writes the field. Written here, it was the
+        // name the point had when it was drawn, so renaming the point left the owner hosting
+        // a Source called after the gesture rather than after the thing.
         owner: owner.name,
         consumers: [consumer.name],
         transport: "",

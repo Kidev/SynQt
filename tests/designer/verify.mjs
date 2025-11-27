@@ -3,11 +3,12 @@
 
 // The design editor, in a real browser, both ways it is reached.
 //
-// Case 1 is the editor over a project: `synqt design` on a copy of the gavel example, and a
+// Case 1 is the editor over a project. `synqt design` on a copy of the gavel example, and a
 // browser that adds a service, drags a connect point from it to the web edge, names the
 // point and its contract, says a slot crosses it, reviews the change set and applies it. The
-// verdict is on disk afterwards, in the two files the project is made of: synqt.yaml and the
-// contract under shared/. Everything between the click and the file is what this covers, and
+// verdict is on disk afterwards, in the two files it wrote. synqt.yaml, which carries what
+// crosses the point, and the Source the owner hosts it with. Everything between the click and
+// the file is what this covers, and
 // none of it can be reached from Python: the canvas, the drag, the inspector, and the plan
 // digest that ties Apply to the change set that was shown.
 //
@@ -151,16 +152,18 @@ async function typeIntoRootBlock(page, line) {
     await typing.type(line);
 }
 
-// The tree names each file by its leaf under a heading for the directory it is in, so this is
-// what opens one: the leaf, under the right folder.
+// The tree names each file by its leaf under a heading for the directory it is in, and that
+// directory is the entity's own folder (`db/relational/store`), so this is what opens one: the
+// leaf, under the whole folder rather than under its first segment.
 function fileRow(page, name) {
     const parts = name.split("/");
     const leaf = parts[parts.length - 1];
     if (parts.length === 1) {
         return page.locator(`.tree > li > .tree__file`, { hasText: leaf });
     }
+    const folder = parts.slice(0, -1).join("/");
     return page.locator("li.tree__folder")
-               .filter({ hasText: new RegExp(`^${parts[0]}/`) })
+               .filter({ hasText: new RegExp(`^${folder}/`) })
                .locator(".tree__file", { hasText: leaf });
 }
 
@@ -235,7 +238,7 @@ async function editorOverAProject() {
         // consumes it. Dropped the other way round the page would draw a different project.
         await dropEntity(page, "Service", { x: 430, y: 400 });
         await page.waitForSelector('[data-entity="service"]');
-        await dragLink(page, "service", "web");
+        await dragLink(page, "service", "edge");
         await page.waitForFunction(
             () => document.querySelectorAll("[data-link]").length === 4);
 
@@ -244,10 +247,11 @@ async function editorOverAProject() {
         // name is a starting point for.
         const inspector = page.locator("#inspector");
         check(await inspector.locator("input[type=text]").first().inputValue()
-              === "serviceToWeb",
+              === "serviceToEdge",
               "a new connect point is named for the direction it runs");
+        // Only the point is named. Its contract is that name capitalised and is not asked
+        // for twice: `audit` exports `Audit`.
         await inspector.locator("input[type=text]").first().fill("audit");
-        await inspector.locator("input[type=text]").nth(1).fill("Audit");
 
         await inspector.getByText("Add member", { exact: true }).click();
         const member = inspector.locator(".member").first();
@@ -268,9 +272,9 @@ async function editorOverAProject() {
         await page.locator("#review").click();
         await page.waitForSelector("#sheet:not([hidden])");
         const diff = await page.locator("#sheet-diff").textContent();
-        check(diff.includes("synqt.yaml") && diff.includes("Audit.syn"),
-              "the change set shows the configuration and the contract it would write");
-        check(!fs.existsSync(path.join(project, "shared/Audit.syn")),
+        check(diff.includes("synqt.yaml") && diff.includes("Audit.qml"),
+              "the change set shows the configuration and the Source it would write");
+        check(!fs.existsSync(path.join(project, "service/service/Audit.qml")),
               "reviewing wrote nothing");
 
         await page.waitForSelector("#apply:not([disabled])");
@@ -280,18 +284,19 @@ async function editorOverAProject() {
         const config = await fsp.readFile(path.join(project, "synqt.yaml"), "utf8");
         check(/name:\s*service\b/.test(config), "synqt.yaml gained the service entity");
         check(/name:\s*audit\b/.test(config), "synqt.yaml gained the connect point");
-        check(/contract:\s*Audit\b/.test(config) && /owner:\s*service\b/.test(config),
+        check(/owner:\s*service\b/.test(config),
               "the point is owned by the entity it was dragged from");
-        const contract = await fsp.readFile(path.join(project, "shared/Audit.syn"), "utf8");
-        const drawn = /slot\s+logWinner\s*\(\s*string\s+winner\s*\)/.test(contract);
-        check(drawn, drawn ? "shared/Audit.syn holds the slot that was drawn"
-                           : `shared/Audit.syn holds something else:\n${contract.trim()}`);
-        check(fs.existsSync(path.join(project, "service/Audit.qml")),
+        // What crosses a connect point is written on the point, in synqt.yaml, and nowhere
+        // else: there is no contract file of its own to go looking in.
+        const drawn = /slot\s+logWinner\s*\(\s*string\s+winner\s*\)/.test(config);
+        check(drawn, drawn ? "the point's export block holds the slot that was drawn"
+                           : `synqt.yaml holds something else:\n${config.trim()}`);
+        check(fs.existsSync(path.join(project, "service/service/Audit.qml")),
               "the owner got the Source file the point needs");
         // Its own file too, which is a different question: a Source is one surface an entity
         // exposes, and the entity is the thing that is there once. A plain service used to
         // arrive with an empty directory beside it.
-        check(fs.existsSync(path.join(project, "service/Service.qml")),
+        check(fs.existsSync(path.join(project, "service/service/Service.qml")),
               "and the file the entity itself is");
         check(problems.length === 0,
               `nothing on the page failed (${problems.join(" | ") || "no errors"})`);
@@ -417,7 +422,12 @@ async function theProjectALinkHandsYou() {
               "with the connect points it declares");
         check(await page.locator(".palette__glyph svg").count() === 8,
               "every palette row carries the glyph the canvas draws that entity with");
-        check(Boolean(await page.locator(".palette__item").first().getAttribute("title")),
+        // In the page's own tooltip, not the browser's `title`: it opens at once and can
+        // hold the glyph and the paragraph, where a native one arrives a second late with
+        // one line of unstyled text.
+        await page.locator(".palette__item").first().hover();
+        await page.waitForSelector("#tip:not([hidden])");
+        check((await page.locator("#tip").textContent()).includes("WebAssembly"),
               "and says what that kind of entity is for");
 
         // Which side of the wire each entity is on, drawn rather than left to be worked out
@@ -441,23 +451,26 @@ async function theProjectALinkHandsYou() {
               "the files pane is open without being asked for");
         const folders = await page.locator(".tree__folder").evaluateAll(
             (rows) => rows.map((row) => row.firstChild.textContent));
-        check(["client/", "web/", "database/", "api/", "shared/"]
+        // Each entity's own folder, whole: the folder its type puts it in and then its name.
+        check(["client/app/", "web/edge/", "db/relational/store/", "api/feeds/"]
                   .every((name) => folders.includes(name)),
-              `the tree is directories, not one flat list (${folders.join(" ")})`);
+              `the tree is entity directories, not one flat list (${folders.join(" ")})`);
         const named = await page.locator(".tree__file").allTextContents();
         // Every entity present, with its own file. A plain service used to contribute nothing
         // at all until somebody drew a connect point off it.
-        const wanted = ["synqt.yaml", "Feed.syn", "Main.qml", "Feed.qml", "Web.qml",
-                        "Access.qml", "Database.qml", "Upstream.qml", "Api.qml"];
+        const wanted = ["synqt.yaml", "Main.qml", "Edge.qml", "Feed.qml", "Store.qml",
+                        "Access.qml", "Feeds.qml", "Upstream.qml"];
         const missing = wanted.filter((name) => !named.includes(name));
         check(missing.length === 0,
               missing.length ? `the files pane is missing ${missing.join(", ")}; it names `
                                + named.join(", ")
                              : "every entity has its own file, and every file its directory");
 
-        await fileRow(page, "web/Feed.qml").click();
+        await fileRow(page, "web/edge/Feed.qml").click();
         const source = await page.locator("#source-paint").textContent();
-        check(source.includes("FeedSource {"),
+        // Rooted at the contract's own type, which is the point's name capitalised: the
+        // point `feed` exports `Feed`, and `Feed {}` is the Source that answers it.
+        check(source.includes("Feed {"),
               "and reading one shows the Source the owner would host");
         check(!source.includes("SPDX-License-Identifier"),
               "without the licence notice, which is on every file and read by nobody");
@@ -468,25 +481,26 @@ async function theProjectALinkHandsYou() {
         // never disagree about what is in hand.
         await page.waitForSelector("[data-link='feed'].is-selected");
         check(true, "opening a file selects what it is out on the canvas");
-        await page.locator("#nodes [data-entity='api']").click();
+        await page.locator("#nodes [data-entity='feeds']").click();
         await page.waitForFunction(
-            () => document.getElementById("source-name").textContent === "api/Api.qml");
+            () => document.getElementById("source-name").textContent === "api/feeds/Feeds.qml");
         check(true, "and selecting an entity opens the file it is");
 
         // Read-only until unlocked: the pane holds the entity's own code.
-        await fileRow(page, "web/Feed.qml").click();
+        await fileRow(page, "web/edge/Feed.qml").click();
         check(await page.locator("#source-input").evaluate((box) => box.readOnly),
               "a file opens read-only");
         // Typing a declaration into a Source is the same gesture as adding a member in the
         // panel, which is the whole reason the pane is a textarea and not a preview.
         await typeIntoRootBlock(page, "    property string headline\n");
-        await openAndWaitFor(page, "shared/Feed.syn", "prop string headline");
+        // Into the point's own `export:` block in synqt.yaml, which is where a contract lives.
+        await openAndWaitFor(page, "synqt.yaml", "prop string headline");
         check(true, "a property typed into an unlocked Source becomes a member of its "
                     + "contract");
 
         // Putting the caret on a line points the canvas at what that line is about, which is
         // how somebody reading a file finds the thing they are reading in the drawing.
-        await fileRow(page, "web/Feed.qml").click();
+        await fileRow(page, "web/edge/Feed.qml").click();
         await unlock(page);
         await page.locator("#source-input").click();
         await page.locator("#source-input").press("Control+End");
@@ -515,19 +529,19 @@ async function theProjectALinkHandsYou() {
         // Reaching into another entity draws the connect point it would need. This is what
         // `synqt infer` does over a project, done here on one file while it is being typed:
         // `Server` is the client's alias for the edge, so the edge is what ends up owning it.
-        await fileRow(page, "client/Main.qml").click();
+        await fileRow(page, "client/app/Main.qml").click();
         await typeIntoRootBlock(page, "    property int seen: Server.tally.total\n");
         await page.waitForSelector("[data-link='tally']");
         check(true, "reaching into another entity draws the connect point that would carry it");
         const paths = await page.locator(".tree__file").allTextContents();
-        check(paths.includes("Tally.syn") && paths.includes("Tally.qml"),
-              `with the two files it needs (${paths.join(", ")})`);
-        await openAndWaitFor(page, "shared/Tally.syn", "prop var total");
+        check(paths.includes("Tally.qml"),
+              `with the Source the owner would host it from (${paths.join(", ")})`);
+        await openAndWaitFor(page, "synqt.yaml", "prop var total");
         check(true, "and the member it reached for, with the type nothing gave away");
 
         // A file longer than the pane is the ordinary case, and the coloured copy is a
         // separate layer from the one holding the caret, so the two have to move together.
-        await fileRow(page, "client/Main.qml").click();
+        await fileRow(page, "client/app/Main.qml").click();
         const scrolled = await page.evaluate(() => {
             const input = document.getElementById("source-input");
             const paint = document.getElementById("source-paint");
@@ -539,6 +553,11 @@ async function theProjectALinkHandsYou() {
               `the coloured copy scrolls with the caret (${scrolled.painted} of `
               + `${scrolled.moved})`);
 
+        // Pressed twice, because closing and opening again are two different failures. The
+        // chevron used to be rebuilt as part of closing, which detached the element the click
+        // had landed on; the click then carried on to the strip, found no button above it,
+        // took itself for a click on the strip and opened the pane again in the same turn. It
+        // worked every other time, which is the shape of bug a single press never catches.
         await page.click("#dock-toggle");
         check(await page.locator("#dock").evaluate(
                   (dock) => dock.classList.contains("is-collapsed")),
@@ -547,12 +566,15 @@ async function theProjectALinkHandsYou() {
               && await page.locator("#dock-pane").isHidden(),
               "which still names the file that was open");
         await page.click("#dock-toggle");
+        check(!(await page.locator("#dock").evaluate(
+                   (dock) => dock.classList.contains("is-collapsed"))),
+              "and pressing it again opens it, every time and not every other time");
         await page.waitForSelector(".tree__file");
 
         // A link dropped on empty canvas is somebody reaching for an entity that is not there
         // yet, which is an offer rather than a mistake. Pulled off the *left* handle, which
         // is the side a single handle on the right could never serve.
-        await dragLinkToNowhere(page, "database", { x: 90, y: 90 }, 1);
+        await dragLinkToNowhere(page, "store", { x: 90, y: 90 }, 1);
         await page.waitForSelector(".menu__item");
         await page.locator(".menu__item", { hasText: "Cache" }).click();
         await page.waitForSelector("[data-entity='cache']");
@@ -567,27 +589,107 @@ async function theProjectALinkHandsYou() {
         check(true, "Delete removes what is selected");
 
         page.once("dialog", (dialog) => dialog.accept("upstream"));
-        await page.locator("#nodes [data-entity='api']").dblclick();
+        await page.locator("#nodes [data-entity='feeds']").dblclick();
         await page.waitForSelector("[data-entity='upstream']");
-        check(await page.locator("#nodes [data-entity='api']").count() === 0,
+        check(await page.locator("#nodes [data-entity='feeds']").count() === 0,
               "and a double click renames it");
 
         // The tooltip is the page's own, so it can say what a native one cannot.
-        await page.locator("#nodes [data-entity='database']").hover();
+        await page.locator("#nodes [data-entity='store']").hover();
         await page.waitForSelector("#tip:not([hidden])");
         const tip = await page.locator("#tip").textContent();
-        check(tip.includes("database") && tip.includes("consumer lists"),
+        check(tip.includes("store") && tip.includes("consumer lists"),
               `hovering an entity says what can reach it (${tip.slice(0, 80)})`);
 
-        await page.locator("#nodes [data-entity='web']").click({ button: "right" });
+        // Deleting an entity takes every line that only existed because it was there: the
+        // points it owned, and the points whose one consumer it was. A point left with an
+        // empty consumer list is drawn as a stub from its owner to nothing, which is what a
+        // point somebody deliberately disconnected looks like and is not what deleting the
+        // thing at the other end means. `edge` owns `feed` and consumes `access`, so both go.
+        await page.locator("#nodes [data-entity='edge']").click({ button: "right" });
         await page.waitForSelector(".menu__item");
-        check(await page.locator(".menu__what").textContent() === "web",
+        check(await page.locator(".menu__what").textContent() === "edge",
               "a right click opens a menu over what it was opened on");
         await page.locator(".menu__item", { hasText: "Delete" }).click();
         await page.waitForFunction(
-            () => !document.querySelector("#nodes [data-entity='web']"));
+            () => !document.querySelector("#nodes [data-entity='edge']"));
         check(await page.locator("#nodes [data-entity]").count() === 3,
               "and Delete there removes it");
+        // Nothing is left pointing at it. `edge` owned one of the points still drawn and was
+        // the only consumer of the rest, so all of them go: a point left with an empty
+        // consumer list is a stub from its owner to nothing, which is what somebody
+        // disconnecting a line asks for and not what deleting the far end means.
+        const left = await page.locator("#links > *").count();
+        check(left === 0,
+              `taking with it every connect point that ran to or from it (${left} left)`);
+
+        check(refused.length === 0,
+              `the policy refuses nothing on the page (${refused.join(" | ") || "no errors"})`);
+    } finally {
+        await browser.close();
+        server.close();
+    }
+}
+
+// The two ways of saying the same thing that neither the canvas nor a Source covers: the panel
+// declaring on an entity, and the configuration typed into directly. Both write into the one
+// document the rest of the page reads, so both are checked by what the page says afterwards.
+async function typingIntoTheProject() {
+    console.log("\nDeclaring from the panel, and typing into the configuration");
+    const server = await serveAssets();
+    const origin = `http://127.0.0.1:${server.address().port}`;
+    const browser = await chromium.launch({ headless });
+    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    const refused = [];
+    page.on("pageerror", (error) => refused.push(String(error)));
+    page.on("console", (message) => {
+        const from = (message.location() || {}).url || "";
+        if (message.type() === "error" && !from.endsWith("/api/project")) {
+            refused.push(`${message.text()} (${from})`);
+        }
+    });
+    try {
+        await page.goto(`${origin}/index.html#example=feed`);
+        await page.waitForFunction(
+            () => document.querySelectorAll("#nodes [data-entity]").length === 4);
+
+        // Declaring on an entity, from the panel. This is the pool every connect point the
+        // entity owns ticks its contract from, and it used to be reachable only by typing the
+        // line into the file: the panel offered a free-text prompt on a *link* and nothing at
+        // all on an entity.
+        await page.locator("#nodes [data-entity='store']").click();
+        await page.getByText("Add a property", { exact: true }).click();
+        await page.waitForSelector(".declares__line");
+        const declared = await page.locator(".declares__line").allTextContents();
+        check(declared.some((line) => line.startsWith("property int ")),
+              `the panel declares on the entity itself (${declared.join(" | ")})`);
+        await openAndWaitFor(page, "db/relational/store/Store.qml", "property int");
+        check(true, "and the declaration is in the entity's own file, where it lives");
+
+        // Typing into synqt.yaml. The canvas follows what parses; what does not parse leaves
+        // the canvas alone and says which line stopped it, because half-typed text is the
+        // ordinary state of a file being edited and not an error to undo.
+        await fileRow(page, "synqt.yaml").click();
+        await unlock(page);
+        check(await page.locator("#revert").isVisible(),
+              "the way back is offered before the first keystroke, not after it");
+        const box = page.locator("#source-input");
+        await box.click();
+        await box.press("Control+End");
+        await box.type("\n  - name: audits\n    owner: store\n    consumers: [edge]\n");
+        await page.waitForSelector("[data-link='audits']");
+        check(true, "a connect point typed into the configuration is drawn on the canvas");
+
+        await box.press("Control+End");
+        await box.type("  - name:\n");
+        await waitForHint(page, "synqt.yaml, line");
+        check(await page.locator("[data-entity]").count() === 4,
+              "a line that does not read leaves the canvas on the last one that did");
+
+        await page.locator("#revert").click();
+        await waitForHint(page, "Back to the last version");
+        check(await page.locator("[data-link='audits']").count() > 0,
+              "and the way back returns the last version that read, keeping the work");
 
         check(refused.length === 0,
               `the policy refuses nothing on the page (${refused.join(" | ") || "no errors"})`);
@@ -600,6 +702,7 @@ async function theProjectALinkHandsYou() {
 await editorOverAProject();
 await theCopyOnTheSite();
 await theProjectALinkHandsYou();
+await typingIntoTheProject();
 
 console.log("");
 if (failures.length) {
