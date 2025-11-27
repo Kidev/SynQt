@@ -26,12 +26,13 @@
   --edge: #e5e7ff;
   --error: #ff6b6b;
   --warn: #ffb347;
+  --ok: #46f477;
   --shadow: rgba(0, 0, 0, .45);
   --zone: rgba(106, 91, 153, .1);
   --grid-dot: rgba(106, 91, 153, .3);
   --grid-rule: rgba(106, 91, 153, .14);
 
-  --bar-height: 3rem;
+  --bar-height: 4.5rem;
   --rail-width: 14rem;
   --inspector-width: 22rem;
   --dock-height: 40vh;
@@ -55,6 +56,7 @@
     --edge: #3a2a5c;
     --error: #c62828;
     --warn: #a35c00;
+    --ok: #1a7f37;
     --shadow: rgba(32, 19, 53, .16);
     --zone: rgba(176, 168, 208, .18);
     --grid-dot: rgba(176, 168, 208, .45);
@@ -108,7 +110,7 @@ h2 {
    policy at all, which is the stronger reason to keep every byte local. Sized by height so
    the bar decides how big it is and the file's own dimensions do not. */
 .bar__mark {
-  height: 2rem;
+  height: 3.5rem;
   width: auto;
   display: block;
 }
@@ -404,9 +406,36 @@ h2 {
   cursor: default;
 }
 
+/* Under Review, the list takes the colour of the worst thing in it, so the verdict is
+   readable without reading it. Clear is earned (entities on the canvas and nothing against
+   them). An empty canvas is neither good news nor bad and stays the colour of ordinary text. */
+.findings--clear .finding {
+  border-left-color: var(--ok);
+  color: var(--ok);
+}
+
+.findings--error .finding--quiet,
+.findings--warn .finding--quiet {
+  color: var(--ink-dim);
+}
+
+.findings--error .finding {
+  color: var(--error);
+}
+
+.findings--warn .finding {
+  color: var(--warn);
+}
+
+/* The rule's own name stays quiet in every colour. It is the label on the finding, not the
+   finding. */
+.findings--verdict .finding__rule {
+  color: var(--ink-dim);
+}
+
 /* The canvas */
 
-/* The middle column: the canvas, and under it the dock that looks at the project instead
+/* The middle column. The canvas, and under it the dock that looks at the project instead
    of editing it. The dock takes a share of the height only while it is open, so a closed
    dock leaves the canvas exactly the column. */
 .stage {
@@ -533,6 +562,21 @@ h2 {
   fill: var(--client);
 }
 
+/* The two small boxes are blocks somebody arranges, so pressing anywhere inside one picks the
+   whole thing up and moves everything in it. The mesh box is not one of them: it covers most
+   of the canvas, where a press has to stay a pan. The nodes and links are drawn over this and
+   answer first, so dragging one entity out of its block still works. */
+.zone--held .zone__box,
+.zone--held .zone__title,
+.zone--held .zone__note {
+  pointer-events: all;
+  cursor: grab;
+}
+
+.canvas.is-moving-zone .zone--held .zone__box {
+  cursor: grabbing;
+}
+
 /* Nodes. The glyph inside each takes its colour from the group, so one class per role
    colours the disc, its rim and its icon together. */
 
@@ -587,27 +631,16 @@ h2 {
   pointer-events: none;
 }
 
+/* A dot on the rim, sized by how many are on the ring (canvas.js SLOT_DOT), so eight read as
+   handles and sixty-four read as a dial. They were dashes laid across the rim, which drew a
+   ring of ticks around every entity the pointer went near and made a disc look like something
+   being measured. */
 .node__slot {
-  stroke: currentColor;
-  stroke-width: 2.4;
-  stroke-linecap: round;
+  fill: currentColor;
+  stroke: none;
   pointer-events: none;
   opacity: 0;
   transition: opacity 120ms ease-out;
-}
-
-/* Thinner as the ring grows, so sixteen or sixty-four of them read as a dial rather than as
-   a fence around the entity. */
-.node__slot--16 {
-  stroke-width: 2;
-}
-
-.node__slot--32 {
-  stroke-width: 1.6;
-}
-
-.node__slot--64 {
-  stroke-width: 1.2;
 }
 
 .node.is-near .node__slot,
@@ -769,19 +802,41 @@ h2 {
   line-height: 1.5;
 }
 
+/* The entity's own glyph beside its name: the same mark the canvas draws it with, so the
+   panel and the drawing are recognisably about the same thing. */
+.inspector__head {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  margin-bottom: .5rem;
+}
+
+.inspector__head .glyph {
+  width: 1.35rem;
+  height: 1.35rem;
+  flex: none;
+  color: var(--ink);
+}
+
 .inspector__title {
   margin: 0 0 .75rem;
   font-family: var(--mono);
   font-size: 15px;
 }
 
+.inspector__head .inspector__title {
+  margin: 0;
+}
+
+/* What this kind of entity is for. The panel's own opening statement, in the colour of
+   ordinary text. It was set as a dim quotation down one side, which read as something
+   borrowed from elsewhere and worth less attention than the controls under it, when it is
+   the one line that says what the thing on the canvas is. */
 .inspector__help {
-  margin: -.4rem 0 .9rem;
-  padding-left: .6rem;
-  border-left: 2px solid var(--line);
-  font-size: 12px;
-  line-height: 1.45;
-  color: var(--ink-dim);
+  margin: 0 0 1rem;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--ink);
 }
 
 .field {
@@ -803,6 +858,13 @@ h2 {
   font-size: 11px;
   line-height: 1.4;
   color: var(--ink-dim);
+}
+
+/* The same line, under a heading or a button rather than under a field. The tight form pulls
+   itself up into the control above it, which under a heading reads as one line printed over
+   another. */
+.field__note--loose {
+  margin-top: .55rem;
 }
 
 /* A fact about the entity rather than a control over it. Deliberately not styled as a
@@ -842,7 +904,32 @@ select:focus {
 }
 
 .members {
-  margin-top: 1rem;
+  margin-top: 1.25rem;
+}
+
+.members__title {
+  margin: 0 0 .1rem;
+  font-size: 13px;
+}
+
+/* What the entity's file already declares, as the QML it is. Read-only here: the file is
+   where it is edited, and the pane below is the file. */
+.declares {
+  display: flex;
+  flex-direction: column;
+  gap: .2rem;
+  margin: .5rem 0 .6rem;
+}
+
+.declares__line {
+  padding: .2rem .4rem;
+  border-radius: .2rem;
+  background: var(--page);
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink);
+  overflow-x: auto;
+  white-space: pre;
 }
 
 .member {
@@ -1026,14 +1113,28 @@ select:focus {
   color: var(--ink-dim);
 }
 
-/* The file the pane has open, named on the bar so a collapsed pane still says where it is. */
-.dock__open {
+/* The file the pane has open, named once, on the bar, so a collapsed pane still says where
+   it is and an open one does not say it twice. */
+.dock__name {
   font-family: var(--mono);
   font-size: 11px;
-  color: var(--ink-dim);
+  color: var(--ink);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* What typing into the open file would do, on the same line as the file it is about. It is
+   the first thing to give up its width when the bar runs out: the file's name and the button
+   that unlocks it both have to stay readable. */
+.dock__note {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--ink-dim);
 }
 
 /* The tree on the left, the file being read on the right. The same arrangement the guide's
@@ -1110,39 +1211,13 @@ select:focus {
   font-family: var(--text);
 }
 
+/* One box holding one thing. The file. Which file it is, whether it is unlocked and what
+   typing into it would do are all said once, up on the dock bar. */
 .source {
   display: grid;
-  grid-template-rows: auto 1fr auto;
+  grid-template-rows: 1fr;
   min-width: 0;
   min-height: 0;
-}
-
-.source__head {
-  display: flex;
-  align-items: center;
-  gap: .5rem;
-  padding: .3rem .75rem;
-  border-bottom: 1px solid var(--line);
-}
-
-.source__name {
-  margin: 0;
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-family: var(--mono);
-  font-size: 11px;
-  color: var(--ink-dim);
-}
-
-.source__note {
-  margin: 0;
-  padding: .35rem .75rem;
-  border-top: 1px solid var(--line);
-  font-size: 11px;
-  color: var(--ink-dim);
 }
 
 /* Two layers in one box. Every property that decides where a glyph lands is set on both, so
@@ -1294,8 +1369,14 @@ select:focus {
   margin-bottom: .15rem;
 }
 
+/* Small capitals rather than a capital letter. These are the labels down the left of a
+   two-column list, not sentences, and a list of them reading Is / Owns / Consumes looks like
+   eight headings. Set as small caps they read as one column of labels, which is what they
+   are, and the value beside each one stays the thing being read. */
 .tip__label {
   color: var(--ink-dim);
+  font-variant-caps: all-small-caps;
+  letter-spacing: .04em;
 }
 
 .tip__value {
@@ -1407,6 +1488,7 @@ select:focus {
 }
 
 .picker__head {
+  margin-bottom: .3rem;
   font-size: 12px;
   font-weight: 600;
   letter-spacing: .04em;

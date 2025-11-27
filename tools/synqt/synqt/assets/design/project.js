@@ -206,11 +206,11 @@ export function sourceQml(contract, point, members) {
 import QtQuick
 import SynQt
 
-// Owner of the "${point}" connect point. Its props, models and signals are the ones declared
-// in ${contract}.syn beside it, and nothing undeclared ever reaches a consumer. A slot a consumer
+// Owner of the "${point}" connect point. What crosses it is the \`export:\` block on that
+// point in synqt.yaml, and nothing undeclared ever reaches a consumer. A slot a consumer
 // calls arrives here with \`Caller\` set to whoever called it: authorize that caller first,
-// then act. This file is where the rule lives; a check in a consumer's UI is a courtesy, not
-// a guard.
+// then act. This file is where the rule lives; a check in a consumer's UI is a courtesy,
+// not a guard.
 ${contract} {
     id: root
 ${declared ? "\n" + declared + "\n" : ""}}

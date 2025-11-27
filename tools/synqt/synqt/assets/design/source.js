@@ -286,7 +286,7 @@ export function references(text) {
 
 // Writing back
 
-function declarationLine(member) {
+export function declarationLine(member) {
     if (member.kind === "prop") {
         return `    property ${member.type || UNKNOWN} ${member.name}`;
     }

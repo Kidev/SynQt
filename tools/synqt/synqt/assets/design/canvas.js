@@ -44,16 +44,20 @@ const ZONE_NOTE_Y = 38;
 
 // The three sides of a system, in the order a request travels. `of` is the question each box
 // answers about an entity, and the order here is the order they are drawn and read.
+// `held` is whether the box itself can be picked up and moved, carrying everything inside it.
+// The browser and the entity facing the internet are one or two entities each, so their box is
+// a block somebody arranges; the mesh is everything else and its box covers most of the
+// canvas, where a press has to stay a pan.
 const ZONES = [
     {name: "browser", title: "The browser",
-     note: "holds no secret, no certificate",
-     of: (role) => role === "client"},
+     note: "Holds no secret, no certificate",
+     of: (role) => role === "client", held: true},
     {name: "internet", title: "Faces the internet",
-     note: "terminates TLS, runs sign-in",
-     of: (role) => role === "edge"},
+     note: "Terminates TLS, runs sign-in",
+     of: (role) => role === "edge", held: true},
     {name: "mesh", title: "The mesh",
-     note: "mutual TLS, no browser reaches it",
-     of: (role) => role !== "client" && role !== "edge"},
+     note: "Mutual TLS, no browser reaches it",
+     of: (role) => role !== "client" && role !== "edge", held: false},
 ];
 
 // Roughly how wide the writing in a zone's corner is, per character, at the sizes the two
@@ -323,9 +327,15 @@ function caption(files) {
     return shown.length > 1 ? `${first} +${shown.length - 1}` : first;
 }
 
-// How far a rim dash reaches either side of the rim. Small, and smaller still as the ring
-// grows: the width is a class, so a ring of 64 is a dotted circle rather than a picket fence.
+// How far the invisible hit target for a slot reaches either side of the rim. The mark itself
+// is a dot sitting on the rim. This is only how much of a pointer's aim counts as being on it.
 const SLOT_DASH = 5;
+
+// How big that dot is, by how many are on the ring. A ring of eight can afford to be seen. A
+// ring of sixty-four has to read as a dial. They were dashes across the rim, which at eight of
+// them drew a second ring of ticks around the entity and looked like a scale it was measured
+// on rather than like the handles they are.
+const SLOT_DOT = {8: 2.6, 16: 2.2, 32: 1.8, 64: 1.4};
 
 // How far past the rim a contract's badge sits, measured to its middle.
 const BADGE_REACH = 9;
@@ -351,8 +361,8 @@ function node(entity, {selected, level, files, taken}) {
     file.textContent = caption(files);
     group.append(file);
 
-    // The slots a link is pulled out of: every free one on the ring, drawn as a short dash
-    // across the rim. Every one rather than the nearest, because the entity being reached for
+    // The slots a link is pulled out of: every free one on the ring, drawn as a dot on the
+    // rim. Every one rather than the nearest, because the entity being reached for
     // is as often to the left or below as to the right, and they are quiet enough that a ring
     // of them reads as a dial rather than as sixteen things asking to be clicked. They are
     // invisible until the pointer is near (the `is-near` class the page puts on this group),
@@ -365,15 +375,16 @@ function node(entity, {selected, level, files, taken}) {
         }
         const inner = slotPoint(slot, NODE_RADIUS - SLOT_DASH);
         const outer = slotPoint(slot, NODE_RADIUS + SLOT_DASH);
-        // The hit target is its own wider line under the visible one, so a dash thin enough
-        // to be quiet is still something a pointer can find.
+        // The hit target is its own wider line across the rim, under the dot, so a mark quiet
+        // enough to sit behind the drawing is still something a pointer can find.
         const grab = element("line", {class: "node__slot-grab", x1: inner.x, y1: inner.y,
                                       x2: outer.x, y2: outer.y});
         grab.dataset.rim = entity.name;
         grab.dataset.slot = String(slot);
         group.append(grab);
-        group.append(element("line", {class: `node__slot node__slot--${size}`,
-                                      x1: inner.x, y1: inner.y, x2: outer.x, y2: outer.y}));
+        const on = slotPoint(slot, NODE_RADIUS);
+        group.append(element("circle", {class: "node__slot", cx: on.x, cy: on.y,
+                                        r: SLOT_DOT[size] || SLOT_DOT[64]}));
     }
     return group;
 }
@@ -407,7 +418,15 @@ function zoneBox(shape, entities) {
 // The box itself, drawn behind everything.
 function zone(shape, entities) {
     const {left, top, right, bottom} = zoneBox(shape, entities);
-    const group = element("g", {class: `zone zone--${shape.name}`});
+    const group = element("g", {
+        class: `zone zone--${shape.name}${shape.held ? " zone--held" : ""}`,
+    });
+    if (shape.held) {
+        // Named on the group so the page can pick the whole block up by it. The names inside
+        // are what moves. A zone is drawn around what is in it and has no position of its own.
+        group.dataset.zone = shape.name;
+        group.dataset.inside = entities.map((entity) => entity.name).join(" ");
+    }
     group.append(element("rect", {class: "zone__box", x: left, y: top,
                                   width: right - left, height: bottom - top, rx: 14}));
     const title = element("text", {class: "zone__title", x: left + 14, y: top + ZONE_TITLE_Y});
@@ -613,10 +632,8 @@ export function draw(layers, design, {problems, selected, filesOf}) {
         const found = problems.links.get(link.name) || [];
         // A contract that carries nothing is marked, and it is marked on the badge and not on
         // the line, because nothing about who is at either end is wrong: there is just
-        // nothing to say to them yet. It is not a rule, either. `synqt check` reads a
-        // configuration, and what crosses a point lives in a .syn file beside it, so a rule
-        // here would be one the command line could not agree with. This is the drawing saying
-        // the point is unfinished, the same way a link with no consumer is drawn as a stub.
+        // nothing to say to them yet. This is the drawing saying the point is unfinished, the
+        // same way a link with no consumer is drawn as a stub.
         const carries = (link.members || []).length;
         const options = {
             selected: selected && selected.kind === "link" && selected.name === link.name,

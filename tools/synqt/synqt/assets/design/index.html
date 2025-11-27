@@ -27,7 +27,11 @@
       <span class="bar__project" id="project" hidden></span>
       <span class="bar__verdict" id="verdict"></span>
       <span class="bar__gap"></span>
-      <button type="button" class="button" id="restart" hidden>Start over</button>
+      <button type="button" class="button button--danger" id="restart" hidden>Clear</button>
+      <!-- The way back out of an edit to synqt.yaml, offered while that file is unlocked:
+           every version of it that read cleanly is remembered, and this returns to the last
+           one. It is what makes typing into the configuration something to try. -->
+      <button type="button" class="button" id="revert" hidden>Back to the last good version</button>
       <button type="button" class="button" id="infer">Infer from the sources</button>
       <button type="button" class="button" id="review">Review changes</button>
       <button type="button" class="button button--go" id="apply" disabled>Apply</button>
@@ -38,8 +42,8 @@
         <h2 class="rail__title">Add an entity</h2>
         <p class="rail__hint">Drag one onto the canvas, where you want it.</p>
         <div class="palette" id="palette"></div>
-        <h2 class="rail__title">What the rules say</h2>
-        <ul class="findings" id="findings"></ul>
+        <h2 class="rail__title">Review</h2>
+        <ul class="findings findings--verdict" id="findings"></ul>
       </aside>
 
       <section class="stage">
@@ -64,9 +68,19 @@
              into rather than read: what a Source declares is what its contract holds. Hiding
              it leaves the bar, which is what opens it again. -->
         <section class="dock" id="dock">
+          <!-- One bar, saying each thing once: what the pane is, which file is open in it,
+               the control that unlocks that file, what typing into it would do, and the
+               chevron that puts the whole pane away. The file name used to be here and
+               again over the text, with the note for it three panes further down. -->
           <header class="dock__bar" id="dock-bar">
             <span class="dock__title">Files</span>
-            <span class="dock__open" id="dock-open"></span>
+            <span class="dock__name" id="source-name"></span>
+            <!-- Read-only until somebody says otherwise. The pane holds the entity's own
+                 code, and a stray keystroke over a file you were reading is not an edit
+                 anybody asked to make. -->
+            <button type="button" class="button button--lock" id="source-lock"
+                    aria-pressed="false"></button>
+            <span class="dock__note" id="source-note"></span>
             <span class="bar__gap"></span>
             <button type="button" class="button button--chevron" id="dock-toggle"
                     aria-expanded="true" aria-controls="dock-pane"
@@ -75,14 +89,6 @@
           <div class="dock__pane" id="dock-pane">
             <ul class="tree" id="tree"></ul>
             <div class="source">
-              <div class="source__head">
-                <p class="source__name" id="source-name"></p>
-                <!-- Read-only until somebody says otherwise. The pane holds the entity's own
-                     code, and a stray keystroke over a file you were reading is not an edit
-                     anybody asked to make. -->
-                <button type="button" class="button button--lock" id="source-lock"
-                        aria-pressed="false"></button>
-              </div>
               <!-- One layer painted and one layer typed into, sharing a box and a font: the
                    textarea on top is transparent apart from its caret, and the coloured copy
                    behind it is what anyone actually reads. -->
@@ -91,7 +97,6 @@
                 <textarea class="source__input" id="source-input" spellcheck="false"
                           autocomplete="off" autocapitalize="off" wrap="off"></textarea>
               </div>
-              <p class="source__note" id="source-note"></p>
             </div>
           </div>
         </section>

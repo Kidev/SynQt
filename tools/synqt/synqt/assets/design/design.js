@@ -25,9 +25,11 @@ import { NODE_RADIUS, ROLE_HELP, describe, draw, element, entityAt, extent, glyp
 import { inspect } from "./inspector.js";
 import { forgetDesign, keepDesign, keepPane, keptDesign,
          readPanes } from "./keep.js";
-import { contractOf, entityDir, entityFiles, entityQmlPath, projectFiles }
+import { contractOf, entityDir, entityFiles, entityQml, entityQmlPath, projectFiles }
     from "./project.js";
-import { declarations, references, runsFor, withoutNotice } from "./source.js";
+import { declarationLine, declarations, references, runsFor,
+         withoutNotice } from "./source.js";
+import { YamlError, parseDesign } from "./yamlin.js";
 import { zipBytes } from "./zip.js";
 
 // The three columns a topology reads in, the same ones designdoc.py lays a project out in:
@@ -80,6 +82,11 @@ const state = {
     files: true,
     reading: "",
     unlocked: false,
+    // The configuration exactly as it is being typed, while it is being typed, and the last
+    // design that read cleanly out of it. The first keeps the pane from rewriting a
+    // half-finished line under the caret; the second is what the way back returns to.
+    configText: "",
+    lastGood: "",
 };
 
 const view = {x: 0, y: 0, k: 1};
@@ -100,12 +107,12 @@ const page = {
     hint: document.getElementById("hint"),
     restart: document.getElementById("restart"),
     infer: document.getElementById("infer"),
+    revert: document.getElementById("revert"),
     review: document.getElementById("review"),
     apply: document.getElementById("apply"),
     dock: document.getElementById("dock"),
     dockBar: document.getElementById("dock-bar"),
     dockToggle: document.getElementById("dock-toggle"),
-    dockOpen: document.getElementById("dock-open"),
     tree: document.getElementById("tree"),
     sourceName: document.getElementById("source-name"),
     sourceLock: document.getElementById("source-lock"),
@@ -220,8 +227,16 @@ function quiet(text) {
     return row;
 }
 
+// The list under Review, coloured by what it is saying. Green is the one verdict that has to
+// be earned. A project with entities on the canvas and nothing against it. An empty canvas is
+// neither good news nor bad, so it stays the colour of ordinary text, and anything the rules
+// caught takes the colour of the worst of it.
 function renderFindings() {
     page.findings.replaceChildren();
+    const errors = state.found.some((item) => item.level === "error");
+    const level = state.found.length ? (errors ? "error" : "warn")
+        : (state.design.entities.length ? "clear" : "neutral");
+    page.findings.className = `findings findings--verdict findings--${level}`;
     if (!state.found.length) {
         page.findings.append(quiet(state.design.entities.length
             ? "Nothing in the way. Review the changes when you are ready."
@@ -332,7 +347,13 @@ function inProject(name) {
 // are not, because both are written from the document and typing into either would be typing
 // into a rendering of something else.
 function editable(file) {
-    return file.name.endsWith(".qml");
+    return file.name.endsWith(".qml") || isConfig(file);
+}
+
+// The project's own configuration. Typing into it moves the canvas, the same way typing into
+// an owner's Source moves the contract. There is one design, seen two ways.
+function isConfig(file) {
+    return inProject(file.name) === "synqt.yaml";
 }
 
 function paint(file) {
@@ -434,7 +455,6 @@ function renderProject() {
         page.tree.append(empty);
         page.sourceName.textContent = "";
         page.sourceNote.textContent = "";
-        page.dockOpen.textContent = "";
         page.sourcePaint.replaceChildren();
         page.sourceInput.value = "";
         page.sourceInput.readOnly = true;
@@ -466,8 +486,22 @@ function renderProject() {
     }
     const open = files.find((file) => file.name === state.reading) || files[0];
     page.sourceName.textContent = inProject(open.name);
-    page.dockOpen.textContent = inProject(open.name);
-    const shown = paint(open);
+    // While the configuration is being typed into, the pane shows what was typed and not the
+    // configuration rewritten from the design it just became: they say the same thing, and
+    // rewriting one under the caret moves the caret.
+    const reading = isConfig(open) && state.configText
+        ? {...open, text: state.configText} : open;
+    if (isConfig(open)) {
+        // The way back is there before the first keystroke, not after the first one that
+        // happened to parse: a reader who cannot see it before they type is a reader who does
+        // not type.
+        if (!state.lastGood) {
+            rememberGood();
+        }
+    } else {
+        state.configText = "";
+    }
+    const shown = paint(reading);
     // The textarea is there for every file, locked or not: it is what makes a file selectable
     // and copyable, and a read-only one still has to be readable that way.
     page.sourceInput.readOnly = !editable(open) || !state.unlocked;
@@ -475,6 +509,11 @@ function renderProject() {
         page.sourceInput.value = shown;
     }
     renderLock(open);
+    if (isConfig(open)) {
+        page.sourceNote.textContent = "The topology, as the file that carries it. Entities "
+            + "and connect points typed here move the canvas.";
+        return;
+    }
     if (!editable(open)) {
         page.sourceNote.textContent = "Written from the design. Edit it on the canvas or in "
             + "the panel.";
@@ -501,6 +540,8 @@ function renderLock(open) {
            ? "Lock it again. Changes are already in the design; nothing is written to the "
              + "project until you apply a change set."
            : "Unlock it to type into it.");
+    // Offered only while there is something to go back to and something to go back from.
+    page.revert.hidden = !(state.lastGood && open && isConfig(open) && state.unlocked);
 }
 
 // The three seams, each named by the custom property it drags and how far that property is
@@ -571,7 +612,10 @@ function showDock(open) {
     // collapsed pane is not that tall. Rather than leave a seam floating over the canvas
     // where no edge is, take it away with the pane it belongs to.
     page.work.classList.toggle("is-docked", state.files);
-    page.dockToggle.replaceChildren(chevron());
+    // The arrow is one element that CSS turns over. Rebuilding it here makes
+    // collapsing work about half the time, because rebuilding it detaches the very element the
+    // click landed on, so the click that carries on up to the bar finds no button above
+    // it, takes itself for a click on the strip, and opens the pane again in the same turn.
     page.dockToggle.setAttribute("aria-label", state.files ? "Collapse the files"
                                                            : "Expand the files");
     page.dockToggle.setAttribute("aria-expanded", String(state.files));
@@ -769,6 +813,10 @@ function onSourceInput() {
     if (!open || !editable(open)) {
         return;
     }
+    if (isConfig(open)) {
+        absorbConfig(page.sourceInput.value);
+        return;
+    }
     const text = page.sourceInput.value;
     // Stored with the notice back on: what is on disk and what the download holds carries it,
     // and only the pane ever shows a file without one.
@@ -795,6 +843,61 @@ function onSourceInput() {
     if (said) {
         say(said);
     }
+}
+
+// Typing into the configuration
+
+// The design the configuration in the pane describes, applied to the canvas as it is typed.
+//
+// Half-typed text is the ordinary state of a file being edited, so a parse that fails is not
+// an error to report and undo. The canvas keeps the last design that did parse, the bar says
+// which line stopped it, and the next keystroke is free to fix it. What makes that safe to
+// experiment in is the way back. Every text that parsed is remembered, and one button returns
+// to the last one, so nothing typed here can leave a project the reader cannot get out of.
+function absorbConfig(text) {
+    let read = null;
+    try {
+        read = parseDesign(text, state.design,
+                           (entity) => declarations(entity.qml || entityQml(entity)));
+    } catch (error) {
+        state.configText = text;
+        page.revert.hidden = false;
+        say(error instanceof YamlError
+            ? `synqt.yaml, ${error.message}. The canvas is still the last version that read.`
+            : String(error), "error");
+        return;
+    }
+    // Kept before the change, not after: what somebody wants back is the design they had
+    // before the edit that lost it, and it is only worth keeping when it is a design at all.
+    rememberGood();
+    state.design = read;
+    state.configText = text;
+    page.revert.hidden = false;
+    touched();
+    redraw();
+    renderInspector();
+    say("Read from synqt.yaml.");
+}
+
+// The last design that read cleanly, kept as text so going back to it is one assignment and
+// cannot half-apply. Only the topology is carried. The rest of the configuration is the
+// project's, and the server writes the topology back into the file it already has.
+function rememberGood() {
+    state.lastGood = JSON.stringify(state.design);
+}
+
+function revertToLastGood() {
+    if (!state.lastGood) {
+        return;
+    }
+    state.design = JSON.parse(state.lastGood);
+    state.configText = "";
+    page.revert.hidden = true;
+    touched();
+    redraw();
+    renderProject();
+    renderInspector();
+    say("Back to the last version that read.");
 }
 
 // The tooltip
@@ -865,21 +968,21 @@ function tipFor(what) {
         box.append(head);
         box.append(tipRow("is", describe(entity)));
         box.append(tipRow("reachable from",
-                          role === "client" ? "the person using it"
-                          : (role === "edge" ? "the internet, and only over TLS"
-                                             : "the entities on its consumer lists, and "
+                          role === "client" ? "The person using it"
+                          : (role === "edge" ? "The internet, and only over TLS"
+                                             : "The entities on its consumer lists, and "
                                                + "nothing else")));
         const owns = (state.design.links || [])
             .filter((link) => link.owner === entity.name);
         box.append(tipRow("owns", owns.length
-            ? owns.map((link) => link.name).join(", ") : "no connect point yet"));
+            ? owns.map((link) => link.name).join(", ") : "No connect point yet"));
         const uses = (state.design.links || [])
             .filter((link) => (link.consumers || []).includes(entity.name));
         box.append(tipRow("consumes", uses.length
-            ? uses.map((link) => `${link.name} (${link.owner})`).join(", ") : "nothing"));
+            ? uses.map((link) => `${link.name} (${link.owner})`).join(", ") : "Nothing"));
         const files = entityFiles(state.design, entity);
         box.append(tipRow("files", files.length
-            ? files.map((file) => file.name).join(", ") : "none yet"));
+            ? files.map((file) => file.name).join(", ") : "None yet"));
         box.append(tipHelp(ROLE_HELP[role]));
         box.append(...tipFindings(state.problems.entities.get(entity.name) || []));
         return box;
@@ -894,12 +997,12 @@ function tipFor(what) {
     title.textContent = `${link.name}: ${contractOf(link)}`;
     head.append(title);
     box.append(head);
-    box.append(tipRow("owned by", `${link.owner || "nobody"}, which decides`));
+    box.append(tipRow("owned by", `${link.owner || "Nobody"}, which decides`));
     box.append(tipRow("consumed by", (link.consumers || []).join(", ")
-        || "nobody yet, so nothing can acquire it"));
+        || "Nobody yet, so nothing can acquire it"));
     box.append(tipRow("carried over", link.transport === "local"
-        ? "a local socket: the caller is trusted by colocation, not authenticated"
-        : "mutual TLS, verified against the project CA"));
+        ? "A local socket: the caller is trusted by colocation, not authenticated"
+        : "Mutual TLS, verified against the project CA"));
     const members = link.members || [];
     if (members.length) {
         const list = document.createElement("div");
@@ -1026,13 +1129,15 @@ function openPicker(link, at) {
 
     const note = document.createElement("p");
     note.className = "picker__note";
+    // Nothing is asked for here that the owner has not already got. A point over an entity
+    // that declares nothing says so and stops. It is drawn as an unfinished contract until
+    // its owner has something to offer, which is its state rather than a question.
     note.textContent = offered.length
         ? `Ticked members are what '${link.owner}' says to `
           + `'${(link.consumers || []).join("', '") || "whoever consumes it"}'. `
           + "Nothing else ever crosses."
-        : `'${link.owner}' declares nothing yet. Write a property, a signal or a function `
-          + `into ${owner ? entityQmlPath(owner) : `${link.owner}/`} below, and it will be `
-          + "here to tick.";
+        : `'${link.owner}' declares nothing yet, so this contract is not finished. Declare a `
+          + `property, a signal or a function on '${link.owner}' and it will be here to tick.`;
     page.picker.append(note);
 
     const list = document.createElement("ul");
@@ -1059,15 +1164,6 @@ function openPicker(link, at) {
     const foot = document.createElement("div");
     foot.className = "picker__foot";
 
-    const add = document.createElement("button");
-    add.type = "button";
-    add.className = "button";
-    add.textContent = "Declare a member";
-    add.addEventListener("click", () => {
-        declareMember(link, at);
-    });
-    foot.append(add);
-
     const done = document.createElement("button");
     done.type = "button";
     done.className = "button";
@@ -1084,37 +1180,42 @@ function openPicker(link, at) {
     page.picker.style.top = `${Math.max(8, y)}px`;
 }
 
-// Write one declaration into the owner's own QML, which is the same thing as typing it into
-// that file in the pane below: the entity is where a member lives, and a contract only ever
-// ticks from what is there. Refused rather than kept when the line is not one the reader can
-// see, so the file never holds something the picker cannot show back.
-function declareMember(link, at) {
-    const owner = entityNamed(link.owner);
-    if (!owner) {
+// Write one declaration into an entity's own QML, which is the same thing as typing it into
+// that file in the pane below. The entity is where a member lives, and a contract only ever
+// ticks from what is there.
+//
+// The line is built from a kind rather than typed as a string. A free-text box here asked
+// somebody to write QML into a prompt with no file around it, refused what it could not
+// parse, and left them guessing at the spelling. Every kind this page can read has a form,
+// so the form is what it offers. The name is a placeholder the panel then edits in the file.
+function declareOn(entity, member) {
+    if (!entity) {
         return;
     }
-    const wanted = window.prompt(`Declare a member on '${link.owner}'`,
-                                 "property string status");
-    if (wanted === null || !wanted.trim()) {
-        return;
-    }
-    const text = String(owner.qml || "");
+    const text = String(entity.qml || (entity.qml = entityQml(entity)));
     const closes = text.lastIndexOf("}");
     if (closes < 0) {
-        say(`'${entityQmlPath(owner)}' has no object in it to declare anything on.`, "error");
+        say(`'${entityQmlPath(entity)}' has no object in it to declare anything on.`, "error");
         return;
     }
-    const before = declarations(text).length;
-    const written = `${text.slice(0, closes)}    ${wanted.trim()}\n${text.slice(closes)}`;
-    if (declarations(written).length !== before + 1) {
-        say(`'${wanted.trim()}' is not a property, a signal or a function this page can `
-            + "read. Try 'property int count', 'signal changed(int to)' or "
-            + "'function reset()'.", "error");
-        return;
-    }
-    owner.qml = written;
+    const taken = new Set(declarations(text).map((one) => one.name));
+    const named = {...member, name: unique(nameFor(member), taken)};
+    const written = `${text.slice(0, closes)}${declarationLine(named)}\n${text.slice(closes)}`;
+    entity.qml = written;
+    // Open the file it was written into, on the line it went on: a declaration nobody can see
+    // is the panel and the pane disagreeing about what just happened.
+    state.reading = `${state.design.project || "app"}/${entityQmlPath(entity)}`;
+    state.unlocked = true;
     touched();
-    openPicker(link, at);
+    redraw();
+    renderInspector();
+}
+
+// The placeholder a new declaration is named, per kind. Never blank: a nameless declaration
+// is a line QML would refuse to load, and the file is written the moment the button is
+// pressed rather than after a name has been typed somewhere else.
+function nameFor(member) {
+    return {prop: "value", signal: "changed", slot: "act"}[member.kind] || "value";
 }
 
 function tickMember(link, member, wanted) {
@@ -1224,6 +1325,7 @@ function renderInspector() {
         },
         removeEntity: (entity) => removeEntity(entity),
         removeLink: (link) => removeLink(link),
+        declare: (entity, member) => declareOn(entity, member),
     });
 }
 
@@ -1406,18 +1508,34 @@ function offerEntity(owner, spot, at) {
     })));
 }
 
+// Deleting an entity takes every line that only existed because it was there: the points it
+// owned, and the points whose one consumer it was.
+//
+// The second half is the part that was missing. A point drops the name from its consumer list
+// and, if that list is now empty, becomes a stub drawn from its owner to nothing, which is
+// what a point deliberately disconnected looks like (disconnectLink) and is not what deleting
+// the thing at the other end means. A point that still has another consumer is left alone: it
+// lost one reader, not its reason to exist.
 function removeEntity(entity) {
     const name = entity.name;
     state.design.entities = state.design.entities.filter((one) => one !== entity);
-    const orphaned = state.design.links.filter((link) => link.owner === name);
-    state.design.links = state.design.links.filter((link) => link.owner !== name);
-    for (const link of state.design.links) {
-        link.consumers = (link.consumers || []).filter((consumer) => consumer !== name);
-    }
+    const owned = state.design.links.filter((link) => link.owner === name);
+    const kept = state.design.links.filter((link) => link.owner !== name);
+    const dangling = [];
+    state.design.links = kept.filter((link) => {
+        const consumers = (link.consumers || []).filter((consumer) => consumer !== name);
+        const emptied = consumers.length === 0 && (link.consumers || []).length > 0;
+        link.consumers = consumers;
+        if (emptied) {
+            dangling.push(link.name);
+        }
+        return !emptied;
+    });
     touched();
     select(null);
-    say(orphaned.length
-        ? `Removed '${name}', and with it the ${orphaned.length} connect point(s) it owned.`
+    const lost = owned.length + dangling.length;
+    say(lost
+        ? `Removed '${name}', and with it the ${lost} connect point(s) that ran to or from it.`
         : `Removed '${name}'.`);
 }
 
@@ -1489,6 +1607,7 @@ function onDown(event) {
     const rim = event.target.closest("[data-rim]");
     const held = event.target.closest("[data-entity]");
     const link = event.target.closest("[data-link]");
+    const zone = event.target.closest("[data-zone]");
     page.canvas.setPointerCapture(event.pointerId);
 
     if (rim) {
@@ -1518,6 +1637,17 @@ function onDown(event) {
     }
     if (link) {
         drag = {mode: "link-click", name: link.dataset.link, moved: false};
+        return;
+    }
+    // The block the browser is, or the one facing the internet: pressing inside it takes the
+    // whole box and everything drawn in it. Last of the four, so a node or a link inside the
+    // box still answers for itself. Only the space around them belongs to the box.
+    if (zone) {
+        const inside = String(zone.dataset.inside || "").split(" ")
+            .map(entityNamed).filter(Boolean);
+        drag = {mode: "zone", at, moved: false,
+                inside: inside.map((entity) => ({entity, x: entity.x || 0, y: entity.y || 0}))};
+        page.canvas.classList.add("is-moving-zone");
         return;
     }
     drag = {mode: "pan", at, from: {x: view.x, y: view.y}, moved: false};
@@ -1588,6 +1718,21 @@ function onMove(event) {
         }));
         return;
     }
+    if (drag.mode === "zone") {
+        // Everything in the box moves by the same amount, from where each one started rather
+        // than by a step per event: adding up steps drifts, and the box is redrawn around its
+        // contents every frame, so a drift here is a box that slowly leaves the pointer.
+        const dx = Math.round(at.local.x - drag.at.local.x);
+        const dy = Math.round(at.local.y - drag.at.local.y);
+        drag.moved = drag.moved || Boolean(dx || dy);
+        for (const one of drag.inside) {
+            one.entity.x = one.x + dx;
+            one.entity.y = one.y + dy;
+        }
+        touched();
+        redraw();
+        return;
+    }
     if (drag.mode === "pan") {
         view.x = drag.from.x + (at.screen.x - drag.at.screen.x);
         view.y = drag.from.y + (at.screen.y - drag.at.screen.y);
@@ -1602,7 +1747,7 @@ function onUp(event) {
     const finished = drag;
     drag = null;
     page.ghost.replaceChildren();
-    page.canvas.classList.remove("is-panning");
+    page.canvas.classList.remove("is-panning", "is-moving-zone");
     if (page.canvas.hasPointerCapture(event.pointerId)) {
         page.canvas.releasePointerCapture(event.pointerId);
     }
@@ -1646,7 +1791,9 @@ function onUp(event) {
         select(what);
         return;
     }
-    if (finished.mode === "pan" && !finished.moved) {
+    // A press on a box that went nowhere is a press on empty canvas: the box is a drawing of
+    // what is in it, not a thing with a panel of its own to select.
+    if ((finished.mode === "pan" || finished.mode === "zone") && !finished.moved) {
         select(null);
     }
 }
@@ -1965,10 +2112,16 @@ function wire() {
         page.stage.classList.remove("is-target");
     });
     page.canvas.addEventListener("drop", onDrop);
+    page.revert.addEventListener("click", () => revertToLastGood());
     page.infer.addEventListener("click", () => inferContracts());
     page.review.addEventListener("click", () => review());
     page.apply.addEventListener("click", () => applyPlan());
-    page.dockToggle.addEventListener("click", () => showDock());
+    page.dockToggle.addEventListener("click", (event) => {
+        // The button answers for itself. Without this the click carries on to the strip
+        // below, which opens the pane the button has closed.
+        event.stopPropagation();
+        showDock();
+    });
     // A collapsed pane is a strip along the bottom, and the whole strip opens it: a target
     // that thin should not also be a target that small.
     page.dockBar.addEventListener("click", (event) => {
@@ -2039,6 +2192,7 @@ function wire() {
 
 buildPalette();
 wire();
+page.dockToggle.replaceChildren(chevron());
 for (const grip of GRIPS) {
     holdGrip(grip);
 }

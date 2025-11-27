@@ -11,7 +11,8 @@
 // not there.
 
 import { entityType } from "./rules.js";
-import { ROLE_HELP, roleOf } from "./canvas.js";
+import { ROLE_HELP, glyphSvg, roleOf } from "./canvas.js";
+import { declarations } from "./source.js";
 
 // The .syn type vocabulary, from synqtc/types.py. `var` is in it because a model role may
 // carry anything, and the roles are where that comes up.
@@ -58,8 +59,11 @@ function field(label, control) {
     return wrap;
 }
 
-function note(text) {
-    return tag("p", {class: "field__note"}, text);
+// A line under whatever it explains. `loose` is for one that follows a heading or a button
+// rather than a field: the tight form pulls itself up under the control it belongs to, and
+// under a heading that reads as one line printed on top of another.
+function note(text, loose) {
+    return tag("p", {class: loose ? "field__note field__note--loose" : "field__note"}, text);
 }
 
 function text(value, onInput, placeholder) {
@@ -118,7 +122,13 @@ function renameEntity(design, entity, wanted) {
 function entityPanel(design, entity, actions) {
     const role = roleOf(entity);
     const panel = document.createDocumentFragment();
-    panel.append(tag("h2", {class: "inspector__title"}, entity.name || "this entity"));
+    // The name and the glyph the canvas draws this entity with, on one line, and under them
+    // what this kind of entity is for. It reads as the panel's own opening statement rather
+    // than as something quoted from elsewhere, which is what a rule down one side made of it.
+    const head = tag("div", {class: "inspector__head"});
+    head.append(glyphSvg(role));
+    head.append(tag("h2", {class: "inspector__title"}, entity.name || "this entity"));
+    panel.append(head);
     panel.append(tag("p", {class: "inspector__help"}, ROLE_HELP[role]));
 
     panel.append(field("Name", text(entity.name, (value) => {
@@ -177,6 +187,8 @@ function entityPanel(design, entity, actions) {
                           + "second tab continues the first."));
     }
 
+    panel.append(declaresPanel(entity, actions));
+
     const actionsRow = tag("div", {class: "inspector__actions"});
     const remove = tag("button", {type: "button", class: "button button--danger"},
                        "Delete entity");
@@ -184,6 +196,52 @@ function entityPanel(design, entity, actions) {
     actionsRow.append(remove);
     panel.append(actionsRow);
     return panel;
+}
+
+// What the entity's own file declares, and the way to add one without typing it.
+//
+// This is the same gesture as writing the line into the file in the Files pane, and it is
+// the pool every connect point this entity owns ticks its contract from: a member reaches a
+// consumer because somebody ticked it there, and it is offered there because it was declared
+// here. Reading is by the same parser the pane uses, so what is listed is exactly what the
+// file says and never a second record of it kept alongside.
+function declaresPanel(entity, actions) {
+    const box = tag("div", {class: "members"});
+    box.append(tag("h2", {class: "members__title"}, "What this entity declares"));
+    const found = declarations(entity.qml || "");
+    if (!found.length) {
+        box.append(note("Nothing yet. A property is state, a signal is something that "
+                        + "happened, and a function is something callers can ask for.", true));
+    }
+    const list = tag("div", {class: "declares"});
+    for (const member of found) {
+        list.append(tag("code", {class: "declares__line"}, declaredText(member)));
+    }
+    box.append(list);
+    for (const [label, member] of [
+        ["Add a property", {kind: "prop", name: "", type: "int"}],
+        ["Add a signal", {kind: "signal", name: "", params: []}],
+        ["Add a function", {kind: "slot", name: "", type: "", params: []}],
+    ]) {
+        box.append(adder(label, () => actions.declare(entity, member)));
+    }
+    box.append(note("Each one is written into this entity's own file, which is where a "
+                    + "connect point it owns finds it to put on a contract.", true));
+    return box;
+}
+
+// One declaration, as the QML it is. The panel shows the file's own words rather than a
+// prettier restatement of them, so what is listed can be found by searching the file.
+function declaredText(member) {
+    if (member.kind === "prop") {
+        return `property ${member.type || "var"} ${member.name}`;
+    }
+    const params = (member.params || [])
+        .map((param) => `${param.name}: ${param.type}`).join(", ");
+    if (member.kind === "signal") {
+        return `signal ${member.name}(${params})`;
+    }
+    return `function ${member.name}(${params})${member.type ? `: ${member.type}` : ""}`;
 }
 
 // The connect point panel
@@ -281,12 +339,12 @@ function memberPanel(link, member, index, actions) {
 
 function membersPanel(link, actions) {
     const box = tag("div", {class: "members"});
-    box.append(tag("h2", {}, "What crosses this link"));
+    box.append(tag("h2", {class: "members__title"}, "What crosses this link"));
     link.members = link.members || [];
     if (!link.members.length) {
         box.append(note("Nothing yet. A prop is owner state the consumer watches, a model "
                         + "is rows of it, a signal is one-way, and a slot is a call the "
-                        + "owner answers with a Caller in hand."));
+                        + "owner answers with a Caller in hand.", true));
     }
     link.members.forEach((member, index) => {
         box.append(memberPanel(link, member, index, actions));
@@ -297,7 +355,7 @@ function membersPanel(link, actions) {
     }));
     box.append(note("Typing a property, a signal or a function into the owner's Source in "
                     + "the Files pane adds it here too. A model is the one kind only this "
-                    + "panel can add: QML has no declaration form for one."));
+                    + "panel can add: QML has no declaration form for one.", true));
     return box;
 }
 
