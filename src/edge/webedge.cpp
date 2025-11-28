@@ -767,6 +767,16 @@ bool WebEdge::start()
         registerBundleRoutes();
     }
 
+    // Ending a session ends the connections it authorized. Both signals, because a session
+    // ends in two ways and only one of them is somebody pressing sign out: `sessionRemoved`
+    // is revocation (and the rotation that dropSession reads and ignores), `sessionExpired`
+    // is the TTL sweep. Wired here rather than beside the identity provider, because a
+    // project with no sign-in at all still revokes and still expires.
+    connect(m_sessionManager, &SessionManager::sessionRemoved, this,
+            [this](const QString &token) { dropSession(token.toLatin1()); });
+    connect(m_sessionManager, &SessionManager::sessionExpired, this,
+            [this](const QString &token) { dropSession(token.toLatin1()); });
+
     m_httpServer->addAfterRequestHandler(
         this, [this](const QHttpServerRequest &request, QHttpServerResponse &response) {
             stampResponse(request, response);
@@ -1143,6 +1153,33 @@ QObject *WebEdge::mirrorFor(const WebEdgeConnectPoint &connectPoint, Caller *cal
     return mirror;
 }
 
+void WebEdge::dropSession(const QByteArray &sessionId)
+{
+    if (sessionId.isEmpty()) {
+        return;
+    }
+    // A scope change is not the end of a session. `SessionManager::setScope` rotates the
+    // credential and reports the old id as removed, but the session it names is still there
+    // under a new id and the browser is still signed in. The manager remembers the hand-off
+    // for exactly that reason, so a rotation is read here rather than acted on. What is left
+    // is the three ways a session ends: signed out, revoked, expired.
+    if (!m_sessionManager->rotationOf(sessionId).isEmpty()) {
+        return;
+    }
+    // Taken first: closing a socket runs its disconnected handler, which comes back through
+    // releaseSessionSources and would otherwise be walking a container being iterated.
+    const QList<QWebSocket *> open{m_sessionSockets.values(sessionId)};
+    m_sessionSockets.remove(sessionId);
+    for (QWebSocket *socket : open) {
+        if (socket) {
+            // Going Away, the code a browser reads as "the server ended this on purpose",
+            // which is what the client's reconnect backoff is written against.
+            socket->close(QWebSocketProtocol::CloseCodeGoingAway,
+                          QStringLiteral("session ended"));
+        }
+    }
+}
+
 void WebEdge::releaseSessionSources(const QByteArray &sessionId)
 {
     const auto entry{m_sessionSources.find(sessionId)};
@@ -1192,12 +1229,16 @@ void WebEdge::hostConnection(QWebSocket *socket)
     if (!sessionId.isEmpty()) {
         ++m_sessionSources[sessionId].connections;
     }
+    if (!sessionId.isEmpty()) {
+        m_sessionSockets.insert(sessionId, socket);
+    }
     connect(socket, &QWebSocket::disconnected, this, [this, socket, ip, sessionId]() {
         --m_activeGlobal;
         if (--m_activePerIp[ip] <= 0) {
             m_activePerIp.remove(ip);
         }
         if (!sessionId.isEmpty()) {
+            m_sessionSockets.remove(sessionId, socket);
             releaseSessionSources(sessionId);
         }
         socket->deleteLater();  // deletes the per-connection node/sources/caller parented to it

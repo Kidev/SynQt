@@ -7,6 +7,7 @@
 #include "webedgeconfig.h"
 
 #include <QHash>
+#include <QMultiHash>
 #include <QObject>
 #include <QPointer>
 #include <QString>
@@ -138,6 +139,16 @@ private:
     /// Drop this connection's claim on its session's Sources, and destroy them when it was
     /// the last one. Called from the socket's disconnected handler.
     void releaseSessionSources(const QByteArray &sessionId);
+    /// Close every browser connection still open on `sessionId`, because that session has
+    /// ended: signed out, revoked, or run past its TTL.
+    ///
+    /// The connect points a connection hosts are chosen once, when it is accepted, from the
+    /// scope the session held then. Every property and model on them then replicates for as
+    /// long as the socket is open. Without this, signing out took the credential away and
+    /// left the data flowing: a tab that had acquired a scoped connect point went on
+    /// receiving everything the owner pushed to it, and only a *new* call was refused. What
+    /// ends a session has to end the connections it authorized.
+    void dropSession(const QByteArray &sessionId);
     /// Build each configured page's seed hook once and install the one provider that
     /// dispatches to them, on the shared PagesService.
     void buildPageSeedHooks();
@@ -218,6 +229,9 @@ private:
         QHash<QString, QObject *> byConnectPoint;
     };
     QHash<QByteArray, SessionSources> m_sessionSources;
+    /// The live browser connections of each session, so ending a session can close them.
+    /// A session may hold several (one per tab), and an anonymous connection holds none.
+    QMultiHash<QByteArray, QWebSocket *> m_sessionSockets;
 
     /// On a shared edge, the single Source per connect point that every session's mirror
     /// answers through, with the Caller its QML names alongside it (adopted per call into

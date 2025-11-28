@@ -268,6 +268,94 @@ private slots:
         QCOMPARE(replica->property("value").toInt(), 7);
     }
 
+    // Ending a session ends the connections it authorized.
+    //
+    // Which connect points a connection hosts is decided once, when it is accepted, from
+    // the scope that session held then. Every property and model on them then replicates
+    // for as long as the socket is open. So revoking a session (signing out) or letting it
+    // expire has to take the socket with it. It did not. The credential went away, a *new*
+    // slot call was refused because Caller re-reads the live session, and everything the
+    // owner pushed went on arriving in a tab that had signed out. Read access outliving the
+    // credential is the half of authorization nobody notices is missing.
+    void revokingASessionClosesTheConnectionsItAuthorized()
+    {
+        QQmlEngine engine;
+        WebEdge edge{makeConfig(false), &engine};
+        QVERIFY2(edge.start(), qPrintable(edge.errorString()));
+
+        QNetworkReply *reply{httpGet(edge.httpOrigin() + QStringLiteral("/"))};
+        QVERIFY(reply != nullptr);
+        const QByteArray cookie{sessionCookie(reply)};
+        reply->deleteLater();
+        const QByteArray token{cookie.mid(cookie.indexOf('=') + 1)};
+
+        QWebSocket socket;
+        socket.setSslConfiguration(insecureClientConfig());
+        WebSocketTransport transport{&socket};
+        QVERIFY(transport.open(QIODevice::ReadWrite));
+        QRemoteObjectNode node;
+        node.addClientSideConnection(&transport);
+        node.setHeartbeatInterval(300);
+
+        QNetworkRequest request{QUrl{edge.wssOrigin() + QStringLiteral("/sync")}};
+        request.setRawHeader("Origin", edge.httpOrigin().toUtf8());
+        request.setRawHeader("Cookie", cookie);
+        request.setSslConfiguration(insecureClientConfig());
+        socket.open(request);
+
+        QScopedPointer<QRemoteObjectDynamicReplica> replica{
+            node.acquireDynamic(QStringLiteral("greeting"))};
+        QVERIFY2(replica->waitForSource(5000), "the authorized upgrade never came up");
+
+        QSignalSpy closed{&socket, &QWebSocket::disconnected};
+        edge.sessionManager()->revoke(token);
+        QVERIFY2(closed.wait(5000),
+                 "the connection outlived the session that authorized it");
+        QVERIFY(!edge.sessionManager()->isLive(token));
+    }
+
+    // ...and a scope change is not that. `Caller.setScope` rotates the credential, which
+    // the manager reports as the old id being removed, but the visitor is still signed in
+    // and still connected: dropping them there would make raising somebody's scope hang up
+    // on them, from inside the very slot that raised it.
+    void rotatingASessionLeavesTheConnectionAlone()
+    {
+        QQmlEngine engine;
+        WebEdge edge{makeConfig(false), &engine};
+        QVERIFY2(edge.start(), qPrintable(edge.errorString()));
+
+        QNetworkReply *reply{httpGet(edge.httpOrigin() + QStringLiteral("/"))};
+        QVERIFY(reply != nullptr);
+        const QByteArray cookie{sessionCookie(reply)};
+        reply->deleteLater();
+        const QByteArray token{cookie.mid(cookie.indexOf('=') + 1)};
+
+        QWebSocket socket;
+        socket.setSslConfiguration(insecureClientConfig());
+        WebSocketTransport transport{&socket};
+        QVERIFY(transport.open(QIODevice::ReadWrite));
+        QRemoteObjectNode node;
+        node.addClientSideConnection(&transport);
+        node.setHeartbeatInterval(300);
+
+        QNetworkRequest request{QUrl{edge.wssOrigin() + QStringLiteral("/sync")}};
+        request.setRawHeader("Origin", edge.httpOrigin().toUtf8());
+        request.setRawHeader("Cookie", cookie);
+        request.setSslConfiguration(insecureClientConfig());
+        socket.open(request);
+
+        QScopedPointer<QRemoteObjectDynamicReplica> replica{
+            node.acquireDynamic(QStringLiteral("greeting"))};
+        QVERIFY2(replica->waitForSource(5000), "the authorized upgrade never came up");
+
+        QSignalSpy closed{&socket, &QWebSocket::disconnected};
+        const QByteArray rotated{edge.sessionManager()->setScope(token, QStringLiteral("user"))};
+        QVERIFY(!rotated.isEmpty());
+        QTest::qWait(500);
+        QCOMPARE(closed.count(), 0);
+        QVERIFY(socket.state() == QAbstractSocket::ConnectedState);
+    }
+
     // A page load is not a new visitor. The client route mints a session for a browser
     // that arrives without one, and leaves the one it arrives with alone: re-issuing on
     // every load would replace the credential the visitor signed in with (the OAuth

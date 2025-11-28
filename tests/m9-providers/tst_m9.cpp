@@ -956,6 +956,62 @@ private slots:
                  "a URL outside the allowlist must be refused before it is sent");
     }
 
+    // The allowlist is a place, not a string.
+    //
+    // It used to be `normalized.startsWith(endpoint.url)`, which is the obvious way to
+    // write it and lets three different URLs out of a declared prefix: userinfo
+    // (`https://api.example.com@evil.test/`, whose host is evil.test and whose *string*
+    // begins with the prefix), a suffix on the host (`api.example.com.evil.test`), and a
+    // suffix on the last path segment (`/v1evil` under `/v1`). Each one is worse than a
+    // request going somewhere unexpected. The endpoint's declared headers are attached to
+    // whatever gets through, so the API key the deployment kept out of the QML travels to
+    // the attacker's host with it.
+    void theOutboundAllowlistIsAPlaceAndNotAStringPrefix()
+    {
+        QJSEngine engine;
+        QNetworkAccessManager network;
+        Probe probe;
+        engine.globalObject().setProperty(QStringLiteral("probe"), engine.newQObject(&probe));
+
+        // Declared without a trailing slash, because that is the spelling every one of
+        // these escapes needs, and the one a person writes.
+        Http gateway{&network, &engine, /*release*/ false,
+                     {HttpEndpointConfig{{}, QStringLiteral("https://api.example.com/v1"),
+                                         {{QStringLiteral("Authorization"),
+                                           QStringLiteral("Bearer the-key")}}}}};
+
+        const QStringList escapes{
+            QStringLiteral("https://api.example.com@evil.test/v1/x"),
+            QStringLiteral("https://api.example.com.evil.test/v1/x"),
+            QStringLiteral("https://api.example.com:8443/v1/x"),
+            QStringLiteral("http://api.example.com/v1/x"),
+            QStringLiteral("https://api.example.com/v1evil"),
+            QStringLiteral("https://evil.test/https://api.example.com/v1"),
+        };
+        for (const QString &url : escapes) {
+            probe.last = QVariant{};
+            HttpPromise *refused{gateway.get(url)};
+            refused->then(QJSValue(),
+                          engine.evaluate(QStringLiteral("(function(m){ probe.record(m); })")));
+            QVERIFY2(probe.last.toString().contains(QStringLiteral("network.outbound")),
+                     qPrintable(QStringLiteral("the allowlist let %1 through").arg(url)));
+        }
+
+        // And the places it does name are still reachable, or the check above would
+        // be satisfied by refusing everything.
+        for (const QString &allowed : {QStringLiteral("https://api.example.com/v1"),
+                                       QStringLiteral("https://api.example.com/v1/things"),
+                                       QStringLiteral("https://api.example.com:443/v1/x"),
+                                       QStringLiteral("https://API.EXAMPLE.COM/v1/x")}) {
+            probe.last = QVariant{};
+            HttpPromise *sent{gateway.get(allowed)};
+            sent->then(QJSValue(),
+                       engine.evaluate(QStringLiteral("(function(m){ probe.record(m); })")));
+            QVERIFY2(!probe.last.toString().contains(QStringLiteral("network.outbound")),
+                     qPrintable(QStringLiteral("the allowlist refused %1").arg(allowed)));
+        }
+    }
+
     void aNamedEndpointResolvesPathsAndSendsItsDeclaredHeaders()
     {
         // The `network.outbound` preset: a base URL and the headers the runtime attaches.

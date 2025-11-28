@@ -221,15 +221,63 @@ QStringList Http::allowed() const
     return prefixes;
 }
 
+namespace {
+
+// Whether `url` is inside `prefix`, as an allowlist has to mean it. The same scheme, the
+// same host, the same port, and a path at or under the prefix's path.
+//
+// Not a string prefix. `startsWith` is the obvious way to write this and it is wrong in
+// three ways at once, each of which sends the endpoint's own credential headers to a host
+// the deployment never named:
+//
+//   https://api.example.com@evil.test/    -- userinfo: the host is evil.test, and the
+//                                            declared prefix is a prefix of the string
+//   https://api.example.com.evil.test/    -- a suffix on the host
+//   https://api.example.com/v1evil        -- a suffix on the last path segment
+//
+// So it is compared as a URL. Userinfo is refused outright rather than compared: nothing
+// this framework composes needs it, and it exists here only as the trick above.
+bool isUnder(const QUrl &url, const QUrl &prefix)
+{
+    if (!url.isValid() || !prefix.isValid() || url.host().isEmpty()) {
+        return false;
+    }
+    if (!url.userInfo().isEmpty()) {
+        return false;
+    }
+    if (url.scheme().compare(prefix.scheme(), Qt::CaseInsensitive) != 0
+        || url.host().compare(prefix.host(), Qt::CaseInsensitive) != 0) {
+        return false;
+    }
+    // Defaulted the same way on both sides, so `https://x` and `https://x:443` are one
+    // place and neither is a way past the other.
+    const int defaultPort{url.scheme() == QLatin1String("https") ? 443 : 80};
+    if (url.port(defaultPort) != prefix.port(defaultPort)) {
+        return false;
+    }
+    // Normalized, so `/v1/../../admin` and its percent-encoded twin collapse before they
+    // are compared. A prefix with no path allows the whole host.
+    const QString base{prefix.adjusted(QUrl::NormalizePathSegments).path()};
+    const QString path{url.adjusted(QUrl::NormalizePathSegments).path()};
+    if (base.isEmpty() || base == QLatin1String("/")) {
+        return true;
+    }
+    if (!path.startsWith(base)) {
+        return false;
+    }
+    // At a segment boundary. `/v1` covers `/v1` and `/v1/things`, and does not cover
+    // `/v1evil`. A prefix written with a trailing slash has already said where it ends.
+    return path.size() == base.size()
+           || base.endsWith(QLatin1Char('/'))
+           || path.at(base.size()) == QLatin1Char('/');
+}
+
+} // namespace
+
 const HttpEndpointConfig *Http::match(const QUrl &url) const
 {
-    // Compared on the normalized, fully-encoded URL, so a prefix cannot be escaped by
-    // spelling: `https://api.example.com/v1/../../admin` and its percent-encoded twin both
-    // collapse before they reach the comparison.
-    const QString normalized{
-        url.adjusted(QUrl::NormalizePathSegments).toString(QUrl::FullyEncoded)};
     for (const HttpEndpointConfig &endpoint : m_endpoints) {
-        if (normalized.startsWith(endpoint.url)) {
+        if (isUnder(url, QUrl{endpoint.url})) {
             return &endpoint;
         }
     }
