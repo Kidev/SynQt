@@ -48,12 +48,16 @@ set(SYNQT_SCRIPT_SUITES
     desktop-client   # builds the client QML as a native desktop app
 )
 
-# Suites that belong to another toolchain, and therefore to another workflow.
+# Suites that belong to another toolchain, and therefore to another workflow, and the two
+# directories under tests/ that are not suites at all.
 set(SYNQT_SUITES_ELSEWHERE
     m0-transport         # WASM client and a native edge, in a browser; browser-matrix.yml
     wasm-quick3dphysics  # WASM only; wasm-proofs.yml
     split-origin         # two sites in a real browser, no Qt at all; browser-matrix.yml
     designer             # the design editor in a browser, no Qt at all; tests.yml
+    lib                  # shared shell helpers the runners source; nothing to run
+    local-network        # machine plumbing for split-origin: it edits hosts and trusts a
+                         # development CA, so it is run by hand and never by CI
 )
 
 # A hand-maintained list cannot report what is missing from it, which is how remote-pages
@@ -61,10 +65,13 @@ set(SYNQT_SUITES_ELSEWHERE
 # instead: anything with a CMakeLists.txt or a runner has to appear in exactly one of the
 # three lists above, and configuring the tree is what enforces it, locally as well as in
 # CI. Deciding a suite is out is fine; leaving it undecided is not.
+# Any shell script, not only a `run-*.sh`: tests/local-network sat here for months with a
+# script named after itself, matching neither pattern, so the guard that exists to report
+# what nobody decided about had nothing to say about it.
 file(GLOB _synqt_suite_files
     RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}"
     "${CMAKE_CURRENT_SOURCE_DIR}/*/CMakeLists.txt"
-    "${CMAKE_CURRENT_SOURCE_DIR}/*/run-*.sh")
+    "${CMAKE_CURRENT_SOURCE_DIR}/*/*.sh")
 set(_synqt_unlisted "")
 foreach(_synqt_suite_file IN LISTS _synqt_suite_files)
     get_filename_component(_synqt_suite "${_synqt_suite_file}" DIRECTORY)
