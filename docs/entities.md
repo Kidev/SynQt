@@ -249,6 +249,14 @@ release build, and refuses any URL that is not under one of the prefixes
 `network.outbound` names. Gateway code never touches a socket and never reaches
 somewhere the topology did not list.
 
+Under is a place and not a string. A declared `https://api.example.com/v1` covers that
+scheme, that host, that port, and that path or a path below it, and it covers nothing
+else: not `https://api.example.com@evil.test/v1` (whose host is evil.test), not
+`api.example.com.evil.test`, not `http://` instead of `https://`, and not `/v1evil`. The
+distinction matters more than a request going somewhere unexpected, because the headers
+the entry declared travel with whatever gets through, so a prefix that could be escaped
+by spelling would be a way to post the API key to an attacker's host.
+
 A named `network.outbound` entry is also a preset: `Http.api("github").get("user/repos")`
 resolves the base URL the entry declared and sends the headers it declared with it. That
 is how an upstream that wants an API key is reached without the key appearing in the

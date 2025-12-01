@@ -92,6 +92,17 @@ a socket exists. The verifier, in order, rejecting on first failure:
    here, before any object exists.
 4. Rate and resource checks. Per IP and global connection caps.
 
+Ending a session ends its connections. Which connect points a connection hosts is
+decided once, at the upgrade, from the scope the session held then; every property and
+model on those points then replicates for as long as the socket is open. So signing out,
+revoking a session, or letting it run past its TTL closes every browser connection open
+on it, and the client reconnects as whoever it is now. Without that, taking the
+credential away would leave the data flowing: a new call would be refused, because
+`Caller` re-reads the live session on every one, while everything the owner pushed went
+on arriving in a tab that had signed out. A scope change is not the end of a session:
+`Caller.setScope` rotates the credential and the visitor stays connected, which is why
+raising somebody's scope does not hang up on them from inside the slot that raised it.
+
 Rejecting at upgrade, before a socket and before any QtRO state, keeps
 unauthenticated load off the object plane and closes the window where an attacker
 opens many sockets that consume resources before being rejected.
