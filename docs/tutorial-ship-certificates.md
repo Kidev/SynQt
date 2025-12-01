@@ -40,8 +40,8 @@ synqt mesh status
 
 ```text
 ca                valid until 2029-09-05  (1128 days)
-database.crt      valid until 2027-09-05  (398 days)
-web.crt           valid until 2027-09-05  (398 days)
+books.crt         valid until 2027-09-05  (398 days)
+edge.crt          valid until 2027-09-05  (398 days)
 ```
 
 Each entity certificate carries the entity name as its subject. That is the whole
@@ -76,8 +76,8 @@ What each host gets is the small half:
 |------|-----------|---------------|--------------|-----|
 | `synqt/mesh/ca.crt` | yes | yes | yes | no |
 | `synqt/mesh/ca.key` | **no** | **no** | yes | **no** |
-| `synqt/mesh/web.crt` and `.key` | yes | no | yes | no |
-| `synqt/mesh/database.crt` and `.key` | no | yes | yes | no |
+| `synqt/mesh/edge.crt` and `.key` | yes | no | yes | no |
+| `synqt/mesh/books.crt` and `.key` | no | yes | yes | no |
 
 A database host has no reason to hold the edge's key, and giving it one for convenience
 means a compromise of the database is a compromise of the edge.
@@ -170,14 +170,14 @@ it now, before it happens to you at three in the morning. Move the database cert
 aside and try to start.
 
 ```cli
-mv synqt/mesh/database.crt /tmp/
+mv synqt/mesh/books.crt /tmp/
 synqt serve --profile production
 ```
 
 ```text
-error: entity "database" is configured for transport: mtls but has no certificate
-       at synqt/mesh/database.crt
-       issue one with: synqt mesh cert database
+error: entity "books" is configured for transport: mtls but has no certificate
+       at synqt/mesh/books.crt
+       issue one with: synqt mesh cert books
 ```
 
 Put it back. That message is the whole of the design in one line: the failure names the
@@ -219,7 +219,7 @@ full comparison.
   for twice that. `synqt mesh status` warns 30 days out, but only if somebody runs it. A
   reminder that fires a month before the first expiry costs nothing and saves an outage
   that will look, from the logs, like a networking fault.
-- **Rotating an entity is easy. Do it that way.** `synqt mesh rotate database` issues a
+- **Rotating an entity is easy. Do it that way.** `synqt mesh rotate books` issues a
   new leaf from the same authority; copy the new pair to that host and restart that one
   entity. Its peers verify against the CA certificate, which did not change, so nothing
   else needs to know.

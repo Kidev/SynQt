@@ -40,16 +40,16 @@ With the symlink layout, a deploy is four commands and a rollback is two.
 rsync -a gavel-v1.0.0/ /srv/gavel-v1.0.0/
 cp -a /srv/gavel/synqt/mesh /srv/gavel/*/.env /srv/gavel-v1.0.0/...   # the material that stays
 ln -sfn /srv/gavel-v1.0.0 /srv/gavel
-sudo systemctl restart gavel-database   # owners first, per process-manifest.json
-sudo systemctl restart gavel-web
+sudo systemctl restart gavel-books      # owners first, per process-manifest.json
+sudo systemctl restart gavel-edge
 ```
 
-The certificates and the env files stay with the host, not with the release. They are not
+The certificates and the env files stay with the host rather than with the release. They are not
 build output and they are not in the artifact, which is exactly the arrangement
 [Two authorities](tutorial-ship-certificates.md) set up.
 
 Restart in `start_order`. A consumer retries, so the reverse order is survivable rather
-than correct; doing it right means a restart nobody has to watch.
+than correct. Doing it right means a restart nobody has to watch.
 
 > [!TIP]
 > A rollback is `ln -sfn /srv/gavel-v0.9.0 /srv/gavel` and the same two restarts. Practise
@@ -175,29 +175,29 @@ certificate and that did not change:
 ```cli
 # on the machine that holds ca.key, not on a host
 synqt mesh status
-synqt mesh rotate database
+synqt mesh rotate books
 ```
 
-then copy the new `database.crt` and `database.key` to the database host and restart that
+then copy the new `books.crt` and `books.key` to the database host and restart that
 entity. The edge notices nothing beyond a reconnect.
 
-Rotating the **authority** is the one to schedule. Every entity trusts exactly one CA
-certificate, so there is no overlap to hide behind: a new authority means new leaves
+Rotating the authority is the one to schedule. Every entity trusts exactly one CA
+certificate, so there is no overlap to hide behind. A new authority means new leaves
 everywhere and a coordinated restart. Put it in the calendar next to the CA's own expiry,
 which is twice the leaf lifetime away.
 
 ## What you learned
 
-- A deployment adds exactly four things to what `synqt dev` gave you: real certificates,
+- A deployment adds exactly four things to what `synqt dev` gave you, real certificates,
   real secrets, real TLS to the browser, and something that keeps the processes running.
   Everything else is arrangement.
 - The pipeline's job is to refuse. `synqt check --release` asks the production question
-  against the profile you will actually deploy, and it asks it before anything compiles.
+  against the profile you will deploy, and it asks it before anything compiles.
 - A SynQt deployment is a project directory. Every path an entity reads is relative to it,
   which is what lets you look at a host and see the whole system.
 - The CA private key is not a deployment input. It never reaches a host that runs an
   entity and never reaches CI, because whoever holds it can be any entity in your system.
-- `build/process-manifest.json` is the start plan: owners before consumers, exactly one
+- `build/process-manifest.json` is the start plan, owners before consumers, exactly one
   public bind, and the material each entity expects.
 - Build once and deploy that artifact. Keep the previous release on disk, and make the
   rollback a symlink you have moved before.

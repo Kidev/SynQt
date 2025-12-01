@@ -69,7 +69,7 @@ print("  appgen wrote:", ", ".join(written))
 PY
 
 echo "== [2/6] Configure + build every entity with the native host kit =="
-cmake -S "$SRC/generated" -B "$SRC/build" -G Ninja \
+cmake -S "$SRC" -B "$SRC/build" -G Ninja \
     -DCMAKE_PREFIX_PATH="$QT_HOST" \
     -DSYNQT_ROOT="$REPO_ROOT" \
     -DCMAKE_BUILD_TYPE=Release
@@ -107,7 +107,7 @@ config = yaml.safe_load((app / "synqt.yaml").read_text())
 print("  appgen wrote:", ", ".join(appgen.generate(app, config, synqt_root=repo)))
 PY
 
-cmake -S "$ROUTED/generated" -B "$ROUTED/build" -G Ninja \
+cmake -S "$ROUTED" -B "$ROUTED/build" -G Ninja \
     -DCMAKE_PREFIX_PATH="$QT_HOST" \
     -DSYNQT_ROOT="$REPO_ROOT" \
     -DCMAKE_BUILD_TYPE=Release
@@ -182,7 +182,7 @@ PY
 
 # Out of tree, because topologywriter owns build/<entity>/ for the resolved topology and the
 # generated CMake puts each executable at the top of its own binary directory.
-cmake -S "$PROMOTED/generated" -B "$PROMOTED/out" -G Ninja \
+cmake -S "$PROMOTED" -B "$PROMOTED/out" -G Ninja \
     -DCMAKE_PREFIX_PATH="$QT_HOST" \
     -DSYNQT_ROOT="$REPO_ROOT" \
     -DCMAKE_BUILD_TYPE=Release
@@ -344,7 +344,7 @@ print("  appgen wrote:", ", ".join(appgen.generate(app, config, synqt_root=repo)
 print("  topology:", ", ".join(topologywriter.write(app, config)))
 PY
 
-cmake -S "$GATEWAY/generated" -B "$GATEWAY/out" -G Ninja \
+cmake -S "$GATEWAY" -B "$GATEWAY/out" -G Ninja \
     -DCMAKE_PREFIX_PATH="$QT_HOST" \
     -DSYNQT_ROOT="$REPO_ROOT" \
     -DCMAKE_BUILD_TYPE=Release

@@ -39,14 +39,18 @@ walkthrough in [getting started](https://synqt.org/getting-started/).
 
 A project is a set of entities. Two are always there, and you add the rest:
 
+Every entity has a folder of its own, inside the folder entities of its type share, so
+everything one entity is made of is in one place and two databases never write over
+each other.
+
 ```
 your-app/
-  synqt.yaml          # project, topology, and security configuration
-  synqt.yaml          # the topology, and what may cross each link between entities
-  client/             # the browser UI (WebAssembly), and the desktop app
-  web/                # the web edge (serves the client, faces the internet)
-  database/           # a persistence entity (official blueprint, embeds SQLite)
-  cache/              # an in memory cache entity (official blueprint)
+  synqt.yaml            # the topology, the security policy, and what crosses each link
+  CMakeLists.txt        # four lines, and hands the build to what synqt writes in generated/
+  client/app/           # the browser UI (WebAssembly), and the desktop app
+  web/edge/             # the web edge (serves the client, faces the internet)
+  db/relational/store/  # a persistence entity (embeds SQLite, or masks another engine)
+  cache/hot/            # an in memory cache entity
 ```
 
 Entities never write network code. They share connect points: named live objects
@@ -67,7 +71,7 @@ connect_points:
 Property changes and signals flow from the owner to the consumers; calls flow the
 other way, where the owner decides whether to honor them. The browser reaches the
 edge's connect points through `Server`, one entity reaches another's by that
-entity's name (`Database.users.find(id)`), and inside a connect point's own
+entity's name (`Store.users.find(id)`), and inside a connect point's own
 function `Caller` says who is asking, so the owner can authorize every request.
 
 Not every visitor's browser gives Qt a WebGL context. It can be disabled by policy or

@@ -163,18 +163,18 @@ orchestrator's secret mechanism covers the rest.
   "processes": [
     {
       "entity": "store",
-      "binary": "build/database/database",
+      "binary": "build/store/store",
       "bind": "loopback",
-      "mesh_cert": "synqt/mesh/database.crt",
-      "mesh_key": "synqt/mesh/database.key",
+      "mesh_cert": "synqt/mesh/store.crt",
+      "mesh_key": "synqt/mesh/store.key",
       "ca_cert": "synqt/mesh/ca.crt"
     },
     {
       "entity": "edge",
-      "binary": "build/web/web",
+      "binary": "build/edge/edge",
       "bind": "public",
-      "mesh_cert": "synqt/mesh/web.crt",
-      "mesh_key": "synqt/mesh/web.key",
+      "mesh_cert": "synqt/mesh/edge.crt",
+      "mesh_key": "synqt/mesh/edge.key",
       "ca_cert": "synqt/mesh/ca.crt"
     }
   ],

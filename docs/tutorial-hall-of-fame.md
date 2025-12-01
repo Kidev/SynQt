@@ -13,7 +13,7 @@ its own process, and it owns the durable data.
 ## Step 1: Add a database entity
 
 ```cli
-synqt add entity database --type relational
+synqt add entity books --type relational
 ```
 
 This scaffolds a `db/relational/books/` entity backed by an embedded engine (SQLite), with no

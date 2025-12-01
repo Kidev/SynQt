@@ -116,7 +116,7 @@ ls build
 ```
 
 ```text
-client/  database/  process-manifest.json  web/
+client/  books/  edge/  process-manifest.json
 ```
 
 ## Step 4: Write the workflow

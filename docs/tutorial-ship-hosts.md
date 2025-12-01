@@ -11,7 +11,7 @@ Every entity resolves its runtime files relative to the directory it was started
 exactly as they are spelled in `synqt.yaml`. Its topology under `build/<entity>/`, its
 certificate under `synqt/mesh/`, its secrets in its own `.env`, its schema and its data
 in its own folder, and, for the edge, the client bundle under `build/client/`. Copy
-`build/web/web` somewhere on its own and it starts, looks for all of that, and finds
+`build/edge/edge` somewhere on its own and it starts, looks for all of that, and finds
 none of it.
 
 Once that clicks, the rest of this page is bookkeeping.
@@ -30,16 +30,16 @@ The edge host:
   certs/edge/privkey.pem
   synqt/mesh/
     ca.crt
-    web.crt
-    web.key
+    edge.crt
+    edge.key
   build/
     web/              # the edge binary and its topology.json
     client/           # the bundle it serves
-  web/
+  web/edge/
     .env              # the OAuth client secret
 ```
 
-The database host:
+The books host:
 
 ```text
 /srv/gavel/
@@ -47,11 +47,11 @@ The database host:
   synqt.production.yaml
   synqt/mesh/
     ca.crt
-    database.crt
-    database.key
+    books.crt
+    books.key
   build/
-    database/         # the binary and its topology.json
-  database/
+    books/            # the binary and its topology.json
+  db/relational/books/
     .env
     schema.sql
     data/             # the SQLite file lives here
@@ -96,22 +96,22 @@ input your process manager wants:
 
 ```json
 {
-  "start_order": ["database", "web"],
+  "start_order": ["books", "edge"],
   "processes": [
     {
-      "entity": "database",
-      "binary": "build/database/database",
+      "entity": "books",
+      "binary": "build/books/books",
       "bind": "loopback",
-      "mesh_cert": "synqt/mesh/database.crt",
-      "mesh_key": "synqt/mesh/database.key",
+      "mesh_cert": "synqt/mesh/books.crt",
+      "mesh_key": "synqt/mesh/books.key",
       "ca_cert": "synqt/mesh/ca.crt"
     },
     {
-      "entity": "web",
-      "binary": "build/web/web",
+      "entity": "edge",
+      "binary": "build/edge/edge",
       "bind": "public",
-      "mesh_cert": "synqt/mesh/web.crt",
-      "mesh_key": "synqt/mesh/web.key",
+      "mesh_cert": "synqt/mesh/edge.crt",
+      "mesh_key": "synqt/mesh/edge.key",
       "ca_cert": "synqt/mesh/ca.crt"
     }
   ],
@@ -159,11 +159,11 @@ at all"; use a process manager for anything that has to stay up.
 
 ## Step 5: Keep it alive
 
-One unit per entity. On the database host, `/etc/systemd/system/gavel-database.service`:
+One unit per entity. On the database host, `/etc/systemd/system/gavel-books.service`:
 
 ```ini
 [Unit]
-Description=gavel database entity
+Description=gavel books entity
 After=network-online.target
 Wants=network-online.target
 
@@ -174,29 +174,29 @@ Group=gavel
 # The whole of the deployment shape in one line: every path the entity reads is
 # relative to the project root, so this is not a detail.
 WorkingDirectory=/srv/gavel
-ExecStart=/srv/gavel/build/database/database
+ExecStart=/srv/gavel/build/books/books
 Restart=on-failure
 RestartSec=2
 
-# The entity reads database/.env itself, so systemd does not need to know the secrets.
+# The entity reads db/relational/books/.env itself, so systemd does not need to know the secrets.
 # What it can do is make sure nothing else on the box can read them.
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/srv/gavel/database/data
+ReadWritePaths=/srv/gavel/db/relational/books/data
 
 [Install]
 WantedBy=multi-user.target
 ```
 
-On the edge host, `/etc/systemd/system/gavel-web.service`, the same shape with three
+On the edge host, `/etc/systemd/system/gavel-edge.service`, the same shape with three
 differences:
 
 ```ini
 [Unit]
 Description=gavel web edge
-After=network-online.target gavel-database.service
+After=network-online.target gavel-books.service
 Wants=network-online.target
 
 [Service]
@@ -204,7 +204,7 @@ Type=simple
 User=gavel
 Group=gavel
 WorkingDirectory=/srv/gavel
-ExecStart=/srv/gavel/build/web/web
+ExecStart=/srv/gavel/build/edge/edge
 Restart=on-failure
 RestartSec=2
 
@@ -225,8 +225,8 @@ manifest describes. The edge would retry anyway, but a boot where the link is up
 immediately is a boot you can read.
 
 ```cli
-sudo systemctl enable --now gavel-database
-sudo systemctl enable --now gavel-web
+sudo systemctl enable --now gavel-books
+sudo systemctl enable --now gavel-edge
 ```
 
 ## Step 6: Close the doors
@@ -245,7 +245,7 @@ The topology says the database is private. The network should agree.
 
 > [!QUESTION]
 > A colleague wants to run the edge from `/usr/local/bin`, the way a normal daemon
-> works. They copy `build/web/web` there, write a unit with no `WorkingDirectory`, and
+> works. They copy `build/edge/edge` there, write a unit with no `WorkingDirectory`, and
 > start it. It fails. Before reading on: what does it fail to find first, and why is
 > that the right failure?
 
