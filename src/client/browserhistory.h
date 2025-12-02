@@ -10,17 +10,14 @@
 
 namespace SynQt {
 
-/// The browser's session history, and the one place in the client that knows
-/// the browser has one.
-///
-/// Qt has no history API, so the WebAssembly build reaches the History API
-/// through Emscripten while a desktop build keeps an equivalent stack in
-/// memory. Both live here so Router needs no platform branch: back() works
-/// in a native app for the same reason it works in a tab.
-///
-/// Paths crossing this class are application paths (always rooted at "/").
-/// The base prefix an app is served under is applied on the way out and
-/// stripped on the way in.
+/// Leave the app for `url`, as a real navigation and not a route change, as signing in and
+/// out do. A desktop build hands the URL to the system browser (RFC 8252) and returns false.
+bool leaveForUrl(const QString &url);
+
+/// The browser's session history. The WebAssembly build uses the History API through
+/// Emscripten; a desktop build keeps an equivalent stack in memory, so Router needs no
+/// platform branch. Paths here are application paths; the base prefix is applied on the way
+/// out and stripped on the way in.
 class BrowserHistory : public QObject
 {
     Q_OBJECT

@@ -111,13 +111,18 @@ mapping hook receives, see [authentication](authentication.md#the-identity-objec
 never holds the client secret (see [pitfall: OAuth cannot run in the
 browser](authentication.md)). `provider` is optional; pass it when more than one
 identity provider is configured, otherwise the default (or only) provider is used.
-In the browser this navigates to the edge's `login` route; on a
-[native desktop client](desktop.md#signing-in) it opens the system browser and
-receives the session back over a loopback redirect.
+In the browser this navigates to the edge's `login` route. On a
+[native desktop client](desktop.md#signing-in) it is not wired up yet and logs a
+warning; the browser is where signing in works today.
 
 `Session.logout()` calls the edge's `logout` route, which clears the session
 server-side and expires the credential. The session returns to `scopes.default`
-(anonymous), and any Replica above the new scope is released.
+(anonymous), and any Replica above the new scope is released: the edge closes the
+connections that session authorized as it revokes it, and the client reconnects as an
+anonymous visitor. In the browser this is a navigation, because the cookie is not the
+app's to clear; a native client holds its own credential and ends the session without
+leaving the window. A project that configures no `identity` has no route for either
+action, and calling one says so rather than requesting a URL the edge does not serve.
 
 !!! note "Client-side scope checks are UX only"
     Hiding a button with `Session.hasScope(...)` is a convenience, never the

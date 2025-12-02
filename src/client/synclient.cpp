@@ -3,6 +3,7 @@
 
 #include "synclient.h"
 
+#include "browserhistory.h"
 #include "clientupdate.h"
 #include "consumerbase.h"
 #include "deletesoon.h"
@@ -21,11 +22,15 @@
 #include <QQmlEngine>
 #include <QRemoteObjectNode>
 #include <QTimer>
+#include <QUrl>
+#include <QUrlQuery>
 #include <QVariantMap>
 #include <QWebSocket>
 
 #ifndef Q_OS_WASM
 #  include <QNetworkAccessManager>
+#  include <QNetworkCookie>
+#  include <QNetworkCookieJar>
 #  include <QNetworkReply>
 #  include <QNetworkRequest>
 #  include <QSslCertificate>
@@ -91,6 +96,29 @@ namespace {
 // The native client verifies the edge's certificate: VerifyPeer against the OS trust
 // store (and the hostname), plus any pinned/self-hosted certificate from config. It
 // never disables verification.
+/// The session this client is holding for `origin`, in the form the handshake wants
+/// ("name=value; name=value"), read out of the network manager's own cookie jar.
+///
+/// The jar rather than the reply's Set-Cookie header. Two ordinary things break a read of
+/// the header. The edge withholds Set-Cookie from a request that
+/// already presents a live session, and a redirect is followed by default, so the response
+/// that carries the cookie is not the response this code sees. Either way the header is
+/// empty, the credential is overwritten with nothing, and the wss handshake is refused
+/// for having no session while the jar holds a good one. The jar is where the answer is,
+/// and reading it is also exactly what a browser does.
+QByteArray heldCredential(QNetworkAccessManager *network, const QUrl &origin)
+{
+    if (!network || !network->cookieJar()) {
+        return QByteArray{};
+    }
+    QList<QByteArray> pairs;
+    const QList<QNetworkCookie> held{network->cookieJar()->cookiesForUrl(origin)};
+    for (const QNetworkCookie &cookie : held) {
+        pairs.append(cookie.name() + '=' + cookie.value());
+    }
+    return pairs.join("; ");
+}
+
 QSslConfiguration nativeTlsConfiguration(const SynClientConfig &config)
 {
     QSslConfiguration tls{QSslConfiguration::defaultConfiguration()};
@@ -121,7 +149,15 @@ SynClient::SynClient(SynClientConfig config, QQmlEngine *engine, QObject *parent
     // may have restarted); on WASM start() just reconnects (the browser holds the cookie).
     connect(m_reconnectTimer, &QTimer::timeout, this, [this]() { start(); });
 
-    // An empty palette means the app uses no remote pages; give it no loader, so
+    // The two actions Session offers QML. Session reports them and this answers them,
+    // because ending a session is a thing done to the edge over the network and Session
+    // holds no network. Nothing was connected to either for a long time, so
+    // `Session.logout()` reset the client's own idea of who it was and left the session
+    // and its cookie alive at the edge. The next page load signed the visitor back in.
+    connect(m_session, &Session::loginRequested, this, &SynClient::beginLogin);
+    connect(m_session, &Session::logoutRequested, this, &SynClient::endSession);
+
+    // An empty palette means the app uses no remote pages. Give it no loader, so
     // resolveRemote() falls through to Error rather than silently going Loading forever.
     if (!m_config.remotePalette.isEmpty()) {
         m_pageLoader = new RemotePageLoader{engine, QmlPalette{m_config.remotePalette}, this};
@@ -168,6 +204,60 @@ QByteArray SynClient::edgeHttpOrigin() const
     return origin.toString(QUrl::RemovePath).toUtf8();
 }
 
+void SynClient::beginLogin(const QString &provider)
+{
+    if (m_config.loginRoute.isEmpty()) {
+        qWarning("SynQt: Session.login() was called and this project configures no "
+                 "identity, so there is no login route to go to. Add an identity: block "
+                 "with a provider (synqt add auth <provider>).");
+        return;
+    }
+    QUrl target{QString::fromUtf8(edgeHttpOrigin()) + m_config.loginRoute};
+    if (!provider.isEmpty()) {
+        QUrlQuery query;
+        query.addQueryItem(QStringLiteral("provider"), provider);
+        target.setQuery(query);
+    }
+    leaveForUrl(target.toString());
+}
+
+void SynClient::endSession()
+{
+    if (m_config.logoutRoute.isEmpty()) {
+        qWarning("SynQt: Session.logout() was called and this project configures no "
+                 "identity, so there is no logout route to go to.");
+        return;
+    }
+    const QString target{QString::fromUtf8(edgeHttpOrigin()) + m_config.logoutRoute};
+#ifdef Q_OS_WASM
+    // The cookie is the browser's, and only the route that expires it can take it away.
+    leaveForUrl(target);
+#else
+    // The native client is holding the credential, so it presents it once, to be told to
+    // stop holding it. The reconnect below is what makes the rest of the client agree:
+    // the edge closes this session's connections as it revokes it, and start() comes back
+    // with no cookie and therefore as a fresh anonymous visitor.
+    if (!m_network) {
+        m_network = new QNetworkAccessManager{this};
+    }
+    QNetworkRequest request{QUrl{target}};
+    request.setSslConfiguration(nativeTlsConfiguration(m_config));
+    if (!m_sessionCookie.isEmpty()) {
+        request.setRawHeader("Cookie", m_sessionCookie);
+    }
+    QNetworkReply *reply{m_network->get(request)};
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        deleteSoon(reply);
+        // Dropped whatever the edge answered: a logout that the edge refused is still a
+        // logout as far as this client is concerned, and going on holding a credential
+        // the visitor asked to be rid of is the one outcome that would be wrong.
+        m_sessionCookie.clear();
+        m_config.sessionCookie.clear();
+        start();
+    });
+#endif
+}
+
 void SynClient::start()
 {
 #ifdef Q_OS_WASM
@@ -194,8 +284,8 @@ void SynClient::start()
     QNetworkRequest request{httpUrl};
     request.setSslConfiguration(nativeTlsConfiguration(m_config));
     QNetworkReply *reply{m_network->get(request)};
-    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
-        m_sessionCookie = reply->rawHeader("Set-Cookie").split(';').value(0).trimmed();
+    connect(reply, &QNetworkReply::finished, this, [this, reply, httpUrl]() {
+        m_sessionCookie = heldCredential(m_network, httpUrl);
         deleteSoon(reply);
         connectToEdge();
     });

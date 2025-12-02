@@ -66,6 +66,16 @@ private slots:
 
 private:
     void connectToEdge();
+    /// Leave for the edge's login route, so the visitor comes back signed in.
+    void beginLogin(const QString &provider);
+    /// End the session at the edge, not only in this client.
+    ///
+    /// The two targets end it differently because they hold the credential differently. A
+    /// browser holds it in a cookie nothing in this process can clear, so the only way to
+    /// be rid of it is to visit the route that expires it. The app is torn down and comes
+    /// back anonymous. A native client holds the cookie itself, so it calls the same route
+    /// over HTTP, drops what it was holding, and reconnects as nobody.
+    void endSession();
     void teardown();
     void scheduleReconnect();
     void setState(const QString &state);

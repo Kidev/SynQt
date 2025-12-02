@@ -590,6 +590,21 @@ def render_client_main(config: Dict[str, Any], uri: str) -> str:
     notice_line = (f'\n    config.graphicsNoticeUrl = '
                    f'QStringLiteral("{_component_url(notice, uri)}");' if notice else "")
 
+    # The two edge routes `Session.login()` and `Session.logout()` go to, emitted only for a
+    # project that configures identity. Left out, both are empty and the client says so
+    # rather than sending a visitor to a route the edge does not serve. They come from the
+    # same `identity:` block the edge is generated from (render_edge_main), so the client
+    # cannot be pointed at a route the edge answers under another name.
+    identity = appmodel.identity_settings(config)
+    auth_lines = ""
+    if identity:
+        for key, field, fallback in (("login", "loginRoute", "/auth/login"),
+                                     ("logout", "logoutRoute", "/auth/logout")):
+            route = identity.get(key)
+            route = route.strip() if isinstance(route, str) and route.strip() else fallback
+            auth_lines += (f'\n    config.{field} = '
+                           f'QStringLiteral("{cxx_string_literal(route)}");')
+
     body = f"""{_HEADER_CPP}
 // The {name} entry point, built for the browser (WASM) and as a native desktop app from
 // the same QML. The framework exposes Server/Session/Router/App to QML and opens the wss
@@ -673,7 +688,7 @@ int main(int argc, char *argv[])
     config.scopesHierarchical = {"true" if appmodel.scopes_hierarchical(config) else "false"};
     config.routerFallback = QStringLiteral("{cxx_string_literal(router_fallback)}");
     config.routerBase = QStringLiteral("{cxx_string_literal(router_base)}");
-    config.routes = {{{route_list}}};{palette_line}{notice_line}
+    config.routes = {{{route_list}}};{palette_line}{notice_line}{auth_lines}
 
     // The engine comes first: the Router builds each route's page component
     // with it.

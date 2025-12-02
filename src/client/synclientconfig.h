@@ -77,6 +77,13 @@ struct SynClientConfig
     /// uses no remote pages, and one arriving anyway is refused.
     QStringList remotePalette;
 
+    /// The edge routes `Session.login()` and `Session.logout()` reach, as the project's
+    /// `identity:` block declared them. Both empty when the project configures no sign-in,
+    /// which is what makes calling either one a warning rather than a request to a route
+    /// the edge does not serve.
+    QString loginRoute;
+    QString logoutRoute;
+
     /// Scope vocabulary (for Session.hasScope).
     QStringList scopeOrder{QStringLiteral("anonymous")};
     bool scopesHierarchical{true};

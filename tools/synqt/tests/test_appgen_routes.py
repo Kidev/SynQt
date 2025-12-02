@@ -268,3 +268,41 @@ def test_framework_root_rejects_a_root_without_sources(tmp_path, monkeypatch):
     monkeypatch.setenv("SYNQT_ROOT", str(tmp_path))
     with pytest.raises(appmodel.AppGenError):
         appmodel.framework_root()
+
+
+# The two edge routes the client's sign-in actions reach
+
+
+def test_the_client_is_given_the_login_and_logout_routes():
+    # Session.login() and Session.logout() are answered by SynClient, which needs to know
+    # where to go. Without these two lines the actions had nowhere to reach, and logout in
+    # particular reset the client's own idea of who it was while the session stayed alive
+    # at the edge with its cookie still in the browser.
+    config = {
+        "name": "shop",
+        "identity": {"providers": [{"name": "github"}]},
+    }
+    source = maingen.render_client_main(config, uri="Shop")
+    assert 'config.loginRoute = QStringLiteral("/auth/login");' in source
+    assert 'config.logoutRoute = QStringLiteral("/auth/logout");' in source
+
+
+def test_the_client_follows_the_routes_the_project_declared():
+    # The same block the edge is generated from, so the two cannot disagree about where a
+    # project's login lives.
+    config = {
+        "name": "shop",
+        "identity": {"providers": [{"name": "github"}],
+                     "login": "/enter", "logout": "/leave"},
+    }
+    source = maingen.render_client_main(config, uri="Shop")
+    assert 'config.loginRoute = QStringLiteral("/enter");' in source
+    assert 'config.logoutRoute = QStringLiteral("/leave");' in source
+
+
+def test_a_project_with_no_identity_gets_no_routes():
+    # Both stay empty, which is what makes calling either action a warning rather than a
+    # request to a route this edge does not serve.
+    source = maingen.render_client_main({"name": "shop"}, uri="Shop")
+    assert "loginRoute" not in source
+    assert "logoutRoute" not in source

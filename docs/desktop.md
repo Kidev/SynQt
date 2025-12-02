@@ -63,6 +63,17 @@ should be able to retarget.
 
 ### Signing in
 
+!!! warning "Not implemented yet"
+    The desktop half of this is the design, not the state of the code. `Session.login()`
+    on a native build logs a warning and does nothing: nothing here listens on the
+    loopback URL step 3 describes, so opening a browser at the login route would send
+    somebody to a sign-in whose answer this process cannot receive. Signing in works in
+    the browser today; a desktop build that has a session by some other means can present
+    it through `SynClientConfig::sessionCookie`, which steps 4 onward already honour.
+    `Session.logout()` **does** work on both:
+    the native client calls the edge's logout route with the credential it holds, drops
+    it, and reconnects as an anonymous visitor.
+
 OAuth still runs entirely on the edge, and the desktop client never holds the client
 secret, exactly as in the browser. What differs is only how the finished session
 gets back to the app:
@@ -87,8 +98,10 @@ gets back to the app:
    gives the edge no way to select the subprotocol it would have to echo; see
    [`session_transport`](project-layout-and-config.md#security-browser-hardening-and-connection-gating) for the measurement.
 
-`Session.logout()` clears the stored token and calls the edge logout route, exactly
-as in the browser.
+`Session.logout()` calls the edge logout route with the credential this client holds,
+drops it, and reconnects as an anonymous visitor. Unlike the browser, which has to
+navigate to that route because the cookie is not the app's to clear, the native client
+owns its credential and can end the session without leaving the window.
 
 ### Storing the session
 

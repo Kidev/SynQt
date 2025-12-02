@@ -3,6 +3,7 @@
 
 #include "browserhistory.h"
 
+#include <QLoggingCategory>
 #include <QPointer>
 
 #include <utility>
@@ -77,6 +78,29 @@ EM_JS(void, synqt_install_popstate_listener, (), {
 });
 
 #endif // Q_OS_WASM
+
+bool leaveForUrl(const QString &url)
+{
+    if (url.isEmpty()) {
+        return false;
+    }
+#ifdef Q_OS_WASM
+    // assign(), not href=: both navigate, and assign is the one that says so. The app is
+    // torn down by the browser and rebuilt when the edge redirects back, which is the
+    // whole point of a sign-in leaving the page rather than fetching in the background.
+    emscripten::val::global("location").call<void>("assign", url.toStdString());
+    return true;
+#else
+    // A desktop build has nowhere to navigate to, and it does not open the system browser
+    // either: the OAuth flow for a native app returns over a loopback redirect this client
+    // does not listen on yet (docs/desktop.md, "Signing in"). Sending somebody to a sign-in
+    // whose answer nothing here can receive is worse than saying so.
+    qWarning("SynQt: %s is a browser navigation, and this is a native build. The desktop "
+             "sign-in flow is not wired up yet; see https://synqt.org/desktop/.",
+             qUtf8Printable(url));
+    return false;
+#endif
+}
 
 BrowserHistory::BrowserHistory(QString basePath, QObject *parent)
     : QObject{parent}

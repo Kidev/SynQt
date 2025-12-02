@@ -1,11 +1,13 @@
 // SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 // SPDX-License-Identifier: Apache-2.0
 
-// M6 acceptance (the functional core, natively; which is also the desktop runtime):
+// M6 acceptance (the functional core, natively, which is also the desktop runtime):
 // the counter runs against a real web edge, two clients stay in sync, connection state
-// transitions are observable, a forced disconnect triggers reconnection, and a route
-// above the session scope redirects to the fallback.
+// transitions are observable, a forced disconnect triggers reconnection, a route above
+// the session scope redirects to the fallback, and signing out ends the session at the
+// edge rather than only in the client.
 
+#include "sessionmanager.h"
 #include "webedge.h"
 #include "webedgeconfig.h"
 
@@ -20,6 +22,7 @@
 #include <QQmlEngine>
 #include <qqml.h>
 #include <QRemoteObjectDynamicReplica>
+#include <QRegularExpression>
 #include <QRemoteObjectReplica>
 #include <QSignalSpy>
 #include <QSslSocket>
@@ -178,6 +181,72 @@ private slots:
         QObject *replica{counterReplica(&client)};
         QVERIFY(replica != nullptr);
         QTRY_COMPARE(replica->property("value").toInt(), 0);  // fresh edge state, re-acquired
+    }
+
+    // Signing out has to reach the edge.
+    //
+    // `Session.logout()` reports the request and SynClient answers it. For a long time
+    // nothing answered it at all, so logout reset the client's own idea of who it was and
+    // left the session alive at the edge with its cookie still in the browser. The next
+    // page load signed the visitor straight back in, and both the runtime API page and the
+    // authentication page said it "clears the session server-side". What is asserted here
+    // is the server side of it. The token the client was using is gone from the edge's
+    // session manager afterwards, and the client is back, connected, as somebody else.
+    void logoutEndsTheSessionAtTheEdgeAndNotOnlyInTheClient()
+    {
+        QQmlEngine engine;
+        WebEdgeConfig config{edgeConfig(0)};
+        // A logout route for it to go to. The provider list stays empty, because
+        // signing in is tests/m8-auth's subject, and what is under test here is that
+        // signing out leaves this process at all.
+        config.identity.enabled = true;
+        WebEdge edge{config, &engine};
+        QVERIFY2(edge.start(), qPrintable(edge.errorString()));
+
+        SynClientConfig clientSettings{clientConfig(edge.serverPort())};
+        clientSettings.logoutRoute = QStringLiteral("/auth/logout");
+        SynClient client{clientSettings, &engine};
+        client.start();
+        QTRY_COMPARE_WITH_TIMEOUT(client.session()->state(), QStringLiteral("connected"),
+                                  8000);
+
+        // The one session there is. The one this client bootstrapped over GET / and then
+        // presented on the handshake. Held by value, because the client is about to be
+        // given a different one and the snapshot would then name that.
+        // `=`, not braces: brace-initializing a QList from one QList wraps it in a
+        // one-element list of lists instead of copying it.
+        const QVariantList before = edge.sessionManager()->snapshot();
+        QCOMPARE(before.size(), 1);
+        const QByteArray token{before.first().toMap()
+                                   .value(QStringLiteral("token")).toString().toLatin1()};
+        QVERIFY(edge.sessionManager()->isLive(token));
+
+        client.session()->logout();
+
+        QTRY_VERIFY2_WITH_TIMEOUT(!edge.sessionManager()->isLive(token),
+                                  "the session outlived the logout that ended it", 8000);
+        // And the client is usable again, as a visitor the edge has never met.
+        QTRY_COMPARE_WITH_TIMEOUT(client.session()->state(), QStringLiteral("connected"),
+                                  8000);
+        QVERIFY(!edge.sessionManager()->snapshot().isEmpty());
+        QCOMPARE(edge.sessionManager()->snapshot().first().toMap()
+                     .value(QStringLiteral("token")).toString().toLatin1() == token, false);
+    }
+
+    // A project that configures no sign-in has no route for either action to reach, and
+    // says so rather than sending a visitor to a URL the edge answers with a 404.
+    void loginAndLogoutSaySoWhenThereIsNoIdentity()
+    {
+        QQmlEngine engine;
+        SynClient client{clientConfig(1), &engine};
+        QTest::ignoreMessage(QtWarningMsg,
+                             QRegularExpression{QStringLiteral("no identity")});
+        client.session()->login();
+        QTest::ignoreMessage(QtWarningMsg,
+                             QRegularExpression{QStringLiteral("no identity")});
+        client.session()->logout();
+        // Local state still moves. The client is anonymous from its own point of view.
+        QCOMPARE(client.session()->scope().toString(), QStringLiteral("anonymous"));
     }
 
     void routeGuardRedirectsAboveScope()

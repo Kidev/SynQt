@@ -211,7 +211,9 @@ and the two customizations either side of it.
   anonymous, so `Session.isAuthenticated` goes false and every scope-gated Replica
   is released, which is the signal an app routes back to login on.
 - Logout. `Session.logout()` calls the edge logout route, which clears the session
-  server side and expires the cookie.
+  server side and expires the cookie. The edge closes the browser connections that
+  session authorized as it revokes it, so nothing goes on being pushed to a tab that
+  signed out, and the client comes back as an anonymous visitor.
 
 ## Where identity runs: at the edge, or as its own entity
 
