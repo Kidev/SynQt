@@ -57,6 +57,12 @@ def render_project_cmakelists(config: Dict[str, Any]) -> str:
         "",
         "cmake_minimum_required(VERSION 3.21)",
         "",
+        "# Here rather than in the generated file below it: CMake asks for a literal,",
+        "# direct project() in the top-level file and warns when it finds one only inside",
+        "# an include. It is also the one line here worth editing, if this build ever grows",
+        "# a language beyond C++.",
+        f"project({name} LANGUAGES CXX)",
+        "",
         'include("${CMAKE_CURRENT_LIST_DIR}/generated/synqt.cmake")',
     ]) + "\n"
 
@@ -86,7 +92,8 @@ def render_root_cmakelists(config: Dict[str, Any], synqt_root: os.PathLike[str] 
                         "# sources it names are one directory up, in the entity folders,",
                         "# where their authors wrote them.",
                         "",
-                        f"project({name} LANGUAGES CXX)", "",
+                        '# project() is in the root CMakeLists.txt that includes this,',
+                        '# because CMake wants that call literal and in the top-level file.',
                         'set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")', "",
                         "# Where this file is (<project>/generated) and the project root",
                         "# above it. Taken from CMAKE_CURRENT_LIST_DIR rather than from the",
