@@ -612,6 +612,13 @@ Authorization and data:
 - For any entity backed by an external engine through a provider: the engine is on
   a private address, the connection is TLS with verification, credentials are
   `env:` on that entity only, and no consumer can reach the engine directly.
+- Every `network.outbound` entry names the narrowest place that works, host and path
+  and all, because the headers on that entry travel with every call under it. The
+  runtime compares scheme, host, port and path segments rather than the text of the
+  URL, so a prefix cannot be escaped by spelling; a prefix that is wider than it needs
+  to be is still a wider place for those headers to reach.
+- Signing out is a server side end to a session, and it takes the browser's live
+  connections with it. Nothing on the client is trusted to stop reading.
 
 System wide:
 
