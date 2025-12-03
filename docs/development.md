@@ -234,6 +234,17 @@ to two different sites. `local-network.sh up` puts it in place and `down` takes 
 [`tests/lib`](https://github.com/Kidev/SynQt/tree/main/tests/lib) is likewise shared shell
 helpers rather than a suite.
 
+[`tests/security`](https://github.com/Kidev/SynQt/tree/main/tests/security) is a list rather
+than a suite. `attacks.json` names every attack SynQt claims to defend and, for each one, the
+test that proves it still fails. Those tests live beside the code they are about, because
+that is where somebody changing that code will run them. The list is the half they cannot
+give on their own, which is a reader seeing the whole attack surface at once. An entry naming
+a test that no longer exists fails
+[`test_security_index.py`](https://github.com/Kidev/SynQt/blob/main/tools/synqt/tests/test_security_index.py)
+in the ordinary pytest job, so the list cannot quietly become a set of claims nothing backs.
+A defect found by review or by report gets a test that fails without the fix, and an entry
+here.
+
 To run everything, point `QT_HOST` at your Qt 6.11.1 host kit and run the tree:
 
 ```sh

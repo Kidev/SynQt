@@ -1,0 +1,208 @@
+{
+  "_about": [
+    "Every attack SynQt claims to defend, and the test that proves it still fails.",
+    "",
+    "This is an index, not a suite. Each of these tests lives beside the code it is about,",
+    "because that is where somebody changing that code will run it; what this file adds is",
+    "the other half, which no scattered set of tests can give on its own: a list of the",
+    "attack surface that can be read in one sitting, and a guard that fails when an entry",
+    "names a test that is no longer there. tools/synqt/tests/test_security_index.py is that",
+    "guard, and it runs in the ordinary pytest job on all three platforms.",
+    "",
+    "The rule for adding one: a defect found by review or by report gets a test that fails",
+    "without the fix, and an entry here. Proving the test catches the bug is done by reverting",
+    "the fix and watching it go red; the entry is what stops that proof from being a thing",
+    "somebody did once."
+  ],
+  "attacks": [
+    {
+      "id": "cross-site-websocket-hijack",
+      "what": "A page on another origin opens a WebSocket to the edge, and the browser attaches the victim's session cookie to it.",
+      "defended_by": "The upgrade verifier compares Origin against security.allowed_origins before a socket exists. A browser cannot forge Origin.",
+      "file": "tests/m5-webedge/tst_m5.cpp",
+      "test": "disallowedOriginRejectedBeforeSocket"
+    },
+    {
+      "id": "forged-session-at-upgrade",
+      "what": "A hand-written client presents a session cookie it made up, or none at all.",
+      "defended_by": "The verifier looks the credential up in the session manager and denies 401 before a socket exists.",
+      "file": "tests/m7-caller/tst_m7.cpp",
+      "test": "forgedSessionRefusedAtUpgrade"
+    },
+    {
+      "id": "read-access-outlives-the-credential",
+      "what": "A visitor signs out, and the tab that was open keeps receiving everything the owner pushes to the connect points that session had acquired.",
+      "defended_by": "Ending a session closes the connections it authorized. Which points a connection hosts is decided once, at the upgrade, so revoking the credential has to take the socket with it.",
+      "file": "tests/m5-webedge/tst_m5.cpp",
+      "test": "revokingASessionClosesTheConnectionsItAuthorized"
+    },
+    {
+      "id": "sign-out-that-signs-nobody-out",
+      "what": "Session.logout() resets the client and leaves the session alive at the edge, so the next page load signs the visitor straight back in.",
+      "defended_by": "SynClient answers the request by reaching the edge's logout route; the session is gone from the edge afterwards.",
+      "file": "tests/m6-client/tst_m6.cpp",
+      "test": "logoutEndsTheSessionAtTheEdgeAndNotOnlyInTheClient"
+    },
+    {
+      "id": "anonymous-where-identity-is-required",
+      "what": "A caller with no identity connects to an edge whose project requires one.",
+      "defended_by": "The verifier refuses it at the upgrade, before any object exists.",
+      "file": "tests/m5-webedge/tst_m5.cpp",
+      "test": "anonymousUpgradeRefusedWhenIdentityIsRequired"
+    },
+    {
+      "id": "under-scoped-caller",
+      "what": "A signed-in user calls a slot their scope does not permit, or asks for another user's rows.",
+      "defended_by": "The owner authorizes Caller inside every privileged slot; a consumer-side check is never the boundary.",
+      "file": "tests/m7-caller/tst_m7.cpp",
+      "test": "userAuthorizationMatrix"
+    },
+    {
+      "id": "rogue-entity-no-certificate",
+      "what": "A process on the network dials a mesh listener with no client certificate.",
+      "defended_by": "Both ends verify the peer against the project CA; the handshake fails before any connection exists.",
+      "file": "tests/m3-mesh/tst_m3.cpp",
+      "test": "missingCertificateRejected"
+    },
+    {
+      "id": "rogue-entity-foreign-certificate",
+      "what": "The same, with a certificate from some other authority.",
+      "defended_by": "The CA is the project's own and is the only one either end trusts.",
+      "file": "tests/m3-mesh/tst_m3.cpp",
+      "test": "foreignCertificateRejected"
+    },
+    {
+      "id": "entity-not-on-the-consumer-list",
+      "what": "An entity holding a valid project certificate acquires a connect point it was never listed as a consumer of.",
+      "defended_by": "Deny by default: the owner refuses a connection from an entity the point does not name, certificate or no certificate.",
+      "file": "tests/m7-caller/tst_m7.cpp",
+      "test": "unlistedEntityRefusedAtHandshake"
+    },
+    {
+      "id": "browser-reaching-past-the-edge",
+      "what": "Anything but the web edge calls the database's connect point.",
+      "defended_by": "The database authorizes the calling entity by its verified certificate subject inside the slot.",
+      "file": "tests/m7-caller/tst_m7.cpp",
+      "test": "databaseRefusesNonEdgeEntity"
+    },
+    {
+      "id": "consumer-writes-the-owners-model",
+      "what": "A consumer calls setData on a replicated model and the owner's rows change under it.",
+      "defended_by": "SynQt::SourceModel refuses a write that arrived from a replica; a consumer that wants owner state changed calls a slot.",
+      "file": "tests/m1-contract/tst_modelwrite.cpp",
+      "test": "consumerCannotWriteTheModel"
+    },
+    {
+      "id": "undeclared-field-crosses-the-wire",
+      "what": "A row carries a field the contract never declared (an owner id, an email) and it reaches the browser.",
+      "defended_by": "The boundary keeps the declared roles and drops the rest, where the rows are published.",
+      "file": "tests/m1-contract/tst_modelwrite.cpp",
+      "test": "anUndeclaredFieldIsStillDropped"
+    },
+    {
+      "id": "oversized-value-past-a-declared-width",
+      "what": "A value longer than the contract's declared width is published or passed, and the receiver stores whatever arrives.",
+      "defended_by": "A declared width is a rule the owner keeps at the boundary: the publish is refused whole rather than truncated into something that looks right.",
+      "file": "tests/m1-contract/tst_modelwrite.cpp",
+      "test": "aRoleOverItsBoundRefusesThePublish"
+    },
+    {
+      "id": "signal-argument-past-a-declared-width",
+      "what": "The same, on the way out, where nothing on the receiving side would ever see the original.",
+      "defended_by": "The signal is not raised at all.",
+      "file": "tests/m1-contract/tst_modelwrite.cpp",
+      "test": "aSignalArgumentOverItsBoundIsNeverRaised"
+    },
+    {
+      "id": "sql-injection-through-a-parameter",
+      "what": "A caller-supplied value carries SQL and the statement runs it.",
+      "defended_by": "Every value is bound, never concatenated; the payload is stored and read back as the text it is.",
+      "file": "tests/m9-providers/tst_m9.cpp",
+      "test": "parameterizedValuesAreInjectionInert"
+    },
+    {
+      "id": "outbound-allowlist-escaped-by-spelling",
+      "what": "A URL that is not the declared place but begins with its text (userinfo, a host suffix, a path suffix) is called, and the endpoint's declared headers, which is where the API key lives, go with it.",
+      "defended_by": "The allowlist compares scheme, host, port and path segments, and refuses userinfo outright.",
+      "file": "tests/m9-providers/tst_m9.cpp",
+      "test": "theOutboundAllowlistIsAPlaceAndNotAStringPrefix"
+    },
+    {
+      "id": "plaintext-to-an-external-engine",
+      "what": "A release build reaches a database or an upstream API over an unverified plaintext connection.",
+      "defended_by": "Refused in release, on both the provider and the outbound HTTP path.",
+      "file": "tests/m9-providers/tst_m9.cpp",
+      "test": "postgresRefusesPlaintextInRelease"
+    },
+    {
+      "id": "login-csrf",
+      "what": "An attacker hands a victim a valid state and their own authorization code, so the victim ends up signed in as the attacker.",
+      "defended_by": "The callback must carry the state cookie the login set in that same browser, compared in constant time.",
+      "file": "tests/m8-auth/tst_m8.cpp",
+      "test": "loginCsrfRejected"
+    },
+    {
+      "id": "replayed-or-invented-oauth-state",
+      "what": "A callback arrives with a state this edge never issued, or one it has already consumed.",
+      "defended_by": "Only a pending state this edge is still holding is accepted, and taking it consumes it.",
+      "file": "tests/m8-auth/tst_m8.cpp",
+      "test": "unknownStateRejected"
+    },
+    {
+      "id": "id-token-from-the-wrong-issuer",
+      "what": "A token signed by somebody else, or for somebody else, is presented as proof of identity.",
+      "defended_by": "The ID token's signature is verified against the provider's JWKS and its claims against the provider that was asked.",
+      "file": "tests/m8-auth/tst_m8.cpp",
+      "test": "oidcWrongIssuerRejected"
+    },
+    {
+      "id": "dev-stub-identity-in-a-real-build",
+      "what": "The development identity stub, which signs anybody in as anybody, ships.",
+      "defended_by": "It refuses to run unless a gate is set explicitly.",
+      "file": "tests/m8-auth/tst_m8.cpp",
+      "test": "devStubRefusedWithoutGate"
+    },
+    {
+      "id": "unkeyed-caller-on-an-inbound-api",
+      "what": "A caller reaches an entity's inbound API surface with no key, or with the wrong one.",
+      "defended_by": "The key is compared in constant time before the handler runs at all.",
+      "file": "tests/api-inbound/tst_apiinbound.cpp",
+      "test": "noKeyAndAWrongKeyAreBothRefusedBeforeTheHandler"
+    },
+    {
+      "id": "oversized-frame",
+      "what": "A peer sends a frame large enough to be worth buffering, repeatedly.",
+      "defended_by": "The frame cap rejects before buffering, and the read-buffer cap closes a connection whose peer outruns the reader.",
+      "file": "tests/m5-webedge/tst_m5.cpp",
+      "test": "oversizedFrameRejected"
+    },
+    {
+      "id": "connection-flood",
+      "what": "One address opens connections until the edge runs out of something.",
+      "defended_by": "Per-IP and global caps, applied inside the verifier.",
+      "file": "tests/m5-webedge/tst_m5.cpp",
+      "test": "connectionCapRefusesTheOneOverTheLimit"
+    },
+    {
+      "id": "half-open-handshake",
+      "what": "A peer connects and never finishes the upgrade, holding a socket for free.",
+      "defended_by": "A timer per pending upgrade closes it at security.handshake_timeout_ms.",
+      "file": "tests/m5-webedge/tst_m5.cpp",
+      "test": "stalledUpgradeClosed"
+    },
+    {
+      "id": "design-editor-without-the-token",
+      "what": "Anything on the machine reaches the local design server's API and writes to the project.",
+      "defended_by": "Every /api request carries a token minted for that run, compared in constant time.",
+      "file": "tools/synqt/tests/test_design_server.py",
+      "test": "test_no_token_is_refused"
+    },
+    {
+      "id": "design-editor-dns-rebinding",
+      "what": "A page the visitor is looking at resolves a name to 127.0.0.1 and drives the local design server as its own origin.",
+      "defended_by": "The Host header has to be this server, and a request that says where it came from has to say this editor.",
+      "file": "tools/synqt/tests/test_design_server.py",
+      "test": "test_a_host_header_that_is_not_this_server_is_refused"
+    }
+  ]
+}
