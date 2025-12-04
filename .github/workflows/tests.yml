@@ -2,8 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # Run the deterministic checks (the synqt CLI, the synqtc contract generator, the docs' Pygments
-# lexers, the committed benchmark baselines, the docs' mermaid diagrams, and the design editor's
-# rules) on every push and pull request. The suites are pure Python and run across the
+# lexers, the committed benchmark baselines, the docs' mermaid diagrams, the design editor's
+# rules, and the attack index) on every push and pull request. The attack index is
+# tests/security/attacks.json: every attack SynQt claims to defend and the test that proves it
+# still fails, checked here because an entry naming a test that no longer exists is a claim
+# nothing backs, and nothing else would notice. The suites are pure Python and run across the
 # three desktop operating systems SynQt supports as native targets (Linux, macOS, Windows; see
 # docs/desktop.md): they drive the generators and CLI and assert on the emitted CMake, presets,
 # topology, and config, so they need no Qt build or display and run identically on all three
