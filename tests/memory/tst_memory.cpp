@@ -430,6 +430,114 @@ private slots:
                  "every session was revoked, so the table has to be empty");
     }
 
+    // Signing out costs the edge nothing that closing the tab does not.
+    //
+    // The two halves of ending a session meet here: the store lets go of the record, and
+    // the edge closes the connections that record authorized. The second half keeps a map
+    // of live sockets per session, and a map an edge writes to once per connection is
+    // exactly the shape of thing that grows for a month and is noticed by nobody.
+    //
+    // Measured as a difference rather than against a fixed bound, and that is deliberate.
+    // A visitor who is new each time costs this edge about 3 KB that the run does not get
+    // back, whether or not anything is ever revoked; it reproduces with the client closing
+    // the socket and no session ending at all, so it is a separate question from this one
+    // and a fixed bound here would be a test that fails for somebody else's reason. What
+    // this asks is the question the sign-out path owns: given the same visitor arriving and
+    // connecting, does ending the session at the edge leave more behind than the visitor
+    // simply going away? It must not, and if the map or the Sources or the Callers it
+    // carries were ever left in place, it would.
+    void signingOutLeavesNoMoreBehindThanClosingTheTab()
+    {
+        QQmlEngine engine;
+        // No time to live, for the reason theSessionStoreLetsGoOfWhatItRevokes gives: with
+        // one, the store keeps a reclaim hint per session created inside the window, on
+        // purpose, and its size is bounded by the creation rate rather than by anything
+        // this cycle does. What is measured here is what ending a session releases.
+        WebEdgeConfig config{edgeConfig()};
+        config.sessionTtlMinutes = 0;
+        WebEdge edge{config, &engine};
+        QVERIFY2(edge.start(), qPrintable(edge.errorString()));
+
+        const QString syncUrl{edge.wssOrigin() + QStringLiteral("/sync")};
+        const QString origin{edge.httpOrigin()};
+        const QString landingUrl{edge.httpOrigin() + QStringLiteral("/")};
+        // `endAtTheEdge` picks which of the two endings the cycle performs. Everything
+        // before it is the same visit either way, so the difference between the two runs is
+        // the sign-out path and nothing else.
+        const auto oneVisit{[this, &edge, &syncUrl, &origin, &landingUrl](bool endAtTheEdge) {
+            // A session of its own each time. This is a visitor arriving, being served,
+            // and being signed out, which is the cycle a long-running edge repeats.
+            QNetworkReply *landing{httpGet(landingUrl)};
+            if (!landing) {
+                return false;
+            }
+            const QByteArray cookie{
+                landing->rawHeader("Set-Cookie").split(';').value(0).trimmed()};
+            landing->deleteLater();
+            if (cookie.isEmpty()) {
+                return false;
+            }
+            const QByteArray token{cookie.mid(cookie.indexOf('=') + 1)};
+
+            QWebSocket socket;
+            socket.setSslConfiguration(insecureClientConfig());
+            WebSocketTransport transport{&socket};
+            if (!transport.open(QIODevice::ReadWrite)) {
+                return false;
+            }
+            QRemoteObjectNode node;
+            node.addClientSideConnection(&transport);
+
+            QNetworkRequest request{QUrl{syncUrl}};
+            request.setRawHeader("Origin", origin.toUtf8());
+            request.setRawHeader("Cookie", cookie);
+            request.setSslConfiguration(insecureClientConfig());
+            socket.open(request);
+
+            std::unique_ptr<QRemoteObjectDynamicReplica> replica{
+                node.acquireDynamic(QStringLiteral("probe"))};
+            if (!replica->waitForSource(5000)) {
+                return false;
+            }
+            // The edge ends it, and the socket goes with it. Waited for rather than
+            // slept past. The close travels back over the wire, and a fixed pause is a
+            // flake on a loaded runner.
+            // Waited for rather than slept past. The close travels back over the wire,
+            // and a fixed pause is a flake on a loaded runner.
+            QSignalSpy closed{&socket, &QWebSocket::disconnected};
+            if (endAtTheEdge) {
+                edge.sessionManager()->revoke(token);
+            } else {
+                socket.close();
+            }
+            if (!closed.wait(5000)) {
+                return false;
+            }
+            QTest::qWait(20);  // let the edge finish releasing what the socket carried
+            return true;
+        }};
+
+        const Growth leaving{measure(3, 30, [&oneVisit]() { return oneVisit(false); })};
+        QVERIFY2(leaving.completed, "a visitor could not complete a visit");
+        // What the table holds going in. The visitors above left without signing out, so
+        // their sessions are still there, as intended. Every visit below has to end with one
+        // fewer than it added.
+        const qsizetype held{edge.sessionManager()->snapshot().size()};
+        const Growth signingOut{measure(3, 30, [&oneVisit]() { return oneVisit(true); })};
+        QVERIFY2(signingOut.completed, "a session did not survive being signed out of");
+        QVERIFY2(edge.sessionManager()->snapshot().size() == held,
+                 "signing out has to leave the session table where it found it");
+
+        // One cycle's worth of slack, so the comparison is about a retained object per
+        // sign-out and not about the allocator handing back a slightly different heap.
+        const qint64 allowed{leaving.perCycle() + AllowedBytesPerCycle};
+        QVERIFY2(signingOut.perCycle() <= allowed,
+                 qPrintable(QStringLiteral("signing out keeps %1 bytes per visit and simply "
+                                           "leaving keeps %2; the difference is what the "
+                                           "sign-out path did not release")
+                                .arg(signingOut.perCycle()).arg(leaving.perCycle())));
+    }
+
     // A mesh link is kept up, which means a consumer builds a new node, transport and
     // Replica every time an owner restarts. Restarting a service is an ordinary operation,
     // so the old ones have to go: this is the same reconnect m4 proves correct, asked the
