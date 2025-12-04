@@ -108,7 +108,7 @@ def test_an_accessor_named_in_prose_or_in_a_string_is_left_alone():
     assert kinds['"Server"'] is String.Double
 
 
-# --- The contract lexer, and the configuration that carries a contract ----------------
+# The contract lexer, and the configuration that carries a contract
 
 from pygments.token import Keyword, Number, Punctuation  # noqa: E402
 from synqt_pygments.lexers import SynLexer, SynqtYamlLexer  # noqa: E402
