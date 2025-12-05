@@ -383,17 +383,38 @@ try:
         print("%d %s" % (reply.status, reply.read().decode().strip()))
 except urllib.error.HTTPError as error:
     print("%d %s" % (error.code, error.read().decode().strip()))
-except Exception:
-    print("")
+except Exception as error:
+    # Named, not swallowed. "<no answer>" reads the same whether the port refused the
+    # connection or the entity accepted it and never replied, and those are different
+    # bugs. The first says the listener is not up yet, the second says it is up and
+    # stuck. A Windows run spent forty seconds on the first while looking like the second.
+    print("- %s: %s" % (type(error).__name__, error))
 PY
 }
 
-gateway_health=""
-for _ in $(seq 1 30); do
-    gateway_health="$(gateway_call /health appgen-native-key)"
-    case "$gateway_health" in 200*) break ;; esac
+# Wait for the entity to say it is listening before asking it anything. The entity's own
+# file runs before the listener starts (routes have to exist before a caller can arrive),
+# so anything that file does slowly is time the port is closed, and a probe loop alone
+# cannot tell that from a gateway that is broken.
+gateway_up=0
+for _ in $(seq 1 60); do
+    if grep -q "gw API on port" "$WORK/gateway-gw.log" 2>/dev/null; then
+        gateway_up=1
+        break
+    fi
+    if ! kill -0 "$gw_pid" 2>/dev/null; then
+        break
+    fi
     sleep 1
 done
+if [ "$gateway_up" -ne 1 ]; then
+    echo "  the gateway never reported a listening API surface"
+    sed 's/^/  /' "$WORK/gateway-gw.log"
+    echo "APPGEN-NATIVE GATE: NO-GO"
+    exit 1
+fi
+
+gateway_health="$(gateway_call /health appgen-native-key)"
 echo "  GET /health with a key    -> ${gateway_health:-<no answer>}"
 gateway_nokey="$(gateway_call /health)"
 echo "  GET /health with no key   -> ${gateway_nokey:-<no answer>}"

@@ -5,6 +5,7 @@
 
 #include "connectpointhost.h"
 #include "meshclient.h"
+#include "proxypolicy.h"
 
 #include "consumerbase.h"
 #include "consumerfactory.h"
@@ -149,6 +150,7 @@ bool EntityRuntime::buildTypeContext()
     // is opened onto named places rather than onto the internet.
     if (m_topology.outboundDeclared) {
         m_network = new QNetworkAccessManager{this};
+        applyEnvironmentProxy(m_network);
         const bool release{m_topology.provider.value(QStringLiteral("release"), true).toBool()};
         // A declared header may be an `env:` reference, and this is where it stops being
         // one: read from this process's environment, held in the helper, and attached to

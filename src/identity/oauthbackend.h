@@ -112,6 +112,7 @@ private:
                                   QOAuth2AuthorizationCodeFlow *flow,
                                   const QString &expectedNonce, QString *error);
     QByteArray httpGet(const QUrl &url, const QString &bearer, QString *error);
+    QNetworkAccessManager *network();
     bool refreshOne(const QString &key);
     void expirePending();
 

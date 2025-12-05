@@ -6,6 +6,8 @@
 #include "edgereplyhandler.h"
 #include "jwksverifier.h"
 
+#include "proxypolicy.h"
+
 #include <QAbstractOAuth>
 #include <QDateTime>
 #include <QEventLoop>
@@ -64,6 +66,18 @@ OAuthBackend::OAuthBackend(IdentityConfig config, QObject *parent)
 
 OAuthBackend::~OAuthBackend() = default;
 
+QNetworkAccessManager *OAuthBackend::network()
+{
+    // One manager for every call this backend makes, created on the first of them and
+    // given the egress route a server takes. What its own environment names, never the
+    // machine's browser settings (see SynQt::applyEnvironmentProxy).
+    if (!m_network) {
+        m_network = new QNetworkAccessManager{this};
+        applyEnvironmentProxy(m_network);
+    }
+    return m_network;
+}
+
 bool OAuthBackend::providerExists(const QString &name) const
 {
     return m_config.provider(name) != nullptr;
@@ -78,11 +92,8 @@ bool OAuthBackend::isDevStub(const QString &name) const
 QOAuth2AuthorizationCodeFlow *OAuthBackend::makeFlow(const IdentityProviderConfig &provider,
                                                     const QString &redirectUri)
 {
-    if (!m_network) {
-        m_network = new QNetworkAccessManager{this};
-    }
     QOAuth2AuthorizationCodeFlow *flow{new QOAuth2AuthorizationCodeFlow{
-        provider.clientId, provider.authorizeUrl, provider.tokenUrl, m_network, this}};
+        provider.clientId, provider.authorizeUrl, provider.tokenUrl, network(), this}};
     // The client secret is held here and sent only in the server-side token exchange.
     flow->setClientIdentifierSharedKey(provider.clientSecret);
     flow->setPkceMethod(QOAuth2AuthorizationCodeFlow::PkceMethod::S256);
@@ -320,9 +331,6 @@ bool OAuthBackend::refreshOne(const QString &key)
     if (!provider) {
         return false;
     }
-    if (!m_network) {
-        m_network = new QNetworkAccessManager{this};
-    }
 
     // RFC 6749 section 6: exchange the refresh token for a fresh access token, server-side. The
     // client secret stays here; the browser is never involved.
@@ -342,7 +350,7 @@ bool OAuthBackend::refreshOne(const QString &key)
                       QByteArrayLiteral("application/x-www-form-urlencoded"));
     request.setRawHeader(QByteArrayLiteral("Accept"), QByteArrayLiteral("application/json"));
     QNetworkReply *reply{
-        m_network->post(request, body.toString(QUrl::FullyEncoded).toUtf8())};
+        network()->post(request, body.toString(QUrl::FullyEncoded).toUtf8())};
 
     QEventLoop loop;
     connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
@@ -384,13 +392,10 @@ bool OAuthBackend::refreshOne(const QString &key)
 
 QByteArray OAuthBackend::httpGet(const QUrl &url, const QString &bearer, QString *error)
 {
-    if (!m_network) {
-        m_network = new QNetworkAccessManager{this};
-    }
     QNetworkRequest request{url};
     request.setRawHeader(QByteArrayLiteral("Authorization"), "Bearer " + bearer.toUtf8());
     request.setRawHeader(QByteArrayLiteral("Accept"), QByteArrayLiteral("application/json"));
-    QNetworkReply *reply{m_network->get(request)};
+    QNetworkReply *reply{network()->get(request)};
 
     QEventLoop loop;
     connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
@@ -417,10 +422,7 @@ QVariantMap OAuthBackend::normalizeIdentity(const IdentityProviderConfig &provid
         // OpenID Connect: identity from the ID token, whose signature is verified against
         // the provider JWKS before any claim is trusted.
         if (!m_jwks) {
-            if (!m_network) {
-                m_network = new QNetworkAccessManager{this};
-            }
-            m_jwks = new JwksVerifier{m_network, this};
+            m_jwks = new JwksVerifier{network(), this};
         }
         const QVariantMap claims{
             m_jwks->verify(flow->idToken(), provider, expectedNonce, error)};

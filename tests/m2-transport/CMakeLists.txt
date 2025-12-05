@@ -54,3 +54,15 @@ target_link_libraries(tst_wstransport PRIVATE
 )
 
 add_test(NAME wstransport COMMAND tst_wstransport)
+
+# The other half of SynQtTransport: which way an entity's outbound calls leave the host.
+qt_add_executable(tst_proxypolicy tst_proxypolicy.cpp)
+
+target_link_libraries(tst_proxypolicy PRIVATE
+    SynQtClient
+    Qt6::Core
+    Qt6::Network
+    Qt6::Test
+)
+
+add_test(NAME proxypolicy COMMAND tst_proxypolicy)
