@@ -12,8 +12,10 @@
 
 #include <QCommandLineOption>
 #include <QCommandLineParser>
+#include <QFileInfo>
 #include <QGuiApplication>
 #include <QQmlEngine>
+#include <QUrl>
 
 using namespace SynQt;
 
@@ -35,6 +37,15 @@ int main(int argc, char *argv[])
 
     synqtRegisterCounterSources();
 
+    // The edge entity itself, registered the way a generated main registers one: the
+    // counter Source is created per browser session and the number is not, so it lives in
+    // the entity singleton beside it and every session binds to the same one. Taken from
+    // the Source's own directory, because that is where an entity keeps its QML.
+    const QString serverFile{parser.value(serverFileOption)};
+    qmlRegisterSingletonType(QUrl::fromLocalFile(QFileInfo{serverFile}.absolutePath()
+                                                 + QStringLiteral("/Edge.qml")),
+                             "SynQt", 1, 0, "Edge");
+
     QQmlEngine engine;
     WebEdgeConfig config;
     config.bundleDir = parser.value(bundleOption);
@@ -46,7 +57,7 @@ int main(int argc, char *argv[])
     WebEdgeConnectPoint counter;
     counter.name = QStringLiteral("counter");
     counter.contract = QStringLiteral("Counter");
-    counter.serverFile = parser.value(serverFileOption);
+    counter.serverFile = serverFile;
     config.connectPoints = {counter};
 
     WebEdge edge{config, &engine};
