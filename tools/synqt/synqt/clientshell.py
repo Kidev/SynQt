@@ -78,10 +78,21 @@ _CLIENT_SHELL = """<!doctype html>
        `height: 100%` first and `100dvh` second: a mobile browser's `100%` is measured
        against whichever viewport it currently calls layout, so the page can come up a
        URL-bar short of the screen. The dynamic unit is the one that tracks the bar as it
-       retracts, and an engine that does not know it keeps the percentage. */
+       retracts, and an engine that does not know it keeps the percentage.
+
+       `fixed` and `no-repeat` are what make the background the viewport's rather than the
+       element's. The root element's background is painted over the whole canvas, but an
+       image in it is still sized and placed against the root element's own box and then
+       tiled to fill the rest; so any moment the canvas is taller than that box -- a
+       retracting URL bar, an engine that does not know `dvh`, a window resized before
+       layout catches up -- the gradient either restarts partway down or leaves what it
+       does not reach. Attached to the viewport it is measured against the thing it has
+       to cover. */
     html, body {{
       padding: 0; margin: 0; overflow: hidden; height: 100%;
       background: {background};
+      background-repeat: no-repeat;
+      background-attachment: fixed;
     }}
     html, body {{ height: 100dvh }}
     #screen {{ width: 100%; height: 100% }}
@@ -94,7 +105,8 @@ _CLIENT_SHELL = """<!doctype html>
       display: flex; flex-direction: column;
       align-items: center; justify-content: center; gap: var(--synqt-gap);
       padding: clamp(1rem, 5vh, 3rem); box-sizing: border-box;
-      background: {background}; color: #e8e6f0;
+      background: {background}; background-repeat: no-repeat;
+      background-attachment: fixed; color: #e8e6f0;
       font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
     }}
     #synqt-loading[hidden] {{ display: none }}

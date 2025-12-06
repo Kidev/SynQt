@@ -42,10 +42,8 @@ class ResolveTest(unittest.TestCase):
         self.assertIn("</svg>", markup)
 
     def test_default_logo_is_the_variant_that_reads_on_the_dark_default(self):
-        # The light-background variant of the mark paints one half in dark teal #00414a,
-        # which all but vanishes on the default gradient. The default background here is
-        # dark, so the default logo must be the reversed variant. Checked against paint
-        # attributes rather than the raw text, which mentions the colour in a comment.
+        # The default logo is the reversed variant, for the dark default background. Checked
+        # on paint attributes, since a comment mentions the colour.
         markup = loadingpage.logo_svg({}, Path("."))
         paints = [paint.lower()
                   for paint in re.findall(r'(?:fill|stroke)="([^"]+)"', markup)]
@@ -53,10 +51,8 @@ class ResolveTest(unittest.TestCase):
         self.assertNotIn("#00414a", paints)
 
     def test_default_logo_is_square_and_cropped_to_its_drawing(self):
-        # The loading page centers the logo in a column, so the default is the square
-        # signal mark, not the wide wordmark. Transparent margin inside the viewBox would
-        # defeat that just as surely as a wrong aspect ratio, so assert the box is square
-        # and that the drawing's own transforms sit inside it.
+        # The default is the square mark: a square viewBox, with the drawing's transforms
+        # inside it.
         markup = loadingpage.logo_svg({}, Path("."))
         box = re.search(r'viewBox="([-\d.\s]+)"', markup)
         self.assertIsNotNone(box)
@@ -120,17 +116,14 @@ class ShellTest(unittest.TestCase):
         self.assertIn(loadingpage.DEFAULT_BACKGROUND, shell)
 
     def test_shell_references_no_file_the_bundle_lacks(self):
-        # Regression guard. The old shell pointed at qtlogo.svg, which no SynQt build
-        # ever places in the bundle, so every client showed a broken image while loading.
+        # The shell never references qtlogo.svg, which is not in the bundle.
         shell = self._shell()
         self.assertNotIn("qtlogo.svg", shell)
         for name in re.findall(r'src="([^"]+)"', shell):
             self.assertIn(name, ("client.js", "qtloader.js", "synqt-boot.js"), name)
 
     def test_shell_carries_the_synqt_favicon(self):
-        # The browser tab must show the SynQt mark, not Qt's default. The icon is inlined as a
-        # data: URI (admitted by the default edge img-src 'self' data:), so the tab paints with
-        # no extra request.
+        # The tab shows the SynQt mark, inlined as a data: URI.
         shell = self._shell()
         self.assertIn('<link rel="icon" type="image/svg+xml" '
                       'href="data:image/svg+xml;base64,', shell)
@@ -146,12 +139,8 @@ class ShellTest(unittest.TestCase):
         self.assertIn("<title>Acme</title>", shell)
 
     def test_the_mark_is_bounded_by_the_viewport_height_as_well_as_its_width(self):
-        # Regression guard, and the reason the whole column is driven by one length. A
-        # mark of `min(280px, 60vw)` is bounded by width only. On a short landscape window
-        # (640x300 measured) that is a mark taller than the window, so the logo is clipped
-        # at both ends and the progress bar and the word "Loading" are off the bottom of
-        # the screen, on the one page whose entire job is to say something is happening.
-        # Any replacement has to constrain the height too.
+        # The column is sized by one length that bounds height too, so on a short landscape
+        # window the mark, the progress bar and "Loading" stay visible.
         shell = self._shell()
         self.assertIn("--synqt-mark:", shell)
         declaration = re.search(r"--synqt-mark:\s*([^;]+);", shell).group(1)
@@ -162,16 +151,22 @@ class ShellTest(unittest.TestCase):
             self.assertIn("var(--synqt-mark)", block, element)
 
     def test_the_background_is_pinned_to_the_dynamic_viewport(self):
-        # A mobile browser measures `100%` against whichever viewport it currently calls
-        # layout, so the page can come up a URL-bar short of the screen with the browser's
-        # own white showing through. The percentage stays as the fallback for an engine
-        # that does not know `dvh`, so both have to be in there.
+        # `dvh` with `%` as the fallback, so the page fills the mobile viewport.
         shell = self._shell()
         self.assertIn("height: 100%", shell)
         self.assertIn("100dvh", shell)
         overlay = re.search(r"#synqt-loading\s*\{([^}]*)\}", shell).group(1)
         self.assertIn("position: fixed", overlay)
         self.assertIn("inset: 0", overlay)
+
+    def test_the_background_is_measured_against_the_viewport_it_has_to_cover(self):
+        # The gradient is fixed to the viewport and not repeated, so it covers the whole
+        # canvas.
+        shell = self._shell()
+        for element in ("html, body", "#synqt-loading"):
+            block = re.search(re.escape(element) + r"\s*\{([^}]*)\}", shell).group(1)
+            self.assertIn("background-attachment: fixed", block, element)
+            self.assertIn("background-repeat: no-repeat", block, element)
 
     def test_title_is_escaped(self):
         shell = self._shell(_config(title='A<script>"&'))
@@ -193,8 +188,8 @@ class BootTest(unittest.TestCase):
 
     def test_hands_qt_a_streaming_compiled_module(self):
         boot = self._boot()
-        # qt.module is documented qtloader API (Promise<WebAssembly.Module>), which is
-        # what buys determinate progress without giving up streaming compilation.
+        # qt.module (a Promise<WebAssembly.Module>) gives determinate progress with
+        # streaming compilation.
         self.assertIn("module:", boot)
         self.assertIn("WebAssembly.compileStreaming", boot)
 
@@ -249,8 +244,7 @@ class CheckTest(unittest.TestCase):
         self.assertTrue(any("html" in error for error in errors), errors)
 
     def test_every_message_is_prefixed_so_it_can_fail_the_build(self):
-        # validate() derives ok from the "error:" prefix, so an unprefixed message is a
-        # check that silently never fails.
+        # Every message carries the "error:" or "warn:" prefix validate() reads.
         ok, errors = self._validate({"colour": "#000"})
         self.assertFalse(ok)
         for error in errors:
