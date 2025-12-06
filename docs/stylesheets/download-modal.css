@@ -186,9 +186,28 @@
 }
 
 /* The PyPI section starts a new thought after the script warning, which the warning's
-   panel would otherwise run straight into. */
-.synqt-dl__warn + .synqt-dl__label {
+   panel would otherwise run straight into. The warning now sits inside the per-platform
+   block, so the gap comes from the block. The label's previous sibling is always the
+   second one of the pair, whichever of them is the one on screen. */
+.synqt-dl__install + .synqt-dl__label {
   margin-top: 1.5rem;
+}
+
+/* The way to the command for the other platform. A button, because it changes what is on
+   screen rather than going anywhere, and it reads as the link it behaves like. */
+.synqt-dl__swap {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+  cursor: pointer;
+}
+
+.synqt-dl__swap:hover {
+  color: var(--md-accent-fg-color, #00a6ed);
 }
 
 .synqt-dl__pre {

@@ -133,8 +133,16 @@
       .catch(function () { showVersion(""); });
   }
 
+  /* Show the shell command for `os` and hide the other one. */
+  function showInstallFor(os) {
+    var windows = os === "windows";
+    modal.querySelector("#synqt-dl-windows").hidden = !windows;
+    modal.querySelector("#synqt-dl-posix").hidden = windows;
+  }
+
   function detectAndSet() {
     var os = detectOs();
+    showInstallFor(os);
     // Architecture is not reliably exposed to JavaScript. Ask for high entropy
     // values where supported (Chromium), otherwise default to x86_64.
     if (navigator.userAgentData && navigator.userAgentData.getHighEntropyValues) {
@@ -169,11 +177,22 @@
       '    <a class="synqt-dl__btn synqt-dl__btn--secondary" id="synqt-dl-releases" href="' + LATEST + '" rel="noopener" target="_blank">All releases and platforms</a>' +
       '  </div>' +
       '  <p class="synqt-dl__label">Or install from your terminal.</p>' +
-      '  <p class="synqt-dl__sublabel">Linux and macOS:</p>' +
-      '  <pre class="synqt-dl__pre"><button class="synqt-dl__copy" type="button">copy</button><code>' + ONELINER_SH + "</code></pre>" +
-      '  <p class="synqt-dl__sublabel">Windows (PowerShell):</p>' +
-      '  <pre class="synqt-dl__pre"><button class="synqt-dl__copy" type="button">copy</button><code>' + ONELINER_PS + "</code></pre>" +
-      '  <p class="synqt-dl__warn"><strong>Read a script before you pipe it to a shell.</strong> Either of these downloads a release, extracts it, and copies one binary into a bin directory, and nothing else. Read <a href="' + INSTALL_SH_URL + '" target="_blank" rel="noopener">install.sh</a> or <a href="' + INSTALL_PS_URL + '" target="_blank" rel="noopener">install.ps1</a> yourself before you run it.</p>' +
+      // One shell line, the one for the platform this browser is on: the other is a
+      // command the visitor cannot run, and printing both means everybody reads two
+      // lines to find theirs. Detection can be wrong (a Mac browsing for a Windows box),
+      // so the other one is a click away rather than gone.
+      '  <div class="synqt-dl__install" id="synqt-dl-posix" hidden>' +
+      '    <p class="synqt-dl__sublabel">Linux and macOS:</p>' +
+      '    <pre class="synqt-dl__pre"><button class="synqt-dl__copy" type="button">copy</button><code>' + ONELINER_SH + "</code></pre>" +
+      '    <p class="synqt-dl__warn"><strong>Read a script before you pipe it to a shell.</strong> This one downloads a release, extracts it, and copies one binary into a bin directory, and nothing else. Read <a href="' + INSTALL_SH_URL + '" target="_blank" rel="noopener">install.sh</a> yourself before you run it.</p>' +
+      '    <p class="synqt-dl__sublabel"><button class="synqt-dl__swap" id="synqt-dl-to-windows" type="button">On Windows instead?</button></p>' +
+      '  </div>' +
+      '  <div class="synqt-dl__install" id="synqt-dl-windows" hidden>' +
+      '    <p class="synqt-dl__sublabel">Windows (PowerShell):</p>' +
+      '    <pre class="synqt-dl__pre"><button class="synqt-dl__copy" type="button">copy</button><code>' + ONELINER_PS + "</code></pre>" +
+      '    <p class="synqt-dl__warn"><strong>Read a script before you pipe it to a shell.</strong> This one downloads a release, extracts it, and copies one binary into a bin directory, and nothing else. Read <a href="' + INSTALL_PS_URL + '" target="_blank" rel="noopener">install.ps1</a> yourself before you run it.</p>' +
+      '    <p class="synqt-dl__sublabel"><button class="synqt-dl__swap" id="synqt-dl-to-posix" type="button">On Linux or macOS instead?</button></p>' +
+      '  </div>' +
       '  <p class="synqt-dl__label">Or, if you already have Python, from PyPI.</p>' +
       '  <pre class="synqt-dl__pre"><button class="synqt-dl__copy" type="button">copy</button><code>' + ONELINER_PIP + "</code></pre>" +
       '  <p class="synqt-dl__sublabel synqt-dl__last">Any platform, and the same CLI: the wheel is cut from the same tag as the downloads above. <code>pip install synqt</code> works too; pipx is the suggestion only because this is an application rather than a library. See <a href="' + PYPI_URL + '" target="_blank" rel="noopener">synqt on PyPI</a>.</p>' +
@@ -186,6 +205,13 @@
     // Click on the backdrop (outside the card) closes the modal.
     modal.addEventListener("click", function (e) {
       if (e.target === modal) close();
+    });
+
+    modal.querySelector("#synqt-dl-to-windows").addEventListener("click", function () {
+      showInstallFor("windows");
+    });
+    modal.querySelector("#synqt-dl-to-posix").addEventListener("click", function () {
+      showInstallFor("linux");
     });
 
     // Each copy button copies the command in its own <pre>.
