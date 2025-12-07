@@ -208,6 +208,41 @@ private slots:
         QCOMPARE(sessions.lookup(reset)->scope, QStringLiteral("anonymous"));
     }
 
+    // A shared entity answers everyone from one Source, so the Caller its QML reads is the
+    // shared one, made to be the calling mirror's for the length of the slot (Caller::adopt).
+    // `Caller.setScope()` therefore runs on the shared Caller and rotates the credential
+    // there, while the mirror's own Caller is the one that outlives the call and the one the
+    // next call adopts from. If the rotation does not reach it, the session it names is the
+    // one setScope erased. The visitor is signed in, and every later call on that
+    // connection sees no session at all.
+    void setScopeReachesEveryCallerOnTheSameSession()
+    {
+        SessionManager sessions{QStringLiteral("anonymous"), OneMinuteTtl};
+        const QByteArray anonymous{sessions.createSession()};
+
+        // What the edge builds per connection. The Caller the mirror keeps, and the shared
+        // Source's own, which adopts it for the call.
+        Caller *mirror{Caller::forUser(QString{}, &sessions, anonymous, nullptr, this)};
+        Caller *shared{Caller::forUser(QString{}, &sessions, anonymous, nullptr, this)};
+        const QStringList order{QStringLiteral("anonymous"), QStringLiteral("user")};
+        mirror->setScopeOrder(order, true);
+        shared->setScopeOrder(order, true);
+
+        shared->adopt(mirror);
+        shared->setScope(QStringLiteral("user"),
+                         {{QStringLiteral("sub"), QStringLiteral("u1")}});
+
+        QCOMPARE(shared->scope(), QStringLiteral("user"));
+        QCOMPARE(mirror->scope(), QStringLiteral("user"));
+        QVERIFY(mirror->hasSession());
+        QVERIFY(mirror->hasScope(QStringLiteral("user")));
+
+        // And the next call adopts from the mirror, so what it carries has to still be live.
+        shared->adopt(mirror);
+        QCOMPARE(shared->identity().toMap().value(QStringLiteral("sub")).toString(),
+                 QStringLiteral("u1"));
+    }
+
     void setScopeOnAnUnknownCredentialChangesNothing()
     {
         SessionManager sessions{QStringLiteral("anonymous"), OneMinuteTtl};

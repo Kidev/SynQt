@@ -104,6 +104,15 @@ signals:
                          const QString &identityJson, double createdMs);
     void sessionRemoved(const QString &token);
 
+    /// The same session under a new credential, after a scope change rotated it.
+    ///
+    /// Raised on this entity for whoever is still naming the old id, which is everyone: a
+    /// connection holds a Caller per connect point, `Caller.setScope()` runs on one of them,
+    /// and the rest would otherwise go on naming the credential that call erased. Not
+    /// the same event as sessionRemoved followed by sessionUpserted, which is how the pair
+    /// reaches another entity and says nothing about the two being one session.
+    void sessionRotated(const QByteArray &from, const QByteArray &to);
+
     /// A session reclaimed because its time-to-live ran out, on this entity.
     ///
     /// Deliberately not sessionRemoved: that one is the table change the auth entity

@@ -126,6 +126,9 @@ QByteArray SessionManager::setScope(const QByteArray &id, const QString &scope,
     trackExpiry(record);
     m_rotations.insert(id, Rotation{record.id, record.createdMs});
     emitUpsert(record);
+    // First, so that everything still naming the old credential is holding the new one
+    // before anybody acts on the removal below.
+    emit sessionRotated(id, record.id);
     emit sessionRemoved(QString::fromLatin1(id));
     if (m_remote) {
         QMetaObject::invokeMethod(m_remote, "putSession",

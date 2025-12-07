@@ -146,6 +146,15 @@ public:
     /// is created, since the Source's QML context needs the Caller first.
     void setSource(QObject *source);
 
+Q_SIGNALS:
+    /// What this caller is authorized for has changed.
+    ///
+    /// Raised when the session behind it is rotated by a scope change, whoever made the
+    /// change. A generated Source listens for it to publish its `\<scope\>` gated members
+    /// again, so a member that comes into reach appears without the visitor reconnecting
+    /// and one that goes out of reach is withdrawn.
+    void scopeChanged();
+
 protected:
     /// The generated `\<Contract\>Caller` subclass constructs through this; its typed
     /// emit<Signal>(...) methods forward to the inherited emitSignal.

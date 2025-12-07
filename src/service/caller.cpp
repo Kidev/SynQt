@@ -75,6 +75,22 @@ Caller *Caller::forUser(const QString &contract, SessionManager *sessions,
     caller->m_sessions = sessions;
     caller->m_sessionId = sessionId;
     caller->m_source = source;
+    if (sessions) {
+        // A scope change rotates the credential, and it is one Caller that makes it: on a
+        // shared entity the slot runs on the shared Source's Caller, while the Caller that
+        // outlives the call, and that the next call adopts from, is the mirror's. Following
+        // the rotation here is what keeps every Caller on a session naming the same session
+        // afterwards, rather than the id setScope erased.
+        connect(sessions, &SessionManager::sessionRotated, caller,
+                [caller](const QByteArray &from, const QByteArray &to) {
+                    if (caller->m_sessionId == from) {
+                        caller->m_sessionId = to;
+                        // A rotation is a privilege change; that is the only thing that
+                        // causes one. Whoever gates on this caller's scope is told.
+                        Q_EMIT caller->scopeChanged();
+                    }
+                });
+    }
     return caller;
 }
 
