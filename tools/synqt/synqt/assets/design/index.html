@@ -24,6 +24,7 @@
   <body>
     <header class="bar">
       <img class="bar__mark" src="synqt.svg" alt="SynQt" width="284" height="150">
+      <span class="bar__wordmark">Designer</span>
       <span class="bar__project" id="project" hidden></span>
       <span class="bar__verdict" id="verdict"></span>
       <span class="bar__gap"></span>
@@ -69,9 +70,10 @@
              it leaves the bar, which is what opens it again. -->
         <section class="dock" id="dock">
           <!-- One bar, saying each thing once: what the pane is, which file is open in it,
-               the control that unlocks that file, what typing into it would do, and the
-               chevron that puts the whole pane away. The file name used to be here and
-               again over the text, with the note for it three panes further down. -->
+               the control that unlocks that file, and the chevron that puts the whole pane
+               away. Nothing explains itself here: the button says what pressing it does and
+               carries the longer version as its own tooltip, which is one line of prose
+               fewer between the file name and the thing that opens the file. -->
           <header class="dock__bar" id="dock-bar">
             <span class="dock__title">Files</span>
             <span class="dock__name" id="source-name"></span>
@@ -80,7 +82,6 @@
                  anybody asked to make. -->
             <button type="button" class="button button--lock" id="source-lock"
                     aria-pressed="false"></button>
-            <span class="dock__note" id="source-note"></span>
             <span class="bar__gap"></span>
             <button type="button" class="button button--chevron" id="dock-toggle"
                     aria-expanded="true" aria-controls="dock-pane"

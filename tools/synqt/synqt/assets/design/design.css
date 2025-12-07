@@ -32,7 +32,7 @@
   --grid-dot: rgba(106, 91, 153, .3);
   --grid-rule: rgba(106, 91, 153, .14);
 
-  --bar-height: 4.5rem;
+  --bar-height: 3.5rem;
   --rail-width: 14rem;
   --inspector-width: 22rem;
   --dock-height: 40vh;
@@ -107,12 +107,21 @@ h2 {
 
 /* The mark is the site's own logo file, shipped beside this page rather than fetched: the
    policy allows an image from this origin and nothing else, and the hosted copy has no
-   policy at all, which is the stronger reason to keep every byte local. Sized by height so
-   the bar decides how big it is and the file's own dimensions do not. */
+   policy at all, which is the stronger reason to keep every byte local. Sized from the bar
+   rather than from the file, so the two cannot disagree about how tall the bar is. */
 .bar__mark {
-  height: 3.5rem;
+  height: calc(var(--bar-height) - 0.9rem);
   width: auto;
   display: block;
+}
+
+/* What this page is, beside the mark that says whose it is. The tab title says the same,
+   and a tab title is not on screen while you work. */
+.bar__wordmark {
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  margin-left: -0.35rem;
 }
 
 /* Empty until there is a project to name. `synqt design` always has one; the copy on the
@@ -209,15 +218,39 @@ h2 {
 
 /* The three columns */
 
+/* `minmax(0, ...)` on the middle column, not `1fr`: a grid track's automatic minimum is its
+   content's, and the stage holds an SVG that will not go below its own width. Left as `1fr`
+   the three columns add up to more than the window on a narrow one, the grid overflows, and
+   the inspector is pushed off the right-hand edge -- while the grip that sizes it, which is
+   positioned against the window rather than against the grid, stays behind on top of the
+   drawing. A panel and its handle leave together or neither does. */
 .work {
   position: relative;
   display: grid;
-  grid-template-columns: var(--rail-width) 1fr var(--inspector-width);
+  grid-template-columns: var(--rail-width) minmax(0, 1fr) var(--inspector-width);
   min-height: 0;
 }
 
+/* Narrower than the two side columns and anything worth drawing between them: the panel
+   folds away and takes its grip with it, and the dock's grip runs to the edge it now has.
+   What is selected is still selected; the canvas is simply the whole of the window. */
+@media (max-width: 62rem) {
+  .work {
+    grid-template-columns: var(--rail-width) minmax(0, 1fr);
+  }
+
+  .inspector,
+  .grip--inspector {
+    display: none;
+  }
+
+  .grip--dock {
+    right: 0;
+  }
+}
+
 /* The seams. Each is a hair wide to look at and several pixels wide to hit, which is the
-   whole trick: a one-pixel target is a border somebody fights with, and a visibly thick one
+   whole trick. A one-pixel target is a border somebody fights with, and a visibly thick one
    is furniture nobody asked for. */
 .grip {
   position: absolute;
@@ -1146,11 +1179,14 @@ select:focus {
   grid-template-columns: 17rem 1fr;
 }
 
+/* Sunk a shade below the file it opens, so the pane reads as a sidebar and a document
+   rather than as two halves of one flat box. */
 .tree {
   margin: 0;
   padding: .5rem 0;
   list-style: none;
   overflow: auto;
+  background: var(--page);
   border-right: 1px solid var(--line);
   font-family: var(--mono);
   font-size: 12px;
@@ -1159,11 +1195,40 @@ select:focus {
 /* A directory heading and the files under it, rather than one flat list of whole paths: a
    project is entity directories plus `shared/`, and that shape is the first thing worth
    knowing about it. The path is still what the file is called; it is the heading that says
-   the first segment now, once, instead of every row repeating it. */
+   the first segment now, once, instead of every row repeating it.
+
+   The heading carries the entity's own glyph, in the entity's own colour, because a
+   directory in a SynQt project IS an entity: the tree and the drawing above it are then two
+   views of one thing rather than a picture and a list of paths to read against each other. */
 .tree__folder {
-  padding: .45rem 1rem .1rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .4rem;
+  padding: .6rem 1rem .15rem;
   color: var(--ink-dim);
   font-weight: 600;
+}
+
+.tree__folder .glyph {
+  flex: none;
+  width: 13px;
+  height: 13px;
+  color: var(--service);
+}
+
+.tree__folder--client .glyph {
+  color: var(--client);
+}
+
+.tree__folder--edge .glyph {
+  color: var(--edge);
+}
+
+/* The heading is a flex row, and the list of files under it is a child of that row rather
+   than a sibling, so it has to be taken back out of the flow the glyph put it in. */
+.tree__folder .tree__leaves {
+  flex: 1 0 100%;
 }
 
 .tree__folder:first-child {
@@ -1252,9 +1317,11 @@ select:focus {
 }
 
 .source__paint {
-  overflow: hidden;
+  overflow: visible;
   color: var(--ink);
   pointer-events: none;
+  transform-origin: 0 0;
+  will-change: transform;
 }
 
 .source__input {
@@ -1313,6 +1380,24 @@ select:focus {
    what the rules have against it. A native tooltip can only be a paragraph, it arrives after a
    delay nobody chose, and it cannot be coloured, so half of the above would have gone unread.
    It never answers the pointer itself: this is something to read, not something to hit. */
+
+/* Renaming, over the thing being renamed. Centred on where it was double-clicked and no
+   wider than the name in it, so the drawing underneath stays readable while a name is being
+   changed. A dialog in the middle of the window hides exactly the part somebody is renaming
+   against. */
+.rename {
+  position: fixed;
+  z-index: 13;
+  transform: translate(-50%, -50%);
+  padding: .2rem .4rem;
+  background: var(--panel);
+  border: 1px solid var(--accent);
+  border-radius: .3rem;
+  box-shadow: 0 6px 20px var(--shadow);
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 12px;
+}
 
 .tip {
   position: fixed;

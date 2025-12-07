@@ -181,10 +181,10 @@ function entityPanel(design, entity, actions) {
             entity.shared = on;
             actions.changed();
         }));
-        panel.append(note("On: one Source everybody reaches, each caller through a mirror "
-                          + "of it, and every slot still knows who is calling. Off: one "
-                          + "Source per caller, so what it holds is theirs alone and a "
-                          + "second tab continues the first."));
+        panel.append(note(shared
+            ? "One Source answers every caller, and each of them still arrives with a "
+              + "Caller of their own."
+            : "Every caller gets a Source of their own, holding only what is theirs."));
     }
 
     panel.append(declaresPanel(entity, actions));

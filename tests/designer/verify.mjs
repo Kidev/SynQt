@@ -449,8 +449,12 @@ async function theProjectALinkHandsYou() {
         check(!(await page.locator("#dock").evaluate(
                   (dock) => dock.classList.contains("is-collapsed"))),
               "the files pane is open without being asked for");
+        // The row's own words, not everything under it: the heading also holds the entity's
+        // glyph and, nested inside it, the list of that folder's files.
         const folders = await page.locator(".tree__folder").evaluateAll(
-            (rows) => rows.map((row) => row.firstChild.textContent));
+            (rows) => rows.map((row) => Array.from(row.childNodes)
+                .filter((node) => node.nodeType === Node.TEXT_NODE)
+                .map((node) => node.textContent).join("").trim()));
         // Each entity's own folder, whole: the folder its type puts it in and then its name.
         check(["client/app/", "web/edge/", "db/relational/store/", "api/feeds/"]
                   .every((name) => folders.includes(name)),
@@ -542,15 +546,20 @@ async function theProjectALinkHandsYou() {
         // A file longer than the pane is the ordinary case, and the coloured copy is a
         // separate layer from the one holding the caret, so the two have to move together.
         await fileRow(page, "client/app/Main.qml").click();
+        // Right to the bottom, which is where the two used to come apart: the textarea keeps
+        // room for a horizontal scrollbar and the copy behind it has none, so a copy that
+        // scrolled clamped a scrollbar's height short. It is moved rather than scrolled now,
+        // and what is asserted is that the copy sits exactly where the text went.
         const scrolled = await page.evaluate(() => {
             const input = document.getElementById("source-input");
             const paint = document.getElementById("source-paint");
             input.scrollTop = input.scrollHeight;
             input.dispatchEvent(new Event("scroll"));
-            return {moved: input.scrollTop, painted: paint.scrollTop};
+            const moved = new DOMMatrixReadOnly(getComputedStyle(paint).transform);
+            return {moved: input.scrollTop, painted: -moved.m42};
         });
         check(scrolled.moved > 0 && scrolled.painted === scrolled.moved,
-              `the coloured copy scrolls with the caret (${scrolled.painted} of `
+              `the coloured copy moves with the caret (${scrolled.painted} of `
               + `${scrolled.moved})`);
 
         // Pressed twice, because closing and opening again are two different failures. The
@@ -588,11 +597,19 @@ async function theProjectALinkHandsYou() {
             () => !document.querySelector("#nodes [data-entity='cache']"));
         check(true, "Delete removes what is selected");
 
-        page.once("dialog", (dialog) => dialog.accept("upstream"));
+        // In place, over the entity, and not in a dialog: the field opens where the name was,
+        // holding it, and Enter is what commits. A prompt would cover the drawing the new
+        // name is being chosen against, which is the only thing anybody is looking at.
         await page.locator("#nodes [data-entity='feeds']").dblclick();
+        await page.waitForSelector(".rename");
+        check(await page.locator(".rename").inputValue() === "feeds",
+              "a double click opens the name where the name is");
+        await page.locator(".rename").fill("upstream");
+        await page.locator(".rename").press("Enter");
         await page.waitForSelector("[data-entity='upstream']");
-        check(await page.locator("#nodes [data-entity='feeds']").count() === 0,
-              "and a double click renames it");
+        check(await page.locator("#nodes [data-entity='feeds']").count() === 0
+              && await page.locator(".rename").count() === 0,
+              "and typing a new one there renames it");
 
         // The tooltip is the page's own, so it can say what a native one cannot.
         await page.locator("#nodes [data-entity='store']").hover();

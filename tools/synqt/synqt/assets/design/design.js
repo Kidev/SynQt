@@ -116,7 +116,6 @@ const page = {
     tree: document.getElementById("tree"),
     sourceName: document.getElementById("source-name"),
     sourceLock: document.getElementById("source-lock"),
-    sourceNote: document.getElementById("source-note"),
     sourcePaint: document.getElementById("source-paint"),
     sourceInput: document.getElementById("source-input"),
     work: document.querySelector(".work"),
@@ -239,7 +238,7 @@ function renderFindings() {
     page.findings.className = `findings findings--verdict findings--${level}`;
     if (!state.found.length) {
         page.findings.append(quiet(state.design.entities.length
-            ? "Nothing in the way. Review the changes when you are ready."
+            ? "All good. Every rule this editor checks is satisfied."
             : "An empty project. Drag an entity onto the canvas to start."));
         return;
     }
@@ -457,7 +456,6 @@ function renderProject() {
         empty.textContent = "Nothing yet. Drag an entity onto the canvas.";
         page.tree.append(empty);
         page.sourceName.textContent = "";
-        page.sourceNote.textContent = "";
         page.sourcePaint.replaceChildren();
         page.sourceInput.value = "";
         page.sourceInput.readOnly = true;
@@ -472,8 +470,16 @@ function renderProject() {
     for (const folder of foldersOf(files)) {
         if (folder.name) {
             const heading = document.createElement("li");
-            heading.className = "tree__folder";
-            heading.textContent = `${folder.name}/`;
+            const entity = entityOf((folder.files[0] || {}).name || "");
+            // The same glyph, in the same colour, that this entity is drawn with above. A
+            // directory in a SynQt project is an entity, so the tree says which one by
+            // showing it rather than by leaving the path to be read back against the canvas.
+            heading.className = "tree__folder"
+                + (entity ? ` tree__folder--${roleOf(entity)}` : "");
+            if (entity) {
+                heading.append(glyphSvg(roleOf(entity)));
+            }
+            heading.append(document.createTextNode(`${folder.name}/`));
             page.tree.append(heading);
             const leaves = document.createElement("ul");
             leaves.className = "tree__leaves";
@@ -512,21 +518,6 @@ function renderProject() {
         page.sourceInput.value = shown;
     }
     renderLock(open);
-    if (isConfig(open)) {
-        page.sourceNote.textContent = "The topology, as the file that carries it. Entities "
-            + "and connect points typed here move the canvas.";
-        return;
-    }
-    if (!editable(open)) {
-        page.sourceNote.textContent = "Written from the design. Edit it on the canvas or in "
-            + "the panel.";
-        return;
-    }
-    page.sourceNote.textContent = open.link
-        ? "A property, a signal or a function you declare here becomes a member of this "
-          + "connect point's contract."
-        : "Reach for something another entity owns and the connect point that would carry "
-          + "it is drawn for you.";
 }
 
 // The control names what pressing it does, not what the pane is doing: a button reading
@@ -537,12 +528,20 @@ function renderLock(open) {
     page.sourceLock.setAttribute("aria-pressed", String(canEdit && state.unlocked));
     page.sourceLock.textContent = !canEdit ? "Written from the design"
         : (state.unlocked ? "Lock" : "Edit");
+    // The tooltip is where the longer answer lives, and what it says depends on the file:
+    // typing into the configuration moves the canvas, and typing into a Source is how a
+    // contract gets a member. That used to be a line of prose on the bar itself, between the
+    // file's name and the button that opens it.
     page.sourceLock.title = !canEdit
         ? "This file is written from the design, so the design is where it is edited."
         : (state.unlocked
            ? "Lock it again. Changes are already in the design; nothing is written to the "
              + "project until you apply a change set."
-           : "Unlock it to type into it.");
+           : (isConfig(open)
+              ? "Unlock it to type into it. Entities and connect points typed here move "
+                + "the canvas."
+              : "Unlock it to type into it. A property, a signal or a function declared "
+                + "here is one a connect point can carry."));
     // Offered only while there is something to go back to and something to go back from.
     page.revert.hidden = !(state.lastGood && open && isConfig(open) && state.unlocked);
 }
@@ -1240,8 +1239,68 @@ function closePicker() {
     page.picker.replaceChildren();
 }
 
-function renameFrom(kind, name, what) {
-    const wanted = window.prompt(`Rename ${what}`, name);
+// Renaming happens over the thing being renamed, in a field the size of its name, and not in
+// a dialog that covers the drawing it is about. A prompt puts the name somewhere else, hides
+// what else is called what, and has to be dismissed before anything can be looked at.
+let renaming = null;
+
+// Cleared before the field is taken away, not after. Removing a focused element blurs it,
+// and the blur handler below is another way into here.
+function closeRename() {
+    const field = renaming;
+    renaming = null;
+    if (field && field.parentNode) {
+        field.remove();
+    }
+}
+
+function renameInPlace(kind, name, what, at) {
+    closeRename();
+    const field = document.createElement("input");
+    field.type = "text";
+    field.className = "rename";
+    field.value = name;
+    field.setAttribute("aria-label", `Rename this ${what}`);
+    field.style.left = `${at.x}px`;
+    field.style.top = `${at.y}px`;
+    // Wide enough for what is in it and no wider, so it sits where the name sat.
+    field.style.width = `${Math.max(6, name.length + 2)}ch`;
+    document.body.append(field);
+    renaming = field;
+    field.focus();
+    field.select();
+
+    let settled = false;
+    const settle = (keep) => {
+        if (settled) {
+            return;   // already settled. This is the blur that closing it caused
+        }
+        settled = true;
+        const wanted = field.value;
+        closeRename();
+        if (keep) {
+            renameTo(kind, name, wanted, what);
+        }
+    };
+    field.addEventListener("input", () => {
+        field.style.width = `${Math.max(6, field.value.length + 2)}ch`;
+    });
+    field.addEventListener("keydown", (event) => {
+        event.stopPropagation();
+        if (event.key === "Enter") {
+            event.preventDefault();
+            settle(true);
+        } else if (event.key === "Escape") {
+            event.preventDefault();
+            settle(false);
+        }
+    });
+    // Clicking away keeps what was typed. The field is the name, so leaving it is the same
+    // gesture as leaving any other field on this page.
+    field.addEventListener("blur", () => settle(true));
+}
+
+function renameTo(kind, name, wanted, what) {
     if (wanted === null || wanted === name) {
         return;
     }
@@ -1284,7 +1343,7 @@ function onContextMenu(event) {
         select({kind: "entity", name: entity.name});
         openMenu(at, entity.name, [
             {label: "Edit", act: () => page.inspector.scrollIntoView({block: "nearest"})},
-            {label: "Rename", act: () => renameFrom("entity", entity.name, "entity")},
+            {label: "Rename", act: () => renameInPlace("entity", entity.name, "entity", at)},
             {label: "Delete", act: () => removeEntity(entity), danger: true},
         ]);
         return;
@@ -1296,7 +1355,8 @@ function onContextMenu(event) {
         openMenu(at, found.name, [
             {label: "What crosses it", act: () => openPicker(found, at)},
             {label: "Edit", act: () => page.inspector.scrollIntoView({block: "nearest"})},
-            {label: "Rename", act: () => renameFrom("link", found.name, "connect point")},
+            {label: "Rename",
+             act: () => renameInPlace("link", found.name, "connect point", at)},
             ...((found.consumers || []).length
                 ? [{label: "Disconnect the consumer", act: () => disconnectLink(found)}]
                 : []),
@@ -1613,6 +1673,7 @@ function onDown(event) {
     }
     hideTip();
     closePicker();
+    closeRename();
     const at = pointAt(event);
     const rim = event.target.closest("[data-rim]");
     const held = event.target.closest("[data-entity]");
@@ -1786,7 +1847,8 @@ function onUp(event) {
     if (finished.mode === "entity") {
         const what = {kind: "entity", name: finished.entity.name};
         if (!finished.moved && isSecondClick(what, event)) {
-            renameFrom("entity", what.name, "entity");
+            renameInPlace("entity", what.name, "entity",
+                          {x: event.clientX, y: event.clientY});
             return;
         }
         select(what);
@@ -1795,7 +1857,8 @@ function onUp(event) {
     if (finished.mode === "link-click") {
         const what = {kind: "link", name: finished.name};
         if (!finished.moved && isSecondClick(what, event)) {
-            renameFrom("link", what.name, "connect point");
+            renameInPlace("link", what.name, "connect point",
+                          {x: event.clientX, y: event.clientY});
             return;
         }
         select(what);
@@ -2146,12 +2209,18 @@ function wire() {
             page.sourceInput.focus();
         }
     });
-    // The textarea is the layer that scrolls; the painted copy behind it is dragged along by
+    // The textarea is the layer that scrolls; the painted copy behind it is moved along by
     // hand, because a file longer than the pane is the ordinary case and two layers that
     // scroll independently are two layers nobody can read.
+    //
+    // Moved, not scrolled. Scrolling the copy meant its own scrollable height had to match
+    // the textarea's, and it never quite did: the textarea reserves room for a horizontal
+    // scrollbar and the copy, which has none, clamps a scrollbar's height short of the
+    // bottom -- so the last line of a long file sat about fifteen pixels out of register
+    // with the caret on it. A transform has nothing to clamp against.
     page.sourceInput.addEventListener("scroll", () => {
-        page.sourcePaint.scrollTop = page.sourceInput.scrollTop;
-        page.sourcePaint.scrollLeft = page.sourceInput.scrollLeft;
+        page.sourcePaint.style.transform =
+            `translate(${-page.sourceInput.scrollLeft}px, ${-page.sourceInput.scrollTop}px)`;
     });
     page.sourceInput.addEventListener("input", onSourceInput);
     for (const when of ["click", "keyup"]) {
@@ -2193,6 +2262,7 @@ function wire() {
     window.addEventListener("resize", () => {
         closeMenu();
         hideTip();
+        closeRename();
         fit();
         if (state.files) {
             renderProject();
