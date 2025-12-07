@@ -1,0 +1,22 @@
+// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+// SPDX-License-Identifier: Apache-2.0
+
+// Exercises the `<scope>` gate on every kind of member, ungated members beside gated
+// ones, and a gate naming more than one scope. Compiled into a target that links no
+// service runtime, which is the point: the gate reaches SynQt::Caller by name, so a
+// contract carrying one is still a contract anybody can compile.
+
+contract Gated {
+    prop string[80] headline
+    model catalogue(string[64] sku, real price)
+    slot ping()
+    signal pinged()
+
+    <admin> prop int pending
+    <admin> model auditLog(string[200] line)
+    <admin> slot restock(string[64] sku, int count)
+    <admin> slot int auditCount()
+    <admin> signal restocked(string[64] sku)
+
+    <admin,auditor> slot var review()
+}

@@ -60,4 +60,12 @@ bool SourceFactory::bindCaller(QObject *source, QObject *caller)
                                      Q_ARG(QObject *, caller));
 }
 
+bool SourceFactory::holdsSharedState(QObject *source)
+{
+    if (!source) {
+        return false;
+    }
+    return QMetaObject::invokeMethod(source, "synqtHoldsSharedState", Qt::DirectConnection);
+}
+
 } // namespace SynQt

@@ -101,6 +101,9 @@ QObject *ConnectPointHost::sharedSource(QString *error)
     }
     caller->setParent(source);
     SourceFactory::bindCaller(source, caller);
+    // Holds the state for every peer at once, so no `<scope>` gate applies to it. Each
+    // peer's mirror gates what that peer sees.
+    SourceFactory::holdsSharedState(source);
     m_sharedSource = source;
     m_sharedCaller = caller;
     return source;

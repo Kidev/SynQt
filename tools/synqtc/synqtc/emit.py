@@ -37,6 +37,23 @@ def _cap(name: str) -> str:
     return name[:1].upper() + name[1:]
 
 
+def _gate(member) -> List[str]:
+    """The scopes that reach `member`, empty when everyone the point is hosted for does."""
+    return list(getattr(member, "scope", None) or [])
+
+
+def _gate_literal(scopes: List[str]) -> str:
+    return "QStringList{" + ", ".join(f'QStringLiteral("{name}")' for name in scopes) + "}"
+
+
+def _is_gated(contract: Contract) -> bool:
+    return any(_gate(member) for member in contract.members)
+
+
+def _gated_props(contract: Contract):
+    return [prop for prop in contract.props if _gate(prop)]
+
+
 def _slot_params(syn: SynFile, slot, records, path) -> str:
     """A slot's parameter list as it is declared, session first when there is one."""
     declared = [f"{cpp_type(p.type, records, path=path, line=p.line, col=p.col)} {p.name}"
@@ -350,6 +367,26 @@ def _source_helper_class(syn: SynFile, contract: Contract, records, path) -> str
         "    Q_INVOKABLE void synqtMirror(QObject *shared);",
         "",
     ]
+    if _is_gated(contract):
+        lines += [
+            "    // Scope gates. A member written `<admin> ...` in the contract reaches only",
+            "    // a caller holding that scope, and the gate is on what crosses rather than",
+            "    // on the shape: the member is still declared, so a Replica still matches by",
+            "    // signature, and nothing about it is ever published or accepted for a caller",
+            "    // without the scope. This instance gates by default, which is what a mirror",
+            "    // and a per-caller Source both want; the one Source a shared entity answers",
+            "    // everyone from holds the ungated truth its mirrors publish from, and the",
+            "    // runtime says so by calling this.",
+            "    Q_INVOKABLE void synqtHoldsSharedState();",
+            "",
+            "public Q_SLOTS:",
+            "    // Publish every gated member again, now that this caller's scope has",
+            "    // changed. What they may not see is withdrawn, not left where it was.",
+            "    void synqtRegate();",
+            "",
+            "public:",
+            "",
+        ]
     if contract.models:
         # repc gives the Source a virtual set<Model>(QAbstractItemModel *) that the
         # owner is not meant to call: the model it publishes is this class's own. The
@@ -371,11 +408,13 @@ def _source_helper_class(syn: SynFile, contract: Contract, records, path) -> str
             lines.append(f"    void set{_cap(model.name)}Rows(const QVariantList &rows) "
                          f"{{ set{_cap(model.name)}(rows); }}")
         lines.append("")
-    bounded = _bounded_props(contract)
+    bounded = _intercepted_props(contract)
     if bounded:
-        lines.append("    // Bounded props. repc makes every setter virtual, so the bound is")
-        lines.append("    // kept here: an assignment that breaks it is refused and named,")
-        lines.append("    // and what the Source pushes is always inside the contract.")
+        lines.append("    // Bounded and gated props. repc makes every setter virtual, so both")
+        lines.append("    // are kept here: an assignment that breaks a bound is refused and")
+        lines.append("    // named, and one the caller has no scope for is remembered but not")
+        lines.append("    // published, so what the Source pushes is always inside the contract")
+        lines.append("    // and always something this caller may see.")
         for prop in bounded:
             ctype = cpp_type(prop.type, records, path=path, line=prop.line, col=prop.col)
             lines.append(f"    void set{_cap(prop.name)}({ctype} {prop.name}) override;")
@@ -404,10 +443,22 @@ def _source_helper_class(syn: SynFile, contract: Contract, records, path) -> str
     lines.append("    static void appendData(QQmlListProperty<QObject> *list, QObject *object);")
     lines.append("    // Make the shared Source's Caller be whoever is calling right now.")
     lines.append("    void synqtAdoptCaller(QObject *caller);")
+    if _is_gated(contract):
+        lines.append("    // Does the caller this Source answers hold any of these scopes?")
+        lines.append("    // False when there is no caller at all, so a gate fails closed.")
+        lines.append("    bool synqtAllows(const QStringList &scopes) const;")
     lines.append("")
     lines.append("    QList<QObject *> m_data;")
     lines.append("    QPointer<QObject> m_synqtCaller;")
     lines.append(f"    QPointer<{name}SourceHelper> m_synqtShared;")
+    if _is_gated(contract):
+        lines.append("    bool m_synqtUngated{false};")
+    for prop in _gated_props(contract):
+        ctype = cpp_type(prop.type, records, path=path, line=prop.line, col=prop.col)
+        # What the owner last assigned, kept apart from what the Source publishes: a gate
+        # that opens later has to have something to publish, and one that closes has to be
+        # able to withdraw without losing the value it was hiding.
+        lines.append(f"    {ctype} m_synqt{_cap(prop.name)}{{}};")
     for model in contract.models:
         lines.append(f"    SynQt::SourceModel m_{model.name}Model;")
         lines.append(f"    QVariantList m_{model.name}Rows;")
@@ -563,7 +614,11 @@ def _source_helper_impl(syn: SynFile, contract: Contract, records, path) -> str:
     lines.append(_mirror_impl(contract, records, path))
     lines.append("")
 
-    for prop in _bounded_props(contract):
+    if _is_gated(contract):
+        lines.append(_gate_impl(contract, records, path))
+        lines.append("")
+
+    for prop in _intercepted_props(contract):
         lines.append(_bounded_prop_impl(name, prop, records, path))
         lines.append("")
 
@@ -596,10 +651,27 @@ def _mirror_impl(contract: Contract, records, path) -> str:
     """
     name = contract.name
     helper = f"{name}SourceHelper"
+    gated = _is_gated(contract)
     lines = [
         f"void {helper}::synqtSetCaller(QObject *caller)",
         "{",
         "    m_synqtCaller = caller;",
+    ]
+    if gated:
+        lines += [
+            "    if (caller) {",
+            "        // A scope this caller gains or loses changes what they may see, so the",
+            "        // gated members are published again when it moves. String-based, like",
+            "        // everything else this reaches on the Caller, so no runtime type is",
+            "        // needed here. Unique, because binding a caller twice is allowed.",
+            "        connect(caller, SIGNAL(scopeChanged()), this, SLOT(synqtRegate()),",
+            "                Qt::UniqueConnection);",
+            "    }",
+            "    // What the owner assigned before there was a caller to weigh it against was",
+            "    // held back; now there is one.",
+            "    synqtRegate();",
+        ]
+    lines += [
         "}",
         "",
         f"void {helper}::synqtAdoptCaller(QObject *caller)",
@@ -643,9 +715,12 @@ def _mirror_impl(contract: Contract, records, path) -> str:
         lines.append("    // A signal the shared Source raises is everyone's, so every mirror")
         lines.append("    // raises it too. One addressed to a single caller is emitted on that")
         lines.append("    // caller's mirror instead and never comes through here.")
+        lines.append("    // Relayed into emit<Signal> rather than straight out, so a broadcast")
+        lines.append("    // passes the same bound checks and the same scope gate as one sent")
+        lines.append("    // to a single caller.")
         for signal in contract.signals:
             lines.append(f"    connect(source, &{name}Source::{signal.name}, this,")
-            lines.append(f"            &{name}Source::{signal.name});")
+            lines.append(f"            &{helper}::emit{_cap(signal.name)});")
     lines.append("}")
     return "\n".join(lines)
 
@@ -653,6 +728,78 @@ def _mirror_impl(contract: Contract, records, path) -> str:
 def _bounded_props(contract: Contract):
     """The contract's props that were written with a bound, in declaration order."""
     return [prop for prop in contract.props if bound_of(prop.type) is not None]
+
+
+def _intercepted_props(contract: Contract):
+    """The props whose setter the helper overrides: bounded, gated, or both.
+
+    Both reasons want the same hook, the virtual setter repc generates, so one override
+    carries them. The bound is checked on the way in and the gate on the way out.
+    """
+    return [prop for prop in contract.props
+            if bound_of(prop.type) is not None or _gate(prop)]
+
+
+def _gate_impl(contract: Contract, records, path) -> str:
+    """The three methods behind a `<scope>` gate: ask, exempt, and publish again.
+
+    `synqtAllows` reaches SynQt::Caller::hasScope by name, the way everything else here
+    reaches the runtime, so a target that links no service runtime still compiles. It
+    answers false when there is no caller, which is what makes an ungated shared Source
+    have to say so rather than get the answer by accident.
+
+    `synqtRegate` runs when the caller's scope changes. Every gated member is published
+    again from what the owner last assigned, so one that has come into reach appears with
+    its current value, and one that has gone out of reach is withdrawn rather than left
+    sitting in the consumer's replica.
+    """
+    name = contract.name
+    helper = f"{name}SourceHelper"
+    lines = [
+        f"bool {helper}::synqtAllows(const QStringList &scopes) const",
+        "{",
+        "    if (m_synqtUngated || scopes.isEmpty()) {",
+        "        return true;",
+        "    }",
+        "    if (m_synqtCaller.isNull()) {",
+        "        return false;",
+        "    }",
+        "    for (const QString &scope : scopes) {",
+        "        bool granted{false};",
+        '        QMetaObject::invokeMethod(m_synqtCaller.data(), "hasScope",',
+        "                                  Qt::DirectConnection, Q_RETURN_ARG(bool, granted),",
+        "                                  Q_ARG(QString, scope));",
+        "        if (granted) {",
+        "            return true;",
+        "        }",
+        "    }",
+        "    return false;",
+        "}",
+        "",
+        f"void {helper}::synqtHoldsSharedState()",
+        "{",
+        "    // The one Source a shared entity answers everyone from. It holds every value",
+        "    // for every caller, and the mirrors are where each caller's gate is applied.",
+        "    m_synqtUngated = true;",
+        "    synqtRegate();",
+        "}",
+        "",
+        f"void {helper}::synqtRegate()",
+        "{",
+    ]
+    body: List[str] = []
+    for prop in _gated_props(contract):
+        # Through the setter, which is the one place the gate is written down.
+        body.append(f"    set{_cap(prop.name)}(m_synqt{_cap(prop.name)});")
+    for model in contract.models:
+        if _gate(model):
+            body.append(f"    set{_cap(model.name)}(m_{model.name}Rows);")
+    if not body:
+        # Only slots and signals are gated, and neither holds anything to republish.
+        body.append("")
+    lines += body
+    lines.append("}")
+    return "\n".join(lines)
 
 
 def _bounded_prop_impl(class_name: str, prop, records, path) -> str:
@@ -665,10 +812,21 @@ def _bounded_prop_impl(class_name: str, prop, records, path) -> str:
     ctype = cpp_type(prop.type, records, path=path, line=prop.line, col=prop.col)
     helper = f"{class_name}SourceHelper"
     where = f"{class_name}.{prop.name}"
-    guard = _bound_guard(prop.type, prop.name, where, prop.name, ["return;"], "    ")
-    body = "\n".join(guard + [
-        f"    {class_name}SimpleSource::set{_cap(prop.name)}({prop.name});",
-    ])
+    lines = _bound_guard(prop.type, prop.name, where, prop.name, ["return;"], "    ")
+    gate = _gate(prop)
+    if gate:
+        # Remembered whether or not it may be published. The assignment is the owner's, and
+        # a gate that opens later publishes this, while one that closes puts the default
+        # back so the value stops being on the wire the moment the scope goes.
+        lines += [
+            f"    m_synqt{_cap(prop.name)} = {prop.name};",
+            f"    if (!synqtAllows({_gate_literal(gate)})) {{",
+            f"        {class_name}SimpleSource::set{_cap(prop.name)}({ctype}{{}});",
+            "        return;",
+            "    }",
+        ]
+    lines.append(f"    {class_name}SimpleSource::set{_cap(prop.name)}({prop.name});")
+    body = "\n".join(lines)
     return f"void {helper}::set{_cap(prop.name)}({ctype} {prop.name})\n{{\n{body}\n}}"
 
 
@@ -681,6 +839,15 @@ def _emit_signal_impl(class_name: str, signal: Signal, records, path) -> str:
     # Caller.emit<Signal>(...) lands here as well, so one guard covers both ways of sending.
     where = f"{class_name}.{signal.name}"
     lines: List[str] = []
+    gate = _gate(signal)
+    if gate:
+        # Every way of raising this comes through here, the shared Source's broadcast
+        # included (the mirror relays it into this method), so one check covers them all.
+        lines += [
+            f"    if (!synqtAllows({_gate_literal(gate)})) {{",
+            "        return;",
+            "    }",
+        ]
     for param in signal.params:
         lines += _bound_guard(param.type, param.name, where, param.name, ["return;"], "    ")
     lines.append(f"    Q_EMIT {signal.name}({args});")
@@ -700,6 +867,23 @@ def _set_model_impl(class_name: str, model: Model, records, path) -> str:
         f"void {class_name}SourceHelper::set{_cap(model.name)}(const QVariantList &rows)",
         "{",
         f"    static const QList<QByteArray> declaredRoles{{{role_array}}};",
+    ]
+    gate = _gate(model)
+    if gate:
+        # Remembered before the gate rather than after the commit, because these rows are
+        # what synqtRegate publishes if the scope arrives later. Denied, the model is
+        # emptied rather than left alone. Clearing it is what takes the rows a consumer
+        # already has back off them.
+        lines += [
+            f"    m_{model.name}Rows = rows;",
+            f"    if (!synqtAllows({_gate_literal(gate)})) {{",
+            f"        m_{model.name}Model.clear();",
+            f"        {class_name}SimpleSource::set{_cap(model.name)}(&m_{model.name}Model);",
+            f"        Q_EMIT {model.name}RowsChanged();",
+            "        return;",
+            "    }",
+        ]
+    lines += [
         "    // Built first and committed at the end: a row that does not match the",
         "    // contract refuses the whole publish, rather than leaving half of one.",
         "    QList<QStandardItem *> items;",
@@ -817,6 +1001,16 @@ def _slot_impl(syn: SynFile, class_name: str, slot: Slot, records, path) -> str:
             f"                                  Q_ARG(QVariantMap, {SESSION_ARG}));",
             "    }",
         ]
+    gate = _gate(slot)
+    if gate:
+        # After the session a mesh caller is acting for is taken above, so the scope this
+        # asks about is the one the call is being made under. Refused here, before
+        # the owner's QML is reached and before any argument is even looked at.
+        lines += [
+            f"    if (!synqtAllows({_gate_literal(gate)})) {{",
+            f'        qWarning("%s: refused, the caller does not hold the scope it needs",',
+            f'                 "{where}");',
+        ] + [f"        {line}" for line in refuse] + ["    }"]
     for param in slot.params:
         lines += _bound_guard(param.type, param.name, where, param.name, refuse, "    ")
     # Whoever this slot is answering, for as long as it runs: a call the owner's

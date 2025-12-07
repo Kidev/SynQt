@@ -1685,7 +1685,9 @@ def lint_contracts(config: Dict[str, Any]) -> List[str]:
         text = contractgen.export_text(point)
         code = "\n".join(line.split("//", 1)[0] for line in text.splitlines())
         for line in code.splitlines():
-            statement = line.strip()
+            # The gate is taken off first. `<admin> slot restock(...)` declares a slot,
+            # and who may reach it is a separate question, asked in lint_member_scopes.
+            statement = contractgen.split_gate(line.strip())[1].strip()
             if not statement or contractgen.bare_name(line):
                 continue   # a name on its own: lint_exports resolves it against the owner
             if statement.split()[0] not in _CONTRACT_MEMBERS + ("record",):
@@ -1698,6 +1700,75 @@ def lint_contracts(config: Dict[str, Any]) -> List[str]:
                 f"error: {where}: 'export:' holds the members themselves, with no "
                 "'contract' wrapper around them; the point is already named")
     return messages
+
+
+def lint_member_scopes(config: Dict[str, Any]) -> List[str]:
+    """Hold every `<scope>` gate in an `export:` block to the vocabulary and to its point.
+
+    A gate is checked against the caller's session, which only a browser caller has, and
+    against the scope the point itself requires, which every caller reaching the point
+    already holds. Both are ways for a gate to say something it cannot do, and both look
+    like protection until somebody reads the runtime.
+    """
+    order = _scope_order(config)
+    scopes = config.get("scopes")
+    hierarchical = (scopes.get("hierarchical", True) if isinstance(scopes, dict) else True)
+    clients = {str(entity.get("name") or "") for entity in appmodel.entities(config)
+               if appmodel.is_client(entity)}
+    messages: List[str] = []
+    for point in appmodel.app_points(appmodel.connect_points(config)):
+        name = point.get("name")
+        where = f"connect point '{name}'"
+        point_scope = str(point.get("scope") or "").strip()
+        reaches_a_browser = bool(clients.intersection(point.get("consumers") or []))
+        for line in contractgen.export_text(point).splitlines():
+            gate, _ = contractgen.split_gate(line.split("//", 1)[0].strip())
+            if not gate:
+                continue
+            member = contractgen.bare_name(line) or _member_name(line) or gate
+            named = [word.strip() for word in gate.strip("<>").split(",")]
+            for scope in named:
+                if order and scope not in order:
+                    messages.append(
+                        f"error: {where}: '{member}' is gated on scope '{scope}', which is "
+                        f"not in scopes.order ({', '.join(order)}); no session could ever "
+                        "hold it, so the member would reach nobody")
+            if not reaches_a_browser:
+                messages.append(
+                    f"error: {where}: '{member}' is gated on a scope, and no client "
+                    f"consumes '{name}'. A scope is a property of a user's session, and a "
+                    "calling entity has none, so the gate would refuse every caller. Gate "
+                    "on Caller.entity in the slot instead")
+                break
+            if not point_scope or not order:
+                continue
+            if hierarchical:
+                # Only a scope that is in the vocabulary ranks against another. One that is
+                # not has already been reported, and saying it also refuses nobody is true
+                # and useless.
+                scope = named[0]
+                if _rank(order, scope) >= 0 and _rank(order, scope) < _rank(order, point_scope):
+                    messages.append(
+                        f"warning: {where}: '{member}' is gated on '{scope}', which every "
+                        f"caller that reached this point already holds (the point requires "
+                        f"'{point_scope}'); the gate refuses nobody")
+            elif point_scope not in named:
+                messages.append(
+                    f"error: {where}: '{member}' is gated on {' or '.join(named)} and the "
+                    f"point requires '{point_scope}'. Scopes are set-based here "
+                    "(scopes.hierarchical: false), so a caller holds exactly one and no "
+                    "caller can satisfy both")
+    return messages
+
+
+def _rank(order: List[str], scope: str) -> int:
+    return order.index(scope) if scope in order else -1
+
+
+def _member_name(line: str) -> str:
+    """The name a whole member line declares, or "" when the line is not one."""
+    declared = _declared_member(line)
+    return declared[1] if declared else ""
 
 
 def lint_exports(config: Dict[str, Any],
@@ -1783,10 +1854,10 @@ def _declared_member(line: str) -> Optional[Tuple[str, str, str]]:
     """The (kind, name, written type) a whole member line declares, or None.
 
     The type is a prop's, which is the only kind whose declaration is one word the owner
-    can be compared against; a slot's parameters and a model's roles are the call sites'
+    can be compared against. A slot's parameters and a model's roles are the call sites'
     to answer, and `lint_contract_drift` is where those are held to anything.
     """
-    code = line.split("//", 1)[0].strip()
+    code = contractgen.split_gate(line.split("//", 1)[0].strip())[1].strip()
     head = code.split("(", 1)[0]
     words = head.split()
     if len(words) < 2 or words[0] not in _CONTRACT_MEMBERS:
@@ -2148,6 +2219,7 @@ def check_project(project_dir: os.PathLike[str] | str, *, release: bool = False,
                             starting=starting)
     messages = [f"note: {source} applied" for source in resolved.sources] + messages
     contract_messages = lint_contracts(config)
+    contract_messages += lint_member_scopes(config)
     export_messages = lint_exports(config, project_dir)
     loading_messages = lint_loading(project_dir)
     client_root_messages = lint_client_root(project_dir)

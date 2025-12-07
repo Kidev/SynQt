@@ -36,6 +36,7 @@ class Prop:
     name: str
     line: int = 0
     col: int = 0
+    scope: List[str] = field(default_factory=list)
 
 
 @dataclass
@@ -61,6 +62,7 @@ class Model:
     roles: List[Role]
     line: int = 0
     col: int = 0
+    scope: List[str] = field(default_factory=list)
 
 
 @dataclass
@@ -71,6 +73,7 @@ class Signal:
     params: List[Param]
     line: int = 0
     col: int = 0
+    scope: List[str] = field(default_factory=list)
 
 
 @dataclass
@@ -86,9 +89,19 @@ class Slot:
     return_type: Union[str, None] = None
     line: int = 0
     col: int = 0
+    scope: List[str] = field(default_factory=list)
 
 
 Member = Union[Prop, Model, Signal, Slot]
+
+#: Every member carries a ``scope``: the scopes whose holder may reach it, any one of them
+#: being enough, and empty meaning everyone the point is hosted for. It is written as a
+#: ``<admin>`` prefix, and a member that wrote none inherits the connect point's ``scope:``,
+#: which the CLI has already filled in by the time a ``.syn`` reaches the compiler.
+#:
+#: The gate is on the flow, not on the shape. QtRO matches a Replica to a Source by
+#: signature, so an out-of-scope member is still declared and still acquired. What does not
+#: happen is that anything crosses. See :func:`synqtc.emit` for the mirror that enforces it.
 
 
 @dataclass

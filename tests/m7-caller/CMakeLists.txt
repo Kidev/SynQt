@@ -83,3 +83,22 @@ target_link_libraries(tst_sessions PRIVATE
 )
 
 add_test(NAME sessions COMMAND tst_sessions)
+
+# The `<scope>` gate on a member, over the shape the runtime builds: one shared Source and
+# a mirror per caller. No transport and no QML, because the question is what a mirror
+# publishes, and that is decided before anything is on a wire.
+qt_add_executable(tst_memberscope tst_memberscope.cpp)
+
+synqt_add_contract(tst_memberscope ROLE source SYN
+    "${CMAKE_CURRENT_SOURCE_DIR}/shared/Gated.syn")
+
+target_link_libraries(tst_memberscope PRIVATE
+    SynQtService
+    Qt6::Core
+    Qt6::Gui
+    Qt6::Qml
+    Qt6::RemoteObjects
+    Qt6::Test
+)
+
+add_test(NAME memberscope COMMAND tst_memberscope)

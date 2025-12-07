@@ -25,6 +25,7 @@ qt_add_executable(tst_m1 tst_m1.cpp)
 synqt_add_contract(tst_m1 ROLE both SYN
     "${CMAKE_CURRENT_SOURCE_DIR}/shared/Todo.syn"
     "${CMAKE_CURRENT_SOURCE_DIR}/shared/Catalog.syn"
+    "${CMAKE_CURRENT_SOURCE_DIR}/shared/Gated.syn"
 )
 
 target_compile_definitions(tst_m1 PRIVATE

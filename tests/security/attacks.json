@@ -203,6 +203,13 @@
       "defended_by": "The Host header has to be this server, and a request that says where it came from has to say this editor.",
       "file": "tools/synqt/tests/test_design_server.py",
       "test": "test_a_host_header_that_is_not_this_server_is_refused"
+    },
+    {
+      "id": "under-scoped-caller-reads-a-gated-member",
+      "what": "A signed-in visitor without the scope a member is gated on reads it anyway: the slot may refuse, but a prop and a model are pushed state and take no call to read.",
+      "defended_by": "A `<scope>` gate is on the flow, not the shape. The Source answering that caller never seeds or follows a member they may not see, so no value is ever serialized toward them, and losing the scope withdraws what was already sent.",
+      "file": "tests/m7-caller/tst_memberscope.cpp",
+      "test": "aMirrorPublishesOnlyWhatItsCallerMaySee"
     }
   ]
 }

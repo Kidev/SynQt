@@ -7,10 +7,11 @@ Grammar (whitespace and ``//`` or ``/* */`` comments are insignificant)::
 
     file     := (contract | record)*
     contract := 'contract' IDENT '{' member* '}'
-    member   := 'prop'   TYPE IDENT
-              | 'model'  IDENT '(' role (',' role)* ')'
-              | 'signal' IDENT '(' [param (',' param)*] ')'
-              | 'slot'   [TYPE] IDENT '(' [param (',' param)*] ')'
+    member   := [gate] ('prop'   TYPE IDENT
+                       | 'model'  IDENT '(' role (',' role)* ')'
+                       | 'signal' IDENT '(' [param (',' param)*] ')'
+                       | 'slot'   [TYPE] IDENT '(' [param (',' param)*] ')')
+    gate     := '<' IDENT (',' IDENT)* '>'
     record   := 'record' IDENT '(' [param (',' param)*] ')'
     param    := TYPE IDENT
     role     := TYPE IDENT
@@ -18,9 +19,14 @@ Grammar (whitespace and ``//`` or ``/* */`` comments are insignificant)::
 
 A type is a built-in QML value type. A bracketed number bounds it (`string[64]` is at
 most 64 characters, `list[100]` at most 100 elements, `var[4096]` at most 4096 bytes on
-the wire); which types accept one, and what the bound counts, is in :mod:`synqtc.types`.
+the wire), which types accept one, and what the bound counts, is in :mod:`synqtc.types`.
 
-The parser is deliberately strict: anything it cannot read is a :class:`SynError`
+A `gate` names the scopes that reach the member after it, any one of them being enough:
+`<admin> slot restock(string[64] sku, int count)`. A member with no gate is reachable by
+everyone the connect point is hosted for. The CLI writes the point's own `scope:` onto
+every ungated member before the file gets here, so a `.syn` is read on its own terms.
+
+The parser is strict. Anything it cannot read is a :class:`SynError`
 with a source location, so a malformed contract fails the build clearly.
 """
 
@@ -48,7 +54,7 @@ _NUMBER_RE = re.compile(r"[0-9]+")
 
 @dataclass
 class Token:
-    kind: str  # "ident", "number", "{", "}", "(", ")", ",", "[", "]", "eof"
+    kind: str  # "ident", "number", "{", "}", "(", ")", ",", "[", "]", "<", ">", "eof"
     value: str
     line: int
     col: int
@@ -86,7 +92,7 @@ def tokenize(text: str, path: str) -> List[Token]:
                 raise SynError("unterminated /* comment", path=path, line=line, col=col)
             advance(end + 2 - index)
             continue
-        if char in "{}(),[]":
+        if char in "{}(),[]<>":
             tokens.append(Token(char, char, line, col))
             advance(1)
             continue
@@ -167,6 +173,7 @@ class Parser:
         return contract
 
     def _parse_member(self, contract_name: str):
+        scope = self._parse_gate()
         token = self._peek()
         if token.kind != "ident" or token.value not in {"prop", "model", "signal", "slot"}:
             raise self._error(
@@ -175,12 +182,37 @@ class Parser:
             )
         keyword = self._next()
         if keyword.value == "prop":
-            return self._parse_prop(keyword)
-        if keyword.value == "model":
-            return self._parse_model(keyword)
-        if keyword.value == "signal":
-            return self._parse_signal(keyword)
-        return self._parse_slot(keyword)
+            member = self._parse_prop(keyword)
+        elif keyword.value == "model":
+            member = self._parse_model(keyword)
+        elif keyword.value == "signal":
+            member = self._parse_signal(keyword)
+        else:
+            member = self._parse_slot(keyword)
+        member.scope = scope
+        return member
+
+    def _parse_gate(self) -> List[str]:
+        """``<admin>`` or ``<admin, auditor>`` before a member, or nothing.
+
+        Any one of the named scopes reaches the member, which is what set-based scopes
+        need. Hierarchical ones rarely name more than one. Order is kept as written so an
+        error message can quote the line back.
+        """
+        if self._peek().kind != "<":
+            return []
+        self._next()  # '<'
+        scopes: List[str] = [self._expect_name("a scope name").value]
+        while self._peek().kind == ",":
+            self._next()
+            scopes.append(self._expect_name("a scope name").value)
+        self._expect(">", "'>' to close the scope gate")
+        seen = set()
+        for name in scopes:
+            if name in seen:
+                raise self._error(f"scope '{name}' is named twice in one gate")
+            seen.add(name)
+        return scopes
 
     def _parse_type(self, what: str) -> Token:
         """A type name and, when it carries one, the bound in brackets after it.

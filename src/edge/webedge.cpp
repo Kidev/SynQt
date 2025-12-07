@@ -1078,6 +1078,10 @@ QObject *WebEdge::sharedSource(const WebEdgeConnectPoint &connectPoint, QString 
     }
     caller->setParent(source);
     SourceFactory::bindCaller(source, caller);
+    // This one holds the state every mirror publishes from, for every session at once, so
+    // it is the one Source that does not apply a `<scope>` gate. The mirrors do, each for
+    // the session it answers.
+    SourceFactory::holdsSharedState(source);
     entry.source = source;
     entry.caller = caller;
     return source;

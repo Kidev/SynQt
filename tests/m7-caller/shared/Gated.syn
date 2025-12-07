@@ -1,0 +1,17 @@
+// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+// SPDX-License-Identifier: Apache-2.0
+
+// One owner, one surface, two audiences. The ungated members are what everyone the point
+// is hosted for may see. The `<admin>` ones are the same Source's admin surface, and the
+// gate on them is what keeps every one of their values off a moderator's wire.
+
+contract Gated {
+    prop string[80] headline
+    model catalogue(string[64] sku, real price)
+    signal pinged()
+
+    <admin> prop int pending
+    <admin> model auditLog(string[200] line)
+    <admin> slot restock(string[64] sku, int count)
+    <admin> signal restocked(string[64] sku)
+}

@@ -39,10 +39,15 @@ _HEADER = ("// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux\n"
 #: is declared inside the same block. Lifting it here is what lets one `export:` hold both.
 _RECORD = re.compile(r"^\s*record\b")
 
-#: A line that is nothing but a name: export it as the owner already implements it. The
+#: A line that is nothing but a name. Export it as the owner already implements it. The
 #: kind and the types come from reading the owner's Source, which is where they were
 #: already written down, so the block says what crosses and not a second time what it is.
 _BARE_NAME = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)$")
+
+#: The scope gate a member may open with. `<admin>` or `<admin, auditor>`. Held apart from
+#: the member itself everywhere below, so that writing a name-only export out and filling
+#: the point's own scope in are two things neither of which has to know about the other.
+_GATE = re.compile(r"^(<\s*[A-Za-z_][A-Za-z0-9_]*(?:\s*,\s*[A-Za-z_][A-Za-z0-9_]*)*\s*>)\s*")
 
 
 def export_text(point: Dict[str, Any]) -> str:
@@ -69,10 +74,21 @@ def _split_comment(line: str) -> Tuple[str, int, str]:
     return head.rstrip(), len(head), marker + tail
 
 
+def split_gate(code: str) -> Tuple[str, str]:
+    """`code` as (its scope gate, what follows it). The gate is "" when it opens with none."""
+    match = _GATE.match(code)
+    return (match.group(1), code[match.end():]) if match else ("", code)
+
+
 def bare_name(line: str) -> str:
-    """The name a line exports by name alone, or "" when it spells a whole member."""
+    """The name a line exports by name alone, or "" when it spells a whole member.
+
+    A scope gate in front of the name does not change what is being named, so it is taken
+    off first. `<admin> restock` exports `restock`, gated.
+    """
     code, _, _ = _split_comment(line)
-    match = _BARE_NAME.match(code)
+    _, rest = split_gate(code)
+    match = _BARE_NAME.match(rest)
     return match.group(1) if match else ""
 
 
@@ -103,11 +119,33 @@ def written_out(line: str, owner: Dict[str, Any]) -> str:
     member = owner.get(name) if name else None
     if member is None or not getattr(member, "certain", False):
         return line
-    _, column, comment = _split_comment(line)
-    code = rendered(member)
+    written, column, comment = _split_comment(line)
+    gate, _ = split_gate(written)
+    code = f"{gate} {rendered(member)}" if gate else rendered(member)
     if not comment:
         return code
     return code + " " * max(1, column - len(code)) + comment
+
+
+def with_inherited_gate(line: str, scope: str) -> str:
+    """`line` with the connect point's own ``scope:`` written onto it, if it named none.
+
+    A member gates on what it says, and a member that says nothing gates on what the point
+    says, which is how `scope: moderator` on the point and `<admin>` on one member read the
+    way they look. Moderators reach everything but that one. Filled in here rather than
+    left for the compiler so a generated ``.syn`` is complete on its own terms and nothing
+    downstream has to be handed the point to understand it.
+
+    A record is a type rather than a member and takes no gate. So does a blank line and a
+    line that is only a comment.
+    """
+    if not scope:
+        return line
+    code, _, _ = _split_comment(line)
+    if not code or _RECORD.match(line) or split_gate(code)[0]:
+        return line
+    indent = line[:len(line) - len(line.lstrip())]
+    return f"{indent}<{scope}> {line.lstrip()}"
 
 
 def contract_source(name: str, point: Dict[str, Any],
@@ -124,8 +162,10 @@ def contract_source(name: str, point: Dict[str, Any],
     """
     records: List[str] = []
     members: List[str] = []
+    inherited = str(point.get("scope") or "").strip()
     for written in export_text(point).splitlines():
         line = written_out(written, owner) if owner else written
+        line = with_inherited_gate(line, inherited)
         if _RECORD.match(line):
             records.append(line.strip())
         elif line.strip():

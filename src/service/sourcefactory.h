@@ -42,6 +42,19 @@ public:
     /// shared Source itself: the Caller in its QML context is the one a mirror's forwarded
     /// call adopts into.
     static bool bindCaller(QObject *source, QObject *caller);
+
+    /// Say that this Source holds the state every caller's view is made from, so its
+    /// `\<scope\>` gated members are not gated on it.
+    ///
+    /// Only the one Source a shared entity answers everyone from. It is not any caller's
+    /// view. It holds every value for all of them, and each mirror applies that caller's
+    /// gate as it republishes. Every other Source answers exactly one caller and gates by
+    /// default, which is the fail-closed way round. A Source nobody says this about hides
+    /// a gated member rather than publishing it to whoever turns up.
+    ///
+    /// Returns false when the object does not answer it, which a contract with no gated
+    /// member does not.
+    static bool holdsSharedState(QObject *source);
 };
 
 } // namespace SynQt
