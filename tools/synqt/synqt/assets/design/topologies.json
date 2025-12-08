@@ -354,6 +354,45 @@
           }
         ]
       }
+    },
+    {
+      "id": "a-mesh-member-gated-on-a-scope",
+      "rule": "member-scope-without-a-browser",
+      "level": "error",
+      "why": "A scope belongs to a user's session and a calling entity has none, so a gate on a point no client consumes refuses every caller that could reach it.",
+      "document": {
+        "version": 1,
+        "project": "rules",
+        "entities": [
+          {
+            "name": "web",
+            "type": "web_edge"
+          },
+          {
+            "name": "database",
+            "type": "relational"
+          }
+        ],
+        "links": [
+          {
+            "name": "ledger",
+            "owner": "database",
+            "consumers": [
+              "web"
+            ],
+            "members": [
+              {
+                "kind": "slot",
+                "name": "purge",
+                "type": "",
+                "scope": "admin",
+                "params": [],
+                "roles": []
+              }
+            ]
+          }
+        ]
+      }
     }
   ]
 }

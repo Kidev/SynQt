@@ -539,6 +539,7 @@ def validate(config: Dict[str, Any], *, release: bool = False,
                 f"error: scopes.hierarchical must be true or false, not "
                 f"{scopes['hierarchical']!r}")
 
+    messages += lint_member_scopes(config)
     messages += _browser_policy_messages(config, scope_order)
     messages += _cdn_delivery_messages(config)
     messages += _loading_messages(config)
@@ -2219,7 +2220,6 @@ def check_project(project_dir: os.PathLike[str] | str, *, release: bool = False,
                             starting=starting)
     messages = [f"note: {source} applied" for source in resolved.sources] + messages
     contract_messages = lint_contracts(config)
-    contract_messages += lint_member_scopes(config)
     export_messages = lint_exports(config, project_dir)
     loading_messages = lint_loading(project_dir)
     client_root_messages = lint_client_root(project_dir)

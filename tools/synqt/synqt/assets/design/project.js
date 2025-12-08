@@ -95,6 +95,11 @@ function linkLines(design, link) {
     if (link.transport) {
         lines.push(`    transport: ${scalar(link.transport)}`);
     }
+    // The scope a browser needs before it acquires the point at all, and the default for
+    // every member of the block below that does not name one of its own.
+    if (link.scope) {
+        lines.push(`    scope: ${scalar(link.scope)}`);
+    }
     // What crosses the point, written on the point: the same block designdoc.render_export
     // writes on the server side, as a YAML literal so it reads as the lines it is.
     const members = link.members || [];
@@ -150,17 +155,20 @@ function params(list) {
 }
 
 function memberLine(member) {
+    // The scope gate goes in front of whatever the member is, and a member with none
+    // inherits the point's own `scope:`, so an empty one writes nothing at all.
+    const gate = member.scope ? `<${member.scope}> ` : "";
     if (member.kind === "prop") {
-        return `prop ${member.type} ${member.name}`;
+        return `${gate}prop ${member.type} ${member.name}`;
     }
     if (member.kind === "model") {
-        return `model ${member.name}(${params(member.roles)})`;
+        return `${gate}model ${member.name}(${params(member.roles)})`;
     }
     if (member.kind === "signal") {
-        return `signal ${member.name}(${params(member.params)})`;
+        return `${gate}signal ${member.name}(${params(member.params)})`;
     }
     const returned = member.type ? `${member.type} ` : "";
-    return `slot ${returned}${member.name}(${params(member.params)})`;
+    return `${gate}slot ${returned}${member.name}(${params(member.params)})`;
 }
 
 // The folder entities of each type sit in, the same table appmodel.TYPE_FOLDERS holds. An

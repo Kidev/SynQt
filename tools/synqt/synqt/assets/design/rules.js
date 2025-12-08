@@ -174,6 +174,22 @@ function linkFindings(design, link) {
         }
     }
 
+    // A scope belongs to a user's session, and only a browser caller has one. Gating a
+    // member of a point no client consumes would refuse every caller that could ever reach
+    // it, which looks like protection and is a member nobody can use.
+    const gated = (Array.isArray(link && link.members) ? link.members : [])
+        .filter((member) => String((member && member.scope) || ""));
+    if (gated.length && !consumers.some((consumer) => clients.has(consumer))) {
+        found.push({
+            rule: "member-scope-without-a-browser",
+            level: "error",
+            link: name,
+            message: `'${gated[0].name || "a member"}' on '${name}' is gated on a scope, and `
+                + `no client consumes '${name}'. A calling entity has no session and so no `
+                + `scope: gate it on Caller.entity in the slot instead.`,
+        });
+    }
+
     // Not a mistake, and not silent either. On a local socket the operating system
     // identifies the connecting user, not the entity, so any process running as that user
     // can present any entity name.

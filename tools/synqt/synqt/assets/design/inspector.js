@@ -20,6 +20,11 @@ const TYPES = ["int", "string", "bool", "real", "float", "double", "var"];
 
 const KINDS = ["prop", "model", "signal", "slot"];
 
+// The scope vocabulary a scaffolded project starts with (project.renderYaml writes this
+// same order). A gate names one of these, and a member that names none inherits whatever
+// the point requires.
+const SCOPES = ["anonymous", "user", "moderator", "admin"];
+
 // The three entity types that take a data provider (addentity.TYPES). An api and a
 // jobs entity have no engine behind them, so neither is offered one.
 const PROVIDER_FAMILIES = new Set(["relational", "cache", "document"]);
@@ -322,6 +327,13 @@ function memberPanel(link, member, index, actions) {
             actions.changed();
         }, "returns nothing"));
     }
+    // Who reaches this member. Empty is whatever the point requires, which is the common
+    // case; naming one here raises the bar for this member alone, and nothing about it
+    // then crosses to a caller without that scope.
+    row.append(choice(["", ...SCOPES], member.scope || "", (value) => {
+        member.scope = value;
+        actions.changed();
+    }, "the point's scope"));
     row.append(remover(`Remove ${member.name || "this member"}`, () => {
         link.members.splice(index, 1);
         actions.rebuild();
@@ -390,6 +402,15 @@ function linkPanel(design, link, actions) {
     panel.append(field("Consumers", consumers));
     panel.append(note("This list is the authorization. An entity that is not on it is "
                       + "refused the replica, and nothing it does can talk its way on."));
+
+    panel.append(field("Scope", choice(["", ...SCOPES], link.scope || "", (value) => {
+        link.scope = value;
+        actions.changed();
+    }, "any session, anonymous included")));
+    panel.append(note("A browser below this scope never acquires the point at all, so its "
+                      + "slots cannot be called and none of its state arrives. It is also "
+                      + "the default for every member below: raise one of them on its own "
+                      + "to keep an admin surface off a public page."));
 
     panel.append(field("Transport", choice(["", "local"], link.transport, (value) => {
         link.transport = value;

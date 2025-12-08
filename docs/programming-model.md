@@ -215,6 +215,49 @@ The configurable parts that matter:
   looking at is answered by the file: a Source is the `server:` of a connect point its
   entity owns.
 
+### Gating one member: `<scope>`
+
+`scope:` on the point is all or nothing: below it a visitor acquires no part of the point,
+which is what you want when everything it carries is for the same audience. An owner that
+serves a public page and an admin surface is not that owner. Write the scope on the member
+instead:
+
+```yaml
+connect_points:
+  - name: storefront
+    owner: edge
+    consumers: [app]
+    scope: moderator                # the default for every member below
+    export: |
+      prop string[80] headline
+      model catalogue(string[64] sku, real price)
+
+      <admin> slot restock(string[64] sku, int count)
+      <admin> model auditLog(string[200] line)
+```
+
+A member with no gate inherits the point's `scope:`, so the block above reads the way it
+looks: moderators get the headline and the catalogue, admins get those and the two gated
+members as well. With the default hierarchical scopes a higher scope satisfies a lower one,
+which is why admin reaches everything; with `scopes.hierarchical: false` a caller holds
+exactly one scope, and a member reachable by two names them both, `<admin,auditor>`.
+
+**The gate is on what crosses, not on what is declared.** The member is still part of the
+contract, so a consumer's `Server.storefront` has an `auditLog` model either way. What
+changes is that for a caller without the scope it is never seeded, never followed, and
+never sent: the rows do not arrive and get hidden, they do not arrive. A gated `slot` is
+refused before the owner's QML sees the call, and a gated `signal` is not delivered.
+
+The gate follows the session rather than the connection. A visitor who signs in mid-session
+sees what they have just become entitled to without reloading the page, and one whose scope
+is taken away has the gated members withdrawn from the replica they are holding.
+
+Two rules `synqt check` enforces, because both are gates that look like protection and are
+not: a scope that is not in `scopes.order` can never be held by anyone, and a gate on a
+point no client consumes refuses every caller, since a scope belongs to a user's session
+and a calling entity has none. Gate a service-to-service member on `Caller.entity` in the
+slot instead.
+
 ## How many of an entity there are: `shared`
 
 Read a system as chains. Every chain starts at a browser, which is one person and is never

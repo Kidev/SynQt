@@ -312,6 +312,15 @@ serialize to any consumer. Only configured connect points are exposed; there is 
 ambient way for any consumer (browser or entity) to reach an arbitrary QObject, and
 with the registry rejected there is no discovery path either.
 
+The same allowlist runs per caller. A member written `<admin>` in the `export:` block
+([gating one member](programming-model.md#gating-one-member-scope)) crosses only to a
+session holding that scope, and the check is on the flow rather than on the shape: the
+Source answering an under-scoped caller never seeds the member, never follows it, and
+never emits it, so nothing is sent to be filtered later. This matters most for the members
+that take no call to read. A gated `slot` can be refused when it is called, but a `prop`
+and a `model` are pushed state: were they sent and hidden, reading them would take a
+console, not an exploit.
+
 ## Denial of service and resource limits
 
 - Handshake timeout. The edge accepts browser sockets through the QHttpServer

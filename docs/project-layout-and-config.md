@@ -504,6 +504,13 @@ show where the file goes.
 Omitting `scope` means any session, including an anonymous one, may acquire the connect
 point; write protection then lives inside the slots, as in the examples.
 
+A `scope` written on the point is also the default for every member of its `export:`, and
+a member may raise it with a `<scope>` prefix of its own:
+`<admin> slot restock(string[64] sku, int count)`. What the point requires decides who
+acquires it at all; what a member requires decides whether anything about that member ever
+crosses to the caller who did. See
+[gating one member](programming-model.md#gating-one-member-scope).
+
 How many Sources a point mints is not written here. It follows from `shared:` on the
 entity that owns it: shared (the default) is one Source everybody reaches through a mirror
 of their own, and `shared: false` is one Source per caller. See
@@ -1240,9 +1247,17 @@ fast. Non negotiable checks:
 - An `instance` written on a connect point is rejected, naming the entity to write
   `shared:` on instead. It is the entity's answer now, and a line that no longer does
   anything reads exactly like a line that works.
-- A `shared` that is not true or false is rejected, and so is one written on a client:
-  a client is one browser and shares with nobody.
-- A connect point `scope` not in `scopes.order` is rejected.
+- A `shared` that is not true or false is rejected, and so is one written on a client,
+  because a client is one browser and shares with nobody.
+- A connect point `scope` not in `scopes.order` is rejected, and so is a member gated on
+  one. `<root> slot purge()` names an authority no session can hold, so the member would
+  reach nobody.
+- A `<scope>` gate on a connect point no client consumes is rejected. A scope belongs to a
+  user's session and a calling entity has none, so the gate would refuse every caller. The
+  message names `Caller.entity` as what to gate a mesh member on instead.
+- A gate that cannot refuse anyone is reported: below the point's own `scope` under
+  hierarchical scopes it is a warning (every caller that reached the point already holds
+  it), and under set-based scopes it is an error (no caller can hold both).
 - `client_threads: multi` without cross origin isolation is rejected (the CLI
   offers to set it).
 - A client entity whose `Main.qml` root object is not a window

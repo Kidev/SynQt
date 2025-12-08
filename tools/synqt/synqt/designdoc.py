@@ -281,6 +281,10 @@ def _link(point: Dict[str, Any], root: Path, seats: Dict[str, Dict[str, Any]],
         "owner": owner,
         "consumers": [str(consumer) for consumer in (point.get("consumers") or [])],
         "transport": str(point.get("transport") or ""),
+        # The scope a browser needs to acquire this point at all, and the default gate on
+        # every member of it. Carried because the document is what `to_config` writes back
+        # from. A point whose scope only lived in the file would lose it on the round trip.
+        "scope": str(point.get("scope") or ""),
         "members": members,
         "server": server,
         "qml": _read_text(root / relative) if relative else "",
@@ -349,19 +353,25 @@ def _render_params(params: List[Dict[str, str]]) -> str:
 
 
 def render_member(member: Dict[str, Any]) -> str:
-    """One member of a contract, as the line a ``.syn`` file holds."""
+    """One member of a contract, as the line a ``.syn`` file holds.
+
+    A member that names a scope opens with the gate for it. One that names none inherits
+    the connect point's own ``scope:``, so it writes no gate and the CLI fills it in.
+    """
     kind = member.get("kind")
     name = member.get("name", "")
+    scope = str(member.get("scope") or "").strip()
+    gate = f"<{scope}> " if scope else ""
     if kind == "prop":
-        return f"prop {member.get('type', '')} {name}"
+        return f"{gate}prop {member.get('type', '')} {name}"
     if kind == "model":
-        return f"model {name}({_render_params(member.get('roles') or [])})"
+        return f"{gate}model {name}({_render_params(member.get('roles') or [])})"
     if kind == "signal":
-        return f"signal {name}({_render_params(member.get('params') or [])})"
+        return f"{gate}signal {name}({_render_params(member.get('params') or [])})"
     if kind == "slot":
         returned = member.get("type") or ""
         lead = f"slot {returned} " if returned else "slot "
-        return f"{lead}{name}({_render_params(member.get('params') or [])})"
+        return f"{gate}{lead}{name}({_render_params(member.get('params') or [])})"
     raise DesignDocError(f"'{name}': '{kind}' is not a contract member kind")
 
 
@@ -412,6 +422,10 @@ def _link_config(link: Dict[str, Any], base: Dict[str, Any]) -> Dict[str, Any]:
         written["transport"] = link["transport"]
     else:
         written.pop("transport", None)
+    if link.get("scope"):
+        written["scope"] = link["scope"]
+    else:
+        written.pop("scope", None)
     return written
 
 

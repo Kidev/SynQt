@@ -244,38 +244,45 @@ function paramsOf(text, line) {
 
 // One line of an `export:` block, as the member record the document holds. A line that names a
 // member and nothing else is read through what the owner declares, which is exactly what the
-// command line does with one; where the owner declares no such thing the type is `var`, the
+// command line does with one. Where the owner declares no such thing the type is `var`, the
 // same answer `synqt infer` writes when nothing gave it away.
 export function memberFrom(text, line, declared) {
-    const body = String(text || "").replace(/\/\/.*$/, "").trim();
-    if (!body) {
+    const written = String(text || "").replace(/\/\/.*$/, "").trim();
+    if (!written) {
         return null;
     }
+    // The scope gate a member may open with, taken off before the member is read: who may
+    // reach it is a separate question from what it is, and every form below is the same
+    // with or without one.
+    const gated = written.match(/^<\s*([A-Za-z_]\w*(?:\s*,\s*[A-Za-z_]\w*)*)\s*>\s*(.*)$/);
+    const scope = gated ? gated[1].split(",").map((name) => name.trim()).join(",") : "";
+    const body = gated ? gated[2].trim() : written;
+    const gate = (member) => (member ? Object.assign(member, {scope}) : member);
     const prop = body.match(new RegExp(`^prop\\s+(${TYPE})\\s+([A-Za-z_]\\w*)$`));
     if (prop) {
-        return {kind: "prop", name: prop[2], type: prop[1], params: [], roles: []};
+        return gate({kind: "prop", name: prop[2], type: prop[1], params: [], roles: []});
     }
     const model = body.match(/^model\s+([A-Za-z_]\w*)\s*\((.*)\)$/);
     if (model) {
-        return {kind: "model", name: model[1], type: "", params: [],
-                roles: paramsOf(model[2], line)};
+        return gate({kind: "model", name: model[1], type: "", params: [],
+                     roles: paramsOf(model[2], line)});
     }
     const signal = body.match(/^signal\s+([A-Za-z_]\w*)\s*\((.*)\)$/);
     if (signal) {
-        return {kind: "signal", name: signal[1], type: "",
-                params: paramsOf(signal[2], line), roles: []};
+        return gate({kind: "signal", name: signal[1], type: "",
+                     params: paramsOf(signal[2], line), roles: []});
     }
     const slot = body.match(new RegExp(`^slot\\s+(?:(${TYPE})\\s+)?([A-Za-z_]\\w*)\\s*\\((.*)\\)$`));
     if (slot) {
-        return {kind: "slot", name: slot[2], type: slot[1] || "",
-                params: paramsOf(slot[3], line), roles: []};
+        return gate({kind: "slot", name: slot[2], type: slot[1] || "",
+                     params: paramsOf(slot[3], line), roles: []});
     }
     const bare = body.match(/^([A-Za-z_]\w*)$/);
     if (bare) {
         const known = (declared || []).find((one) => one.name === bare[1]);
-        return known
+        return gate(known
             ? {...known, line: undefined}
-            : {kind: "prop", name: bare[1], type: "var", params: [], roles: []};
+            : {kind: "prop", name: bare[1], type: "var", params: [], roles: []});
     }
     throw new YamlError(line, `'${body}' is not a member: try 'prop int count', `
         + "'model rows(int id)', 'signal changed(int to)' or 'slot act(string what)'");
@@ -344,6 +351,10 @@ function linkFrom(item, entities) {
     const transport = fields.get("transport");
     if (transport && transport.value) {
         link.transport = scalar(transport.value, transport.line);
+    }
+    const scope = fields.get("scope");
+    if (scope && scope.value) {
+        link.scope = scalar(scope.value, scope.line);
     }
     const exported = fields.get("export");
     if (exported && typeof exported.literal === "string") {
