@@ -862,6 +862,19 @@ def render_edge_main(config: Dict[str, Any], edge: Dict[str, Any],
     cp_blocks: List[str] = []
     for cp in client_facing:
         cp_name = cp.get("name")
+        # A front owns a point it does not implement, so there is no Source here to host: the
+        # calls belong to whichever entity behind it serves the caller's scope, and the relay
+        # that carries them there is not built yet. Refused rather than generated as an
+        # ordinary point, which would host a Source nobody wrote and answer every caller with
+        # a default. The topology, the checks and the editor all understand `behind:`; this is
+        # the one half that does not, and it says so here rather than at run time.
+        if appmodel.is_front(cp):
+            raise appmodel.AppGenError(
+                f"connect point '{cp_name}' is a front (it has a 'behind:' block), and "
+                "building one is not implemented yet: the relay that carries a caller's "
+                "slots to the entity serving their scope, and that entity's state back, is "
+                "still to be written. Take the 'behind:' block off and answer the point on "
+                f"'{name}' itself to build today.")
         contract = appmodel.contract_of(cp)
         shared = "true" if appmodel.is_shared(edge) else "false"
         var = re.sub(r"[^0-9A-Za-z]", "", cp_name) or "connectPoint"

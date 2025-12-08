@@ -686,6 +686,40 @@ h2 {
   pointer-events: stroke;
 }
 
+/* A front, drawn as a wedge. The point faces the browser, because a browser reaches one
+   accessor whatever is behind it, and the flat side faces the mesh with a seat on it for
+   each scope. The shape is the explanation, so it is drawn in the edge's own colour rather
+   than given one of its own. It is a web edge, doing one more thing. */
+.node__wedge {
+  stroke-linejoin: round;
+}
+
+/* The seats on the flat side. Unlike the rim slots these are always visible: a scope with
+   nothing wired to it is the question the drawing is asking, and one that fades out until
+   the pointer arrives is a question nobody is asked. */
+.node__seat {
+  fill: var(--panel);
+  stroke: currentColor;
+  stroke-width: 1.4;
+  pointer-events: none;
+}
+
+.node__seat.is-taken {
+  fill: currentColor;
+}
+
+.node__seat-name {
+  fill: var(--ink-dim);
+  font-family: var(--mono);
+  font-size: 8px;
+  pointer-events: none;
+}
+
+.node__seat-grab {
+  fill: transparent;
+  cursor: crosshair;
+}
+
 .node.is-selected .node__disc {
   stroke-width: 2.5;
 }

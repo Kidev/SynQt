@@ -25,7 +25,7 @@
 // mesh is tens of nodes, not thousands, and a drawing that is a function of the document
 // cannot fall out of step with it.
 
-import { entityType } from "./rules.js";
+import { SCOPES, entityType, frontsOf } from "./rules.js";
 
 const SVG = "http://www.w3.org/2000/svg";
 
@@ -340,17 +340,47 @@ const SLOT_DOT = {8: 2.6, 16: 2.2, 32: 1.8, 64: 1.4};
 // How far past the rim a contract's badge sits, measured to its middle.
 const BADGE_REACH = 9;
 
-function node(entity, {selected, level, files, taken}) {
-    const group = element("g", {
-        // The role is a class as well as a glyph, so a client disc is the green a client
-        // is everywhere else on this page and in the guide's drawing.
-        class: `${classes("node", {selected, level})} node--${roleOf(entity)}`,
-        transform: `translate(${entity.x || 0},${entity.y || 0})`,
-    });
-    group.dataset.entity = entity.name;
-    group.append(element("circle", {class: "node__disc", r: NODE_RADIUS}));
-    group.append(glyph(entity));
+// A front is drawn as a wedge rather than a disc, and the shape is the explanation: one
+// point facing the browser, because a browser reaches one accessor whatever is behind it,
+// and one flat side facing the mesh, with a named seat on it for each scope. Read left to
+// right it says what the entity does: everyone arrives at the tip, and which of the entities
+// off the back they are handed to is decided by the scope they hold.
+const FRONT_TIP = -(NODE_RADIUS * 1.18);
+const FRONT_BACK = NODE_RADIUS * 0.68;
+const FRONT_HALF = NODE_RADIUS * 1.04;
 
+// Where the seat for the scope at `index` of `count` sits on the flat side.
+function seatPoint(index, count) {
+    if (count < 2) {
+        return {x: FRONT_BACK, y: 0};
+    }
+    const room = FRONT_HALF * 1.42;
+    return {x: FRONT_BACK, y: -(room / 2) + ((room / (count - 1)) * index)};
+}
+
+// The seats a front shows, lowest authority at the top, each with the entity it hands that
+// scope's callers to (empty until one is drawn). Every declared scope gets one whether or not
+// it has been wired: a seat nobody has connected is the question the drawing is asking, and
+// hiding it would make the wiring something a reader has to know to look for.
+export function seatsOfFront(front) {
+    const tiers = (front && front.tiers) || {};
+    return SCOPES.map((scope, index) => ({
+        scope,
+        tier: tiers[scope] || "",
+        at: seatPoint(index, SCOPES.length),
+    }));
+}
+
+// Where a link into a front arrives: the seat of whichever scope it serves, or the middle of
+// the flat side when it serves none. What arrives at a seat is the entity behind it, so the
+// line lands on the name of the scope it answers for and the routing needs no second drawing.
+export function seatFor(front, entityName) {
+    const seat = seatsOfFront(front).find((one) => one.tier === entityName);
+    return seat ? seat.at : null;
+}
+
+// The two lines under any node: what the entity is called, and the file somebody opens next.
+function nameNode(group, entity, files) {
     const name = element("text", {class: "node__name", y: NODE_RADIUS + 16,
                                   "text-anchor": "middle"});
     name.textContent = entity.name;
@@ -360,8 +390,62 @@ function node(entity, {selected, level, files, taken}) {
                                   "text-anchor": "middle"});
     file.textContent = caption(files);
     group.append(file);
+}
 
-    // The slots a link is pulled out of: every free one on the ring, drawn as a dot on the
+
+// The flat side of a wedge: one seat per declared scope, named, and filled where a link has
+// been drawn from it to the entity that serves that scope's callers.
+function frontSeats(entity, front) {
+    const group = element("g", {class: "node__seats"});
+    for (const seat of seatsOfFront(front)) {
+        const grab = element("circle", {class: "node__seat-grab", cx: seat.at.x,
+                                        cy: seat.at.y, r: 7});
+        grab.dataset.seat = entity.name;
+        grab.dataset.scope = seat.scope;
+        group.append(grab);
+        group.append(element("circle", {
+            class: `node__seat${seat.tier ? " is-taken" : ""}`,
+            cx: seat.at.x, cy: seat.at.y, r: 3,
+        }));
+        const label = element("text", {class: "node__seat-name", x: seat.at.x + 7,
+                                       y: seat.at.y + 3});
+        label.textContent = seat.scope;
+        group.append(label);
+    }
+    return group;
+}
+
+
+function node(entity, {selected, level, files, taken, front}) {
+    const group = element("g", {
+        // The role is a class as well as a glyph, so a client disc is the green a client
+        // is everywhere else on this page and in the guide's drawing.
+        class: `${classes("node", {selected, level})} node--${roleOf(entity)}`
+               + (front ? " node--front" : ""),
+        transform: `translate(${entity.x || 0},${entity.y || 0})`,
+    });
+    group.dataset.entity = entity.name;
+    if (front) {
+        group.append(element("path", {
+            class: "node__disc node__wedge",
+            d: `M ${FRONT_TIP},0 L ${FRONT_BACK},${-FRONT_HALF} `
+               + `L ${FRONT_BACK},${FRONT_HALF} Z`,
+        }));
+    } else {
+        group.append(element("circle", {class: "node__disc", r: NODE_RADIUS}));
+    }
+    group.append(glyph(entity));
+    nameNode(group, entity, files);
+    if (front) {
+        // A wedge has no ring to seat contracts on: its two sides are its two jobs. The
+        // point faces the browser and the point it owns leaves from there; the flat side
+        // carries a seat per scope, and those are what a link to an entity behind it lands
+        // on. So the rim slots below are not drawn at all.
+        group.append(frontSeats(entity, front));
+        return group;
+    }
+
+    // The slots a link is pulled out of. Every free one on the ring, drawn as a dot on the
     // rim. Every one rather than the nearest, because the entity being reached for
     // is as often to the left or below as to the right, and they are quiet enough that a ring
     // of them reads as a dial rather than as sixteen things asking to be clicked. They are
@@ -468,8 +552,10 @@ export function extent(design) {
 // the arrowhead sit square on the discs however far the line bows.
 // `leaves` moves the owner's end of the line off the rim point the geometry would pick and
 // onto the slot the contract sits on, so a link leaves from its own badge rather than from
-// wherever the two centres happen to line up.
-function ends(from, to, offset, leaves) {
+// wherever the two centres happen to line up. `arrives` does the same at the other end, and
+// is what puts a link into a front on the seat of the scope its owner answers for. Both are
+// offsets from their own entity's centre.
+function ends(from, to, offset, leaves, arrives) {
     const ax = from.x || 0;
     const ay = from.y || 0;
     const bx = to.x || 0;
@@ -484,8 +570,8 @@ function ends(from, to, offset, leaves) {
     const into = Math.hypot(cx - bx, cy - by) || 1;
     const x1 = leaves ? leaves.x : ax + (((cx - ax) / out) * NODE_RADIUS);
     const y1 = leaves ? leaves.y : ay + (((cy - ay) / out) * NODE_RADIUS);
-    const x2 = bx + (((cx - bx) / into) * NODE_RADIUS);
-    const y2 = by + (((cy - by) / into) * NODE_RADIUS);
+    const x2 = arrives ? bx + arrives.x : bx + (((cx - bx) / into) * NODE_RADIUS);
+    const y2 = arrives ? by + arrives.y : by + (((cy - by) / into) * NODE_RADIUS);
     return {
         x1,
         y1,
@@ -539,10 +625,14 @@ function line(link, from, to, options) {
     const group = element("g", {class: classes("link", options)});
     group.dataset.link = link.name;
 
-    // Where the contract sits on the owner, and therefore where the line starts.
-    const seat = slotPoint(options.slot || 0, NODE_RADIUS + BADGE_REACH);
+    // Where the contract sits on the owner, and therefore where the line starts. A front
+    // owns one point and it is the browser's, so it leaves from the tip rather than from a
+    // seat on a ring the wedge does not have.
+    const seat = options.fromFront
+        ? {x: FRONT_TIP - BADGE_REACH, y: 0}
+        : slotPoint(options.slot || 0, NODE_RADIUS + BADGE_REACH);
     const badgeAt = {x: (from.x || 0) + seat.x, y: (from.y || 0) + seat.y};
-    const edge = ends(from, to, options.offset || 0, badgeAt);
+    const edge = ends(from, to, options.offset || 0, badgeAt, options.arrives);
     const path = curve(edge);
     group.append(element("path", {class: "link__line", d: path}));
 
@@ -625,8 +715,9 @@ export function draw(layers, design, {problems, selected, filesOf}) {
     }
 
     // Worked out in two passes, because where a line goes depends on how many other lines
-    // run between the same two entities: an edge that owns three connect points a browser
+    // run between the same two entities. An edge that owns three connect points a browser
     // consumes would otherwise be one line with three names fighting over it.
+    const fronts = frontsOf(design);
     const wanted = [];
     for (const link of design.links || []) {
         const found = problems.links.get(link.name) || [];
@@ -653,7 +744,10 @@ export function draw(layers, design, {problems, selected, filesOf}) {
             continue;
         }
         for (const target of targets) {
-            wanted.push({link, owner, options, target});
+            // A link into a front arrives on the seat of the scope its owner serves, so the
+            // line lands on the name of the scope it answers for.
+            const arrives = seatFor(fronts.get(target.name), owner.name);
+            wanted.push({link, owner, options, target, arrives});
         }
     }
 
@@ -672,7 +766,8 @@ export function draw(layers, design, {problems, selected, filesOf}) {
             .sort((one, other) => one.side - other.side);
         spread.forEach(({item}, index) => {
             const offset = (index - ((spread.length - 1) / 2)) * LANE_GAP;
-            const options = {...item.options, offset};
+            const options = {...item.options, offset, arrives: item.arrives,
+                             fromFront: fronts.has(item.owner.name)};
             layers.links.append(item.target
                 ? line(item.link, item.owner, item.target, options)
                 : stub(item.link, item.owner, options));
@@ -687,6 +782,7 @@ export function draw(layers, design, {problems, selected, filesOf}) {
             files: filesOf ? filesOf(entity) : [],
             taken: (design.links || []).filter((link) => link.owner === entity.name)
                 .map((link) => slots.get(link.name)),
+            front: fronts.get(entity.name) || null,
         }));
     }
 }

@@ -149,7 +149,7 @@ def with_inherited_gate(line: str, scope: str) -> str:
 
 
 def contract_source(name: str, point: Dict[str, Any],
-                    owner: Dict[str, Any] | None = None) -> str:
+                    owner: Dict[str, Any] | None = None, *, inherit: bool = True) -> str:
     """The ``.syn`` text for one connect point's contract.
 
     Members go inside ``contract <Name> { ... }``; a ``record`` line goes above it, because
@@ -162,7 +162,10 @@ def contract_source(name: str, point: Dict[str, Any],
     """
     records: List[str] = []
     members: List[str] = []
-    inherited = str(point.get("scope") or "").strip()
+    # `inherit` is off for a reader that has the point in hand and will write the block back
+    # out: filling the point's own scope onto every line would turn a `scope:` written once
+    # into a gate written on each member, which is the same contract spelled longer.
+    inherited = str(point.get("scope") or "").strip() if inherit else ""
     for written in export_text(point).splitlines():
         line = written_out(written, owner) if owner else written
         line = with_inherited_gate(line, inherited)

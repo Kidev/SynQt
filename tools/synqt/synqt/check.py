@@ -540,6 +540,7 @@ def validate(config: Dict[str, Any], *, release: bool = False,
                 f"{scopes['hierarchical']!r}")
 
     messages += lint_member_scopes(config)
+    messages += lint_fronts(config)
     messages += _browser_policy_messages(config, scope_order)
     messages += _cdn_delivery_messages(config)
     messages += _loading_messages(config)
@@ -1760,6 +1761,187 @@ def lint_member_scopes(config: Dict[str, Any]) -> List[str]:
                     "(scopes.hierarchical: false), so a caller holds exactly one and no "
                     "caller can satisfy both")
     return messages
+
+
+def lint_fronts(config: Dict[str, Any]) -> List[str]:
+    """Hold a `behind:` block to the thing it claims to be.
+
+    A front is a web edge that owns a point it does not implement and hands each caller to
+    the entity that serves people of their scope. What makes it safe is that a caller only
+    ever reaches the one entity their scope names, so that entity can authorize on `Caller`
+    and never ask about scope. That only holds if the front and the entities behind it agree
+    about what crosses, which is what most of this checks.
+    """
+    order = _scope_order(config)
+    entities = {str(entity.get("name") or ""): entity for entity in appmodel.entities(config)}
+    clients = {name for name, entity in entities.items() if appmodel.is_client(entity)}
+    edges = {name for name, entity in entities.items()
+             if appmodel.entity_type(entity) == "web_edge"}
+    owned: Dict[str, List[Dict[str, Any]]] = {}
+    for point in appmodel.app_points(appmodel.connect_points(config)):
+        owned.setdefault(str(point.get("owner") or ""), []).append(point)
+
+    messages: List[str] = []
+    for point in appmodel.app_points(appmodel.connect_points(config)):
+        if not appmodel.is_front(point):
+            continue
+        tiers = appmodel.behind(point)
+        name = point.get("name")
+        where = f"connect point '{name}'"
+        owner = str(point.get("owner") or "")
+        if owner not in edges:
+            messages.append(
+                f"error: {where} has a 'behind:' block and is owned by '{owner}', which is "
+                "not a web_edge entity. A front terminates the browser link, holds the "
+                "session and runs the sign-in before it hands anyone on, and only a web "
+                "edge does those")
+        if not clients.intersection(point.get("consumers") or []):
+            messages.append(
+                f"error: {where} has a 'behind:' block and no client consumes it. A front "
+                "exists to split browser callers by scope; between entities there is no "
+                "session to split on")
+        if not tiers:
+            messages.append(
+                f"warning: {where} is a front with nothing under its 'behind:', so it hands "
+                "nobody anywhere and every caller is refused. Say which entity serves each "
+                "scope, or take the block off and answer the point here")
+        messages += _tier_messages(config, point, where, tiers, order, entities, clients,
+                                   owned)
+    return messages
+
+
+def _tier_messages(config: Dict[str, Any], point: Dict[str, Any], where: str,
+                   tiers: Dict[str, str], order: List[str],
+                   entities: Dict[str, Any], clients: Set[str],
+                   owned: Dict[str, List[Dict[str, Any]]]) -> List[str]:
+    """What each scope-to-entity line of one `behind:` block says about itself."""
+    messages: List[str] = []
+    reachable: Dict[str, str] = {}
+    for scope, tier in tiers.items():
+        if order and scope not in order:
+            messages.append(
+                f"error: {where}: 'behind:' sends scope '{scope}' to '{tier}', and "
+                f"'{scope}' is not in scopes.order ({', '.join(order)}); no session could "
+                "ever hold it, so nothing would ever be sent there")
+        if tier not in entities:
+            messages.append(
+                f"error: {where}: 'behind:' sends scope '{scope}' to '{tier}', which is not "
+                "an entity in this project")
+            continue
+        if tier in clients:
+            messages.append(
+                f"error: {where}: 'behind:' sends scope '{scope}' to '{tier}', which is a "
+                "client. A browser hosts nothing, so there is nothing behind it to reach")
+            continue
+        if tier == str(point.get("owner") or ""):
+            messages.append(
+                f"error: {where}: 'behind:' sends scope '{scope}' to '{tier}', which owns "
+                "the point. A front hands callers on to somewhere else, or it implements "
+                "the point itself and needs no 'behind:'")
+            continue
+        if not owned.get(tier):
+            messages.append(
+                f"error: {where}: 'behind:' sends scope '{scope}' to '{tier}', which owns "
+                "no connect point, so there is nothing there to answer the calls")
+            continue
+        reachable[scope] = tier
+    return messages + _surface_messages(config, point, where, reachable, order, owned)
+
+
+def _surface_messages(config: Dict[str, Any], point: Dict[str, Any], where: str,
+                      tiers: Dict[str, str], order: List[str],
+                      owned: Dict[str, List[Dict[str, Any]]]) -> List[str]:
+    """What each entity behind the front carries, against what the front promises its callers.
+
+    Grouped by the entity rather than by the scope, because the runtime routes a scope with
+    no line of its own to the highest tier it satisfies. With `anonymous` and `admin`
+    written, a moderator lands on the anonymous one, and that entity has to answer what a
+    moderator can reach. The front's contract is the whole surface and a tier answers the
+    slice of it its own callers reach. Anything more is a member no caller could ever ask
+    for, anything less is one the front carries and nobody behind it answers.
+    """
+    front = _front_members(point)
+    if front is None or not tiers:
+        return []
+    scopes = config.get("scopes")
+    hierarchical = (scopes.get("hierarchical", True) if isinstance(scopes, dict) else True)
+    default_gate = str(point.get("scope") or "").strip()
+    served: Dict[str, List[str]] = {}
+    for held in (order or sorted(tiers)):
+        tier = _tier_for(held, tiers, order, hierarchical)
+        if tier:
+            served.setdefault(tier, []).append(held)
+
+    messages: List[str] = []
+    for tier, held in served.items():
+        carried_members = _front_members((owned.get(tier) or [{}])[0])
+        if carried_members is None:
+            continue
+        wanted = {(member["kind"], member["name"]) for member in front
+                  if any(_reaches(member.get("scope") or default_gate, one, order,
+                                  hierarchical) for one in held)}
+        carried = {(member["kind"], member["name"]) for member in carried_members}
+        audience = " or ".join(f"'{one}'" for one in held)
+        for kind, name in sorted(wanted - carried):
+            messages.append(
+                f"error: {where}: {audience} goes to '{tier}', and the front carries {kind} "
+                f"'{name}' at that scope while '{tier}' does not. Add it there, or gate it "
+                "away from this scope")
+        for kind, name in sorted(carried - wanted):
+            messages.append(
+                f"error: {where}: '{tier}' carries {kind} '{name}' and the front does not "
+                f"offer it to {audience}, so no caller could ever reach it")
+    return messages
+
+
+def _tier_for(held: str, tiers: Dict[str, str], order: List[str],
+              hierarchical: bool) -> str:
+    """Which entity a caller holding `held` is handed to, the rule the runtime uses.
+
+    Their own scope where the block names it. Otherwise, under hierarchical scopes, the
+    highest tier at or below what they hold, so a scope nobody wrote a line for still lands
+    somewhere sensible. Under set-based scopes there is no ordering to fall back on and an
+    unnamed scope is handed nowhere, which is the fail-closed answer.
+    """
+    if held in tiers:
+        return tiers[held]
+    if not hierarchical or not order:
+        return ""
+    best = ""
+    highest = -1
+    for scope, tier in tiers.items():
+        rank = _rank(order, scope)
+        if 0 <= rank <= _rank(order, held) and rank > highest:
+            best = tier
+            highest = rank
+    return best
+
+
+def _front_members(point: Dict[str, Any]) -> Optional[List[Dict[str, Any]]]:
+    """A point's members, or None when its block will not read.
+
+    Gates are as written, without the point's own `scope:` filled in, which is what
+    :func:`_reaches` is handed separately: the two points being compared have scopes of
+    their own and inheriting each into its own members would compare two different things.
+    """
+    if not point.get("name"):
+        return None
+    try:
+        return designdoc.parse_export(appmodel.contract_of(point), point)
+    except designdoc.DesignDocError:
+        return None   # lint_contracts and the build both say so in their own words
+
+
+def _reaches(gate: str, held: str, order: List[str], hierarchical: bool) -> bool:
+    """Does a caller holding `held` reach a member gated on `gate`?"""
+    if not gate:
+        return True
+    named = [word.strip() for word in gate.split(",") if word.strip()]
+    if held in named:
+        return True
+    if not hierarchical or not order:
+        return False
+    return any(_rank(order, held) >= _rank(order, one) >= 0 for one in named)
 
 
 def _rank(order: List[str], scope: str) -> int:

@@ -10,7 +10,7 @@
 // with it, because leaving either behind would leave the project naming an entity that is
 // not there.
 
-import { entityType } from "./rules.js";
+import { SCOPES, behindOf, entityType } from "./rules.js";
 import { ROLE_HELP, glyphSvg, roleOf } from "./canvas.js";
 import { declarations } from "./source.js";
 
@@ -19,11 +19,6 @@ import { declarations } from "./source.js";
 const TYPES = ["int", "string", "bool", "real", "float", "double", "var"];
 
 const KINDS = ["prop", "model", "signal", "slot"];
-
-// The scope vocabulary a scaffolded project starts with (project.renderYaml writes this
-// same order). A gate names one of these, and a member that names none inherits whatever
-// the point requires.
-const SCOPES = ["anonymous", "user", "moderator", "admin"];
 
 // The three entity types that take a data provider (addentity.TYPES). An api and a
 // jobs entity have no engine behind them, so neither is offered one.
@@ -371,6 +366,48 @@ function membersPanel(link, actions) {
     return box;
 }
 
+// Whether this point is a front, and where each scope currently goes.
+//
+// The switch is here because becoming a front is a decision about the point; the wiring is
+// not, and there is no control for it here on purpose. A front is drawn as a wedge with a
+// seat per scope on its flat side, and a scope is handed to an entity by dragging from its
+// seat onto that entity. That way the routing is read off the picture instead of out of a
+// list of drop-downs, which is the whole reason to draw a system rather than write it.
+function frontPanel(design, link, actions) {
+    const box = document.createDocumentFragment();
+    const entities = design.entities || [];
+    const owner = entities.find((entity) => entity.name === link.owner);
+    const clients = new Set(entities.filter((entity) => entityType(entity) === "client")
+                                    .map((entity) => entity.name));
+    if (!owner || entityType(owner) !== "web_edge"
+        || !(link.consumers || []).some((consumer) => clients.has(consumer))) {
+        return box;   // only a browser-facing web edge has callers to split
+    }
+    const tiers = behindOf(link);
+    const isFront = Boolean(link.behind);
+    box.append(check("Hand callers to entities behind it", isFront, (on) => {
+        link.behind = on ? {...tiers} : undefined;
+        if (!on) {
+            delete link.behind;
+        }
+        actions.rebuild();
+    }));
+    if (!isFront) {
+        box.append(note("The edge answers this point itself. Turn this on to make it a "
+                        + "front: it keeps the session and the sign-in, and hands each "
+                        + "caller to the entity that serves people of their scope.", true));
+        return box;
+    }
+    const wired = SCOPES.filter((scope) => tiers[scope]);
+    box.append(note(wired.length
+        ? `Drawn on the canvas: ${wired.map((scope) => `${scope} to ${tiers[scope]}`)
+            .join(", ")}. Drag from a seat on the flat side to change one, or onto empty `
+            + `canvas to take it off.`
+        : "Now drag from a seat on the wedge's flat side onto the entity that serves that "
+          + "scope. Until one is wired the front hands nobody anywhere.", true));
+    return box;
+}
+
 function linkPanel(design, link, actions) {
     const panel = document.createDocumentFragment();
     panel.append(tag("h2", {class: "inspector__title"}, link.name || "this connect point"));
@@ -411,6 +448,8 @@ function linkPanel(design, link, actions) {
                       + "slots cannot be called and none of its state arrives. It is also "
                       + "the default for every member below: raise one of them on its own "
                       + "to keep an admin surface off a public page."));
+
+    panel.append(frontPanel(design, link, actions));
 
     panel.append(field("Transport", choice(["", "local"], link.transport, (value) => {
         link.transport = value;

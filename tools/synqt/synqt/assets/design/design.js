@@ -19,7 +19,7 @@
 // Run with no server behind it (the copy on synqt.org) the page still edits, and Apply
 // becomes a download of the project it would have written.
 
-import { findings as ruleFindings } from "./rules.js";
+import { entityType, findings as ruleFindings } from "./rules.js";
 import { NODE_RADIUS, ROLE_HELP, describe, draw, element, entityAt, extent, glyphSvg,
          nearestFreeSlot, roleOf, slotIndex, turnsToward } from "./canvas.js";
 import { inspect } from "./inspector.js";
@@ -1531,7 +1531,18 @@ function capitalised(name) {
 // `toward` is where the link was headed when it was drawn, which is the slot it takes on its
 // owner's rim: a link pulled to the left leaves from the left. It is the drop point rather
 // than the consumer's centre, because a link dropped on empty canvas has no consumer yet.
-function addLink(owner, consumer, toward, at) {
+function addLink(from, to, headed, at) {
+    // A browser owns nothing. An owner hosts the Source and listens for consumers to
+    // acquire it, and there is no WebSocket server under WebAssembly, so a line drawn from
+    // the browser is somebody saying which two entities talk, not which way the hosting
+    // goes. Turn it around and say so: the gesture works from either end, and only one of
+    // the two links it could mean can be built.
+    const drawnFromAClient = entityType(from) === "client" && entityType(to) !== "client";
+    const owner = drawnFromAClient ? to : from;
+    const consumer = drawnFromAClient ? from : to;
+    // The drop point picks which side of the owner's rim the line leaves from. Turned
+    // around, the drop point is on the wrong entity, so the consumer picks it instead.
+    const toward = drawnFromAClient ? null : headed;
     const taken = new Set((state.design.links || []).map((link) => link.name));
     const name = unique(`${owner.name}To${capitalised(consumer.name)}`, taken);
     const seats = slotIndex(state.design);
@@ -1555,8 +1566,11 @@ function addLink(owner, consumer, toward, at) {
     state.design.links.push(link);
     touched();
     select({kind: "link", name});
-    say(`'${owner.name}' now owns '${name}' and '${consumer.name}' consumes it. What `
-        + `crosses it is written on the point, and ${entityDir(owner)}/`
+    say(`'${owner.name}' now owns '${name}' and '${consumer.name}' consumes it`
+        + (drawnFromAClient
+            ? `, drawn the other way round because a browser cannot host a Source. `
+            : `. `)
+        + `What crosses it is written on the point, and ${entityDir(owner)}/`
         + `${contractOf(link)}.qml answers it. Say what crosses it.`);
     // Straight into the one question a new link asks. It opens on the link rather than
     // waiting to be found in the panel, because a connect point that carries nothing is a
@@ -1564,6 +1578,42 @@ function addLink(owner, consumer, toward, at) {
     if (at) {
         openPicker(link, at);
     }
+}
+
+// Hand one scope's callers to `target`, or to nobody when the line was dropped on empty
+// canvas. The front consumes what that entity owns, so the connect point that carries the
+// calls is drawn at the same time if it is not there yet: `behind:` is the whole declaration,
+// and asking somebody to draw the same relationship twice is asking them to get it wrong once.
+function sendScopeBehind(front, scope, target) {
+    const point = (state.design.links || []).find((link) => link.owner === front.name
+                                                            && link.behind);
+    if (!point) {
+        return;
+    }
+    const tiers = {...(point.behind || {})};
+    if (!target || target === front) {
+        delete tiers[scope];
+        point.behind = tiers;
+        touched();
+        say(`'${scope}' is not handed to anybody now. Callers holding it fall to the `
+            + `highest scope below it that is, and to nowhere at all if there is none.`);
+        return;
+    }
+    if (entityType(target) === "client") {
+        say("A browser hosts nothing, so there is nothing behind it to hand anyone to. "
+            + "Drop this on a service.");
+        return;
+    }
+    tiers[scope] = target.name;
+    point.behind = tiers;
+    if (!(state.design.links || []).some((link) => link.owner === target.name
+                                                   && (link.consumers || [])
+                                                       .includes(front.name))) {
+        addLink(target, front, null, null);
+    }
+    touched();
+    say(`Callers holding '${scope}' are handed to '${target.name}'. It answers them with `
+        + `Caller in hand and never asks about scope: nobody else reaches it.`);
 }
 
 // What a link dropped on empty canvas opens: the palette again, at the point it was let go,
@@ -1675,12 +1725,29 @@ function onDown(event) {
     closePicker();
     closeRename();
     const at = pointAt(event);
+    const seat = event.target.closest("[data-seat]");
     const rim = event.target.closest("[data-rim]");
     const held = event.target.closest("[data-entity]");
     const link = event.target.closest("[data-link]");
     const zone = event.target.closest("[data-zone]");
     page.canvas.setPointerCapture(event.pointerId);
 
+    // A seat on a front's flat side. Dragging off one says which entity serves that scope,
+    // which is a different question from who consumes what. The line being pulled is the
+    // routing, and the connect point it needs is drawn for you if it is not there yet.
+    if (seat) {
+        const from = entityNamed(seat.dataset.seat);
+        drag = {
+            mode: "behind",
+            from,
+            scope: seat.dataset.scope,
+            at,
+            moved: false,
+            start: {x: (from.x || 0) + Number(seat.getAttribute("cx")),
+                    y: (from.y || 0) + Number(seat.getAttribute("cy"))},
+        };
+        return;
+    }
     if (rim) {
         const from = entityNamed(rim.dataset.rim);
         // Drawn from the handle that was grabbed rather than from the middle of the disc, so
@@ -1779,7 +1846,7 @@ function onMove(event) {
         redraw();
         return;
     }
-    if (drag.mode === "link" && drag.from) {
+    if ((drag.mode === "link" || drag.mode === "behind") && drag.from) {
         page.ghost.replaceChildren(element("line", {
             class: "ghost",
             x1: drag.start.x,
@@ -1823,6 +1890,11 @@ function onUp(event) {
         page.canvas.releasePointerCapture(event.pointerId);
     }
 
+    if (finished.mode === "behind" && finished.from) {
+        const target = entityAt(state.design, pointAt(event).local);
+        sendScopeBehind(finished.from, finished.scope, target);
+        return;
+    }
     if (finished.mode === "link" && finished.from) {
         const at = pointAt(event);
         const target = entityAt(state.design, at.local);

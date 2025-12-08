@@ -356,6 +356,19 @@ function linkFrom(item, entities) {
     if (scope && scope.value) {
         link.scope = scalar(scope.value, scope.line);
     }
+    // Which entity serves each scope, on a point that is a front. Read as a mapping of its
+    // own rather than folded into the link's fields, because the keys are scope names and
+    // any of them could collide with a field name here.
+    const behind = fields.get("behind");
+    if (behind && Array.isArray(behind.body) && behind.body.length) {
+        const tiers = {};
+        for (const [name, held] of mapping(behind.body)) {
+            if (held && held.value) {
+                tiers[name] = scalar(held.value, held.line);
+            }
+        }
+        link.behind = tiers;
+    }
     const exported = fields.get("export");
     if (exported && typeof exported.literal === "string") {
         const declared = (entities.get(link.owner) || {}).declared || [];

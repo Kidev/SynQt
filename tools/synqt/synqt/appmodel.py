@@ -432,6 +432,53 @@ def contract_of(point: Dict[str, Any]) -> str:
     return f"{name[:1].upper()}{name[1:]}" if name else ""
 
 
+def behind(point: Dict[str, Any]) -> Dict[str, str]:
+    """Which entity serves each scope on a point that is a front, `{}` when it is not one.
+
+    A front is a web edge that owns a point it does not implement. It terminates the
+    browser link, holds the session, and runs the sign-in, and then hands each caller to the
+    entity that serves people of that scope. The browser reaches one accessor, named after
+    the front, whatever is behind it. Each entity behind it only ever sees callers of its own
+    scope, so it authorizes on `Caller` and never asks about scope at all.
+
+    Written as a mapping of scope to entity name::
+
+        behind:
+          anonymous: lobby
+          admin: backoffice
+
+    The entities named here consume nothing of the front's. It consumes theirs, and it is
+    this block that says so, so a front does not also have to be written onto each of their
+    consumer lists.
+    """
+    declared = point.get("behind")
+    if not isinstance(declared, dict):
+        return {}
+    return {str(scope): str(entity) for scope, entity in declared.items()
+            if str(scope) and str(entity)}
+
+
+def is_front(point: Dict[str, Any]) -> bool:
+    """Does this point hand its callers to entities behind it rather than implement them?
+
+    The key being written is the answer, the way `network:` works: `behind:` says the point
+    is answered by entities behind it, and what is under it says which. One with nothing
+    under it is a front that hands nobody anywhere, which `synqt check` reports rather than
+    quietly reading as an ordinary point.
+    """
+    return isinstance(point.get("behind"), dict)
+
+
+def fronted_by(config: Dict[str, Any], entity_name: str) -> List[Dict[str, Any]]:
+    """The points whose front hands some scope's callers to `entity_name`.
+
+    What an entity behind a front owns is an ordinary point of its own. This is the other
+    direction, and it is what tells the front's build which replicas it has to acquire.
+    """
+    return [cp for cp in connect_points(config)
+            if entity_name in behind(cp).values()]
+
+
 def consumed_by(config: Dict[str, Any], entity_name: str) -> List[Dict[str, Any]]:
     return [cp for cp in connect_points(config)
             if entity_name in (cp.get("consumers") or [])]

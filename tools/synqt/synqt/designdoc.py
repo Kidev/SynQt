@@ -184,20 +184,30 @@ def _param(param: Any) -> Dict[str, str]:
 
 
 def _member(node: Any, model: Any) -> Dict[str, Any]:
-    """One parsed contract member as the flat record the editor and the inference share."""
+    """One parsed contract member as the flat record the editor and the inference share.
+
+    A `<scope>` gate becomes a `scope` key, and only when there is one: most members are not
+    gated, and a key spelling that out on every one of them would be noise in every document
+    and in every fixture that holds one.
+    """
     if isinstance(node, model.Prop):
-        return {"kind": "prop", "name": node.name, "type": node.type,
-                "params": [], "roles": []}
-    if isinstance(node, model.Model):
-        return {"kind": "model", "name": node.name, "type": "",
-                "params": [], "roles": [_param(role) for role in node.roles]}
-    if isinstance(node, model.Signal):
-        return {"kind": "signal", "name": node.name, "type": "",
-                "params": [_param(param) for param in node.params], "roles": []}
-    if isinstance(node, model.Slot):
-        return {"kind": "slot", "name": node.name, "type": node.return_type or "",
-                "params": [_param(param) for param in node.params], "roles": []}
-    raise DesignDocError(f"unknown contract member {type(node).__name__}")
+        member = {"kind": "prop", "name": node.name, "type": node.type,
+                  "params": [], "roles": []}
+    elif isinstance(node, model.Model):
+        member = {"kind": "model", "name": node.name, "type": "",
+                  "params": [], "roles": [_param(role) for role in node.roles]}
+    elif isinstance(node, model.Signal):
+        member = {"kind": "signal", "name": node.name, "type": "",
+                  "params": [_param(param) for param in node.params], "roles": []}
+    elif isinstance(node, model.Slot):
+        member = {"kind": "slot", "name": node.name, "type": node.return_type or "",
+                  "params": [_param(param) for param in node.params], "roles": []}
+    else:
+        raise DesignDocError(f"unknown contract member {type(node).__name__}")
+    scope = ",".join(getattr(node, "scope", None) or [])
+    if scope:
+        member["scope"] = scope
+    return member
 
 
 def _members_of(parsed: Any, name: str, where: str, model: Any) -> List[Dict[str, Any]]:
@@ -226,10 +236,11 @@ def parse_export(name: str, point: Dict[str, Any],
     """The members a connect point's ``export:`` block declares.
 
     `owner` is what the owner's Source implements, which is what a line naming a member
-    and nothing else is read through; without it such a line is not a member and the
+    and nothing else is read through. Without it such a line is not a member and the
     parse says so.
     """
-    return parse_from_text(contractgen.contract_source(name, point, owner), name)
+    return parse_from_text(
+        contractgen.contract_source(name, point, owner, inherit=False), name)
 
 
 def _read_text(path: Path) -> str:

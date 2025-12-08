@@ -100,7 +100,18 @@ function linkLines(design, link) {
     if (link.scope) {
         lines.push(`    scope: ${scalar(link.scope)}`);
     }
-    // What crosses the point, written on the point: the same block designdoc.render_export
+    // A front hands each scope's callers to the entity that serves them. Written before the
+    // export block so the two are not separated by it: this is who answers, and that is what
+    // they answer with.
+    const tiers = link.behind || {};
+    const scopes = Object.keys(tiers).filter((scope) => tiers[scope]);
+    if (scopes.length) {
+        lines.push("    behind:");
+        for (const scope of scopes) {
+            lines.push(`      ${scope}: ${scalar(tiers[scope])}`);
+        }
+    }
+    // What crosses the point, written on the point. The same block designdoc.render_export
     // writes on the server side, as a YAML literal so it reads as the lines it is.
     const members = link.members || [];
     if (members.length) {

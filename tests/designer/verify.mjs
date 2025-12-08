@@ -344,6 +344,98 @@ function serveAssets() {
     });
 }
 
+// Drag from a seat on a front's flat side onto an entity, which is how a scope is handed to
+// the one that serves it. The seats are always visible, unlike the rim handles.
+async function dragSeat(page, front, scope, toEntity) {
+    const seat = await page.locator(`[data-seat="${front}"][data-scope="${scope}"]`)
+                           .boundingBox();
+    const target = await discCentre(page, toEntity);
+    const start = { x: seat.x + (seat.width / 2), y: seat.y + (seat.height / 2) };
+    await page.mouse.move(start.x, start.y);
+    await page.mouse.down();
+    await page.mouse.move((start.x + target.x) / 2, (start.y + target.y) / 2, { steps: 8 });
+    await page.mouse.move(target.x, target.y, { steps: 8 });
+    await page.mouse.up();
+}
+
+// A browser owns nothing, and a front is a web edge that hands its callers on. Both are drawn
+// rather than configured, so both are checked the way somebody would do them.
+async function theFrontThatSplitsCallers() {
+    console.log("\nDrawing a front, and a link a browser cannot own");
+    const server = await serveAssets();
+    const origin = `http://127.0.0.1:${server.address().port}`;
+    const browser = await chromium.launch({ headless });
+    const page = await browser.newPage();
+    const refused = [];
+    page.on("pageerror", (error) => refused.push(String(error)));
+    page.on("console", (message) => {
+        const from = (message.location() || {}).url || "";
+        if (message.type() === "error" && !from.endsWith("/api/project")) {
+            refused.push(`${message.text()} (${from})`);
+        }
+    });
+    try {
+        await page.goto(`${origin}/index.html`);
+        await page.waitForFunction(
+            () => document.getElementById("apply").textContent === "Download");
+        await dropEntity(page, "Client", { x: 80, y: 110 });
+        await page.waitForSelector('[data-entity="client"]');
+        await dropEntity(page, "Web edge", { x: 330, y: 110 });
+        await page.waitForSelector('[data-entity="web"]');
+        await dropEntity(page, "Service", { x: 590, y: 260 });
+        await page.waitForSelector('[data-entity="service"]');
+
+        // Drawn from the browser, which cannot own a connect point. The page turns it round
+        // rather than drawing something that could never be built.
+        await dragLink(page, "client", "web");
+        await page.waitForSelector("[data-link]");
+        // A point is named for the direction it runs, so the name is the assertion: drawn
+        // from the browser, it comes out owned by the edge.
+        check(await page.locator('[data-link="webToClient"]').count() === 1,
+              "a link drawn from the browser is turned round and owned by the edge");
+        check(await page.locator('[data-link="clientToWeb"]').count() === 0,
+              "and the one a browser could never host is not drawn");
+        // A new point opens the picker asking what crosses it, and it sits over the
+        // canvas; clicking empty canvas puts it away, which is what anybody would do.
+        const canvasBox = await page.locator("#canvas").boundingBox();
+        await page.mouse.click(canvasBox.x + 660, canvasBox.y + 30);
+
+        // Turned into a front from the panel, wired on the canvas. Selected by opening the
+        // Source that answers it, the same way the panes and the canvas agree elsewhere: an
+        // SVG hit band has no box a click can be aimed at.
+        await fileRow(page, "web/web/WebToClient.qml").click();
+        await page.waitForSelector('[data-link="webToClient"].is-selected');
+        await page.locator(".check", { hasText: "Hand callers to entities behind it" })
+                  .locator("input").check();
+        await page.waitForSelector('[data-entity="web"] .node__wedge');
+        check(await page.locator('[data-seat="web"]').count() === 4,
+              "a front is drawn as a wedge with a seat for every scope");
+        check(await page.locator('[data-entity="web"] .node__seat.is-taken').count() === 0,
+              "and every seat starts empty, which is the question the drawing asks");
+
+        await dragSeat(page, "web", "admin", "service");
+        await page.waitForSelector('[data-entity="web"] .node__seat.is-taken');
+        check(await page.locator('[data-entity="web"] .node__seat.is-taken').count() === 1,
+              "dragging from the admin seat fills it in");
+        await page.waitForSelector('[data-link="serviceToWeb"]');
+        check(true, "with the connect point the front consumes drawn at the same time");
+
+        // And it is in the file, which is the only place any of it means anything.
+        await fileRow(page, "synqt.yaml").click();
+        await page.waitForFunction(
+            () => document.getElementById("source-paint").textContent.includes("behind:"));
+        const written = await page.locator("#source-paint").textContent();
+        check(/behind:\s*\n\s*admin: service/.test(written),
+              "and written as 'behind: admin: service' in synqt.yaml");
+
+        check(refused.length === 0,
+              `the policy refuses nothing on the page (${refused.join(" | ") || "no errors"})`);
+    } finally {
+        await browser.close();
+        server.close();
+    }
+}
+
 async function theCopyOnTheSite() {
     console.log("\nThe copy the site publishes (no server behind it)");
     const server = await serveAssets();
@@ -719,6 +811,7 @@ async function typingIntoTheProject() {
 await editorOverAProject();
 await theCopyOnTheSite();
 await theProjectALinkHandsYou();
+await theFrontThatSplitsCallers();
 await typingIntoTheProject();
 
 console.log("");

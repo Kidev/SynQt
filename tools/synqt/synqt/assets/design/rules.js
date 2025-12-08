@@ -25,6 +25,52 @@ export function entityType(entity) {
     return String((entity && entity.type) || "") || "service";
 }
 
+// The scope vocabulary a scaffolded project starts with, in the order project.renderYaml
+// writes it. Lowest authority first, which is the order a front's scope dots are stacked in
+// and the order the member gate reads against.
+export const SCOPES = ["anonymous", "user", "moderator", "admin"];
+
+// Which entity serves each scope on a point that is a front, `{}` when it is not one. The
+// same reading appmodel.behind does, kept here so the canvas, the panel and the checker
+// all decide what a front is the same way.
+export function behindOf(link) {
+    const declared = link && link.behind;
+    if (!declared || typeof declared !== "object" || Array.isArray(declared)) {
+        return {};
+    }
+    const found = {};
+    for (const [scope, entity] of Object.entries(declared)) {
+        if (String(scope) && String(entity)) {
+            found[String(scope)] = String(entity);
+        }
+    }
+    return found;
+}
+
+// Every entity that is a front, as the point it fronts and where each scope goes. A front is
+// a web edge that owns a point it does not implement. It holds the session and the sign-in,
+// and hands each caller to the entity that serves people of their scope. Keyed by entity,
+// because that is what the canvas draws.
+export function frontsOf(design) {
+    const found = new Map();
+    for (const link of linksOf(design)) {
+        // The key is the declaration, the way `network:` works: writing `behind:` says this
+        // point is answered by entities behind it, and what is under it says which. One with
+        // nothing under it yet is a front nobody has wired, which is a state to draw rather
+        // than a state to hide.
+        if (isFront(link)) {
+            found.set(String(link.owner || ""), {link, tiers: behindOf(link)});
+        }
+    }
+    return found;
+}
+
+// Is this point answered by entities behind it? The key being there is the answer.
+export function isFront(link) {
+    const declared = link && link.behind;
+    return Boolean(declared) && typeof declared === "object" && !Array.isArray(declared);
+}
+
 function entitiesOf(design) {
     return Array.isArray(design && design.entities) ? design.entities : [];
 }
