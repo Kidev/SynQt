@@ -19,8 +19,15 @@ EXAMPLES = Path(__file__).resolve().parents[3] / "examples"
 def _copy(tmp_path, name):
     target = tmp_path / name
     shutil.copytree(EXAMPLES / name, target,
-                    ignore=shutil.ignore_patterns("build", ".synqt"))
+                    ignore=shutil.ignore_patterns("build", "generated", ".synqt"))
     return target
+
+
+def _feeds():
+    """A new entity to hang a new connect point off. An entity has one, so a test that
+    wants a second point in gavel wants a second entity too."""
+    return {"name": "feeds", "type": "service", "provider": "", "targets": [],
+            "identity": False, "shared": True, "x": 680, "y": 200}
 
 
 def _raise_on_second_call():
@@ -60,21 +67,21 @@ def test_the_document_carries_the_qml_that_is_actually_on_disk(tmp_path):
     implemented has to arrive as what they wrote and not as the stub it started life as."""
     project = _copy(tmp_path, "gavel")
     document = designdoc.read(project)
-    auction = next(link for link in document["links"] if link["name"] == "auction")
-    assert auction["qml"] == (project / "web" / "edge" / "Auction.qml").read_text(encoding="utf-8")
-    assert "Auction {" in auction["qml"]
+    auction = next(link for link in document["links"] if link["owner"] == "edge")
+    assert auction["qml"] == (project / "web" / "edge" / "EdgeContract.qml").read_text(encoding="utf-8")
+    assert "EdgeContract {" in auction["qml"]
 
 
 def test_qml_the_editor_only_read_is_not_written_back(tmp_path):
-    """The whole hazard of carrying a copy of every file: somebody edits `web/Auction.qml`
+    """The whole hazard of carrying a copy of every file: somebody edits the Source
     in their own editor while this page is open, and applying anything at all reverts it to
     what the page read when it loaded. Only text the page marked as typed is text to write.
     """
     project = _copy(tmp_path, "gavel")
     document = designdoc.read(project)
-    theirs = (project / "web" / "edge" / "Auction.qml").read_text(encoding="utf-8")
-    (project / "web" / "edge" / "Auction.qml").write_text(
-        theirs.replace("id: auction", "id: auction\n\n    property int mine"),
+    theirs = (project / "web" / "edge" / "EdgeContract.qml").read_text(encoding="utf-8")
+    (project / "web" / "edge" / "EdgeContract.qml").write_text(
+        theirs.replace("id: point", "id: point\n\n    property int mine"),
         encoding="utf-8")
     assert designplan.compute(project, document).changes == ()
 
@@ -82,12 +89,12 @@ def test_qml_the_editor_only_read_is_not_written_back(tmp_path):
 def test_qml_typed_into_the_editor_is_written(tmp_path):
     project = _copy(tmp_path, "gavel")
     document = designdoc.read(project)
-    auction = next(link for link in document["links"] if link["name"] == "auction")
+    auction = next(link for link in document["links"] if link["owner"] == "edge")
     auction["qml"] = auction["qml"].replace(
-        "id: auction", "id: auction\n\n    property int drawn")
+        "id: point", "id: point\n\n    property int drawn")
     auction["qmlEdited"] = True
     plan = designplan.compute(project, document)
-    written = next(change for change in plan.changes if change.path == "web/edge/Auction.qml")
+    written = next(change for change in plan.changes if change.path == "web/edge/EdgeContract.qml")
     assert written.action == "edit"
     assert "property int drawn" in written.after
     assert "was edited" in written.reason
@@ -126,16 +133,20 @@ def test_adding_an_entity_creates_what_add_entity_creates(tmp_path):
 def test_adding_a_link_writes_what_crosses_it_onto_the_point(tmp_path):
     project = _copy(tmp_path, "gavel")
     document = designdoc.read(project)
+    document["entities"].append(_feeds())
     document["links"].append({
-        "id": "new", "name": "prices", "owner": "edge", "consumers": ["app"],
+        "id": "feeds", "name": "feeds", "owner": "feeds", "consumers": ["edge"],
         "members": [{"kind": "prop", "name": "spot", "type": "real",
                      "params": [], "roles": []}]})
     plan = designplan.compute(project, document)
     config = next(c for c in plan.changes if c.path == "synqt.yaml")
     assert "export: |" in config.after
     assert "prop real spot" in config.after
-    # And no file of its own: the shape of a link is written on the link.
-    assert not any(change.path.endswith(".syn") for change in plan.changes)
+    # And no file of its own for anybody to write. The shape of a link is written on the
+    # link. The `.syn` under generated/ is the build's own copy of that block.
+    assert not any(change.path.endswith(".syn")
+                   and not change.path.startswith("generated/")
+                   for change in plan.changes)
 
 
 def test_a_member_named_after_a_keyword_is_refused_rather_than_written(tmp_path):
@@ -145,17 +156,18 @@ def test_a_member_named_after_a_keyword_is_refused_rather_than_written(tmp_path)
     """
     project = _copy(tmp_path, "gavel")
     document = designdoc.read(project)
+    document["entities"].append(_feeds())
     document["links"].append({
-        "id": "new", "name": "prices", "owner": "edge", "consumers": ["app"],
+        "id": "feeds", "name": "feeds", "owner": "feeds", "consumers": ["edge"],
         "members": [{"kind": "slot", "name": "record", "type": "",
                      "params": [{"type": "string", "name": "who"}], "roles": []}]})
     plan = designplan.compute(project, document)
     assert not plan.ok
-    assert any("would not compile" in message and "'prices'" in message
+    assert any("would not compile" in message and "'feeds'" in message
                for message in plan.findings)
     with pytest.raises(designplan.DesignPlanError):
         designplan.execute(project, plan)
-    assert not (project / "web" / "edge" / "Prices.syn").exists()
+    assert not (project / "service" / "feeds" / "FeedsContract.qml").exists()
     # And the project it was drawn over still opens.
     assert designdoc.read(project)
 
@@ -167,23 +179,24 @@ def test_a_new_link_gets_an_empty_source_on_its_owner(tmp_path):
     """
     project = _copy(tmp_path, "gavel")
     document = designdoc.read(project)
+    document["entities"].append(_feeds())
     document["links"].append({
-        "id": "new", "name": "prices", "owner": "edge",
-        "consumers": ["app"], "instance": "caller", "members": []})
+        "id": "feeds", "name": "feeds", "owner": "feeds",
+        "consumers": ["edge"], "members": []})
     plan = designplan.compute(project, document)
-    source = next(c for c in plan.changes if c.path == "web/edge/Prices.qml")
+    source = next(c for c in plan.changes if c.path == "service/feeds/FeedsContract.qml")
     assert source.action == "create"
-    assert "Prices {" in source.after
-    assert "prices" in source.reason
+    assert "FeedsContract {" in source.after
+    assert "feeds" in source.reason
 
 
 def test_a_source_the_project_already_has_is_left_where_it_is(tmp_path):
     project = _copy(tmp_path, "gavel")
     document = designdoc.read(project)
-    auction = next(l for l in document["links"] if l["name"] == "auction")
+    auction = next(l for l in document["links"] if l["owner"] == "edge")
     auction["consumers"] = list(auction["consumers"])
     plan = designplan.compute(project, document)
-    assert not [c for c in plan.changes if c.path.endswith("Auction.qml")]
+    assert not [c for c in plan.changes if c.path.endswith("EdgeContract.qml")]
 
 
 def test_a_link_owned_by_an_entity_being_deleted_grows_no_source(tmp_path):
@@ -199,7 +212,7 @@ def test_a_link_owned_by_an_entity_being_deleted_grows_no_source(tmp_path):
 def test_changing_a_contract_member_rewrites_only_that_contract(tmp_path):
     project = _copy(tmp_path, "gavel")
     document = designdoc.read(project)
-    auction = next(l for l in document["links"] if l["name"] == "auction")
+    auction = next(l for l in document["links"] if l["owner"] == "edge")
     auction["members"].append({"kind": "prop", "name": "reserve", "type": "int",
                                "params": [], "roles": []})
     plan = designplan.compute(project, document)
@@ -221,7 +234,7 @@ def test_deleting_an_entity_takes_its_points_its_directory_and_its_name_off_cons
     config = yaml.safe_load(
         next(c for c in plan.changes if c.path == "synqt.yaml").after)
     assert [e["name"] for e in config["entities"]] == ["app", "edge"]
-    assert [p["name"] for p in config["connect_points"]] == ["auction", "hall"]
+    assert [p["owner"] for p in config["connect_points"]] == ["edge"]
 
 
 def test_a_deleted_entity_is_dropped_from_a_link_that_still_names_it(tmp_path):
@@ -247,15 +260,15 @@ def test_clearing_a_field_takes_the_line_out_rather_than_writing_null(tmp_path):
     plan = designplan.compute(project, document)
     config = next(c for c in plan.changes if c.path == "synqt.yaml")
     assert "type: service" in config.after
-    # And the result is caught: the browser now consumes points owned by a plain service.
+    # And the result is caught. The browser now consumes points owned by a plain service.
     assert not plan.ok
 
 
 def test_an_illegal_topology_is_not_ok(tmp_path):
-    # The client consuming a point the database owns: pitfall 8, and check.validate says so.
+    # The client consuming a point the database owns. Pitfall 8, and check.validate says so.
     project = _copy(tmp_path, "gavel")
     document = designdoc.read(project)
-    ledger = next(l for l in document["links"] if l["name"] == "ledger")
+    ledger = next(l for l in document["links"] if l["owner"] == "books")
     ledger["consumers"] = ["edge", "app"]
     plan = designplan.compute(project, document)
     assert not plan.ok
@@ -326,14 +339,15 @@ def test_the_git_position_of_a_directory_that_is_not_a_repository(tmp_path):
 def test_execute_writes_exactly_what_the_plan_said(tmp_path):
     project = _copy(tmp_path, "gavel")
     document = designdoc.read(project)
+    document["entities"].append(_feeds())
     document["links"].append({
-        "id": "new", "name": "prices", "owner": "edge", "consumers": ["app"],
+        "id": "feeds", "name": "feeds", "owner": "feeds", "consumers": ["edge"],
         "members": [{"kind": "slot", "name": "refresh", "type": "", "params": [],
                      "roles": []}]})
     plan = designplan.compute(project, document)
     designplan.execute(project, plan)
     written = (project / "synqt.yaml").read_text()
-    assert "prices" in written
+    assert "owner: feeds" in written
     assert "slot refresh()" in written
     # And the same document now plans to nothing.
     assert designplan.compute(project, designdoc.read(project)).changes == ()
@@ -342,7 +356,7 @@ def test_execute_writes_exactly_what_the_plan_said(tmp_path):
 def test_execute_refuses_a_plan_with_an_error(tmp_path):
     project = _copy(tmp_path, "gavel")
     document = designdoc.read(project)
-    next(l for l in document["links"] if l["name"] == "ledger")["consumers"] = ["app"]
+    next(l for l in document["links"] if l["owner"] == "books")["consumers"] = ["app"]
     plan = designplan.compute(project, document)
     before = (project / "synqt.yaml").read_text()
     with pytest.raises(designplan.DesignPlanError):
@@ -380,7 +394,7 @@ def test_deleting_an_entity_removes_the_directory_from_disk(tmp_path):
     plan = designplan.compute(project, document)
     designplan.execute(project, plan)
     assert not (project / "db" / "relational" / "books").exists()
-    assert not (project / "db" / "relational" / "books" / "Ledger.syn").exists()
+    assert not (project / "db" / "relational" / "books" / "BooksContract.qml").exists()
     config = yaml.safe_load((project / "synqt.yaml").read_text())
     assert [e["name"] for e in config["entities"]] == ["app", "edge"]
 
@@ -419,7 +433,7 @@ def test_taking_a_member_off_a_link_takes_it_off_the_point(tmp_path):
     synqt.yaml and touches nothing else."""
     project = _copy(tmp_path, "gavel")
     document = designdoc.read(project)
-    ledger = next(l for l in document["links"] if l["name"] == "ledger")
+    ledger = next(l for l in document["links"] if l["owner"] == "books")
     ledger["members"] = [m for m in ledger["members"] if m["name"] != "count"]
     plan = designplan.compute(project, document)
     assert [c.path for c in plan.changes] == ["synqt.yaml"]

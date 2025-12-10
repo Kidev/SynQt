@@ -89,9 +89,9 @@ Item {
 
     // Hall of Fame
     function refreshChampions() {
-        Records.scores.top().then(rows => { world.champions = rows; });
+        Records.top().then(rows => { world.champions = rows; });
     }
-    Scores.onStandingsChanged: world.refreshChampions()
+    RecordsContract.onStandingsChanged: world.refreshChampions()
 
     // The simulation, run once for the whole arena
     Timer {
@@ -145,7 +145,7 @@ Item {
             let w = null;
             for (const s in world.roster) { const b = world.roster[s];
                 if (b.online && (!w || b.mass > w.mass)) w = b; }
-            if (w) { Records.scores.award(w.id, w.name); world.roundEnded(w.name); }
+            if (w) { Records.award(w.id, w.name); world.roundEnded(w.name); }
             for (const s in world.roster) { const b = world.roster[s];
                 b.mass = world.startMass;
                 b.x = b.tx = world.randPos(); b.y = b.ty = world.randPos(); }

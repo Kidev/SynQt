@@ -1,11 +1,7 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-"""The local editor's API, and the guard on it.
-
-Any page in any browser can post to a localhost port, so these are the tests that say a
-random tab cannot drive someone's filesystem.
-"""
+"""The local editor API and its guard: a random browser tab cannot drive the filesystem."""
 
 from __future__ import annotations
 
@@ -67,11 +63,8 @@ def _post(url, payload, **headers):
 
 
 def _answering(base):
-    """Wait until the server is serving, not merely listening.
-
-    The socket is bound by the constructor, so a connection is accepted by the operating
-    system before the thread reaches serve_forever. Shutting a server down that never got
-    there waits for a loop that will not end. One answered request settles it.
+    """Wait until the server answers one request, so shutdown does not wait on a loop that
+    never started.
     """
     try:
         _request(f"{base}/api/project")
@@ -119,7 +112,7 @@ def test_the_project_reads_back_as_a_design_document(server):
 def test_the_project_reads_back_the_contract_behind_every_link(server):
     base, _ = server
     body = _json(_get(f"{base}/api/project"))
-    ledger = next(link for link in body["document"]["links"] if link["name"] == "ledger")
+    ledger = next(link for link in body["document"]["links"] if link["owner"] == "books")
     assert ledger["owner"] == "books"
     assert ledger["members"]
 
@@ -128,7 +121,7 @@ def test_infer_reads_the_contracts_back_out_of_the_qml(server):
     base, project = server
     before = (project / "synqt.yaml").read_text()
     body = _json(_post(f"{base}/api/infer", {}))
-    auction = next(link for link in body["document"]["links"] if link["name"] == "auction")
+    auction = next(link for link in body["document"]["links"] if link["owner"] == "edge")
     assert {member["name"] for member in auction["members"]} >= {"itemName", "placeBid"}
     assert body["document"]["sourceHash"] == designdoc.source_hash(project)
     assert body["typedBy"] in ("ts", "heuristic")
@@ -155,29 +148,21 @@ def test_a_foreign_origin_is_refused(server):
 
 
 def test_a_foreign_referer_is_refused(server):
-    """A page that never sends an Origin still sends where it came from. Both are read,
-    because a request that names another page as its source is not this editor's.
-    """
+    """A foreign Referer is refused as well as a foreign Origin."""
     base, _ = server
     assert _refused(f"{base}/api/project", referer="https://evil.example/page") == 403
 
 
 def test_a_host_header_that_is_not_this_server_is_refused(server):
-    """The DNS rebinding case: a name the attacker controls, pointed at 127.0.0.1, so the
-    browser believes their page and this server share an origin and sends no Origin worth
-    refusing. What the request calls this server is checked as well as where it came from.
-    """
+    """A Host that is not this server is refused (DNS rebinding)."""
     base, _ = server
     port = base.rsplit(":", 1)[1]
     assert _refused(f"{base}/api/project", host=f"rebound.example:{port}") == 403
 
 
 def test_the_page_itself_is_not_what_the_token_protects(server, assets):
-    """The token travels in the URL fragment, which no browser sends to a server, so the
-    page that reads it cannot present it as it loads. The shell carries nothing about the
-    project. Everything that does is behind /api, and that is what the token guards. It is
-    served under a policy that lets it load nothing from anywhere else and be framed by
-    nobody, so a page that cannot read its replies cannot borrow its window either.
+    """The shell page loads without the token (it travels in the fragment) and holds nothing
+    about the project. It is served under a policy that forbids external loads and framing.
     """
     base, _ = server
     response = _get(f"{base}/", token=None)
@@ -187,9 +172,7 @@ def test_the_page_itself_is_not_what_the_token_protects(server, assets):
 
 
 def test_a_path_that_escapes_the_project_is_refused(server, assets):
-    """The file asked for is the one the path resolves to, and a path that resolves outside
-    the editor's own directory reaches nothing, however it was spelled.
-    """
+    """A path that resolves outside the editor directory reaches nothing."""
     base, _ = server
     for path in ("/../secret.txt", "/..%2fsecret.txt", "/parts/../../secret.txt",
                  "/../../etc/passwd"):
@@ -217,7 +200,7 @@ def test_validate_answers_without_touching_the_project(server):
     base, project = server
     before = (project / "synqt.yaml").read_text()
     document = designdoc.read(project)
-    ledger = next(link for link in document["links"] if link["name"] == "ledger")
+    ledger = next(link for link in document["links"] if link["owner"] == "books")
     ledger["consumers"] = ["edge", "app"]
     body = _json(_post(f"{base}/api/validate", {"document": document}))
     assert body["ok"] is False
@@ -236,10 +219,7 @@ def test_a_plan_says_what_it_would_do_before_it_does_any_of_it(server):
 
 
 def test_apply_refuses_a_digest_that_does_not_match(server):
-    """What is applied is what was shown. A document the editor changed after the plan was
-    drawn no longer matches the diff somebody read and approved, so it is refused rather
-    than applied and explained afterwards.
-    """
+    """Apply refuses a digest that no longer matches the plan shown."""
     base, project = server
     document = designdoc.read(project)
     document["entities"].append({"id": "new", "name": "api", "type": "jobs", "x": 400, "y": 40})
@@ -262,9 +242,7 @@ def test_plan_then_apply_writes_the_change(server):
 
 
 def test_applying_keeps_where_the_boxes_were_put(server):
-    """The canvas is a drawing and stays out of synqt.yaml, but it is still somebody's
-    work: a node dragged somewhere is there again the next time the project is opened.
-    """
+    """Applying keeps the canvas positions."""
     base, project = server
     document = designdoc.read(project)
     document["entities"][0]["x"] = 137
@@ -278,19 +256,16 @@ def test_applying_keeps_where_the_boxes_were_put(server):
 
 
 def test_apply_refuses_a_design_that_does_not_pass_check(server):
-    """The browser reaching the database is the check the auction tutorial ends on, and
-    the editor is not a way around it. A design that `synqt check` refuses is refused here
-    too, before anything is written.
-    """
+    """A design `synqt check` refuses is refused before anything is written."""
     base, project = server
     document = designdoc.read(project)
-    ledger = next(link for link in document["links"] if link["name"] == "ledger")
+    ledger = next(link for link in document["links"] if link["owner"] == "books")
     ledger["consumers"] = ["edge", "app"]
     plan = _json(_post(f"{base}/api/plan", {"document": document}))
     assert plan["ok"] is False
     assert _refused(f"{base}/api/apply", data={"document": document,
                                                "digest": plan["digest"]}) == 400
-    assert _config(project)["connect_points"][2]["consumers"] == ["edge"]
+    assert _config(project)["connect_points"][1]["consumers"] == ["edge"]
 
 
 def test_a_body_that_is_not_a_document_is_refused_rather_than_guessed_at(server):
@@ -301,10 +276,7 @@ def test_a_body_that_is_not_a_document_is_refused_rather_than_guessed_at(server)
 
 
 def test_the_token_travels_where_no_browser_sends_it():
-    """In the fragment, not the query. A fragment reaches the page that reads it and never
-    the server, a proxy log, or a Referer. A token in the query string is a token in
-    somebody's history file.
-    """
+    """The token is in the fragment, never the query."""
     address = design.url_for(8181, "s3cret")
     assert address.endswith("#token=s3cret")
     assert "?" not in address
@@ -323,12 +295,7 @@ def test_an_unknown_route_is_a_404_not_a_stack_trace(server):
 # What arrives in the body
 
 def _raw(base, path, body, *, length=None, token=TOKEN):
-    """POST bytes that urllib would not build, and read the status back.
-
-    The framing cases below are about what the server does with a Content-Length and a body
-    that do not agree, which means writing both by hand rather than through a request
-    object that keeps them consistent.
-    """
+    """POST raw bytes, so Content-Length and body can disagree on purpose."""
     with socket.create_connection(("127.0.0.1", int(base.rsplit(":", 1)[1]))) as sock:
         stated = length if length is not None else len(body)
         head = (f"POST {path} HTTP/1.1\r\nHost: 127.0.0.1\r\n"
@@ -351,8 +318,7 @@ def test_a_content_length_that_is_not_a_number_is_refused(server):
 
 
 def test_an_empty_body_is_refused_rather_than_read_as_an_empty_design(server):
-    """A POST with nothing in it is a request that got lost, not a design of no entities,
-    and applying the second reading would remove a project's whole topology."""
+    """An empty body is refused, not read as an empty design."""
     base, _ = server
     assert _raw(base, "/api/plan", b"", length=0) == 400
 
@@ -377,8 +343,7 @@ def test_a_document_whose_entities_are_not_a_list_is_refused(server):
 
 
 def test_a_request_the_server_cannot_answer_is_answered_anyway(server, monkeypatch):
-    """A page waiting on a connection that was closed without a word is worse than a page
-    told what went wrong. The editor would sit on Review until somebody reloaded it."""
+    """An internal error still gets an answer."""
     base, _ = server
 
     def broken(*arguments, **named):
@@ -402,8 +367,7 @@ def test_a_project_whose_qml_cannot_be_read_back_is_refused_with_the_reason(serv
 # Standing it up
 
 def test_a_server_with_no_token_is_refused(tmp_path):
-    """Every request carries the token, so a server without one is a server nothing can
-    reach. Making that a startup error says so rather than leaving it to be discovered."""
+    """A server with no token is a startup error."""
     project = tmp_path / "gavel"
     shutil.copytree(EXAMPLES / "gavel", project,
                     ignore=shutil.ignore_patterns("build", ".synqt"))
@@ -426,8 +390,7 @@ def test_a_port_already_taken_is_a_message_rather_than_a_traceback(tmp_path):
 
 def test_serve_prints_where_it_is_and_stops_when_it_is_asked_to(tmp_path, capsys,
                                                                 monkeypatch):
-    """The URL is printed once and nowhere else, so this is the only place a reader gets
-    the token, and it carries the token in the fragment even here."""
+    """The URL, with the token in the fragment, is printed once."""
     project = tmp_path / "gavel"
     shutil.copytree(EXAMPLES / "gavel", project,
                     ignore=shutil.ignore_patterns("build", ".synqt"))
@@ -443,9 +406,8 @@ def test_serve_prints_where_it_is_and_stops_when_it_is_asked_to(tmp_path, capsys
     opened = []
 
     def opening(address):
-        # serve_forever blocks, so what ends it has to come from somewhere else. Asking the
-        # real server to stop, rather than faking the loop, keeps shutdown and server_close
-        # doing what they do: a shutdown() on a loop that never ran waits for ever.
+        # Stop the real server from another thread, so shutdown and server_close run as they
+        # do.
         opened.append(address)
         threading.Thread(target=made["httpd"].shutdown, daemon=True).start()
 

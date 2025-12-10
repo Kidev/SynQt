@@ -28,7 +28,7 @@ def base_config(**overrides):
             {"name": "web", "type": "web_edge", "path": "web"},
         ],
         "connect_points": [
-            {"name": "app", "owner": "web", "consumers": ["client"]},
+            {"owner": "web", "consumers": ["client"]},
         ],
     }
     config.update(overrides)
@@ -120,7 +120,7 @@ class TestConnectPointScope(unittest.TestCase):
     def test_a_scoped_connect_point_carries_its_scope(self):
         config = base_config(scopes={"order": ["anonymous", "player"]})
         config["connect_points"][0]["scope"] = "player"
-        self.assertIn('app.scope = QStringLiteral("player");', render(config))
+        self.assertIn('pointWeb.scope = QStringLiteral("player");', render(config))
 
     def test_an_ungated_connect_point_emits_no_scope(self):
         self.assertNotIn(".scope = ", render(base_config()))

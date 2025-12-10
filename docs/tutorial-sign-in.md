@@ -67,21 +67,19 @@ GITHUB_CLIENT_SECRET=your-generated-secret
 ## Step 2: Use the real identity, not a typed name
 
 Now that the edge knows who the caller is, the bidder should come from their
-identity, not a text field. Change the `auction` point's `export:` in `synqt.yaml`:
+identity, not a text field. Change the edge's `export:` in `synqt.yaml`, and say on the
+member itself who may reach it:
 
 ```yaml
-      slot placeBid(int amount)   // no more bidder argument; the edge knows who you are
+      <user> slot placeBid(int amount)   // signed-in users only; the edge knows who you are
 ```
 
-Update `web/edge/Auction.qml` to authorize the user and use their identity:
+The `<user>` is the gate. A caller who does not hold that scope does not have the member:
+the call is refused before your function runs, so there is no check to write in the QML,
+and none to forget. Update `web/edge/EdgeContract.qml` to use the caller's identity:
 
 ```qml
 function placeBid(amount) {
-    // Only signed in users may bid.
-    if (!Caller.hasScope("user")) {
-        Caller.emitBidRejected("Please sign in to bid.")
-        return
-    }
     if (amount <= auction.highBid) {
         Caller.emitBidRejected("Your bid must beat " + auction.highBid + ".")
         return
@@ -92,10 +90,11 @@ function placeBid(amount) {
 ```
 
 > [!NOTE]
-> `Caller.hasScope("user")` asks whether the caller is at least a signed in user.
-> Scopes are the permission levels of your app (anonymous, user, moderator, admin
-> by default). `Caller.identity` is the authenticated profile: it cannot be typed
-> by the bidder, it comes from the login they actually completed.
+> Scopes are the permission levels of your app (anonymous, user, moderator, admin by
+> default), and `<user>` on a member means "at least a signed in user". What is left in
+> the function is the decision the topology cannot make, whether this particular bid is
+> good enough. `Caller.identity` is the authenticated profile. The bidder cannot type it,
+> because it comes from the login they completed.
 
 ## Step 3: Update the UI for sign in
 
@@ -125,7 +124,7 @@ RowLayout {
     Button {
         text: "Place bid"
         onClicked: {
-            Server.auction.placeBid(parseInt(amountField.text))
+            Server.placeBid(parseInt(amountField.text))
             amountField.clear()
         }
     }
@@ -149,7 +148,7 @@ available. Bid, and your real name holds the high bid.
 > by hand:
 >
 > ```
-> Server.auction.placeBid(999)
+> Server.placeBid(999)
 > ```
 >
 > Predict what happens before you press Enter.
@@ -157,13 +156,12 @@ available. Bid, and your real name holds the high bid.
 <details class="solution" markdown>
 <summary>Solution</summary>
 
-The bid is rejected. You see nothing change, and if you were listening you would
-get "Please sign in to bid."
+The bid is rejected. You see nothing change at all: the standing bid is where it was.
 
 Hiding the controls only removed the button from view. A determined visitor can
-still call the slot directly, as you just did. What actually stopped the bid was
-the `Caller.hasScope("user")` check inside the edge's `placeBid`. The UI visibility
-was a courtesy; the edge was the guard.
+still call the slot directly, as you just did. What actually stopped the bid was the
+`<user>` gate on `placeBid`, which the edge applies before the function runs. The UI
+visibility was a courtesy; the edge was the guard.
 
 This is the same lesson as [the base case](tutorial-base-auction.md), now for
 permissions: authorization happens on
@@ -178,10 +176,10 @@ laid out in [security](security.md).
 Let us give one person, the auctioneer, the power to close the current lot and put
 up the next one. This shows a higher permission level (admin).
 
-Add to the `auction` point's `export:`:
+Add to the edge's `export:`, gated a level higher:
 
 ```yaml
-      slot closeLot(string[120] nextItem)
+      <admin> slot closeLot(string[120] nextItem)
 ```
 
 Resetting the lot is a change to the lot, which lives in the edge entity, so add the
@@ -195,14 +193,11 @@ function openLot(nextItem: string) {
 }
 ```
 
-And the rule about who may do it to `web/edge/Auction.qml`, which is where the caller is:
+And what it does to `web/edge/EdgeContract.qml`. Who may do it is already settled by the
+`<admin>` on the member, so this function only has to do the work:
 
 ```qml
 function closeLot(nextItem) {
-    if (!Caller.hasScope("admin")) {
-        Caller.emitBidRejected("Only the auctioneer can close a lot.")
-        return
-    }
     // (A later part records the winner here before resetting.)
     Edge.openLot(nextItem)
 }
@@ -234,7 +229,7 @@ RowLayout {
     TextField { id: nextItemField; placeholderText: "Next item" }
     Button {
         text: "Close lot"
-        onClicked: Server.auction.closeLot(nextItemField.text)
+        onClicked: Server.closeLot(nextItemField.text)
     }
 }
 ```
@@ -254,6 +249,8 @@ who tries (or who calls `closeLot` from the console) is refused by the edge.
 - `synqt add auth` gives you secure sign in in one step, with no insecure state.
 - Identity comes from a real login, through `Caller.identity`, and cannot be faked
   by the caller.
-- Authorization is per action, in the owner's slot, with `Caller.hasScope(...)`.
-- Scopes are permission levels; an admin can do what a user cannot.
-- Hiding controls in the UI is courtesy, not security.
+- Authorization is per member, written on the member as `<scope>`, and applied by the
+  edge before your code runs. What stays in the slot is the judgement the topology cannot
+  make, against `Caller`.
+- Scopes are permission levels. An admin can do what a user cannot.
+- Hiding controls in the UI is courtesy rather than security.

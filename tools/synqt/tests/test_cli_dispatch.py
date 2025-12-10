@@ -229,24 +229,23 @@ class TestAdd:
     def test_add_connect_point_splits_the_consumer_list(self, tmp_path, monkeypatch):
         seen = {}
 
-        def scaffold(project_dir, name, owner=None, consumers=None):
-            seen.update(name=name, owner=owner, consumers=consumers)
+        def scaffold(project_dir, owner, consumers=None):
+            seen.update(owner=owner, consumers=consumers)
             return "connect point added"
 
         monkeypatch.setattr(addcontract, "scaffold_connect_point", scaffold)
-        assert _run(["add", "connect-point", "todo", "--project-dir", str(tmp_path),
-                     "--owner", "web",
+        assert _run(["add", "connect-point", "web", "--project-dir", str(tmp_path),
                      "--consumers", "client,database"])[0] == 0
-        assert seen == {"name": "todo", "owner": "web", "consumers": ["client", "database"]}
+        assert seen == {"owner": "web", "consumers": ["client", "database"]}
 
     def test_an_empty_consumer_list_is_no_consumers_not_one_empty_name(self, tmp_path,
                                                                       monkeypatch):
         seen = {}
         monkeypatch.setattr(addcontract, "scaffold_connect_point",
-                            lambda project_dir, name, **kwargs:
+                            lambda project_dir, owner, **kwargs:
                             seen.update(kwargs) or "added")
-        assert _run(["add", "connect-point", "scores", "--project-dir", str(tmp_path),
-                     "--owner", "database"])[0] == 0
+        assert _run(["add", "connect-point", "database", "--project-dir", str(tmp_path)
+                     ])[0] == 0
         assert seen["consumers"] == []
 
 

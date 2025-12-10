@@ -43,23 +43,23 @@ Todo {
             Caller.emitSignal("rejected", "Item must be 1 to 280 characters.");
             return;
         }
-        // Persist via the database entity; it authorizes that the caller is the edge.
-        Database.items.insert(clean, Caller.identity.email, Caller.identity.sub);
+        // Persist via the database entity. It authorizes that the caller is the edge.
+        Database.insert(clean, Caller.identity.email, Caller.identity.sub);
     }
 
     function remove(id) {
-        // A user may remove only their own item; a moderator may remove any.
+        // A user may remove only their own item. A moderator may remove any.
         if (todo.owners[id] !== Caller.identity.sub && !Caller.hasScope("moderator")) {
             Caller.emitSignal("rejected", "You can only remove your own items.");
             return;
         }
-        Database.items.remove(id);
+        Database.remove(id);
     }
 
     // A generated Source is a QObject (no default child list), so subscribe to the shared
     // database's change signals imperatively.
     Component.onCompleted: {
-        Database.items.itemAdded.connect(onItemAdded);
-        Database.items.itemRemoved.connect(onItemRemoved);
+        Database.itemAdded.connect(onItemAdded);
+        Database.itemRemoved.connect(onItemRemoved);
     }
 }

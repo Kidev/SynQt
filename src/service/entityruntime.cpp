@@ -197,20 +197,36 @@ QList<ConnectPointHost *> EntityRuntime::ownedHosts() const
     return m_ownedHosts;
 }
 
-QQmlPropertyMap *EntityRuntime::accessorFor(const QString &capitalizedOwner)
+void EntityRuntime::installAccessor(const ConnectPointConfig &connectPoint)
 {
-    if (QQmlPropertyMap *existing{m_accessors.value(capitalizedOwner)}) {
-        return existing;
+    if (connectPoint.framework) {
+        return;
     }
-    QQmlPropertyMap *map{QQmlPropertyMap::create(this)};
-    m_accessors.insert(capitalizedOwner, map);
+    const QString name{accessorName(connectPoint.owner)};
+    if (m_accessors.contains(name)) {
+        return;
+    }
+    // The facade is what QML talks to. It forwards properties, models and signals,
+    // turns a returning slot into a promise, and feeds the `<Contract>.on<Signal>` attached
+    // handlers. It is built here, before the link, and kept for the life of the runtime, so
+    // a reconnect hands the same object a fresh Replica and every binding against it holds.
+    ConsumerBase *facade{makeConsumer(connectPoint.contract)};
+    if (facade == nullptr) {
+        // No consumer surface registered for this contract (a Replica-only build). There is
+        // nothing to put in scope until a link acquires the dynamic Replica itself.
+        return;
+    }
+    facade->setPoint(connectPoint.name);
+    facade->setParent(this);
+    m_consumerFacades.insert(connectPoint.owner + QLatin1Char('/') + connectPoint.name,
+                             facade);
+    m_accessors.insert(name, facade);
     if (m_engine) {
-        m_engine->rootContext()->setContextProperty(capitalizedOwner, map);
+        m_engine->rootContext()->setContextProperty(name, facade);
     }
-    return map;
 }
 
-QQmlPropertyMap *EntityRuntime::accessor(const QString &capitalizedOwner) const
+QObject *EntityRuntime::accessor(const QString &capitalizedOwner) const
 {
     return m_accessors.value(capitalizedOwner);
 }
@@ -293,6 +309,11 @@ bool EntityRuntime::start()
 
 void EntityRuntime::openConsumerLink(const ConnectPointConfig &connectPoint)
 {
+    // The owner goes into QML scope now, not when the handshake finishes. A binding in this
+    // entity's QML is evaluated on its first frame, and a name that resolves to nothing
+    // then reads as nothing for good.
+    installAccessor(connectPoint);
+
     MeshClient *client{new MeshClient{this}};
 
     connect(client, &MeshClient::connected, this,
@@ -317,9 +338,8 @@ void EntityRuntime::openConsumerLink(const ConnectPointConfig &connectPoint)
                 }
                 m_consumedNodes.insert(key, node);
                 m_consumedReplicas.insert(key, replica);
-                QQmlPropertyMap *map{accessorFor(accessorName(connectPoint.owner))};
 
-                // Announce the Replica once it can actually be connected to. A dynamic
+                // Announce the Replica once it can be connected to. A dynamic
                 // Replica has no signals or slots until it is initialized, so C++ that
                 // adopts one (the edge's IdentityProvider and SessionManager) has to wait
                 // for this rather than for the transport.
@@ -329,25 +349,24 @@ void EntityRuntime::openConsumerLink(const ConnectPointConfig &connectPoint)
                                                       replica);
                         });
 
-                // Expose the consumer facade (<Owner>.<name>) when the contract's consumer
-                // surface is registered, so a service reaches another entity through the
-                // same ergonomic surface as the client (returning-slot promises,
-                // `<Contract>.on<Signal>`). Stable across reconnects; falls back to the raw
-                // dynamic Replica when no facade is registered.
+                // Point the consumer facade at the fresh Replica. The facade is what QML
+                // reaches this owner through (returning-slot promises,
+                // `<Contract>.on<Signal>`), and installAccessor built it before the link,
+                // so this is the same object across every reconnect.
                 if (ConsumerBase *existing{m_consumerFacades.value(key)}) {
                     existing->setReplica(replica);
                     return;
                 }
-                ConsumerBase *facade{makeConsumer(connectPoint.contract)};
-                if (facade != nullptr) {
-                    facade->setPoint(connectPoint.name);
-                    facade->setParent(this);
-                    m_consumerFacades.insert(key, facade);
-                    map->insert(connectPoint.name, QVariant::fromValue<QObject *>(facade));
-                    facade->setReplica(replica);
-                    return;
+                // No facade for this contract, and nothing else this entity's QML could
+                // reach the owner through: the raw dynamic Replica takes the name, once
+                // there is one. A framework point takes none, because the C++ that adopts
+                // it does so through consumedReplicaReady above.
+                if (!connectPoint.framework && m_engine
+                        && !m_accessors.contains(accessorName(connectPoint.owner))) {
+                    m_accessors.insert(accessorName(connectPoint.owner), replica);
+                    m_engine->rootContext()->setContextProperty(
+                        accessorName(connectPoint.owner), replica);
                 }
-                map->insert(connectPoint.name, QVariant::fromValue<QObject *>(replica));
             });
 
     if (connectPoint.endpoint.mode == MeshTransportMode::MutualTls) {

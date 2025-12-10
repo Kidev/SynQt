@@ -1,11 +1,11 @@
 // SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 // SPDX-License-Identifier: Apache-2.0
 
-// The arena contract under test (a focused subset of examples/arena/shared/Arena.syn: the
+// The arena contract under test (a focused subset of the arena's own export block: the
 // champions/round mirroring is exercised by the auction's database path and left out here).
 // The only movement input is an aim point, a goal; models flow owner -> consumer, so a
 // browser can never write a position, mass, or name.
-contract Arena {
+contract EdgeContract {
     // Players in view, for drawing.
     model blobs(string id, string name, real x, real y, real mass, bool online)
     model board(string name, real mass)            // the live leaderboard, biggest first

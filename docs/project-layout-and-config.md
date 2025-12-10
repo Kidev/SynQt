@@ -461,15 +461,15 @@ neither and stays LGPLv3. See [licensing](licensing.md).
 
 ### `connect_points` (ownership and consumers)
 
-A block sequence with one entry per connect point. A connect point is a named,
-configured use of a contract with exactly one owner and a list of consumers.
+A block sequence with one entry per connect point. An entity has one: the surface it
+exports, with exactly one owner and a list of consumers. Nothing in the entry is a name,
+because the owner is the name.
 
 ```yaml
 connect_points:
-  - name: todo
-    owner: edge               # the entity holding the authoritative Source
+  - owner: edge               # the entity holding the authoritative Source
     consumers: [app]          # the entities allowed to acquire the Replica
-    server: web/edge/Todo.qml
+    server: web/edge/EdgeContract.qml
     scope: user               # for browser consumers: minimum session scope
     export: |                 # what may cross it, and nothing else does
       prop int count
@@ -477,10 +477,9 @@ connect_points:
       slot add(string[280] text)
       signal rejected(string[120] reason)
 
-  - name: items
-    owner: store
-    consumers: [edge]         # only the edge may reach the items connect point
-    server: db/relational/store/Items.qml
+  - owner: store
+    consumers: [edge]         # only the edge may reach the store
+    server: db/relational/store/StoreContract.qml
     export: |
       slot var list()
       slot insert(string[280] text, string[64] ownerSub)
@@ -493,9 +492,14 @@ name resolves to are in
 [the programming model](programming-model.md#contracts-the-shape-of-what-may-cross).
 `synqt check` holds every line to the owner's Source: a member nothing there implements
 is an error.
-Nothing names the contract: the type a point exports is the point's own name capitalized,
-so `- name: todo` exports `Todo`, and that is the QML type the owner's Source is rooted
-at. The build writes it to `generated/<owner's folder>/Todo.syn`, which nobody edits.
+Nothing names the point and nothing names the contract: the type a point exports is its
+owner capitalized plus `Contract`, so `owner: edge` exports `EdgeContract`, and that is the
+QML type the owner's Source is rooted at. The build writes it to
+`generated/<owner's folder>/EdgeContract.syn`, which nobody edits. The suffix is what keeps
+it clear of the entity's own singleton, `web/edge/Edge.qml`.
+
+A second entry for one owner is refused. Two audiences on one point is what per-member
+`<scope>` is for, and two genuinely separate surfaces is two entities.
 
 `server` and `scope` are optional. `server` defaults to that type's `.qml` in the owner's
 folder, so the two lines above spelling it out could both be left off; they are there to

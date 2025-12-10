@@ -21,7 +21,7 @@ OWNER = """\
 import QtQuick
 import SynQt
 
-Auction {
+EdgeContract {
     id: auction
 
     itemName: "a lasagna"
@@ -48,11 +48,11 @@ import QtQuick
 import SynQt
 
 Item {
-    Label { text: Server.arena.roundEndsAt }
-    Timer { onTriggered: Server.arena.steer(1.5, 2.5) }
-    Button { onClicked: Server.arena.ping().then(v => v) }
+    Label { text: Server.roundEndsAt }
+    Timer { onTriggered: Server.steer(1.5, 2.5) }
+    Button { onClicked: Server.ping().then(v => v) }
     Repeater {
-        model: Server.arena.pellets
+        model: Server.pellets
         delegate: Item {
             id: pellet
             required property var model
@@ -60,7 +60,7 @@ Item {
             y: pellet.model.y
         }
     }
-    Connections { target: Server.arena; function onEaten(prey, predator) {} }
+    Connections { target: Server; function onEaten(prey, predator) {} }
 }
 """
 
@@ -78,44 +78,44 @@ def _edge(edges, point):
 
 
 def test_the_contract_name_comes_from_the_root_type():
-    name, _ = infer.scan_owner("web/Auction.qml", OWNER)
-    assert name == "Auction"
+    name, _ = infer.scan_owner("web/edge/EdgeContract.qml", OWNER)
+    assert name == "EdgeContract"
 
 
 def test_an_assigned_property_is_a_prop_typed_from_its_literal():
-    _, members = infer.scan_owner("web/Auction.qml", OWNER)
+    _, members = infer.scan_owner("web/edge/EdgeContract.qml", OWNER)
     assert _member(members, "itemName").kind == "prop"
     assert _member(members, "itemName").type == "string"
     assert _member(members, "highBid").type == "int"
 
 
 def test_a_declared_property_keeps_its_declared_type():
-    _, members = infer.scan_owner("web/Auction.qml", OWNER)
+    _, members = infer.scan_owner("web/edge/EdgeContract.qml", OWNER)
     assert _member(members, "reserve").type == "real"
     assert _member(members, "reserve").certain is True
 
 
 def test_a_function_is_a_slot_with_its_parameter_names():
-    _, members = infer.scan_owner("web/Auction.qml", OWNER)
+    _, members = infer.scan_owner("web/edge/EdgeContract.qml", OWNER)
     place = _member(members, "placeBid")
     assert place.kind == "slot"
     assert [p.name for p in place.params] == ["amount"]
 
 
 def test_an_untyped_parameter_is_marked_uncertain():
-    _, members = infer.scan_owner("web/Auction.qml", OWNER)
+    _, members = infer.scan_owner("web/edge/EdgeContract.qml", OWNER)
     assert _member(members, "placeBid").certain is False
 
 
 def test_caller_emit_is_a_signal_typed_from_the_argument():
-    _, members = infer.scan_owner("web/Auction.qml", OWNER)
+    _, members = infer.scan_owner("web/edge/EdgeContract.qml", OWNER)
     rejected = _member(members, "bidRejected")
     assert rejected.kind == "signal"
     assert [p.type for p in rejected.params] == ["string"]
 
 
 def test_set_model_gives_a_model_with_the_row_literal_keys():
-    _, members = infer.scan_owner("web/Auction.qml", OWNER)
+    _, members = infer.scan_owner("web/edge/EdgeContract.qml", OWNER)
     winners = _member(members, "winners")
     assert winners.kind == "model"
     # Typed from the row literal: a string and an int.
@@ -124,8 +124,8 @@ def test_set_model_gives_a_model_with_the_row_literal_keys():
 
 
 def test_every_member_records_the_file_and_line_it_came_from():
-    _, members = infer.scan_owner("web/Auction.qml", OWNER)
-    assert all(m.evidence and m.evidence[0].startswith("web/Auction.qml:") for m in members)
+    _, members = infer.scan_owner("web/edge/EdgeContract.qml", OWNER)
+    assert all(m.evidence and m.evidence[0].startswith("web/edge/EdgeContract.qml:") for m in members)
 
 
 def test_a_file_whose_root_is_not_a_source_yields_nothing():
@@ -166,7 +166,7 @@ def test_an_on_signal_handler_is_a_signal():
 
 def test_every_use_names_the_owner_and_the_point_it_crosses():
     uses = infer.scan_consumer("client/Main.qml", CONSUMER, {"Server": "web"})
-    assert {(u.owner, u.point) for u in uses} == {("web", "arena")}
+    assert {(u.owner, u.point) for u in uses} == {("web", "web")}
 
 
 def test_a_dynamically_indexed_accessor_is_recorded_as_dynamic():
@@ -179,7 +179,7 @@ def test_a_dynamically_indexed_accessor_is_recorded_as_dynamic():
 def test_the_accessor_for_a_service_is_the_owner_entity_capitalised():
     config = {"entities": [{"name": "web", "type": "web_edge"},
                            {"name": "database", "type": "service"}],
-              "connect_points": [{"name": "scores", "owner": "database",
+              "connect_points": [{"owner": "database",
                                   "consumers": ["web"]}]}
     assert infer.accessors_for(config, "web")["Database"] == "database"
 
@@ -195,9 +195,9 @@ CLIENT = """\
 import QtQuick
 
 Item {
-    Label { text: Server.auction.itemName }
-    Label { text: Server.auction.reserve }
-    Button { onClicked: Server.auction.placeBid(5.5) }
+    Label { text: Server.itemName }
+    Label { text: Server.reserve }
+    Button { onClicked: Server.placeBid(5.5) }
 }
 """
 
@@ -206,7 +206,7 @@ def _project(tmp_path):
     """A two entity project on disk: the owner's Source, and a client that reads it."""
     (tmp_path / "web" / "edge").mkdir(parents=True)
     (tmp_path / "client" / "app").mkdir(parents=True)
-    (tmp_path / "web" / "edge" / "Auction.qml").write_text(OWNER, encoding="utf-8")
+    (tmp_path / "web" / "edge" / "EdgeContract.qml").write_text(OWNER, encoding="utf-8")
     (tmp_path / "client" / "app" / "Main.qml").write_text(CLIENT, encoding="utf-8")
     (tmp_path / "synqt.yaml").write_text(textwrap.dedent("""\
         project:
@@ -214,14 +214,14 @@ def _project(tmp_path):
         """), encoding="utf-8")
     return {"entities": [{"name": "app", "type": "client", "targets": ["wasm"]},
                          {"name": "edge", "type": "web_edge"}],
-            "connect_points": [{"name": "auction", "owner": "edge", "consumers": ["app"]}]}
+            "connect_points": [{"owner": "edge", "consumers": ["app"]}]}
 
 
 def test_collect_unions_both_ends_and_lists_the_consumers(tmp_path):
     edges = infer.collect(tmp_path, _project(tmp_path))
     assert len(edges) == 1
-    auction = _edge(edges, "auction")
-    assert (auction.owner, auction.contract, auction.consumers) == ("edge", "Auction",
+    auction = _edge(edges, "edge")
+    assert (auction.owner, auction.contract, auction.consumers) == ("edge", "EdgeContract",
                                                                     ("app",))
     # The owner alone knows about its models and signals; the client alone proves
     # nothing new about them, and neither end is dropped for it.
@@ -230,15 +230,15 @@ def test_collect_unions_both_ends_and_lists_the_consumers(tmp_path):
     place = _member(auction.members, "placeBid")
     assert [(p.type, p.name) for p in place.params] == [("real", "amount")]
     assert place.certain is True
-    assert any(where.startswith("web/edge/Auction.qml:") for where in place.evidence)
+    assert any(where.startswith("web/edge/EdgeContract.qml:") for where in place.evidence)
     assert any(where.startswith("client/app/Main.qml:") for where in place.evidence)
 
 
 def test_a_type_proven_on_one_end_wins_over_a_guess_on_the_other(tmp_path):
     edges = infer.collect(tmp_path, _project(tmp_path))
-    # The owner declares `property real reserve`; the client only reads it in a binding,
+    # The owner declares `property real reserve`. The client only reads it in a binding,
     # which says nothing. A guess never overrules a declaration.
-    reserve = _member(_edge(edges, "auction").members, "reserve")
+    reserve = _member(_edge(edges, "edge").members, "reserve")
     assert (reserve.type, reserve.certain) == ("real", True)
 
 
@@ -254,36 +254,36 @@ def _example(name):
 def _copy(tmp_path, name):
     """One of the shipped examples, on its own, without whatever it has been built into."""
     project = tmp_path / name
-    shutil.copytree(EXAMPLES / name, project, ignore=shutil.ignore_patterns("build"))
+    shutil.copytree(EXAMPLES / name, project, ignore=shutil.ignore_patterns("build", "generated"))
     return project
 
 
 def test_gavel_is_rediscovered_from_its_qml():
     edges = _example("gavel")
-    assert set(edges) == {"auction", "hall", "ledger"}
-    assert edges["ledger"].owner == "books"
-    assert edges["ledger"].consumers == ("edge",)
-    assert "recordWinner" in _names(edges["ledger"].members, "slot")
-    assert {"placeBid", "closeLot"} <= _names(edges["auction"].members, "slot")
-    assert "highBid" in _names(edges["auction"].members, "prop")
-    assert "bidRejected" in _names(edges["auction"].members, "signal")
+    assert set(edges) == {"edge", "books"}
+    assert edges["books"].owner == "books"
+    assert edges["books"].consumers == ("edge",)
+    assert "recordWinner" in _names(edges["books"].members, "slot")
+    assert {"placeBid", "closeLot"} <= _names(edges["edge"].members, "slot")
+    assert "highBid" in _names(edges["edge"].members, "prop")
+    assert "bidRejected" in _names(edges["edge"].members, "signal")
 
 
 def test_arena_is_rediscovered_from_its_qml():
     edges = _example("arena")
-    assert set(edges) == {"arena", "scores"}
-    assert {"steer", "ping"} <= _names(edges["arena"].members, "slot")
-    assert {"blobs", "pellets", "board", "champions"} <= _names(edges["arena"].members,
+    assert set(edges) == {"edge", "records"}
+    assert {"steer", "ping"} <= _names(edges["edge"].members, "slot")
+    assert {"blobs", "pellets", "board", "champions"} <= _names(edges["edge"].members,
                                                                 "model")
-    assert {"award", "top"} <= _names(edges["scores"].members, "slot")
+    assert {"award", "top"} <= _names(edges["records"].members, "slot")
 
 
 def test_what_the_scan_cannot_prove_is_marked_rather_than_asserted():
-    # arena's `award(w.id, w.name)` passes expressions, not literals: the types are guesses.
+    # arena's `award(w.id, w.name)` passes expressions, not literals. The types are guesses.
     edges = _example("arena")
-    award = _member(edges["scores"].members, "award")
+    award = _member(edges["records"].members, "award")
     assert award.certain is False
-    assert "check this type" in infer.render_export(edges["scores"])
+    assert "check this type" in infer.render_export(edges["records"])
 
 
 def test_a_rendered_export_parses_as_a_contract():
@@ -291,12 +291,12 @@ def test_a_rendered_export_parses_as_a_contract():
     edges = infer.collect(EXAMPLES / "gavel", config)
     for edge in edges:
         assert designdoc.parse_export(
-            edge.contract, {"name": edge.point, "export": infer.render_export(edge)})
+            edge.contract, {"owner": edge.owner, "export": infer.render_export(edge)})
 
 
 def test_every_rendered_member_says_which_file_it_came_from():
-    rendered = infer.render_export(_example("gavel")["auction"])
-    assert "web/edge/Auction.qml:" in rendered
+    rendered = infer.render_export(_example("gavel")["edge"])
+    assert "web/edge/EdgeContract.qml:" in rendered
     assert "client/app/Main.qml:" in rendered
 
 
@@ -308,14 +308,14 @@ def test_write_refuses_a_point_that_already_says_what_crosses_it(tmp_path):
     # thing this command must never do without being told to.
     with pytest.raises(infer.InferError) as caught:
         infer.write(project, edges, config)
-    assert "'auction'" in str(caught.value)
+    assert "'edge'" in str(caught.value)
     assert "--force" in str(caught.value)
 
     written = infer.write(project, edges, config, force=True)
-    assert "auction" in written
+    assert "edge" in written
     rewritten = yaml.safe_load((project / "synqt.yaml").read_text(encoding="utf-8"))
-    point = next(p for p in rewritten["connect_points"] if p["name"] == "auction")
-    assert designdoc.parse_export("Auction", point)
+    point = next(p for p in rewritten["connect_points"] if p["owner"] == "edge")
+    assert designdoc.parse_export("EdgeContract", point)
 
 
 def test_write_fills_in_the_points_that_never_said(tmp_path):
@@ -323,14 +323,14 @@ def test_write_fills_in_the_points_that_never_said(tmp_path):
     text = (project / "synqt.yaml").read_text(encoding="utf-8")
     config = yaml.safe_load(text)
     for point in config["connect_points"]:
-        text = yamledit.remove_field(text, "connect_points", point["name"], "export")
+        text = yamledit.remove_field(text, "connect_points", point["owner"], "export")
     (project / "synqt.yaml").write_text(text, encoding="utf-8")
     config = yaml.safe_load(text)
     written = infer.write(project, infer.collect(project, config), config)
-    assert sorted(written) == ["auction", "hall", "ledger"]
+    assert sorted(written) == ["books", "edge"]
     rewritten = yaml.safe_load((project / "synqt.yaml").read_text(encoding="utf-8"))
-    hall = next(p for p in rewritten["connect_points"] if p["name"] == "hall")
-    assert designdoc.parse_export("Hall", hall)
+    books = next(p for p in rewritten["connect_points"] if p["owner"] == "books")
+    assert designdoc.parse_export("BooksContract", books)
 
 
 def test_the_json_output_is_a_design_document(tmp_path):
@@ -339,10 +339,10 @@ def test_the_json_output_is_a_design_document(tmp_path):
     document = infer.to_document(infer.collect(project, config), config)
     assert document["version"] == designdoc.VERSION
     assert {entity["name"] for entity in document["entities"]} == {"app", "edge", "books"}
-    assert {link["name"] for link in document["links"]} == {"auction", "hall", "ledger"}
+    assert {link["name"] for link in document["links"]} == {"edge", "books"}
 
     # The editor's own shape, so the same document the inference produces is one the
-    # planner can be handed: what it reports is the drift between the two.
+    # planner can be handed. What it reports is the drift between the two.
     plan = designplan.compute(project, document)
     assert plan.ok, "\n".join(plan.findings)
     assert all(change.path == "synqt.yaml" for change in plan.changes), \
@@ -353,5 +353,5 @@ def test_the_report_names_the_link_and_what_is_left_to_check(tmp_path):
     project = _copy(tmp_path, "gavel")
     config = yaml.safe_load((project / "synqt.yaml").read_text(encoding="utf-8"))
     report = infer.report(infer.collect(project, config))
-    assert "auction" in report and "web" in report and "client" in report
+    assert "edge" in report and "books" in report and "app" in report
     assert "check this type" in report

@@ -33,11 +33,11 @@ _SOURCE_TEMPLATE = """// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumarou
 import QtQuick
 import SynQt
 
-// Owner of the "{point}" connect point. What crosses it is the `export:` block on that
-// point in synqt.yaml, and nothing undeclared ever reaches a consumer. A slot a consumer
-// calls arrives here with `Caller` set to whoever called it: authorize that caller first,
-// then act. This file is where the rule lives; a check in a consumer's UI is a courtesy,
-// not a guard.
+// The connect point the "{point}" entity exports. What crosses it is the `export:` block
+// on that point in synqt.yaml, and nothing undeclared ever reaches a consumer. A slot a
+// consumer calls arrives here with `Caller` set to whoever called it: authorize that caller
+// first, then act. This file is where the rule lives. A check in a consumer's UI is a
+// courtesy, not a guard.
 {contract} {{
     id: root
 {declared}}}
@@ -204,9 +204,16 @@ def _root_note(project_dir: os.PathLike[str] | str, owner: Dict[str, Any],
             "another file with 'server:'."]
 
 
-def scaffold_connect_point(project_dir: os.PathLike[str] | str, name: str, *,
-                           owner: str, consumers: List[str]) -> str:
-    contract = appmodel.contract_of({"name": name})
+def scaffold_connect_point(project_dir: os.PathLike[str] | str, owner: str, *,
+                           consumers: List[str]) -> str:
+    """Add the connect point `owner` exports, and the Source that implements it.
+
+    The owner is the whole of the name: an entity has one connect point, so `edge` exports
+    the `EdgeContract` contract from `web/edge/EdgeContract.qml` and its consumers reach it
+    as `Edge`. An entity that already has one is told to add to its `export:` block rather
+    than given a second point that would replace the first.
+    """
+    contract = appmodel.contract_of({"owner": owner})
     owning = owner_entity(project_dir, owner)
     check_qml_name(contract, entity_type=appmodel.entity_type(owning), entity=owning)
     config_path = Path(project_dir) / "synqt.yaml"
@@ -222,19 +229,22 @@ def scaffold_connect_point(project_dir: os.PathLike[str] | str, name: str, *,
             raise AddContractError(f"unknown consumer entity '{consumer}'")
 
     connect_points: List[Dict[str, Any]] = config.get("connect_points") or []
-    if any(isinstance(cp, dict) and cp.get("name") == name for cp in connect_points):
-        raise AddContractError(f"a connect point named '{name}' already exists")
+    if any(isinstance(cp, dict) and cp.get("owner") == owner for cp in connect_points):
+        raise AddContractError(
+            f"'{owner}' already has a connect point, and an entity has one. Add what you "
+            f"wanted to its 'export:' block in synqt.yaml; a member for a narrower audience "
+            "goes there too, gated as '<scope> slot ...'")
 
-    # Spliced into the text rather than dumped over it: the file is the author's, and one
+    # Spliced into the text rather than dumped over it. The file is the author's, and one
     # added entry is not a reason to lose their comments and their formatting. What crosses
     # the point is written on the point, so the starter block goes in with it.
-    block: Dict[str, Any] = {"name": name, "owner": owner, "consumers": consumers,
+    block: Dict[str, Any] = {"owner": owner, "consumers": consumers,
                              "export": _EXPORT_TEMPLATE}
     config_path.write_text(yamledit.append_item(
         config_path.read_text(), "connect_points", block))
     owning = owner_entity(project_dir, owner)
-    written = write_source(project_dir, owning, contract, point=name)
-    steps = [f"Added connect point '{name}' (contract {contract}, owner {owner}, "
+    written = write_source(project_dir, owning, contract, point=owner)
+    steps = [f"Added the connect point '{owner}' exports (contract {contract}, "
              f"consumers {', '.join(consumers) or 'none'}). "
              "Deny-by-default: only listed consumers may acquire it."]
     if written:

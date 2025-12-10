@@ -36,8 +36,8 @@
         ],
         "links": [
           {
-            "name": "ledger",
-            "contract": "Ledger",
+            "name": "database",
+            "contract": "DatabaseContract",
             "owner": "database",
             "consumers": [
               "web",
@@ -67,8 +67,8 @@
         ],
         "links": [
           {
-            "name": "ledger",
-            "contract": "Ledger",
+            "name": "records",
+            "contract": "RecordsContract",
             "owner": "records",
             "consumers": [
               "web"
@@ -97,8 +97,8 @@
         ],
         "links": [
           {
-            "name": "ledger",
-            "contract": "Ledger",
+            "name": "web",
+            "contract": "WebContract",
             "owner": "web",
             "consumers": [
               "reports"
@@ -127,8 +127,8 @@
         ],
         "links": [
           {
-            "name": "ledger",
-            "contract": "Ledger",
+            "name": "web",
+            "contract": "WebContract",
             "owner": "web",
             "consumers": [
               "web"
@@ -163,10 +163,10 @@
       }
     },
     {
-      "id": "two-links-one-name",
-      "rule": "duplicate-link-name",
+      "id": "one-entity-two-connect-points",
+      "rule": "duplicate-link-owner",
       "level": "error",
-      "why": "Connect points are keyed by name too, so the second silently takes over the first, owner and consumer list together. A narrower consumer list can disappear this way.",
+      "why": "An entity has one connect point, so the second silently takes over the first, consumer list and export block together. A narrower consumer list can disappear this way.",
       "document": {
         "version": 1,
         "project": "rules",
@@ -186,16 +186,16 @@
         ],
         "links": [
           {
-            "name": "ledger",
-            "contract": "Ledger",
-            "owner": "database",
+            "name": "web",
+            "contract": "WebContract",
+            "owner": "web",
             "consumers": [
               "web"
             ]
           },
           {
-            "name": "ledger",
-            "contract": "Bids",
+            "name": "web",
+            "contract": "WebContract",
             "owner": "web",
             "consumers": [
               "client"
@@ -225,8 +225,8 @@
         ],
         "links": [
           {
-            "name": "ledger",
-            "contract": "Ledger",
+            "name": "web",
+            "contract": "WebContract",
             "owner": "web",
             "consumers": [
               "client"
@@ -280,8 +280,8 @@
         ],
         "links": [
           {
-            "name": "ledger",
-            "contract": "Ledger",
+            "name": "database",
+            "contract": "DatabaseContract",
             "owner": "database",
             "consumers": [
               "web"
@@ -311,8 +311,8 @@
         ],
         "links": [
           {
-            "name": "clientToWeb",
-            "contract": "ClientToWeb",
+            "name": "client",
+            "contract": "ClientContract",
             "owner": "client",
             "consumers": [
               "web"
@@ -345,8 +345,8 @@
         ],
         "links": [
           {
-            "name": "feed",
-            "contract": "Feed",
+            "name": "edge",
+            "contract": "EdgeContract",
             "owner": "edge",
             "consumers": [
               "app"
@@ -375,7 +375,7 @@
         ],
         "links": [
           {
-            "name": "ledger",
+            "name": "database",
             "owner": "database",
             "consumers": [
               "web"

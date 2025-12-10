@@ -89,8 +89,7 @@ export function isShared(entity) {
 }
 
 function linkLines(design, link) {
-    const lines = [`  - name: ${scalar(link.name)}`,
-                   `    owner: ${scalar(link.owner)}`,
+    const lines = [`  - owner: ${scalar(link.owner)}`,
                    `    consumers: ${listing(link.consumers || [])}`];
     if (link.transport) {
         lines.push(`    transport: ${scalar(link.transport)}`);
@@ -197,11 +196,13 @@ const TYPE_FOLDERS = {
     service: "service",
 };
 
-// The type a connect point exports: its own name, capitalized, the same rule
-// appmodel.contract_of applies. Nothing names it separately, because the point is named.
+// The type a connect point exports: its owner, capitalized, plus Contract, the same rule
+// appmodel.contract_of applies. Nothing names it separately, because the owner names the
+// point; the suffix keeps it apart from the entity's own singleton, which is the owner's
+// name on its own.
 export function contractOf(link) {
-    const name = String((link || {}).name || "");
-    return name ? name[0].toUpperCase() + name.slice(1) : "";
+    const owner = String((link || {}).owner || "");
+    return owner ? `${owner[0].toUpperCase()}${owner.slice(1)}Contract` : "";
 }
 
 export function entityDir(entity) {
@@ -225,11 +226,11 @@ export function sourceQml(contract, point, members) {
 import QtQuick
 import SynQt
 
-// Owner of the "${point}" connect point. What crosses it is the \`export:\` block on that
-// point in synqt.yaml, and nothing undeclared ever reaches a consumer. A slot a consumer
-// calls arrives here with \`Caller\` set to whoever called it: authorize that caller first,
-// then act. This file is where the rule lives; a check in a consumer's UI is a courtesy,
-// not a guard.
+// The connect point the "${point}" entity exports. What crosses it is the \`export:\` block
+// on that point in synqt.yaml, and nothing undeclared ever reaches a consumer. A slot a
+// consumer calls arrives here with \`Caller\` set to whoever called it: authorize that caller
+// first, then act. This file is where the rule lives. A check in a consumer's UI is a
+// courtesy, not a guard.
 ${contract} {
     id: root
 ${declared ? "\n" + declared + "\n" : ""}}
@@ -297,12 +298,11 @@ export function entityFiles(design, entity) {
         }
         seen.add(relative);
         sources.push({name: relative,
-                      text: link.qml || sourceQml(contract, link.name, link.members),
-                      owner: entity.name, link: link.name});
+                      text: link.qml || sourceQml(contract, link.owner, link.members),
+                      owner: entity.name, link: link.owner});
     }
-    // An entity named `books` that owns a `Books` contract writes its Source at the same path
-    // its own file would take. The Source wins: it is the one of the two with a connect point
-    // depending on it.
+    // The entity's own file and its Source never want one name: the contract carries the
+    // Contract suffix and the entity's own file does not.
     if (!seen.has(own)) {
         files.push({name: own, text: entity.qml || entityQml(entity), owner: entity.name});
     }

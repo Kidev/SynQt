@@ -96,10 +96,10 @@ def resolve_endpoints(config: Dict[str, Any], project_name: str) -> Dict[str, Di
     fixes the port, so a connect point keeps its port when unrelated ones are added,
     removed, or switch transport."""
     endpoints: Dict[str, Dict[str, Any]] = {}
-    ordered = sorted((cp for cp in _connect_points(config) if cp.get("name")),
-                     key=lambda cp: cp.get("name"))
+    ordered = sorted((cp for cp in _connect_points(config) if appmodel.point_name(cp)),
+                     key=appmodel.point_name)
     for index, connect_point in enumerate(ordered):
-        name = connect_point.get("name")
+        name = appmodel.point_name(connect_point)
         settings = mesh_settings(config, connect_point)
         if settings.get("transport") == "local":
             socket = (settings.get("socket")
@@ -226,12 +226,16 @@ def entity_topology(config: Dict[str, Any], entity: Dict[str, Any], project_dir:
         elif owner != name and name not in consumers:
             continue
         connect_points.append({
-            "name": connect_point.get("name"),
-            "contract": connect_point.get("contract", ""),
+            "name": appmodel.point_name(connect_point),
+            "contract": appmodel.contract_of(connect_point),
             "owner": owner,
             "consumers": consumers,
             "server": _server_file(root, connect_point, owners),
-            "endpoint": endpoints.get(connect_point.get("name"),
+            # A point whose contract ships in a runtime library. The runtime installs no QML
+            # accessor for one: it is taken by the C++ that adopts it, and the auth entity
+            # owns two, which one accessor could not be both of.
+            **({"framework": True} if appmodel.is_framework_point(connect_point) else {}),
+            "endpoint": endpoints.get(appmodel.point_name(connect_point),
                                       {"transport": "mtls", "host": "127.0.0.1",
                                        "port": MESH_PORT_BASE}),
         })

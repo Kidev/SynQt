@@ -20,7 +20,7 @@ EXAMPLES = Path(__file__).resolve().parents[3] / "examples"
 def _copy(tmp_path, name):
     target = tmp_path / name
     shutil.copytree(EXAMPLES / name, target,
-                    ignore=shutil.ignore_patterns("build", ".synqt"))
+                    ignore=shutil.ignore_patterns("build", "generated", ".synqt"))
     return target
 
 
@@ -38,7 +38,7 @@ def test_a_slot_the_qml_calls_and_the_contract_lacks_is_an_error(tmp_path):
     project = _copy(tmp_path, "gavel")
     main = project / "client" / "app" / "Main.qml"
     main.write_text(main.read_text().replace(
-        "Server.auction.placeBid(", "Server.auction.placeBidNow("))
+        "Server.placeBid(", "Server.placeBidNow("))
     messages = checkmod.lint_contract_drift(_config(project), project)
     assert any(m.startswith("error:") and "placeBidNow" in m for m in messages)
 
@@ -48,7 +48,8 @@ def _declare(project, point, line):
     path = project / "synqt.yaml"
     text = path.read_text(encoding="utf-8")
     config = yaml.safe_load(text)
-    export = next(p for p in config["connect_points"] if p["name"] == point)["export"]
+    export = next(p for p in config["connect_points"]
+                  if p["owner"] == point)["export"]
     path.write_text(yamledit.patch_item(text, "connect_points", point,
                                         {"export": export + line + "\n"}),
                     encoding="utf-8")
@@ -56,7 +57,7 @@ def _declare(project, point, line):
 
 def test_a_declared_member_nobody_uses_is_a_note(tmp_path):
     project = _copy(tmp_path, "gavel")
-    _declare(project, "auction", "prop int unused")
+    _declare(project, "edge", "prop int unused")
     messages = checkmod.lint_contract_drift(_config(project), project)
     assert any(m.startswith("note:") and "unused" in m for m in messages)
 
@@ -66,7 +67,7 @@ def test_dynamic_access_suppresses_the_unused_note_for_that_point(tmp_path):
     main = project / "client" / "app" / "Main.qml"
     main.write_text(main.read_text()
                     + "\nQtObject { property var v: Server[n].x }\n")
-    _declare(project, "auction", "prop int unused")
+    _declare(project, "edge", "prop int unused")
     assert not any("unused" in m for m in
                    checkmod.lint_contract_drift(_config(project), project))
 
@@ -77,8 +78,8 @@ def test_an_argument_of_the_wrong_type_at_a_connect_point_is_an_error(tmp_path):
     project = _copy(tmp_path, "gavel")
     main = project / "client" / "app" / "Main.qml"
     main.write_text(main.read_text().replace(
-        "Server.auction.placeBid(parseInt(amountField.text))",
-        'Server.auction.placeBid("abc")'))
+        "Server.placeBid(parseInt(amountField.text))",
+        'Server.placeBid("abc")'))
     messages = checkmod.lint_contract_drift(_config(project), project, types="ts")
     assert any(m.startswith("error:") and "placeBid" in m and "amount" in m
                for m in messages)
@@ -89,8 +90,8 @@ def test_an_uncertain_argument_type_is_not_an_error(tmp_path):
     project = _copy(tmp_path, "gavel")
     main = project / "client" / "app" / "Main.qml"
     main.write_text(main.read_text().replace(
-        "Server.auction.placeBid(parseInt(amountField.text))",
-        "Server.auction.placeBid(somethingOpaque())"))
+        "Server.placeBid(parseInt(amountField.text))",
+        "Server.placeBid(somethingOpaque())"))
     assert not any(m.startswith("error:") for m in
                    checkmod.lint_contract_drift(_config(project), project,
                                                 types="heuristic"))
@@ -108,9 +109,7 @@ def test_only_connect_point_calls_are_type_checked(tmp_path):
 
 
 def test_a_member_used_only_by_the_owner_is_not_drift(tmp_path):
-    # `property var store: []` on a Source is the entity's own state. The scan offers it
-    # as a contract member when it is writing one. It is not evidence anybody expects it
-    # to cross a link, and reporting it would fail every correct project here.
+    # A Source's own `property var store: []` is not reported as drift.
     project = _copy(tmp_path, "gavel")
     assert not any("store" in m for m in
                    checkmod.lint_contract_drift(_config(project), project))

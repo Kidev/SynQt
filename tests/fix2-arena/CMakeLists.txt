@@ -3,7 +3,7 @@
 
 # FIX-2 acceptance: the multiplayer tutorial's movement authority and guest-list gate. The
 # web edge owns one authoritative arena (a World simulated once, injected into each
-# per-caller Arena Source by name) and integrates every blob itself from an aim point;
+# per-caller Source by name) and integrates every blob itself from an aim point;
 # `scope: player` on the connect point means an under-scoped session never acquires the
 # arena at all. Native host kit; a localhost edge cert is generated at configure time.
 
@@ -38,8 +38,9 @@ enable_testing()
 
 qt_add_executable(tst_fix2 tst_fix2.cpp)
 
-# The web edge hosts ArenaSource from its QML; the client uses a dynamic replica.
-synqt_add_contract(tst_fix2 ROLE source SYN "${CMAKE_CURRENT_SOURCE_DIR}/shared/Arena.syn")
+# The web edge hosts EdgeContractSource from its QML; the client uses a dynamic replica.
+synqt_add_contract(tst_fix2 ROLE source
+    SYN "${CMAKE_CURRENT_SOURCE_DIR}/shared/EdgeContract.syn")
 
 target_compile_definitions(tst_fix2 PRIVATE
     FIX2_CERT_DIR="${FIX2_CERTS}"

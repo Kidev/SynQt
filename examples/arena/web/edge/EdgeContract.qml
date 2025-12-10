@@ -4,11 +4,15 @@
 import QtQuick
 import SynQt
 
-// One instance per player session (docs/tutorial-multiplayer-run.md). It never simulates;
-// it reads the shared World singleton and publishes only what THIS player can see, plus the
-// two global lists (the leaderboard and the Hall of Fame). Interest management: the edge
-// sends each player only their slice, so the payload stops growing with the whole arena.
-Arena {
+// What the web edge exports to the browser: one instance per player session
+// (docs/tutorial-multiplayer-run.md). It never simulates; it reads the shared World
+// singleton and publishes only what THIS player can see, plus the two global lists (the
+// leaderboard and the Hall of Fame). Interest management: the edge sends each player only
+// their slice, so the payload stops growing with the whole arena.
+//
+// The point is `scope: player`, so an account nobody has approved never acquires it and
+// there is nothing here to check: every caller that reaches these functions is a player.
+EdgeContract {
     id: arena
     property string mySub: ""
 
@@ -19,12 +23,11 @@ Arena {
     }
 
     function steer(x, y) {
-        if (!Caller.hasScope("player")) return;          // approved players only
         arena.mySub = Caller.identity.sub;               // learn who this session is
         World.steer(arena.mySub, Caller.identity.login, x, y);
     }
     function ping() {
-        if (Caller.hasScope("player")) World.keepAlive(arena.mySub);
+        World.keepAlive(arena.mySub);
         return Date.now();
     }
 

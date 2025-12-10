@@ -455,7 +455,7 @@ def _auth_adoption_lines(mesh_consumed: List[Dict[str, Any]]) -> List[str]:
     adopted = {"identity": "edge.identityProvider()->attachRemote(replica);",
                "sessions": "edge.sessionManager()->attachRemote(replica);"}
     points = [cp for cp in mesh_consumed
-              if appmodel.is_framework_point(cp) and cp.get("name") in adopted]
+              if appmodel.is_framework_point(cp) and appmodel.point_name(cp) in adopted]
     if not points:
         return []
     owner = cxx_string_literal(str(points[0].get("owner", "")))
@@ -464,8 +464,8 @@ def _auth_adoption_lines(mesh_consumed: List[Dict[str, Any]]) -> List[str]:
         keyword = "if" if index == 0 else "} else if"
         branches.append(
             f'            {keyword} (point == QStringLiteral('
-            f'"{cxx_string_literal(str(cp.get("name")))}")) {{\n'
-            f"                {adopted[cp.get('name')]}")
+            f'"{cxx_string_literal(appmodel.point_name(cp))}")) {{\n'
+            f"                {adopted[appmodel.point_name(cp)]}")
     return [
         "",
         "    // Promoted identity (identity.provider_entity): adopt each Replica once it is",
@@ -555,6 +555,7 @@ def render_client_main(config: Dict[str, Any], uri: str) -> str:
     name = client.get("name", "client")
     consumed = appmodel.consumed_by(config, name)
     contracts = appmodel.contracts_of(consumed)
+    by_name = {str(entity.get("name") or ""): entity for entity in appmodel.entities(config)}
     scopes = appmodel.scope_vocab(config)
     # No declared routes means no route table. A manufactured "/" -> Main.qml route would
     # point the router at the window itself, so a Loader bound to Router.pageComponent
@@ -601,8 +602,29 @@ def render_client_main(config: Dict[str, Any], uri: str) -> str:
 
     cp_list = ", ".join(
         '{QStringLiteral("%s"), QStringLiteral("%s")}'
-        % (cxx_string_literal(cp.get("name") or ""),
+        % (cxx_string_literal(appmodel.point_name(cp)),
            cxx_string_literal(appmodel.contract_of(cp))) for cp in consumed)
+    # Every owner this client reaches, in QML scope under its own name, the same way a
+    # service reaches one. `Server` is the alias for the edge, which is the name a browser
+    # client normally writes. It reaches exactly one edge and can reach nothing else.
+    accessor_lines: List[str] = []
+    for cp in consumed:
+        point = appmodel.point_name(cp)
+        accessor = appmodel.accessor_name(str(cp.get("owner") or ""))
+        if not accessor:
+            continue
+        accessor_lines.append(
+            f'    engine.rootContext()->setContextProperty(\n'
+            f'        QStringLiteral("{cxx_string_literal(accessor)}"),\n'
+            f'        client->server()->point(QStringLiteral("{cxx_string_literal(point)}")));')
+    edge_point = next((appmodel.point_name(cp) for cp in consumed
+                       if appmodel.is_edge(by_name.get(str(cp.get("owner") or ""), {}))), "")
+    server_line = (
+        '    engine.rootContext()->setContextProperty(QStringLiteral("Server"),\n'
+        f'        client->server()->point(QStringLiteral("{cxx_string_literal(edge_point)}")));'
+        if edge_point else
+        '    // No edge to alias as Server yet.')
+    owner_accessors = "\n".join(accessor_lines)
     route_list = ",\n                     ".join(
         _route_literal(r, uri) for r in routes)
     router = config.get("router") or {}
@@ -739,7 +761,8 @@ int main(int argc, char *argv[])
     SynQt::Graphics graphics;
     graphics.installWatcher();
 
-    engine.rootContext()->setContextProperty(QStringLiteral("Server"), client->server());
+{server_line}
+{owner_accessors}
     engine.rootContext()->setContextProperty(QStringLiteral("Session"), client->session());
     engine.rootContext()->setContextProperty(QStringLiteral("Router"), client->router());
     engine.rootContext()->setContextProperty(QStringLiteral("Graphics"), &graphics);
@@ -851,11 +874,8 @@ def render_edge_main(config: Dict[str, Any], edge: Dict[str, Any],
     # The mesh pieces are empty strings when the edge consumes nothing over the mesh, so
     # a plain edge main is byte-for-byte what it was before this composition existed.
     if mesh_consumed:
-        # QQmlPropertyMap is the accessor type EntityRuntime::accessor() returns; it is
-        # upcast to QObject* for WebEdge::setContextObject, so its full definition is needed.
         mesh_includes_extra = ("\n#include <QFile>\n#include <QJsonDocument>"
-                               "\n#include <QJsonObject>\n#include <QQmlPropertyMap>"
-                               "\n#include <QSet>")
+                               "\n#include <QJsonObject>\n#include <QSet>")
         topology_option = (
             '\n    const QCommandLineOption topologyOption{QStringLiteral("topology"),\n'
             '        QStringLiteral("Resolved mesh topology JSON for this edge."),\n'
@@ -877,7 +897,9 @@ def render_edge_main(config: Dict[str, Any], edge: Dict[str, Any],
             "        return 1;\n"
             "    }\n")
         inject_lines = [
-            "\n    // Give each owner Source its mesh accessor (e.g. Database) by name.",
+            "\n    // Give each owner Source the entities this edge consumes, by name. An"
+            "\n    // entity has one connect point, so the name is the whole address"
+            "\n    // (`Database.rows`).",
         ]
         for owner in mesh_owners:
             owner_literal = cxx_string_literal(owner)
@@ -897,10 +919,13 @@ def render_edge_main(config: Dict[str, Any], edge: Dict[str, Any],
 
     cp_blocks: List[str] = []
     for cp in client_facing:
-        cp_name = cp.get("name")
+        cp_name = appmodel.point_name(cp)
         contract = appmodel.contract_of(cp)
         shared = "true" if appmodel.is_shared(edge) else "false"
-        var = re.sub(r"[^0-9A-Za-z]", "", cp_name) or "connectPoint"
+        # `point` + the owner, because the point's own name is the owner's, and `edge` is
+        # already the WebEdge this is being configured for.
+        bare = re.sub(r"[^0-9A-Za-z]", "", cp_name)
+        var = f"point{bare[:1].upper()}{bare[1:]}" if bare else "connectPoint"
         server_file = cp.get("server") or appmodel.source_path(edge, contract)
         # The declared scope is the barrier that decides whether this connect point is
         # acquired for a session at all (webedge.cpp checks it before creating the

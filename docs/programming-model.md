@@ -18,8 +18,7 @@ one thing to name:
 
 ```yaml
 connect_points:
-  - name: todo
-    owner: edge
+  - owner: edge
     consumers: [app]
     # Direction of travel is fixed by the keyword:
     #   prop   : owner held value, owner -> consumer updates
@@ -35,16 +34,16 @@ connect_points:
       signal rejected(string[120] reason)   // owner explains a refusal
 ```
 
-The point is named, so its contract is not: the type it exports is the point's name,
-capitalized. `todo` exports `Todo`, which is the QML type the owner's Source file is
-rooted at and the name a consumer's attached handlers use. SynQt contracts are a friendly
-surface over QtRemoteObjects rep files; the build writes one `.syn` per point under
-`generated/` and generates the QtRO Source and Replica from it. Nobody edits that file;
-editing the `export:` block rewrites it.
+The owner names the contract, so nothing else has to: the type it exports is the owner
+capitalized plus `Contract`. An `edge` entity exports `EdgeContract`, which is the QML type
+the owner's Source file is rooted at and the name a consumer's attached handlers use. SynQt
+contracts are a friendly surface over QtRemoteObjects rep files; the build writes one
+`.syn` per point under `generated/` and generates the QtRO Source and Replica from it.
+Nobody edits that file; editing the `export:` block rewrites it.
 
 ### Exporting by name
 
-The owner already says what most of these are. `web/edge/Todo.qml` binds a property,
+The owner already says what most of these are. `web/edge/EdgeContract.qml` binds a property,
 implements a function, publishes rows, so the kind and often the type are written down
 there. Name the member and `synqt` reads the rest from the owner:
 
@@ -59,7 +58,7 @@ A name resolves only when the owner is unambiguous about it. Where it is not, `s
 check` refuses the line and prints what it read, for you to correct and paste:
 
 ```
-error: connect point 'todo': 'add' is exported by name, and web/edge/Todo.qml does not
+error: connect point 'todo': 'add' is exported by name, and web/edge/EdgeContract.qml does not
 say what type it is. Write it out: 'slot add(var text)' is what was read, with whatever
 it left open to fill in
 ```
@@ -118,7 +117,7 @@ Mapping to the QtRO semantics the generated rep encodes:
 - A slot with a return type becomes an asynchronous call on the consumer (a
   pending call that resolves later), because the work happens on the owner. A slot
   with no return type is a one way request. On the consumer it reads as
-  `Server.todo.clear().then(ok => ...)`; attach the handler to the call, as there,
+  `Server.clear().then(ok => ...)`; attach the handler to the call, as there,
   rather than storing the promise and coming back to it in a later frame, because a
   promise is retired once it has settled and delivered.
 
@@ -177,16 +176,17 @@ available in the build directory for inspection.
 
 ## Connect points: owned by one entity, consumed by others
 
-A contract is a type. A connect point is a named, configured use of that type with
-an owner and a set of consumers. A connect point is declared in `synqt.yaml` (full
-schema in [project layout and configuration](project-layout-and-config.md#the-synqtyaml-schema)):
+An entity has one connect point: the surface it exports, with an owner and a set of
+consumers. It has no name of its own, because the owner is its name: consumers reach it as
+the owner capitalized, the contract it carries is that plus `Contract`, and the file that
+implements it is that plus `.qml`. It is declared in `synqt.yaml` (full schema in
+[project layout and configuration](project-layout-and-config.md#the-synqtyaml-schema)):
 
 ```yaml
 connect_points:
-  - name: todo                    # the name consumers use to reach it, and the type's
-    owner: edge                   # the entity that holds the authoritative Source
+  - owner: edge                   # the entity that holds the authoritative Source
     consumers: [app]              # the entities allowed to acquire the Replica
-    server: web/edge/Todo.qml     # the authoritative implementation
+    server: web/edge/EdgeContract.qml     # the authoritative implementation
     scope: user                   # for browser consumers: minimum session scope
     export: |                     # what may cross it, and nothing else does
       prop int count
@@ -203,14 +203,17 @@ The configurable parts that matter:
 - `scope` (for browser consumers). The minimum session scope a browser user must
   hold before the framework will acquire the Replica for that client. A user below
   the required scope never gets the object, so cannot call its slots at all.
-- `export`. What may cross, written on the point. The type it becomes is the point's own
-  name capitalized, so `- name: todo` exports `Todo`; nothing names it separately.
+- `export`. What may cross, written on the point. The type it becomes is the owner
+  capitalized plus `Contract`, so `owner: edge` exports `EdgeContract`; nothing names it
+  separately. The suffix is what keeps it clear of the entity's own singleton, which is the
+  owner's name on its own (`web/edge/Edge.qml`): those are two different things, one per
+  caller and one for the whole entity, and both are in scope in the same file.
 - `server`. The file that implements the connect point, and its root element is the
-  contract itself: `web/edge/Todo.qml` opens with `Todo { ... }`. It defaults to that name
-  in the owner's folder, so most points never write it. Both ends of a contract are
-  QML types with that one name, and they never meet, because an entity may not consume a
-  connect point it owns. In an owner's binary `Todo` is the owner side; in a consumer's it
-  is the consumer side and the attached handler type used for
+  contract itself: `web/edge/EdgeContract.qml` opens with `EdgeContract { ... }`. It
+  defaults to that name in the owner's folder, so most points never write it. Both ends of
+  a contract are QML types with that one name, and they never meet, because an entity may
+  not consume the connect point it owns. In an owner's binary `EdgeContract` is the owner
+  side; in a consumer's it is the consumer side and the attached handler type used for
   [a connect point's signals](#handling-a-connect-points-signals). Which one you are
   looking at is answered by the file: a Source is the `server:` of a connect point its
   entity owns.
@@ -224,8 +227,7 @@ instead:
 
 ```yaml
 connect_points:
-  - name: storefront
-    owner: edge
+  - owner: edge
     consumers: [app]
     scope: moderator                # the default for every member below
     export: |
@@ -360,10 +362,10 @@ which is an alias for the web edge this client is attached to:
 
 ```qml
 // client/TodoView.qml
-Label { text: "Items: " + Server.todo.count }          // live property
-ListView { model: Server.todo.items }                  // live model
-Button { onClicked: Server.todo.add(input.text) }      // a request
-Todo.onRejected: reason => banner.show(reason)         // owner explained a refusal
+Label { text: "Items: " + Server.count }          // live property
+ListView { model: Server.items }                  // live model
+Button { onClicked: Server.add(input.text) }      // a request
+EdgeContract.onRejected: reason => banner.show(reason)   // owner explained a refusal
 ```
 
 From any entity's code, a connect point on another entity appears under that
@@ -371,19 +373,20 @@ owner entity's name. For example, inside the web edge's code, the database's
 connect points are under `Store`:
 
 ```qml
-// web/edge/Todo.qml (the edge), calling the store entity
+// web/edge/EdgeContract.qml (the edge), calling the store entity
 function add(text) {
     if (!Caller.hasScope("user")) { Caller.emitRejected("Sign in first."); return }
     // Persist through the database entity. This is an async cross entity call.
-    Store.items.insert({ text: text.trim(), author: Caller.identity.email })
+    Store.insert({ text: text.trim(), author: Caller.identity.email })
 }
 ```
 
 `Server` is therefore just the well known name for "the edge a browser client
-talks to." The general form is `<EntityName>.<connectPoint>`, addressing the
-owner by its configured name, capitalized into a QML type like accessor: entity
-`store` appears as `Store`, entity `edge` as `Edge`. (`Server` is the client's
-alias for its own edge, whatever that edge entity is named.)
+talks to." The general form is `<EntityName>.<member>`, addressing the owner by
+its configured name, capitalized into a QML type like accessor: entity `store`
+appears as `Store`, entity `edge` as `Edge`. There is no second name under it,
+because an entity has one connect point. (`Server` is the client's alias for its
+own edge, whatever that edge entity is named.)
 
 ## Handling a connect point's signals
 
@@ -391,56 +394,49 @@ A `Connections` block reacts to a connect point's signals, but it is a lot of
 ceremony for the common case:
 
 ```qml
-Button { onClicked: Server.auth.login(user.text, pass.text) }
+Button { onClicked: Server.login(user.text, pass.text) }
 
 Connections {
-    target: Server.auth
+    target: Server
     function onLoginFailed(reason) { errorPopup.text = reason; errorPopup.open() }
 }
 ```
 
 The contract already declares every signal, so SynQt generates, for each contract,
 an attached handler type named after the contract. Write `<Contract>.on<Signal>`
-on any element to react to that connect point's signals: no `target`, no `function`
-wrapper, and the handler names are checked against the contract at compile time.
-Given `contract Auth { slot login(...); signal loginFailed(string reason); signal loggedIn() }`,
-the block above becomes two lines:
+on any element to react to that connect point's signals, with no `target` and no
+`function` wrapper, and the handler names are checked against the contract at compile time.
+Given an edge that exports `slot login(...)`, `signal loginFailed(string reason)` and
+`signal loggedIn()`, the block above becomes two lines:
 
 ```qml
-Button { onClicked: Server.auth.login(user.text, pass.text) }
+Button { onClicked: Server.login(user.text, pass.text) }
 
-Auth.onLoginFailed: reason => { errorPopup.text = reason; errorPopup.open() }
-Auth.onLoggedIn:    () => Router.go("/home")
+EdgeContract.onLoginFailed: reason => { errorPopup.text = reason; errorPopup.open() }
+EdgeContract.onLoggedIn:    () => Router.go("/home")
 ```
 
-The attached type binds to the connect point the current entity consumes for that
-contract. When an entity consumes more than one connect point of the same contract,
-name which one with `<Contract>.point`:
-
-```qml
-Auth.point: "adminAuth"
-Auth.onLoginFailed: reason => banner.show(reason)
-```
+The attached type binds to the connect point this entity consumes for that contract, and
+there is never more than one, because a contract belongs to an owner, and an owner has one point.
 
 The same shorthand works on the service side, for the signals of a connect point an
-entity consumes from another entity. Inside the web edge, reacting to the database's
-`Ledger` signals, `Connections { target: Books.ledger; function onWinnersChanged() {...} }`
-collapses to:
+entity consumes from another entity. Inside the web edge, reacting to the books entity's
+signals, `Connections { target: Books; function onWinnersChanged() {...} }` collapses to:
 
 ```qml
-Ledger.onWinnersChanged: hall.refresh()
+BooksContract.onWinnersChanged: hall.refresh()
 ```
 
 Handlers fire only while the connect point is live; before it is acquired (a browser
-below the required scope, or a link still connecting) they simply do not fire, and
+below the required scope, or a link still connecting) they do not fire, and
 they resume on reconnect, because the framework owns the replica's lifecycle.
 
-Why the type is named after the contract rather than a single `Self` attached to
-everything: a single object could not be checked at compile time (its set of signals
-would depend on which connect point you meant), and it could not disambiguate a view
-that touches several connect points at once. The contract name gives the compiler an
-exact signal set to verify each `on<Signal>` against. `Connections` stays available
-and remains the right tool when the target is dynamic or is not a connect point.
+The type is named after the contract rather than a single `Self` attached to
+everything because a single object could not be checked at compile time (its set of signals would
+depend on which owner you meant), and it could not disambiguate a view that reaches two
+entities at once. The contract name gives the compiler an exact signal set to verify each
+`on<Signal>` against. `Connections` stays available and remains the right tool when the
+target is dynamic or is not a connect point.
 
 ## Reaching the caller: the `Caller` accessor
 
@@ -481,62 +477,59 @@ run still reads like one to everybody reviewing it.
 
 ## A connect point implementation, end to end
 
-`web/edge/Todo.qml`, the authoritative Source on the edge, authorizing the user and
+`web/edge/EdgeContract.qml`, the authoritative Source on the edge, authorizing the user and
 delegating persistence to the database entity:
 
 ```qml
 import QtQuick
 import SynQt
 
-Todo {
+EdgeContract {
     id: todo
 
+    // `add` is exported as `<user> slot add(...)`, so a signed-out caller does not have
+    // it and never reaches this function. What is left is the judgement the topology
+    // cannot make: whether this particular text is acceptable.
     function add(text) {
-        // The edge authorizes the user.
-        if (!Caller.hasScope("user")) {
-            Caller.emitRejected("You must sign in to add items.")
-            return
-        }
         const clean = ("" + text).trim()
         if (clean.length === 0 || clean.length > 280) {
             Caller.emitRejected("Item must be 1 to 280 characters.")
             return
         }
-        // Persist via the database entity (async cross entity call).
-        // The database will authorize that the caller is the edge.
-        Store.items.insert({ text: clean, author: Caller.identity.email,
-                                ownerSub: Caller.identity.sub })
+        // Persist via the database entity (async cross entity call). The database lists
+        // the edge as its only consumer, so this is the only link into it that exists.
+        Store.insert({ text: clean, author: Caller.identity.email,
+                       ownerSub: Caller.identity.sub })
     }
 }
 ```
 
-`db/relational/store/Items.qml`, the authoritative Source on the database entity, authorizing
-the calling entity:
+`db/relational/store/StoreContract.qml`, the authoritative Source on the database entity.
+It authorizes nobody, and that is the point: its consumer list has one name in it.
 
 ```qml
 import QtQuick
 import SynQt
 
-Items {
+StoreContract {
     id: items
 
     function insert(row) {
-        // The database authorizes the calling entity, not a user.
-        if (Caller.entity !== "edge") {
-            return   // refuse calls from any entity other than the edge
-        }
         Db.exec("INSERT INTO items(text, author, owner_sub) VALUES(?,?,?)",
                 [row.text, row.author, row.ownerSub])   // see docs/entities.md for the Db helper
     }
 }
 ```
 
-Two authorizations at two boundaries: the edge checks the user, the database
-checks the calling entity. This is the mesh in microcosm.
+Two boundaries, and only one of them is code. The scope on the member decides who may
+ask the edge, the edge decides whether to ask the database, and the consumer list decides
+who may ask the database at all. `Caller.entity` is what you add to the third when an owner
+has two consumers and one of them may do less. Written where there is only one, it repeats
+what the topology already proves.
 
-Both slots above are worth a test, and the cases worth testing are the ones no UI
-offers: the signed out visitor, the entity that is not the edge. [Testing your
-app](testing.md) is how, in QML, against the real `Caller`.
+The slot above is worth a test, and the cases worth testing are the ones no UI offers, the
+signed out visitor and the oversized item. [Testing your app](testing.md) is how, in QML,
+against the real `Caller`.
 
 ## Sessions and scopes (browser users)
 

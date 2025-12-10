@@ -217,6 +217,20 @@
       "defended_by": "A front hands each caller to the entity its scope names and to no other, so no link to the rest is opened for them at all; the front's own member gate refuses a slot before anything is forwarded, so the entity behind never sees a call its caller had no scope for.",
       "file": "tests/m7-caller/tst_front.cpp",
       "test": "anUnderScopedCallerIsRefusedAtTheFront"
+    },
+    {
+      "id": "an-entity-off-the-consumer-list-reaches-the-books",
+      "what": "A genuine mesh entity that is not on a connect point's consumer list acquires it anyway.",
+      "defended_by": "The consumer list is the whole of the rule: the owner refuses the connection at the point, so the Replica never becomes valid and the owner's QML needs no check of its own.",
+      "file": "tests/fix1-auction/tst_fix1.cpp",
+      "test": "theBooksRefuseAnEntityThatIsNotTheEdge"
+    },
+    {
+      "id": "a-signed-out-caller-calls-a-gated-slot",
+      "what": "A browser console calls a slot the caller's scope does not reach, as in placeBid while signed out.",
+      "defended_by": "The `<scope>` gate on the member is applied by the owner before the slot runs, so there is no check in the QML to forget.",
+      "file": "tests/fix1-auction/tst_fix1.cpp",
+      "test": "auctionAuthorizationMatrix"
     }
   ]
 }

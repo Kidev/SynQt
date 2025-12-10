@@ -4,24 +4,22 @@
 import QtQuick
 import SynQt
 
-// The authoritative stock on the stock entity. It authorizes the CALLING ENTITY, not a
-// user: only the web edge (Caller.entity === "edge") may restock, and it proves which entity
-// it is with the certificate its mesh link presented. Any other entity (even one on the
-// connect point's consumer allowlist) is refused here in the slot.
+// The authoritative stock on the stock entity.
+//
+// The connect point lists one consumer, the edge, so nothing else opens a link to this
+// entity and the browser cannot reach it at all. That list is the rule; there is no check
+// in here about who is calling, because there is nobody else who could be.
 //
 // The Db helper (parameterized query/exec, so a value can never become SQL) backs the
 // durable store when the persistence blueprint provisions it (schema.sql); this in-memory
 // seed keeps the connect-point contract identical while the SQLite provider is wired in,
 // and announces each item to the edge so the browser-facing Catalog fills itself.
-Inventory {
+StockContract {
     id: inventory
 
     property var store: []
 
     function restock(sku, title, price) {
-        if (Caller.entity !== "edge") {
-            return;   // the stock entity refuses any caller other than the edge
-        }
         inventory.store.push({ sku: sku, title: title, price: price });
         inventory.setItems(inventory.store);
         inventory.itemStocked(sku, title, price);   // announce to the edge

@@ -11,6 +11,6 @@ ApplicationWindow {
 
     Label {
         anchors.centerIn: parent
-        text: Server.greeting ? Server.greeting.message : qsTr("Connecting")
+        text: Server.message
     }
 }

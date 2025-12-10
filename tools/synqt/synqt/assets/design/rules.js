@@ -120,13 +120,14 @@ function duplicateEntities(design) {
 }
 
 function duplicateLinks(design) {
-    return repeats(linksOf(design).map(nameOf)).map((name) => ({
-        rule: "duplicate-link-name",
-        level: "error",
-        link: name,
-        message: `Two connect points are named '${name}'. The later one takes over the `
-            + `first, owner and consumer list together.`,
-    }));
+    return repeats(linksOf(design).map((link) => String((link && link.owner) || ""))).map(
+        (owner) => ({
+            rule: "duplicate-link-owner",
+            level: "error",
+            link: owner,
+            message: `'${owner}' has two connect points, and an entity has one. The later `
+                + `one takes over the first, consumer list and export block together.`,
+        }));
 }
 
 // A desktop-only client is left alone here, exactly as `synqt check` leaves it alone: it is

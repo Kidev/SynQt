@@ -35,9 +35,9 @@ def _config():
             {"name": "jobs", "type": "jobs"},
         ],
         "connect_points": [
-            {"name": "items", "owner": "database", "consumers": ["web"]},
-            {"name": "todo", "owner": "web", "consumers": ["client"]},
-            {"name": "rollup", "owner": "jobs", "consumers": ["database"], "transport": "local"},
+            {"owner": "database", "consumers": ["web"]},
+            {"owner": "web", "consumers": ["client"]},
+            {"owner": "jobs", "consumers": ["database"], "transport": "local"},
         ],
     }
 
@@ -50,11 +50,11 @@ class ResolveEndpointsTest(unittest.TestCase):
 
         database = topologywriter.entity_topology(
             config, config["entities"][2], root, endpoints)
-        # The database owns `items`; the web edge consumes it; both must dial one address.
-        db_items = next(cp for cp in database["connect_points"] if cp["name"] == "items")
+        # The database owns its point. The web edge consumes it. Both must dial one address.
+        db_items = next(cp for cp in database["connect_points"] if cp["name"] == "database")
         self.assertEqual(db_items["endpoint"]["transport"], "mtls")
         self.assertEqual(db_items["endpoint"]["host"], "127.0.0.1")
-        self.assertEqual(db_items["endpoint"]["port"], endpoints["items"]["port"])
+        self.assertEqual(db_items["endpoint"]["port"], endpoints["database"]["port"])
         self.assertGreaterEqual(db_items["endpoint"]["port"], topologywriter.MESH_PORT_BASE)
 
     def test_ports_are_deterministic_by_sorted_name(self):
@@ -62,15 +62,15 @@ class ResolveEndpointsTest(unittest.TestCase):
         first = topologywriter.resolve_endpoints(config, "shop")
         second = topologywriter.resolve_endpoints(config, "shop")
         self.assertEqual(first, second)
-        # `items` sorts before `todo`, so it takes the lower slot.
-        self.assertLess(first["items"]["port"], first["todo"]["port"])
+        # `database` sorts before `web`, so it takes the lower slot.
+        self.assertLess(first["database"]["port"], first["web"]["port"])
 
     def test_local_transport_gets_a_socket_not_a_port(self):
         endpoints = topologywriter.resolve_endpoints(_config(), "shop")
-        self.assertEqual(endpoints["rollup"]["transport"], "local")
-        self.assertIn("socket", endpoints["rollup"])
-        self.assertNotIn("port", endpoints["rollup"])
-        self.assertEqual(endpoints["rollup"]["socket"], "synqt-shop-rollup")
+        self.assertEqual(endpoints["jobs"]["transport"], "local")
+        self.assertIn("socket", endpoints["jobs"])
+        self.assertNotIn("port", endpoints["jobs"])
+        self.assertEqual(endpoints["jobs"]["socket"], "synqt-shop-jobs")
 
 
 class EntityTopologyTest(unittest.TestCase):
@@ -114,15 +114,15 @@ class EntityTopologyTest(unittest.TestCase):
         # default is derived from this list) with the same endpoint the owner listens on.
         web = topologywriter.entity_topology(
             self.config, self.config["entities"][1], self.root, self.endpoints)
-        items = next(cp for cp in web["connect_points"] if cp["name"] == "items")
+        items = next(cp for cp in web["connect_points"] if cp["name"] == "database")
         self.assertEqual(items["owner"], "database")
-        self.assertEqual(items["endpoint"]["port"], self.endpoints["items"]["port"])
+        self.assertEqual(items["endpoint"]["port"], self.endpoints["database"]["port"])
 
     def test_server_file_is_the_owners_source_qml(self):
         topology = topologywriter.entity_topology(
             self.config, self.config["entities"][2], self.root, self.endpoints)
-        items = next(cp for cp in topology["connect_points"] if cp["name"] == "items")
-        self.assertTrue(items["server"].endswith("db/relational/database/Items.qml"))
+        items = next(cp for cp in topology["connect_points"] if cp["name"] == "database")
+        self.assertTrue(items["server"].endswith("db/relational/database/DatabaseContract.qml"))
 
 
 class WriteTest(unittest.TestCase):
@@ -148,7 +148,7 @@ class WriteTest(unittest.TestCase):
         topologywriter.write(root, _config())
         edge = json.loads((root / "build" / "web" / "topology.json").read_text())
         names = sorted(cp["name"] for cp in edge["connect_points"])
-        self.assertEqual(names, ["items"])
+        self.assertEqual(names, ["database"])
         self.assertEqual(edge["entity"], "web")
 
     def test_an_edge_with_no_mesh_side_gets_no_topology(self):
@@ -156,7 +156,7 @@ class WriteTest(unittest.TestCase):
         # no EntityRuntime and thus no topology.
         config = _config()
         config["connect_points"] = [
-            {"name": "todo", "owner": "web", "consumers": ["client"]}]
+            {"owner": "web", "consumers": ["client"]}]
         root = Path(tempfile.mkdtemp())
         written = topologywriter.write(root, config)
         self.assertNotIn("build/web/topology.json", written)
@@ -168,12 +168,12 @@ class WriteTest(unittest.TestCase):
         # Wire the edge to the relational entity so there is a real mesh link.
         config = yaml.safe_load((root / "synqt.yaml").read_text())
         # The point says what crosses it. Declaring `items` and saying nothing leaves a
-        # project that cannot configure, and this test used to pass anyway: build() caught
-        # the CMake failure, returned it as a note, and carried on writing the topology
-        # this asserts on. It raises now, so the fixture has to be a project that really
+        # project that cannot configure, and build() raises on that rather than returning
+        # the CMake failure as a note and carrying on writing the topology
+        # this asserts on. So the fixture has to be a project that
         # builds, which is the only version of it that proves anything.
         config["connect_points"] = [
-            {"name": "items", "owner": "orders", "consumers": ["edge"],
+            {"owner": "orders", "consumers": ["edge"],
              "export": "prop int count\n"}]
         (root / "synqt.yaml").write_text(yaml.safe_dump(config, sort_keys=False))
         owner = root / "db" / "relational" / "orders"
@@ -184,7 +184,7 @@ class WriteTest(unittest.TestCase):
         self.assertTrue(topology_path.exists())
         topology = json.loads(topology_path.read_text())
         self.assertEqual(topology["type"], "relational")
-        self.assertEqual(topology["connect_points"][0]["name"], "items")
+        self.assertEqual(topology["connect_points"][0]["name"], "orders")
 
 
 if __name__ == "__main__":

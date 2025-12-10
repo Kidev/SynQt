@@ -16,7 +16,6 @@
 QT_BEGIN_NAMESPACE
 class QNetworkAccessManager;
 class QQmlEngine;
-class QQmlPropertyMap;
 class QRemoteObjectNode;
 QT_END_NAMESPACE
 
@@ -31,11 +30,14 @@ class IPersistenceProvider;
 /// The entry point for a service entity. From the resolved topology it derives this
 /// entity's owned and consumed connect points, brings up an owner (ConnectPointHost)
 /// for each owned connect point, opens a consumer link for each consumed connect point
-/// (and only those), and exposes the consumed connect points by owner name, capitalized
-/// into a QML accessor (owner `database` -> `Database`).
+/// (and only those), and puts each owner it consumes from in QML scope under that owner's
+/// name, capitalized (owner `database` -> `Database.rows`).
+///
+/// An entity has one connect point, which is why the accessor is the whole address: there
+/// is no second name under it to say which of the owner's surfaces is meant.
 ///
 /// Deny by default is structural on the consumer side (a link is opened only to an
-/// owner this entity actually consumes from) and enforced on the owner side by each
+/// owner this entity consumes from) and enforced on the owner side by each
 /// ConnectPointHost against its consumer allowlist.
 class EntityRuntime : public QObject
 {
@@ -60,9 +62,13 @@ public:
 
     QList<ConnectPointHost *> ownedHosts() const;
 
-    /// The accessor for a given owner's consumed connect points, keyed by capitalized
-    /// owner name; each holds the acquired replicas by connect-point name.
-    QQmlPropertyMap *accessor(const QString &capitalizedOwner) const;
+    /// What QML reaches one consumed owner through, keyed by capitalized owner name: the
+    /// contract's consumer facade where the build registered one, else the raw Replica.
+    ///
+    /// Present from start(), before any link is up, wherever the contract has a facade.
+    /// A QML binding is evaluated once, so an accessor that appeared only on a successful
+    /// handshake was a name that read as nothing on the first frame and stayed that way.
+    QObject *accessor(const QString &capitalizedOwner) const;
 
     /// The acquired replica for a consumed connect point, or nullptr until it exists.
     QObject *consumedReplica(const QString &owner, const QString &connectPoint) const;
@@ -77,7 +83,7 @@ signals:
     /// Replica builds its metaobject on initialization, so a connect made before this
     /// arrives silently matches nothing.
     ///
-    /// The QML accessor (`<Owner>.<point>`) needs none of this, which is why it took a
+    /// The QML accessor (`<Owner>`) needs none of this, which is why it took a
     /// signal to add: C++ that adopts a Replica does. A generated edge uses it to attach
     /// the auth entity's Identity and SessionStore Replicas to its IdentityProvider and
     /// SessionManager. Emitted again after a reconnect, since that is a new Replica.
@@ -86,7 +92,12 @@ signals:
 
 private:
     void openConsumerLink(const ConnectPointConfig &connectPoint);
-    QQmlPropertyMap *accessorFor(const QString &capitalizedOwner);
+
+    /// Put this connect point's owner in QML scope, before the link that fills it exists.
+    /// Nothing is installed for a framework point. The edge's C++ takes those by name
+    /// through consumedReplicaReady, and the auth entity owns two of them, which one
+    /// accessor could not hold both of anyway.
+    void installAccessor(const ConnectPointConfig &connectPoint);
 
     /// Build the one backend helper (Db/Cache/Docs/Http/Jobs) this entity's type calls for, so
     /// it can be injected into every owned Source's QML context before the Source is created.
@@ -98,7 +109,7 @@ private:
     Topology m_topology;
     QQmlEngine *m_engine;
     QList<ConnectPointHost *> m_ownedHosts;
-    QHash<QString, QQmlPropertyMap *> m_accessors;
+    QHash<QString, QObject *> m_accessors;
     QHash<QString, QObject *> m_consumedReplicas;
     /// The node currently carrying each consumed connect point, so a link that comes back
     /// up replaces what it had rather than adding to it. Keyed like m_consumedReplicas.

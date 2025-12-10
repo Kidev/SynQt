@@ -154,7 +154,7 @@ class ManifestTest(unittest.TestCase):
                 {"name": "database", "type": "service"},
             ],
             "connect_points": [
-                {"name": "items", "owner": "database", "consumers": ["web"]}],
+                {"owner": "database", "consumers": ["web"]}],
         }
         build_dir = Path(tempfile.mkdtemp())
         path = buildmod.write_process_manifest(config, build_dir)
@@ -283,7 +283,7 @@ class AppGenTest(unittest.TestCase):
                 {"name": "web", "type": "web_edge"},
             ],
             "connect_points": [
-                {"name": "counter", "owner": "web", "consumers": ["client"],
+                {"owner": "web", "consumers": ["client"],
                  "export": "prop int value\n"}],
         }
         cmake = cmakegen.render_root_cmakelists(config, "/opt/synqt")
@@ -291,19 +291,19 @@ class AppGenTest(unittest.TestCase):
         self.assertIn("synqt_add_contract(client ROLE replica", cmake)
         self.assertIn("synqt_add_contract(web ROLE source", cmake)
         client_main = maingen.render_client_main(config, appmodel.qml_uri(config["project"]["name"]))
-        self.assertIn("synqtRegisterCounterReplicas();", client_main)
-        # The client also registers the consumer surface, so Server.counter is the facade
-        # (returning-slot promises) and `Counter.on<Signal>` handlers resolve.
-        self.assertIn("synqtRegisterCounterConsumers();", client_main)
+        self.assertIn("synqtRegisterWebContractReplicas();", client_main)
+        # The client also registers the consumer surface, so `Server` is the facade
+        # (returning-slot promises) and `WebContract.on<Signal>` handlers resolve.
+        self.assertIn("synqtRegisterWebContractConsumers();", client_main)
         # An application compiles under the rules the framework compiles under: the same
         # file, included from the same root, rather than a copy of its contents that would
         # drift the first time one of them changed.
         self.assertIn('include("${SYNQT_ROOT}/cmake/SynQtBuildFlags.cmake")', cmake)
         self.assertNotIn("CMAKE_CXX_STANDARD", cmake)
         edge_main = maingen.render_edge_main(config, config["entities"][1])
-        self.assertIn("synqtRegisterCounterSources();", edge_main)
-        self.assertIn("WebEdgeConnectPoint counter;", edge_main)
-        self.assertIn('counter.contract = QStringLiteral("Counter");', edge_main)
+        self.assertIn("synqtRegisterWebContractSources();", edge_main)
+        self.assertIn("WebEdgeConnectPoint pointWeb;", edge_main)
+        self.assertIn('pointWeb.contract = QStringLiteral("WebContract");', edge_main)
 
     def test_client_main_defaults_logging_by_build_type(self):
         # With build.client_logging unset, the generated main installs Console in a debug
@@ -384,12 +384,12 @@ class AppGenTest(unittest.TestCase):
                 {"name": "edge", "type": "web_edge"},
             ],
             "connect_points": [
-                {"name": "auction", "owner": "edge", "consumers": ["app"],
+                {"owner": "edge", "consumers": ["app"],
                  "export": "prop int highBid\n"},
             ],
         }
         main = maingen.render_edge_main(config, config["entities"][1])
-        self.assertIn('QStringLiteral("auction")', main)
+        self.assertIn('pointEdge.name = QStringLiteral("edge")', main)
         self.assertNotIn("No client-facing connect points yet", main)
 
     def test_edge_main_composes_entity_runtime_for_its_mesh_side(self):
@@ -405,26 +405,25 @@ class AppGenTest(unittest.TestCase):
                 {"name": "database", "type": "relational"},
             ],
             "connect_points": [
-                {"name": "auction", "owner": "web",
-                 "consumers": ["client"], "instance": "caller"},
-                {"name": "ledger", "owner": "database",
+                {"owner": "web", "consumers": ["client"]},
+                {"owner": "database",
                  "consumers": ["web"]}],
         }
         edge_main = maingen.render_edge_main(config, config["entities"][1])
         self.assertIn('#include "entityruntime.h"', edge_main)
-        self.assertIn('#include "ledger_consumer.h"', edge_main)
-        self.assertIn("synqtRegisterLedgerConsumers();", edge_main)
+        self.assertIn('#include "databasecontract_consumer.h"', edge_main)
+        self.assertIn("synqtRegisterDatabaseContractConsumers();", edge_main)
         self.assertIn("EntityRuntime runtime{topologyFromJson(topologyJson), &engine};",
                       edge_main)
         self.assertIn(
             'edge.setContextObject(EntityRuntime::accessorName(QStringLiteral("database")),',
             edge_main)
-        # accessor() returns a QQmlPropertyMap*, upcast to QObject* for setContextObject, so
-        # the full type must be included or the mesh edge does not compile.
-        self.assertIn("#include <QQmlPropertyMap>", edge_main)
+        # accessor() returns a QObject* now: the entity's one connect point, behind its
+        # consumer facade, rather than a map of the several it used to be able to own.
+        self.assertNotIn("#include <QQmlPropertyMap>", edge_main)
         # It still owns and hosts its browser-facing side through WebEdge.
-        self.assertIn("synqtRegisterAuctionSources();", edge_main)
-        self.assertIn("WebEdgeConnectPoint auction;", edge_main)
+        self.assertIn("synqtRegisterWebContractSources();", edge_main)
+        self.assertIn("WebEdgeConnectPoint pointWeb;", edge_main)
 
     def test_service_main_includes_qjsonobject_for_the_topology(self):
         # The service main builds a const QJsonObject from the topology file; QJsonDocument's
@@ -437,7 +436,7 @@ class AppGenTest(unittest.TestCase):
                 {"name": "database", "type": "relational"},
             ],
             "connect_points": [
-                {"name": "ledger", "owner": "database",
+                {"owner": "database",
                  "consumers": ["web"]}],
         }
         service_main = maingen.render_service_main(config, config["entities"][0])
@@ -479,7 +478,7 @@ class AppGenTest(unittest.TestCase):
                 {"name": "rollups", "type": "jobs"},
             ],
             "connect_points": [
-                {"name": "ledger", "owner": "database",
+                {"owner": "database",
                  "consumers": ["rollups"]}],
         }
         cmake = cmakegen.render_root_cmakelists(config, "/opt/synqt")
@@ -519,7 +518,7 @@ class AppGenTest(unittest.TestCase):
                 {"name": "web", "type": "web_edge"},
             ],
             "connect_points": [
-                {"name": "counter", "owner": "web", "consumers": ["client"],
+                {"owner": "web", "consumers": ["client"],
                  "export": "prop int value\n"}],
         }
         edge_main = maingen.render_edge_main(config, config["entities"][1])
@@ -554,7 +553,7 @@ class AppGenTest(unittest.TestCase):
                 {"name": "web", "type": "web_edge"},
             ],
             "connect_points": [
-                {"name": "arena", "owner": "web",
+                {"owner": "web",
                  "consumers": ["client"], "instance": "caller"}],
         }
         edge_main = maingen.render_edge_main(config, config["entities"][1], ["World"])

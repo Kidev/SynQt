@@ -371,13 +371,13 @@ reference.
 </svg>
 
 <div class="synqt-flow__hotspot synqt-flow__hotspot--user" data-file="client" tabindex="0" role="button" aria-label="Show client/app/Main.qml"></div>
-<div class="synqt-flow__hotspot synqt-flow__hotspot--hub" data-file="web" tabindex="0" role="button" aria-label="Show web/edge/Feed.qml"></div>
+<div class="synqt-flow__hotspot synqt-flow__hotspot--hub" data-file="web" tabindex="0" role="button" aria-label="Show web/edge/EdgeContract.qml"></div>
 <div class="synqt-flow__hotspot synqt-flow__hotspot--contract" data-file="config" tabindex="0" role="button" aria-label="Show what the feed connect point carries"></div>
 <div class="synqt-flow__hotspot synqt-flow__hotspot--access-contract" data-file="config" tabindex="0" role="button" aria-label="Show what the access connect point carries"></div>
 <div class="synqt-flow__hotspot synqt-flow__hotspot--upstream-contract" data-file="config" tabindex="0" role="button" aria-label="Show what the upstream connect point carries"></div>
 <div class="synqt-flow__hotspot synqt-flow__hotspot--config" data-file="config" tabindex="0" role="button" aria-label="Show synqt.yaml"></div>
-<div class="synqt-flow__hotspot synqt-flow__hotspot--database" data-file="database schema" tabindex="0" role="button" aria-label="Show db/relational/store/Access.qml and db/relational/store/schema.sql"></div>
-<div class="synqt-flow__hotspot synqt-flow__hotspot--api" data-file="api" tabindex="0" role="button" aria-label="Show api/feeds/Upstream.qml"></div>
+<div class="synqt-flow__hotspot synqt-flow__hotspot--database" data-file="database schema" tabindex="0" role="button" aria-label="Show db/relational/store/StoreContract.qml and db/relational/store/schema.sql"></div>
+<div class="synqt-flow__hotspot synqt-flow__hotspot--api" data-file="api" tabindex="0" role="button" aria-label="Show api/feeds/FeedsContract.qml"></div>
 </div>
 </div>
 
@@ -406,21 +406,18 @@ entities:
   - { name: feeds, type: api }
 
 connect_points:
-  - name: feed
-    owner: edge
+  - owner: edge
     consumers: [app]
     export: |
       prop bool loaded
       model rows(int id, string[120] title)
       slot load()
       signal denied(string[120] reason)
-  - name: access
-    owner: store
+  - owner: store
     consumers: [edge]
     export: |
       slot bool allows(string[64] sub)
-  - name: upstream
-    owner: feeds
+  - owner: feeds
     consumers: [edge]
     export: |
       slot var fetch()
@@ -435,7 +432,7 @@ connect_points:
 <li data-code="type: api" data-href="entities/">A gateway: it holds the third-party credentials and speaks HTTP. Calling out is granted by network:, which any entity may carry, so this is the folder and the scaffold rather than the permission.</li>
 <li data-code="consumers: [app]" data-href="project-layout-and-config/">The browser's one way in, and deny by default: an entity that is not on this list cannot open this connect point at all.</li>
 <li data-code="consumers: [edge]" data-href="entities/">The database is reachable by the edge, over mutual TLS, and by nothing else, browser included.</li>
-<li data-code="export: |" data-href="programming-model/">What may cross the link, and the whole of it. The point is named, so the type it exports takes that name: `feed` exports `Feed`, which is what both sides compile against.</li>
+<li data-code="export: |" data-href="programming-model/">What may cross the link, and the whole of it. The owner names the type it exports: `edge` exports `EdgeContract`, which is what both sides compile against.</li>
 <li data-code="prop bool loaded" data-href="programming-model/">Owner to consumers, pushed. A consumer sees it change; it cannot set it.</li>
 <li data-code="model rows(int id, string[120] title)" data-href="programming-model/">The roles listed here are the whole of what a row is allowed to carry to a browser, and the 120 is a rule the owner keeps, not a comment.</li>
 <li data-code="slot load()" data-href="programming-model/">Consumer to owner: the one direction a request travels.</li>
@@ -458,7 +455,7 @@ ApplicationWindow {
     id: window
 
     property string notice: "Loading..."
-    readonly property bool feedReady: Server.feed.ready
+    readonly property bool feedReady: Server.ready
 
     visible: true
     title: "My app"
@@ -466,19 +463,19 @@ ApplicationWindow {
     Feed.onDenied: reason => window.notice = reason
     onFeedReadyChanged: {
         if (window.feedReady) {
-            Server.feed.load();
+            Server.load();
         }
     }
 
     Label {
         id: banner
-        text: Server.feed.loaded ? "" : window.notice
+        text: Server.loaded ? "" : window.notice
     }
 
     ListView {
         anchors.fill: parent
         anchors.topMargin: banner.height
-        model: Server.feed.rows
+        model: Server.rows
         delegate: Text {
             required property var model
             text: model.title
@@ -492,22 +489,22 @@ ApplicationWindow {
 <li data-code="ApplicationWindow" data-href="project-layout-and-config/">The client's Main.qml is the window. A root that is not a window builds fine and renders nothing.</li>
 <li data-code="Feed.onDenied" data-href="api/?p=classSynQt_1_1ConsumerBase.html">The contract's signal, handled where it arrives. No Connections block, no target to wire up.</li>
 <li data-code="onFeedReadyChanged" data-href="api/?p=classSynQt_1_1ServerAccessor.html">The feed arrives when this browser connects, and arrives again after a reconnect. Asking here covers both, and nothing asks before there is anything to ask.</li>
-<li data-code="Server.feed.ready" data-href="api/?p=classSynQt_1_1ConsumerBase.html">The framework's own: true once the edge is hosting this connect point for this browser. It goes false on a disconnect and true again on the reconnect.</li>
-<li data-code="Server.feed.loaded" data-href="programming-model/">The contract's property, pushed by the edge. Read-only here: a consumer can never write owner state.</li>
-<li data-code="model: Server.feed.rows" data-href="programming-model/">A live model. The edge replaces the rows and every open tab redraws itself.</li>
-<li data-code="Server.feed.load()" data-href="api/?p=classSynQt_1_1ServerAccessor.html">A request, not a command. It runs in the edge, which is free to refuse it.</li>
+<li data-code="Server.ready" data-href="api/?p=classSynQt_1_1ConsumerBase.html">The framework's own: true once the edge is hosting this connect point for this browser. It goes false on a disconnect and true again on the reconnect.</li>
+<li data-code="Server.loaded" data-href="programming-model/">The contract's property, pushed by the edge. Read-only here: a consumer can never write owner state.</li>
+<li data-code="model: Server.rows" data-href="programming-model/">A live model. The edge replaces the rows and every open tab redraws itself.</li>
+<li data-code="Server.load()" data-href="api/?p=classSynQt_1_1ServerAccessor.html">A request, not a command. It runs in the edge, which is free to refuse it.</li>
 </ul>
 
 </div>
 
 <div class="synqt-file" data-file="web" markdown>
-<span class="synqt-file__name"><strong>web edge</strong><span class="synqt-flow__path">web/edge/Feed.qml</span></span>
+<span class="synqt-file__name"><strong>web edge</strong><span class="synqt-flow__path">web/edge/EdgeContract.qml</span></span>
 
 ```qml
 import QtQuick
 import SynQt
 
-Feed {
+EdgeContract {
     id: feed
 
     loaded: false
@@ -517,7 +514,7 @@ Feed {
             Caller.emitDenied("Please sign in.");
             return;
         }
-        Store.access.allows(Caller.identity.sub).then(ok => {
+        Store.allows(Caller.identity.sub).then(ok => {
             if (!ok) {
                 Caller.emitDenied("Not allowed.");
                 return;
@@ -535,7 +532,7 @@ Feed {
 <li data-code="Feed" data-href="programming-model/">The contract itself. In the owner's binary it is the owner's side; in a consumer's it is the consumer's. They never meet, because an entity may not consume a point it owns. Owning one means writing its Source, and nothing else.</li>
 <li data-code="Caller.hasScope" data-href="api/?p=classSynQt_1_1Caller.html">Who is calling, established by the session the edge issued. A caller cannot claim a scope it lacks.</li>
 <li data-code="Caller.emitDenied" data-href="api/?p=classSynQt_1_1Caller.html">Answers this one caller, not everyone watching. The signal is the contract's, so the client already handles it.</li>
-<li data-code="Store.access.allows" data-href="api/?p=classSynQt_1_1EntityRuntime.html">A mesh call, shaped like a local one, over mutual TLS. The subject is the identity the edge holds, not a browser value.</li>
+<li data-code="Store.allows" data-href="api/?p=classSynQt_1_1EntityRuntime.html">A mesh call, shaped like a local one, over mutual TLS. The subject is the identity the edge holds, not a browser value.</li>
 <li data-code="Api.upstream.fetch" data-href="entities/">The gateway holds the third-party credentials and the outbound connection; the edge just asks.</li>
 <li data-code="feed.setRows" data-href="programming-model/">Replaces the model. Only the declared roles cross the wire; anything else on a row is dropped here.</li>
 </ul>
@@ -543,19 +540,18 @@ Feed {
 </div>
 
 <div class="synqt-file" data-file="database" markdown>
-<span class="synqt-file__name"><strong>database</strong><span class="synqt-flow__path">db/relational/store/Access.qml</span></span>
+<span class="synqt-file__name"><strong>database</strong><span class="synqt-flow__path">db/relational/store/StoreContract.qml</span></span>
 
 ```qml
 import QtQuick
 import SynQt
 
-Access {
+StoreContract {
     id: access
 
+    // Nothing here asks who is calling: this point lists one consumer, so nothing
+    // else can acquire it.
     function allows(sub) {
-        if (Caller.entity !== "edge") {
-            return false;
-        }
         const rows = Db.query(
             "SELECT 1 FROM grants WHERE sub = ?", [sub]);
         return rows.length > 0;
@@ -565,7 +561,7 @@ Access {
 
 <ul class="synqt-flow__glossary" hidden>
 <li data-code="Access" data-href="entities/">The database owns this connect point, so it owns the rules for it too.</li>
-<li data-code="Caller.entity" data-href="api/?p=classSynQt_1_1Caller.html">An entity, not a person, named by the certificate its link presented. Only the edge gets here, and the slot checks again.</li>
+<li data-code="Nothing here asks who is calling" data-href="security/">The consumer list is the rule. Only the edge is on it, so nothing else opens a link and nothing else acquires this. `Caller.entity` is for an owner with two consumers where one of them may do less.</li>
 <li data-code="Db.query" data-href="api/?p=classSynQt_1_1Db.html">Parameterized, always. The value goes in as a parameter, so it can never become SQL. The grants table itself comes from db/relational/store/schema.sql, the next file.</li>
 </ul>
 
@@ -593,21 +589,18 @@ CREATE INDEX IF NOT EXISTS grants_by_date
 </div>
 
 <div class="synqt-file" data-file="api" markdown>
-<span class="synqt-file__name"><strong>api</strong><span class="synqt-flow__path">api/feeds/Upstream.qml</span></span>
+<span class="synqt-file__name"><strong>api</strong><span class="synqt-flow__path">api/feeds/FeedsContract.qml</span></span>
 
 ```qml
 import QtQuick
 import SynQt
 
-Upstream {
+FeedsContract {
     id: upstream
 
     property var cached: []
 
     function fetch() {
-        if (Caller.entity !== "edge") {
-            return [];
-        }
         return upstream.cached;
     }
 
@@ -645,14 +638,14 @@ Upstream {
 <li class="synqt-tree__leaf synqt-tree__leaf--deep"><span class="synqt-tree__file" data-file="client" tabindex="0" role="button" aria-label="Show client/app/Main.qml">Main.qml</span></li>
 <li class="synqt-tree__dir"><span class="synqt-tree__folder" data-file="web" tabindex="0" role="button" aria-label="Show the web edge entity">web</span></li>
 <li class="synqt-tree__dir synqt-tree__dir--nested"><span class="synqt-tree__folder" data-file="web" tabindex="0" role="button" aria-label="Show the edge's files">edge</span></li>
-<li class="synqt-tree__leaf synqt-tree__leaf--deep"><span class="synqt-tree__file" data-file="web" tabindex="0" role="button" aria-label="Show web/edge/Feed.qml">Feed.qml</span></li>
+<li class="synqt-tree__leaf synqt-tree__leaf--deep"><span class="synqt-tree__file" data-file="web" tabindex="0" role="button" aria-label="Show web/edge/EdgeContract.qml">Feed.qml</span></li>
 <li class="synqt-tree__dir"><span class="synqt-tree__folder" data-file="database schema" tabindex="0" role="button" aria-label="Show the relational entities">db/relational</span></li>
 <li class="synqt-tree__dir synqt-tree__dir--nested"><span class="synqt-tree__folder" data-file="database schema" tabindex="0" role="button" aria-label="Show the store entity's files">store</span></li>
-<li class="synqt-tree__leaf synqt-tree__leaf--deep"><span class="synqt-tree__file" data-file="database schema" tabindex="0" role="button" aria-label="Show db/relational/store/Access.qml and db/relational/store/schema.sql">Access.qml</span></li>
-<li class="synqt-tree__leaf synqt-tree__leaf--deep"><span class="synqt-tree__file" data-file="database schema" tabindex="0" role="button" aria-label="Show db/relational/store/Access.qml and db/relational/store/schema.sql">schema.sql</span></li>
+<li class="synqt-tree__leaf synqt-tree__leaf--deep"><span class="synqt-tree__file" data-file="database schema" tabindex="0" role="button" aria-label="Show db/relational/store/StoreContract.qml and db/relational/store/schema.sql">Access.qml</span></li>
+<li class="synqt-tree__leaf synqt-tree__leaf--deep"><span class="synqt-tree__file" data-file="database schema" tabindex="0" role="button" aria-label="Show db/relational/store/StoreContract.qml and db/relational/store/schema.sql">schema.sql</span></li>
 <li class="synqt-tree__dir"><span class="synqt-tree__folder" data-file="api" tabindex="0" role="button" aria-label="Show the api entities">api</span></li>
 <li class="synqt-tree__dir synqt-tree__dir--nested"><span class="synqt-tree__folder" data-file="api" tabindex="0" role="button" aria-label="Show the feeds entity's files">feeds</span></li>
-<li class="synqt-tree__leaf synqt-tree__leaf--deep"><span class="synqt-tree__file" data-file="api" tabindex="0" role="button" aria-label="Show api/feeds/Upstream.qml">Upstream.qml</span></li>
+<li class="synqt-tree__leaf synqt-tree__leaf--deep"><span class="synqt-tree__file" data-file="api" tabindex="0" role="button" aria-label="Show api/feeds/FeedsContract.qml">Upstream.qml</span></li>
 </ul>
 </div>
 

@@ -4,12 +4,12 @@
 import QtQuick
 import SynQt
 
-// One instance per player session (the runnable rendering of examples/arena/web/edge/Arena.qml).
-// It never simulates; it forwards this player's steer and ping into the shared World and
-// publishes only their slice. Because it reads Caller, it is a per-caller Source: only an
-// approved player (scope "player") ever reaches it; the connect point's scope gate means an
-// under-scoped session never has this acquired at all.
-Arena {
+// One instance per player session (the runnable rendering of
+// examples/arena/web/edge/EdgeContract.qml). It never simulates; it forwards this player's
+// steer and ping into the shared World and publishes only their slice. The connect point is
+// `scope: player`, so an under-scoped session never has this acquired at all and there is
+// nothing in here that asks about scope.
+EdgeContract {
     id: arena
     property string mySub: ""
 
@@ -18,12 +18,11 @@ Arena {
     })
 
     function steer(x, y) {
-        if (!Caller.hasScope("player")) return;          // approved players only
         arena.mySub = Caller.identity.sub;               // learn who this session is
         World.steer(arena.mySub, Caller.identity.login, x, y);
     }
     function ping() {
-        if (Caller.hasScope("player")) World.keepAlive(arena.mySub);
+        World.keepAlive(arena.mySub);
         return Date.now();
     }
 

@@ -38,7 +38,7 @@ BASE = {
         {"name": "client", "type": "client", "targets": ["wasm"]},
     ],
     "connect_points": [
-        {"name": "items", "owner": "database", "consumers": ["web"]},
+        {"owner": "database", "consumers": ["web"]},
     ],
 }
 

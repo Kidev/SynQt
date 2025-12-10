@@ -709,14 +709,14 @@ function absorbReferences(consumer, found) {
         if (!owner) {
             continue;
         }
-        let link = (state.design.links || []).find((held) => held.name === one.point);
+        let link = (state.design.links || []).find((held) => held.owner === owner.name);
         if (!link) {
-            link = {id: one.point, name: one.point, contract: capitalised(one.point),
+            link = {id: owner.name, name: owner.name, contract: "",
                     owner: owner.name, consumers: [], transport: "",
                     members: []};
             state.design.links.push(link);
-            said.push(`'${consumer.name}' reaches ${one.accessor}.${one.point}, so `
-                      + `'${owner.name}' now owns a '${one.point}' connect point.`);
+            said.push(`'${consumer.name}' reaches ${one.accessor}.${one.member}, so `
+                      + `'${owner.name}' now exports a connect point.`);
         }
         if (link.owner === consumer.name) {
             continue;               // an entity reaching its own point needs nothing drawn
@@ -743,6 +743,7 @@ function absorbReferences(consumer, found) {
 function focusOf(file, line) {
     if (file.name.endsWith(".qml")) {
         const text = withoutNotice(file.text);
+        const entity = entityOf(file.name);
         if (file.link) {
             const declared = declarations(text).find((one) => one.line === line);
             if (declared) {
@@ -751,14 +752,17 @@ function focusOf(file, line) {
         }
         const reached = references(text).find((one) => one.line === line);
         if (reached) {
-            return {kind: "link", name: reached.point, member: reached.member};
+            const owner = ownerNamed(reached.accessor, entity);
+            if (owner) {
+                return {kind: "link", name: owner.name, member: reached.member};
+            }
         }
-        const entity = entityOf(file.name);
         return entity ? {kind: "entity", name: entity.name} : null;
     }
-    // The configuration: whichever `- name:` this line is under, whether that block is in the
+    // The configuration. Whichever item this line is under, whether that block is in the
     // entity list or the connect point list, and, inside a connect point's `export:` block,
-    // which member the caret is on.
+    // which member the caret is on. An entity opens with `- name:` and a connect point with
+    // `- owner:`, because a connect point is not named: its owner names it.
     const lines = withoutNotice(file.text).split("\n");
     let named = "";
     let inLinks = false;
@@ -769,7 +773,8 @@ function focusOf(file, line) {
         } else if (/^[a-z_]+:/.test(lines[at])) {
             inLinks = false;
         }
-        const found = lines[at].match(/^\s*-\s+name:\s*(\S+)/);
+        const found = lines[at].match(inLinks ? /^\s*-\s+owner:\s*(\S+)/
+                                             : /^\s*-\s+name:\s*(\S+)/);
         if (found) {
             named = found[1];
             exportAt = -1;
@@ -1126,7 +1131,7 @@ function openPicker(link, at) {
 
     const head = document.createElement("header");
     head.className = "picker__head";
-    head.textContent = `What crosses '${link.name}'`;
+    head.textContent = `What crosses ${link.owner}'s connect point`;
     page.picker.append(head);
 
     const note = document.createElement("p");
@@ -1321,7 +1326,10 @@ function renameTo(kind, name, wanted, what) {
     if (kind === "entity") {
         for (const link of state.design.links) {
             if (link.owner === name) {
+                // The owner names its connect point, so renaming the entity renames it.
                 link.owner = trimmed;
+                link.id = trimmed;
+                link.name = trimmed;
             }
             link.consumers = (link.consumers || [])
                 .map((consumer) => (consumer === name ? trimmed : consumer));
@@ -1352,11 +1360,11 @@ function onContextMenu(event) {
         const found = (state.design.links || [])
             .find((one) => one.name === under.name);
         select({kind: "link", name: found.name});
-        openMenu(at, found.name, [
+        // No Rename: a connect point is not named, its owner names it. Renaming the owner
+        // is what moves it, and that is on the node.
+        openMenu(at, `${found.owner}'s connect point`, [
             {label: "What crosses it", act: () => openPicker(found, at)},
             {label: "Edit", act: () => page.inspector.scrollIntoView({block: "nearest"})},
-            {label: "Rename",
-             act: () => renameInPlace("link", found.name, "connect point", at)},
             ...((found.consumers || []).length
                 ? [{label: "Disconnect the consumer", act: () => disconnectLink(found)}]
                 : []),
@@ -1447,7 +1455,11 @@ function adopt(design) {
         // Without a `contract:` on any of them: it is the framework's own field, for the
         // points whose contracts ship in the runtime libraries, and a project that writes it
         // is refused. A document made before that rule carried one on every point.
-        links: (design.links || []).map(({contract, ...link}) => link),
+        //
+        // The owner is the identity, and `id`/`name` are derived from it here, once, so
+        // everything downstream can go on keying by name without asking where it came from.
+        links: (design.links || []).map(({contract, ...link}) =>
+            ({...link, id: link.owner, name: link.owner})),
     };
     state.selected = null;
     // No name, no label. `synqt design` always has a project to name; the copy on the site
@@ -1524,18 +1536,17 @@ function capitalised(name) {
     return name ? name[0].toUpperCase() + name.slice(1) : name;
 }
 
-// A connect point is named for the direction it runs, because the direction is the thing
-// people get wrong: `webToClient` is owned by the edge and consumed by the browser, and the
-// contract and the file it writes say the same. Rename it to whatever it carries the moment
-// you know; nothing here depends on the name it arrived with.
+// A connect point is its owner. An entity has one, so drawing a second line out of an entity
+// adds a consumer to the point it already exports rather than making another one. That is
+// also why there is nothing here to name.
 // `toward` is where the link was headed when it was drawn, which is the slot it takes on its
-// owner's rim: a link pulled to the left leaves from the left. It is the drop point rather
+// owner's rim. A link pulled to the left leaves from the left. It is the drop point rather
 // than the consumer's centre, because a link dropped on empty canvas has no consumer yet.
 function addLink(from, to, headed, at) {
     // A browser owns nothing. An owner hosts the Source and listens for consumers to
     // acquire it, and there is no WebSocket server under WebAssembly, so a line drawn from
     // the browser is somebody saying which two entities talk, not which way the hosting
-    // goes. Turn it around and say so: the gesture works from either end, and only one of
+    // goes. Turn it around and say so. The gesture works from either end, and only one of
     // the two links it could mean can be built.
     const drawnFromAClient = entityType(from) === "client" && entityType(to) !== "client";
     const owner = drawnFromAClient ? to : from;
@@ -1543,8 +1554,24 @@ function addLink(from, to, headed, at) {
     // The drop point picks which side of the owner's rim the line leaves from. Turned
     // around, the drop point is on the wrong entity, so the consumer picks it instead.
     const toward = drawnFromAClient ? null : headed;
-    const taken = new Set((state.design.links || []).map((link) => link.name));
-    const name = unique(`${owner.name}To${capitalised(consumer.name)}`, taken);
+    const name = owner.name;
+    // A second line out of the same owner is a second consumer of the one point it exports,
+    // not a second point. Drawing it says who else may reach what is already there.
+    const already = (state.design.links || []).find((link) => link.owner === owner.name);
+    if (already) {
+        if (!already.consumers.includes(consumer.name)) {
+            already.consumers.push(consumer.name);
+            touched();
+        }
+        select({kind: "link", name});
+        say(`'${consumer.name}' now consumes '${owner.name}'. An entity has one connect `
+            + `point, so this is the one '${owner.name}' already exports, and both `
+            + `consumers see the same members.`);
+        if (at) {
+            openPicker(already, at);
+        }
+        return already;
+    }
     const seats = slotIndex(state.design);
     const held = (state.design.links || [])
         .filter((link) => link.owner === owner.name)
@@ -1552,11 +1579,9 @@ function addLink(from, to, headed, at) {
     const link = {
         id: name,
         name,
-        // No `contract:`. A point and the shape of what crosses it are one thing, so only one
-        // of them is named: the type is the point's name capitalised (appmodel.contract_of),
-        // and `synqt check` refuses a project that writes the field. Written here, it was the
-        // name the point had when it was drawn, so renaming the point left the owner hosting
-        // a Source called after the gesture rather than after the thing.
+        // No `contract:`. A point and the shape of what crosses it are one thing, and the
+        // owner names both: the type is the owner capitalised plus Contract
+        // (appmodel.contract_of), and `synqt check` refuses a project that writes the field.
         owner: owner.name,
         consumers: [consumer.name],
         transport: "",
@@ -1566,7 +1591,7 @@ function addLink(from, to, headed, at) {
     state.design.links.push(link);
     touched();
     select({kind: "link", name});
-    say(`'${owner.name}' now owns '${name}' and '${consumer.name}' consumes it`
+    say(`'${owner.name}' now exports a connect point and '${consumer.name}' consumes it`
         + (drawnFromAClient
             ? `, drawn the other way round because a browser cannot host a Source. `
             : `. `)
@@ -1927,13 +1952,8 @@ function onUp(event) {
         return;
     }
     if (finished.mode === "link-click") {
-        const what = {kind: "link", name: finished.name};
-        if (!finished.moved && isSecondClick(what, event)) {
-            renameInPlace("link", what.name, "connect point",
-                          {x: event.clientX, y: event.clientY});
-            return;
-        }
-        select(what);
+        // A second click renames a node; a connect point has no name of its own to rename.
+        select({kind: "link", name: finished.name});
         return;
     }
     // A press on a box that went nowhere is a press on empty canvas: the box is a drawing of

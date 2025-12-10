@@ -107,7 +107,7 @@ MouseArea {
 Timer {
     interval: 66; repeat: true
     running: Session.hasScope("player")
-    onTriggered: Server.arena.steer(root.aimX, root.aimY)
+    onTriggered: Server.steer(root.aimX, root.aimY)
 }
 ```
 
@@ -125,17 +125,17 @@ for others only. Add inside the `view` `Rectangle`:
 
 ```qml
 Repeater {
-    model: Server.arena.blobs
+    model: Server.blobs
     delegate: Item {
         readonly property bool mine: Session.identity && model.id === Session.identity.sub
-        // Capture every authoritative update. For me it reconciles the prediction;
-        // for others it feeds the interpolation buffer.
+        // Capture every authoritative update. For the player's own row it reconciles
+        // the prediction, and for others it feeds the interpolation buffer.
         property real ax: model.x
         property real ay: model.y
         property real amass: model.mass
         // On any authoritative change, read the current role values (they are already
-        // updated when the change fires). For me, reconcile the prediction; for others,
-        // append to the interpolation buffer.
+        // updated when the change fires). For the player's own row, reconcile the
+        // prediction, and for others, append to the interpolation buffer.
         onAxChanged: mine ? root.reconcile(model.x, model.y, model.mass)
                           : root.pushSnap(model.id, model.x, model.y)
         onAyChanged: mine ? root.reconcile(model.x, model.y, model.mass)
@@ -162,11 +162,11 @@ Repeater {
     }
 }
 
-// The pellets, camera-mapped. They do not move, so they need no interpolation; they
-// simply pop in as you approach and out as you leave (in the last part the edge only
+// The pellets, camera-mapped. They do not move, so they need no interpolation. They
+// pop in as you approach and out as you leave (in the last part the edge only
 // sends the nearby ones, which is the same effect for free).
 Repeater {
-    model: Server.arena.pellets
+    model: Server.pellets
     delegate: Rectangle {
         width: 8 * view.zoom; height: 8 * view.zoom; radius: width / 2
         color: "#8899bb"
@@ -202,7 +202,7 @@ Column {
     Text { text: "On the map"; color: "white"; font.bold: true; font.pixelSize: 14
            style: Text.Outline; styleColor: "black" }
     Repeater {
-        model: Server.arena.board
+        model: Server.board
         delegate: Text {
             text: (index + 1) + ". " + model.name + "  " + Math.round(model.mass)
             color: "white"; font.pixelSize: 13
@@ -229,7 +229,7 @@ Timer {
     running: Session.hasScope("player")
     onTriggered: {
         const sent = Date.now()
-        Server.arena.ping().then(() => { root.latencyMs = Date.now() - sent })
+        Server.ping().then(() => { root.latencyMs = Date.now() - sent })
     }
 }
 
@@ -246,7 +246,7 @@ Text {
     Timer { id: hideTimer; interval: 2500; onTriggered: banner.opacity = 0 }
 }
 
-Arena.onEaten: (prey, predator) => {
+EdgeContract.onEaten: (prey, predator) => {
     const me = Session.identity ? Session.identity.login : null
     if (prey === me)          banner.flash("You were eaten by " + predator + "!")
     else if (predator === me) banner.flash("You ate " + prey)

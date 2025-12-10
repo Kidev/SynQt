@@ -1,7 +1,7 @@
 # Providers (backing entities with first party or third party engines)
 
 An entity already hides its backend behind a typed connect point: consumers call
-`Store.items.insert(...)` and never know or touch what stores the data. This
+`Store.insert(...)` and never know or touch what stores the data. This
 document makes that backend pluggable. An entity type defines a small backend facing
 interface; a provider implements it for a specific engine. The default provider is
 SynQt's own embedded engine and needs no configuration. A third party engine
@@ -26,11 +26,11 @@ flowchart LR
   end
   subgraph ent["database entity (the mask)"]
     direction TB
-    CP["connect point Source<br/>(Items contract)"]
+    CP["connect point Source<br/>(the store's contract)"]
     PI["provider interface<br/>(IPersistenceProvider)"]
     CP --> PI
   end
-  W -->|"Items.insert(...)<br/>authenticated + authorized"| CP
+  W -->|"Store.insert(...)<br/>authenticated + authorized"| CP
   PI -->|"embedded, in process"| SQLITE[("SQLite<br/>file")]
   PI -->|"QPSQL over TLS"| PG[("<span style='color:#1a1a2e'>PostgreSQL</span>")]
   PI -->|"mongo client over TLS"| MG[("<span style='color:#1a1a2e'>MongoDB</span>")]
@@ -86,7 +86,7 @@ flowchart TB
 The interface is small, native, and the same for every provider in the family. The
 generic lifecycle (connect, disconnect, health) plus the family operations are all
 a provider must implement. The connect point Source calls the interface, never a
-specific engine, so the same `Items.qml` works whether the provider is SQLite or
+specific engine, so the same `StoreContract.qml` works whether the provider is SQLite or
 PostgreSQL.
 
 Family interfaces (illustrative shapes; the exact C++ signatures live in the
@@ -280,9 +280,9 @@ sequenceDiagram
   participant E as web edge
   participant D as database entity
   participant G as engine (e.g. PostgreSQL)
-  B->>E: Server.todo.add("milk")  (wss, session)
+  B->>E: Server.add("milk")  (wss, session)
   Note over E: edge authorizes the user (Caller.hasScope)
-  E->>D: Store.items.insert(row)  (mesh, mutual TLS)
+  E->>D: Store.insert(row)  (mesh, mutual TLS)
   Note over D: the store authorizes the entity (Caller.entity == "edge")
   D->>G: provider.exec("INSERT ...", params)  (TLS to engine, credentials)
   G-->>D: ok

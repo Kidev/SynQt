@@ -17,6 +17,6 @@ ApplicationWindow {
 
     Label {
         anchors.centerIn: parent
-        text: Server.gate.headline
+        text: Server.headline
     }
 }

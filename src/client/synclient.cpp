@@ -410,10 +410,9 @@ void SynClient::bindPagesConnectPoint()
         return;
     }
 
-    auto *facade{qobject_cast<ConsumerBase *>(
-        m_server->value(pointName).value<QObject *>())};
+    auto *facade{qobject_cast<ConsumerBase *>(m_server->point(pointName))};
     if (!facade) {
-        // No consumer facade registered for "Pages" in this build: a raw Replica alone
+        // No consumer facade registered for "Pages" in this build. A raw Replica alone
         // cannot answer fetchPage() with a value this class can read generically (its
         // reply type is declared per app by the generated contract). Warn once rather
         // than resolve every remote route to a silent Error.

@@ -50,7 +50,7 @@ DOCUMENT = {
          "provider": "sqlite", "targets": [], "identity": False, "x": 680, "y": 40},
     ],
     "links": [
-        {"name": "auction", "owner": "edge", "consumers": ["app"],
+        {"owner": "edge", "consumers": ["app"],
          "transport": "", "members": [
              {"kind": "prop", "name": "highest", "type": "int", "params": [], "roles": []},
              {"kind": "model", "name": "bids", "type": "", "params": [],
@@ -62,7 +62,7 @@ DOCUMENT = {
               "params": [{"type": "int", "name": "amount"}], "roles": []},
              {"kind": "slot", "name": "watch", "type": "", "params": [], "roles": []},
          ]},
-        {"name": "records", "owner": "books",
+        {"owner": "books",
          "consumers": ["edge"], "transport": "", "members": []},
     ],
 }
@@ -196,9 +196,9 @@ def test_the_downloaded_export_is_what_the_member_table_said(rendered):
     written = next(file["text"] for file in rendered["files"]
                    if file["name"] == "gavel/synqt.yaml")
     point = next(one for one in yaml.safe_load(written)["connect_points"]
-                 if one["name"] == "auction")
+                 if one["owner"] == "edge")
     # Parsed by the compiler the build runs, not by a reading of our own.
-    assert designdoc.parse_export("Auction", point) == DOCUMENT["links"][0]["members"]
+    assert designdoc.parse_export("EdgeContract", point) == DOCUMENT["links"][0]["members"]
 
 
 def test_the_downloaded_source_is_the_one_the_cli_would_have_written(rendered):
@@ -213,7 +213,7 @@ def test_the_downloaded_source_is_the_one_the_cli_would_have_written(rendered):
         relative = appmodel.source_path(owner, contract)
         written = next(file["text"] for file in rendered["files"]
                        if file["name"] == f"gavel/{relative}")
-        assert written == addcontract.source_stub(contract, link["name"], link["members"])
+        assert written == addcontract.source_stub(contract, link["owner"], link["members"])
 
 
 def test_a_source_declares_the_members_the_contract_carries(rendered):
@@ -222,7 +222,7 @@ def test_a_source_declares_the_members_the_contract_carries(rendered):
     are what the editor reads back out of the file, so the two agreeing on the way in is what
     makes reading it again a no-op rather than a second opinion."""
     written = next(file["text"] for file in rendered["files"]
-                   if file["name"] == "gavel/web/edge/Auction.qml")
+                   if file["name"] == "gavel/web/edge/EdgeContract.qml")
     assert "property int highest" in written
     assert "signal outbid(who: string)" in written
     assert "function placeBid(amount: int): bool {" in written
@@ -268,9 +268,9 @@ def test_the_download_is_a_zip_holding_the_configuration_and_every_file(rendered
     assert archive.namelist() == ["gavel/synqt.yaml",
                                   "gavel/client/app/Main.qml",
                                   "gavel/web/edge/Edge.qml",
-                                  "gavel/web/edge/Auction.qml",
+                                  "gavel/web/edge/EdgeContract.qml",
                                   "gavel/db/relational/books/Books.qml",
-                                  "gavel/db/relational/books/Records.qml"]
+                                  "gavel/db/relational/books/BooksContract.qml"]
     for file in rendered["files"]:
         assert archive.read(file["name"]).decode("utf-8") == file["text"]
 
@@ -291,7 +291,7 @@ def test_a_source_reads_back_as_the_contract_it_was_written_from(rendered):
     anything other than what was written, every keystroke in the pane would be arguing with
     the panel about what the contract says."""
     written = next(file["text"] for file in rendered["files"]
-                   if file["name"] == "gavel/web/edge/Auction.qml")
+                   if file["name"] == "gavel/web/edge/EdgeContract.qml")
     read = _read(f"""
         const text = {json.dumps(written)};
         process.stdout.write(JSON.stringify(declarations(withoutNotice(text))));
@@ -320,14 +320,14 @@ def test_reaching_into_another_entity_is_read_as_the_connect_point_it_needs():
     read = _read("""
         const text = [
             "Button {",
-            "    text: Server.auction.highest",
-            "    onClicked: Server.auction.placeBid(Math.max(1, 2))",
+            "    text: Server.highest",
+            "    onClicked: Server.placeBid(Math.max(1, 2))",
             "}",
         ].join("\\n");
         process.stdout.write(JSON.stringify(references(text)));
     """)
-    assert [(one["accessor"], one["point"], one["member"], one["call"]) for one in read] == \
-        [("Server", "auction", "highest", False), ("Server", "auction", "placeBid", True)]
+    assert [(one["accessor"], one["member"], one["call"]) for one in read] == \
+        [("Server", "highest", False), ("Server", "placeBid", True)]
 
 
 # The projects a link can open cold
@@ -362,11 +362,11 @@ def test_every_example_export_parses_as_the_members_it_declares(examples):
         """)
         written = next(file["text"] for file in rendered
                        if file["name"].endswith("/synqt.yaml"))
-        points = {one["name"]: one for one in yaml.safe_load(written)["connect_points"]}
+        points = {one["owner"]: one for one in yaml.safe_load(written)["connect_points"]}
         for link in document["links"]:
             contract = appmodel.contract_of(link)
-            assert designdoc.parse_export(contract, points[link["name"]]) == link["members"], \
-                f"example '{name}', connect point {link['name']}"
+            assert designdoc.parse_export(contract, points[link["owner"]]) \
+                == link["members"], f"example '{name}', owner {link['owner']}"
 
 
 def test_the_page_and_the_cli_write_sharing_the_same_way():
@@ -383,9 +383,9 @@ def test_the_page_and_the_cli_write_sharing_the_same_way():
             {"name": "store", "type": "relational"},
         ],
         "links": [
-            {"name": "feed", "owner": "edge", "consumers": ["app"],
+            {"owner": "edge", "consumers": ["app"],
              "members": []},
-            {"name": "items", "owner": "store", "consumers": ["edge"],
+            {"owner": "store", "consumers": ["edge"],
              "members": []},
         ],
     }
@@ -415,11 +415,11 @@ def test_the_home_pages_project_is_the_one_the_home_page_reads():
     shown = yaml.safe_load(re.search(r"```yaml\n(project:.*?)```", page, re.S).group(1))
     assert [entity["name"] for entity in shown["entities"]] == \
         [entity["name"] for entity in feed["entities"]]
-    assert [point["name"] for point in shown["connect_points"]] == \
-        [link["name"] for link in feed["links"]]
+    assert [point["owner"] for point in shown["connect_points"]] == \
+        [link["owner"] for link in feed["links"]]
     for point, link in zip(shown["connect_points"], feed["links"]):
-        # Nothing names the contract on either side: the type a point exports is the point's
-        # own name, so the two are compared on what each resolves to.
+        # Nothing names the contract on either side: the type a point exports is derived
+        # from its owner, so the two are compared on what each resolves to.
         assert appmodel.contract_of(point) == appmodel.contract_of(link)
         assert point["owner"] == link["owner"]
         assert point["consumers"] == link["consumers"]

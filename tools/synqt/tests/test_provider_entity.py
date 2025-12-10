@@ -35,7 +35,7 @@ def promoted_config(**overrides):
             {"name": "auth", "type": "service"},
         ],
         "connect_points": [
-            {"name": "app", "owner": "web", "consumers": ["client"]},
+            {"owner": "web", "consumers": ["client"]},
         ],
         "identity": {
             "provider_entity": "auth",
@@ -89,10 +89,11 @@ class AuthConnectPoints(unittest.TestCase):
             self.assertEqual(point["consumers"], ["web"])
 
     def test_a_declared_point_of_the_same_name_is_never_overwritten(self):
+        # A point is named after its owner, so the only way to collide with the framework's
+        # two is to call an entity `identity` or `sessions` and give it a connect point.
         config = promoted_config()
-        config["connect_points"].append(
-            {"name": "identity", "owner": "web", "consumers": ["client"],
-             "contract": "Mine"})
+        config["entities"].append({"name": "identity", "type": "service"})
+        config["connect_points"].append({"owner": "identity", "consumers": ["web"]})
         names = [point["name"] for point in appmodel.auth_connect_points(config)]
         self.assertEqual(names, ["sessions"])
 
@@ -125,7 +126,7 @@ class GeneratedCMake(unittest.TestCase):
     def test_the_edge_still_compiles_its_own_contracts(self):
         expanded = appmodel.with_auth_connect_points(promoted_config())
         cmake = cmakegen.render_root_cmakelists(expanded, "/synqt", None)
-        self.assertIn("web/web/App.syn", cmake)
+        self.assertIn("web/web/WebContract.syn", cmake)
 
 
 class AuthEntityMain(unittest.TestCase):
@@ -316,9 +317,8 @@ class ProviderEntityValidation(unittest.TestCase):
 
     def test_a_colliding_connect_point_is_refused_rather_than_worked_around(self):
         config = promoted_config()
-        config["connect_points"].append(
-            {"name": "sessions", "owner": "web", "consumers": ["client"],
-             "contract": "Mine"})
+        config["entities"].append({"name": "identity", "type": "service"})
+        config["connect_points"].append({"owner": "identity", "consumers": ["web"]})
         ok, messages = check.validate(config)
         self.assertFalse(ok)
         self.assertTrue(any("collides with the one identity.provider_entity implies" in m

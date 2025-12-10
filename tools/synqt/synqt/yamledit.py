@@ -330,9 +330,15 @@ def _list_items(lines: List[str], block: _Block, list_path: str) -> List[_Item]:
     return items
 
 
+#: The key that identifies one item of a list, per list. Everything in synqt.yaml is named
+#: except a connect point, which is not. An entity has one, so its owner is what says which.
+_ITEM_KEY = {"connect_points": "owner"}
+
+
 def _item_named(items: List[_Item], name: str, list_path: str) -> _Item:
+    key = _ITEM_KEY.get(list_path, "name")
     for item in items:
-        if item.value.get("name") == name:
+        if item.value.get(key) == name:
             return item
     raise YamlEditError(f"'{list_path}' has no item named '{name}'")
 

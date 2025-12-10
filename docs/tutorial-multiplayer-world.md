@@ -13,8 +13,7 @@ the map, a request to aim somewhere, and an event when one blob eats another. Ad
 
 ```yaml
 connect_points:
-  - name: arena
-    owner: edge
+  - owner: edge
     consumers: [app]
     scope: player
     # The arena the edge owns and every browser mirrors.
@@ -271,7 +270,7 @@ Item {
 }
 ```
 
-### One player's view of it, `web/edge/Arena.qml`
+### One player's view of it, `web/edge/EdgeContract.qml`
 
 The connect point Source, one per browser session. It is where the caller arrives, so it
 is where the rules are: only an approved player may steer, and the name stamped on a blob
@@ -282,7 +281,7 @@ holds.
 import QtQuick
 import SynQt
 
-Arena {
+EdgeContract {
     id: arena
 
     // The pellet field is republished only when it actually moved, and the version this
@@ -329,7 +328,7 @@ Arena {
 > lean.
 
 > [!NOTE]
-> One honesty note about cost. Each session's `Arena` pushes the whole roster every
+> One honesty note about cost. Each session's Source pushes the whole roster every
 > tick, twenty times a second, so the work grows with the square of the player count.
 > For a handful of friends this is nothing. The pellet field already does the lighter
 > thing, republishing only when a pellet actually moved (`pelletsVersion`), and [the last
@@ -342,10 +341,9 @@ Wire the connect point in `synqt.yaml`:
 
 ```yaml
 connect_points:
-  - name: arena
-    owner: edge               # the edge holds the one real arena
+  - owner: edge               # the edge holds the one real arena
     consumers: [app]          # the browser mirrors it
-    server: web/edge/Arena.qml
+    server: web/edge/EdgeContract.qml
     scope: player             # only approved players get the arena at all
     # the edge says shared: false, which is what puts a Caller in
     # the slots above. The arena itself is shared because World.qml is.

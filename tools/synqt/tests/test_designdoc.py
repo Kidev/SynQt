@@ -20,13 +20,13 @@ EXAMPLES = Path(__file__).resolve().parents[3] / "examples"
 def _members(example, point):
     """The members one example's connect point exports."""
     document = designdoc.read(EXAMPLES / example)
-    return next(link for link in document["links"] if link["name"] == point)["members"]
+    return next(link for link in document["links"] if link["owner"] == point)["members"]
 
 
-def test_gavel_reads_as_three_entities_and_three_links():
+def test_gavel_reads_as_three_entities_and_two_links():
     document = designdoc.read(EXAMPLES / "gavel")
     assert [e["name"] for e in document["entities"]] == ["app", "edge", "books"]
-    assert [l["name"] for l in document["links"]] == ["auction", "hall", "ledger"]
+    assert [l["name"] for l in document["links"]] == ["edge", "books"]
 
 
 def test_an_entity_carries_what_the_editor_draws_it_with():
@@ -42,7 +42,7 @@ def test_an_entity_carries_what_the_editor_draws_it_with():
 
 def test_a_link_carries_its_owner_and_consumers():
     document = designdoc.read(EXAMPLES / "gavel")
-    ledger = next(l for l in document["links"] if l["name"] == "ledger")
+    ledger = next(l for l in document["links"] if l["owner"] == "books")
     assert ledger["owner"] == "books"
     assert ledger["consumers"] == ["edge"]
 
@@ -56,7 +56,7 @@ def test_an_entity_carries_whether_it_is_shared():
 
 def test_a_link_carries_the_contract_members():
     document = designdoc.read(EXAMPLES / "gavel")
-    auction = next(l for l in document["links"] if l["name"] == "auction")
+    auction = next(l for l in document["links"] if l["owner"] == "edge")
     kinds = {(m["kind"], m["name"]) for m in auction["members"]}
     assert ("prop", "highBid") in kinds
     assert ("slot", "placeBid") in kinds
@@ -65,7 +65,7 @@ def test_a_link_carries_the_contract_members():
 
 def test_a_model_member_keeps_its_declared_roles():
     document = designdoc.read(EXAMPLES / "arena")
-    arena = next(l for l in document["links"] if l["name"] == "arena")
+    arena = next(l for l in document["links"] if l["owner"] == "edge")
     blobs = next(m for m in arena["members"] if m["name"] == "blobs")
     assert blobs["kind"] == "model"
     assert blobs["roles"] == [{"type": "string[32]", "name": "id"},
@@ -78,7 +78,7 @@ def test_a_model_member_keeps_its_declared_roles():
 
 def test_a_slot_keeps_its_parameter_types_and_return_type():
     document = designdoc.read(EXAMPLES / "arena")
-    arena = next(l for l in document["links"] if l["name"] == "arena")
+    arena = next(l for l in document["links"] if l["owner"] == "edge")
     steer = next(m for m in arena["members"] if m["name"] == "steer")
     assert steer["params"] == [{"type": "real", "name": "x"}, {"type": "real", "name": "y"}]
     ping = next(m for m in arena["members"] if m["name"] == "ping")
@@ -89,22 +89,23 @@ def test_members_keep_the_order_they_were_written_in():
     """A diff of a contract is read by a human. Regrouping the members by kind would show
     every one of them as moved the first time the editor touched a file it did not write.
     """
-    members = _members("arena", "arena")
+    members = _members("arena", "edge")
     assert [m["name"] for m in members] == [
         "roundEndsAt", "blobs", "board", "pellets", "champions", "steer", "ping",
         "eaten", "roundEnded"]
 
 
 def test_render_export_round_trips_a_parsed_one():
-    members = _members("arena", "arena")
+    members = _members("arena", "edge")
     rendered = designdoc.render_export(members)
-    assert designdoc.parse_export("Arena", {"name": "arena", "export": rendered}) == members
+    assert designdoc.parse_export("EdgeContract",
+                                  {"owner": "edge", "export": rendered}) == members
 
 
 def test_a_rendered_export_is_the_members_and_no_wrapper_around_them():
-    # The point is already named, so the block holds the lines and nothing else; the
+    # The point is already named, so the block holds the lines and nothing else. The
     # `contract Auction { ... }` around them is the generator's.
-    rendered = designdoc.render_export(_members("gavel", "auction"))
+    rendered = designdoc.render_export(_members("gavel", "edge"))
     assert "prop int highBid" in rendered
     assert "contract" not in rendered
     assert "{" not in rendered
@@ -185,7 +186,7 @@ def test_to_config_gives_back_the_topology_it_was_read_from():
     assert [e["name"] for e in config["entities"]] == ["app", "edge", "books"]
     web = next(e for e in config["entities"] if e["name"] == "edge")
     assert web["type"] == "web_edge"
-    ledger = next(p for p in config["connect_points"] if p["name"] == "ledger")
+    ledger = next(p for p in config["connect_points"] if p["owner"] == "books")
     assert ledger["owner"] == "books"
     assert ledger["consumers"] == ["edge"]
 
@@ -199,7 +200,7 @@ def test_to_config_keeps_what_the_document_does_not_model():
     document = designdoc.read(project)
     base = configmod.load(project)
     config = designdoc.to_config(document, base=base)
-    arena = next(p for p in config["connect_points"] if p["name"] == "arena")
+    arena = next(p for p in config["connect_points"] if p["owner"] == "edge")
     assert arena["scope"] == "player"
     assert config["scopes"]["order"] == ["anonymous", "player"]
 

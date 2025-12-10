@@ -25,11 +25,10 @@
 #include "synclient.h"
 #include "synclientconfig.h"
 
-#include "auction_sourcehelper.h"  // synqtRegisterAuctionSources()
+#include "edgecontract_sourcehelper.h"  // synqtRegisterEdgeContractSources()
 #include "consumerfactory.h"
-#include "ledger_consumer.h"       // LedgerConsumer, the edge's facade for the mesh half
-#include "ledger_sourcehelper.h"   // synqtRegisterLedgerSources()
-#include "hall_sourcehelper.h"     // synqtRegisterHallSources()
+#include "bookscontract_consumer.h"  // BooksContractConsumer, the edge's mesh-half facade
+#include "bookscontract_sourcehelper.h"  // synqtRegisterBooksContractSources()
 
 #include <QHostAddress>
 #include <QQmlEngine>
@@ -61,11 +60,12 @@ MeshCredentials credsFor(const QString &entity)
 ConnectPointConfig ledgerConnectPoint(quint16 port)
 {
     ConnectPointConfig connectPoint;
-    connectPoint.name = QStringLiteral("ledger");
-    connectPoint.contract = QStringLiteral("Ledger");
+    connectPoint.name = QStringLiteral("books");
+    connectPoint.contract = QStringLiteral("BooksContract");
     connectPoint.owner = QStringLiteral("books");
-    connectPoint.consumers = {QStringLiteral("edge"), QStringLiteral("auditor")};
-    connectPoint.serverFile = QStringLiteral(FIX1_GAVEL_DIR "/db/relational/books/Ledger.qml");
+    connectPoint.consumers = {QStringLiteral("edge")};
+    connectPoint.serverFile =
+        QStringLiteral(FIX1_GAVEL_DIR "/db/relational/books/BooksContract.qml");
     connectPoint.shared = false;
     connectPoint.endpoint.mode = MeshTransportMode::MutualTls;
     connectPoint.endpoint.host = QStringLiteral("127.0.0.1");
@@ -90,8 +90,7 @@ SynClientConfig clientConfig(quint16 port, const QByteArray &cookie)
 {
     SynClientConfig config;
     config.edgeUrl = QUrl{QStringLiteral("wss://127.0.0.1:%1/sync").arg(port)};
-    config.connectPoints = {{QStringLiteral("auction"), QStringLiteral("Auction")},
-                            {QStringLiteral("hall"), QStringLiteral("Hall")}};
+    config.connectPoints = {{QStringLiteral("edge"), QStringLiteral("EdgeContract")}};
     config.pinnedCaCertPath = QStringLiteral(FIX1_CERT_DIR "/ca.crt");
     config.sessionCookie = cookie;
     config.scopeOrder = {QStringLiteral("anonymous"), QStringLiteral("user"),
@@ -102,7 +101,7 @@ SynClientConfig clientConfig(quint16 port, const QByteArray &cookie)
 
 QObject *auctionReplica(SynClient *client)
 {
-    return client->server()->value(QStringLiteral("auction")).value<QObject *>();
+    return client->server()->point(QStringLiteral("edge"));
 }
 
 } // namespace
@@ -122,29 +121,28 @@ private:
 
     QObject *databaseView() const
     {
-        return m_web->consumedReplica(QStringLiteral("books"), QStringLiteral("ledger"));
+        return m_web->consumedReplica(QStringLiteral("books"), QStringLiteral("books"));
     }
 
 private slots:
     void initTestCase()
     {
         QVERIFY2(QSslSocket::supportsSsl(), "TLS backend unavailable");
-        synqtRegisterAuctionSources();
-        synqtRegisterLedgerSources();
+        synqtRegisterEdgeContractSources();
+        synqtRegisterBooksContractSources();
         // The edge reaches the books entity through the generated consumer facade, which is
         // what fills in the session it is acting for; a raw dynamic Replica would not.
         //
-        // Only the factory, not synqtRegisterLedgerConsumers(): that also registers the
-        // `Ledger` attached type under the same QML name as the Source helper, and in a real
+        // Only the factory, not synqtRegisterBooksContractConsumers(): that also registers
+        // the attached type under the same QML name as the Source helper, and in a real
         // system the owner and the consumer are two binaries so the two never meet. Here
-        // they are one process, and whichever registered last would be what `Ledger {}` in
+        // they are one process, and whichever registered last would be what the Source in
         // the books entity's QML resolves to.
         SynQt::registerConsumerFactory(
-            QStringLiteral("Ledger"),
-            []() -> SynQt::ConsumerBase * { return new LedgerConsumer{}; });
-        synqtRegisterHallSources();
+            QStringLiteral("BooksContract"),
+            []() -> SynQt::ConsumerBase * { return new BooksContractConsumer{}; });
 
-        // The database entity owns `ledger`, on an OS-assigned mTLS port.
+        // The books entity owns its point, on an OS-assigned mTLS port.
         m_dbEngine = std::make_unique<QQmlEngine>();
         Topology dbTopology;
         dbTopology.entity = QStringLiteral("books");
@@ -155,7 +153,7 @@ private slots:
         m_ledgerPort = m_database->ownedHosts().value(0)->serverPort();
         QVERIFY(m_ledgerPort != 0);
 
-        // The edge entity consumes `ledger` from the books entity (as entity "edge").
+        // The edge entity consumes the books entity's point (as entity "edge").
         m_edgeEngine = std::make_unique<QQmlEngine>();
         // The edge's own singleton, registered the way the generated main registers it
         // (maingen._singleton_registrations). Every Source the edge owns reaches the lot
@@ -175,10 +173,9 @@ private slots:
         QTRY_VERIFY((view = databaseView()) != nullptr);
         QTRY_VERIFY(qobject_cast<QRemoteObjectDynamicReplica *>(view)->isReplicaValid());
 
-        // The web edge: it owns `auction` and `hall`, a Source per caller on both so every slot has
-        // its Caller, and both reading the one lot and the one Hall of Fame from the edge
-        // entity's own singleton. It reaches the database through the "Books" accessor of
-        // its mesh runtime.
+        // The web edge. It owns one point, a Source per caller so every slot has its Caller,
+        // reading the one lot and the one Hall of Fame from the edge entity's own singleton.
+        // It reaches the books entity through the "Books" accessor of its mesh runtime.
         WebEdgeConfig config;
         config.bundleDir = QStringLiteral(FIX1_BUNDLE_DIR);
         config.host = QStringLiteral("127.0.0.1");
@@ -188,20 +185,15 @@ private slots:
         config.scopeOrder = {QStringLiteral("anonymous"), QStringLiteral("user"),
                              QStringLiteral("moderator"), QStringLiteral("admin")};
 
-        WebEdgeConnectPoint auction;
-        auction.name = QStringLiteral("auction");
-        auction.contract = QStringLiteral("Auction");
-        auction.serverFile = QStringLiteral(FIX1_GAVEL_DIR "/web/edge/Auction.qml");
-        auction.shared = false;                       // one per user, so Caller is the bidder
-        WebEdgeConnectPoint hall;
-        hall.name = QStringLiteral("hall");
-        hall.contract = QStringLiteral("Hall");
-        hall.serverFile = QStringLiteral(FIX1_GAVEL_DIR "/web/edge/Hall.qml");
-        // Per session like every other point. The hall is the same for everyone, and the
-        // state behind it lives in the edge entity's own singleton; the Source is this
-        // session's window onto it, and it has a Caller because every caller does.
-        hall.shared = false;
-        config.connectPoints = {auction, hall};
+        // One point, because an entity has one: the auction and the Hall of Fame are both
+        // on it, and who may reach each member is written on the member. A Source per user,
+        // so `Caller` is the bidder; the lot and the Hall are the edge singleton's.
+        WebEdgeConnectPoint point;
+        point.name = QStringLiteral("edge");
+        point.contract = QStringLiteral("EdgeContract");
+        point.serverFile = QStringLiteral(FIX1_GAVEL_DIR "/web/edge/EdgeContract.qml");
+        point.shared = false;
+        config.connectPoints = {point};
 
         m_edge = std::make_unique<WebEdge>(config, m_edgeEngine.get());
         m_edge->setContextObject(QStringLiteral("Books"),
@@ -274,14 +266,14 @@ private slots:
 
         // Hands-on check 2: placeBid while signed out (as from the browser console) is
         // refused by the edge, whatever the UI shows, and the standing bid is untouched.
+        // `placeBid` is `<user>` in gavel's export block, so the refusal is the framework's
+        // and there is no check in the QML to forget. The slot never runs.
+        //
         // 999 would have won if it had been let through, which is what makes the refusal
-        // visible: the anonymous session is watching the SAME auction as Alice (one lot,
+        // visible. The anonymous session is watching the SAME auction as Alice (one lot,
         // held by the edge entity), so an accepted bid would show up here immediately.
-        QSignalSpy anonRejected{anonAuction, SIGNAL(bidRejected(QString))};
         QTRY_COMPARE(anonAuction->property("highBid").toInt(), 50);   // Alice's bid, shared
         QVERIFY(QMetaObject::invokeMethod(anonAuction, "placeBid", Q_ARG(int, 999)));
-        QTRY_VERIFY(anonRejected.count() >= 1);
-        QVERIFY(anonRejected.first().at(0).toString().contains(QStringLiteral("sign in")));
         QTest::qWait(300);
         QCOMPARE(anonAuction->property("highBid").toInt(), 50);    // never bid successfully
 
@@ -297,12 +289,15 @@ private slots:
                  QStringLiteral("A vintage typewriter"));
     }
 
-    // The Hall-of-Fame stage's entity gate: the database records only for the edge. A listed
-    // consumer that is NOT the edge (auditor) connects, but its recordWinner is refused in
-    // the slot by Caller.entity, so nothing is written.
-    void databaseRecordsOnlyForTheEdge()
+    // The Hall-of-Fame stage's entity gate, and where it lives: the books entity lists one
+    // consumer, the edge, so nothing else can acquire its point at all. The auditor holds a
+    // certificate the project CA signed and is a legitimate mesh entity; it still never
+    // reaches the ledger, and that is why BooksContract.qml has no check in it about who is
+    // calling. Deny by default is the rule; a check in the slot would only repeat it.
+    void theBooksRefuseAnEntityThatIsNotTheEdge()
     {
         const int before{databaseView()->property("count").toInt()};
+        QSignalSpy refused{m_database.get(), &EntityRuntime::connectionRefused};
 
         MeshClient auditor;
         QRemoteObjectNode auditorNode;
@@ -311,7 +306,7 @@ private slots:
         std::unique_ptr<QRemoteObjectDynamicReplica> auditorLedger;
         connect(&auditor, &MeshClient::connected, &auditorNode, [&](QIODevice *device) {
             auditorNode.addClientSideConnection(device);
-            auditorLedger.reset(auditorNode.acquireDynamic(QStringLiteral("ledger")));
+            auditorLedger.reset(auditorNode.acquireDynamic(QStringLiteral("books")));
         });
         QVERIFY(auditor.connectMutualTls(
             QHostAddress::LocalHost, m_ledgerPort, QStringLiteral("books"),
@@ -319,19 +314,12 @@ private slots:
             loadCertificate(QStringLiteral(FIX1_CERT_DIR "/auditor.crt")),
             loadPrivateKey(QStringLiteral(FIX1_CERT_DIR "/auditor.key"))));
 
-        QTRY_VERIFY(auditorLedger && auditorLedger->isReplicaValid());
-        // The auditor forges the session too, claiming to be acting for an admin. A
-        // forwarded session is an assertion by the calling entity, so a rogue one may assert
-        // anything; what it cannot do is be the edge, and that is the check it dies on.
-        QVariantMap forged;
-        forged.insert(QStringLiteral("key"), QStringLiteral("forged"));
-        forged.insert(QStringLiteral("scope"), QStringLiteral("admin"));
-        QVERIFY(QMetaObject::invokeMethod(auditorLedger.get(), "recordWinner",
-                                          Q_ARG(QVariantMap, forged),
-                                          Q_ARG(QString, QStringLiteral("smuggled lot")),
-                                          Q_ARG(QString, QStringLiteral("impostor")),
-                                          Q_ARG(int, 1000000)));
+        // The TLS handshake succeeds (the certificate is genuine) and the connect point
+        // refuses the entity behind it, so no Replica ever becomes valid.
+        QTRY_VERIFY(refused.count() >= 1);
+        QCOMPARE(refused.first().at(1).toString(), QStringLiteral("auditor"));
         QTest::qWait(500);
+        QVERIFY(!auditorLedger || !auditorLedger->isReplicaValid());
         QCOMPARE(databaseView()->property("count").toInt(), before);  // refused, no write
     }
 };

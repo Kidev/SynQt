@@ -258,9 +258,9 @@ def _read_text(path: Path) -> str:
 
 def _link(point: Dict[str, Any], root: Path, seats: Dict[str, Dict[str, Any]],
           owners: Dict[str, Dict[str, Any]], config: Dict[str, Any]) -> Dict[str, Any]:
-    name = str(point.get("name") or "")
-    contract = appmodel.contract_of(point)
     owner = str(point.get("owner") or "")
+    name = appmodel.point_name(point)
+    contract = appmodel.contract_of(point)
     owning = owners.get(owner)
     members: List[Dict[str, Any]] = []
     # A link drawn before anything is written on it is an ordinary state in the editor, so
@@ -418,9 +418,10 @@ def _entity_config(entity: Dict[str, Any], base: Dict[str, Any]) -> Dict[str, An
 
 def _link_config(link: Dict[str, Any], base: Dict[str, Any]) -> Dict[str, Any]:
     written = dict(base)
-    written["name"] = link["name"]
-    # The type the point exports is named after the point, so the document's `contract` is
-    # a reading of the drawing and never something to write back.
+    # Neither is written back. A connect point is not named (its owner names it), and the
+    # type it exports is derived from the owner too, so the document's `name` and
+    # `contract` are both readings of the drawing rather than fields of the file.
+    written.pop("name", None)
     written.pop("contract", None)
     written["owner"] = link["owner"]
     written["consumers"] = list(link["consumers"])
@@ -451,11 +452,11 @@ def to_config(document: Dict[str, Any], *,
     """
     base = base or {}
     entities = {str(e.get("name")): e for e in appmodel.entities(base)}
-    points = {str(p.get("name")): p for p in appmodel.connect_points(base)}
+    points = {appmodel.point_name(p): p for p in appmodel.connect_points(base)}
     config = {key: value for key, value in base.items()
               if key not in ("entities", "connect_points")}
     config["entities"] = [_entity_config(entity, entities.get(entity["name"], {}))
                           for entity in document.get("entities", [])]
-    config["connect_points"] = [_link_config(link, points.get(link["name"], {}))
+    config["connect_points"] = [_link_config(link, points.get(link["owner"], {}))
                                 for link in document.get("links", [])]
     return config

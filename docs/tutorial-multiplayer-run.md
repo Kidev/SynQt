@@ -100,9 +100,9 @@ Item {
 
     // Hall of Fame
     function refreshChampions() {
-        Records.scores.top().then(rows => { world.champions = rows })
+        Records.top().then(rows => { world.champions = rows })
     }
-    Scores.onStandingsChanged: world.refreshChampions()
+    RecordsContract.onStandingsChanged: world.refreshChampions()
 
     // The simulation, run once for the whole arena
     Timer {
@@ -153,7 +153,7 @@ Item {
             let w = null
             for (const s in world.roster) { const b = world.roster[s]
                 if (b.online && (!w || b.mass > w.mass)) w = b }
-            if (w) { Records.scores.award(w.id, w.name); world.roundEnded(w.name) }
+            if (w) { Records.award(w.id, w.name); world.roundEnded(w.name) }
             for (const s in world.roster) { const b = world.roster[s]
                 b.mass = world.startMass
                 b.x = b.tx = world.randPos(); b.y = b.ty = world.randPos() }
@@ -171,7 +171,7 @@ whole edge; every Source reaches it just by name.
 
 ## One private view per player
 
-Now replace `web/edge/Arena.qml`. It still forwards `steer` and `ping` into the shared
+Now replace `web/edge/EdgeContract.qml`. It still forwards `steer` and `ping` into the shared
 `World`; what is new is that it publishes only this player's slice, plus the two lists
 that stay global (the leaderboard and the Hall of Fame).
 
@@ -181,7 +181,7 @@ import SynQt
 
 // One instance per player session (see the config change below). It never simulates;
 // it reads the shared World and publishes only what THIS player can see.
-Arena {
+EdgeContract {
     id: arena
     property string mySub: ""
 
@@ -219,7 +219,7 @@ Arena {
 }
 ```
 
-The `arena` connect point in `synqt.yaml` does not change at all, and that is the point:
+The edge's connect point in `synqt.yaml` does not change at all, and that is the point:
 the arrangement this needed was already there, because every connect point already gets a
 Source per caller.
 
@@ -254,7 +254,7 @@ now lives in `web/edge/World.qml` if you want to watch a round resolve again.)
 > in one shot:
 >
 > ```
-> Server.arena.steer(3999, 3999)
+> Server.steer(3999, 3999)
 > ```
 >
 > Then hunt for a way to place your blob somewhere, to make it huge, or to wear another
@@ -275,11 +275,11 @@ state it alone holds, grants mass only for a pellet or a kill it verified itself
 stamps your name once from `Caller.identity.login`. There is no `setPosition`, no `grow`,
 no `rename`, because none of those are inputs.
 
-Interest management you just added quietly gives a fourth protection: `Server.arena.blobs`
+The interest management you added gives a fourth protection. `Server.blobs`
 now holds only the players near you, so a cheater cannot even read the whole map to plan,
 the way a "wallhack" would. You are sent what you can see, and nothing else.
 
-This is the auction's lesson carried all the way through: the edge never accepts a
+This is the auction's lesson carried all the way through. The edge never accepts a
 position from a client, and it shows each player only what they are entitled to see.
 
 </details>

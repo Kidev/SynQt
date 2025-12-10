@@ -27,10 +27,10 @@ def _load(project):
     return yaml.safe_load((EXAMPLES / project / "synqt.yaml").read_text())
 
 
-def _add_client_consumer(config, connect_point):
+def _add_client_consumer(config, owner):
     mutated = copy.deepcopy(config)
     for cp in mutated["connect_points"]:
-        if cp["name"] == connect_point:
+        if cp["owner"] == owner:
             cp.setdefault("consumers", []).append("app")
     return mutated
 
@@ -43,12 +43,12 @@ class GavelCheckTest(unittest.TestCase):
         ok, messages = check.validate(self.config)
         self.assertTrue(ok, messages)
 
-    def test_client_consuming_the_books_ledger_is_refused(self):
-        # The tutorial's Hall-of-Fame hands-on check: the browser can reach only the edge,
-        # so consuming the books-owned `ledger` must fail `synqt check`.
-        ok, messages = check.validate(_add_client_consumer(self.config, "ledger"))
+    def test_client_consuming_the_books_is_refused(self):
+        # The tutorial's Hall-of-Fame hands-on check. The browser can reach only the edge,
+        # so consuming the books entity's point must fail `synqt check`.
+        ok, messages = check.validate(_add_client_consumer(self.config, "books"))
         self.assertFalse(ok)
-        self.assertTrue(any("ledger" in m and "web_edge" in m and m.startswith("error:")
+        self.assertTrue(any("books" in m and "web_edge" in m and m.startswith("error:")
                             for m in messages),
                         messages)
 
@@ -61,12 +61,12 @@ class ArenaCheckTest(unittest.TestCase):
         ok, messages = check.validate(self.config)
         self.assertTrue(ok, messages)
 
-    def test_client_consuming_the_records_scores_is_refused(self):
-        # The multiplayer tutorial's hands-on check: the browser reaches only the edge, so
-        # consuming the records-owned `scores` must fail `synqt check`.
-        ok, messages = check.validate(_add_client_consumer(self.config, "scores"))
+    def test_client_consuming_the_records_is_refused(self):
+        # The multiplayer tutorial's hands-on check. The browser reaches only the edge, so
+        # consuming the records entity's point must fail `synqt check`.
+        ok, messages = check.validate(_add_client_consumer(self.config, "records"))
         self.assertFalse(ok)
-        self.assertTrue(any("scores" in m and "web_edge" in m and m.startswith("error:")
+        self.assertTrue(any("records" in m and "web_edge" in m and m.startswith("error:")
                             for m in messages),
                         messages)
 
@@ -81,18 +81,18 @@ class StallCheckTest(unittest.TestCase):
 
     def test_the_finished_stall_passes_the_full_project_check(self):
         # The full check (routes, remote pages, seed file, client root) is what the happy
-        # path of the acceptance test pins: this is the exact case a routes/seed regression
+        # path of the acceptance test pins. This is the exact case a routes/seed regression
         # broke before, so keep it as a live guard.
         ok, messages = check.check_project(EXAMPLES / "stall")
         self.assertTrue(ok, messages)
 
-    def test_client_consuming_the_inventory_is_refused(self):
-        # The storefront's hands-on check: the browser reaches only the edge, so consuming
-        # the database-owned `inventory` must fail `synqt check`. The database is not a web
+    def test_client_consuming_the_stock_is_refused(self):
+        # The storefront's hands-on check. The browser reaches only the edge, so consuming
+        # the stock entity's point must fail `synqt check`. The stock entity is not a web
         # edge, so the durable stock is unreachable from the browser.
-        ok, messages = check.validate(_add_client_consumer(self.config, "inventory"))
+        ok, messages = check.validate(_add_client_consumer(self.config, "stock"))
         self.assertFalse(ok)
-        self.assertTrue(any("inventory" in m and "web_edge" in m and m.startswith("error:")
+        self.assertTrue(any("stock" in m and "web_edge" in m and m.startswith("error:")
                             for m in messages),
                         messages)
 

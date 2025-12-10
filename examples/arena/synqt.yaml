@@ -57,16 +57,15 @@ entities:
 
 connect_points:
   # The whole live world. One Source per caller gives each player their own private view (interest
-  # management): the edge simulates once in the World singleton and publishes each player
-  # only their slice. scope: player is the real barrier; an unapproved account never has
-  # `arena` acquired for it, so steer, ping, and the roster are out of reach.
-  - name: arena
-    owner: edge
+  # management). The edge simulates once in the World singleton and publishes each player
+  # only their slice. scope. Player is the real barrier. An unapproved account never has
+  # the edge's point acquired for it, so steer, ping, and the roster are out of reach.
+  - owner: edge
     consumers: [app]
     scope: player
-    # Only the declared model roles cross to a browser; the edge keeps more per player (a
+    # Only the declared model roles cross to a browser. The edge keeps more per player (a
     # GitHub sub, an aim point, timestamps) that never leaves it. `steer` takes intent (an
-    # aim point), never a position; the edge integrates every blob's motion itself, so
+    # aim point), never a position. The edge integrates every blob's motion itself, so
     # there is no position for a client to forge.
     export: |
       prop real roundEndsAt                      // edge clock (ms) when the round ends
@@ -80,14 +79,13 @@ connect_points:
       signal eaten(string[40] prey, string[40] predator)  // one blob swallowed another
       signal roundEnded(string[40] winner)       // the round closed; winner named
 
-  # The permanent scores: owned by the database, reachable only by the edge (never the
-  # browser; a client consumer here fails `synqt check`, since the database is not a web
+  # The permanent scores. Owned by the database, reachable only by the edge (never the
+  # browser. A client consumer here fails `synqt check`, since the database is not a web
   # edge). The edge mirrors the standings into the `arena` model everyone already watches.
-  - name: scores
-    owner: records
+  - owner: records
     consumers: [edge]
-    # The records entity authorizes the calling entity (Caller.entity === "edge"), never a
-    # user; the browser never reaches it.
+    # One consumer, the edge, and that list is the whole of the rule: nothing else opens a
+    # link to this entity, so RecordsContract.qml has no check in it about who is calling.
     export: |
       slot award(string[32] sub, string[40] name)  // give this champion one point
       slot var top()                               // the highest scorers, back to the edge

@@ -33,8 +33,7 @@ Add it to `synqt.yaml`. This is the database's API, used by the edge and nobody 
 
 ```yaml
 connect_points:
-  - name: ledger
-    owner: books              # the books entity owns durable storage
+  - owner: books              # the books entity owns durable storage
     consumers: [edge]         # only the edge may reach it
     export: |
       slot recordWinner(string[120] item, string[80] winner, int amount)
@@ -49,25 +48,22 @@ connect_points:
 
 ## Step 3: Implement the database side
 
-Create `db/relational/books/Ledger.qml`:
+Create `db/relational/books/BooksContract.qml`:
 
 ```qml
 import QtQuick
 import SynQt
 
-Ledger {
+BooksContract {
     id: ledger
 
     function recordWinner(item, winner, amount) {
-        // Only the edge may write. Authorize the calling entity.
-        if (Caller.entity !== "edge") return
         Db.exec("INSERT INTO winners(item, winner, amount) VALUES(?, ?, ?)",
                 [item, winner, amount])   // parameters are separate, so no injection
         ledger.winnersChanged()
     }
 
     function recentWinners() {
-        if (Caller.entity !== "edge") return []
         return Db.query("SELECT item, winner, amount FROM winners ORDER BY id DESC LIMIT 20")
     }
 }
@@ -89,16 +85,21 @@ CREATE TABLE IF NOT EXISTS winners (
 );
 ```
 
-Notice `Caller.entity !== "edge"`. Here the caller is another entity (the edge)
-rather than a person, and it proves which entity it is with the certificate its mesh
-link presented: entity links use mutual TLS even between two processes on your
-laptop, and `synqt dev` issued throwaway development certificates for that
-automatically when it started. The database refuses anyone but the edge.
+There is no check for who is calling. The consumer list on that
+connect point has one name in it, so the mesh opens no link to anything else and nothing
+else can acquire the books entity at all. Entity links use mutual TLS even between two
+processes on your laptop, and `synqt dev` issued throwaway development certificates for
+that automatically when it started, so the entity on the other end is the one its
+certificate says it is.
+
+`Caller.entity` is for the case this is not, an entity with two consumers where only one
+of them may write. Writing it here would repeat what the topology already proves, and a
+rule that only repeats another is one more place to keep in step.
 
 ## Step 4: The edge owns the Hall the browser sees
 
 The browser must never reach the database directly (more on that in a moment). So
-the edge owns a `Hall` connect point, a live list of winners, and fills it from the
+the edge publishes a live list of winners, and fills it from the
 database.
 
 Add its connect point to `synqt.yaml` too:
@@ -120,36 +121,31 @@ property var winners: []
 
 function refresh() {
     // recentWinners() returns a value, so the call resolves asynchronously.
-    Books.ledger.recentWinners().then(rows => {
+    Books.recentWinners().then(rows => {
         root.winners = rows;
     });
 }
 
 Component.onCompleted: {
     root.refresh();
-    Books.ledger.winnersChanged.connect(root.refresh);   // database moved; repull
+    Books.winnersChanged.connect(root.refresh);   // database moved; repull
 }
 ```
 
-`Books.ledger` is how the edge reaches the database's connect point, the same
-way the browser reaches the edge with `Server`. Subscribed once, here, rather than once
-per browser.
+`Books` is how the edge reaches the books entity's connect point, the same way the
+browser reaches the edge with `Server`. An entity has one connect point, so its name is
+the whole address. Subscribed once, here, rather than once per browser.
 
-Then create `web/edge/Hall.qml`, one per browser session like every Source, as that
-session's window onto the list:
+Then publish it from `web/edge/EdgeContract.qml`, beside the auction properties already
+there. Every session's Source is a window onto the same list:
 
 ```qml
-import QtQuick
-import SynQt
-
-Hall {
     winnersRows: Edge.winners    // one binding: a new winner reaches every session
-}
 ```
 
 ## Step 5: Record the winner when a lot closes
 
-Fill in the gap from [Real bidders](tutorial-sign-in.md). In `web/edge/Auction.qml`,
+Fill in the gap from [Real bidders](tutorial-sign-in.md). In `web/edge/EdgeContract.qml`,
 update `closeLot` to record the
 winner before resetting:
 
@@ -160,7 +156,7 @@ function closeLot(nextItem) {
         return
     }
     if (Edge.highBid > 0) {
-        Books.ledger.recordWinner(Edge.itemName, Edge.highBidder, Edge.highBid)
+        Books.recordWinner(Edge.itemName, Edge.highBidder, Edge.highBid)
     }
     Edge.openLot(nextItem)
 }
@@ -176,7 +172,7 @@ Label { text: "Hall of Fame"; font.pixelSize: 18 }
 ListView {
     Layout.fillWidth: true
     Layout.fillHeight: true
-    model: Server.hall.winners
+    model: Server.winners
     delegate: Label {
         text: model.winner + " won " + model.item + " for " + model.amount
     }
@@ -194,7 +190,7 @@ survived the restart, because they live in the database rather than in the edge'
 
 > [!QUESTION]
 > The Hall of Fame data physically lives in the database entity. It seems simpler
-> to let the browser read it straight from there. Change the `ledger` connect point
+> to let the browser read it straight from there. Change the books entity's connect point
 > so the client is a consumer too:
 >
 > ```
@@ -213,7 +209,7 @@ reach only the edge, never an internal entity like the database.
 This is the segmentation that protects your data. The database is never exposed to
 the internet and is reachable only by the entities you list (here, just the edge).
 Even the edge's calls to it are authenticated as coming from the edge, which is why
-`Ledger.recordWinner` checks `Caller.entity === "edge"`. There are two trust
+`BooksContract.qml` needs no check of its own. There are two trust
 boundaries between an internet visitor and your stored data: the edge authorizes the
 person, and the database authorizes the edge. Put the `consumers` line back to
 `["edge"]`. The full reasoning is in [security](security.md).
@@ -223,11 +219,12 @@ person, and the database authorizes the edge. Put the `consumers` line back to
 ## What you learned
 
 - An entity is its own folder, its own binary, and its own owner of data.
-- A database is just another entity; you add it with one command, no separate
+- A database is another entity. You add it with one command, with no separate
   server to run.
 - The browser can only reach the web edge. Internal entities are reachable only by
   the entities you authorize, never from the internet.
-- Entities authenticate each other; `Caller.entity` tells an owner which entity is
-  calling, so the database can trust only the edge.
-- Durable data lives in the database and survives restarts; the edge mediates what
+- Entities authenticate each other, and the consumer list decides who may reach
+  what. The books entity lists the edge and nothing else can acquire it. `Caller.entity`
+  is for the finer case, where an owner has two consumers and one of them may do less.
+- Durable data lives in the database and survives restarts. The edge mediates what
   the browser sees.

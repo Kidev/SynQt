@@ -30,6 +30,28 @@ def _duplicate_messages(names: List[Any], what: str, consequence: str) -> List[s
             for name in sorted({n for n in seen if seen.count(n) > 1})]
 
 
+def _named_point_messages(config: Dict[str, Any]) -> List[str]:
+    """Refuse a `name:` on a connect point.
+
+    An entity has one connect point, so the owner already names it: the accessor a consumer
+    reads is `Books`, the contract is `BooksContract`, and the file that implements it is
+    `BooksContract.qml`. A leftover `name:` from the older form is not harmless, because
+    everything derived from it moves: a project that keeps writing `name: ledger` gets a
+    build looking for `LedgerContract.qml` on one side and `BooksContract` on the other.
+    """
+    messages: List[str] = []
+    for point in config.get("connect_points") or []:
+        if not isinstance(point, dict) or not point.get("name"):
+            continue
+        owner = str(point.get("owner") or "?")
+        messages.append(
+            f"error: the connect point owned by '{owner}' sets name: "
+            f"'{point['name']}'; a connect point is not named any more, because an entity "
+            f"has one and the owner names it. Delete the line: consumers already reach it "
+            f"as '{appmodel.accessor_name(owner)}'")
+    return messages
+
+
 def _entity_type_messages(declared: List[Dict[str, Any]]) -> List[str]:
     """Refuse a `type:` that is not one of the eight.
 
@@ -244,37 +266,6 @@ def _inbound_messages(name: str, entity: Dict[str, Any],
     return messages
 
 
-def _own_contract_messages(config: Dict[str, Any],
-                           declared: List[Dict[str, Any]]) -> List[str]:
-    """Refuse an entity that owns a connect point named after the entity itself.
-
-    Both files land in the entity's folder under the same name: the entity's own QML is
-    `<Name>.qml` and the Source of a contract called `<Name>` is `<Name>.qml` too. One
-    would overwrite the other, and which one survives is whichever command ran last.
-    """
-    messages: List[str] = []
-    for entity in declared:
-        name = str(entity.get("name") or "")
-        if not name:
-            continue
-        capitalized = f"{name[:1].upper()}{name[1:]}"
-        for point in appmodel.owned_by(config, name):
-            if appmodel.contract_of(point) != capitalized:
-                continue
-            if appmodel.is_front(point):
-                # A front implements none of its point, so no Source file is written for it
-                # and there is nothing for the entity's own file to collide with. It is also
-                # the case worth allowing: a front named for what it fronts wants the point
-                # to carry the same name.
-                continue
-            where = appmodel.entity_file_path(entity)
-            messages.append(
-                f"error: entity '{name}' owns a connect point carrying the "
-                f"'{capitalized}' contract, and both write {where}: the entity's own file "
-                f"and the Source of that contract have the same name. Rename one of them.")
-    return messages
-
-
 def _shared_messages(declared: List[Dict[str, Any]]) -> List[str]:
     """Refuse a `shared:` that is not a yes-or-no, and one written on a client.
 
@@ -351,12 +342,14 @@ def validate(config: Dict[str, Any], *, release: bool = False,
         "the later one wins and the earlier one is never built, so part of this file "
         "describes an entity that does not exist")
     messages += _duplicate_messages(
-        [c.get("name") for c in config.get("connect_points") or [] if isinstance(c, dict)],
-        "connect point",
-        "the later one wins, which quietly replaces the owner and the consumer list of the "
-        "earlier one; a narrower consumer list can vanish this way")
+        [c.get("owner") for c in config.get("connect_points") or [] if isinstance(c, dict)],
+        "connect point owner",
+        "an entity has one connect point, so the later one wins and quietly replaces the "
+        "consumer list and the export block of the earlier one; put every member on one "
+        "point, and use per-member scope where they are for different audiences")
+    messages += _named_point_messages(config)
 
-    # Validate the topology the build will actually wire, which includes the two links
+    # Validate the topology the build will wire, which includes the two links
     # `identity.provider_entity` implies. Checked before the expansion, because a collision
     # with a declared connect point is exactly what the expansion silently steps around.
     messages += _provider_entity_messages(config, entities)
@@ -384,7 +377,6 @@ def validate(config: Dict[str, Any], *, release: bool = False,
 
     messages += _entity_type_messages(declared)
     messages += _network_messages(declared)
-    messages += _own_contract_messages(config, declared)
     messages += _shared_messages(declared)
     messages += _orphan_messages(config, declared)
 
@@ -397,8 +389,8 @@ def validate(config: Dict[str, Any], *, release: bool = False,
     scope_order = _scope_order(config)
 
     for connect_point in config.get("connect_points", []):
-        name = connect_point.get("name", "<unnamed>")
         owner = connect_point.get("owner")
+        name = appmodel.point_name(connect_point) or "<no owner>"
         consumers = connect_point.get("consumers", [])
 
         if owner not in entities:
@@ -433,14 +425,15 @@ def validate(config: Dict[str, Any], *, release: bool = False,
                 f"is the owning entity's answer now, so write 'shared: false' on '{owner}' "
                 "to give each caller their own")
 
-        # A contract has no name of its own to give: the point is named, and what crosses
+        # A contract has no name of its own to give. The owner names it, and what crosses
         # it is written on the point, in `export:`. Read from what the file says rather
         # than from the resolved point, which carries the name the framework derived.
         if "contract" in connect_point and not appmodel.is_framework_point(connect_point):
             messages.append(
                 f"error: connect point '{name}' names a 'contract'; what crosses a point is "
                 "written on the point itself, in its 'export:' block, and the type it "
-                f"becomes is named after the point ('{appmodel.contract_of({'name': name})}')")
+                f"becomes is named after the owner "
+                f"('{appmodel.contract_of({'owner': owner})}')")
         if "export" in connect_point and not isinstance(connect_point.get("export"), str):
             messages.append(
                 f"error: connect point '{name}': 'export:' is the lines of the contract, "
@@ -627,7 +620,8 @@ def _mesh_policy_messages(config: Dict[str, Any], endpoints: Dict[str, Dict[str,
 def _link_host(config: Dict[str, Any], connect_point_name: str) -> Optional[str]:
     """The host spelled for one link, before the local/mtls resolution drops it."""
     for connect_point in config.get("connect_points") or []:
-        if isinstance(connect_point, dict) and connect_point.get("name") == connect_point_name:
+        if (isinstance(connect_point, dict)
+                and appmodel.point_name(connect_point) == connect_point_name):
             return topologywriter.mesh_settings(config, connect_point).get("host")
     return None
 
@@ -802,7 +796,7 @@ def _provider_entity_messages(config: Dict[str, Any],
         messages.append(
             f"warn: identity.provider_entity names '{owner}' but no identity provider is "
             "configured, so no auth entity is wired and nothing signs users in")
-    declared = {cp.get("name") for cp in appmodel.connect_points(config)}
+    declared = {appmodel.point_name(cp) for cp in appmodel.connect_points(config)}
     for name in (appmodel.AUTH_IDENTITY_POINT, appmodel.AUTH_SESSION_POINT):
         if name in declared:
             messages.append(
@@ -945,10 +939,11 @@ def _mesh_certificate_messages(config: Dict[str, Any], entities: Dict[str, Any],
         if endpoint.get("transport") != "mtls":
             continue
         for connect_point in config.get("connect_points") or []:
-            if not isinstance(connect_point, dict) or connect_point.get("name") != name:
+            if (not isinstance(connect_point, dict)
+                    or appmodel.point_name(connect_point) != name):
                 continue
             for party in [connect_point.get("owner"), *(connect_point.get("consumers") or [])]:
-                # The client holds no mesh certificate by design: it reaches the edge over
+                # The client holds no mesh certificate by design. It reaches the edge over
                 # wss and never joins the mesh.
                 if party in entities and appmodel.is_service(entities[party]):
                     needs_certificate.add(str(party))
@@ -1647,8 +1642,8 @@ def lint_connect_point_sources(config: Dict[str, Any],
     for point in config.get("connect_points") or []:
         if not isinstance(point, dict):
             continue
-        name = str(point.get("name") or "")
         owner = str(point.get("owner") or "")
+        name = appmodel.point_name(point)
         contract = appmodel.contract_of(point)
         if not owner or not contract:
             continue   # validate() reports an incomplete connect point in its own words
@@ -1731,7 +1726,7 @@ def lint_member_scopes(config: Dict[str, Any]) -> List[str]:
                if appmodel.is_client(entity)}
     messages: List[str] = []
     for point in appmodel.app_points(appmodel.connect_points(config)):
-        name = point.get("name")
+        name = appmodel.point_name(point)
         where = f"connect point '{name}'"
         point_scope = str(point.get("scope") or "").strip()
         reaches_a_browser = bool(clients.intersection(point.get("consumers") or []))
@@ -1798,7 +1793,7 @@ def lint_fronts(config: Dict[str, Any]) -> List[str]:
         if not appmodel.is_front(point):
             continue
         tiers = appmodel.behind(point)
-        name = point.get("name")
+        name = appmodel.point_name(point)
         where = f"connect point '{name}'"
         owner = str(point.get("owner") or "")
         if owner not in edges:
@@ -1944,10 +1939,10 @@ def _front_members(point: Dict[str, Any]) -> Optional[List[Dict[str, Any]]]:
     """A point's members, or None when its block will not read.
 
     Gates are as written, without the point's own `scope:` filled in, which is what
-    :func:`_reaches` is handed separately: the two points being compared have scopes of
+    :func:`_reaches` is handed separately. The two points being compared have scopes of
     their own and inheriting each into its own members would compare two different things.
     """
-    if not point.get("name"):
+    if not appmodel.contract_of(point):
         return None
     try:
         return designdoc.parse_export(appmodel.contract_of(point), point)
@@ -2151,7 +2146,7 @@ def lint_contract_drift(config: Dict[str, Any], project_dir: os.PathLike[str] | 
         return ["note: the contracts could not be compared with the QML that uses them: "
                 f"{error}"]
 
-    points = {str(point.get("name") or ""): point
+    points = {appmodel.point_name(point): point
               for point in appmodel.connect_points(config)}
     declared: Dict[str, List[Dict[str, Any]]] = {}
     for name, point in points.items():

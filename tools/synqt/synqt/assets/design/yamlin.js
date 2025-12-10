@@ -339,12 +339,17 @@ function entityFrom(item) {
 function linkFrom(item, entities) {
     const fields = mapping(item);
     const nameAt = fields.get("name");
-    if (!nameAt || !nameAt.value) {
-        throw new YamlError(item.length ? item[0].number : 0, "a connect point with no name");
+    if (nameAt) {
+        throw new YamlError(nameAt.line, "a connect point is not named; its owner names it");
     }
-    const link = {name: scalar(nameAt.value, nameAt.line)};
     const owner = fields.get("owner");
-    link.owner = owner ? scalar(owner.value, owner.line) : "";
+    if (!owner || !owner.value) {
+        throw new YamlError(item.length ? item[0].number : 0, "a connect point with no owner");
+    }
+    // An entity has one connect point, so the owner names it. The accessor consumers read,
+    // the contract, and the file that implements it all come from this one word.
+    const link = {owner: scalar(owner.value, owner.line)};
+    link.name = link.owner;
     const consumers = fields.get("consumers");
     link.consumers = consumers && consumers.value ? flowList(consumers.value, consumers.line)
                                                   : [];

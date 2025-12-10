@@ -11,7 +11,7 @@ done several times already (creating a file, wiring a `connect_point`, running
 A restart keeps the Hall of Fame but forgets the bid in progress. Persist the
 current lot too.
 
-Add to the `ledger` point's `export:` in `synqt.yaml`:
+Add to the books entity's `export:` in `synqt.yaml`:
 
 ```yaml
       slot saveCurrent(string[120] item, int amount, string[80] bidder)
@@ -29,11 +29,10 @@ CREATE TABLE IF NOT EXISTS current (
 );
 ```
 
-Add to `db/relational/books/Ledger.qml`:
+Add to `db/relational/books/BooksContract.qml`:
 
 ```qml
 function saveCurrent(item, amount, bidder) {
-    if (Caller.entity !== "edge") return
     Db.exec("INSERT INTO current(id, item, amount, bidder) VALUES(1, ?, ?, ?)"
             + " ON CONFLICT(id) DO UPDATE SET item = excluded.item,"
             + " amount = excluded.amount, bidder = excluded.bidder",
@@ -41,7 +40,6 @@ function saveCurrent(item, amount, bidder) {
 }
 
 function loadCurrent() {
-    if (Caller.entity !== "edge") return null
     const rows = Db.query("SELECT item, amount, bidder FROM current WHERE id = 1")
     return rows.length > 0 ? rows[0] : null
 }
@@ -54,7 +52,7 @@ startup for the whole entity, not once per browser. Add a `root.saveNow()` at th
 ```qml
 Component.onCompleted: {
     // loadCurrent() returns a value, so it resolves asynchronously.
-    Books.ledger.loadCurrent().then(saved => {
+    Books.loadCurrent().then(saved => {
         if (saved) {
             root.itemName = saved.item;
             root.highBid = saved.amount;
@@ -64,7 +62,7 @@ Component.onCompleted: {
 }
 
 function saveNow() {
-    Books.ledger.saveCurrent(root.itemName, root.highBid, root.highBidder);
+    Books.saveCurrent(root.itemName, root.highBid, root.highBidder);
 }
 ```
 
@@ -106,30 +104,43 @@ synqt add entity ticker --type jobs
 ```
 
 The ticker needs to call `closeLot`, so let it reach the auction. Add it as a
-consumer of the `auction` connect point in `synqt.yaml`:
+consumer of the edge's connect point in `synqt.yaml`:
 
 ```yaml
     consumers: [app, ticker]
 ```
 
-The one non obvious part: `closeLot` currently allows only an admin user, and the
-ticker is an entity, not a user. Check which kind of caller this is first
-(`Caller.hasScope` is for users, `Caller.entity` for entities), and only send the
-rejection signal to a user, because `emit<Signal>` targets a browser session.
-Widen the check in `web/edge/Auction.qml`:
+One part is not obvious. `closeLot` is exported as `<admin> slot closeLot(...)`, and a
+scope belongs to a user's session. The ticker is an entity and has none, so the gate would
+refuse it. A member with a mixed audience cannot be gated on a scope at all, so take the
+`<admin>` off it in `synqt.yaml`:
+
+```yaml
+      slot closeLot(string[120] nextItem)
+```
+
+and make the decision in the slot, where `Caller` can tell the two kinds of caller apart.
+Only send the rejection to a user, because `emit<Signal>` targets a browser session. In
+`web/edge/EdgeContract.qml`:
 
 ```qml
-const fromTicker = Caller.isEntity && Caller.entity === "ticker"
-if (!fromTicker && !Caller.hasScope("admin")) {
-    if (Caller.isUser) Caller.emitBidRejected("Not allowed to close this lot.")
-    return
+function closeLot(nextItem) {
+    const fromTicker = Caller.isEntity && Caller.entity === "ticker"
+    if (!fromTicker && !Caller.hasScope("admin")) {
+        if (Caller.isUser) Caller.emitBidRejected("Not allowed to close this lot.")
+        return
+    }
+    // ... close the lot as before
 }
 ```
 
-Then put the schedule in the ticker's logic file (the jobs type scaffolds one),
-calling the auction it now consumes. As always, a connect point on another entity
-is reached under the owner entity's name, capitalized: the `auction` connect point
-owned by `edge` appears to the ticker as `Edge.auction`:
+That is the trade the two forms make. `<scope>` is shorter, is enforced before your code
+runs, and cannot be forgotten. It also only knows about people. The moment another entity
+has to reach the same member, the decision comes back into the slot.
+
+Then put the schedule in the ticker's logic file (the jobs type scaffolds one), calling
+the edge it now consumes. As always, another entity's connect point is reached under that
+entity's name, capitalized, and an entity has one point, so `Edge` is the whole address:
 
 ```qml
 import QtQuick
@@ -140,7 +151,7 @@ Item {
         interval: 60000      // one minute per lot
         repeat: true
         running: true
-        onTriggered: Edge.auction.closeLot("Next mystery lot")
+        onTriggered: Edge.closeLot("Next mystery lot")
     }
 }
 ```
@@ -149,47 +160,41 @@ Each lot now closes on its own, records its winner, and the next one opens.
 
 ## Give each bidder a private maximum bid
 
-Let a signed in user set a private maximum that only they can see. One Source per
-caller is already the default, so the value lives in that user's own object and is
-invisible to everyone else, while still following them from tab to tab.
+Let a signed in user set a private maximum that only they can see.
 
-The connect point, in `synqt.yaml`. What makes the value private is `shared: false` on
-the edge, which gives each bidder a Source of their own:
+Two members on the edge's existing point, gated so only signed in users have them:
 
 ```yaml
-connect_points:
-  - name: proxy
-    owner: edge
-    consumers: [app]
-    server: web/Proxy.qml
-    scope: user               # only signed in users get one at all
-    export: |
-      prop int maxBid
-      slot setMax(int amount)
+      <user> prop int maxBid
+      <user> slot setMax(int amount)
 ```
 
-`web/edge/Proxy.qml`:
+What makes the value private is `shared: false` on the edge entity, which gives each
+bidder a Source of their own instead of a mirror of one:
+
+```yaml
+  - name: edge
+    type: web_edge
+    shared: false
+```
+
+Then in `web/edge/EdgeContract.qml`, beside the auction members:
 
 ```qml
-import QtQuick
-import SynQt
+    property int maxBid: 0
 
-Proxy {
-    id: proxy
-    maxBid: 0
     function setMax(amount) {
-        if (!Caller.hasScope("user")) return
-        proxy.maxBid = amount
+        point.maxBid = amount
     }
-}
 ```
 
-In the client, read and set it with `Server.proxy.maxBid` and
-`Server.proxy.setMax(...)`. Because the point mints a Source per caller, there is no
-shared object through which one user could ever see another's maximum, and the bidder's
-own second tab opens on the maximum they already set. From here,
-making `placeBid` automatically raise a user up to their stored maximum is an obvious
-next step, now that the value has a safe, private home.
+In the client, read and set it with `Server.maxBid` and `Server.setMax(...)`. Because the
+entity mints a Source per caller, there is no shared object through which one user could
+ever see another's maximum, and the bidder's own second tab opens on the maximum they
+already set. The lot itself is unaffected: it lives in the `Edge` singleton, which is one
+for the whole entity however many Sources there are. From here, making `placeBid`
+automatically raise a user up to their stored maximum is an obvious next step, now that the
+value has a safe, private home.
 
 ## Pin the rules you checked by hand
 
@@ -211,7 +216,7 @@ TestCase {
     EntityTest {
         id: harness
 
-        source: "../web/edge/Auction.qml"
+        source: "../web/edge/EdgeContract.qml"
     }
 
     SignalSpy {

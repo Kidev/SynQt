@@ -18,34 +18,45 @@ ServerAccessor::ServerAccessor(QList<ClientConnectPoint> connectPoints, QObject 
     : QQmlPropertyMap{this, parent}
     , m_connectPoints{std::move(connectPoints)}
 {
+    // Every facade is created before any link exists. The generated main puts them in QML
+    // scope by name, and a binding against a missing name on the first frame stays empty. A
+    // facade without a Replica reads empty and updates when bindNode() gives it one.
+    for (const ClientConnectPoint &connectPoint : std::as_const(m_connectPoints)) {
+        ConsumerBase *facade{makeConsumer(connectPoint.contract)};
+        if (facade != nullptr) {
+            facade->setPoint(connectPoint.name);
+            facade->setParent(this);
+            m_facades.insert(connectPoint.name, facade);
+            insert(connectPoint.name, QVariant::fromValue<QObject *>(facade));
+        }
+    }
+}
+
+QObject *ServerAccessor::point(const QString &name) const
+{
+    if (ConsumerBase *facade{m_facades.value(name)}) {
+        return facade;
+    }
+    // No consumer facade registered for this contract (a Replica-only build): the raw
+    // Replica is what there is, and only once a link has acquired one.
+    return value(name).value<QObject *>();
 }
 
 void ServerAccessor::bindNode(QRemoteObjectNode *node)
 {
     for (const ClientConnectPoint &connectPoint : std::as_const(m_connectPoints)) {
-        // Acquire a typed Replica when the contract's factory is registered (typed
-        // Replicas carry their API and sync reliably, including in the browser), else a
-        // dynamic Replica. The Replica is parented to the node and replaced on reconnect.
+        // A typed Replica when the contract's factory is registered (typed Replicas carry
+        // their API and sync reliably, also in the browser), otherwise a dynamic one.
+        // Parented to the node and replaced on reconnect.
         QObject *replica{acquireReplica(node, connectPoint.contract, connectPoint.name)};
         replica->setParent(node);
         const QString name{connectPoint.name};
 
-        // Wrap the Replica in its consumer facade (Server.<name>) when the contract's
-        // consumer surface is registered: the facade forwards properties, models and
-        // signals, adds returning-slot promises, and feeds the `<Contract>.on<Signal>`
-        // attached handlers. The facade is stable across reconnects; created once and
-        // handed the freshly acquired Replica; so QML bindings to Server.<name> hold.
+        // The facade forwards properties, models and signals, adds returning-slot promises,
+        // and feeds `<Contract>.on<Signal>` handlers. Built once in the constructor, so a
+        // reconnect gives the same object a new Replica.
         if (ConsumerBase *existing{m_facades.value(name)}) {
             existing->setReplica(replica);
-            continue;
-        }
-        ConsumerBase *facade{makeConsumer(connectPoint.contract)};
-        if (facade != nullptr) {
-            facade->setPoint(name);
-            facade->setParent(this);
-            m_facades.insert(name, facade);
-            insert(name, QVariant::fromValue<QObject *>(facade));
-            facade->setReplica(replica);
             continue;
         }
 

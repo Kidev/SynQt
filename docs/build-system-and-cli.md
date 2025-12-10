@@ -135,10 +135,11 @@ synqt add entity <name> [--type <type>]          # Scaffold a new entity (a plai
 synqt add entity <name> --type <type> --provider <engine>
                                                   # Scaffold an entity backed by a chosen engine.
 synqt add auth <provider> [--required]           # Add secure by default user authentication.
-synqt add connect-point <name> --owner <entity> [--consumers a,b]
-                                                 # Scaffold a connect point: the entry in
-                                                 # synqt.yaml with a starter `export:`, and
-                                                 # the owner-side Source that answers it.
+synqt add connect-point <owner> [--consumers a,b]
+                                                 # Scaffold the connect point an entity
+                                                 # exports: the entry in synqt.yaml with a
+                                                 # starter `export:`, and the owner-side
+                                                 # Source that answers it.
 synqt add provider <name> --family <fam>         # Scaffold a provider for a family interface.
 
 synqt providers         # List available providers per entity type.
@@ -150,15 +151,15 @@ synqt docker down       # Stop them (--volumes also discards the CA and engine d
 ```
 
 The two `add` commands that produce QML each write the file that goes with what they add.
-`synqt add connect-point` writes the owner-side Source, empty, in the owner's folder under
-the contract's name (or wherever the point's `server:` says), because a connect point
+`synqt add connect-point` writes the owner-side Source, empty, in the owner's folder as
+`<Owner>Contract.qml` (or wherever the point's `server:` says), because a connect point
 without one is a point the owner cannot host, and nothing says so until the entity starts.
 A file that is already there is never touched. `synqt add entity` writes the entity's own
 file, a singleton named after the entity where state belonging to the whole entity goes;
 every entity gets one, so none starts out as a directory with nothing in it. For a type
 with a helper that file also shows the helper being used, which is the part that holds
-however the connect points are eventually named. It writes no Source: a Source answers a
-connect point and is named after it, and a new entity has none yet.
+however the connect point is eventually shaped. It writes no Source: a Source answers a
+connect point, and an entity exports one only once somebody says who may consume it.
 
 An entity's name becomes a QML type, so it has to begin with a letter, and inside its own
 folder it may not be one of the names SynQt already puts in scope there: `Caller`,
@@ -170,7 +171,7 @@ fine: the runtime builds exactly one helper per entity, and reserving all five e
 would ban five perfectly good words across the whole project to prevent a collision that
 exists in one entity. `synqt check` holds the same
 line from the other end: every connect point must have its Source file, and that file must
-be rooted at `<Contract>Source`.
+be rooted at the contract, which is the owner capitalized plus `Contract`.
 
 `synqt design` opens the same project as a graph: entities as nodes, connect points as
 the links between them, and a panel for what each one carries. It is the visual half of

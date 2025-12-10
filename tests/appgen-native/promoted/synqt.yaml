@@ -43,8 +43,7 @@ entities:
 connect_points:
   # One ordinary browser-facing point, so the edge is a real edge rather than a login-only
   # process, and so the generated CMake still resolves a contract the app owns.
-  - name: greeting
-    owner: edge
+  - owner: edge
     consumers: [app]
     # One ordinary browser-facing point, so this fixture's edge is a real edge and its
     # generated CMake still resolves an app contract. What is under test is elsewhere.

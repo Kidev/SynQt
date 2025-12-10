@@ -275,7 +275,7 @@ class CheckTest(unittest.TestCase):
     def test_client_consuming_a_non_edge_connect_point_fails(self):
         config = self._base()
         config["connect_points"] = [
-            {"name": "items", "owner": "database", "consumers": ["web", "client"]}]
+            {"owner": "database", "consumers": ["web", "client"]}]
         ok, messages = check.validate(config)
         self.assertFalse(ok)
         self.assertTrue(any("browser can only reach a web edge" in m for m in messages))
@@ -283,8 +283,8 @@ class CheckTest(unittest.TestCase):
     def test_valid_topology_passes(self):
         config = self._base()
         config["connect_points"] = [
-            {"name": "items", "owner": "database", "consumers": ["web"]},
-            {"name": "todo", "owner": "web", "consumers": ["client"]}]
+            {"owner": "database", "consumers": ["web"]},
+            {"owner": "web", "consumers": ["client"]}]
         ok, messages = check.validate(config)
         self.assertTrue(ok, messages)
 
@@ -293,9 +293,9 @@ class CheckTest(unittest.TestCase):
         # legitimately opted-in one does not fail the build (pitfall 7).
         config = self._base()
         config["connect_points"] = [
-            {"name": "items", "owner": "database", "consumers": ["web"],
+            {"owner": "database", "consumers": ["web"],
              "transport": "local", "transport_local_explicit": True},
-            {"name": "todo", "owner": "web", "consumers": ["client"]}]
+            {"owner": "web", "consumers": ["client"]}]
         ok, messages = check.validate(config)
         self.assertTrue(ok, messages)
         self.assertTrue(any(m.startswith("warn:") and "colocation-trusted" in m
@@ -304,9 +304,9 @@ class CheckTest(unittest.TestCase):
     def test_implicit_local_link_is_an_error(self):
         config = self._base()
         config["connect_points"] = [
-            {"name": "items", "owner": "database", "consumers": ["web"],
+            {"owner": "database", "consumers": ["web"],
              "transport": "local", "transport_local_explicit": False},
-            {"name": "todo", "owner": "web", "consumers": ["client"]}]
+            {"owner": "web", "consumers": ["client"]}]
         ok, messages = check.validate(config)
         self.assertFalse(ok)
         self.assertTrue(any("transport local implicitly" in m for m in messages))
@@ -314,7 +314,7 @@ class CheckTest(unittest.TestCase):
     def test_unknown_client_logging_mode_is_an_error(self):
         config = self._base()
         config["connect_points"] = [
-            {"name": "todo", "owner": "web", "consumers": ["client"]}]
+            {"owner": "web", "consumers": ["client"]}]
         config["build"] = {"client_logging": "verbose"}
         ok, messages = check.validate(config)
         self.assertFalse(ok)
@@ -323,7 +323,7 @@ class CheckTest(unittest.TestCase):
     def test_valid_client_logging_mode_passes(self):
         config = self._base()
         config["connect_points"] = [
-            {"name": "todo", "owner": "web", "consumers": ["client"]}]
+            {"owner": "web", "consumers": ["client"]}]
         config["build"] = {"client_logging": "none"}
         ok, messages = check.validate(config)
         self.assertTrue(ok, messages)
@@ -333,7 +333,7 @@ class CheckTest(unittest.TestCase):
         # emit it now), so it must validate clean.
         config = self._base()
         config["connect_points"] = [
-            {"name": "todo", "owner": "web", "consumers": ["client"]}]
+            {"owner": "web", "consumers": ["client"]}]
         config["scopes"] = {"order": ["anonymous", "user"], "hierarchical": False}
         ok, messages = check.validate(config)
         self.assertTrue(ok, messages)
@@ -343,7 +343,7 @@ class CheckTest(unittest.TestCase):
         # hierarchical, the authorization surprise the setter meant to turn off. Refuse it.
         config = self._base()
         config["connect_points"] = [
-            {"name": "todo", "owner": "web", "consumers": ["client"]}]
+            {"owner": "web", "consumers": ["client"]}]
         config["scopes"] = {"order": ["anonymous", "user"], "hierarchical": "false"}
         ok, messages = check.validate(config)
         self.assertFalse(ok)

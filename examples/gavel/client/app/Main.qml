@@ -26,7 +26,7 @@ ApplicationWindow {
         spacing: 12
 
         Label {
-            text: Server.auction.itemName
+            text: Server.itemName
             font.pixelSize: 22
             Layout.fillWidth: true
             wrapMode: Text.WordWrap
@@ -34,8 +34,8 @@ ApplicationWindow {
 
         // Updates by itself whenever the edge changes it.
         Label {
-            text: "Current bid: " + Server.auction.highBid
-                  + "  (held by " + Server.auction.highBidder + ")"
+            text: "Current bid: " + Server.highBid
+                  + "  (held by " + Server.highBidder + ")"
             font.pixelSize: 18
         }
 
@@ -64,7 +64,7 @@ ApplicationWindow {
             Button {
                 text: "Place bid"
                 onClicked: {
-                    Server.auction.placeBid(parseInt(amountField.text));
+                    Server.placeBid(parseInt(amountField.text));
                     amountField.clear();
                 }
             }
@@ -77,7 +77,7 @@ ApplicationWindow {
             TextField { id: nextItemField; placeholderText: "Next item" }
             Button {
                 text: "Close lot"
-                onClicked: Server.auction.closeLot(nextItemField.text)
+                onClicked: Server.closeLot(nextItemField.text)
             }
         }
 
@@ -92,7 +92,7 @@ ApplicationWindow {
         ListView {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            model: Server.hall.winners
+            model: Server.winners
             delegate: Label {
                 required property string winner
                 required property string item

@@ -91,7 +91,7 @@ Item {
             Layout.fillWidth: true
             Layout.fillHeight: true
             clip: true
-            model: Server.catalog.offers
+            model: Server.offers
             delegate: Text {
                 required property string title
                 required property int price
@@ -113,7 +113,7 @@ The page reads `Router.pageSeed.headline`. That comes from the seed, which we wr
 ## Step 4: Seed the first frame
 
 One `Campaign.qml` serves `/c/summer-sale`, `/c/black-friday`, and every other slug. Left
-alone it would flash empty for the first frame, before `Server.catalog.offers` has pushed
+alone it would flash empty for the first frame, before `Server.offers` has pushed
 anything. The page seed fixes that: it runs on the edge, per request, and hands the page the
 data it paints with immediately. Create `web/edge/campaign-seed.qml`:
 
@@ -179,13 +179,13 @@ Start the app with `synqt dev` and open the storefront. Click "See today's offer
 - The page navigates to `/c/summer-sale`.
 - It shows the headline "Summer Sale" on its first frame, from the seed, before any offer
   arrives.
-- A moment later the offers list fills in from `Server.catalog.offers`.
+- A moment later the offers list fills in from `Server.offers`.
 
 Now watch the network. The client fetches `Campaign.qml` from the edge the first time you
-navigate to a campaign, and never again: the edge answers with a content hash, the client
+navigate to a campaign, and never again. The edge answers with a content hash, the client
 caches the page body under that hash, and a later navigation to any `/c/...` slug that
 resolves to the same `Campaign.qml` comes back `notModified`, with only the small,
-per-request seed on the wire. The page arrives once; the headline is fresh every time.
+per-request seed on the wire. The page arrives once, and the headline is fresh every time.
 
 ## Try it, then think
 

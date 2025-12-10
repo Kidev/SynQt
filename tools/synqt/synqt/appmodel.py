@@ -413,13 +413,47 @@ def connect_points(config: Dict[str, Any]) -> List[Dict[str, Any]]:
     return [cp for cp in config.get("connect_points", []) if isinstance(cp, dict)]
 
 
-def contract_of(point: Dict[str, Any]) -> str:
-    """The type a connect point's `export:` becomes: the point's own name, capitalized.
+def point_name(point: Dict[str, Any]) -> str:
+    """What a connect point is called. Its owner.
 
-    A point and the shape of what crosses it are one thing, so only one of them is named.
-    `Auction` is the type the point `auction` exports, the QML type its server file is
-    rooted at, and the name of the file :mod:`synqt.contractgen` writes under `generated/`.
-    Connect point names are unique across a project, so these are too.
+    An entity has one connect point, so the owner names it. That is the whole
+    naming rule, and it is why nothing in `connect_points:` is named. There is an owner, a consumer
+    list, an `export:` block. On the wire this is the object a consumer acquires. In QML it
+    is the accessor a consumer reads (`Books.recordWinner(...)`).
+
+    The framework's own points are the exception and carry a `name:`, because the auth
+    entity owns two of them (`identity` and `sessions`) and neither is reachable from QML;
+    the edge's C++ takes them by name.
+    """
+    declared = point.get("name")
+    if isinstance(declared, str) and declared.strip():
+        return declared.strip()
+    return str(point.get("owner") or "")
+
+
+def accessor_name(owner: str) -> str:
+    """How a consumer reaches an owner in QML: the owner's name, capitalized.
+
+    The counterpart of `EntityRuntime::accessorName`, which is what puts the
+    object in scope. This is here so the CLI can say the same word in a message and in a
+    scaffolded file without either of them guessing at it.
+    """
+    return f"{owner[:1].upper()}{owner[1:]}" if owner else ""
+
+
+def contract_of(point: Dict[str, Any]) -> str:
+    """The type a connect point's `export:` becomes: its owner, capitalized, plus Contract.
+
+    A point and the shape of what crosses it are one thing, so only one of them is named,
+    and with one point per owner the owner is what names both. `EdgeContract` is the type
+    the edge exports, the QML type `web/edge/EdgeContract.qml` is rooted at, and the name
+    of the file :mod:`synqt.contractgen` writes under `generated/`. Entity names are unique
+    across a project, so these are too.
+
+    The suffix is what keeps it apart from the entity's own singleton, which is the owner's
+    name on its own (`web/edge/Edge.qml`). Both are in scope in the same QML, and they are
+    different things: `Edge` is the entity, one of it for as long as it runs, and
+    `EdgeContract` is the surface it exports, one per caller.
 
     `contract:` is read only for the framework's own points, whose contracts ship in the
     runtime libraries under names of their own (the `sessions` point carries `SessionStore`).
@@ -428,8 +462,8 @@ def contract_of(point: Dict[str, Any]) -> str:
     declared = point.get("contract")
     if isinstance(declared, str) and declared.strip():
         return declared.strip()
-    name = str(point.get("name") or "")
-    return f"{name[:1].upper()}{name[1:]}" if name else ""
+    owner = str(point.get("owner") or "")
+    return f"{owner[:1].upper()}{owner[1:]}Contract" if owner else ""
 
 
 def behind(point: Dict[str, Any]) -> Dict[str, str]:
@@ -998,7 +1032,7 @@ def auth_connect_points(config: Dict[str, Any]) -> List[Dict[str, Any]]:
     consumers = [name for name in (entity.get("name") for entity in entities(config)
                                    if is_edge(entity) and identity_enabled(config, entity))
                  if name]
-    declared = {cp.get("name") for cp in connect_points(config)}
+    declared = {point_name(cp) for cp in connect_points(config)}
     return [{"name": name,
              "contract": contract,
              "owner": owner,

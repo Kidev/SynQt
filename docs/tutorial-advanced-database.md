@@ -417,7 +417,7 @@ and the secret's name, never its value, in `.env.example`:
 MSSQL_PASSWORD=
 ```
 
-The entity's connect point Source, `db/relational/books/Items.qml` or whatever you called it, is
+The entity's connect point Source, `db/relational/books/BooksContract.qml` or whatever you called it, is
 untouched. It called `Db.query(...)` before and it calls `Db.query(...)` now. That is the
 masking working: the engine changed and the contract did not, so no consumer had anything
 to notice.

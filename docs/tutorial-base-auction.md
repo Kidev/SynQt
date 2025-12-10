@@ -14,8 +14,7 @@ Open `synqt.yaml` and add:
 
 ```yaml
 connect_points:
-  - name: auction
-    owner: edge               # the edge holds the real auction
+  - owner: edge               # the edge holds the real auction
     consumers: [app]          # the browser may watch and bid
     # The shape of the auction that the browser and the edge share.
     #   prop   : a value the owner sets and consumers see update
@@ -29,8 +28,8 @@ connect_points:
       signal bidRejected(string[120] reason)
 ```
 
-The point is called `auction`, so the type it exports is `Auction`. That is the name you
-will write in QML in a moment, and nothing else names it.
+The owner is `edge`, so the type it exports is `EdgeContract`. That is the name you will
+write in QML in a moment, and nothing else names it.
 
 > [!NOTE]
 > Notice the directions. Properties flow from the owner out to everyone watching.
@@ -77,13 +76,13 @@ does have one.
 ## Step 3: Implement the owner side
 
 The web edge owns the connect point, which means it answers for the auction. Create
-`web/edge/Auction.qml`:
+`web/edge/EdgeContract.qml`:
 
 ```qml
 import QtQuick
 import SynQt
 
-Auction {
+EdgeContract {
     id: auction
 
     itemName: Edge.itemName
@@ -130,7 +129,7 @@ ApplicationWindow {
         spacing: 12
 
         Label {
-            text: Server.auction.itemName
+            text: Server.itemName
             font.pixelSize: 22
             Layout.fillWidth: true
             wrapMode: Text.WordWrap
@@ -138,8 +137,8 @@ ApplicationWindow {
 
         // These two lines update by themselves whenever the edge changes them.
         Label {
-            text: "Current bid: " + Server.auction.highBid
-                  + "  (held by " + Server.auction.highBidder + ")"
+            text: "Current bid: " + Server.highBid
+                  + "  (held by " + Server.highBidder + ")"
             font.pixelSize: 18
         }
 
@@ -154,7 +153,7 @@ ApplicationWindow {
             Button {
                 text: "Place bid"
                 onClicked: {
-                    Server.auction.placeBid(nameField.text, parseInt(amountField.text))
+                    Server.placeBid(nameField.text, parseInt(amountField.text))
                     amountField.clear()
                 }
             }
@@ -167,7 +166,7 @@ ApplicationWindow {
         }
 
         // Listen for a rejection meant for us.
-        Auction.onBidRejected: reason => errorLabel.text = reason
+        EdgeContract.onBidRejected: reason => errorLabel.text = reason
     }
 }
 ```
@@ -193,7 +192,7 @@ that happen.
 > [!QUESTION]
 > In tab one bid 50. In tab two bid 10. What happens to the bid of 10, and why?
 > Then, predict: if you delete the line `if (amount <= auction.highBid)` from
-> `web/edge/Auction.qml` and save, what will a bid of 10 do to the standing bid of 50?
+> `web/edge/EdgeContract.qml` and save, what will a bid of 10 do to the standing bid of 50?
 
 <details class="solution" markdown>
 <summary>Solution</summary>

@@ -21,20 +21,18 @@ Quick Test finds them by directory, so adding a file needs no registration anywh
 Given this edge Source:
 
 ```qml
-// web/edge/Auction.qml
+// web/edge/EdgeContract.qml
 import QtQuick
 import SynQt
 
-Auction {
+EdgeContract {
     id: auction
 
     highBid: 100
 
+    // Exported as `<user> slot placeBid(int amount)`, so a signed-out caller does not
+    // have the member and never reaches this function.
     function placeBid(amount) {
-        if (!Caller.hasScope("user")) {
-            Caller.emitBidRejected("Sign in to bid.");
-            return;
-        }
         if (amount <= auction.highBid) {
             Caller.emitBidRejected("Bid must beat " + auction.highBid + ".");
             return;
@@ -58,7 +56,7 @@ TestCase {
     EntityTest {
         id: harness
 
-        source: "../web/edge/Auction.qml"
+        source: "../web/edge/EdgeContract.qml"
     }
 
     SignalSpy {
@@ -74,11 +72,13 @@ TestCase {
         rejections.clear();
     }
 
+    // The gate is the framework's, and this is what proves it is really there: the call
+    // is made exactly as a browser console would make it, and nothing moves.
     function test_a_signed_out_visitor_cannot_bid() {
         harness.callerIsUser("anonymous");
         harness.subject.placeBid(500);
         compare(harness.subject.highBid, 100);
-        compare(rejections.signalArguments[0][0], "Sign in to bid.");
+        compare(rejections.count, 0);
     }
 
     function test_a_lower_bid_is_refused() {
@@ -142,7 +142,7 @@ model, and there are four:
 - **The engine.** A statement that works on SQLite may not on PostgreSQL. Testing the
   slot's logic is not testing your SQL against the engine you deploy.
 - **The entity next door.** One Source is loaded on its own, so the accessors for
-  consumed entities are absent. A slot that calls `Books.ledger.recordWinner(...)`
+  consumed entities are absent. A slot that calls `Books.recordWinner(...)`
   fails with `Books is not defined`.
 
 That last one is a limit, not a defect, and it is worth saying why the accessor is absent
@@ -160,7 +160,7 @@ function closeLot(nextItem) {
         Caller.emitBidRejected("Only the auctioneer can close a lot.");
         return;
     }
-    Books.ledger.recordWinner(...);           // not testable here
+    Books.recordWinner(...);           // not testable here
 }
 ```
 
@@ -215,7 +215,7 @@ applies:
 EntityTest {
     id: harness
 
-    source: "../db/relational/books/Ledger.qml"
+    source: "../db/relational/books/BooksContract.qml"
     schema: "../db/relational/books/schema.sql"
 }
 ```

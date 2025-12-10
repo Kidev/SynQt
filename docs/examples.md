@@ -38,10 +38,9 @@ entities:
       port: 8443
 
 connect_points:
-  - name: counter
-    owner: edge               # the edge holds the authoritative Source
+  - owner: edge               # the edge holds the authoritative Source
     consumers: [app]          # the browser may acquire it
-    server: web/edge/Counter.qml
+    server: web/edge/EdgeContract.qml
     export: |
       prop int value          // edge owned; clients read, edge writes
       slot increment()        // a request; the edge performs the change
@@ -81,7 +80,7 @@ QtObject {
 }
 ```
 
-### Edge, `web/edge/Counter.qml`
+### Edge, `web/edge/EdgeContract.qml`
 
 One of these per browser session. It binds the contract property to the entity's number,
 so every session sees the same value and every slot still has a `Caller` to authorize.
@@ -90,7 +89,7 @@ so every session sees the same value and every slot still has a `Caller` to auth
 import QtQuick
 import SynQt
 
-Counter {
+EdgeContract {
     id: counter
 
     value: Edge.value
@@ -119,15 +118,15 @@ ApplicationWindow {
         spacing: 12
 
         Label {
-            text: Session.state === "connected" ? ("Value: " + Server.counter.value)
+            text: Session.state === "connected" ? ("Value: " + Server.value)
                                                 : "Connecting..."
             font.pixelSize: 28
         }
 
         Row {
             spacing: 8
-            Button { text: "-"; onClicked: Server.counter.decrement() }
-            Button { text: "+"; onClicked: Server.counter.increment() }
+            Button { text: "-"; onClicked: Server.decrement() }
+            Button { text: "+"; onClicked: Server.increment() }
         }
     }
 }
@@ -190,10 +189,9 @@ identity:
     hook: web/edge/identity/map.qml
 
 connect_points:
-  - name: todo
-    owner: edge
+  - owner: edge
     consumers: [app]
-    server: web/edge/Todo.qml
+    server: web/edge/EdgeContract.qml
     export: |
       prop int count                        // number of items, edge owned
       model items(string[280] text, string[80] author, bool done)  // only these cross
@@ -261,7 +259,7 @@ QtObject {
 }
 ```
 
-### Edge, `web/edge/Todo.qml`
+### Edge, `web/edge/EdgeContract.qml`
 
 One of these per browser session, which is what gives every slot below its `Client`
 (the browser-side name for `Caller`). It reads and writes the entity's list, and
@@ -271,7 +269,7 @@ One of these per browser session, which is what gives every slot below its `Clie
 import QtQuick
 import SynQt
 
-Todo {
+EdgeContract {
     count: Edge.rows.length
 
     function add(text) {
@@ -342,12 +340,12 @@ ApplicationWindow {
         anchors.margins: 10
         spacing: 8
 
-        Label { text: "Items: " + (Server.todo.count || 0) }
+        Label { text: "Items: " + (Server.count || 0) }
 
         ListView {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            model: Server.todo.items
+            model: Server.items
             delegate: RowLayout {
                 width: ListView.view.width
                 CheckBox { checked: model.done; enabled: false }
@@ -356,7 +354,7 @@ ApplicationWindow {
                     text: "Remove"
                     // UX hint only; the edge enforces ownership regardless.
                     visible: Session.hasScope("user")
-                    onClicked: Server.todo.remove(index)
+                    onClicked: Server.remove(index)
                 }
             }
         }
@@ -372,13 +370,13 @@ ApplicationWindow {
             Button {
                 text: "Add"
                 enabled: Session.hasScope("user") && input.text.trim().length > 0
-                onClicked: { Server.todo.add(input.text); input.text = "" }
+                onClicked: { Server.add(input.text); input.text = "" }
             }
         }
     }
 
     // The edge's refusal channel: show why an action was rejected.
-    Todo.onRejected: reason => { toast.text = reason; toast.open() }
+    EdgeContract.onRejected: reason => { toast.text = reason; toast.open() }
 
     Popup { id: toast; property alias text: msg.text; Label { id: msg } }
 }
@@ -390,7 +388,7 @@ ApplicationWindow {
 - `ownerId` exists on every row for authorization and never crosses the boundary,
   because it is not a declared model role. Confidentiality is structural.
 - Client side `Session.hasScope("user")` only hides and disables UI. A modified
-  client that calls `Server.todo.add` while anonymous still hits an edge that
+  client that calls `Server.add` while anonymous still hits an edge that
   refuses, with `rejected("Sign in to add items.")`.
 - Ownership is enforced with an edge side value the client cannot spoof, never with
   anything the client sends. Here that value is `Client.id`, the session identifier;
@@ -411,10 +409,9 @@ scoped so an anonymous client never acquires it at all:
 
 ```yaml
 connect_points:
-  - name: draft
-    owner: edge
+  - owner: edge
     consumers: [app]
-    server: web/edge/Draft.qml
+    server: web/edge/EdgeContract.qml
     scope: user               # only signed in users may acquire it at all
                          # the edge is not shared: a draft Source per session
     export: |
@@ -477,10 +474,9 @@ entities:
       busy_timeout_ms: 5000
 
 connect_points:
-  - name: todo
-    owner: edge               # the edge owns the user facing object
+  - owner: edge               # the edge owns the user facing object
     consumers: [app]          # the browser may acquire it
-    server: web/edge/Todo.qml
+    server: web/edge/EdgeContract.qml
     export: |
       model items(string[280] text, string[80] author, bool done)  // only these cross
       slot add(string[280] text)
@@ -489,56 +485,51 @@ connect_points:
     # the edge says shared: false, which is what gives
     # the slots below their Caller
 
-  - name: items
-    owner: store              # the store entity owns durable storage
+  - owner: store              # the store entity owns durable storage
     consumers: [edge]         # only the edge may reach it; never the browser
-    server: db/relational/store/Items.qml
+    server: db/relational/store/StoreContract.qml
     export: |
       record ItemRow(string[280] text, string[80] author, string[64] ownerSub)
       slot var list()                  // rows { id, text, author, ownerSub } to the edge
       slot insert(ItemRow row)
       slot remove(int id)
       signal changed()                 // tells the edge the data moved
-    # shared: false on the owner, so one Source per calling entity and Caller.entity is
-    # the verified name of the entity that called
 ```
 
 Auth is added with `synqt add auth github` (see [authentication](authentication.md)); omitted here for focus.
 
-The mesh link is mutual TLS even though both entities share a host, so the
-database's `Caller.entity` check below rests on a verified certificate.
-`synqt mesh cert --all` issues the certificates for deployment; `synqt dev`
-provisions throwaway development ones automatically.
+The mesh link is mutual TLS even though both entities share a host, so the one entity on
+its consumer list is the one its certificate proves it to be. `synqt mesh cert --all`
+issues the certificates for deployment; `synqt dev` provisions throwaway development ones
+automatically.
 
-Note below that `ownerSub` exists on the internal `items` point (the edge needs it to
-enforce ownership) but is absent from `todo`'s `items` roles, so it never reaches the
+Note below that `ownerSub` exists on the store entity's point (the edge needs it to
+enforce ownership) but is absent from the edge's `items` roles, so it never reaches the
 browser.
 
-### The database entity, `db/relational/store/Items.qml`
+### The database entity, `db/relational/store/StoreContract.qml`
 
 ```qml
 import QtQuick
 import SynQt
 
-Items {
+StoreContract {
     id: items
 
+    // Nothing here asks who is calling: the consumer list has one name in it, so the
+    // mesh opens no link to anything else and nothing else can acquire this.
     function list() {
-        // Only the edge may read. Authorize the calling entity.
-        if (Caller.entity !== "edge") return []
         return Db.query("SELECT id, text, author, owner_sub AS ownerSub"
                         + " FROM items ORDER BY id DESC LIMIT 200")
     }
 
     function insert(row) {
-        if (Caller.entity !== "edge") return
         Db.exec("INSERT INTO items(text, author, owner_sub) VALUES(?, ?, ?)",
                 [row.text, row.author, row.ownerSub])   // parameterized: no injection
         items.changed()                                  // notify the edge
     }
 
     function remove(id) {
-        if (Caller.entity !== "edge") return
         Db.exec("DELETE FROM items WHERE id = ?", [id])
         items.changed()
     }
@@ -556,13 +547,13 @@ CREATE TABLE IF NOT EXISTS items (
 );
 ```
 
-### The web edge, `web/edge/Todo.qml`
+### The web edge, `web/edge/EdgeContract.qml`
 
 ```qml
 import QtQuick
 import SynQt
 
-Todo {
+EdgeContract {
     id: todo
 
     // The last fetched internal rows (id and ownerSub included): edge memory only,
@@ -572,7 +563,7 @@ Todo {
     // Keep the browser facing model in sync with the database.
     function refresh() {
         // list() returns a value, so this cross entity call resolves asynchronously.
-        Store.items.list().then(fetched => {
+        Store.list().then(fetched => {
             todo.rows = fetched
             // Map internal rows to the browser facing roles (drop id and ownerSub).
             todo.setItems(fetched.map(r => ({ text: r.text, author: r.author, done: false })))
@@ -581,7 +572,7 @@ Todo {
 
     Component.onCompleted: refresh()
 
-    Items.onChanged: todo.refresh()   // the database moved; repull
+    StoreContract.onChanged: todo.refresh()   // the database moved; repull
 
     function add(text) {
         // The edge authorizes the user.
@@ -591,7 +582,7 @@ Todo {
             Caller.emitRejected("Items must be 1 to 280 characters."); return
         }
         // Persist via the database entity. The database authorizes that the caller is the edge.
-        Store.items.insert({ text: clean, author: Caller.identity.email,
+        Store.insert({ text: clean, author: Caller.identity.email,
                                 ownerSub: Caller.identity.sub })
     }
 
@@ -608,33 +599,33 @@ Todo {
             Caller.emitRejected("You can only remove your own items."); return
         }
         // The database authorizes that the caller is the edge, then deletes by id.
-        Store.items.remove(row.id)
+        Store.remove(row.id)
     }
 }
 ```
 
 ### The client, `client/app/Main.qml`
 
-Identical in spirit to Example 2: it reads `Server.todo.items`, calls
-`Server.todo.add(...)` and `Server.todo.remove(index)`, and shows
-`Server.todo.rejected` reasons. The client does
+Identical in spirit to Example 2: it reads `Server.items`, calls
+`Server.add(...)` and `Server.remove(index)`, and shows
+`Server.rejected` reasons. The client does
 not know a database exists; it only ever talks to the edge.
 
 ### What this example demonstrates
 
-- Three entities, two trust boundaries. The edge authorizes the user
-  (`Caller.hasScope`), the database authorizes the entity (`Caller.entity`). Neither
-  trusts the other blindly.
+- Three entities, two boundaries. The edge authorizes the user (the scope on the member,
+  and `Caller` for the rest); the topology puts the database out of the browser's reach by
+  listing one consumer.
 - The full user authorization matrix lives on the edge: anonymous cannot add, a
   user removes only rows whose `ownerSub` matches their own `Caller.identity.sub`,
   a moderator removes any. No client supplied value participates in the ownership
   decision; the edge compares its own cached `ownerSub` against the verified
   identity.
-- The browser cannot reach the store. `items` lists only `edge` as a consumer, and
+- The browser cannot reach the store. Its point lists only `edge` as a consumer, and
   the browser cannot physically reach a non edge entity anyway.
 - Data minimization across two hops. `ownerSub` is on the internal contract for the
   edge's ownership logic and is dropped before anything reaches the browser, because
-  it is not a `Todo.items` role. It carries `Caller.identity.sub`, the stable
+  it is not a the edge's `items` role. It carries `Caller.identity.sub`, the stable
   identity subject, rather than the session id (`Client.id`) that Example 2 used:
   the accessor is the same one Example 2 reaches through the `Client` alias, but a
   durable row must stay owned across new sessions and restarts, so it keys on the
@@ -682,18 +673,16 @@ router:
   palette: [QtQuick, QtQuick.Layouts]   # what a delivered page may import
 
 connect_points:
-  - name: catalog
-    owner: edge               # the edge owns the browser-facing live catalog
+  - owner: edge               # the edge owns the browser-facing live catalog
     consumers: [app]
-    server: web/edge/Catalog.qml
+    server: web/edge/EdgeContract.qml
     export: |
       model offers(string[80] title, int price)
       slot addToCart(string[40] sku)
 
-  - name: inventory
-    owner: stock              # the stock entity owns the durable stock
+  - owner: stock              # the stock entity owns the durable stock
     consumers: [edge]         # only the edge; a client consumer here fails synqt check
-    server: db/relational/stock/Inventory.qml
+    server: db/relational/stock/StockContract.qml
     export: |
       model items(string[40] sku, string[80] title, int price)
       slot restock(string[40] sku, string[80] title, int price)
@@ -732,7 +721,7 @@ Item {
             Layout.fillWidth: true
             Layout.fillHeight: true
             clip: true
-            model: Server.catalog.offers
+            model: Server.offers
             delegate: Text {
                 required property string title
                 required property int price
@@ -774,17 +763,17 @@ PageSeed {
 - A route is compiled in (`view:`) or edge-delivered (`remote:`). The campaign and
   members pages are `remote:`, so they never enter the bundle and change without a
   client rebuild.
-- `router.palette` is the trust boundary for a delivered page: the whole set of QML
+- `router.palette` is the trust boundary for a delivered page, the whole set of QML
   modules it may import, enforced by the client.
 - The page seed paints the first frame. It runs on the edge per request, is keyed on
   the path parameter, and its return is `Router.pageSeed` on the client, so one
   `Campaign.qml` gives every slug its own headline. Its parameters are left untyped so
   the edge's generic invocation matches.
-- A delivered page's `scope` protects the page, not the data. `Members.qml` is refused
+- A delivered page's `scope` protects the page rather than the data. `Members.qml` is refused
   to an under-scoped session with no markup, no hash, and no seed, but the data any
   page reads is still governed by the connect point's own scope.
-- The database stays unreachable from the browser. The `inventory` connect point is
-  owned by `stock` and consumed only by `edge`; adding the client as a consumer fails
+- The database stays unreachable from the browser. The stock entity's connect point is
+  owned by `stock` and consumed only by `edge`. Adding the client as a consumer fails
   `synqt check`, because the browser can only reach a web edge.
 
 The [light storefront](tutorial-remote-pages.md) tutorial builds this shop up step by

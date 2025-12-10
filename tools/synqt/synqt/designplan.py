@@ -111,7 +111,7 @@ def _uncompilable_contracts(wanted: Dict[str, Any]) -> List[str]:
             continue
         try:
             designdoc.parse_export(
-                contract, {"name": link.get("name"),
+                contract, {"owner": link.get("owner"),
                            "export": designdoc.render_export(link["members"])})
         except designdoc.DesignDocError as error:
             problems.append(f"error: '{link.get('name')}': the {contract} contract would "
@@ -244,10 +244,10 @@ def _apply_links(work: Path, current: Dict[str, Any], wanted: Dict[str, Any],
                  reasons: Dict[str, List[str]], base: Dict[str, Any]) -> None:
     was = _by_name(current["links"])
     now = _by_name(wanted["links"])
-    points = {str(point.get("name")): point for point in appmodel.connect_points(base)}
+    points = {appmodel.point_name(point): point for point in appmodel.connect_points(base)}
     alive = {entity["name"] for entity in wanted["entities"]}
     # Where a link's two files go is decided by the entity that owns it, so the owners are
-    # resolved once here: both the drawing's entities (an owner added in the same edit is
+    # resolved once here. Both the drawing's entities (an owner added in the same edit is
     # not in the config yet) and the ones already configured.
     owners = {str(entity.get("name") or ""): entity
               for entity in list(appmodel.entities(base)) + list(current["entities"])
@@ -256,9 +256,10 @@ def _apply_links(work: Path, current: Dict[str, Any], wanted: Dict[str, Any],
     for name, link in now.items():
         _write_source(work, link, points, alive, owners, reasons)
         if name not in was:
+            # No `name:`. An entity has one connect point, so the owner names it, and
+            # `owner` is the first field in _LINK_FIELDS so the entry opens on it.
             block = {key: _link_field(link, key) for key in _LINK_FIELDS
                      if _link_field(link, key) is not None}
-            block = {"name": name, **block}
             _edit_config(work, lambda text: yamledit.append_item(
                 text, "connect_points", block))
             _note(reasons, "synqt.yaml", f"connect point '{name}' added")

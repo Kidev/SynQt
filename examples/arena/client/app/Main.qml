@@ -106,17 +106,17 @@ ApplicationWindow {
     Timer {
         interval: 66; repeat: true
         running: Session.hasScope("player")
-        onTriggered: Server.arena.steer(root.aimX, root.aimY)
+        onTriggered: Server.steer(root.aimX, root.aimY)
     }
 
-    // ping returns a value, so it is an asynchronous request: send the current time, await
+    // ping returns a value, so it is an asynchronous request. Send the current time, await
     // the reply, and the round trip is the difference.
     Timer {
         interval: 2000; repeat: true
         running: Session.hasScope("player")
         onTriggered: {
             const sent = Date.now();
-            Server.arena.ping().then(() => { root.latencyMs = Date.now() - sent; });
+            Server.ping().then(() => { root.latencyMs = Date.now() - sent; });
         }
     }
 
@@ -171,7 +171,7 @@ ApplicationWindow {
 
         // The pellets, camera-mapped. They do not move, so they need no interpolation.
         Repeater {
-            model: Server.arena.pellets
+            model: Server.pellets
             delegate: Rectangle {
                 id: pellet
 
@@ -188,9 +188,9 @@ ApplicationWindow {
         }
 
         // Draw the other players, smoothly. For every row capture snapshots (feeding
-        // interpolation); for your own row feed reconcile.
+        // interpolation). For the player's own row, feed reconcile.
         Repeater {
-            model: Server.arena.blobs
+            model: Server.blobs
             delegate: Item {
                 id: blob
 
@@ -252,7 +252,7 @@ ApplicationWindow {
         Text { text: "On the map"; color: "white"; font.bold: true; font.pixelSize: 14
                style: Text.Outline; styleColor: "black" }
         Repeater {
-            model: Server.arena.board
+            model: Server.board
             delegate: Text {
                 required property int index
                 required property string name
@@ -290,9 +290,9 @@ ApplicationWindow {
         anchors.margins: 12
         color: "white"; font.pixelSize: 18; font.bold: true
         style: Text.Outline; styleColor: "black"
-        visible: Session.hasScope("player") && Server.arena.roundEndsAt > 0
+        visible: Session.hasScope("player") && Server.roundEndsAt > 0
         text: {
-            const left = Math.max(0, Server.arena.roundEndsAt - root.now);
+            const left = Math.max(0, Server.roundEndsAt - root.now);
             const m = Math.floor(left / 60000), s = Math.floor((left % 60000) / 1000);
             return m + ":" + (s < 10 ? "0" + s : s);
         }
@@ -307,7 +307,7 @@ ApplicationWindow {
         Text { text: "Hall of Fame"; color: "white"; font.bold: true; font.pixelSize: 14
                style: Text.Outline; styleColor: "black" }
         Repeater {
-            model: Server.arena.champions
+            model: Server.champions
             delegate: Text {
                 required property string name
                 required property int points
@@ -398,11 +398,11 @@ ApplicationWindow {
 
     App.onUpdateReady: updateBanner.visible = true
 
-    Arena.onEaten: (prey, predator) => {
+    EdgeContract.onEaten: (prey, predator) => {
         const me = Session.identity ? Session.identity.login : null;
         if (prey === me) banner.flash("You were eaten by " + predator + "!");
         else if (predator === me) banner.flash("You ate " + prey);
         else banner.flash(predator + " ate " + prey);
     }
-    Arena.onRoundEnded: winner => banner.flash("Round over! " + winner + " takes the point.")
+    EdgeContract.onRoundEnded: winner => banner.flash("Round over! " + winner + " takes the point.")
 }

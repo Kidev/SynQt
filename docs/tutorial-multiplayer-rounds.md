@@ -21,8 +21,7 @@ edge:
 
 ```yaml
 connect_points:
-  - name: scores
-    owner: records
+  - owner: records
     consumers: [edge]
     export: |
       slot award(string[32] sub, string[40] name)  // give this champion one point
@@ -30,17 +29,16 @@ connect_points:
       signal standingsChanged()                    // the table moved; repull
 ```
 
-Implement the database side in `db/relational/records/Scores.qml`:
+Implement the database side in `db/relational/records/RecordsContract.qml`:
 
 ```qml
 import QtQuick
 import SynQt
 
-Scores {
+RecordsContract {
     id: scores
 
     function award(sub, name) {
-        if (Caller.entity !== "edge") return          // only the edge may write
         // One row per champion, keyed by their stable GitHub sub. The first point inserts
         // and later points increment. Parameters are separate, so no value becomes SQL.
         Db.exec("INSERT INTO champions(sub, name, points) VALUES(?, ?, 1) " +
@@ -50,7 +48,6 @@ Scores {
     }
 
     function top() {
-        if (Caller.entity !== "edge") return []
         return Db.query("SELECT name, points FROM champions " +
                         "ORDER BY points DESC, name ASC LIMIT 10")
     }
@@ -67,17 +64,18 @@ CREATE TABLE IF NOT EXISTS champions (
 );
 ```
 
-`Caller.entity !== "edge"` is the same idea the auction's ledger used: the caller here
-is another entity, the edge, not a person, and it proves which entity it is with the
-certificate its mesh link presented. Entity links use mutual TLS even between two
-processes on your laptop, and `synqt dev` issued throwaway development certificates for
-that automatically when it started. The database refuses anyone but the edge.
+There is no check in there for who is calling, and there does not need to be. The consumer
+list has one name in it, so nothing but the edge can acquire this entity at all. Entity
+links use mutual TLS even between two processes on your laptop, and `synqt dev` issued
+throwaway development certificates for that automatically when it started, so the entity on
+the other end is the one its certificate says it is. `Caller.entity` is for the case this
+is not, an owner with two consumers where only one of them may write.
 
 ## Step 2: Extend the arena
 
 The browser must never reach the database directly, so the edge will mirror the
 standings into the arena everyone already watches. Add the round clock, the champions
-model, and the round event to the `arena` point's `export:` (it already carries `board`
+model, and the round event to the edge's `export:` (it already carries `board`
 from [part two](tutorial-multiplayer-world.md#step-1-the-shared-arena-a-connect-point)):
 
 ```yaml
@@ -101,17 +99,17 @@ crowning.
 
 ## Step 3: The edge runs the clock and mirrors the Hall
 
-Teach `web/edge/Arena.qml` two new jobs: keep the champions list fresh from the database,
-and run the ten minute round. Add to the `Arena` Source:
+Teach `web/edge/EdgeContract.qml` two new jobs: keep the champions list fresh from the database,
+and run the ten minute round. Add to the edge's Source:
 
 ```qml
     // Hall of Fame, mirrored from the database
     // Records.scores is how the edge reaches the database's connect point, the same
     // way the browser reaches the edge with Server.
     function refreshChampions() {
-        Records.scores.top().then(rows => arena.setChampions(rows))
+        Records.top().then(rows => arena.setChampions(rows))
     }
-    Scores.onStandingsChanged: arena.refreshChampions()
+    RecordsContract.onStandingsChanged: arena.refreshChampions()
 
     // The ten minute round
     readonly property int roundMs: 10 * 60 * 1000     // shorten this to test quickly
@@ -131,7 +129,7 @@ and run the ten minute round. Add to the `Arena` Source:
                 if (b.online && (!winner || b.mass > winner.mass)) winner = b
             }
             if (winner) {
-                Records.scores.award(winner.id, winner.name)   // edge -> database
+                Records.award(winner.id, winner.name)   // edge -> database
                 arena.roundEnded(winner.name)                   // tell every browser
             }
             // Reset the arena: everyone back to a small blob at a fresh spot.
@@ -149,18 +147,17 @@ and run the ten minute round. Add to the `Arena` Source:
     }
 ```
 
-Wire the new connect point in `synqt.yaml`, alongside the `arena` one:
+Wire the new connect point in `synqt.yaml`, alongside the edge's:
 
 ```yaml
-  - name: scores
-    owner: records            # the records entity owns durable storage
+  - owner: records            # the records entity owns durable storage
     consumers: [edge]         # only the edge may reach it, never the browser
-    server: db/relational/records/Scores.qml
 ```
 
-The edge is a consumer of `scores` and the owner of `arena`; the browser is a consumer
-of `arena` only. There are two trust boundaries between an internet visitor and the
-stored points: the edge authorizes the person, and the database authorizes the edge.
+The edge consumes the records entity's point and owns its own; the browser consumes the
+edge's and nothing else. There are two boundaries between an internet visitor and the
+stored points: the edge authorizes the person, and the topology puts the records entity
+out of everyone else's reach.
 
 ## Step 4: Show the clock and the Hall
 
@@ -179,9 +176,9 @@ Text {
     anchors.margins: 12
     color: "white"; font.pixelSize: 18; font.bold: true
     style: Text.Outline; styleColor: "black"
-    visible: Session.hasScope("player") && Server.arena.roundEndsAt > 0
+    visible: Session.hasScope("player") && Server.roundEndsAt > 0
     text: {
-        const left = Math.max(0, Server.arena.roundEndsAt - root.now)
+        const left = Math.max(0, Server.roundEndsAt - root.now)
         const m = Math.floor(left / 60000), s = Math.floor((left % 60000) / 1000)
         return m + ":" + (s < 10 ? "0" + s : s)
     }
@@ -196,7 +193,7 @@ Column {
     Text { text: "Hall of Fame"; color: "white"; font.bold: true; font.pixelSize: 14
            style: Text.Outline; styleColor: "black" }
     Repeater {
-        model: Server.arena.champions
+        model: Server.champions
         delegate: Text {
             text: model.name + ": " + model.points
             color: "white"; font.pixelSize: 13
@@ -210,14 +207,14 @@ And announce the crowning with the banner you already have. Add inside the root
 `Item`:
 
 ```qml
-Arena.onRoundEnded: winner => banner.flash("Round over! " + winner + " takes the point.")
+EdgeContract.onRoundEnded: winner => banner.flash("Round over! " + winner + " takes the point.")
 ```
 
 ## Run it
 
 Save and look at the browser. Sign in with an approved account and play as before, but
 now a clock counts down at the top and a Hall of Fame sits bottom right. To see a round
-resolve without waiting ten minutes, drop `roundMs` in `web/edge/Arena.qml` to something like
+resolve without waiting ten minutes, drop `roundMs` in `web/edge/EdgeContract.qml` to something like
 `20 * 1000`, save, and play a short round. When the clock hits zero the biggest blob is
 crowned, everyone resets small, and that name appears in the Hall of Fame with one
 point. Now stop `synqt dev` and start it again: the live arena is empty, but the Hall of
@@ -229,7 +226,7 @@ Put `roundMs` back to ten minutes when you are done.
 > [!QUESTION]
 > The Hall of Fame data physically lives in the database entity. It seems simpler to
 > let the browser read it straight from there. In `synqt.yaml`, add the client as a
-> consumer of the `scores` connect point:
+> consumer of the records entity's connect point:
 >
 > ```
 > consumers: [edge, app]
@@ -242,11 +239,10 @@ Put `roundMs` back to ten minutes when you are done.
 
 `synqt check` rejects it. A connect point the browser consumes must be owned by the web
 edge, and the database is not a web edge. The browser can physically reach only the
-edge, never an internal entity. That is why the edge mirrors the standings into the
-`arena` connect point with `setChampions`, and why the database refuses any caller but
-the edge with `Caller.entity !== "edge"`. There are two trust boundaries here: the edge
-authorizes the person, and the database authorizes the edge. Put the line back to
-`[web]`. The full reasoning is in [security](security.md).
+edge, never an internal entity. That is why the edge mirrors the standings into its own
+point with `setChampions`. There are two boundaries here: the edge authorizes the person,
+and the records entity's one-name consumer list puts it out of everyone else's reach. Put
+the line back to `[edge]`. The full reasoning is in [security](security.md).
 
 </details>
 

@@ -86,13 +86,13 @@ boundaries. It does not. The durable stock lives in the `stock` database, which 
 the edge and never touches the database. `synqt check` enforces that structurally, so try to
 break it.
 
-Open `synqt.yaml` and add the client as a consumer of the `inventory` connect point:
+Open `synqt.yaml` and add the client as a consumer of the stock entity's connect point:
 
 ```yaml
   - name: inventory
     owner: stock
     consumers: [edge, app]     # add client: let the browser reach the database
-    server: db/relational/stock/Inventory.qml
+    server: db/relational/stock/StockContract.qml
 ```
 
 Run the check:
@@ -110,7 +110,7 @@ entity (the browser can only reach a web edge)
 
 The check is not a style rule; it is a fact of the deployment. A browser can only physically
 reach a web edge, so a connect point a client consumes must be owned by a web edge. The
-`inventory` connect point is owned by `stock`, a `type: relational` database, which is
+connect point is owned by `stock`, a `type: relational` database, which is
 not a web edge, so the browser cannot reach it and the check refuses to build a topology that
 pretends otherwise. Revert the change before continuing.
 

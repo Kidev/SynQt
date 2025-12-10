@@ -27,8 +27,9 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 from . import appmodel, contractgen, designdoc, qmlscan, typebackend, yamledit
 
 #: How an owner file is told from every other QML file in an entity, without reading the
-#: configuration: its root type is the type its own name declares. `web/Auction.qml` opens
-#: `Auction { ... }`, the contract it implements. Nothing else in a project does that: an
+#: configuration: its root type is the type its own name declares.
+#: `web/edge/EdgeContract.qml` opens `EdgeContract { ... }`, the contract it implements.
+#: Nothing else in a project does that: an
 #: entity's own file opens `QtObject`, a view opens an `Item`, a component opens whatever it
 #: draws with. The suffix this used to look for is gone, and it was never the thing that made
 #: the file an owner anyway.
@@ -75,7 +76,7 @@ class Member:
     """One line of a contract, and where the scan found it.
 
     `kind` is "prop", "model", "signal" or "slot", the four a `.syn` contract holds.
-    `evidence` entries read "web/Auction.qml:43", so anything the scan reports can be
+    `evidence` entries read "web/edge/EdgeContract.qml:43", so anything the scan reports can be
     opened at the line that produced it, and `certain` is false when a type was inferred
     from a shape rather than read from a declaration.
     """
@@ -288,7 +289,7 @@ def _scan(project_dir: os.PathLike[str] | str, config: Dict[str, Any],
         if not accessors:
             continue
         attached = {appmodel.contract_of(point): (str(point.get("owner") or ""),
-                                                  str(point.get("name") or ""))
+                                                  appmodel.point_name(point))
                     for point in points
                     if name in (point.get("consumers") or [])}
         for path in _entity_files(root, entity):
@@ -339,10 +340,10 @@ def accessors_for(config: Dict[str, Any], entity_name: str) -> Dict[str, str]:
 
 
 def contract_name(edge: Edge) -> str:
-    """What the contract on this link is called, named after the point when it has no name."""
+    """What the contract on this link is called, derived from the owner when nothing says."""
     if edge.contract:
         return edge.contract
-    return edge.point[:1].upper() + edge.point[1:]
+    return appmodel.contract_of({"owner": edge.owner})
 
 
 def render_export(edge: Edge) -> str:
@@ -408,10 +409,10 @@ def write(project_dir: os.PathLike[str] | str, edges: Sequence[Edge],
 
     A point that already says what crosses it is somebody's own writing, and this is a
     guess, so the whole command stops rather than overwriting any of them. Nothing is
-    written when one would be refused: a half-applied scaffold is worse to unpick than none.
+    written when one would be refused. A half-applied scaffold is worse to unpick than none.
     """
     root = Path(project_dir)
-    points = {str(point.get("name") or ""): point
+    points = {appmodel.point_name(point): point
               for point in appmodel.connect_points(config)}
     planned = [(edge.point, edge) for edge in edges
                if edge.members and edge.point in points]
@@ -499,7 +500,7 @@ def _record_of(member: Member) -> Dict[str, Any]:
 def _link_of(edge: Edge, config: Dict[str, Any]) -> Dict[str, Any]:
     """One link of the document: the topology as configured, the members as scanned."""
     declared = next((point for point in (config.get("connect_points") or [])
-                     if str(point.get("name") or "") == edge.point), {})
+                     if appmodel.point_name(point) == edge.point), {})
     return {
         "id": edge.point,
         "name": edge.point,
@@ -628,20 +629,13 @@ def _read_text(path: Path) -> str:
 
 def _point_for(points: Sequence[Dict[str, Any]], relative: str, contract: str,
                owner: str) -> str:
-    """Which declared connect point an owner file implements, or the name it suggests."""
-    for point in points:
-        if str(point.get("server") or "") == relative and point.get("name"):
-            return str(point["name"])
-    for point in points:
-        if (appmodel.contract_of(point) == contract
-                and str(point.get("owner") or "") == owner and point.get("name")):
-            return str(point["name"])
-    return contract[:1].lower() + contract[1:]
+    """Which connect point an owner file implements: the owner's, because it has one."""
+    return owner
 
 
 def _contract_for(points: Sequence[Dict[str, Any]], name: str) -> str:
     for point in points:
-        if str(point.get("name") or "") == name:
+        if appmodel.point_name(point) == name:
             return appmodel.contract_of(point)
     return ""
 
@@ -769,36 +763,33 @@ def _read_attached_handlers(reading: "_Reading", tokens: Sequence[qmlscan.Token]
 
 def _read_reference(reading: "_Reading", tokens: Sequence[qmlscan.Token], index: int,
                     accessors: Dict[str, str], uses: List[Use]) -> int:
-    """`Server.arena.steer(1.5, 2.5)`: the owner, the point, and the member being used."""
+    """`Server.steer(1.5, 2.5)`: the owner reached, and the member being used.
+
+    An entity has one connect point, so the accessor is the whole of the address and what
+    follows it is a member. `Server[whichever]` names one the scan cannot resolve, and that
+    is recorded as a link it did not see the whole of rather than as a member called
+    nothing.
+    """
     token = _at(tokens, index)
     if not _is_ident(token) or token.text not in accessors:
         return 0
     if _is_punct(_at(tokens, index - 1), "."):
         # `something.Server` is a property of something else that happens to share a name.
         return 0
-    dynamic = False
-    point = ""
+    owner = accessors[token.text]
     position = index + 1
     if _is_punct(_at(tokens, position), "["):
         close = _matching(tokens, position)
         if close < 0:
             return 0
-        dynamic = True
-        position = close + 1
-    elif _is_punct(_at(tokens, position), "."):
-        name_token = _at(tokens, position + 1)
-        if not _is_ident(name_token):
-            return 0
-        point = name_token.text
-        position += 2
-    else:
-        return 0
+        uses.append(Use(owner, "", _settled(Member("prop", "", "var")), True))
+        return (close + 1) - index
     member_token = _at(tokens, position + 1)
     if not (_is_punct(_at(tokens, position), ".") and _is_ident(member_token)):
-        # The point itself, handed somewhere whole: it names no member of the contract.
+        # The accessor handed somewhere whole: it names no member of the contract.
         return position - index
     end, member = _read_used_member(reading, tokens, position + 2, member_token, index)
-    uses.append(Use(accessors[token.text], point, _settled(member), dynamic))
+    uses.append(Use(owner, owner, _settled(member)))
     return end - index
 
 
@@ -892,7 +883,7 @@ def _enclosing_block(tokens: Sequence[qmlscan.Token], index: int) -> Tuple[int, 
 
 def _read_connections(reading: "_Reading", tokens: Sequence[qmlscan.Token],
                       accessors: Dict[str, str], uses: List[Use]) -> None:
-    """`Connections { target: Server.arena; function onEaten(...) }`: a signal, received."""
+    """`Connections { target: Server; function onEaten(...) }`: a signal, received."""
     for index, token in enumerate(tokens):
         if not _is_keyword(token, "Connections") or not _is_punct(_at(tokens, index + 1), "{"):
             continue
@@ -921,18 +912,20 @@ def _read_connections(reading: "_Reading", tokens: Sequence[qmlscan.Token],
 
 def _connections_target(tokens: Sequence[qmlscan.Token], start: int, end: int,
                         accessors: Dict[str, str]) -> Tuple[str, str]:
-    """The owner and point a `Connections` block is bound to, or two empty strings."""
+    """The owner a `Connections` block is bound to, twice, or two empty strings.
+
+    The accessor is the whole target, because an entity has one connect point, so the owner
+    is both who is reached and what the point is called.
+    """
     for position in range(start, end):
         if not (_is_keyword(tokens[position], "target")
                 and _is_punct(_at(tokens, position + 1), ":")):
             continue
         accessor = _at(tokens, position + 2)
-        point = _at(tokens, position + 4)
         if not (_is_ident(accessor) and accessor.text in accessors):
             continue
-        if not (_is_punct(_at(tokens, position + 3), ".") and _is_ident(point)):
-            continue
-        return accessors[accessor.text], point.text
+        owner = accessors[accessor.text]
+        return owner, owner
     return "", ""
 
 

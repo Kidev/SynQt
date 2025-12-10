@@ -28,7 +28,7 @@ public:
     explicit ConsumerBase(QObject *parent = nullptr);
     ~ConsumerBase() override;
 
-    /// The connect-point name this facade serves (the resolver's disambiguating `.point`).
+    /// The connect point this facade serves, which is its owner's name.
     void setPoint(const QString &point);
     QString point() const;
 

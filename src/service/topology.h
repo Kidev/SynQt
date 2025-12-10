@@ -51,15 +51,24 @@ struct MeshCredentials
     QString keyPath;
 };
 
-/// One connect point in the topology: a named, configured use of a contract with
-/// exactly one owner and an allowlist of consumers.
+/// One connect point in the topology. A configured use of a contract with exactly one
+/// owner and an allowlist of consumers.
 struct ConnectPointConfig
 {
+    /// What the point is called on the wire and in QML. An entity has one connect point, so
+    /// this is its owner's name. The framework's own points are the exception and carry a
+    /// name of their own (the auth entity owns both `identity` and `sessions`).
     QString name;
     QString contract;
     QString owner;
     QStringList consumers;
     QString serverFile;  ///< the owner-side QML that implements the Source
+
+    /// A point whose contract ships in a runtime library rather than being declared by the
+    /// project. It is consumed by C++ (the edge's IdentityProvider and SessionManager take
+    /// theirs through EntityRuntime::consumedReplicaReady), never by QML, so no accessor is
+    /// installed for one: the auth entity owns two, and one accessor cannot be both.
+    bool framework{false};
 
     /// Whether the owning entity is shared, copied onto every point it owns because the
     /// host is what reads it. It is the entity's property and not the point's: an entity

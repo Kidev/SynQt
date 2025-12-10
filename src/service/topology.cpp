@@ -111,6 +111,7 @@ Topology topologyFromJson(const QJsonObject &object)
         connectPoint.contract = entry.value(QStringLiteral("contract")).toString();
         connectPoint.owner = entry.value(QStringLiteral("owner")).toString();
         connectPoint.serverFile = entry.value(QStringLiteral("server")).toString();
+        connectPoint.framework = entry.value(QStringLiteral("framework")).toBool();
         connectPoint.shared = shared;
         const QJsonArray consumers = entry.value(QStringLiteral("consumers")).toArray();
         for (const QJsonValue &consumer : consumers) {

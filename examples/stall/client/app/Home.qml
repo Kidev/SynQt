@@ -40,7 +40,7 @@ Page {
             Layout.fillWidth: true
             Layout.fillHeight: true
             clip: true
-            model: Server.catalog.offers
+            model: Server.offers
             delegate: ItemDelegate {
                 required property string title
                 required property int price

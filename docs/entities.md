@@ -115,8 +115,7 @@ exposes `set<Model>` to publish rows (see
 
 ```yaml
 connect_points:
-  - name: items
-    owner: store
+  - owner: store
     consumers: [edge]
     export: |
       record ItemRow(string[280] text, string[80] author, string[64] ownerSub)
@@ -125,11 +124,11 @@ connect_points:
 ```
 
 ```qml
-// db/relational/store/Items.qml (owner of the "items" connect point)
+// db/relational/store/StoreContract.qml (owner of the "items" connect point)
 import QtQuick
 import SynQt
 
-Items {
+StoreContract {
     id: items
 
     function insert(row) {
@@ -268,7 +267,7 @@ each handler is ordinary JavaScript that can validate a body, reach several conn
 points, and shape an answer.
 
 ```qml
-// api/gateway/Gateway.qml
+// api/gateway/GatewayContract.qml
 pragma Singleton
 
 import QtQuick
@@ -276,7 +275,7 @@ import QtQuick
 QtObject {
     Component.onCompleted: {
         Api.get("/lots/:id", request => {
-            Books.ledger.lot(request.params.id)
+            Books.lot(request.params.id)
                 .then(lot => request.reply(lot),
                       error => request.fail(404, error));
         });

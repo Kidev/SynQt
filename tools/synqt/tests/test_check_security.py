@@ -27,8 +27,8 @@ def base_config(**overrides):
             {"name": "database", "type": "relational", "path": "database"},
         ],
         "connect_points": [
-            {"name": "app", "owner": "web", "consumers": ["client"]},
-            {"name": "items", "owner": "database", "consumers": ["web"]},
+            {"owner": "web", "consumers": ["client"]},
+            {"owner": "database", "consumers": ["web"]},
         ],
     }
     config.update(overrides)
@@ -93,22 +93,22 @@ class MeshBlockIsHonoredTest(unittest.TestCase):
         config = base_config()
         config["entities"][2]["mesh"] = {"host": "10.0.0.10", "port": 9444}
         endpoints = topologywriter.resolve_endpoints(config, "app")
-        self.assertEqual(endpoints["items"], {"transport": "mtls", "host": "10.0.0.10",
+        self.assertEqual(endpoints["database"], {"transport": "mtls", "host": "10.0.0.10",
                                               "port": 9444})
-        self.assertTrue(topologywriter.is_cross_host(endpoints["items"]))
+        self.assertTrue(topologywriter.is_cross_host(endpoints["database"]))
         # ...and the link the entity did not speak for stays on loopback.
-        self.assertFalse(topologywriter.is_cross_host(endpoints["app"]))
+        self.assertFalse(topologywriter.is_cross_host(endpoints["web"]))
 
     def test_a_connect_point_overrides_the_entity_block_key_by_key(self):
         config = base_config()
         config["entities"][2]["mesh"] = {"host": "10.0.0.10", "port": 9444}
         config["connect_points"][1]["port"] = 9500
         endpoints = topologywriter.resolve_endpoints(config, "app")
-        self.assertEqual(endpoints["items"]["host"], "10.0.0.10")
-        self.assertEqual(endpoints["items"]["port"], 9500)
+        self.assertEqual(endpoints["database"]["host"], "10.0.0.10")
+        self.assertEqual(endpoints["database"]["port"], 9500)
 
     def test_a_wildcard_bind_address_counts_as_cross_host(self):
-        # 0.0.0.0 reads like "local" and means the opposite: every interface the machine
+        # 0.0.0.0 reads like "local" and means the opposite. Every interface the machine
         # has. It is the most exposed a link can be, so it is not on the loopback list.
         self.assertTrue(topologywriter.is_cross_host(
             {"transport": "mtls", "host": "0.0.0.0", "port": 9440}))
@@ -430,28 +430,29 @@ class BrowserPolicyTest(unittest.TestCase):
 
 
 class LayoutCollisionTest(unittest.TestCase):
-    """Two files an entity is made of may not want the same name.
+    """An entity's own file and the Source it hosts its connect point with never collide.
 
-    An entity's own QML is `<Name>.qml` in its folder, and the Source of a contract called
-    `<Name>` is `<Name>.qml` in the same folder. Whichever was written last is the one on
-    disk, and the entity either loses its singleton or loses the Source it hosts a connect
-    point with.
+    The entity's own QML is `<Name>.qml` in its folder and the Source is
+    `<Name>Contract.qml` beside it, so the suffix is what keeps the two apart however the
+    entity is named. What is refused instead is a second connect point on one owner, since
+    an entity has one.
     """
 
-    def test_an_entity_owning_a_point_of_its_own_name_is_refused(self):
+    def test_a_second_point_on_one_owner_is_refused(self):
         config = base_config()
-        config["connect_points"].append(
-            {"name": "database", "owner": "database", "consumers": ["web"]})
+        config["connect_points"].append({"owner": "database", "consumers": ["web"]})
         failures = errors(config)
-        self.assertTrue(any("Database" in m and "database" in m for m in failures), failures)
+        self.assertTrue(any("database" in m and "one connect point" in m
+                            for m in failures), failures)
 
-    def test_a_point_named_after_another_entity_is_fine(self):
-        # Only a collision inside one folder matters. A point called `web` owned by the
-        # database writes db/relational/database/Web.qml, which nothing else claims.
+    def test_the_source_and_the_entitys_own_file_never_want_one_name(self):
         config = base_config()
-        config["connect_points"].append(
-            {"name": "web", "owner": "database", "consumers": ["web"]})
-        self.assertEqual(errors(config), [])
+        for point in appmodel.connect_points(config):
+            owner = next(entity for entity in appmodel.entities(config)
+                         if entity["name"] == point["owner"])
+            contract = appmodel.contract_of(point)
+            self.assertNotEqual(appmodel.source_path(owner, contract),
+                                appmodel.entity_file_path(owner))
 
 
 class SharedEntityTest(unittest.TestCase):
@@ -543,18 +544,20 @@ class CallerOutsideASourceTest(unittest.TestCase):
         return {
             "project": {"name": "app"},
             "entities": [{"name": "web", "type": "web_edge"}],
-            "connect_points": [{"name": "app", "owner": "web", "consumers": []}],
+            "connect_points": [{"owner": "web", "consumers": []}],
         }
 
     def test_a_source_may_authorize_its_caller(self):
         root = self._project({
-            "web/web/App.qml": 'App {\n    function add() { if (!Caller.hasScope("user")) return; }\n}\n',
+            "web/web/WebContract.qml":
+                'WebContract {\n    function add() {\n'
+                '        if (!Caller.hasScope("user")) return;\n    }\n}\n',
         })
         self.assertEqual(check.lint_caller_use(self._config(), root), [])
 
     def test_an_entity_singleton_may_not(self):
         root = self._project({
-            "web/web/App.qml": "App {\n}\n",
+            "web/web/WebContract.qml": "WebContract {\n}\n",
             "web/web/Web.qml": ('pragma Singleton\nQtObject {\n'
                                 '    function add() { if (!Caller.hasScope("user")) return; }\n}\n'),
         })
@@ -566,7 +569,7 @@ class CallerOutsideASourceTest(unittest.TestCase):
 
     def test_the_edges_client_alias_is_held_to_the_same_rule(self):
         root = self._project({
-            "web/web/App.qml": "App {\n}\n",
+            "web/web/WebContract.qml": "WebContract {\n}\n",
             "web/web/Web.qml": ("pragma Singleton\nQtObject {\n"
                                 "    property string who: Client.identity.name\n}\n"),
         })
@@ -598,7 +601,7 @@ class NetworkBlockTest(unittest.TestCase):
                 "entities": [{"name": "app", "type": "client"},
                              {"name": "edge", "type": "web_edge"},
                              {"name": "gw", "type": "api", "network": network}],
-                "connect_points": [{"name": "app", "owner": "edge", "consumers": ["app"]}]}
+                "connect_points": [{"owner": "edge", "consumers": ["app"]}]}
 
     def _messages(self, network, level="error"):
         ok, messages = check.validate(self._config(network))

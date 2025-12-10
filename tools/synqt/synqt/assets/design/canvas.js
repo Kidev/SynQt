@@ -374,6 +374,10 @@ export function seatsOfFront(front) {
 // Where a link into a front arrives: the seat of whichever scope it serves, or the middle of
 // the flat side when it serves none. What arrives at a seat is the entity behind it, so the
 // line lands on the name of the scope it answers for and the routing needs no second drawing.
+export function accessorName(owner) {
+    return owner ? owner[0].toUpperCase() + owner.slice(1) : "";
+}
+
 export function seatFor(front, entityName) {
     const seat = seatsOfFront(front).find((one) => one.tier === entityName);
     return seat ? seat.at : null;
@@ -656,13 +660,15 @@ function line(link, from, to, options) {
     // The label above the line and the contract below it, measured across the line rather
     // than up the page, so neither lands on it whichever way the link runs.
     const across = {x: -edge.uy, y: edge.ux};
+    // A connect point is not named, so what goes above the line is the accessor a consumer
+    // writes to reach it, which is its owner capitalised.
     const label = element("text", {
         class: "link__name",
         x: middle.x + (across.x * 16),
         y: middle.y + (across.y * 16) - 4,
         "text-anchor": "middle",
     });
-    label.textContent = link.name;
+    label.textContent = accessorName(link.owner);
     group.append(label);
     group.append(lock(link, middle));
     group.append(contractBadge(link, badgeAt, options.contractLevel || ""));

@@ -45,8 +45,8 @@ def _errors(project, config=None):
             if message.startswith("error:")]
 
 
-def _point(config, name):
-    return next(one for one in appmodel.connect_points(config) if one["name"] == name)
+def _point(config, owner):
+    return next(one for one in appmodel.connect_points(config) if one["owner"] == owner)
 
 
 # What the owner already says
@@ -60,11 +60,11 @@ def test_the_examples_export_only_what_their_owners_implement():
 
 
 def test_a_slot_nothing_implements_is_an_error(tmp_path):
-    """The one that always breaks silently: the generated dispatch finds no QML function
+    """The one that always breaks silently. The generated dispatch finds no QML function
     of that name, so the call returns a default and nothing says why."""
     project = _copy(tmp_path)
-    config = _edit(project, "      slot closeLot(",
-                   "      slot refund(int amount)\n      slot closeLot(")
+    config = _edit(project, "      <admin> slot closeLot(",
+                   "      slot refund(int amount)\n      <admin> slot closeLot(")
     messages = _errors(project, config)
     assert any("'refund'" in m and "implements it" in m for m in messages), messages
 
@@ -103,9 +103,9 @@ def test_a_number_is_a_number(tmp_path):
 
 def test_a_point_whose_source_is_not_there_is_left_to_the_lint_that_says_so(tmp_path):
     project = _copy(tmp_path)
-    (project / "web" / "edge" / "Auction.qml").unlink()
-    assert not [m for m in _errors(project) if "'auction'" in m]
-    assert any("Auction.qml does not exist" in m
+    (project / "web" / "edge" / "EdgeContract.qml").unlink()
+    assert not [m for m in _errors(project) if "'edge'" in m]
+    assert any("EdgeContract.qml does not exist" in m
                for m in checkmod.lint_connect_point_sources(_config(project), project))
 
 
@@ -115,8 +115,8 @@ def test_a_point_whose_source_is_not_there_is_left_to_the_lint_that_says_so(tmp_
 def test_a_name_on_its_own_is_written_out_from_the_owner(tmp_path):
     project = _copy(tmp_path)
     config = _config(project)
-    source = contractgen.resolved_source(project, config, _point(config, "auction"))
-    # gavel exports its three properties by name; the owner binds them to the entity's
+    source = contractgen.resolved_source(project, config, _point(config, "edge"))
+    # gavel exports its three properties by name. The owner binds them to the entity's
     # own singleton, which is where the types are written down.
     assert "prop string itemName" in source
     assert "prop int highBid" in source
@@ -126,7 +126,7 @@ def test_a_name_on_its_own_is_written_out_from_the_owner(tmp_path):
 def test_a_name_on_its_own_keeps_the_comment_beside_it(tmp_path):
     project = _copy(tmp_path)
     config = _config(project)
-    source = contractgen.resolved_source(project, config, _point(config, "auction"))
+    source = contractgen.resolved_source(project, config, _point(config, "edge"))
     assert "prop string itemName" in source
     assert "// what is up for auction" in source
 
@@ -152,18 +152,18 @@ def test_a_name_the_owner_does_not_have_is_refused_with_what_it_does(tmp_path):
 
 def test_a_name_the_owner_cannot_type_is_refused_with_the_line_to_paste(tmp_path):
     project = _copy(tmp_path)
-    config = _edit(project, "      slot placeBid(int amount)  ", "      placeBid  ")
+    config = _edit(project, "      <user> slot placeBid(int amount) ", "      <user> placeBid ")
     messages = _errors(project, config)
     assert any("slot placeBid(var amount)" in m for m in messages), messages
 
 
 def test_a_refused_name_is_left_as_written_rather_than_guessed_at(tmp_path):
-    # The contract is still generated, so the compiler reports the line too; what does not
+    # The contract is still generated, so the compiler reports the line too. What does not
     # happen is a `var` quietly becoming the type on the wire.
     project = _copy(tmp_path)
-    config = _edit(project, "      slot placeBid(int amount)  ", "      placeBid  ")
-    source = contractgen.resolved_source(project, config, _point(config, "auction"))
-    assert "\n    placeBid" in source
+    config = _edit(project, "      <user> slot placeBid(int amount) ", "      <user> placeBid ")
+    source = contractgen.resolved_source(project, config, _point(config, "edge"))
+    assert "\n    <user> placeBid" in source
     assert "slot placeBid" not in source
 
 
@@ -173,7 +173,8 @@ def test_a_refused_name_is_left_as_written_rather_than_guessed_at(tmp_path):
 def test_the_owner_is_read_through_the_source_the_point_names(tmp_path):
     project = _copy(tmp_path)
     config = _config(project)
-    assert infer.server_path(config, _point(config, "auction")) == "web/edge/Auction.qml"
+    assert (infer.server_path(config, _point(config, "edge"))
+            == "web/edge/EdgeContract.qml")
 
 
 def test_a_model_published_by_binding_its_rows_is_a_model(tmp_path):
@@ -181,8 +182,7 @@ def test_a_model_published_by_binding_its_rows_is_a_model(tmp_path):
     has to read as the `winners` model and not as a property called `winnersRows`."""
     project = _copy(tmp_path)
     config = _config(project)
-    found = infer.owner_members(project, config, _point(config, "hall"))
-    assert set(found) == {"winners"}
+    found = infer.owner_members(project, config, _point(config, "edge"))
     assert found["winners"].kind == "model"
 
 
@@ -191,6 +191,6 @@ def test_a_property_bound_to_the_entitys_own_singleton_is_typed_from_it(tmp_path
     than guessed. Without this every property in every example was `var`."""
     project = _copy(tmp_path)
     config = _config(project)
-    found = infer.owner_members(project, config, _point(config, "auction"))
+    found = infer.owner_members(project, config, _point(config, "edge"))
     assert (found["itemName"].type, found["itemName"].certain) == ("string", True)
     assert (found["highBid"].type, found["highBid"].certain) == ("int", True)

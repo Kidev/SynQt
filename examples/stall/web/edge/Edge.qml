@@ -11,7 +11,7 @@ import QtQuick
 // it as `Edge`.
 //
 // The catalog of offers is exactly that. It is filled from the stock entity's table and read
-// by every browser session; held in the per-session `Catalog.qml` instead, each session would
+// by every browser session; held in the per-session `EdgeContract.qml` instead, each session would
 // start empty and see only the items stocked after it connected.
 QtObject {
     id: root
@@ -27,8 +27,8 @@ QtObject {
             }]);
     }
 
-    // `Stock.inventory` is how the edge reaches the stock entity's connect point, the same way
+    // `Stock` is how the edge reaches the stock entity's connect point, the same way
     // the browser reaches the edge with `Server`. Subscribed once, here, rather than once per
     // browser: a generated Source is a plain QObject, so the connection is made imperatively.
-    Component.onCompleted: Stock.inventory.itemStocked.connect(root.stockItem)
+    Component.onCompleted: Stock.itemStocked.connect(root.stockItem)
 }

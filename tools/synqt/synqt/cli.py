@@ -254,8 +254,10 @@ def build_parser() -> argparse.ArgumentParser:
     entity.add_argument("--provider")
     provider = add_sub.add_parser("provider"); provider.add_argument("name")
     provider.add_argument("--family", required=True)
-    connect_point = add_sub.add_parser("connect-point"); connect_point.add_argument("name")
-    connect_point.add_argument("--owner", required=True)
+    connect_point = add_sub.add_parser("connect-point")
+    # The owner is the name. An entity has one connect point, so there is nothing else to
+    # call it, and consumers reach it as the owner capitalized.
+    connect_point.add_argument("owner")
     connect_point.add_argument("--consumers", default="", help="comma-separated entity names")
     for ap in (auth, entity, provider, connect_point):
         ap.add_argument("--project-dir", default=".")
@@ -299,7 +301,7 @@ def _run_add(args: argparse.Namespace) -> int:
     else: # connect-point
         consumers = [c for c in args.consumers.split(",") if c]
         message = addcontract.scaffold_connect_point(
-            args.project_dir, args.name, owner=args.owner, consumers=consumers)
+            args.project_dir, args.owner, consumers=consumers)
     print(message)
     return 0
 

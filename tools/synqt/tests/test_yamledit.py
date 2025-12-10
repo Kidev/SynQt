@@ -24,9 +24,7 @@ entities:
     type: web_edge
 
 connect_points:
-  - name: auction
-    contract: Auction
-    owner: web
+  - owner: web
     consumers: [client]
 """
 
@@ -40,19 +38,19 @@ def test_append_keeps_every_comment():
 
 def test_append_writes_its_own_comment_above_the_item():
     out = yamledit.append_item(SAMPLE, "connect_points",
-                               {"name": "prices", "owner": "api",
+                               {"owner": "api",
                                 "consumers": ["web"]},
                                comment="Drawn in synqt design.")
     assert "# Drawn in synqt design." in out
-    assert yaml.safe_load(out)["connect_points"][-1]["name"] == "prices"
+    assert yaml.safe_load(out)["connect_points"][-1]["owner"] == "api"
 
 
 def test_append_creates_a_list_the_file_does_not_have_yet():
     text = "entities:\n  - name: web\n    type: service\n"
     out = yamledit.append_item(text, "connect_points",
-                               {"name": "prices", "owner": "web",
+                               {"owner": "web",
                                 "consumers": ["client"]})
-    assert yaml.safe_load(out)["connect_points"][0]["name"] == "prices"
+    assert yaml.safe_load(out)["connect_points"][0]["owner"] == "web"
     assert yaml.safe_load(out)["entities"][0]["name"] == "web"
 
 
@@ -78,14 +76,11 @@ connect_points:
 
 
 def test_a_list_level_with_its_key_is_the_shape_pyyaml_writes():
-    """`synqt new` dumps its first synqt.yaml with PyYAML, which puts sequence entries at
-    the same indent as the key naming them. Every generated project starts that way, so an
-    editor that only understood the indented form would break on all of them.
-    """
+    """Sequence entries at their key's indent, as PyYAML writes every generated synqt.yaml."""
     out = yamledit.append_item(DUMPED, "entities", {"name": "api", "type": "service"})
     assert [e["name"] for e in yaml.safe_load(out)["entities"]] == [
         "client", "web", "api"]
-    assert yaml.safe_load(out)["connect_points"][0]["name"] == "auction"
+    assert yaml.safe_load(out)["connect_points"][0]["owner"] == "web"
 
 
 def test_the_dumped_shape_patches_and_removes_too():
@@ -98,15 +93,15 @@ def test_the_dumped_shape_patches_and_removes_too():
 
 
 def test_patch_changes_one_field_and_nothing_else():
-    out = yamledit.patch_item(SAMPLE, "connect_points", "auction",
+    out = yamledit.patch_item(SAMPLE, "connect_points", "web",
                               {"consumers": ["client", "api"]})
     assert yaml.safe_load(out)["connect_points"][0]["consumers"] == ["client", "api"]
-    assert out.count("contract: Auction") == 1
+    assert out.count("owner: web") == 1
     assert "# The browser." in out
 
 
 def test_patch_adds_a_field_the_item_did_not_have():
-    out = yamledit.patch_item(SAMPLE, "connect_points", "auction",
+    out = yamledit.patch_item(SAMPLE, "connect_points", "web",
                               {"instance": "caller"})
     assert yaml.safe_load(out)["connect_points"][0]["instance"] == "caller"
 
@@ -167,12 +162,12 @@ def test_remove_of_the_last_item_leaves_an_empty_list_that_still_parses():
 def test_remove_does_not_leave_a_growing_gap_behind_it():
     out = yamledit.remove_item(SAMPLE, "entities", "web")
     assert "\n\n\n" not in out
-    assert yaml.safe_load(out)["connect_points"][0]["name"] == "auction"
+    assert yaml.safe_load(out)["connect_points"][0]["owner"] == "web"
 
 
 def test_remove_leaves_what_follows_the_list_alone():
     out = yamledit.remove_item(SAMPLE, "entities", "web")
-    assert yaml.safe_load(out)["connect_points"][0]["name"] == "auction"
+    assert yaml.safe_load(out)["connect_points"][0]["owner"] == "web"
     assert "# The browser." in out
 
 
@@ -232,6 +227,6 @@ def test_every_edit_leaves_a_document_that_parses_to_the_expected_object():
 
 
 def test_the_rest_of_the_document_is_byte_for_byte_what_it_was():
-    out = yamledit.patch_item(SAMPLE, "connect_points", "auction", {"instance": "shared"})
+    out = yamledit.patch_item(SAMPLE, "connect_points", "web", {"instance": "shared"})
     before, after = SAMPLE.split("connect_points:")[0], out.split("connect_points:")[0]
     assert before == after

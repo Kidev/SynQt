@@ -77,12 +77,10 @@ class AddEntityError(Exception):
 def _entity_qml(entity_type: str, name: str) -> str:
     """An entity's own file: the singleton it is, showing the helper its type gives it.
 
-    Not a connect point Source. A Source is named after the point it answers, and a new
-    entity has no points yet, so scaffolding one would mean inventing a name for a thing
-    nobody had asked for; `synqt add connect-point` writes the Source, named after the
-    contract, at the moment there is something to call it. What the author does get here
-    is the entity itself with its helper demonstrated in it, which is the part that is
-    the same however the points are eventually named.
+    Not a connect point Source. An entity exports a connect point only once somebody says
+    who may consume it, so `synqt add connect-point <name>` writes the Source at that
+    moment, as `<Name>Contract.qml` beside this file. What the author does get here is the
+    entity itself, with its helper demonstrated in it.
 
     Written the way ``qmlformat`` would write it, using the project's own
     ``.qmlformat.ini``, so a scaffolded project passes its own ``synqt check`` (the
@@ -258,9 +256,9 @@ def scaffold(project_dir: os.PathLike[str] | str, name: str,
         config_path.write_text("entities: []\n")
     config_path.write_text(yamledit.append_item(config_path.read_text(), "entities", block))
 
-    # The entity folder and the entity's own file; relational gets a schema file too. No
-    # Source: a Source answers a connect point and is named after it, and this entity has
-    # none yet. `synqt add connect-point` writes one the moment there is a name for it.
+    # The entity folder and the entity's own file. Relational gets a schema file too. No
+    # Source: a Source answers a connect point, and this entity exports none until somebody
+    # says who may consume it. `synqt add connect-point` writes one then.
     entity_dir = root / appmodel.entity_dir(block)
     entity_dir.mkdir(parents=True, exist_ok=True)
     own = appmodel.entity_file_path(block)
@@ -303,10 +301,11 @@ def scaffold(project_dir: os.PathLike[str] | str, name: str,
     appgen.generate(root, config)
 
     folder = appmodel.entity_dir(block)
+    contract = appmodel.contract_of({"owner": name})
     steps.append(f"  - {own} is the entity itself, with the type's helper shown in it.")
-    steps.append(f"  - Add the connect point(s) this entity owns: 'synqt add connect-point "
-                 f"<name> --owner {name} --consumers <a,b>' writes {folder}/<Contract>.qml "
-                 "and you declare what crosses it beside that.")
+    steps.append(f"  - Export a connect point from it: 'synqt add connect-point {name} "
+                 f"--consumers <a,b>' writes {folder}/{contract}.qml, and you declare what "
+                 "crosses it beside that.")
     return "\n".join(steps)
 
 

@@ -58,22 +58,20 @@ A connect point is drawn from the entity that **owns** it to the one that **cons
 Every node has a handle on each of its four sides; drag any of them and drop the line on the
 consumer. That direction is the whole meaning of the line, so it is the thing the canvas asks
 you to say first, it is drawn as a filled cap on the owner and an arrowhead on the consumer,
-and the point is named for it: dropping a line from `edge` onto `app` gives you
-`edgeToApp`, exporting the `EdgeToApp` type and implemented in `web/edge/EdgeToApp.qml`.
-Rename it to whatever it actually carries the moment you know; nothing depends on the name it
-arrived with, and the type is named after the point, so renaming one renames both.
+and the owner names it: dropping a line from `edge` onto `app` gives you the connect point
+`edge` exports, carrying the `EdgeContract` type and implemented in
+`web/edge/EdgeContract.qml`. There is nothing to name. Drawing a second line out of `edge`
+adds a consumer to the one point it already exports rather than making another.
 
 Drop the line on empty canvas instead and the palette opens there: pick a kind and that entity
 is made where you let go, consuming the point in the same gesture.
 
-Where several connect points run between the same two entities, or two run in opposite
-directions, they bow apart into separate curves so each keeps its own name, its own lock and
-its own click.
+Where two lines run in opposite directions between the same pair of entities, they bow
+apart into separate curves so each keeps its own lock and its own click.
 
 Selecting a node or a line opens the panel on the right, which is where the rest lives: an
-entity's provider, a connect point's name and contract, its consumer list, and what crosses
-it. The consumer list is the authorization, not a hint; an entity that is not on it is
-refused the replica. [Security](security.md) is where that is spelled out.
+entity's provider, a connect point's consumer list, and what crosses it. The consumer list
+is the authorization, not a hint; an entity that is not on it is refused the replica. [Security](security.md) is where that is spelled out.
 
 What an entity **is** the panel states and does not offer. A database is a database because
 that is the row it was dragged from, and everything drawn against it since means what it
@@ -81,10 +79,10 @@ means because of that; turning one into a client in a drop-down would keep the n
 place and the connect points while changing the thing underneath them. Delete it and drag
 the one you wanted.
 
-Right-clicking a node or a line opens the same three things over it: edit, rename, delete.
-Double-clicking one renames it and <kbd>Delete</kbd> removes what is selected. Renaming an
-entity carries the new name into every connect point that referred to the old one, and
-deleting one takes the connect points it owned with it.
+Right-clicking a node or a line opens the same things over it: edit, rename, delete.
+Double-clicking a node renames it and <kbd>Delete</kbd> removes what is selected. Renaming an
+entity carries the new name into every connect point that referred to the old one, including
+the one it exports, and deleting one takes that point with it.
 
 ## The same project as text
 
@@ -107,7 +105,7 @@ Declare a property, a signal or a function in a connect point's Source and it be
 member of that contract, exactly as if you had added it in the panel:
 
 ```qml
-Feed {
+EdgeContract {
     id: root
 
     property bool loaded
@@ -123,7 +121,7 @@ reached for:
 
 ```qml
 // in client/app/Main.qml
-property int score: Server.game.score
+property int score: Server.score
 ```
 
 draws `game`, owned by the web edge, consumed by the client, carrying `prop var score`. This

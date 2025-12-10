@@ -132,7 +132,7 @@ flowchart LR
   end
 
   subgraph edge["web edge entity (native), the only internet-facing entity"]
-    stodo["<span style='color:#1a1a2e'>Todo Source<br/>authoritative owner</span>"]
+    stodo["<span style='color:#1a1a2e'>edge Source<br/>authoritative owner</span>"]
     rusers["<span style='color:#1a1a2e'>Store.users<br/>Replica</span>"]
   end
 
@@ -154,7 +154,7 @@ flowchart LR
 
 In the graph: thick arrows are owner to consumer (properties and signals), thin
 arrows are consumer to owner (slots). The browser's `Server.todo` Replica mirrors
-the edge's `Todo` Source over wss; the edge's `Store.users` Replica mirrors the
+the edge's Source over wss; the edge's `Store.users` Replica mirrors the
 database's `Users` Source over mutual TLS. Only the edge faces the internet; the
 database is internal only.
 
@@ -250,14 +250,14 @@ sequenceDiagram
     E-->>B: upgrade accepted, QtRO node connected
     Note over B,E: plane B (wss + QtRO)
     B->>E: acquire Replica of Server.todo
-    E-->>B: Todo model populates (plane C)
-    B->>E: Server.todo.add("buy milk")  [slot: Replica to Source]
+    E-->>B: items model populates (plane C)
+    B->>E: Server.add("buy milk")  [slot: Replica to Source]
     Note over E: edge authorizes the user (Caller.hasScope), validates input
-    E->>D: Store.items.insert(row)  [mesh, mutual TLS]
+    E->>D: Store.insert(row)  [mesh, mutual TLS]
     Note over D: the store authorizes the entity (Caller.entity == "edge")
     D->>D: write through the provider (embedded or external engine)
     D-->>E: changed()
-    E-->>B: Todo model update over wss (no refresh code anywhere)
+    E-->>B: items model update over wss (no refresh code anywhere)
 ```
 
 Two authorization checks happened, at two trust boundaries: the edge authorized

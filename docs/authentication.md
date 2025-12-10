@@ -184,7 +184,7 @@ IdentityMapping {
 
 For systems where roles live in a database, the hook can read a connect point the
 edge consumes (for example a `prop var assignments` the roles entity pushes, looked
-up as `Store.roles.assignments[identity.sub]`), so role assignment is data driven
+up as `Store.assignments[identity.sub]`), so role assignment is data driven
 rather than hard coded. Read a pushed property, not a returning slot: `scopeFor` runs
 synchronously, because the edge needs the scope before it can create the session, and
 a returning slot hands back a promise instead of a value.

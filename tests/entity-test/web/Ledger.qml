@@ -28,10 +28,10 @@ Ledger {
 
     // A slot that hands the work to another entity, which is what an edge Source normally
     // does. The harness loads one Source on its own and provides no accessor for a
-    // consumed entity, so this is the shape it cannot drive; the suite pins that it says
+    // consumed entity, so this is the shape it cannot drive. The suite pins that it says
     // so out loud rather than passing quietly.
     function forwardToDatabase(item) {
-        Database.ledger.recordWinner(item, "bob", 1);
+        Database.recordWinner(item, "bob", 1);
     }
 
     // Only the edge may write the permanent record, and it is an entity, not a person.

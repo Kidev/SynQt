@@ -39,6 +39,11 @@ const TYPE_WORDS = new Set([
 const NOT_AN_ENTITY = new Set([
     "Array", "Boolean", "Component", "Date", "JSON", "Json", "Map", "Math", "Number",
     "Object", "Promise", "Qt", "Screen", "Set", "String", "Symbol",
+    // What SynQt itself puts in QML scope. None of these can be an entity accessor, because
+    // `addcontract.ALWAYS_RESERVED` refuses an entity these names in the first place. `Server`
+    // is deliberately not here: it is the one the client reaches its edge through.
+    "Api", "App", "Cache", "Caller", "Client", "Db", "Docs", "EntityTest", "Graphics",
+    "Http", "IdentityMapping", "Jobs", "PageSeed", "Router", "Session",
 ]);
 
 // The declaration forms. All three are one line, which is the whole reason this can run on
@@ -47,10 +52,16 @@ const PROPERTY = /^[ \t]*(?:(?:readonly|required|default)[ \t]+)*property[ \t]+(
 const SIGNAL = /^[ \t]*signal[ \t]+([A-Za-z_]\w*)[ \t]*\(([^)]*)\)/;
 const FUNCTION = /^[ \t]*function[ \t]+([A-Za-z_]\w*)[ \t]*\(([^)]*)\)[ \t]*(?::[ \t]*([A-Za-z_]\w*))?/;
 
-// `Owner.point.member`, which is how an entity reaches something another entity owns: the
+// `Owner.member`, which is how an entity reaches something another entity owns: the
 // accessor is the owner's name capitalised (`database` is `Database`), or `Server` on the
-// client, which is the alias for the edge it reaches.
-const REFERENCE = /\b([A-Z][A-Za-z0-9_]*)\.([a-z][A-Za-z0-9_]*)\.([A-Za-z_]\w*)[ \t]*(\()?/g;
+// client, which is the alias for the edge it reaches. An entity has one connect point, so
+// the accessor is the whole address and what follows it is a member.
+const REFERENCE = /\b([A-Z][A-Za-z0-9_]*)\.([A-Za-z_]\w*)[ \t]*(\()?/g;
+
+// An import names a module, not an entity, and `import QtQuick.Controls` matches the shape
+// above exactly. Taken out before the scan rather than filtered after it, because the list
+// of module names nobody could ever call an entity is not one anybody can finish writing.
+const IMPORT_LINE = /^[ \t]*(?:import|pragma)\b.*$/gm;
 
 // The one type a reference gives away nothing about. A member read out of a call site is
 // known by name and by whether it was called; what it carries is for somebody to say.
@@ -250,8 +261,9 @@ export function declarations(text) {
     return found;
 }
 
-// Every `Owner.point.member` this file reaches for. `call` is true where it was called rather
-// than read, which is the difference between a slot and a prop.
+// Every `Owner.member` this file reaches for. An entity has one connect point, so the
+// accessor is the whole address and what follows it is a member. `call` is true where it was
+// called rather than read, which is the difference between a slot and a prop.
 export function references(text) {
     const source = String(text || "");
     const lines = [];
@@ -269,17 +281,21 @@ export function references(text) {
     };
     const found = [];
     const seen = new Set();
+    // Blanked rather than removed, so every offset below still points at the same byte of
+    // the file and `lineAt` keeps answering with the line somebody can go and open.
+    IMPORT_LINE.lastIndex = 0;
+    const scanned = source.replace(IMPORT_LINE, (line) => " ".repeat(line.length));
     REFERENCE.lastIndex = 0;
-    let match = REFERENCE.exec(source);
+    let match = REFERENCE.exec(scanned);
     while (match !== null) {
-        const [, accessor, point, member, call] = match;
-        const key = `${accessor}.${point}.${member}`;
+        const [, accessor, member, call] = match;
+        const key = `${accessor}.${member}`;
         if (!NOT_AN_ENTITY.has(accessor) && !seen.has(key)) {
             seen.add(key);
-            found.push({accessor, point, member, call: Boolean(call),
+            found.push({accessor, member, call: Boolean(call),
                         line: lineAt(match.index)});
         }
-        match = REFERENCE.exec(source);
+        match = REFERENCE.exec(scanned);
     }
     return found;
 }

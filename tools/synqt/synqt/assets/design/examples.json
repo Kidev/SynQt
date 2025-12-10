@@ -47,7 +47,6 @@
       ],
       "links": [
         {
-          "name": "feed",
           "owner": "edge",
           "consumers": [
             "app"
@@ -98,7 +97,6 @@
           ]
         },
         {
-          "name": "access",
           "owner": "store",
           "consumers": [
             "edge"
@@ -119,7 +117,6 @@
           ]
         },
         {
-          "name": "upstream",
           "owner": "feeds",
           "consumers": [
             "edge"

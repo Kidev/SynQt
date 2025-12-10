@@ -239,19 +239,19 @@ async function editorOverAProject() {
         await dropEntity(page, "Service", { x: 430, y: 400 });
         await page.waitForSelector('[data-entity="service"]');
         await dragLink(page, "service", "edge");
+        // gavel exports two connect points, one on each of its two service entities. This
+        // adds the third.
         await page.waitForFunction(
-            () => document.querySelectorAll("[data-link]").length === 4);
+            () => document.querySelectorAll("[data-link]").length === 3);
 
-        // A new point is named for the direction it runs, so this one arrives as
-        // `serviceToWeb`. Renamed here to what it actually carries, which is the gesture the
-        // name is a starting point for.
+        // A connect point is not named: its owner names it, so the link that arrives is
+        // `service`, carrying the `ServiceContract` type, and the panel offers nothing to
+        // call it.
         const inspector = page.locator("#inspector");
-        check(await inspector.locator("input[type=text]").first().inputValue()
-              === "serviceToEdge",
-              "a new connect point is named for the direction it runs");
-        // Only the point is named. Its contract is that name capitalised and is not asked
-        // for twice: `audit` exports `Audit`.
-        await inspector.locator("input[type=text]").first().fill("audit");
+        check(await page.locator('[data-link="service"]').count() === 1,
+              "a new connect point is named after the entity that exports it");
+        check(await inspector.locator("input[type=text]").count() === 0,
+              "and the panel offers no name for it, because there is none to give");
 
         await inspector.getByText("Add member", { exact: true }).click();
         const member = inspector.locator(".member").first();
@@ -272,9 +272,9 @@ async function editorOverAProject() {
         await page.locator("#review").click();
         await page.waitForSelector("#sheet:not([hidden])");
         const diff = await page.locator("#sheet-diff").textContent();
-        check(diff.includes("synqt.yaml") && diff.includes("Audit.qml"),
+        check(diff.includes("synqt.yaml") && diff.includes("ServiceContract.qml"),
               "the change set shows the configuration and the Source it would write");
-        check(!fs.existsSync(path.join(project, "service/service/Audit.qml")),
+        check(!fs.existsSync(path.join(project, "service/service/ServiceContract.qml")),
               "reviewing wrote nothing");
 
         await page.waitForSelector("#apply:not([disabled])");
@@ -283,15 +283,17 @@ async function editorOverAProject() {
 
         const config = await fsp.readFile(path.join(project, "synqt.yaml"), "utf8");
         check(/name:\s*service\b/.test(config), "synqt.yaml gained the service entity");
-        check(/name:\s*audit\b/.test(config), "synqt.yaml gained the connect point");
         check(/owner:\s*service\b/.test(config),
-              "the point is owned by the entity it was dragged from");
+              "and the connect point it exports, owned by the entity it was dragged from");
+        const points = (config.split(/^connect_points:$/m)[1] || "");
+        check(!/^\s+name:/m.test(points),
+              `written with no name of its own, because the owner is the name:\n${points}`);
         // What crosses a connect point is written on the point, in synqt.yaml, and nowhere
-        // else: there is no contract file of its own to go looking in.
+        // else. There is no contract file of its own to go looking in.
         const drawn = /slot\s+logWinner\s*\(\s*string\s+winner\s*\)/.test(config);
         check(drawn, drawn ? "the point's export block holds the slot that was drawn"
                            : `synqt.yaml holds something else:\n${config.trim()}`);
-        check(fs.existsSync(path.join(project, "service/service/Audit.qml")),
+        check(fs.existsSync(path.join(project, "service/service/ServiceContract.qml")),
               "the owner got the Source file the point needs");
         // Its own file too, which is a different question: a Source is one surface an entity
         // exposes, and the entity is the thing that is there once. A plain service used to
@@ -389,22 +391,22 @@ async function theFrontThatSplitsCallers() {
         // rather than drawing something that could never be built.
         await dragLink(page, "client", "web");
         await page.waitForSelector("[data-link]");
-        // A point is named for the direction it runs, so the name is the assertion: drawn
-        // from the browser, it comes out owned by the edge.
-        check(await page.locator('[data-link="webToClient"]').count() === 1,
+        // A point is named after its owner, so the name is the assertion: drawn from the
+        // browser, it comes out owned by the edge.
+        check(await page.locator('[data-link="web"]').count() === 1,
               "a link drawn from the browser is turned round and owned by the edge");
-        check(await page.locator('[data-link="clientToWeb"]').count() === 0,
+        check(await page.locator('[data-link="client"]').count() === 0,
               "and the one a browser could never host is not drawn");
         // A new point opens the picker asking what crosses it, and it sits over the
-        // canvas; clicking empty canvas puts it away, which is what anybody would do.
+        // canvas. Clicking empty canvas puts it away, which is what anybody would do.
         const canvasBox = await page.locator("#canvas").boundingBox();
         await page.mouse.click(canvasBox.x + 660, canvasBox.y + 30);
 
         // Turned into a front from the panel, wired on the canvas. Selected by opening the
         // Source that answers it, the same way the panes and the canvas agree elsewhere: an
         // SVG hit band has no box a click can be aimed at.
-        await fileRow(page, "web/web/WebToClient.qml").click();
-        await page.waitForSelector('[data-link="webToClient"].is-selected');
+        await fileRow(page, "web/web/WebContract.qml").click();
+        await page.waitForSelector('[data-link="web"].is-selected');
         await page.locator(".check", { hasText: "Hand callers to entities behind it" })
                   .locator("input").check();
         await page.waitForSelector('[data-entity="web"] .node__wedge');
@@ -417,7 +419,7 @@ async function theFrontThatSplitsCallers() {
         await page.waitForSelector('[data-entity="web"] .node__seat.is-taken');
         check(await page.locator('[data-entity="web"] .node__seat.is-taken').count() === 1,
               "dragging from the admin seat fills it in");
-        await page.waitForSelector('[data-link="serviceToWeb"]');
+        await page.waitForSelector('[data-link="service"]');
         check(true, "with the connect point the front consumes drawn at the same time");
 
         // And it is in the file, which is the only place any of it means anything.
@@ -554,19 +556,20 @@ async function theProjectALinkHandsYou() {
         const named = await page.locator(".tree__file").allTextContents();
         // Every entity present, with its own file. A plain service used to contribute nothing
         // at all until somebody drew a connect point off it.
-        const wanted = ["synqt.yaml", "Main.qml", "Edge.qml", "Feed.qml", "Store.qml",
-                        "Access.qml", "Feeds.qml", "Upstream.qml"];
+        const wanted = ["synqt.yaml", "Main.qml", "Edge.qml", "EdgeContract.qml",
+                        "Store.qml", "StoreContract.qml", "Feeds.qml",
+                        "FeedsContract.qml"];
         const missing = wanted.filter((name) => !named.includes(name));
         check(missing.length === 0,
               missing.length ? `the files pane is missing ${missing.join(", ")}; it names `
                                + named.join(", ")
                              : "every entity has its own file, and every file its directory");
 
-        await fileRow(page, "web/edge/Feed.qml").click();
+        await fileRow(page, "web/edge/EdgeContract.qml").click();
         const source = await page.locator("#source-paint").textContent();
         // Rooted at the contract's own type, which is the point's name capitalised: the
-        // point `feed` exports `Feed`, and `Feed {}` is the Source that answers it.
-        check(source.includes("Feed {"),
+        // the edge exports `EdgeContract`, and `EdgeContract {}` is the Source that answers it.
+        check(source.includes("EdgeContract {"),
               "and reading one shows the Source the owner would host");
         check(!source.includes("SPDX-License-Identifier"),
               "without the licence notice, which is on every file and read by nobody");
@@ -575,7 +578,7 @@ async function theProjectALinkHandsYou() {
 
         // Opening a file selects what it is on the canvas, and the reverse, so the two views
         // never disagree about what is in hand.
-        await page.waitForSelector("[data-link='feed'].is-selected");
+        await page.waitForSelector("[data-link='edge'].is-selected");
         check(true, "opening a file selects what it is out on the canvas");
         await page.locator("#nodes [data-entity='feeds']").click();
         await page.waitForFunction(
@@ -583,7 +586,7 @@ async function theProjectALinkHandsYou() {
         check(true, "and selecting an entity opens the file it is");
 
         // Read-only until unlocked: the pane holds the entity's own code.
-        await fileRow(page, "web/edge/Feed.qml").click();
+        await fileRow(page, "web/edge/EdgeContract.qml").click();
         check(await page.locator("#source-input").evaluate((box) => box.readOnly),
               "a file opens read-only");
         // Typing a declaration into a Source is the same gesture as adding a member in the
@@ -596,13 +599,13 @@ async function theProjectALinkHandsYou() {
 
         // Putting the caret on a line points the canvas at what that line is about, which is
         // how somebody reading a file finds the thing they are reading in the drawing.
-        await fileRow(page, "web/edge/Feed.qml").click();
+        await fileRow(page, "web/edge/EdgeContract.qml").click();
         await unlock(page);
         await page.locator("#source-input").click();
         await page.locator("#source-input").press("Control+End");
         await page.locator("#source-input").press("ArrowUp");
         await page.locator("#source-input").press("ArrowUp");
-        await page.waitForSelector("[data-link='feed'].is-selected");
+        await page.waitForSelector("[data-link='edge'].is-selected");
         check(true, "the line the caret is on selects what it declares, out on the canvas");
 
         // Undo is the browser's own, and it only stays the browser's if the pane never writes
@@ -622,18 +625,15 @@ async function theProjectALinkHandsYou() {
               && !(await typed.inputValue()).includes("// undo me"),
               "and what was typed can be undone, the way any text box undoes");
 
-        // Reaching into another entity draws the connect point it would need. This is what
-        // `synqt infer` does over a project, done here on one file while it is being typed:
-        // `Server` is the client's alias for the edge, so the edge is what ends up owning it.
+        // Reaching into another entity puts the member on the connect point it would cross.
+        // This is what `synqt infer` does over a project, done here on one file while it is
+        // being typed: `Server` is the client's alias for the edge, so the edge's point is
+        // what gains it.
         await fileRow(page, "client/app/Main.qml").click();
-        await typeIntoRootBlock(page, "    property int seen: Server.tally.total\n");
-        await page.waitForSelector("[data-link='tally']");
-        check(true, "reaching into another entity draws the connect point that would carry it");
-        const paths = await page.locator(".tree__file").allTextContents();
-        check(paths.includes("Tally.qml"),
-              `with the Source the owner would host it from (${paths.join(", ")})`);
-        await openAndWaitFor(page, "synqt.yaml", "prop var total");
-        check(true, "and the member it reached for, with the type nothing gave away");
+        await typeIntoRootBlock(page, "    property int seen: Server.tally\n");
+        await openAndWaitFor(page, "synqt.yaml", "prop var tally");
+        check(true, "reaching into another entity adds the member it reached for, with the "
+                    + "type nothing gave away");
 
         // A file longer than the pane is the ordinary case, and the coloured copy is a
         // separate layer from the one holding the caret, so the two have to move together.
@@ -675,12 +675,19 @@ async function theProjectALinkHandsYou() {
         // A link dropped on empty canvas is somebody reaching for an entity that is not there
         // yet, which is an offer rather than a mistake. Pulled off the *left* handle, which
         // is the side a single handle on the right could never serve.
+        const lines = await page.locator("#links > *").count();
         await dragLinkToNowhere(page, "store", { x: 90, y: 90 }, 1);
         await page.waitForSelector(".menu__item");
         await page.locator(".menu__item", { hasText: "Cache" }).click();
         await page.waitForSelector("[data-entity='cache']");
-        check(await page.locator("#links > *").count() === 5,
+        check(await page.locator("#links > *").count() === lines + 1,
               "a link dropped on nothing offers to make the entity it was reaching for");
+        // And it joined the consumer list of the point `store` already exports, because an
+        // entity has one: a second line out of an owner is another consumer, not another
+        // point.
+        const both = await page.locator("[data-link='store']").count();
+        check(both === 2,
+              `as a second consumer of the one connect point that owner exports (${both})`);
 
         // Delete removes what is selected, and a double click renames it.
         await page.locator("#nodes [data-entity='cache']").click();
@@ -785,19 +792,28 @@ async function typingIntoTheProject() {
         const box = page.locator("#source-input");
         await box.click();
         await box.press("Control+End");
-        await box.type("\n  - name: audits\n    owner: store\n    consumers: [edge]\n");
-        await page.waitForSelector("[data-link='audits']");
+        // A second point on an owner that already exports one: drawn, because it is what the
+        // file says, and marked, because an entity has one connect point and the later entry
+        // would quietly replace the first.
+        const before = await page.locator("[data-link='store']").count();
+        await box.type("\n  - owner: store\n    consumers: [edge]\n");
+        await page.waitForFunction(
+            (was) => document.querySelectorAll("[data-link='store']").length > was, before);
         check(true, "a connect point typed into the configuration is drawn on the canvas");
+        await page.waitForSelector("#findings .finding--error");
+        const said = await page.locator("#findings .finding--error").first().textContent();
+        check(said.includes("store") && said.includes("two connect points"),
+              `and a second point on one owner is refused on the canvas (${said.trim()})`);
 
         await box.press("Control+End");
-        await box.type("  - name:\n");
+        await box.type("  - owner:\n");
         await waitForHint(page, "synqt.yaml, line");
         check(await page.locator("[data-entity]").count() === 4,
               "a line that does not read leaves the canvas on the last one that did");
 
         await page.locator("#revert").click();
         await waitForHint(page, "Back to the last version");
-        check(await page.locator("[data-link='audits']").count() > 0,
+        check(await page.locator("[data-link='store']").count() > before,
               "and the way back returns the last version that read, keeping the work");
 
         check(refused.length === 0,

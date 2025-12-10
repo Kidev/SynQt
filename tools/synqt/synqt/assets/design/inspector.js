@@ -42,6 +42,11 @@ const KIND_LABELS = {
 
 const TARGETS = ["wasm", "desktop"];
 
+function capitalised(name) {
+    return name ? name[0].toUpperCase() + name.slice(1) : name;
+}
+
+
 function tag(name, attributes, text) {
     const node = document.createElement(name);
     for (const [key, value] of Object.entries(attributes || {})) {
@@ -410,18 +415,28 @@ function frontPanel(design, link, actions) {
 
 function linkPanel(design, link, actions) {
     const panel = document.createDocumentFragment();
-    panel.append(tag("h2", {class: "inspector__title"}, link.name || "this connect point"));
+    panel.append(tag("h2", {class: "inspector__title"},
+                     link.owner ? `${link.owner}'s connect point` : "this connect point"));
 
-    panel.append(field("Name", text(link.name, (value) => {
-        link.name = value;
-        actions.rename("link", value);
-    })));
+    // Nothing to name. An entity has one connect point, so the owner names it: consumers
+    // reach it as the owner capitalised, and its contract is that plus `Contract`.
     const names = (design.entities || []).map((entity) => entity.name);
-    panel.append(field("Owner", choice(["", ...names], link.owner, (value) => {
+    const taken = new Set((design.links || [])
+        .filter((one) => one !== link)
+        .map((one) => one.owner));
+    panel.append(field("Owner", choice(["", ...names.filter((name) => !taken.has(name))],
+                                       link.owner, (value) => {
         link.owner = value;
+        link.id = value;
+        link.name = value;
         link.consumers = (link.consumers || []).filter((consumer) => consumer !== value);
         actions.rebuild();
     }, "nobody yet")));
+    panel.append(note("The owner is the name: consumers reach this as "
+                      + `${link.owner ? capitalised(link.owner) : "<Owner>"}, and it `
+                      + "carries the "
+                      + `${link.owner ? capitalised(link.owner) : "<Owner>"}Contract type. `
+                      + "An entity that already exports one is not offered here."));
 
     const consumers = tag("div");
     for (const name of names.filter((name) => name !== link.owner)) {

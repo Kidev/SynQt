@@ -6,7 +6,7 @@ import SynQt
 
 // What admins are handed to: the same surface, plus what only they reach. The front's gate
 // has already refused anyone without the scope, so nothing here checks for it again.
-Desk {
+BackofficeContract {
     id: root
 
     headline: qsTr("Today's prices")

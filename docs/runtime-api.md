@@ -38,9 +38,9 @@ consumed.
 point the client consumes appears on it by the connect point's configured name.
 
 ```qml
-Label   { text: "Items: " + Server.todo.count }   // a live property
-ListView { model: Server.todo.items }             // a live model
-Button  { onClicked: Server.todo.add(input.text) } // a slot call (a request)
+Label   { text: "Items: " + Server.count }   // a live property
+ListView { model: Server.items }             // a live model
+Button  { onClicked: Server.add(input.text) } // a slot call (a request)
 ```
 
 | Member | Type | Description |
@@ -353,13 +353,13 @@ example](programming-model.md#a-connect-point-implementation-end-to-end): the ed
 checks the user, the database checks the calling entity.
 
 ```qml
-// web/edge/Todo.qml: the edge authorizes a user
+// web/edge/EdgeContract.qml: the edge authorizes a user
 function add(text) {
     if (!Caller.hasScope("user")) { Caller.emitRejected("Sign in first."); return }
-    Store.items.insert({ text: text.trim(), ownerSub: Caller.identity.sub })
+    Store.insert({ text: text.trim(), ownerSub: Caller.identity.sub })
 }
 
-// db/relational/store/Items.qml: the database authorizes the calling entity
+// db/relational/store/StoreContract.qml: the database authorizes the calling entity
 function insert(row) {
     if (Caller.entity !== "edge") return    // only the edge may write
     Db.exec("INSERT INTO items(text, owner_sub) VALUES(?,?)", [row.text, row.ownerSub])
@@ -388,7 +388,7 @@ not by the call site, and it travels for as long as the chain does, so a service
 entities deep still answers a named person.
 
 ```qml
-// db/relational/store/Items.qml, reached only by the edge
+// db/relational/store/StoreContract.qml, reached only by the edge
 function insert(row) {
     if (Caller.entity !== "edge") return    // the certificate: this is the authorization
     // And this is who the edge is answering. `Caller.isUser` is still false: the caller is
@@ -654,7 +654,7 @@ The handler is called with one argument, the request:
 
 ```qml
 Api.get("/lots/:id", request => {
-    Books.ledger.lot(request.params.id)
+    Books.lot(request.params.id)
         .then(lot => request.reply(lot),
               error => request.fail(404, error));
 });

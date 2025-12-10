@@ -12,7 +12,7 @@ import SynQt
 // session, so they live in the `Edge` singleton and this publishes them: one binding, and a
 // restocked shelf reaches every session. `offersRows` keeps only the roles the contract
 // declares, so the internal sku never reaches the browser.
-Catalog {
+EdgeContract {
     // A browser asks to add an item to its cart. In version 1 the cart is client-side, so
     // this is where a real deployment would reserve stock; the slot exists to show the
     // consumer-to-owner direction and is a courtesy no-op here.
