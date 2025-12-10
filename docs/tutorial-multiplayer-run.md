@@ -102,7 +102,7 @@ Item {
     function refreshChampions() {
         Records.top().then(rows => { world.champions = rows })
     }
-    RecordsContract.onStandingsChanged: world.refreshChampions()
+    Records.onStandingsChanged: world.refreshChampions()
 
     // The simulation, run once for the whole arena
     Timer {
@@ -171,7 +171,7 @@ whole edge; every Source reaches it just by name.
 
 ## One private view per player
 
-Now replace `web/edge/EdgeContract.qml`. It still forwards `steer` and `ping` into the shared
+Now replace `web/edge/Edge.qml`. It still forwards `steer` and `ping` into the shared
 `World`; what is new is that it publishes only this player's slice, plus the two lists
 that stay global (the leaderboard and the Hall of Fame).
 
@@ -181,7 +181,7 @@ import SynQt
 
 // One instance per player session (see the config change below). It never simulates;
 // it reads the shared World and publishes only what THIS player can see.
-EdgeContract {
+Edge {
     id: arena
     property string mySub: ""
 

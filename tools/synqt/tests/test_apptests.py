@@ -90,11 +90,11 @@ class GeneratedCMakeTest(unittest.TestCase):
         # A test drives an owner, and any connect point may be the one under test.
         text = cmakegen.render_tests_cmakelists(CONFIG)
         self.assertIn('synqt_add_contract(app_tests ROLE source '
-                      'SYN "${SYNQT_APP_ROOT}/generated/web/web/WebContract.syn")', text)
+                      'SYN "${SYNQT_APP_ROOT}/generated/web/web/Web.syn")', text)
         # The ledger is the mesh half, so its slots carry the session the edge is acting
         # for, and the test target has to compile it the same way the entities do.
         self.assertIn('synqt_add_contract(app_tests ROLE source FORWARDS_SESSION '
-                      'SYN "${SYNQT_APP_ROOT}/generated/db/relational/database/DatabaseContract.syn")', text)
+                      'SYN "${SYNQT_APP_ROOT}/generated/db/relational/database/Database.syn")', text)
         self.assertNotIn("ROLE replica", text)
 
     def test_the_target_lives_in_its_own_directory(self):
@@ -116,8 +116,8 @@ class GeneratedCMakeTest(unittest.TestCase):
 class GeneratedRunnerTest(unittest.TestCase):
     def test_it_registers_every_contract_and_the_harness(self):
         text = maingen.render_tests_main(CONFIG)
-        self.assertIn("void synqtRegisterWebContractSources();", text)
-        self.assertIn("void synqtRegisterDatabaseContractSources();", text)
+        self.assertIn("void synqtRegisterWebSources();", text)
+        self.assertIn("void synqtRegisterDatabaseSources();", text)
         self.assertIn("SynQt::registerTestTypes();", text)
         self.assertIn("QUICK_TEST_MAIN_WITH_SETUP", text)
 

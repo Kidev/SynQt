@@ -169,9 +169,15 @@ void ConnectPointHost::releasePeerSource(const QString &entity)
 
 bool ConnectPointHost::start()
 {
-    // Nothing is instantiated here. A connect point mints a Source, with a Caller bound to
-    // the calling entity, per accepted peer, so the owner can authorize each entity in its
-    // slots; see onPeerConnected(). There is no instance to build before a caller exists.
+    // A per-caller point instantiates nothing here. It mints a Source, with a Caller bound
+    // to the calling entity, per accepted peer, so the owner can authorize each entity in
+    // its slots. See onPeerConnected(). There is nothing to build before a caller exists.
+    //
+    // A shared point is the opposite case, and it is why this is not left to the first
+    // caller. The Source is the entity. It holds what outlives any one caller, and its
+    // `Component.onCompleted` is where an entity subscribes to what it consumes or starts
+    // its own work. Built lazily, an entity would sit inert until somebody connected and
+    // would have missed everything that happened before that.
     m_server = new MeshServer{this};
     connect(m_server, &MeshServer::peerConnected, this, &ConnectPointHost::onPeerConnected);
 
@@ -190,6 +196,14 @@ bool ConnectPointHost::start()
         if (!m_server->listenLocal(m_config.endpoint.socketName,
                                    m_config.consumers.value(0))) {
             m_errorString = m_server->errorString();
+            return false;
+        }
+    }
+
+    if (m_config.shared) {
+        QString error;
+        if (sharedSource(&error) == nullptr) {
+            m_errorString = error;
             return false;
         }
     }

@@ -197,8 +197,8 @@ def test_the_downloaded_export_is_what_the_member_table_said(rendered):
                    if file["name"] == "gavel/synqt.yaml")
     point = next(one for one in yaml.safe_load(written)["connect_points"]
                  if one["owner"] == "edge")
-    # Parsed by the compiler the build runs, not by a reading of our own.
-    assert designdoc.parse_export("EdgeContract", point) == DOCUMENT["links"][0]["members"]
+    # Parsed by the compiler the build runs rather than by a reading of the test's own.
+    assert designdoc.parse_export("Edge", point) == DOCUMENT["links"][0]["members"]
 
 
 def test_the_downloaded_source_is_the_one_the_cli_would_have_written(rendered):
@@ -222,7 +222,7 @@ def test_a_source_declares_the_members_the_contract_carries(rendered):
     are what the editor reads back out of the file, so the two agreeing on the way in is what
     makes reading it again a no-op rather than a second opinion."""
     written = next(file["text"] for file in rendered["files"]
-                   if file["name"] == "gavel/web/edge/EdgeContract.qml")
+                   if file["name"] == "gavel/web/edge/Edge.qml")
     assert "property int highest" in written
     assert "signal outbid(who: string)" in written
     assert "function placeBid(amount: int): bool {" in written
@@ -252,14 +252,15 @@ def test_every_entity_has_its_own_file_before_it_owns_anything(rendered):
         assert any(file["name"] == f"gavel/{own}" for file in rendered["files"]), own
 
 
-def test_a_services_own_file_is_the_singleton_the_build_registers(rendered):
-    """`appmodel.discover_singletons` finds an entity's own QML by its `pragma Singleton` and
-    the generated main registers it under that entity's module. A file written without the
-    pragma would be a file the build ignores."""
+def test_a_services_own_file_is_the_source_of_what_it_exports(rendered):
+    """An entity is one file named after itself. The file the editor writes for `books` is
+    rooted at `Books`, the type its `export:` block became, and there is no second file
+    beside it holding the entity."""
     written = next(file["text"] for file in rendered["files"]
                    if file["name"] == "gavel/db/relational/books/Books.qml")
-    assert written == newproject.entity_singleton("books")
-    assert "\npragma Singleton\n" in written
+    assert "Books {" in written
+    assert "pragma Singleton" not in written
+    assert written != newproject.entity_singleton("books")
 
 
 def test_the_download_is_a_zip_holding_the_configuration_and_every_file(rendered):
@@ -268,9 +269,7 @@ def test_the_download_is_a_zip_holding_the_configuration_and_every_file(rendered
     assert archive.namelist() == ["gavel/synqt.yaml",
                                   "gavel/client/app/Main.qml",
                                   "gavel/web/edge/Edge.qml",
-                                  "gavel/web/edge/EdgeContract.qml",
-                                  "gavel/db/relational/books/Books.qml",
-                                  "gavel/db/relational/books/BooksContract.qml"]
+                                  "gavel/db/relational/books/Books.qml"]
     for file in rendered["files"]:
         assert archive.read(file["name"]).decode("utf-8") == file["text"]
 
@@ -291,7 +290,7 @@ def test_a_source_reads_back_as_the_contract_it_was_written_from(rendered):
     anything other than what was written, every keystroke in the pane would be arguing with
     the panel about what the contract says."""
     written = next(file["text"] for file in rendered["files"]
-                   if file["name"] == "gavel/web/edge/EdgeContract.qml")
+                   if file["name"] == "gavel/web/edge/Edge.qml")
     read = _read(f"""
         const text = {json.dumps(written)};
         process.stdout.write(JSON.stringify(declarations(withoutNotice(text))));

@@ -74,13 +74,13 @@ class AddEntityError(Exception):
     """A scaffolding error surfaced to the CLI (no traceback for the user)."""
 
 
-def _entity_qml(entity_type: str, name: str) -> str:
-    """An entity's own file: the singleton it is, showing the helper its type gives it.
+def entity_qml(entity_type: str, name: str) -> str:
+    """An entity's own file, showing the helper its type gives it.
 
-    Not a connect point Source. An entity exports a connect point only once somebody says
-    who may consume it, so `synqt add connect-point <name>` writes the Source at that
-    moment, as `<Name>Contract.qml` beside this file. What the author does get here is the
-    entity itself, with its helper demonstrated in it.
+    An entity that exports nothing is a singleton: one of it, for as long as it runs.
+    Exporting a connect point turns this same file into that point's Source, rooted at the
+    entity's name, which is what `synqt add connect-point <name>` rewrites it into while it
+    is still untouched. One entity, one file, whichever of the two it currently is.
 
     Written the way ``qmlformat`` would write it, using the project's own
     ``.qmlformat.ini``, so a scaffolded project passes its own ``synqt check`` (the
@@ -262,7 +262,7 @@ def scaffold(project_dir: os.PathLike[str] | str, name: str,
     entity_dir = root / appmodel.entity_dir(block)
     entity_dir.mkdir(parents=True, exist_ok=True)
     own = appmodel.entity_file_path(block)
-    (root / own).write_text(_entity_qml(entity_type, name))
+    (root / own).write_text(entity_qml(entity_type, name))
     if entity_type == "relational":
         (entity_dir / "schema.sql").write_text(
             "-- forward-only migrations, one statement per step\n"
@@ -304,8 +304,8 @@ def scaffold(project_dir: os.PathLike[str] | str, name: str,
     contract = appmodel.contract_of({"owner": name})
     steps.append(f"  - {own} is the entity itself, with the type's helper shown in it.")
     steps.append(f"  - Export a connect point from it: 'synqt add connect-point {name} "
-                 f"--consumers <a,b>' writes {folder}/{contract}.qml, and you declare what "
-                 "crosses it beside that.")
+                 f"--consumers <a,b>' turns that same file into the Source, rooted at "
+                 f"'{contract}', and you declare what crosses it beside that.")
     return "\n".join(steps)
 
 

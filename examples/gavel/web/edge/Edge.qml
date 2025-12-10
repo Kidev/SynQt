@@ -1,41 +1,56 @@
 // SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 // SPDX-License-Identifier: Apache-2.0
 
-pragma Singleton
-
 import QtQuick
+import SynQt
 
-// The 'edge' entity itself: one of it, for as long as the entity runs. State that belongs to
-// the whole entity goes here rather than in a Source, because a Source is created per caller
-// and anything shared has to outlive any one of them. The Source reaches it as `Edge`.
+// The web edge (docs/tutorial-sign-in.md and docs/tutorial-hall-of-fame.md): the live
+// auction, and the Hall of Fame filled from the books entity. This one file is the entity
+// and the surface it exports. The edge is shared, so there is one of it holding one lot,
+// however many browsers are watching, and each caller still arrives with their own `Caller`.
 //
-// Both things in this file are exactly that. There is one lot under the hammer, not one per
-// browser, and one Hall of Fame filled once from the books entity's ledger. Held in the
-// per-session Sources instead, every visitor would be bidding in a private auction and would
-// see only the winners recorded after they arrived.
-//
-// Nothing here decides anything. Who may bid or close a lot is written on those members in
-// synqt.yaml, and whether a bid is high enough is decided in `EdgeContract.qml`, where the
-// caller is; these functions are only reached once both have passed.
-QtObject {
-    id: root
-
-    property string itemName: "A homemade lasagna, baked fresh this morning"
-    property int highBid: 0
-    property string highBidder: "nobody yet"
+// Who may call what is on the members themselves, in the `export:` block: `placeBid` is
+// gated on `user` and `closeLot` on `admin`, and a caller without the scope never reaches
+// the function at all. What is left here is the part the topology cannot decide, which is
+// whether this particular bid is good enough.
+Edge {
+    id: lot
 
     // Newest first, capped. Only the declared roles of the `winners` model reach a browser.
     property var winners: []
 
-    function accept(amount: int, bidder: string) {
-        root.highBid = amount;
-        root.highBidder = bidder;
+    itemName: "A homemade lasagna, baked fresh this morning"
+    highBid: 0
+    highBidder: "nobody yet"
+    // `winnersRows` keeps only the roles the contract declares, so nothing the ledger holds
+    // beyond them reaches a browser. One binding, so a new winner arriving at the entity
+    // reaches every session with nothing else written.
+    winnersRows: lot.winners
+
+    // `Books` is how the edge reaches the books entity, the same way the browser reaches
+    // the edge with `Server`. An entity has one connect point, so its name is the whole
+    // address.
+    Component.onCompleted: Books.winnerRecorded.connect(lot.recordWinner)
+
+    // A signed-in user is asking to bid. Whether their bid is good enough is ours to say.
+    function placeBid(amount) {
+        if (amount <= lot.highBid) {
+            Caller.emitBidRejected("Your bid must beat " + lot.highBid + ".");
+            return;
+        }
+        lot.highBid = amount;
+        lot.highBidder = Caller.identity.name;       // their real name, from sign in
     }
 
-    function openLot(nextItem: string) {
-        root.itemName = nextItem;
-        root.highBid = 0;
-        root.highBidder = "nobody yet";
+    // The auctioneer closes the current lot and opens the next one. The winner is recorded
+    // permanently in the books entity before the reset.
+    function closeLot(nextItem) {
+        if (lot.highBid > 0) {
+            Books.recordWinner(lot.itemName, lot.highBidder, lot.highBid);
+        }
+        lot.itemName = nextItem;
+        lot.highBid = 0;
+        lot.highBidder = "nobody yet";
     }
 
     function recordWinner(item: string, winner: string, amount: int) {
@@ -43,13 +58,7 @@ QtObject {
                 "item": item,
                 "winner": winner,
                 "amount": amount
-            }].concat(root.winners);
-        root.winners = next.slice(0, 20);
+            }].concat(lot.winners);
+        lot.winners = next.slice(0, 20);
     }
-
-    // `Books` is how the edge reaches the books entity's connect point, the same way the
-    // browser reaches the edge with `Server`. An entity has one connect point, so its name is
-    // the whole address. Subscribed once, here, rather than once per browser: a generated
-    // Source is a plain QObject, so the connection is made imperatively.
-    Component.onCompleted: Books.winnerRecorded.connect(root.recordWinner)
 }

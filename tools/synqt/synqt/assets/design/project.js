@@ -196,13 +196,12 @@ const TYPE_FOLDERS = {
     service: "service",
 };
 
-// The type a connect point exports: its owner, capitalized, plus Contract, the same rule
+// The type a connect point exports: its owner, capitalized, the same rule
 // appmodel.contract_of applies. Nothing names it separately, because the owner names the
-// point; the suffix keeps it apart from the entity's own singleton, which is the owner's
-// name on its own.
+// point, and nothing carries a suffix, because an entity is one file called after itself.
 export function contractOf(link) {
     const owner = String((link || {}).owner || "");
-    return owner ? `${owner[0].toUpperCase()}${owner.slice(1)}Contract` : "";
+    return owner ? `${owner[0].toUpperCase()}${owner.slice(1)}` : "";
 }
 
 export function entityDir(entity) {
@@ -301,8 +300,8 @@ export function entityFiles(design, entity) {
                       text: link.qml || sourceQml(contract, link.owner, link.members),
                       owner: entity.name, link: link.owner});
     }
-    // The entity's own file and its Source never want one name: the contract carries the
-    // Contract suffix and the entity's own file does not.
+    // An entity that exports something has one file, and it is the Source above: its own
+    // file and that Source are the same path. One is written only when there is no other.
     if (!seen.has(own)) {
         files.push({name: own, text: entity.qml || entityQml(entity), owner: entity.name});
     }

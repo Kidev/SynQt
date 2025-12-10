@@ -244,8 +244,8 @@ async function editorOverAProject() {
         await page.waitForFunction(
             () => document.querySelectorAll("[data-link]").length === 3);
 
-        // A connect point is not named: its owner names it, so the link that arrives is
-        // `service`, carrying the `ServiceContract` type, and the panel offers nothing to
+        // A connect point is not named. Its owner names it, so the link that arrives is
+        // `service`, carrying the `Service` type, and the panel offers nothing to
         // call it.
         const inspector = page.locator("#inspector");
         check(await page.locator('[data-link="service"]').count() === 1,
@@ -272,9 +272,9 @@ async function editorOverAProject() {
         await page.locator("#review").click();
         await page.waitForSelector("#sheet:not([hidden])");
         const diff = await page.locator("#sheet-diff").textContent();
-        check(diff.includes("synqt.yaml") && diff.includes("ServiceContract.qml"),
+        check(diff.includes("synqt.yaml") && diff.includes("Service.qml"),
               "the change set shows the configuration and the Source it would write");
-        check(!fs.existsSync(path.join(project, "service/service/ServiceContract.qml")),
+        check(!fs.existsSync(path.join(project, "service/service/Service.qml")),
               "reviewing wrote nothing");
 
         await page.waitForSelector("#apply:not([disabled])");
@@ -293,10 +293,10 @@ async function editorOverAProject() {
         const drawn = /slot\s+logWinner\s*\(\s*string\s+winner\s*\)/.test(config);
         check(drawn, drawn ? "the point's export block holds the slot that was drawn"
                            : `synqt.yaml holds something else:\n${config.trim()}`);
-        check(fs.existsSync(path.join(project, "service/service/ServiceContract.qml")),
+        check(fs.existsSync(path.join(project, "service/service/Service.qml")),
               "the owner got the Source file the point needs");
-        // Its own file too, which is a different question: a Source is one surface an entity
-        // exposes, and the entity is the thing that is there once. A plain service used to
+        // Its own file too, which is a different question. A Source is one surface an entity
+        // exposes, and the entity is the thing that is there once. A plain service must not
         // arrive with an empty directory beside it.
         check(fs.existsSync(path.join(project, "service/service/Service.qml")),
               "and the file the entity itself is");
@@ -405,7 +405,7 @@ async function theFrontThatSplitsCallers() {
         // Turned into a front from the panel, wired on the canvas. Selected by opening the
         // Source that answers it, the same way the panes and the canvas agree elsewhere: an
         // SVG hit band has no box a click can be aimed at.
-        await fileRow(page, "web/web/WebContract.qml").click();
+        await fileRow(page, "web/web/Web.qml").click();
         await page.waitForSelector('[data-link="web"].is-selected');
         await page.locator(".check", { hasText: "Hand callers to entities behind it" })
                   .locator("input").check();
@@ -556,20 +556,18 @@ async function theProjectALinkHandsYou() {
         const named = await page.locator(".tree__file").allTextContents();
         // Every entity present, with its own file. A plain service used to contribute nothing
         // at all until somebody drew a connect point off it.
-        const wanted = ["synqt.yaml", "Main.qml", "Edge.qml", "EdgeContract.qml",
-                        "Store.qml", "StoreContract.qml", "Feeds.qml",
-                        "FeedsContract.qml"];
+        const wanted = ["synqt.yaml", "Main.qml", "Edge.qml", "Store.qml", "Feeds.qml"];
         const missing = wanted.filter((name) => !named.includes(name));
         check(missing.length === 0,
               missing.length ? `the files pane is missing ${missing.join(", ")}; it names `
                                + named.join(", ")
                              : "every entity has its own file, and every file its directory");
 
-        await fileRow(page, "web/edge/EdgeContract.qml").click();
+        await fileRow(page, "web/edge/Edge.qml").click();
         const source = await page.locator("#source-paint").textContent();
-        // Rooted at the contract's own type, which is the point's name capitalised: the
-        // the edge exports `EdgeContract`, and `EdgeContract {}` is the Source that answers it.
-        check(source.includes("EdgeContract {"),
+        // Rooted at its own name: the edge exports `Edge`, and `Edge {}` is the Source
+        // that answers it. One entity, one file, one name.
+        check(source.includes("Edge {"),
               "and reading one shows the Source the owner would host");
         check(!source.includes("SPDX-License-Identifier"),
               "without the licence notice, which is on every file and read by nobody");
@@ -586,7 +584,7 @@ async function theProjectALinkHandsYou() {
         check(true, "and selecting an entity opens the file it is");
 
         // Read-only until unlocked: the pane holds the entity's own code.
-        await fileRow(page, "web/edge/EdgeContract.qml").click();
+        await fileRow(page, "web/edge/Edge.qml").click();
         check(await page.locator("#source-input").evaluate((box) => box.readOnly),
               "a file opens read-only");
         // Typing a declaration into a Source is the same gesture as adding a member in the
@@ -599,7 +597,7 @@ async function theProjectALinkHandsYou() {
 
         // Putting the caret on a line points the canvas at what that line is about, which is
         // how somebody reading a file finds the thing they are reading in the drawing.
-        await fileRow(page, "web/edge/EdgeContract.qml").click();
+        await fileRow(page, "web/edge/Edge.qml").click();
         await unlock(page);
         await page.locator("#source-input").click();
         await page.locator("#source-input").press("Control+End");

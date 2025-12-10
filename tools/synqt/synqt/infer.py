@@ -27,12 +27,10 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 from . import appmodel, contractgen, designdoc, qmlscan, typebackend, yamledit
 
 #: How an owner file is told from every other QML file in an entity, without reading the
-#: configuration: its root type is the type its own name declares.
-#: `web/edge/EdgeContract.qml` opens `EdgeContract { ... }`, the contract it implements.
-#: Nothing else in a project does that: an
-#: entity's own file opens `QtObject`, a view opens an `Item`, a component opens whatever it
-#: draws with. The suffix this used to look for is gone, and it was never the thing that made
-#: the file an owner anyway.
+#: configuration. Its root type is the type its own name declares.
+#: `web/edge/Edge.qml` opens `Edge { ... }`, the contract it implements. Nothing else in a
+#: project does that. An entity that exports nothing opens `QtObject`, a view opens an
+#: `Item`, a component opens whatever it draws with.
 
 #: `Caller.emitBidRejected(...)` raises the `bidRejected` signal at one caller.
 _EMIT_PREFIX = "emit"
@@ -76,7 +74,7 @@ class Member:
     """One line of a contract, and where the scan found it.
 
     `kind` is "prop", "model", "signal" or "slot", the four a `.syn` contract holds.
-    `evidence` entries read "web/edge/EdgeContract.qml:43", so anything the scan reports can be
+    `evidence` entries read "web/edge/Edge.qml:43", so anything the scan reports can be
     opened at the line that produced it, and `certain` is false when a type was inferred
     from a shape rather than read from a declaration.
     """
@@ -553,7 +551,7 @@ def server_path(config: Dict[str, Any], point: Dict[str, Any]) -> str:
     contract = appmodel.contract_of(point)
     if owning is None or not contract:
         return ""
-    return str(point.get("server") or appmodel.source_path(owning, contract))
+    return appmodel.authored_source_path(owning, point)
 
 
 def owner_members(project_dir: os.PathLike[str] | str, config: Dict[str, Any],
@@ -724,7 +722,8 @@ def scan_consumer(relative_path: str, source: str, accessors: Dict[str, str],
     _read_attached_handlers(reading, tokens, attached or {}, uses)
     index = 0
     while index < len(tokens):
-        index += _read_reference(reading, tokens, index, accessors, uses) or 1
+        index += _read_reference(reading, tokens, index, accessors, uses,
+                                 attached or {}) or 1
     return uses
 
 
@@ -762,17 +761,28 @@ def _read_attached_handlers(reading: "_Reading", tokens: Sequence[qmlscan.Token]
 
 
 def _read_reference(reading: "_Reading", tokens: Sequence[qmlscan.Token], index: int,
-                    accessors: Dict[str, str], uses: List[Use]) -> int:
+                    accessors: Dict[str, str], uses: List[Use],
+                    attached: Optional[Dict[str, Tuple[str, str]]] = None) -> int:
     """`Server.steer(1.5, 2.5)`: the owner reached, and the member being used.
 
-    An entity has one connect point, so the accessor is the whole of the address and what
+    An entity has one connect point, so the accessor is the whole address and what
     follows it is a member. `Server[whichever]` names one the scan cannot resolve, and that
     is recorded as a link it did not see the whole of rather than as a member called
     nothing.
+
+    An entity is one name, so the accessor and the attached type are the same word, and
+    `Records.onStandingsChanged:` is both shapes at once. It is the handler,
+    :func:`_read_attached_handlers` has already read it, and reading it again here would
+    report a member called `onStandingsChanged` that no contract declares.
     """
     token = _at(tokens, index)
     if not _is_ident(token) or token.text not in accessors:
         return 0
+    if token.text in (attached or {}) and _is_punct(_at(tokens, index + 1), "."):
+        handler = _at(tokens, index + 2)
+        if (_is_ident(handler) and _is_punct(_at(tokens, index + 3), ":")
+                and _suffix_after(handler.text, _HANDLER_PREFIX)):
+            return 4
     if _is_punct(_at(tokens, index - 1), "."):
         # `something.Server` is a property of something else that happens to share a name.
         return 0

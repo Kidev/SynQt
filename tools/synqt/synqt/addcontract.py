@@ -166,10 +166,25 @@ def source_stub(contract: str, point: str,
                                    declared=f"\n{declared}\n" if declared else "")
 
 
+def untouched_scaffold(text: str, entity: Dict[str, Any]) -> bool:
+    """Whether this file is byte for byte what a scaffolder wrote, and nobody has edited it.
+
+    An entity is one file, so the file it was given when it was created is the same file
+    that becomes the Source of the point it exports, and exporting one has to rewrite it.
+    Rewriting an author's work is never acceptable. This is the whole licence to
+    do it, and any edit at all withdraws it.
+    """
+    from . import addentity, newproject  # here: newproject reaches addentity at import time
+
+    name = str(entity.get("name") or "")
+    return text in {newproject.entity_singleton(name),
+                    addentity.entity_qml(appmodel.entity_type(entity), name)}
+
+
 def write_source(project_dir: os.PathLike[str] | str, owner: Dict[str, Any], contract: str, *,
                  point: str, path: Optional[str] = None,
                  members: Optional[List[Dict[str, Any]]] = None) -> Optional[str]:
-    """Write the owner-side Source for a connect point, unless there is one already.
+    """Write the owner-side Source for a connect point, unless the author has written one.
 
     Returns the project-relative path when it wrote one, and None when the file was there
     and was left alone. A connect point with no Source file is a connect point the entity
@@ -178,7 +193,8 @@ def write_source(project_dir: os.PathLike[str] | str, owner: Dict[str, Any], con
     """
     relative = path or appmodel.source_path(owner, contract)
     target = Path(project_dir) / relative
-    if target.exists():
+    if target.exists() and not untouched_scaffold(
+            target.read_text(encoding="utf-8", errors="replace"), owner):
         return None
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(source_stub(contract, point, members), encoding="utf-8")
@@ -208,8 +224,8 @@ def scaffold_connect_point(project_dir: os.PathLike[str] | str, owner: str, *,
                            consumers: List[str]) -> str:
     """Add the connect point `owner` exports, and the Source that implements it.
 
-    The owner is the whole of the name: an entity has one connect point, so `edge` exports
-    the `EdgeContract` contract from `web/edge/EdgeContract.qml` and its consumers reach it
+    The owner is the whole name. An entity has one connect point, so `edge` exports
+    the `Edge` contract from `web/edge/Edge.qml` and its consumers reach it
     as `Edge`. An entity that already has one is told to add to its `export:` block rather
     than given a second point that would replace the first.
     """
@@ -248,8 +264,9 @@ def scaffold_connect_point(project_dir: os.PathLike[str] | str, owner: str, *,
              f"consumers {', '.join(consumers) or 'none'}). "
              "Deny-by-default: only listed consumers may acquire it."]
     if written:
-        steps.append(f"  - Wrote {written}, empty. Fill in the slots there and authorize "
-                     "Caller in every one of them.")
+        steps.append(f"  - {written} is the entity and now exports this point, rooted at "
+                     f"'{contract}'. Fill in the slots there and authorize Caller in every "
+                     "one of them.")
     else:
         steps.extend(_root_note(project_dir, owning, contract)
                      or [f"  - {appmodel.source_path(owning, contract)} is already there; "

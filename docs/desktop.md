@@ -24,7 +24,7 @@ describe applies without change:
   itself, and never listens for mesh traffic. It holds no mesh certificate and is
   never a consumer of a service's connect point directly; it reaches services only
   through the edge, exactly as the browser does.
-- It consumes connect points through `Server.<name>`, reacts to `<Contract>.on<Signal>`,
+- It consumes connect points through `Server.<name>`, reacts to `<Owner>.on<Signal>`,
   and is gated by `scope` at acquisition. An under-scoped desktop user is refused
   the Replica just as a browser user is.
 - It authenticates with a user session, not a certificate. The two identity

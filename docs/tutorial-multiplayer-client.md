@@ -246,7 +246,7 @@ Text {
     Timer { id: hideTimer; interval: 2500; onTriggered: banner.opacity = 0 }
 }
 
-EdgeContract.onEaten: (prey, predator) => {
+Edge.onEaten: (prey, predator) => {
     const me = Session.identity ? Session.identity.login : null
     if (prey === me)          banner.flash("You were eaten by " + predator + "!")
     else if (predator === me) banner.flash("You ate " + prey)

@@ -21,7 +21,7 @@ explains what each is responsible for and why they are split the way they are.
 |---------|----------------------------------|
 | `SynQtTransport` | `SynQt::WebSocketTransport`, the `QIODevice` over a `QWebSocket` that carries QtRemoteObjects. |
 | `SynQtClient` | `SynQt::SynClient`, `SynQt::ServerAccessor`, `SynQt::Session`, `SynQt::Router`, and the typed replica factory registry in `replicaregistry.h`. |
-| `SynQtConsumer` | The connect point resolver and the attached handler types behind `Contract.on<Signal>`. |
+| `SynQtConsumer` | The connect point resolver and the attached handler types behind `<Owner>.on<Signal>`. |
 | `SynQtService` | `SynQt::EntityRuntime`, `SynQt::ConnectPointHost`, `SynQt::MeshServer`, `SynQt::MeshClient`, `SynQt::SessionManager`, `SynQt::Caller`. |
 | `SynQtIdentity` | `SynQt::OAuthBackend`, `SynQt::JwksVerifier`, `SynQt::IdentityService`. |
 | `SynQtEdge` | `SynQt::WebEdge`, `SynQt::IdentityProvider`, `SynQt::PagesService`, `SynQt::PageStore`. |

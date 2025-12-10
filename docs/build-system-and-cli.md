@@ -150,16 +150,13 @@ synqt docker up         # Build the images and start one container per entity.
 synqt docker down       # Stop them (--volumes also discards the CA and engine data).
 ```
 
-The two `add` commands that produce QML each write the file that goes with what they add.
-`synqt add connect-point` writes the owner-side Source, empty, in the owner's folder as
-`<Owner>Contract.qml` (or wherever the point's `server:` says), because a connect point
-without one is a point the owner cannot host, and nothing says so until the entity starts.
-A file that is already there is never touched. `synqt add entity` writes the entity's own
-file, a singleton named after the entity where state belonging to the whole entity goes;
-every entity gets one, so none starts out as a directory with nothing in it. For a type
-with a helper that file also shows the helper being used, which is the part that holds
-however the connect point is eventually shaped. It writes no Source: a Source answers a
-connect point, and an entity exports one only once somebody says who may consume it.
+The two `add` commands that produce QML both write the same one file, because an entity is
+one file. `synqt add entity` writes it, named after the entity, and for a type with a helper
+it shows the helper being used. Every entity gets one, so none starts out as an empty
+directory. `synqt add connect-point` turns that file into the Source of the exported point,
+rooted at the entity's name, because an owner cannot host a point without one, and nothing
+says so until the entity starts. It rewrites the file only while it is still exactly what
+the scaffolder wrote. After one edit of your own it says what to change instead.
 
 An entity's name becomes a QML type, so it has to begin with a letter, and inside its own
 folder it may not be one of the names SynQt already puts in scope there: `Caller`,

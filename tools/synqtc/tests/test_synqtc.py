@@ -208,15 +208,23 @@ class ConsumerFacadeTest(unittest.TestCase):
         self.assertIn("QRemoteObjectPendingReply<bool> reply;", source)
         self.assertIn("return new SynQt::Promise{reply, engine, this};", source)
 
-    def test_attached_type_registered_under_the_contract_name(self):
-        # `<Contract>.on<Signal>` needs an attached type named after the contract, resolving
-        # the consumed connect point through the resolver and relaying its signals.
+    def test_one_qml_name_is_the_facade_itself(self):
+        # `Todo.add(...)`, a binding on `Todo.count` and `Todo.onRejected:` are all the same
+        # object. The facade is its own attached type, and the attaching function hands back
+        # the live one the runtime installed rather than making another.
         header = self.header()
         source = self.source()
-        self.assertIn("class TodoAttached : public QObject", header)
-        self.assertIn("QML_ATTACHED(TodoAttached)", header)
-        self.assertIn("void rejected(QString reason);", header)  # relayed contract signal
-        self.assertIn('qmlRegisterType<Todo>("SynQt", 1, 0, "Todo");', source)
+        self.assertIn("QML_ATTACHED(TodoConsumer)", header)
+        self.assertIn("static TodoConsumer *qmlAttachedProperties(QObject *object);", header)
+        self.assertIn("void rejected(QString reason);", header)  # the contract's own signal
+        self.assertNotIn("class TodoAttached", header)
+        self.assertIn("TodoConsumer *TodoConsumer::qmlAttachedProperties(QObject *object)",
+                      source)
+        self.assertIn('ConnectPointResolver::instance()->resolve(QStringLiteral("Todo"))',
+                      source)
+        self.assertIn("QQmlEngine::setObjectOwnership(facade, QQmlEngine::CppOwnership);",
+                      source)
+        self.assertIn('qmlRegisterType<TodoConsumer>("SynQt", 1, 0, "Todo");', source)
         self.assertIn('SynQt::registerConsumerFactory(QStringLiteral("Todo")', source)
 
     def test_everything_is_guarded_on_the_runtime_header(self):

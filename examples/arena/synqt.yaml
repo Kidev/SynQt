@@ -84,8 +84,8 @@ connect_points:
   # edge). The edge mirrors the standings into the `arena` model everyone already watches.
   - owner: records
     consumers: [edge]
-    # One consumer, the edge, and that list is the whole of the rule: nothing else opens a
-    # link to this entity, so RecordsContract.qml has no check in it about who is calling.
+    # One consumer, the edge, and that list is the whole rule. Nothing else opens a
+    # link to this entity, so Records.qml has no check in it about who is calling.
     export: |
       slot award(string[32] sub, string[40] name)  // give this champion one point
       slot var top()                               // the highest scorers, back to the edge

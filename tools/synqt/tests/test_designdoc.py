@@ -98,7 +98,7 @@ def test_members_keep_the_order_they_were_written_in():
 def test_render_export_round_trips_a_parsed_one():
     members = _members("arena", "edge")
     rendered = designdoc.render_export(members)
-    assert designdoc.parse_export("EdgeContract",
+    assert designdoc.parse_export("Edge",
                                   {"owner": "edge", "export": rendered}) == members
 
 

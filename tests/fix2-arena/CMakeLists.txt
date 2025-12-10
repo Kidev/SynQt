@@ -38,9 +38,9 @@ enable_testing()
 
 qt_add_executable(tst_fix2 tst_fix2.cpp)
 
-# The web edge hosts EdgeContractSource from its QML; the client uses a dynamic replica.
+# The web edge hosts EdgeSource from its QML; the client uses a dynamic replica.
 synqt_add_contract(tst_fix2 ROLE source
-    SYN "${CMAKE_CURRENT_SOURCE_DIR}/shared/EdgeContract.syn")
+    SYN "${CMAKE_CURRENT_SOURCE_DIR}/shared/Edge.syn")
 
 target_compile_definitions(tst_fix2 PRIVATE
     FIX2_CERT_DIR="${FIX2_CERTS}"

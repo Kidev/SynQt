@@ -143,7 +143,7 @@ directories at all, so those modules need not even be installed.
   hook, out of that same directory. See [adding a rule](#adding-a-rule-to-the-visual-editor)
   below before touching `rules.js`.
 - [`tools/pygments-synqt`](https://github.com/Kidev/SynQt/tree/main/tools/pygments-synqt) is the Pygments lexer that colours SynQt flavoured QML in the
-  documentation site, so a `Contract.onSignal` attached handler highlights the same way in
+  documentation site, so an `<Owner>.onSignal` attached handler highlights the same way in
   the docs as it does in an editor.
 - [`tools/coverage`](https://github.com/Kidev/SynQt/tree/main/tools/coverage) reads the
   C++ line coverage of an instrumented build back out of the counter files the compiler
@@ -211,7 +211,7 @@ five commits without ever running.
 | [`prov4-runtime`](https://github.com/Kidev/SynQt/tree/main/tests/prov4-runtime)          | The entity runtime injects the configured provider into a typed entity, and refuses to start when the provider cannot be built. |
 | [`api-inbound`](https://github.com/Kidev/SynQt/tree/main/tests/api-inbound)            | The inbound HTTP surface `network.inbound` opens: routes declared on `Api` from the entity's own QML, and the API key, origin, body-size and rate checks `ApiServer` runs before any handler is reached. |
 | [`custom-provider`](https://github.com/Kidev/SynQt/tree/main/tests/custom-provider)        | The skeletons `synqt add provider` scaffolds compile, register themselves, and are selectable by `provider.name: custom:<Name>`. |
-| [`consumer-facade`](https://github.com/Kidev/SynQt/tree/main/tests/consumer-facade)        | The `Contract.on<Signal>` handlers and the returning slot promise. |
+| [`consumer-facade`](https://github.com/Kidev/SynQt/tree/main/tests/consumer-facade)        | The `<Owner>.on<Signal>` handlers and the returning slot promise. |
 | [`fix1-auction`](https://github.com/Kidev/SynQt/tree/main/tests/fix1-auction)           | The auction tutorial as an acceptance fixture. |
 | [`fix2-arena`](https://github.com/Kidev/SynQt/tree/main/tests/fix2-arena)             | The multiplayer arena tutorial as an acceptance fixture. |
 | [`appgen-native`](https://github.com/Kidev/SynQt/tree/main/tests/appgen-native)          | The generated CMake and mains actually compile for every entity. |

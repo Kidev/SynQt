@@ -1364,8 +1364,6 @@ def emit_consumer_header(syn: SynFile, lstem: str) -> str:
     for contract in syn.contracts:
         out.append(_consumer_class(contract, records, path))
         out.append("")
-        out.append(_attached_classes(contract, records, path))
-        out.append("")
     out.append("#endif")
     out.append("")
     out.append(f"void synqtRegister{_cap(syn.stem)}Consumers();")
@@ -1376,11 +1374,15 @@ def emit_consumer_header(syn: SynFile, lstem: str) -> str:
 def _consumer_class(contract: Contract, records, path) -> str:
     name = contract.name
     lines = [
-        f"// Consumer facade for {name}: the live accessor entry (Server.<name> or",
-        f"// <Owner>.<name>) for a consumed {name} connect point.",
+        f"// Consumer facade for {name}: what `{name}` is, in the QML of an entity that",
+        f"// consumes {name}'s connect point. One object serves all three ways a consumer",
+        f"// reaches it, because it is the attached object for the QML type `{name}` as well",
+        f"// as the accessor: `{name}.doThing()`, a binding on `{name}.someProp`, and",
+        f"// `{name}.onSomeSignal:` all resolve here.",
         f"class {name}Consumer : public SynQt::ConsumerBase",
         "{",
         "    Q_OBJECT",
+        f"    QML_ATTACHED({name}Consumer)",
         "    Q_PROPERTY(bool ready READ isReady NOTIFY readyChanged)",
     ]
     for prop in contract.props:
@@ -1397,6 +1399,10 @@ def _consumer_class(contract: Contract, records, path) -> str:
         f"    explicit {name}Consumer(QObject *parent = nullptr);",
         "",
         "    QString contractName() const override;",
+        "",
+        f"    // The live facade, not a new object: `{name}` in QML has to be the one",
+        "    // accessor the runtime installed, or a call would reach nothing.",
+        f"    static {name}Consumer *qmlAttachedProperties(QObject *object);",
         "",
     ]
     for prop in contract.props:
@@ -1432,58 +1438,9 @@ def _consumer_class(contract: Contract, records, path) -> str:
     return "\n".join(lines)
 
 
-def _attached_classes(contract: Contract, records, path) -> str:
-    name = contract.name
-    lines = [
-        f"// The `{name}.on<Signal>` attached type: no target, it resolves the {name} connect",
-        "// point this entity consumes (disambiguated by `.point`) and relays its signals.",
-        f"class {name}Attached : public QObject",
-        "{",
-        "    Q_OBJECT",
-        "    Q_PROPERTY(QString point READ point WRITE setPoint NOTIFY pointChanged)",
-        "",
-        "public:",
-        f"    explicit {name}Attached(QObject *parent = nullptr);",
-        "",
-        "    QString point() const;",
-        "    void setPoint(const QString &point);",
-        "",
-        "signals:",
-    ]
-    for signal in contract.signals:
-        params = _param_list(signal.params, records, path)
-        lines.append(f"    void {signal.name}({params});")
-    lines += [
-        "    void pointChanged();",
-        "",
-        "private:",
-        "    void rebind();",
-        "",
-        "    QString m_point;",
-        "    QObject *m_consumer{nullptr};",
-        "    QList<QMetaObject::Connection> m_connections;",
-        "};",
-        "",
-        f"// The attaching type registered as the QML name \"{name}\", so `{name}.on<Signal>`",
-        "// resolves. It does nothing but provide the attached object.",
-        f"class {name} : public QObject",
-        "{",
-        "    Q_OBJECT",
-        f"    QML_ATTACHED({name}Attached)",
-        "",
-        "public:",
-        f"    explicit {name}(QObject *parent = nullptr) : QObject{{parent}} {{}}",
-        "",
-        f"    static {name}Attached *qmlAttachedProperties(QObject *object)",
-        f"    {{ return new {name}Attached{{object}}; }}",
-        "};",
-    ]
-    return "\n".join(lines)
-
-
 CONSUMER_RELAY_HELPER = """namespace {
 // Relay one signal to another by signature, tolerating a Replica that does not expose it
-// (a dynamic Replica has no model-changed property signal): connect only when both exist,
+// (a dynamic Replica has no model-changed property signal), connect only when both exist,
 // so nothing warns. Returns the connection so the facade can drop it on the next rebind.
 QMetaObject::Connection synqtRelay(QObject *from, const QByteArray &fromSignal,
                                    QObject *to, const QByteArray &toSignal)
@@ -1520,8 +1477,6 @@ def emit_consumer_source(syn: SynFile, lstem: str) -> str:
     for contract in syn.contracts:
         out.append(_consumer_impl(syn, contract, records, path))
         out.append("")
-        out.append(_attached_impl(contract, records, path))
-        out.append("")
     out.append(f"void synqtRegister{_cap(syn.stem)}Consumers()")
     out.append("{")
     for contract in syn.contracts:
@@ -1530,7 +1485,8 @@ def emit_consumer_source(syn: SynFile, lstem: str) -> str:
         out.append(
             f"        []() -> SynQt::ConsumerBase * {{ return new {contract.name}Consumer{{}}; }});")
         out.append(
-            f'    qmlRegisterType<{contract.name}>("SynQt", 1, 0, "{contract.name}");')
+            f'    qmlRegisterType<{contract.name}Consumer>("SynQt", 1, 0, '
+            f'"{contract.name}");')
     out.append("}")
     out.append("#else")
     out.append(f"void synqtRegister{_cap(syn.stem)}Consumers() {{}}")
@@ -1551,6 +1507,17 @@ def _consumer_impl(syn: SynFile, contract: Contract, records, path) -> str:
         f"QString {cls}::contractName() const",
         "{",
         f'    return QStringLiteral("{name}");',
+        "}",
+        "",
+        f"{cls} *{cls}::qmlAttachedProperties(QObject *object)",
+        "{",
+        "    Q_UNUSED(object);",
+        f'    QObject *facade{{SynQt::ConnectPointResolver::instance()->resolve('
+        f'QStringLiteral("{name}"))}};',
+        "    // Owned by the runtime that installed it and shared by every file that names",
+        "    // it, so the engine must not take it or delete it with a scope object.",
+        "    QQmlEngine::setObjectOwnership(facade, QQmlEngine::CppOwnership);",
+        f"    return qobject_cast<{cls} *>(facade);",
         "}",
         "",
     ]
@@ -1659,66 +1626,6 @@ def _consumer_slot_impl(syn: SynFile, class_name: str, slot: Slot, records, path
         "    return new SynQt::Promise{reply, engine, this};",
         "}",
     ])
-
-
-def _attached_impl(contract: Contract, records, path) -> str:
-    name = contract.name
-    cls = f"{name}Attached"
-    lines = [
-        f"{cls}::{cls}(QObject *parent)",
-        "    : QObject{parent}",
-        "{",
-        "    connect(SynQt::ConnectPointResolver::instance(),",
-        "            &SynQt::ConnectPointResolver::changed, this,",
-        "            [this](const QString &contract) {",
-        f'                if (contract == QStringLiteral("{name}")) {{',
-        "                    rebind();",
-        "                }",
-        "            });",
-        "    rebind();",
-        "}",
-        "",
-        f"QString {cls}::point() const",
-        "{",
-        "    return m_point;",
-        "}",
-        "",
-        f"void {cls}::setPoint(const QString &point)",
-        "{",
-        "    if (m_point == point) {",
-        "        return;",
-        "    }",
-        "    m_point = point;",
-        "    emit pointChanged();",
-        "    rebind();",
-        "}",
-        "",
-        f"void {cls}::rebind()",
-        "{",
-        "    QObject *consumer{SynQt::ConnectPointResolver::instance()->resolve(",
-        f'        QStringLiteral("{name}"), m_point)}};',
-        "    if (consumer == m_consumer) {",
-        "        return;",
-        "    }",
-        "    for (const QMetaObject::Connection &connection : std::as_const(m_connections)) {",
-        "        disconnect(connection);",
-        "    }",
-        "    m_connections.clear();",
-        "    m_consumer = consumer;",
-        "    if (m_consumer == nullptr) {",
-        "        return;",
-        "    }",
-    ]
-    for signal in contract.signals:
-        types = _types_csv(signal.params, records, path)
-        lines.append(
-            f'    m_connections.append(synqtRelay(m_consumer, "{signal.name}({types})",')
-        lines.append(
-            f'                                    this, "{signal.name}({types})"));')
-    if not contract.signals:
-        lines.append("    // The contract declares no signals to relay.")
-    lines.append("}")
-    return "\n".join(lines)
 
 
 # replica side

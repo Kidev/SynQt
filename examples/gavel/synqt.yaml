@@ -60,14 +60,14 @@ connect_points:
     consumers: [app]
     # What may cross, and nothing else does. Properties flow owner -> consumers. A slot
     # flows the other way (a consumer asks, the owner decides). The bidder is not an
-    # argument: the edge stamps the high bidder from the caller's verified identity, never
+    # argument. The edge stamps the high bidder from the caller's verified identity, never
     # from a typed name.
     #
     # A `<scope>` in front of a member is the gate on it. A caller without that scope does
-    # not have the member: the slot is refused before it runs, so there is no check to
+    # not have the member. The slot is refused before it runs, so there is no check to
     # write, and to forget, in the QML that implements it.
     #
-    # The three properties are exported by name: web/edge/EdgeContract.qml binds each of
+    # The three properties are exported by name. Web/edge/Edge.qml binds each of
     # them to Edge.qml, which declares what they are, so saying it twice here would be a
     # second place to keep in step. `synqt check` refuses a name the owner does not have.
     export: |
@@ -81,10 +81,10 @@ connect_points:
       <admin> slot closeLot(string[80] nextItem)   // an auctioneer closes a lot, opens the next
       signal bidRejected(string[120] reason)
 
-  # The durable ledger: owned by the books, reachable only by the edge (never the
-  # browser; a client consumer here fails `synqt check`, since the books entity is not a
-  # web edge). That one-name consumer list is the whole of the rule, which is why
-  # BooksContract.qml has no check in it about who is calling.
+  # The durable ledger. Owned by the books, reachable only by the edge (never the
+  # browser. A client consumer here fails `synqt check`, since the books entity is not a
+  # web edge). That one-name consumer list is the whole rule, which is why
+  # Books.qml has no check in it about who is calling.
   - owner: books
     consumers: [edge]
     # A recorded winner is announced as a scalar signal (scalars replicate reliably), and

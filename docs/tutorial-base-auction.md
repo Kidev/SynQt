@@ -28,7 +28,7 @@ connect_points:
       signal bidRejected(string[120] reason)
 ```
 
-The owner is `edge`, so the type it exports is `EdgeContract`. That is the name you will
+The owner is `edge`, so the type it exports is `Edge`. That is the name you will
 write in QML in a moment, and nothing else names it.
 
 > [!NOTE]
@@ -44,70 +44,46 @@ owner does not have. Written out is never wrong, and it is the only way to narro
 with a bound, which is why the tutorial writes them out here. See
 [exporting by name](programming-model.md#exporting-by-name).
 
-## Step 2: Hold the lot
+## Step 2: Implement the owner side
 
-There is one lot under the hammer, however many people are watching it, so it belongs to
-the edge entity rather than to any one browser. `synqt new` already wrote
-`web/edge/Edge.qml`, the entity's own file: open it and give it the auction.
-
-```qml
-pragma Singleton
-
-import QtQuick
-
-QtObject {
-    id: root
-
-    property string itemName: "A homemade lasagna, baked fresh this morning"
-    property int highBid: 0
-    property string highBidder: "nobody yet"
-
-    function accept(amount: int, bidder: string) {
-        root.highBid = amount;
-        root.highBidder = bidder;
-    }
-}
-```
-
-Nothing here decides anything, and that is deliberate: this file has no caller, so it is
-the wrong place for a rule about who may do what. The rules go in the next file, which
-does have one.
-
-## Step 3: Implement the owner side
-
-The web edge owns the connect point, which means it answers for the auction. Create
-`web/edge/EdgeContract.qml`:
+The web edge owns the connect point, which means it answers for the auction. There is one
+lot under the hammer however many people are watching, and one file that holds it. `synqt
+new` already wrote `web/edge/Edge.qml`, the edge itself. Open it and give it the auction.
 
 ```qml
 import QtQuick
 import SynQt
 
-EdgeContract {
+Edge {
     id: auction
 
-    itemName: Edge.itemName
-    highBid: Edge.highBid
-    highBidder: Edge.highBidder
+    itemName: "A homemade lasagna, baked fresh this morning"
+    highBid: 0
+    highBidder: "nobody yet"
 
-    // A consumer (a browser) is asking to bid. We decide whether to accept.
+    // A consumer (a browser) is asking to bid. The edge decides whether to accept.
     function placeBid(bidder, amount) {
-        if (amount <= Edge.highBid) {
-            Caller.emitBidRejected("Your bid must beat " + Edge.highBid + ".")
+        if (amount <= auction.highBid) {
+            Caller.emitBidRejected("Your bid must beat " + auction.highBid + ".")
             return
         }
-        Edge.accept(amount, bidder)
+        auction.highBid = amount
+        auction.highBidder = bidder
     }
 }
 ```
 
+The three properties are the ones the `export:` block declared, so setting them here is
+what publishes them. Every browser watching sees the new value without another line.
+
 `Caller` is whoever made this request. `Caller.emitBidRejected(...)` sends the
-`bidRejected` signal back to that one caller, not to everyone.
+`bidRejected` signal back to that one caller rather than to everyone.
 
-There is one of these per browser session, which is exactly why `Caller` means anything:
-a single Source shared by every browser could not be told which of them was calling. The
-lot is shared and the answering is not, and the two files above are that split.
+The edge is shared, so there is one of these holding one lot. Each caller still arrives
+with their own `Caller`, which is what lets the rejection go back to the one browser that
+bid too low.
 
-## Step 4: Build the UI
+## Step 3: Build the UI
 
 Open `client/app/Main.qml` and replace its contents:
 
@@ -165,8 +141,8 @@ ApplicationWindow {
             visible: text.length > 0
         }
 
-        // Listen for a rejection meant for us.
-        EdgeContract.onBidRejected: reason => errorLabel.text = reason
+        // Listen for a rejection meant for this browser.
+        Edge.onBidRejected: reason => errorLabel.text = reason
     }
 }
 ```
@@ -174,7 +150,7 @@ ApplicationWindow {
 `Server` is how the browser reaches the edge's connect points. `Server.auction` is
 the live copy of the auction the edge owns.
 
-## Step 5: Run it
+## Step 4: Run it
 
 Save everything and look at the browser. You should see the lasagna and a current
 bid of 0. Place a bid of 50. The current bid jumps to 50 with your name.
@@ -192,7 +168,7 @@ that happen.
 > [!QUESTION]
 > In tab one bid 50. In tab two bid 10. What happens to the bid of 10, and why?
 > Then, predict: if you delete the line `if (amount <= auction.highBid)` from
-> `web/edge/EdgeContract.qml` and save, what will a bid of 10 do to the standing bid of 50?
+> `web/edge/Edge.qml` and save, what will a bid of 10 do to the standing bid of 50?
 
 <details class="solution" markdown>
 <summary>Solution</summary>

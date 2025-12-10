@@ -291,19 +291,19 @@ class AppGenTest(unittest.TestCase):
         self.assertIn("synqt_add_contract(client ROLE replica", cmake)
         self.assertIn("synqt_add_contract(web ROLE source", cmake)
         client_main = maingen.render_client_main(config, appmodel.qml_uri(config["project"]["name"]))
-        self.assertIn("synqtRegisterWebContractReplicas();", client_main)
+        self.assertIn("synqtRegisterWebReplicas();", client_main)
         # The client also registers the consumer surface, so `Server` is the facade
-        # (returning-slot promises) and `WebContract.on<Signal>` handlers resolve.
-        self.assertIn("synqtRegisterWebContractConsumers();", client_main)
+        # (returning-slot promises) and `Web.on<Signal>` handlers resolve.
+        self.assertIn("synqtRegisterWebConsumers();", client_main)
         # An application compiles under the rules the framework compiles under: the same
         # file, included from the same root, rather than a copy of its contents that would
         # drift the first time one of them changed.
         self.assertIn('include("${SYNQT_ROOT}/cmake/SynQtBuildFlags.cmake")', cmake)
         self.assertNotIn("CMAKE_CXX_STANDARD", cmake)
         edge_main = maingen.render_edge_main(config, config["entities"][1])
-        self.assertIn("synqtRegisterWebContractSources();", edge_main)
+        self.assertIn("synqtRegisterWebSources();", edge_main)
         self.assertIn("WebEdgeConnectPoint pointWeb;", edge_main)
-        self.assertIn('pointWeb.contract = QStringLiteral("WebContract");', edge_main)
+        self.assertIn('pointWeb.contract = QStringLiteral("Web");', edge_main)
 
     def test_client_main_defaults_logging_by_build_type(self):
         # With build.client_logging unset, the generated main installs Console in a debug
@@ -411,18 +411,18 @@ class AppGenTest(unittest.TestCase):
         }
         edge_main = maingen.render_edge_main(config, config["entities"][1])
         self.assertIn('#include "entityruntime.h"', edge_main)
-        self.assertIn('#include "databasecontract_consumer.h"', edge_main)
-        self.assertIn("synqtRegisterDatabaseContractConsumers();", edge_main)
+        self.assertIn('#include "database_consumer.h"', edge_main)
+        self.assertIn("synqtRegisterDatabaseConsumers();", edge_main)
         self.assertIn("EntityRuntime runtime{topologyFromJson(topologyJson), &engine};",
                       edge_main)
         self.assertIn(
             'edge.setContextObject(EntityRuntime::accessorName(QStringLiteral("database")),',
             edge_main)
-        # accessor() returns a QObject* now: the entity's one connect point, behind its
-        # consumer facade, rather than a map of the several it used to be able to own.
+        # accessor() returns a QObject*, the entity's one connect point, behind its
+        # consumer facade, rather than a map.
         self.assertNotIn("#include <QQmlPropertyMap>", edge_main)
         # It still owns and hosts its browser-facing side through WebEdge.
-        self.assertIn("synqtRegisterWebContractSources();", edge_main)
+        self.assertIn("synqtRegisterWebSources();", edge_main)
         self.assertIn("WebEdgeConnectPoint pointWeb;", edge_main)
 
     def test_service_main_includes_qjsonobject_for_the_topology(self):

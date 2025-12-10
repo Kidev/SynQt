@@ -64,19 +64,19 @@ GITHUB_CLIENT_SECRET=your-generated-secret
 > with no working but insecure middle state to get stuck in. If you want the full
 > picture of what was turned on for you, see [authentication](authentication.md).
 
-## Step 2: Use the real identity, not a typed name
+## Step 2: Use the real identity instead of a typed name
 
 Now that the edge knows who the caller is, the bidder should come from their
-identity, not a text field. Change the edge's `export:` in `synqt.yaml`, and say on the
+identity rather than a text field. Change the edge's `export:` in `synqt.yaml`, and say on the
 member itself who may reach it:
 
 ```yaml
-      <user> slot placeBid(int amount)   // signed-in users only; the edge knows who you are
+      <user> slot placeBid(int amount)   // signed-in users only, and the edge knows who you are
 ```
 
-The `<user>` is the gate. A caller who does not hold that scope does not have the member:
-the call is refused before your function runs, so there is no check to write in the QML,
-and none to forget. Update `web/edge/EdgeContract.qml` to use the caller's identity:
+The `<user>` is the gate. A caller who does not hold that scope does not have the member.
+The call is refused before your function runs, so there is no check to write in the QML,
+and none to forget. Update `web/edge/Edge.qml` to use the caller's identity:
 
 ```qml
 function placeBid(amount) {
@@ -182,24 +182,15 @@ Add to the edge's `export:`, gated a level higher:
       <admin> slot closeLot(string[120] nextItem)
 ```
 
-Resetting the lot is a change to the lot, which lives in the edge entity, so add the
-move to `web/edge/Edge.qml` beside `accept`:
-
-```qml
-function openLot(nextItem: string) {
-    root.itemName = nextItem;
-    root.highBid = 0;
-    root.highBidder = "nobody yet";
-}
-```
-
-And what it does to `web/edge/EdgeContract.qml`. Who may do it is already settled by the
-`<admin>` on the member, so this function only has to do the work:
+Who may do it is already settled by the `<admin>` on the member, so the function in
+`web/edge/Edge.qml` only has to do the work:
 
 ```qml
 function closeLot(nextItem) {
     // (A later part records the winner here before resetting.)
-    Edge.openLot(nextItem)
+    auction.itemName = nextItem
+    auction.highBid = 0
+    auction.highBidder = "nobody yet"
 }
 ```
 

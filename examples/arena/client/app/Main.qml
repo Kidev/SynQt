@@ -398,11 +398,11 @@ ApplicationWindow {
 
     App.onUpdateReady: updateBanner.visible = true
 
-    EdgeContract.onEaten: (prey, predator) => {
+    Edge.onEaten: (prey, predator) => {
         const me = Session.identity ? Session.identity.login : null;
         if (prey === me) banner.flash("You were eaten by " + predator + "!");
         else if (predator === me) banner.flash("You ate " + prey);
         else banner.flash(predator + " ate " + prey);
     }
-    EdgeContract.onRoundEnded: winner => banner.flash("Round over! " + winner + " takes the point.")
+    Edge.onRoundEnded: winner => banner.flash("Round over! " + winner + " takes the point.")
 }

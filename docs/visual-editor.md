@@ -39,10 +39,10 @@ one arrives, so an entity is always somewhere you chose rather than somewhere a 
 room.
 
 Every entity arrives with its own file, before it owns or consumes anything. A client's is its
-window, `client/app/Main.qml`; every other entity's is a singleton named after it, `web/edge/Edge.qml`,
-where state belonging to the whole entity goes. That file is separate from the Source of any
-connect point the entity owns, and for a good reason: a Source can be created per session or
-per peer, so anything shared between them has to outlive any one of them.
+window, `client/app/Main.qml`; every other entity's is named after it, `web/edge/Edge.qml`. That
+one file is the entity: what it exports and the state behind it. An entity that mints a Source
+per caller and still needs something shared between them writes a `pragma Singleton` of its own
+beside it, under a name it chooses.
 
 The boxes behind the nodes are the three sides of a system, and they are drawn from what each
 entity is rather than from where it sits: the browser, the one entity facing the internet,
@@ -59,8 +59,8 @@ Every node has a handle on each of its four sides; drag any of them and drop the
 consumer. That direction is the whole meaning of the line, so it is the thing the canvas asks
 you to say first, it is drawn as a filled cap on the owner and an arrowhead on the consumer,
 and the owner names it: dropping a line from `edge` onto `app` gives you the connect point
-`edge` exports, carrying the `EdgeContract` type and implemented in
-`web/edge/EdgeContract.qml`. There is nothing to name. Drawing a second line out of `edge`
+`edge` exports, carrying the `Edge` type and implemented in
+`web/edge/Edge.qml`. There is nothing to name. Drawing a second line out of `edge`
 adds a consumer to the one point it already exports rather than making another.
 
 Drop the line on empty canvas instead and the palette opens there: pick a kind and that entity
@@ -105,7 +105,7 @@ Declare a property, a signal or a function in a connect point's Source and it be
 member of that contract, exactly as if you had added it in the panel:
 
 ```qml
-EdgeContract {
+Edge {
     id: root
 
     property bool loaded

@@ -86,7 +86,7 @@ flowchart TB
 The interface is small, native, and the same for every provider in the family. The
 generic lifecycle (connect, disconnect, health) plus the family operations are all
 a provider must implement. The connect point Source calls the interface, never a
-specific engine, so the same `StoreContract.qml` works whether the provider is SQLite or
+specific engine, so the same `Store.qml` works whether the provider is SQLite or
 PostgreSQL.
 
 Family interfaces (illustrative shapes; the exact C++ signatures live in the

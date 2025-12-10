@@ -91,7 +91,7 @@ Item {
     function refreshChampions() {
         Records.top().then(rows => { world.champions = rows; });
     }
-    RecordsContract.onStandingsChanged: world.refreshChampions()
+    Records.onStandingsChanged: world.refreshChampions()
 
     // The simulation, run once for the whole arena
     Timer {

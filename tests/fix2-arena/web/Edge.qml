@@ -5,11 +5,11 @@ import QtQuick
 import SynQt
 
 // One instance per player session (the runnable rendering of
-// examples/arena/web/edge/EdgeContract.qml). It never simulates; it forwards this player's
+// examples/arena/web/edge/Edge.qml). It never simulates. It forwards this player's
 // steer and ping into the shared World and publishes only their slice. The connect point is
 // `scope: player`, so an under-scoped session never has this acquired at all and there is
 // nothing in here that asks about scope.
-EdgeContract {
+Edge {
     id: arena
     property string mySub: ""
 

@@ -419,7 +419,7 @@ function linkPanel(design, link, actions) {
                      link.owner ? `${link.owner}'s connect point` : "this connect point"));
 
     // Nothing to name. An entity has one connect point, so the owner names it: consumers
-    // reach it as the owner capitalised, and its contract is that plus `Contract`.
+    // reach it as the owner capitalised, and the contract carries that same name.
     const names = (design.entities || []).map((entity) => entity.name);
     const taken = new Set((design.links || [])
         .filter((one) => one !== link)
@@ -435,7 +435,7 @@ function linkPanel(design, link, actions) {
     panel.append(note("The owner is the name: consumers reach this as "
                       + `${link.owner ? capitalised(link.owner) : "<Owner>"}, and it `
                       + "carries the "
-                      + `${link.owner ? capitalised(link.owner) : "<Owner>"}Contract type. `
+                      + `${link.owner ? capitalised(link.owner) : "<Owner>"} type. `
                       + "An entity that already exports one is not offered here."));
 
     const consumers = tag("div");

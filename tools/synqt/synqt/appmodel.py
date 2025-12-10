@@ -223,16 +223,32 @@ def contract_path(entity: Dict[str, Any], contract: str) -> str:
 
 
 def source_path(entity: Dict[str, Any], contract: str) -> str:
-    """Where the Source of a connect point this entity owns lives."""
+    """Where the Source of a connect point this entity owns lives. The entity's own file.
+
+    An entity owns one connect point and the point is named after it, so this is
+    `<folder>/<Entity>.qml` and nothing else. The author writes one file per entity, called
+    after the entity, and never types a name the framework derived.
+    """
     return f"{entity_dir(entity)}/{contract}.qml"
 
 
-def entity_file_path(entity: Dict[str, Any]) -> str:
-    """Where an entity's own QML lives: the file that entity *is*.
+def authored_source_path(entity: Dict[str, Any], point: Dict[str, Any]) -> str:
+    """The Source file as its author sees it. The file to write, and the one to report.
 
-    Distinct from a connect point's Source, which is one surface the entity exposes. A
-    client's own file is its window and has to be called `Main.qml`, because the generated
-    main.cpp loads it by that name; every other entity's is a singleton named after it.
+    `server:` is the escape hatch for a point whose implementation is somewhere else, and
+    the framework's own points use it to name a file that is generated outright.
+    """
+    declared = str(point.get("server") or "")
+    return declared or source_path(entity, contract_of(point))
+
+
+def entity_file_path(entity: Dict[str, Any]) -> str:
+    """Where an entity's own QML lives. The file that entity *is*.
+
+    A client's is its window and has to be called `Main.qml`, because the generated main.cpp
+    loads it by that name. Every other entity's is named after the entity, and it is also
+    the Source of the point that entity owns. An entity and the surface it exports are one
+    file, because they were never two things an author wanted to keep apart.
     """
     if is_client(entity):
         return f"{entity_dir(entity)}/Main.qml"
@@ -442,18 +458,16 @@ def accessor_name(owner: str) -> str:
 
 
 def contract_of(point: Dict[str, Any]) -> str:
-    """The type a connect point's `export:` becomes: its owner, capitalized, plus Contract.
+    """The type a connect point's `export:` becomes: its owner, capitalized.
 
-    A point and the shape of what crosses it are one thing, so only one of them is named,
-    and with one point per owner the owner is what names both. `EdgeContract` is the type
-    the edge exports, the QML type `web/edge/EdgeContract.qml` is rooted at, and the name
-    of the file :mod:`synqt.contractgen` writes under `generated/`. Entity names are unique
-    across a project, so these are too.
+    One entity, one connect point, one name. `Edge` is the entity, the type its own
+    `web/edge/Edge.qml` is rooted at, and the name every consumer reaches it by
+    (`Edge.placeBid(...)`). Entity names are unique across a project, so these are too.
 
-    The suffix is what keeps it apart from the entity's own singleton, which is the owner's
-    name on its own (`web/edge/Edge.qml`). Both are in scope in the same QML, and they are
-    different things: `Edge` is the entity, one of it for as long as it runs, and
-    `EdgeContract` is the surface it exports, one per caller.
+    Nothing carries a suffix, because a suffix would be a name the framework derived and
+    the author had to type. The one place the two names have to differ is the copy the
+    compiler reads, and that is made at build time under `generated/`
+    (:func:`generated_source_path`), where no author ever looks.
 
     `contract:` is read only for the framework's own points, whose contracts ship in the
     runtime libraries under names of their own (the `sessions` point carries `SessionStore`).
@@ -463,7 +477,7 @@ def contract_of(point: Dict[str, Any]) -> str:
     if isinstance(declared, str) and declared.strip():
         return declared.strip()
     owner = str(point.get("owner") or "")
-    return f"{owner[:1].upper()}{owner[1:]}Contract" if owner else ""
+    return f"{owner[:1].upper()}{owner[1:]}" if owner else ""
 
 
 def behind(point: Dict[str, Any]) -> Dict[str, str]:

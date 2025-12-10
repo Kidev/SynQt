@@ -33,11 +33,11 @@ def _duplicate_messages(names: List[Any], what: str, consequence: str) -> List[s
 def _named_point_messages(config: Dict[str, Any]) -> List[str]:
     """Refuse a `name:` on a connect point.
 
-    An entity has one connect point, so the owner already names it: the accessor a consumer
-    reads is `Books`, the contract is `BooksContract`, and the file that implements it is
-    `BooksContract.qml`. A leftover `name:` from the older form is not harmless, because
-    everything derived from it moves: a project that keeps writing `name: ledger` gets a
-    build looking for `LedgerContract.qml` on one side and `BooksContract` on the other.
+    An entity has one connect point, so the owner already names it. The accessor a consumer
+    reads is `Books`, the contract is `Books`, and the file that implements it is
+    `Books.qml`. A leftover `name:` from the older form is not harmless, because everything
+    derived from it moves: a project that keeps writing `name: ledger` gets a build looking
+    for `Ledger.qml` on one side and `Books` on the other.
     """
     messages: List[str] = []
     for point in config.get("connect_points") or []:
@@ -1656,7 +1656,17 @@ def lint_connect_point_sources(config: Dict[str, Any],
             # generated helper and relays. There is nothing for a server file to say, and
             # asking for one would be asking for a file whose every member is dead code.
             continue
-        relative = str(point.get("server") or appmodel.source_path(owning, contract))
+        relative = appmodel.authored_source_path(owning, point)
+        # A project written before an entity was one file still carries the two names the
+        # framework used to derive. Say which file becomes which, because whatever else is
+        # wrong with it, that is the edit, and the other messages would describe symptoms.
+        older = root / f"{appmodel.entity_dir(owning)}/{contract}Contract.qml"
+        if older.is_file():
+            messages.append(
+                f"error: {older.relative_to(root).as_posix()}: an entity is one file named "
+                f"after itself now. Rename this to {relative}, keeping it rooted at "
+                f"'{contract}', and fold anything the old {relative} held into it")
+            continue
         source = root / relative
         if not source.is_file():
             messages.append(

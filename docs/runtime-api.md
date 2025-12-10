@@ -25,7 +25,7 @@ in an owned connect point's implementation.
 | `Db`, `Docs`, `Cache`, `Jobs` | a typed entity's QML | the helper that type provides, one per entity (see [the type helpers](#service-the-type-helpers)) |
 | `Http`, `Api` | an entity with a `network:` block | outbound calls within its allowlist, and the inbound surface it serves |
 
-`<Contract>.on<Signal>` attached handlers (for reacting to a connect point's
+`<Owner>.on<Signal>` attached handlers (for reacting to a connect point's
 signals) are covered in [Handling a connect point's signals](programming-model.md#handling-a-connect-points-signals);
 they are generated per contract and available wherever that connect point is
 consumed.
@@ -353,13 +353,13 @@ example](programming-model.md#a-connect-point-implementation-end-to-end): the ed
 checks the user, the database checks the calling entity.
 
 ```qml
-// web/edge/EdgeContract.qml: the edge authorizes a user
+// web/edge/Edge.qml: the edge authorizes a user
 function add(text) {
     if (!Caller.hasScope("user")) { Caller.emitRejected("Sign in first."); return }
     Store.insert({ text: text.trim(), ownerSub: Caller.identity.sub })
 }
 
-// db/relational/store/StoreContract.qml: the database authorizes the calling entity
+// db/relational/store/Store.qml: the database authorizes the calling entity
 function insert(row) {
     if (Caller.entity !== "edge") return    // only the edge may write
     Db.exec("INSERT INTO items(text, owner_sub) VALUES(?,?)", [row.text, row.ownerSub])
@@ -388,7 +388,7 @@ not by the call site, and it travels for as long as the chain does, so a service
 entities deep still answers a named person.
 
 ```qml
-// db/relational/store/StoreContract.qml, reached only by the edge
+// db/relational/store/Store.qml, reached only by the edge
 function insert(row) {
     if (Caller.entity !== "edge") return    // the certificate: this is the authorization
     // And this is who the edge is answering. `Caller.isUser` is still false: the caller is
@@ -448,7 +448,7 @@ browser user and reading `Client` there is clearer than reading `Caller`.
 ## Owner: the generated Source surface
 
 The owner of a connect point implements it against the Source type the contract
-generator emits, named `<Contract>Source`. This is the only place authoritative
+generator emits, named `<Owner>Source`. This is the only place authoritative
 state is written. For `contract Todo { prop int count; model items(string text, string author);
 signal rejected(string reason); slot add(string text) }` the owner's Source
 exposes:
@@ -695,7 +695,7 @@ The framework, not your code, owns each accessor's lifecycle:
   its slots cannot be called at all; the gate is enforced at acquisition, not by
   hiding buttons. On a scope upgrade (`Caller.setScope` after login) the newly
   permitted connect points are acquired; on logout they are released.
-- Attached signal handlers (`<Contract>.on<Signal>`) fire only while the connect
+- Attached signal handlers (`<Owner>.on<Signal>`) fire only while the connect
   point is live. Before acquisition, or during `reconnecting`, they simply do not
   fire, and they resume on reconnect.
 - `Router` resolves the URL the page was loaded at before the link to the edge

@@ -54,16 +54,16 @@ enable_testing()
 
 qt_add_executable(tst_fix1 tst_fix1.cpp)
 
-# The web edge hosts EdgeContractSource from its QML; the books entity hosts
-# BooksContractSource. Every consumer uses dynamic replicas, so no replica headers are
+# The web edge hosts EdgeSource from its QML; the books entity hosts
+# BooksSource. Every consumer uses dynamic replicas, so no replica headers are
 # generated.
 synqt_add_contract(tst_fix1 ROLE source
-    SYN "${GAVEL}/generated/web/edge/EdgeContract.syn")
+    SYN "${GAVEL}/generated/web/edge/Edge.syn")
 # The books entity is the mesh half: the edge consumes it, so it needs the consumer facade
 # (ROLE both) and its slots carry the session the edge is acting for (FORWARDS_SESSION),
 # exactly as `synqt build` compiles it for the two entities separately.
 synqt_add_contract(tst_fix1 ROLE both FORWARDS_SESSION
-    SYN "${GAVEL}/generated/db/relational/books/BooksContract.syn")
+    SYN "${GAVEL}/generated/db/relational/books/Books.syn")
 
 target_compile_definitions(tst_fix1 PRIVATE
     FIX1_CERT_DIR="${FIX1_CERTS}"

@@ -93,11 +93,12 @@ Here is the heart of the game. The edge holds the one authoritative arena: the r
 of players (with private bookkeeping the browser never sees), the pellets, and a
 simulation loop that moves every blob, feeds it, and resolves who eats whom.
 
-It goes in two files, and which one is which matters. There is exactly one arena however
-many people are playing, so the arena lives in the edge entity's own singleton. Each
-browser session gets its own connect point Source, which is what gives its slots a
-`Caller` to check, and that Source is a thin layer over the one arena. A single Source
-shared by everybody could not be told which player was steering.
+It goes in two files, and which one is which matters. The edge here says `shared: false`,
+so each browser session gets its own Source, which is what gives its slots a `Caller` to
+check and lets each player be sent only their own slice. There is still exactly one arena
+however many people are playing, and something that outlives any one session has to live
+somewhere none of them owns: a `pragma Singleton` of the edge's own, `World.qml`. Each
+Source is then a thin layer over the one arena.
 
 ### The arena itself, `web/edge/World.qml`
 
@@ -270,10 +271,10 @@ Item {
 }
 ```
 
-### One player's view of it, `web/edge/EdgeContract.qml`
+### One player's view of it, `web/edge/Edge.qml`
 
 The connect point Source, one per browser session. It is where the caller arrives, so it
-is where the rules are: only an approved player may steer, and the name stamped on a blob
+is where the rules are. Only an approved player may steer, and the name stamped on a blob
 comes from `Caller.identity`, never from an argument. Then it publishes what the world
 holds.
 
@@ -281,11 +282,11 @@ holds.
 import QtQuick
 import SynQt
 
-EdgeContract {
+Edge {
     id: arena
 
-    // The pellet field is republished only when it actually moved, and the version this
-    // session last sent is this session's own business: a flag on the world would be
+    // The pellet field is republished only when it moved, and the version this
+    // session last sent is this session's own business. A flag on the world would be
     // cleared by whichever browser ticked first and the rest would never see the change.
     property int lastPellets: -1
 
@@ -343,7 +344,6 @@ Wire the connect point in `synqt.yaml`:
 connect_points:
   - owner: edge               # the edge holds the one real arena
     consumers: [app]          # the browser mirrors it
-    server: web/edge/EdgeContract.qml
     scope: player             # only approved players get the arena at all
     # the edge says shared: false, which is what puts a Caller in
     # the slots above. The arena itself is shared because World.qml is.

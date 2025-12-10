@@ -926,7 +926,7 @@ def render_edge_main(config: Dict[str, Any], edge: Dict[str, Any],
         # already the WebEdge this is being configured for.
         bare = re.sub(r"[^0-9A-Za-z]", "", cp_name)
         var = f"point{bare[:1].upper()}{bare[1:]}" if bare else "connectPoint"
-        server_file = cp.get("server") or appmodel.source_path(edge, contract)
+        server_file = appmodel.authored_source_path(edge, cp)
         # The declared scope is the barrier that decides whether this connect point is
         # acquired for a session at all (webedge.cpp checks it before creating the
         # Source), so it has to be carried here or the gate the topology declares does

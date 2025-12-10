@@ -25,8 +25,8 @@ my-app/
 
   web/                    # every web edge entity
     edge/                 # the edge: serves the client, faces the net
-      Edge.qml            # the entity itself: a singleton, one of it while the entity runs
-      Todo.qml            # a connect point the edge owns (what crosses it is in synqt.yaml)
+      Edge.qml            # the edge: what it exports, and its state (synqt.yaml says what
+                          #   may cross)
       identity/           # optional identity hooks
       .env                # secrets for this entity only
       .env.example
@@ -34,7 +34,6 @@ my-app/
   db/relational/          # every relational entity
     store/                # added with: synqt add entity store --type relational
       Store.qml
-      Items.qml
       schema.sql
       .env
 
@@ -469,7 +468,7 @@ because the owner is the name.
 connect_points:
   - owner: edge               # the entity holding the authoritative Source
     consumers: [app]          # the entities allowed to acquire the Replica
-    server: web/edge/EdgeContract.qml
+    server: web/edge/Edge.qml
     scope: user               # for browser consumers: minimum session scope
     export: |                 # what may cross it, and nothing else does
       prop int count
@@ -479,7 +478,7 @@ connect_points:
 
   - owner: store
     consumers: [edge]         # only the edge may reach the store
-    server: db/relational/store/StoreContract.qml
+    server: db/relational/store/Store.qml
     export: |
       slot var list()
       slot insert(string[280] text, string[64] ownerSub)
@@ -490,13 +489,13 @@ connect_points:
 already implements. The full member grammar, the types they can name, and what a bare
 name resolves to are in
 [the programming model](programming-model.md#contracts-the-shape-of-what-may-cross).
-`synqt check` holds every line to the owner's Source: a member nothing there implements
+`synqt check` holds every line to the owner's Source. A member nothing there implements
 is an error.
-Nothing names the point and nothing names the contract: the type a point exports is its
-owner capitalized plus `Contract`, so `owner: edge` exports `EdgeContract`, and that is the
-QML type the owner's Source is rooted at. The build writes it to
-`generated/<owner's folder>/EdgeContract.syn`, which nobody edits. The suffix is what keeps
-it clear of the entity's own singleton, `web/edge/Edge.qml`.
+Nothing names the point and nothing names the contract. The type a point exports is its
+owner capitalized, so `owner: edge` exports `Edge`, and that is the QML type the owner's
+Source is rooted at. It is also `web/edge/Edge.qml`, the edge's own file, because an entity
+and the surface it exports are one thing. The build writes the contract to
+`generated/<owner's folder>/Edge.syn`, which nobody edits.
 
 A second entry for one owner is refused. Two audiences on one point is what per-member
 `<scope>` is for, and two genuinely separate surfaces is two entities.
@@ -1226,8 +1225,8 @@ fast. Non negotiable checks:
   `require_mtls_cross_host` cannot be off in release.
 - A connect point whose `contract`, `owner`, or `server` file does not exist is
   rejected. An `owner` or `consumer` that is not a declared entity is rejected. The
-  `server` file (`<owner>/<Contract>.qml` when the point does not name one) must also
-  be rooted at `<Contract>Source`: it is the owner-side half of the point, and an
+  `server` file (`<owner>/<Owner>.qml` when the point does not name one) must also
+  be rooted at `<Owner>`: it is the owner-side half of the point, and an
   owner with nothing to host it with fails at start-up rather than at build time.
   `synqt add connect-point` writes that file, empty, along with the point, so the
   usual way to meet this rule is not to notice it.

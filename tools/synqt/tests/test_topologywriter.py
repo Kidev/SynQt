@@ -122,7 +122,7 @@ class EntityTopologyTest(unittest.TestCase):
         topology = topologywriter.entity_topology(
             self.config, self.config["entities"][2], self.root, self.endpoints)
         items = next(cp for cp in topology["connect_points"] if cp["name"] == "database")
-        self.assertTrue(items["server"].endswith("db/relational/database/DatabaseContract.qml"))
+        self.assertTrue(items["server"].endswith("db/relational/database/Database.qml"))
 
 
 class WriteTest(unittest.TestCase):

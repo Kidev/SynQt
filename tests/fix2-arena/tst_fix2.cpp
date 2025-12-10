@@ -1,15 +1,15 @@
 // SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 // SPDX-License-Identifier: Apache-2.0
 
-// FIX-2 acceptance. The multiplayer tutorial's two hands-on checks, proven end to end. The
-// web edge owns one authoritative arena. A World simulated once, injected into each
-// per-caller Source by name, and integrates every blob itself from an aim point.
-// Verifies the tutorial's "try it, then think" checks:
+// The multiplayer tutorial's two hands-on checks, proven end to end. The web edge owns one
+// authoritative arena: a World simulated once, injected into each per-caller Source by
+// name, that integrates every blob itself from an aim point. Verifies the tutorial's
+// "try it, then think" checks:
 //   1. a console steer(3999, 3999) does not teleport. The edge walks the blob toward the
 //      corner at its size's speed, a tick's budget at a time (movement authority);
-//   2. a signed-out or unapproved caller never has the edge's point acquired: the connect point's
-//      scope. Player is the barrier, so an under-scoped session cannot even reach the
-//      Replica, let alone call steer.
+//   2. a signed-out or unapproved caller never has the edge's point acquired: the connect
+//      point's scope, Player, is the barrier, so an under-scoped session cannot even reach
+//      the Replica, let alone call steer.
 // The third hands-on check (client-as-consumer-of-scores fails `synqt check`) is proven in
 // tools/synqt/tests/test_examples.py.
 
@@ -22,7 +22,7 @@
 #include "synclient.h"
 #include "synclientconfig.h"
 
-#include "edgecontract_sourcehelper.h"  // synqtRegisterEdgeContractSources()
+#include "edge_sourcehelper.h"  // synqtRegisterEdgeSources()
 
 #include <QElapsedTimer>
 #include <QQmlEngine>
@@ -61,7 +61,7 @@ SynClientConfig clientConfig(quint16 port, const QByteArray &cookie)
 {
     SynClientConfig config;
     config.edgeUrl = QUrl{QStringLiteral("wss://127.0.0.1:%1/sync").arg(port)};
-    config.connectPoints = {{QStringLiteral("edge"), QStringLiteral("EdgeContract")}};
+    config.connectPoints = {{QStringLiteral("edge"), QStringLiteral("Edge")}};
     config.pinnedCaCertPath = QStringLiteral(FIX2_CERT_DIR "/ca.crt");
     config.sessionCookie = cookie;
     config.scopeOrder = {QStringLiteral("anonymous"), QStringLiteral("player")};
@@ -98,7 +98,7 @@ private slots:
     void initTestCase()
     {
         QVERIFY2(QSslSocket::supportsSsl(), "TLS backend unavailable");
-        synqtRegisterEdgeContractSources();
+        synqtRegisterEdgeSources();
 
         m_engine = std::make_unique<QQmlEngine>();
 
@@ -122,8 +122,8 @@ private slots:
 
         WebEdgeConnectPoint arena;
         arena.name = QStringLiteral("edge");
-        arena.contract = QStringLiteral("EdgeContract");
-        arena.serverFile = QStringLiteral(FIX2_SRCDIR "/web/EdgeContract.qml");
+        arena.contract = QStringLiteral("Edge");
+        arena.serverFile = QStringLiteral(FIX2_SRCDIR "/web/Edge.qml");
         arena.scope = QStringLiteral("player");        // only approved players acquire it
         arena.shared = false;                         // one per player, so Caller is bound
         config.connectPoints = {arena};

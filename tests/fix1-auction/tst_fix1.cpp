@@ -25,10 +25,10 @@
 #include "synclient.h"
 #include "synclientconfig.h"
 
-#include "edgecontract_sourcehelper.h"  // synqtRegisterEdgeContractSources()
+#include "edge_sourcehelper.h"  // synqtRegisterEdgeSources()
 #include "consumerfactory.h"
-#include "bookscontract_consumer.h"  // BooksContractConsumer, the edge's mesh-half facade
-#include "bookscontract_sourcehelper.h"  // synqtRegisterBooksContractSources()
+#include "books_consumer.h"  // BooksConsumer, the edge's mesh-half facade
+#include "books_sourcehelper.h"  // synqtRegisterBooksSources()
 
 #include <QHostAddress>
 #include <QQmlEngine>
@@ -61,11 +61,11 @@ ConnectPointConfig ledgerConnectPoint(quint16 port)
 {
     ConnectPointConfig connectPoint;
     connectPoint.name = QStringLiteral("books");
-    connectPoint.contract = QStringLiteral("BooksContract");
+    connectPoint.contract = QStringLiteral("Books");
     connectPoint.owner = QStringLiteral("books");
     connectPoint.consumers = {QStringLiteral("edge")};
     connectPoint.serverFile =
-        QStringLiteral(FIX1_GAVEL_DIR "/db/relational/books/BooksContract.qml");
+        QStringLiteral(FIX1_GAVEL_DIR "/db/relational/books/Books.qml");
     connectPoint.shared = false;
     connectPoint.endpoint.mode = MeshTransportMode::MutualTls;
     connectPoint.endpoint.host = QStringLiteral("127.0.0.1");
@@ -90,7 +90,7 @@ SynClientConfig clientConfig(quint16 port, const QByteArray &cookie)
 {
     SynClientConfig config;
     config.edgeUrl = QUrl{QStringLiteral("wss://127.0.0.1:%1/sync").arg(port)};
-    config.connectPoints = {{QStringLiteral("edge"), QStringLiteral("EdgeContract")}};
+    config.connectPoints = {{QStringLiteral("edge"), QStringLiteral("Edge")}};
     config.pinnedCaCertPath = QStringLiteral(FIX1_CERT_DIR "/ca.crt");
     config.sessionCookie = cookie;
     config.scopeOrder = {QStringLiteral("anonymous"), QStringLiteral("user"),
@@ -128,19 +128,19 @@ private slots:
     void initTestCase()
     {
         QVERIFY2(QSslSocket::supportsSsl(), "TLS backend unavailable");
-        synqtRegisterEdgeContractSources();
-        synqtRegisterBooksContractSources();
+        synqtRegisterEdgeSources();
+        synqtRegisterBooksSources();
         // The edge reaches the books entity through the generated consumer facade, which is
         // what fills in the session it is acting for; a raw dynamic Replica would not.
         //
-        // Only the factory, not synqtRegisterBooksContractConsumers(): that also registers
+        // Only the factory, not synqtRegisterBooksConsumers(): that also registers
         // the attached type under the same QML name as the Source helper, and in a real
         // system the owner and the consumer are two binaries so the two never meet. Here
         // they are one process, and whichever registered last would be what the Source in
         // the books entity's QML resolves to.
         SynQt::registerConsumerFactory(
-            QStringLiteral("BooksContract"),
-            []() -> SynQt::ConsumerBase * { return new BooksContractConsumer{}; });
+            QStringLiteral("Books"),
+            []() -> SynQt::ConsumerBase * { return new BooksConsumer{}; });
 
         // The books entity owns its point, on an OS-assigned mTLS port.
         m_dbEngine = std::make_unique<QQmlEngine>();
@@ -155,13 +155,6 @@ private slots:
 
         // The edge entity consumes the books entity's point (as entity "edge").
         m_edgeEngine = std::make_unique<QQmlEngine>();
-        // The edge's own singleton, registered the way the generated main registers it
-        // (maingen._singleton_registrations). Every Source the edge owns reaches the lot
-        // and the Hall of Fame through it, so without this the example's QML is loading
-        // against a name that is not there.
-        qmlRegisterSingletonType(
-            QUrl::fromLocalFile(QStringLiteral(FIX1_GAVEL_DIR "/web/edge/Edge.qml")),
-            "SynQt", 1, 0, "Edge");
         Topology webTopology;
         webTopology.entity = QStringLiteral("edge");
         webTopology.credentials = credsFor(QStringLiteral("edge"));
@@ -186,13 +179,14 @@ private slots:
                              QStringLiteral("moderator"), QStringLiteral("admin")};
 
         // One point, because an entity has one: the auction and the Hall of Fame are both
-        // on it, and who may reach each member is written on the member. A Source per user,
-        // so `Caller` is the bidder; the lot and the Hall are the edge singleton's.
+        // on it, and who may reach each member is written on the member. Shared, as gavel's
+        // synqt.yaml leaves it. One lot and one Hall for everybody, and each caller reaches
+        // them through a mirror carrying their own `Caller`.
         WebEdgeConnectPoint point;
         point.name = QStringLiteral("edge");
-        point.contract = QStringLiteral("EdgeContract");
-        point.serverFile = QStringLiteral(FIX1_GAVEL_DIR "/web/edge/EdgeContract.qml");
-        point.shared = false;
+        point.contract = QStringLiteral("Edge");
+        point.serverFile = QStringLiteral(FIX1_GAVEL_DIR "/web/edge/Edge.qml");
+        point.shared = true;
         config.connectPoints = {point};
 
         m_edge = std::make_unique<WebEdge>(config, m_edgeEngine.get());
@@ -289,11 +283,11 @@ private slots:
                  QStringLiteral("A vintage typewriter"));
     }
 
-    // The Hall-of-Fame stage's entity gate, and where it lives: the books entity lists one
+    // The Hall-of-Fame stage's entity gate, and where it lives. The books entity lists one
     // consumer, the edge, so nothing else can acquire its point at all. The auditor holds a
-    // certificate the project CA signed and is a legitimate mesh entity; it still never
-    // reaches the ledger, and that is why BooksContract.qml has no check in it about who is
-    // calling. Deny by default is the rule; a check in the slot would only repeat it.
+    // certificate the project CA signed and is a legitimate mesh entity. It still never
+    // reaches the ledger, and that is why Books.qml has no check in it about who is
+    // calling. Deny by default is the rule. A check in the slot would only repeat it.
     void theBooksRefuseAnEntityThatIsNotTheEdge()
     {
         const int before{databaseView()->property("count").toInt()};

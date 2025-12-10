@@ -136,13 +136,14 @@ def write_client_main(project_dir: os.PathLike[str] | str,
 
 
 def entity_singleton(name: str) -> str:
-    """An entity's own QML: one object, alive as long as the entity is.
+    """An entity's own QML, while the entity exports nothing: one object, alive as long as
+    the entity is.
 
-    A singleton because there is one of this entity. Its Sources may be created per session or
-    per peer, so anything they share has to outlive any one of them, and a Source is the wrong
-    place to keep it. ``appmodel.discover_singletons`` finds this by its ``pragma Singleton``
-    and the generated main registers it under the entity's own QML module, so every Source the
-    entity owns reaches it by name.
+    A singleton because there is one of this entity. ``appmodel.discover_singletons`` finds
+    it by its ``pragma Singleton`` and the generated main registers it under the entity's own
+    QML module, so anything the entity owns reaches it by name. Exporting a connect point
+    turns this same file into that point's Source (:func:`synqt.addcontract.write_source`),
+    because an entity and the surface it exports are one file.
 
     Written the way ``qmlformat`` would write it, so a scaffolded project passes its own
     ``synqt check`` with nothing to reformat first.

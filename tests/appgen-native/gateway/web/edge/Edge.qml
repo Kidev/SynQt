@@ -5,6 +5,6 @@ import QtQuick
 import SynQt
 
 // The owner side of the one browser-facing connect point.
-EdgeContract {
+Edge {
     message: qsTr("Signed out")
 }

@@ -29,7 +29,7 @@ CREATE TABLE IF NOT EXISTS current (
 );
 ```
 
-Add to `db/relational/books/BooksContract.qml`:
+Add to `db/relational/books/Books.qml`:
 
 ```qml
 function saveCurrent(item, amount, bidder) {
@@ -121,7 +121,7 @@ refuse it. A member with a mixed audience cannot be gated on a scope at all, so 
 
 and make the decision in the slot, where `Caller` can tell the two kinds of caller apart.
 Only send the rejection to a user, because `emit<Signal>` targets a browser session. In
-`web/edge/EdgeContract.qml`:
+`web/edge/Edge.qml`:
 
 ```qml
 function closeLot(nextItem) {
@@ -178,7 +178,7 @@ bidder a Source of their own instead of a mirror of one:
     shared: false
 ```
 
-Then in `web/edge/EdgeContract.qml`, beside the auction members:
+Then in `web/edge/Edge.qml`, beside the auction members:
 
 ```qml
     property int maxBid: 0
@@ -191,8 +191,8 @@ Then in `web/edge/EdgeContract.qml`, beside the auction members:
 In the client, read and set it with `Server.maxBid` and `Server.setMax(...)`. Because the
 entity mints a Source per caller, there is no shared object through which one user could
 ever see another's maximum, and the bidder's own second tab opens on the maximum they
-already set. The lot itself is unaffected: it lives in the `Edge` singleton, which is one
-for the whole entity however many Sources there are. From here, making `placeBid`
+already set. The lot itself is unaffected: it lives in `Edge.qml`, which is one for the whole
+entity however many callers arrive. From here, making `placeBid`
 automatically raise a user up to their stored maximum is an obvious next step, now that the
 value has a safe, private home.
 
@@ -216,7 +216,7 @@ TestCase {
     EntityTest {
         id: harness
 
-        source: "../web/edge/EdgeContract.qml"
+        source: "../web/edge/Edge.qml"
     }
 
     SignalSpy {

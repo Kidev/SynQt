@@ -48,13 +48,13 @@ connect_points:
 
 ## Step 3: Implement the database side
 
-Create `db/relational/books/BooksContract.qml`:
+Create `db/relational/books/Books.qml`:
 
 ```qml
 import QtQuick
 import SynQt
 
-BooksContract {
+Books {
     id: ledger
 
     function recordWinner(item, winner, amount) {
@@ -112,55 +112,53 @@ Add its connect point to `synqt.yaml` too:
       model winners(string[120] item, string[80] winner, int amount)  // browser watches it
 ```
 
-The list is the same for everyone, so it belongs to the edge entity. Add it to
-`web/edge/Edge.qml`, alongside the lot you put there in
+The list is the same for everyone, so it belongs to the edge, which is where the lot
+already lives. Add it to `web/edge/Edge.qml`, alongside what you put there in
 [the base auction](tutorial-base-auction.md):
 
 ```qml
 property var winners: []
 
+// One binding. A new winner reaches every session, and only the roles the contract
+// declares cross, so nothing else the ledger holds ever does.
+winnersRows: auction.winners
+
 function refresh() {
     // recentWinners() returns a value, so the call resolves asynchronously.
     Books.recentWinners().then(rows => {
-        root.winners = rows;
+        auction.winners = rows;
     });
 }
 
 Component.onCompleted: {
-    root.refresh();
-    Books.winnersChanged.connect(root.refresh);   // database moved; repull
+    auction.refresh();
+    Books.winnersChanged.connect(auction.refresh);   // the database moved, so repull
 }
 ```
 
 `Books` is how the edge reaches the books entity's connect point, the same way the
 browser reaches the edge with `Server`. An entity has one connect point, so its name is
-the whole address. Subscribed once, here, rather than once per browser.
-
-Then publish it from `web/edge/EdgeContract.qml`, beside the auction properties already
-there. Every session's Source is a window onto the same list:
-
-```qml
-    winnersRows: Edge.winners    // one binding: a new winner reaches every session
-```
+the whole address.
 
 ## Step 5: Record the winner when a lot closes
 
-Fill in the gap from [Real bidders](tutorial-sign-in.md). In `web/edge/EdgeContract.qml`,
-update `closeLot` to record the
-winner before resetting:
+Fill in the gap from [Real bidders](tutorial-sign-in.md). In the same file, update
+`closeLot` to record the winner before resetting:
 
 ```qml
 function closeLot(nextItem) {
-    if (!Caller.hasScope("admin")) {
-        Caller.emitBidRejected("Only the auctioneer can close a lot.")
-        return
+    if (auction.highBid > 0) {
+        Books.recordWinner(auction.itemName, auction.highBidder, auction.highBid)
     }
-    if (Edge.highBid > 0) {
-        Books.recordWinner(Edge.itemName, Edge.highBidder, Edge.highBid)
-    }
-    Edge.openLot(nextItem)
+    auction.itemName = nextItem
+    auction.highBid = 0
+    auction.highBidder = "nobody yet"
 }
 ```
+
+Nothing here asks whether the caller is the auctioneer. `closeLot` is declared
+`admin slot` in the `export:` block, so a caller without that scope never reaches the
+function at all.
 
 ## Step 6: Show the Hall of Fame
 
@@ -209,7 +207,7 @@ reach only the edge, never an internal entity like the database.
 This is the segmentation that protects your data. The database is never exposed to
 the internet and is reachable only by the entities you list (here, just the edge).
 Even the edge's calls to it are authenticated as coming from the edge, which is why
-`BooksContract.qml` needs no check of its own. There are two trust
+`Books.qml` needs no check of its own. There are two trust
 boundaries between an internet visitor and your stored data: the edge authorizes the
 person, and the database authorizes the edge. Put the `consumers` line back to
 `["edge"]`. The full reasoning is in [security](security.md).

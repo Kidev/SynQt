@@ -34,16 +34,16 @@ connect_points:
       signal rejected(string[120] reason)   // owner explains a refusal
 ```
 
-The owner names the contract, so nothing else has to: the type it exports is the owner
-capitalized plus `Contract`. An `edge` entity exports `EdgeContract`, which is the QML type
+The owner names the contract, so nothing else has to. The type it exports is the owner
+capitalized. An `edge` entity exports `Edge`, which is the QML type
 the owner's Source file is rooted at and the name a consumer's attached handlers use. SynQt
-contracts are a friendly surface over QtRemoteObjects rep files; the build writes one
+contracts are a surface over QtRemoteObjects rep files. The build writes one
 `.syn` per point under `generated/` and generates the QtRO Source and Replica from it.
-Nobody edits that file; editing the `export:` block rewrites it.
+Nobody edits that file. Editing the `export:` block rewrites it.
 
 ### Exporting by name
 
-The owner already says what most of these are. `web/edge/EdgeContract.qml` binds a property,
+The owner already says what most of these are. `web/edge/Edge.qml` binds a property,
 implements a function, publishes rows, so the kind and often the type are written down
 there. Name the member and `synqt` reads the rest from the owner:
 
@@ -58,7 +58,7 @@ A name resolves only when the owner is unambiguous about it. Where it is not, `s
 check` refuses the line and prints what it read, for you to correct and paste:
 
 ```
-error: connect point 'todo': 'add' is exported by name, and web/edge/EdgeContract.qml does not
+error: connect point 'todo': 'add' is exported by name, and web/edge/Edge.qml does not
 say what type it is. Write it out: 'slot add(var text)' is what was read, with whatever
 it left open to fill in
 ```
@@ -186,7 +186,7 @@ implements it is that plus `.qml`. It is declared in `synqt.yaml` (full schema i
 connect_points:
   - owner: edge                   # the entity that holds the authoritative Source
     consumers: [app]              # the entities allowed to acquire the Replica
-    server: web/edge/EdgeContract.qml     # the authoritative implementation
+    server: web/edge/Edge.qml     # the authoritative implementation
     scope: user                   # for browser consumers: minimum session scope
     export: |                     # what may cross it, and nothing else does
       prop int count
@@ -204,15 +204,13 @@ The configurable parts that matter:
   hold before the framework will acquire the Replica for that client. A user below
   the required scope never gets the object, so cannot call its slots at all.
 - `export`. What may cross, written on the point. The type it becomes is the owner
-  capitalized plus `Contract`, so `owner: edge` exports `EdgeContract`; nothing names it
-  separately. The suffix is what keeps it clear of the entity's own singleton, which is the
-  owner's name on its own (`web/edge/Edge.qml`): those are two different things, one per
-  caller and one for the whole entity, and both are in scope in the same file.
+  capitalized, so `owner: edge` exports `Edge`; nothing names it separately, and nothing
+  carries a suffix. One entity, one connect point, one name.
 - `server`. The file that implements the connect point, and its root element is the
-  contract itself: `web/edge/EdgeContract.qml` opens with `EdgeContract { ... }`. It
-  defaults to that name in the owner's folder, so most points never write it. Both ends of
+  contract itself: `web/edge/Edge.qml` opens with `Edge { ... }`. That file is the entity,
+  so it defaults to the entity's own file and most points never write this. Both ends of
   a contract are QML types with that one name, and they never meet, because an entity may
-  not consume the connect point it owns. In an owner's binary `EdgeContract` is the owner
+  not consume the connect point it owns. In an owner's binary `Edge` is the owner
   side; in a consumer's it is the consumer side and the attached handler type used for
   [a connect point's signals](#handling-a-connect-points-signals). Which one you are
   looking at is answered by the file: a Source is the `server:` of a connect point its
@@ -365,7 +363,7 @@ which is an alias for the web edge this client is attached to:
 Label { text: "Items: " + Server.count }          // live property
 ListView { model: Server.items }                  // live model
 Button { onClicked: Server.add(input.text) }      // a request
-EdgeContract.onRejected: reason => banner.show(reason)   // owner explained a refusal
+Edge.onRejected: reason => banner.show(reason)   // owner explained a refusal
 ```
 
 From any entity's code, a connect point on another entity appears under that
@@ -373,7 +371,7 @@ owner entity's name. For example, inside the web edge's code, the database's
 connect points are under `Store`:
 
 ```qml
-// web/edge/EdgeContract.qml (the edge), calling the store entity
+// web/edge/Edge.qml (the edge), calling the store entity
 function add(text) {
     if (!Caller.hasScope("user")) { Caller.emitRejected("Sign in first."); return }
     // Persist through the database entity. This is an async cross entity call.
@@ -412,8 +410,8 @@ Given an edge that exports `slot login(...)`, `signal loginFailed(string reason)
 ```qml
 Button { onClicked: Server.login(user.text, pass.text) }
 
-EdgeContract.onLoginFailed: reason => { errorPopup.text = reason; errorPopup.open() }
-EdgeContract.onLoggedIn:    () => Router.go("/home")
+Edge.onLoginFailed: reason => { errorPopup.text = reason; errorPopup.open() }
+Edge.onLoggedIn:    () => Router.go("/home")
 ```
 
 The attached type binds to the connect point this entity consumes for that contract, and
@@ -424,10 +422,10 @@ entity consumes from another entity. Inside the web edge, reacting to the books 
 signals, `Connections { target: Books; function onWinnersChanged() {...} }` collapses to:
 
 ```qml
-BooksContract.onWinnersChanged: hall.refresh()
+Books.onWinnersChanged: hall.refresh()
 ```
 
-Handlers fire only while the connect point is live; before it is acquired (a browser
+Handlers fire only while the connect point is live. Before it is acquired (a browser
 below the required scope, or a link still connecting) they do not fire, and
 they resume on reconnect, because the framework owns the replica's lifecycle.
 
@@ -477,14 +475,14 @@ run still reads like one to everybody reviewing it.
 
 ## A connect point implementation, end to end
 
-`web/edge/EdgeContract.qml`, the authoritative Source on the edge, authorizing the user and
+`web/edge/Edge.qml`, the authoritative Source on the edge, authorizing the user and
 delegating persistence to the database entity:
 
 ```qml
 import QtQuick
 import SynQt
 
-EdgeContract {
+Edge {
     id: todo
 
     // `add` is exported as `<user> slot add(...)`, so a signed-out caller does not have
@@ -504,14 +502,14 @@ EdgeContract {
 }
 ```
 
-`db/relational/store/StoreContract.qml`, the authoritative Source on the database entity.
+`db/relational/store/Store.qml`, the authoritative Source on the database entity.
 It authorizes nobody, and that is the point: its consumer list has one name in it.
 
 ```qml
 import QtQuick
 import SynQt
 
-StoreContract {
+Store {
     id: items
 
     function insert(row) {

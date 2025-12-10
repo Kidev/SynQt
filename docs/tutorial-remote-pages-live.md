@@ -92,7 +92,7 @@ Open `synqt.yaml` and add the client as a consumer of the stock entity's connect
   - name: inventory
     owner: stock
     consumers: [edge, app]     # add client: let the browser reach the database
-    server: db/relational/stock/StockContract.qml
+    server: db/relational/stock/Stock.qml
 ```
 
 Run the check:

@@ -817,6 +817,21 @@ bool WebEdge::start()
         m_errorString = QStringLiteral("failed to bind the HTTP server to the transport");
         return false;
     }
+
+    // A shared point's Source is the entity. It holds what outlives any one session, and
+    // its `Component.onCompleted` is where the edge subscribes to what it consumes. Built
+    // on the first visitor instead, an edge would miss everything a service announced
+    // before somebody happened to open the page.
+    for (const WebEdgeConnectPoint &connectPoint : std::as_const(m_config.connectPoints)) {
+        if (!connectPoint.shared || connectPoint.serverFile.isEmpty()) {
+            continue;
+        }
+        QString error;
+        if (sharedSource(connectPoint, &error) == nullptr) {
+            m_errorString = error;
+            return false;
+        }
+    }
     return true;
 }
 

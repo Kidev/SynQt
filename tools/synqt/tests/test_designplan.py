@@ -68,8 +68,8 @@ def test_the_document_carries_the_qml_that_is_actually_on_disk(tmp_path):
     project = _copy(tmp_path, "gavel")
     document = designdoc.read(project)
     auction = next(link for link in document["links"] if link["owner"] == "edge")
-    assert auction["qml"] == (project / "web" / "edge" / "EdgeContract.qml").read_text(encoding="utf-8")
-    assert "EdgeContract {" in auction["qml"]
+    assert auction["qml"] == (project / "web" / "edge" / "Edge.qml").read_text(encoding="utf-8")
+    assert "Edge {" in auction["qml"]
 
 
 def test_qml_the_editor_only_read_is_not_written_back(tmp_path):
@@ -79,8 +79,8 @@ def test_qml_the_editor_only_read_is_not_written_back(tmp_path):
     """
     project = _copy(tmp_path, "gavel")
     document = designdoc.read(project)
-    theirs = (project / "web" / "edge" / "EdgeContract.qml").read_text(encoding="utf-8")
-    (project / "web" / "edge" / "EdgeContract.qml").write_text(
+    theirs = (project / "web" / "edge" / "Edge.qml").read_text(encoding="utf-8")
+    (project / "web" / "edge" / "Edge.qml").write_text(
         theirs.replace("id: point", "id: point\n\n    property int mine"),
         encoding="utf-8")
     assert designplan.compute(project, document).changes == ()
@@ -91,10 +91,10 @@ def test_qml_typed_into_the_editor_is_written(tmp_path):
     document = designdoc.read(project)
     auction = next(link for link in document["links"] if link["owner"] == "edge")
     auction["qml"] = auction["qml"].replace(
-        "id: point", "id: point\n\n    property int drawn")
+        "id: lot", "id: lot\n\n    property int drawn")
     auction["qmlEdited"] = True
     plan = designplan.compute(project, document)
-    written = next(change for change in plan.changes if change.path == "web/edge/EdgeContract.qml")
+    written = next(change for change in plan.changes if change.path == "web/edge/Edge.qml")
     assert written.action == "edit"
     assert "property int drawn" in written.after
     assert "was edited" in written.reason
@@ -167,7 +167,7 @@ def test_a_member_named_after_a_keyword_is_refused_rather_than_written(tmp_path)
                for message in plan.findings)
     with pytest.raises(designplan.DesignPlanError):
         designplan.execute(project, plan)
-    assert not (project / "service" / "feeds" / "FeedsContract.qml").exists()
+    assert not (project / "service" / "feeds" / "Feeds.qml").exists()
     # And the project it was drawn over still opens.
     assert designdoc.read(project)
 
@@ -184,9 +184,9 @@ def test_a_new_link_gets_an_empty_source_on_its_owner(tmp_path):
         "id": "feeds", "name": "feeds", "owner": "feeds",
         "consumers": ["edge"], "members": []})
     plan = designplan.compute(project, document)
-    source = next(c for c in plan.changes if c.path == "service/feeds/FeedsContract.qml")
+    source = next(c for c in plan.changes if c.path == "service/feeds/Feeds.qml")
     assert source.action == "create"
-    assert "FeedsContract {" in source.after
+    assert "Feeds {" in source.after
     assert "feeds" in source.reason
 
 
@@ -196,7 +196,7 @@ def test_a_source_the_project_already_has_is_left_where_it_is(tmp_path):
     auction = next(l for l in document["links"] if l["owner"] == "edge")
     auction["consumers"] = list(auction["consumers"])
     plan = designplan.compute(project, document)
-    assert not [c for c in plan.changes if c.path.endswith("EdgeContract.qml")]
+    assert not [c for c in plan.changes if c.path.endswith("Edge.qml")]
 
 
 def test_a_link_owned_by_an_entity_being_deleted_grows_no_source(tmp_path):
@@ -394,7 +394,7 @@ def test_deleting_an_entity_removes_the_directory_from_disk(tmp_path):
     plan = designplan.compute(project, document)
     designplan.execute(project, plan)
     assert not (project / "db" / "relational" / "books").exists()
-    assert not (project / "db" / "relational" / "books" / "BooksContract.qml").exists()
+    assert not (project / "db" / "relational" / "books" / "Books.qml").exists()
     config = yaml.safe_load((project / "synqt.yaml").read_text())
     assert [e["name"] for e in config["entities"]] == ["app", "edge"]
 

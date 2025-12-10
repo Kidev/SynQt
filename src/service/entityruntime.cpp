@@ -267,6 +267,14 @@ bool EntityRuntime::start()
         }
     }
 
+    // Every owner this entity consumes goes into QML scope before the first Source is
+    // built, because a shared entity builds one at start-up and a binding in it against an
+    // accessor that does not exist yet reads as nothing for good. Opening the links happens
+    // further down. This is only the name coming into scope.
+    for (const ConnectPointConfig &connectPoint : m_topology.consumed()) {
+        installAccessor(connectPoint);
+    }
+
     // Bring up an owner for every connect point this entity owns.
     for (const ConnectPointConfig &connectPoint : m_topology.owned()) {
         ConnectPointHost *host{

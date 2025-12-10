@@ -124,11 +124,11 @@ connect_points:
 ```
 
 ```qml
-// db/relational/store/StoreContract.qml (owner of the "items" connect point)
+// db/relational/store/Store.qml (owner of the "items" connect point)
 import QtQuick
 import SynQt
 
-StoreContract {
+Store {
     id: items
 
     function insert(row) {
@@ -267,7 +267,7 @@ each handler is ordinary JavaScript that can validate a body, reach several conn
 points, and shape an answer.
 
 ```qml
-// api/gateway/GatewayContract.qml
+// api/gateway/Gateway.qml
 pragma Singleton
 
 import QtQuick

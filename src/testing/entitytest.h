@@ -38,7 +38,7 @@ class SessionManager;
 /// \code
 /// EntityTest {
 ///     id: harness
-///     source: "../web/edge/EdgeContract.qml"
+///     source: "../web/edge/Edge.qml"
 ///
 ///     function init() { harness.load() }
 ///

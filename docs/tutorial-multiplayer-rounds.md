@@ -26,16 +26,16 @@ connect_points:
     export: |
       slot award(string[32] sub, string[40] name)  // give this champion one point
       slot var top()                               // the highest scorers, to the edge
-      signal standingsChanged()                    // the table moved; repull
+      signal standingsChanged()                    // the table moved, so repull
 ```
 
-Implement the database side in `db/relational/records/RecordsContract.qml`:
+Implement the database side in `db/relational/records/Records.qml`:
 
 ```qml
 import QtQuick
 import SynQt
 
-RecordsContract {
+Records {
     id: scores
 
     function award(sub, name) {
@@ -99,7 +99,7 @@ crowning.
 
 ## Step 3: The edge runs the clock and mirrors the Hall
 
-Teach `web/edge/EdgeContract.qml` two new jobs: keep the champions list fresh from the database,
+Teach `web/edge/Edge.qml` two new jobs: keep the champions list fresh from the database,
 and run the ten minute round. Add to the edge's Source:
 
 ```qml
@@ -109,7 +109,7 @@ and run the ten minute round. Add to the edge's Source:
     function refreshChampions() {
         Records.top().then(rows => arena.setChampions(rows))
     }
-    RecordsContract.onStandingsChanged: arena.refreshChampions()
+    Records.onStandingsChanged: arena.refreshChampions()
 
     // The ten minute round
     readonly property int roundMs: 10 * 60 * 1000     // shorten this to test quickly
@@ -207,14 +207,14 @@ And announce the crowning with the banner you already have. Add inside the root
 `Item`:
 
 ```qml
-EdgeContract.onRoundEnded: winner => banner.flash("Round over! " + winner + " takes the point.")
+Edge.onRoundEnded: winner => banner.flash("Round over! " + winner + " takes the point.")
 ```
 
 ## Run it
 
 Save and look at the browser. Sign in with an approved account and play as before, but
 now a clock counts down at the top and a Hall of Fame sits bottom right. To see a round
-resolve without waiting ten minutes, drop `roundMs` in `web/edge/EdgeContract.qml` to something like
+resolve without waiting ten minutes, drop `roundMs` in `web/edge/Edge.qml` to something like
 `20 * 1000`, save, and play a short round. When the clock hits zero the biggest blob is
 crowned, everyone resets small, and that name appears in the Hall of Fame with one
 point. Now stop `synqt dev` and start it again: the live arena is empty, but the Hall of

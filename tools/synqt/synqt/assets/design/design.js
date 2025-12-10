@@ -1580,7 +1580,7 @@ function addLink(from, to, headed, at) {
         id: name,
         name,
         // No `contract:`. A point and the shape of what crosses it are one thing, and the
-        // owner names both: the type is the owner capitalised plus Contract
+        // owner names both. The type is the owner capitalised
         // (appmodel.contract_of), and `synqt check` refuses a project that writes the field.
         owner: owner.name,
         consumers: [consumer.name],

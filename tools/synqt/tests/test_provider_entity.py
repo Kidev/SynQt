@@ -126,7 +126,7 @@ class GeneratedCMake(unittest.TestCase):
     def test_the_edge_still_compiles_its_own_contracts(self):
         expanded = appmodel.with_auth_connect_points(promoted_config())
         cmake = cmakegen.render_root_cmakelists(expanded, "/synqt", None)
-        self.assertIn("web/web/WebContract.syn", cmake)
+        self.assertIn("web/web/Web.syn", cmake)
 
 
 class AuthEntityMain(unittest.TestCase):

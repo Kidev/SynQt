@@ -445,14 +445,17 @@ class LayoutCollisionTest(unittest.TestCase):
         self.assertTrue(any("database" in m and "one connect point" in m
                             for m in failures), failures)
 
-    def test_the_source_and_the_entitys_own_file_never_want_one_name(self):
+    def test_the_source_and_the_entitys_own_file_are_one_file(self):
+        """An entity is one file, named after the entity. What it exports and what it is are
+        the same `<Entity>.qml`, so an author never types a name the framework derived."""
         config = base_config()
         for point in appmodel.connect_points(config):
             owner = next(entity for entity in appmodel.entities(config)
                          if entity["name"] == point["owner"])
             contract = appmodel.contract_of(point)
-            self.assertNotEqual(appmodel.source_path(owner, contract),
-                                appmodel.entity_file_path(owner))
+            self.assertEqual(appmodel.source_path(owner, contract),
+                             appmodel.entity_file_path(owner))
+            self.assertEqual(contract, appmodel.accessor_name(owner["name"]))
 
 
 class SharedEntityTest(unittest.TestCase):
@@ -549,29 +552,29 @@ class CallerOutsideASourceTest(unittest.TestCase):
 
     def test_a_source_may_authorize_its_caller(self):
         root = self._project({
-            "web/web/WebContract.qml":
-                'WebContract {\n    function add() {\n'
+            "web/web/Web.qml":
+                'Web {\n    function add() {\n'
                 '        if (!Caller.hasScope("user")) return;\n    }\n}\n',
         })
         self.assertEqual(check.lint_caller_use(self._config(), root), [])
 
-    def test_an_entity_singleton_may_not(self):
+    def test_a_singleton_beside_the_source_may_not(self):
         root = self._project({
-            "web/web/WebContract.qml": "WebContract {\n}\n",
-            "web/web/Web.qml": ('pragma Singleton\nQtObject {\n'
-                                '    function add() { if (!Caller.hasScope("user")) return; }\n}\n'),
+            "web/web/Web.qml": "Web {\n}\n",
+            "web/web/Shelf.qml": ('pragma Singleton\nQtObject {\n'
+                                  '    function add() { if (!Caller.hasScope("user")) return; }\n}\n'),
         })
         messages = check.lint_caller_use(self._config(), root)
         self.assertEqual(len(messages), 1, messages)
         self.assertTrue(messages[0].startswith("error:"), messages)
-        self.assertIn("web/web/Web.qml:3", messages[0])
+        self.assertIn("web/web/Shelf.qml:3", messages[0])
         self.assertIn("Caller", messages[0])
 
     def test_the_edges_client_alias_is_held_to_the_same_rule(self):
         root = self._project({
-            "web/web/WebContract.qml": "WebContract {\n}\n",
-            "web/web/Web.qml": ("pragma Singleton\nQtObject {\n"
-                                "    property string who: Client.identity.name\n}\n"),
+            "web/web/Web.qml": "Web {\n}\n",
+            "web/web/Shelf.qml": ("pragma Singleton\nQtObject {\n"
+                                  "    property string who: Client.identity.name\n}\n"),
         })
         messages = check.lint_caller_use(self._config(), root)
         self.assertEqual(len(messages), 1, messages)

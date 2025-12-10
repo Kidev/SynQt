@@ -40,7 +40,7 @@ entities:
 connect_points:
   - owner: edge               # the edge holds the authoritative Source
     consumers: [app]          # the browser may acquire it
-    server: web/edge/EdgeContract.qml
+    server: web/edge/Edge.qml
     export: |
       prop int value          // edge owned; clients read, edge writes
       slot increment()        // a request; the edge performs the change
@@ -80,7 +80,7 @@ QtObject {
 }
 ```
 
-### Edge, `web/edge/EdgeContract.qml`
+### Edge, `web/edge/Edge.qml`
 
 One of these per browser session. It binds the contract property to the entity's number,
 so every session sees the same value and every slot still has a `Caller` to authorize.
@@ -89,7 +89,7 @@ so every session sees the same value and every slot still has a `Caller` to auth
 import QtQuick
 import SynQt
 
-EdgeContract {
+Edge {
     id: counter
 
     value: Edge.value
@@ -191,7 +191,7 @@ identity:
 connect_points:
   - owner: edge
     consumers: [app]
-    server: web/edge/EdgeContract.qml
+    server: web/edge/Edge.qml
     export: |
       prop int count                        // number of items, edge owned
       model items(string[280] text, string[80] author, bool done)  // only these cross
@@ -259,7 +259,7 @@ QtObject {
 }
 ```
 
-### Edge, `web/edge/EdgeContract.qml`
+### Edge, `web/edge/Edge.qml`
 
 One of these per browser session, which is what gives every slot below its `Client`
 (the browser-side name for `Caller`). It reads and writes the entity's list, and
@@ -269,7 +269,7 @@ One of these per browser session, which is what gives every slot below its `Clie
 import QtQuick
 import SynQt
 
-EdgeContract {
+Edge {
     count: Edge.rows.length
 
     function add(text) {
@@ -376,7 +376,7 @@ ApplicationWindow {
     }
 
     // The edge's refusal channel: show why an action was rejected.
-    EdgeContract.onRejected: reason => { toast.text = reason; toast.open() }
+    Edge.onRejected: reason => { toast.text = reason; toast.open() }
 
     Popup { id: toast; property alias text: msg.text; Label { id: msg } }
 }
@@ -411,7 +411,7 @@ scoped so an anonymous client never acquires it at all:
 connect_points:
   - owner: edge
     consumers: [app]
-    server: web/edge/EdgeContract.qml
+    server: web/edge/Edge.qml
     scope: user               # only signed in users may acquire it at all
                          # the edge is not shared: a draft Source per session
     export: |
@@ -476,7 +476,7 @@ entities:
 connect_points:
   - owner: edge               # the edge owns the user facing object
     consumers: [app]          # the browser may acquire it
-    server: web/edge/EdgeContract.qml
+    server: web/edge/Edge.qml
     export: |
       model items(string[280] text, string[80] author, bool done)  // only these cross
       slot add(string[280] text)
@@ -487,7 +487,7 @@ connect_points:
 
   - owner: store              # the store entity owns durable storage
     consumers: [edge]         # only the edge may reach it; never the browser
-    server: db/relational/store/StoreContract.qml
+    server: db/relational/store/Store.qml
     export: |
       record ItemRow(string[280] text, string[80] author, string[64] ownerSub)
       slot var list()                  // rows { id, text, author, ownerSub } to the edge
@@ -496,24 +496,23 @@ connect_points:
       signal changed()                 // tells the edge the data moved
 ```
 
-Auth is added with `synqt add auth github` (see [authentication](authentication.md)); omitted here for focus.
+`synqt add auth github` adds auth (see [authentication](authentication.md)). It is omitted here for focus.
 
 The mesh link is mutual TLS even though both entities share a host, so the one entity on
 its consumer list is the one its certificate proves it to be. `synqt mesh cert --all`
-issues the certificates for deployment; `synqt dev` provisions throwaway development ones
+issues the certificates for deployment. `synqt dev` provisions throwaway development ones
 automatically.
 
-Note below that `ownerSub` exists on the store entity's point (the edge needs it to
-enforce ownership) but is absent from the edge's `items` roles, so it never reaches the
-browser.
+Below, `ownerSub` exists on the store entity's point (the edge needs it to enforce
+ownership) but is absent from the edge's `items` roles, so it never reaches the browser.
 
-### The database entity, `db/relational/store/StoreContract.qml`
+### The database entity, `db/relational/store/Store.qml`
 
 ```qml
 import QtQuick
 import SynQt
 
-StoreContract {
+Store {
     id: items
 
     // Nothing here asks who is calling: the consumer list has one name in it, so the
@@ -547,13 +546,13 @@ CREATE TABLE IF NOT EXISTS items (
 );
 ```
 
-### The web edge, `web/edge/EdgeContract.qml`
+### The web edge, `web/edge/Edge.qml`
 
 ```qml
 import QtQuick
 import SynQt
 
-EdgeContract {
+Edge {
     id: todo
 
     // The last fetched internal rows (id and ownerSub included): edge memory only,
@@ -572,7 +571,7 @@ EdgeContract {
 
     Component.onCompleted: refresh()
 
-    StoreContract.onChanged: todo.refresh()   // the database moved; repull
+    Store.onChanged: todo.refresh()   // the database moved; repull
 
     function add(text) {
         // The edge authorizes the user.
@@ -675,14 +674,14 @@ router:
 connect_points:
   - owner: edge               # the edge owns the browser-facing live catalog
     consumers: [app]
-    server: web/edge/EdgeContract.qml
+    server: web/edge/Edge.qml
     export: |
       model offers(string[80] title, int price)
       slot addToCart(string[40] sku)
 
   - owner: stock              # the stock entity owns the durable stock
     consumers: [edge]         # only the edge; a client consumer here fails synqt check
-    server: db/relational/stock/StockContract.qml
+    server: db/relational/stock/Stock.qml
     export: |
       model items(string[40] sku, string[80] title, int price)
       slot restock(string[40] sku, string[80] title, int price)

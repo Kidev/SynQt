@@ -26,7 +26,7 @@ class AddContractTest(unittest.TestCase):
         cps = yaml.safe_load((self.root / "synqt.yaml").read_text())["connect_points"]
         self.assertEqual(cps[0]["owner"], "edge")
         self.assertIn("prop int count", cps[0]["export"])
-        self.assertTrue((self.root / "web" / "edge" / "EdgeContract.qml").exists())
+        self.assertTrue((self.root / "web" / "edge" / "Edge.qml").exists())
 
     def test_connect_point_rejects_unknown_entity(self):
         with self.assertRaises(addcontract.AddContractError):
@@ -307,7 +307,7 @@ class ConnectPointSourceLintTest(unittest.TestCase):
         newproject.scaffold(self.root.parent, self.root.name)
         addcontract.scaffold_connect_point(self.root, "edge", consumers=["app"])
         self.config = yaml.safe_load((self.root / "synqt.yaml").read_text())
-        self.source = self.root / "web" / "edge" / "EdgeContract.qml"
+        self.source = self.root / "web" / "edge" / "Edge.qml"
 
     def test_the_source_the_scaffolder_wrote_lints_clean(self):
         self.assertEqual(check.lint_connect_point_sources(self.config, self.root), [])
@@ -315,13 +315,13 @@ class ConnectPointSourceLintTest(unittest.TestCase):
     def test_a_missing_source_is_an_error_that_names_the_file(self):
         self.source.unlink()
         messages = check.lint_connect_point_sources(self.config, self.root)
-        self.assertTrue(any(m.startswith("error:") and "web/edge/EdgeContract.qml" in m
+        self.assertTrue(any(m.startswith("error:") and "web/edge/Edge.qml" in m
                             for m in messages), messages)
 
     def test_a_root_that_is_not_the_contract_is_an_error(self):
         self.source.write_text("import QtQuick\n\nQtObject {\n}\n")
         messages = check.lint_connect_point_sources(self.config, self.root)
-        self.assertTrue(any(m.startswith("error:") and "'EdgeContract'" in m
+        self.assertTrue(any(m.startswith("error:") and "'Edge'" in m
                             for m in messages), messages)
 
     def test_a_point_that_names_its_own_server_file_is_looked_for_there(self):

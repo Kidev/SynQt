@@ -157,14 +157,10 @@ def _server_file(root: Path, connect_point: Dict[str, Any],
                  owners: Dict[str, Dict[str, Any]]) -> str:
     """The absolute path to the owner-side Source QML (the runtime loads it only for a
     connect point this entity owns; harmless in a consumer's slice)."""
-    explicit = connect_point.get("server")
-    if explicit:
-        return _path(root / explicit)
     owner = owners.get(str(connect_point.get("owner") or ""))
-    contract = appmodel.contract_of(connect_point)
     if owner is None:
-        return ""
-    return _path(root / appmodel.source_path(owner, contract))
+        return _path(root / connect_point["server"]) if connect_point.get("server") else ""
+    return _path(root / appmodel.authored_source_path(owner, connect_point))
 
 
 def entity_topology(config: Dict[str, Any], entity: Dict[str, Any], project_dir: Path,

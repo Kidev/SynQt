@@ -103,9 +103,9 @@ def test_a_number_is_a_number(tmp_path):
 
 def test_a_point_whose_source_is_not_there_is_left_to_the_lint_that_says_so(tmp_path):
     project = _copy(tmp_path)
-    (project / "web" / "edge" / "EdgeContract.qml").unlink()
+    (project / "web" / "edge" / "Edge.qml").unlink()
     assert not [m for m in _errors(project) if "'edge'" in m]
-    assert any("EdgeContract.qml does not exist" in m
+    assert any("Edge.qml does not exist" in m
                for m in checkmod.lint_connect_point_sources(_config(project), project))
 
 
@@ -174,7 +174,7 @@ def test_the_owner_is_read_through_the_source_the_point_names(tmp_path):
     project = _copy(tmp_path)
     config = _config(project)
     assert (infer.server_path(config, _point(config, "edge"))
-            == "web/edge/EdgeContract.qml")
+            == "web/edge/Edge.qml")
 
 
 def test_a_model_published_by_binding_its_rows_is_a_model(tmp_path):

@@ -21,11 +21,11 @@ Quick Test finds them by directory, so adding a file needs no registration anywh
 Given this edge Source:
 
 ```qml
-// web/edge/EdgeContract.qml
+// web/edge/Edge.qml
 import QtQuick
 import SynQt
 
-EdgeContract {
+Edge {
     id: auction
 
     highBid: 100
@@ -56,7 +56,7 @@ TestCase {
     EntityTest {
         id: harness
 
-        source: "../web/edge/EdgeContract.qml"
+        source: "../web/edge/Edge.qml"
     }
 
     SignalSpy {
@@ -121,7 +121,7 @@ anywhere else. The only SynQt-specific type is `EntityTest`.
 This distinction is the whole value of the harness, so it is worth being exact about.
 
 **Real**: the Source, compiled from your QML through the same generated
-`<Contract>Source` type the entity uses. `Caller`, minted through the same factory the
+`<Owner>Source` type the entity uses. `Caller`, minted through the same factory the
 mesh and the web edge mint it through, including the typed `emit<Signal>` methods and
 hierarchical `hasScope`. The entity type helpers, `Db`, `Cache`, `Docs` and `Jobs`, are the
 same classes an entity gets.
@@ -215,7 +215,7 @@ applies:
 EntityTest {
     id: harness
 
-    source: "../db/relational/books/BooksContract.qml"
+    source: "../db/relational/books/Books.qml"
     schema: "../db/relational/books/schema.sql"
 }
 ```
