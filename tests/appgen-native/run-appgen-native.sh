@@ -47,7 +47,7 @@ export QTDIR="$QT_HOST"
 
 WORK="$REPO_ROOT/build/appgen-native"
 SRC="$WORK/gavel"
-echo "== [1/6] Materialize the gavel topology and run appgen over it =="
+echo "== [1/7] Materialize the gavel topology and run appgen over it =="
 rm -rf "$WORK"
 mkdir -p "$WORK"
 cp -r "$REPO_ROOT/examples/gavel" "$SRC"
@@ -68,14 +68,14 @@ written = appgen.generate(app, config, synqt_root=repo)
 print("  appgen wrote:", ", ".join(written))
 PY
 
-echo "== [2/6] Configure + build every entity with the native host kit =="
+echo "== [2/7] Configure + build every entity with the native host kit =="
 cmake -S "$SRC" -B "$SRC/build" -G Ninja \
     -DCMAKE_PREFIX_PATH="$QT_HOST" \
     -DSYNQT_ROOT="$REPO_ROOT" \
     -DCMAKE_BUILD_TYPE=Release
 cmake --build "$SRC/build"
 
-echo "== [3/6] Assert each generated entity produced a native executable =="
+echo "== [3/7] Assert each generated entity produced a native executable =="
 rc=0
 for entity in app edge books; do
     assert_native_exe "$SRC/build/$entity" "$entity" || rc=1
@@ -85,7 +85,7 @@ if [ "$rc" -ne 0 ]; then
     exit 1
 fi
 
-echo "== [4/6] A generated client with routes: build it, and watch the router resolve them =="
+echo "== [4/7] A generated client with routes: build it, and watch the router resolve them =="
 # Compiling is not enough for URL routing. Every route's view has to be IN the client's QML
 # module, and so does everything a view reaches (a helper component, a singleton), or the
 # qrc URL resolves to nothing and the router reports Error on a bundle that built perfectly.
@@ -151,7 +151,7 @@ if grep -nE '\.qml:[0-9]+:' "$routed_log"; then
 fi
 echo "  routed client : OK (every route resolved Ready, each to the view it names)"
 
-echo "== [5/6] Promoted identity: one line moves the OAuth engine off the edge =="
+echo "== [5/7] Promoted identity: one line moves the OAuth engine off the edge =="
 # `identity.provider_entity: auth` is documented as a one-line change, so everything else it
 # needs is generated: two mesh connect points nobody declared, a Source QML bridge for each,
 # an auth main holding the OAuth engine and the authoritative session store, and an edge main
@@ -320,7 +320,47 @@ echo "  promoted pair : OK (both mesh links up, the edge holds no client id, no 
 echo "                  endpoint and no secret; the auth entity holds the first two and"
 echo "                  reads the secret from its own environment)"
 
-echo "== [6/6] An entity with a network: block: build it, and call the API it serves =="
+echo "== [6/7] A front: an edge that owns a point it does not implement =="
+# A front hands each caller to the entity serving people of their scope, so the edge has no
+# server file for that point and the Source the browser acquires relays to a Replica of a
+# different contract. Compiling is the check that matters: the generated edge main has to
+# build with no server file, its `behind:` block reaches WebEdge through a QSet the generator
+# has to remember to include, and the generated relay has to resolve against a contract the
+# front's own binary knows only by name.
+FRONTED="$WORK/fronted"
+cp -r "$REPO_ROOT/tests/appgen-native/fronted" "$FRONTED"
+PYTHONPATH="$REPO_ROOT/tools/synqt" python3 - "$FRONTED" "$REPO_ROOT" <<'PY'
+import sys, yaml
+from pathlib import Path
+from synqt import appgen, check
+
+app, repo = Path(sys.argv[1]), sys.argv[2]
+ok, messages = check.check_project(app)
+for message in messages:
+    print("  synqt check:", message)
+if not ok:
+    raise SystemExit("the fronted fixture does not pass synqt check")
+config = yaml.safe_load((app / "synqt.yaml").read_text())
+print("  appgen wrote:", ", ".join(appgen.generate(app, config, synqt_root=repo)))
+PY
+
+cmake -S "$FRONTED" -B "$FRONTED/build" -G Ninja \
+    -DCMAKE_PREFIX_PATH="$QT_HOST" \
+    -DSYNQT_ROOT="$REPO_ROOT" \
+    -DCMAKE_BUILD_TYPE=Release
+cmake --build "$FRONTED/build"
+
+for entity in gate lobby backoffice; do
+    exe="$(native_exe_path "$FRONTED/build/$entity")"
+    if [ -z "$exe" ]; then
+        echo "  $entity : MISSING"
+        exit 1
+    fi
+    echo "  $entity : $(basename "$exe")"
+done
+echo "  front : OK (the edge builds with no Source of its own for the point it fronts)"
+
+echo "== [7/7] An entity with a network: block: build it, and call the API it serves =="
 # The generated main is what is under test. It has to build an ApiConfig from the topology,
 # link SynQtGateway, put `Api` on the root context BEFORE the entity singleton is created
 # (or the singleton's routes go nowhere) and start listening AFTER (or a caller can arrive

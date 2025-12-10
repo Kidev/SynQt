@@ -43,6 +43,17 @@ public:
     /// call adopts into.
     static bool bindCaller(QObject *source, QObject *caller);
 
+    /// Point `source` at the entity answering for it, making it one caller's view of a
+    /// connect point its own entity does not implement.
+    ///
+    /// This is what a front is: a web edge owns a point, holds the session and runs the
+    /// sign-in, and hands each caller to the entity serving people of their scope. The
+    /// Source the browser acquires is `source` and `behind` is a Replica of that entity's
+    /// own point; everything it publishes is followed outward and every slot is forwarded
+    /// back, carrying the session the call is being made for. Returns false when the object
+    /// does not answer it.
+    static bool relay(QObject *source, QObject *behind);
+
     /// Say that this Source holds the state every caller's view is made from, so its
     /// `\<scope\>` gated members are not gated on it.
     ///

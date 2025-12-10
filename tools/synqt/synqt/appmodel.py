@@ -489,9 +489,17 @@ def owned_by(config: Dict[str, Any], entity_name: str) -> List[Dict[str, Any]]:
 
 
 def client_facing(config: Dict[str, Any], edge_name: str) -> List[Dict[str, Any]]:
-    """Connect points the edge owns and the client consumes (browser-reachable)."""
+    """Connect points the edge owns and a client consumes (browser-reachable).
+
+    Read from what each consumer *is*, not from what it is called. A client entity is
+    whichever one has `type: client`, and it is usually called `app`. Asking for a consumer
+    named "client" found none of them, and the edge that resulted built, started, served the
+    bundle, and hosted nothing at all for the browser that connected to it.
+    """
+    named = {str(entity.get("name") or "") for entity in entities(config)
+             if is_client(entity)}
     return [cp for cp in owned_by(config, edge_name)
-            if "client" in (cp.get("consumers") or [])]
+            if named.intersection(cp.get("consumers") or [])]
 
 
 def mesh_consumed(config: Dict[str, Any], entity_name: str) -> List[Dict[str, Any]]:

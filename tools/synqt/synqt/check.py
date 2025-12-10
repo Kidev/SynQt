@@ -261,6 +261,12 @@ def _own_contract_messages(config: Dict[str, Any],
         for point in appmodel.owned_by(config, name):
             if appmodel.contract_of(point) != capitalized:
                 continue
+            if appmodel.is_front(point):
+                # A front implements none of its point, so no Source file is written for it
+                # and there is nothing for the entity's own file to collide with. It is also
+                # the case worth allowing: a front named for what it fronts wants the point
+                # to carry the same name.
+                continue
             where = appmodel.entity_file_path(entity)
             messages.append(
                 f"error: entity '{name}' owns a connect point carrying the "
@@ -1649,6 +1655,12 @@ def lint_connect_point_sources(config: Dict[str, Any],
         owning = owners.get(owner)
         if owning is None:
             continue   # validate() reports an unknown owner in its own words
+        if appmodel.is_front(point):
+            # A front owns this point and implements none of it. The calls belong to the
+            # entities behind it, and the Source the browser acquires is built from the
+            # generated helper and relays. There is nothing for a server file to say, and
+            # asking for one would be asking for a file whose every member is dead code.
+            continue
         relative = str(point.get("server") or appmodel.source_path(owning, contract))
         source = root / relative
         if not source.is_file():
@@ -1800,6 +1812,17 @@ def lint_fronts(config: Dict[str, Any]) -> List[str]:
                 f"error: {where} has a 'behind:' block and no client consumes it. A front "
                 "exists to split browser callers by scope; between entities there is no "
                 "session to split on")
+        for member in _front_members(point) or []:
+            # A returning slot resolves on the caller when the owner's slot returns, and a
+            # front's does not have the answer then. The entity behind it is reached over
+            # the mesh and replies later. Refused rather than answered with a default, which
+            # is what relaying one would do.
+            if member["kind"] == "slot" and member["type"]:
+                messages.append(
+                    f"error: {where}: slot '{member['name']}' returns {member['type']}, and "
+                    "a front cannot answer that. What it hands the call to is reached over "
+                    "the mesh and replies after the slot has returned. Make it return "
+                    "nothing and send the answer back with Caller.emit<Signal>")
         if not tiers:
             messages.append(
                 f"warning: {where} is a front with nothing under its 'behind:', so it hands "

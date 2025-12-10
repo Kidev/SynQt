@@ -1097,7 +1097,9 @@ QObject *WebEdge::sourceForConnection(const WebEdgeConnectPoint &connectPoint,
         Caller *caller{Caller::forUser(connectPoint.contract, m_sessionManager, sessionId,
                                        nullptr, socket)};
         caller->setScopeOrder(m_config.scopeOrder, m_config.scopesHierarchical);
-        QObject *source{connectPoint.shared
+        QObject *source{!connectPoint.behind.isEmpty()
+                            ? relayFor(connectPoint, caller, socket, error)
+                        : connectPoint.shared
                             ? mirrorFor(connectPoint, caller, socket, error)
                             : createSource(connectPoint, caller, socket, error)};
         if (source) {
@@ -1121,7 +1123,9 @@ QObject *WebEdge::sourceForConnection(const WebEdgeConnectPoint &connectPoint,
     Caller *caller{Caller::forUser(connectPoint.contract, m_sessionManager, sessionId,
                                    nullptr, this)};
     caller->setScopeOrder(m_config.scopeOrder, m_config.scopesHierarchical);
-    QObject *source{connectPoint.shared
+    QObject *source{!connectPoint.behind.isEmpty()
+                        ? relayFor(connectPoint, caller, this, error)
+                    : connectPoint.shared
                         ? mirrorFor(connectPoint, caller, this, error)
                         : createSource(connectPoint, caller, this, error)};
     if (!source) {
@@ -1132,6 +1136,76 @@ QObject *WebEdge::sourceForConnection(const WebEdgeConnectPoint &connectPoint,
     caller->setSource(source);
     SourceFactory::bindCaller(source, caller);
     sources.byConnectPoint.insert(connectPoint.name, source);
+    return source;
+}
+
+void WebEdge::setEntityBehind(const QString &entity, QObject *replica)
+{
+    m_entitiesBehind.insert(entity, replica);
+}
+
+QString WebEdge::entityFor(const WebEdgeConnectPoint &connectPoint,
+                           const QString &scope) const
+{
+    if (const QString named{connectPoint.behind.value(scope)}; !named.isEmpty()) {
+        return named;
+    }
+    if (!m_config.scopesHierarchical) {
+        // Set-based. A caller holds exactly one scope and there is no order to fall back
+        // along, so a scope nobody wrote a line for is served by nobody.
+        return QString{};
+    }
+    const qsizetype held{m_config.scopeOrder.indexOf(scope)};
+    if (held < 0) {
+        return QString{};
+    }
+    // The highest tier at or below what they hold, so a scope with no line of its own still
+    // lands somewhere, and always below itself rather than above.
+    QString best;
+    qsizetype highest{-1};
+    for (auto tier{connectPoint.behind.constBegin()};
+         tier != connectPoint.behind.constEnd(); ++tier) {
+        const qsizetype rank{m_config.scopeOrder.indexOf(tier.key())};
+        if (rank >= 0 && rank <= held && rank > highest) {
+            best = tier.value();
+            highest = rank;
+        }
+    }
+    return best;
+}
+
+QObject *WebEdge::relayFor(const WebEdgeConnectPoint &connectPoint, Caller *caller,
+                           QObject *parent, QString *error)
+{
+    const QString entity{entityFor(connectPoint, caller->scope())};
+    if (entity.isEmpty()) {
+        if (error) {
+            *error = QStringLiteral("%1: nothing behind it serves scope '%2'")
+                         .arg(connectPoint.name, caller->scope());
+        }
+        return nullptr;
+    }
+    QObject *behind{m_entitiesBehind.value(entity).data()};
+    if (!behind) {
+        if (error) {
+            *error = QStringLiteral("%1: '%2' is not reachable yet")
+                         .arg(connectPoint.name, entity);
+        }
+        return nullptr;
+    }
+    // Built from the C++ helper rather than loaded from QML: a front owns this point and
+    // implements none of it, so there is no server file to load and nothing for one to say.
+    QObject *source{SourceFactory::create(connectPoint.contract, parent)};
+    if (!source) {
+        if (error) {
+            *error = QStringLiteral("no Source registered for contract %1")
+                         .arg(connectPoint.contract);
+        }
+        return nullptr;
+    }
+    caller->setSource(source);
+    SourceFactory::bindCaller(source, caller);
+    SourceFactory::relay(source, behind);
     return source;
 }
 

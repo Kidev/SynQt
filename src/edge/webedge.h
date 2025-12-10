@@ -72,6 +72,15 @@ public:
     /// context, so an owner Source can delegate across the mesh (Database.items.insert).
     void setContextObject(const QString &name, QObject *object);
 
+    /// Say which object answers for the entity `entity`, on a point this edge fronts.
+    ///
+    /// A front owns a connect point it does not implement and hands each caller to the
+    /// entity serving people of their scope. This is that entity, as the Replica this edge
+    /// consumes it through. Set when the mesh link comes up, which is after the edge has
+    /// started, so a browser arriving before it does does not have that point
+    /// hosted: nothing is answered by an object that is not there yet.
+    void setEntityBehind(const QString &entity, QObject *replica);
+
 signals:
     void upgradeAccepted(const QString &peer);
     void upgradeRejected(const QString &reason);
@@ -136,6 +145,14 @@ private:
     /// their Caller and forwarding to the Source everybody shares.
     QObject *mirrorFor(const WebEdgeConnectPoint &connectPoint, Caller *caller,
                        QObject *parent, QString *error);
+    /// One caller's window onto the entity serving their scope, on a point this edge
+    /// fronts. A Source of the front's own contract that holds nothing and relays.
+    QObject *relayFor(const WebEdgeConnectPoint &connectPoint, Caller *caller,
+                      QObject *parent, QString *error);
+    /// Which entity serves a caller holding `scope`, on a fronted point. Their own scope
+    /// where the block names it; otherwise, under hierarchical scopes, the highest tier at
+    /// or below what they hold. Empty when nothing serves them, which hosts nothing.
+    QString entityFor(const WebEdgeConnectPoint &connectPoint, const QString &scope) const;
     /// Drop this connection's claim on its session's Sources, and destroy them when it was
     /// the last one. Called from the socket's disconnected handler.
     void releaseSessionSources(const QByteArray &sessionId);
@@ -242,6 +259,8 @@ private:
         Caller *caller{nullptr};
     };
     QHash<QString, SharedSource> m_sharedSources;
+    /// What answers for each entity this edge fronts a point with, by entity name.
+    QHash<QString, QPointer<QObject>> m_entitiesBehind;
 
     /// Connection caps.
     int m_activeGlobal{0};

@@ -102,3 +102,24 @@ target_link_libraries(tst_memberscope PRIVATE
 )
 
 add_test(NAME memberscope COMMAND tst_memberscope)
+
+# A front's relay: the Source a browser acquires is one caller's view of the entity serving
+# their scope. Two contracts, because that is the shape (the front's surface and the slice
+# one entity behind it answers), and no transport, because the relay works by name and has
+# no opinion about what is on the other side.
+qt_add_executable(tst_front tst_front.cpp)
+
+synqt_add_contract(tst_front ROLE source SYN
+    "${CMAKE_CURRENT_SOURCE_DIR}/shared/Gated.syn"
+    "${CMAKE_CURRENT_SOURCE_DIR}/shared/Backoffice.syn")
+
+target_link_libraries(tst_front PRIVATE
+    SynQtService
+    Qt6::Core
+    Qt6::Gui
+    Qt6::Qml
+    Qt6::RemoteObjects
+    Qt6::Test
+)
+
+add_test(NAME front COMMAND tst_front)

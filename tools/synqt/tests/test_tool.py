@@ -369,6 +369,29 @@ class AppGenTest(unittest.TestCase):
         self.assertIn("config.scopesHierarchical = false;", client_set)
         self.assertIn("config.scopesHierarchical = false;", edge_set)
 
+    def test_edge_hosts_its_points_whatever_the_client_is_called(self):
+        """A browser-facing point is one a client entity consumes, not one whose consumer
+        list holds the word "client".
+
+        The edge that hosts nothing is the worst shape this can take, because it builds and
+        starts and serves the bundle: the browser connects, acquires nothing, and every
+        accessor it reads is undefined. Nothing about that says which of the two ends is
+        wrong, so it is asserted here on the name a scaffolded project uses."""
+        config = {
+            "project": {"name": "shop"},
+            "entities": [
+                {"name": "app", "type": "client"},
+                {"name": "edge", "type": "web_edge"},
+            ],
+            "connect_points": [
+                {"name": "auction", "owner": "edge", "consumers": ["app"],
+                 "export": "prop int highBid\n"},
+            ],
+        }
+        main = maingen.render_edge_main(config, config["entities"][1])
+        self.assertIn('QStringLiteral("auction")', main)
+        self.assertNotIn("No client-facing connect points yet", main)
+
     def test_edge_main_composes_entity_runtime_for_its_mesh_side(self):
         # A web edge that consumes a database connect point over the mesh reaches it through
         # an EntityRuntime (WebEdge keeps the browser side); each acquired accessor is injected

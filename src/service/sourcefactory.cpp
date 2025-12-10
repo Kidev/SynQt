@@ -60,6 +60,15 @@ bool SourceFactory::bindCaller(QObject *source, QObject *caller)
                                      Q_ARG(QObject *, caller));
 }
 
+bool SourceFactory::relay(QObject *source, QObject *behind)
+{
+    if (!source || !behind) {
+        return false;
+    }
+    return QMetaObject::invokeMethod(source, "synqtRelay", Qt::DirectConnection,
+                                     Q_ARG(QObject *, behind));
+}
+
 bool SourceFactory::holdsSharedState(QObject *source)
 {
     if (!source) {

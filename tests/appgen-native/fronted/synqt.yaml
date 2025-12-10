@@ -1,0 +1,76 @@
+# SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+# SPDX-License-Identifier: Apache-2.0
+
+# The smallest project with a front. A web edge that owns a browser-facing point it does not
+# implement, and hands each caller to the entity serving people of their scope.
+#
+# What a green build proves that a string test cannot. The edge main compiles with no server
+# file for the fronted point (there is nothing to write in one), its `behind:` block reaches
+# WebEdge::setEntityBehind through a QSet the generator has to remember to include, and the
+# generated Source helper's relay resolves against a Replica of a different contract.
+#
+# The two entities behind it carry different slices of the front's surface, which is the
+# arrangement `synqt check` holds them to: `lobby` answers what anyone reaches and
+# `backoffice` answers that plus the admin members, because an admin satisfies anonymous.
+project:
+  name: fronted
+  version: 0.1.0
+  qt_version: 6.11.1
+
+scopes:
+  order: [anonymous, admin]
+  hierarchical: true
+  default: anonymous
+
+entities:
+  - name: app
+    type: client
+    targets: [wasm]
+
+  - name: gate
+    type: web_edge
+    public:
+      port: 8443
+    tls:
+      cert_file: deploy/edge.crt
+      key_file: deploy/edge.key
+
+  - name: lobby
+    type: service
+
+  - name: backoffice
+    type: service
+
+connect_points:
+  # The front. It carries one surface; who answers it depends on who is asking.
+  - name: gate
+    owner: gate
+    consumers: [app]
+    behind:
+      anonymous: lobby
+      admin: backoffice
+    export: |
+      prop string[80] headline
+      model catalogue(string[64] sku, real price)
+
+      <admin> prop int pending
+      <admin> slot restock(string[64] sku, int count)
+
+  # What anyone reaches, answered by the entity anonymous callers are handed to.
+  - name: front
+    owner: lobby
+    consumers: [gate]
+    export: |
+      prop string[80] headline
+      model catalogue(string[64] sku, real price)
+
+  # The same, plus the admin members: an admin satisfies anonymous, so callers of both
+  # scopes land here and this entity answers everything either of them reaches.
+  - name: desk
+    owner: backoffice
+    consumers: [gate]
+    export: |
+      prop string[80] headline
+      model catalogue(string[64] sku, real price)
+      prop int pending
+      slot restock(string[64] sku, int count)

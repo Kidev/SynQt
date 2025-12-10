@@ -258,6 +258,45 @@ point no client consumes refuses every caller, since a scope belongs to a user's
 and a calling entity has none. Gate a service-to-service member on `Caller.entity` in the
 slot instead.
 
+### Handing callers on: `behind:`
+
+Member scopes decide what crosses; `behind:` decides *who answers*. A web edge may own a
+point it does not implement and hand each caller to the entity serving people of their
+scope:
+
+```yaml
+  - name: gate
+    owner: gate                     # a web_edge
+    consumers: [app]
+    behind:
+      anonymous: lobby
+      admin: backoffice
+    export: |
+      prop string[80] headline
+      <admin> slot restock(string[64] sku, int count)
+```
+
+The edge keeps what only it can keep, the session and the sign-in, and holds none of the
+data. The browser writes `Server.gate` whatever answered it. Each entity behind the front
+owns an ordinary connect point of its own that the front consumes, and `synqt check` holds
+the two together: a tier carries exactly the members the front offers its callers, no more
+and no fewer.
+
+The point of the arrangement is what it removes. An entity behind a front is reached by
+callers of one scope and no other, so it authorizes on `Caller` and never asks about scope;
+nothing enforces that at run time because nothing has to. And with a tier per process, an
+admin surface's rows never exist in the process serving anonymous visitors.
+
+A scope with no line of its own is handed to the highest tier at or below what the caller
+holds, so `anonymous` and `admin` alone still serve a moderator (the anonymous one). Under
+set-based scopes there is no order to fall back along, and a scope nobody named is served by
+nobody, which hosts nothing for them.
+
+One thing a front cannot do is answer a slot that returns a value. What it hands the call
+to is reached over the mesh and replies after the slot has already returned, so `synqt check`
+refuses a returning slot on a fronted point and points at `Caller.emit<Signal>`, which is how
+an answer that takes a while gets back to the caller either way.
+
 ## How many of an entity there are: `shared`
 
 Read a system as chains. Every chain starts at a browser, which is one person and is never

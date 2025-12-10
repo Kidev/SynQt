@@ -210,6 +210,13 @@
       "defended_by": "A `<scope>` gate is on the flow, not the shape. The Source answering that caller never seeds or follows a member they may not see, so no value is ever serialized toward them, and losing the scope withdraws what was already sent.",
       "file": "tests/m7-caller/tst_memberscope.cpp",
       "test": "aMirrorPublishesOnlyWhatItsCallerMaySee"
+    },
+    {
+      "id": "a-caller-reaches-the-tier-that-is-not-theirs",
+      "what": "A signed-in visitor reaches the entity behind a front that serves a scope they do not hold, or an unauthorized caller reaches any of them.",
+      "defended_by": "A front hands each caller to the entity its scope names and to no other, so no link to the rest is opened for them at all; the front's own member gate refuses a slot before anything is forwarded, so the entity behind never sees a call its caller had no scope for.",
+      "file": "tests/m7-caller/tst_front.cpp",
+      "test": "anUnderScopedCallerIsRefusedAtTheFront"
     }
   ]
 }

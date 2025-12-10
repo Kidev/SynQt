@@ -7,6 +7,7 @@
 #include "identityconfig.h"
 
 #include <QList>
+#include <QMap>
 #include <QString>
 #include <QStringList>
 
@@ -35,6 +36,19 @@ struct WebEdgeConnectPoint
     /// everybody, mirrored to each session; not shared is one Source per session, so what
     /// it holds is that person's and their second tab continues it.
     bool shared{true};
+
+    /// Which entity serves each scope, on a point the edge owns and does not implement.
+    ///
+    /// This is a front. The edge keeps what only it can keep, the session and the sign-in,
+    /// and hands each caller to the entity serving people of their scope; the Source the
+    /// browser acquires relays to that entity and holds nothing itself. Empty on an
+    /// ordinary point, which the edge answers from its own QML.
+    ///
+    /// The consequence worth stating: an entity behind a front is reached by callers of one
+    /// scope and no other, so it authorizes on `Caller` and never asks about scope. Nothing
+    /// enforces that at run time because nothing has to; no link to it is opened for anyone
+    /// else.
+    QMap<QString, QString> behind;
 };
 
 /// One page the edge delivers rather than the bundle carrying it.

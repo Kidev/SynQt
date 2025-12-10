@@ -485,6 +485,40 @@ def _auth_adoption_lines(mesh_consumed: List[Dict[str, Any]]) -> List[str]:
         "        });"]
 
 
+def _front_adoption_lines(client_facing: List[Dict[str, Any]]) -> List[str]:
+    """The edge's half of a front. Hold on to the entity serving each scope.
+
+    A front owns a browser-facing point it does not implement, and what answers for each
+    scope is an entity it consumes over the mesh. The Replica is handed to the edge as it
+    initializes, and a browser arriving before then does not have that point hosted:
+    the alternative is a Source relaying to nothing, which would answer every caller with a
+    default and look like the entity behind it had nothing to say.
+    """
+    entities: List[str] = []
+    for cp in client_facing:
+        for entity in appmodel.behind(cp).values():
+            if entity not in entities:
+                entities.append(entity)
+    if not entities:
+        return []
+    wanted = ", ".join(f'QStringLiteral("{cxx_string_literal(entity)}")'
+                       for entity in entities)
+    return [
+        "",
+        "    // Fronts (`behind:`): the entities this edge hands its callers to. Taken as each",
+        "    // one initializes, for the same reason the adopters above wait: a dynamic Replica",
+        "    // has no members before that, and the relay reaches them all by name.",
+        f"    const QSet<QString> synqtFronted{{{wanted}}};",
+        "    QObject::connect(&runtime, &EntityRuntime::consumedReplicaReady, &edge,",
+        "        [&edge, synqtFronted](const QString &owner, const QString &point,",
+        "                              QObject *replica) {",
+        "            Q_UNUSED(point);",
+        "            if (synqtFronted.contains(owner)) {",
+        "                edge.setEntityBehind(owner, replica);",
+        "            }",
+        "        });"]
+
+
 def _component_url(view: str, uri: str) -> str:
     """The qrc URL of a compiled-in view inside the client's QML module."""
     if not view:
@@ -820,7 +854,8 @@ def render_edge_main(config: Dict[str, Any], edge: Dict[str, Any],
         # QQmlPropertyMap is the accessor type EntityRuntime::accessor() returns; it is
         # upcast to QObject* for WebEdge::setContextObject, so its full definition is needed.
         mesh_includes_extra = ("\n#include <QFile>\n#include <QJsonDocument>"
-                               "\n#include <QJsonObject>\n#include <QQmlPropertyMap>")
+                               "\n#include <QJsonObject>\n#include <QQmlPropertyMap>"
+                               "\n#include <QSet>")
         topology_option = (
             '\n    const QCommandLineOption topologyOption{QStringLiteral("topology"),\n'
             '        QStringLiteral("Resolved mesh topology JSON for this edge."),\n'
@@ -852,6 +887,7 @@ def render_edge_main(config: Dict[str, Any], edge: Dict[str, Any],
                 f'                          runtime.accessor(EntityRuntime::accessorName('
                 f'QStringLiteral("{owner_literal}"))));')
         inject_lines += _auth_adoption_lines(mesh_consumed)
+        inject_lines += _front_adoption_lines(client_facing)
         mesh_inject_block = "\n".join(inject_lines) + "\n"
     else:
         mesh_includes_extra = ""
@@ -862,19 +898,6 @@ def render_edge_main(config: Dict[str, Any], edge: Dict[str, Any],
     cp_blocks: List[str] = []
     for cp in client_facing:
         cp_name = cp.get("name")
-        # A front owns a point it does not implement, so there is no Source here to host: the
-        # calls belong to whichever entity behind it serves the caller's scope, and the relay
-        # that carries them there is not built yet. Refused rather than generated as an
-        # ordinary point, which would host a Source nobody wrote and answer every caller with
-        # a default. The topology, the checks and the editor all understand `behind:`; this is
-        # the one half that does not, and it says so here rather than at run time.
-        if appmodel.is_front(cp):
-            raise appmodel.AppGenError(
-                f"connect point '{cp_name}' is a front (it has a 'behind:' block), and "
-                "building one is not implemented yet: the relay that carries a caller's "
-                "slots to the entity serving their scope, and that entity's state back, is "
-                "still to be written. Take the 'behind:' block off and answer the point on "
-                f"'{name}' itself to build today.")
         contract = appmodel.contract_of(cp)
         shared = "true" if appmodel.is_shared(edge) else "false"
         var = re.sub(r"[^0-9A-Za-z]", "", cp_name) or "connectPoint"
@@ -888,12 +911,22 @@ def render_edge_main(config: Dict[str, Any], edge: Dict[str, Any],
         scope = scope.strip() if isinstance(scope, str) else ""
         scope_line = (f'{var}.scope = QStringLiteral("{cxx_string_literal(scope)}");\n        '
                       if scope else "")
+        # A front owns this point and implements none of it. The calls belong to whichever
+        # entity behind it serves the caller's scope, and the Source the browser acquires
+        # relays to that one. There is no server file, because there is nothing here to
+        # write in it.
+        behind_lines = "".join(
+            f'{var}.behind.insert(QStringLiteral("{cxx_string_literal(scope_name)}"),\n'
+            f'                           QStringLiteral("{cxx_string_literal(entity)}"));\n        '
+            for scope_name, entity in appmodel.behind(cp).items())
+        server_line = ("" if appmodel.is_front(cp) else
+                       f'{var}.serverFile = qmlDir + '
+                       f'QStringLiteral("/{cxx_string_literal(server_file)}");\n        ')
         block = f"""    {{
         WebEdgeConnectPoint {var};
         {var}.name = QStringLiteral("{cxx_string_literal(cp_name)}");
         {var}.contract = QStringLiteral("{cxx_string_literal(contract)}");
-        {var}.serverFile = qmlDir + QStringLiteral("/{cxx_string_literal(server_file)}");
-        {scope_line}{var}.shared = {shared};
+        {server_line}{scope_line}{behind_lines}{var}.shared = {shared};
         config.connectPoints.append({var});
     }}"""
         cp_blocks.append(block)

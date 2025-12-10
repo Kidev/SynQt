@@ -1,0 +1,20 @@
+// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+// SPDX-License-Identifier: Apache-2.0
+
+// What one entity behind a front carries. The slice of the front's surface that this
+// scope's callers reach, and nothing else. `synqt check` holds it to exactly that, which
+// is what lets the relay wire the two together by name.
+//
+// The members are Gated's, ungated here. An entity behind a front never asks about scope,
+// because no caller of another scope is ever handed to it.
+
+contract Backoffice {
+    prop string[80] headline
+    model catalogue(string[64] sku, real price)
+    signal pinged()
+
+    prop int pending
+    model auditLog(string[200] line)
+    slot restock(string[64] sku, int count)
+    signal restocked(string[64] sku)
+}
