@@ -282,31 +282,19 @@ ApplicationWindow {
 // anything. An entity that is on the canvas and in synqt.yaml with an empty directory beside it
 // is an entity nobody can open, and it is the state every new one used to start in.
 export function entityFiles(design, entity) {
-    const files = [];
     const own = entityQmlPath(entity);
-    const sources = [];
-    const seen = new Set();
-    for (const link of design.links || []) {
-        const contract = contractOf(link);
-        if (link.owner !== entity.name || !contract) {
-            continue;
-        }
-        const relative = link.server || sourcePath(entity, contract);
-        if (seen.has(relative)) {
-            continue;
-        }
-        seen.add(relative);
-        sources.push({name: relative,
-                      text: link.qml || sourceQml(contract, link.owner, link.members),
-                      owner: entity.name, link: link.owner});
+    const link = (design.links || []).find(
+        (one) => one.owner === entity.name && contractOf(one));
+    if (!link) {
+        return [{name: own, text: entity.qml || entityQml(entity), owner: entity.name}];
     }
-    // An entity that exports something has one file, and it is the Source above: its own
-    // file and that Source are the same path. One is written only when there is no other.
-    if (!seen.has(own)) {
-        files.push({name: own, text: entity.qml || entityQml(entity), owner: entity.name});
-    }
-    files.push(...sources);
-    return files;
+    // One file: the entity is what it exports. The text somebody declared into on the entity
+    // is the same text the link's Source shows, so it is written once, at the one path, and
+    // the entity's copy wins because that is where the panel writes.
+    const relative = link.server || sourcePath(entity, contractOf(link));
+    const text = entity.qml || link.qml
+        || sourceQml(contractOf(link), link.owner, link.members);
+    return [{name: relative, text, owner: entity.name, link: link.owner}];
 }
 
 // The file an entity *is*, as opposed to the connect points it exposes. A client's is the

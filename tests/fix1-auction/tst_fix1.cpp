@@ -12,7 +12,6 @@
 // listed consumer. The third hands-on check (client-as-consumer-of-ledger fails
 // `synqt check`) is proven in tools/synqt/tests/test_examples.py.
 
-#include "connectpointhost.h"
 #include "entityruntime.h"
 #include "meshclient.h"
 #include "sessionmanager.h"
@@ -28,9 +27,9 @@
 #include "edge_sourcehelper.h"  // synqtRegisterEdgeSources()
 #include "consumerfactory.h"
 #include "books_consumer.h"  // BooksConsumer, the edge's mesh-half facade
-#include "books_sourcehelper.h"  // synqtRegisterBooksSources()
 
 #include <QHostAddress>
+#include <QProcess>
 #include <QQmlEngine>
 #include <qqml.h>
 #include <QRemoteObjectDynamicReplica>
@@ -39,6 +38,8 @@
 #include <QSslCertificate>
 #include <QSslKey>
 #include <QSslSocket>
+#include <QElapsedTimer>
+#include <QTcpServer>
 #include <QTest>
 #include <QVariantMap>
 
@@ -71,6 +72,38 @@ ConnectPointConfig ledgerConnectPoint(quint16 port)
     connectPoint.endpoint.host = QStringLiteral("127.0.0.1");
     connectPoint.endpoint.port = port;
     return connectPoint;
+}
+
+// A port nothing is listening on. Bound and released, so the books entity below can take
+// it. A fixture wants a port it can hand to a child process before that child exists, and
+// asking the OS for one and letting it go is the shortest way to a number that works.
+quint16 freePort()
+{
+    QTcpServer probe;
+    if (!probe.listen(QHostAddress::LocalHost, 0)) {
+        return 0;
+    }
+    const quint16 port{probe.serverPort()};
+    probe.close();
+    return port;
+}
+
+// Wait for one line on a child's stdout. `QTest::qWait` rather than `waitForReadyRead`,
+// because what this waits for is often the child's answer to something happening in this
+// process, and blocking on the pipe would stop the event loop that has to get it there.
+bool waitForLine(QProcess &process, const QString &line)
+{
+    QElapsedTimer elapsed;
+    elapsed.start();
+    QString seen;
+    while (elapsed.elapsed() < 10000) {
+        seen += QString::fromUtf8(process.readAllStandardOutput());
+        if (seen.contains(line)) {
+            return true;
+        }
+        QTest::qWait(50);
+    }
+    return false;
 }
 
 QByteArray cookieFor(const QByteArray &token)
@@ -111,9 +144,8 @@ class TestFix1 : public QObject
     Q_OBJECT
 
 private:
-    std::unique_ptr<QQmlEngine> m_dbEngine;
     std::unique_ptr<QQmlEngine> m_edgeEngine;
-    std::unique_ptr<EntityRuntime> m_database;
+    QProcess m_books;
     std::unique_ptr<EntityRuntime> m_web;
     std::unique_ptr<WebEdge> m_edge;
     quint16 m_ledgerPort{0};
@@ -129,29 +161,27 @@ private slots:
     {
         QVERIFY2(QSslSocket::supportsSsl(), "TLS backend unavailable");
         synqtRegisterEdgeSources();
-        synqtRegisterBooksSources();
         // The edge reaches the books entity through the generated consumer facade, which is
         // what fills in the session it is acting for; a raw dynamic Replica would not.
         //
-        // Only the factory, not synqtRegisterBooksConsumers(): that also registers
-        // the attached type under the same QML name as the Source helper, and in a real
-        // system the owner and the consumer are two binaries so the two never meet. Here
-        // they are one process, and whichever registered last would be what the Source in
-        // the books entity's QML resolves to.
+        // Only the factory, not synqtRegisterBooksConsumers(): that registers the QML name
+        // `Books`, and this process is the edge, where that name is the accessor the edge's
+        // own QML calls. The books entity registers the same name for its Source, which is
+        // why it is a separate binary here (tests/fix1-auction/books) exactly as it is in a
+        // deployment.
         SynQt::registerConsumerFactory(
             QStringLiteral("Books"),
             []() -> SynQt::ConsumerBase * { return new BooksConsumer{}; });
 
-        // The books entity owns its point, on an OS-assigned mTLS port.
-        m_dbEngine = std::make_unique<QQmlEngine>();
-        Topology dbTopology;
-        dbTopology.entity = QStringLiteral("books");
-        dbTopology.credentials = credsFor(QStringLiteral("books"));
-        dbTopology.connectPoints = {ledgerConnectPoint(0)};
-        m_database = std::make_unique<EntityRuntime>(dbTopology, m_dbEngine.get());
-        QVERIFY2(m_database->start(), qPrintable(m_database->errorString()));
-        m_ledgerPort = m_database->ownedHosts().value(0)->serverPort();
+        // The books entity, as its own process, on a port nothing else is using.
+        m_ledgerPort = freePort();
         QVERIFY(m_ledgerPort != 0);
+        m_books.setProgram(QStringLiteral(FIX1_BOOKS_BIN));
+        m_books.setArguments({QString::number(m_ledgerPort)});
+        m_books.start();
+        QVERIFY2(m_books.waitForStarted(5000), qPrintable(m_books.errorString()));
+        QVERIFY2(waitForLine(m_books, QStringLiteral("ready")),
+                 "the books entity did not come up");
 
         // The edge entity consumes the books entity's point (as entity "edge").
         m_edgeEngine = std::make_unique<QQmlEngine>();
@@ -201,9 +231,12 @@ private slots:
     {
         m_edge.reset();
         m_web.reset();
-        m_database.reset();
         m_edgeEngine.reset();
-        m_dbEngine.reset();
+        m_books.terminate();
+        if (!m_books.waitForFinished(5000)) {
+            m_books.kill();
+            m_books.waitForFinished(5000);
+        }
     }
 
     // The tutorial's hands-on checks 1 and 2, plus the positive path and the Hall-of-Fame
@@ -291,7 +324,6 @@ private slots:
     void theBooksRefuseAnEntityThatIsNotTheEdge()
     {
         const int before{databaseView()->property("count").toInt()};
-        QSignalSpy refused{m_database.get(), &EntityRuntime::connectionRefused};
 
         MeshClient auditor;
         QRemoteObjectNode auditorNode;
@@ -309,9 +341,11 @@ private slots:
             loadPrivateKey(QStringLiteral(FIX1_CERT_DIR "/auditor.key"))));
 
         // The TLS handshake succeeds (the certificate is genuine) and the connect point
-        // refuses the entity behind it, so no Replica ever becomes valid.
-        QTRY_VERIFY(refused.count() >= 1);
-        QCOMPARE(refused.first().at(1).toString(), QStringLiteral("auditor"));
+        // refuses the entity behind it, so no Replica ever becomes valid. The books entity
+        // says whom it turned away on its stdout, which is how this reads the refusal
+        // itself rather than only its absence of effect.
+        QVERIFY2(waitForLine(m_books, QStringLiteral("refused auditor")),
+                 "the books entity did not report refusing the auditor");
         QTest::qWait(500);
         QVERIFY(!auditorLedger || !auditorLedger->isReplicaValid());
         QCOMPARE(databaseView()->property("count").toInt(), before);  // refused, no write

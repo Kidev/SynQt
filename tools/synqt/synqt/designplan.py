@@ -179,10 +179,6 @@ def _apply_entities(work: Path, current: Dict[str, Any], wanted: Dict[str, Any],
                     reasons: Dict[str, List[str]]) -> Set[str]:
     was = _by_name(current["entities"])
     now = _by_name(wanted["entities"])
-    # An entity that exports something has no file of its own to write: that file is the
-    # Source of the point it exports, and _apply_links writes it. Two writers on one path
-    # would have the entity's copy of the text quietly win over the one somebody edited.
-    exporters = {str(link.get("owner") or "") for link in wanted.get("links") or []}
     removed: Set[str] = set()
 
     for name, entity in now.items():
@@ -194,8 +190,7 @@ def _apply_entities(work: Path, current: Dict[str, Any], wanted: Dict[str, Any],
             continue
         _patch(work, "entities", name, was[name], entity, _ENTITY_FIELDS,
                _entity_field, reasons)
-        if name not in exporters:
-            _write_entity_qml(work, entity, reasons)
+        _write_entity_qml(work, entity, reasons)
 
     for name in was:
         if name in now:

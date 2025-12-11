@@ -84,4 +84,12 @@ target_link_libraries(tst_fix1 PRIVATE
     Qt6::Test
 )
 
+# The books entity runs as its own process, which is what it is in a deployment and what
+# one name per entity requires here: the type `Books` is that entity's Source in its own
+# binary and the edge's accessor for it in the edge's, and one process cannot hold both.
+add_subdirectory(books)
+add_dependencies(tst_fix1 fix1_books)
+target_compile_definitions(tst_fix1 PRIVATE
+    FIX1_BOOKS_BIN="$<TARGET_FILE:fix1_books>")
+
 add_test(NAME fix1 COMMAND tst_fix1)

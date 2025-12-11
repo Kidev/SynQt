@@ -330,14 +330,13 @@ def read(project_dir: os.PathLike[str] | str, *,
     entities = entities_of(config, places=_stored_places(root))
     seats = _stored_seats(root)
     by_name = {str(entity.get("name") or ""): entity for entity in entities}
-    owners = {str(point.get("owner") or "") for point in appmodel.connect_points(config)}
     for entity in entities:
         # The entity's own file, for the same reason a connect point's Source is carried: it
         # is the file that entity is, and the pane has to show the one on disk rather than a
-        # stub rendered from the topology. An entity that exports something has no file of
-        # its own to carry here: that same file is the Source, and the link below carries it.
-        entity["qml"] = ("" if str(entity.get("name") or "") in owners
-                         else _read_text(root / appmodel.entity_file_path(entity)))
+        # stub rendered from the topology. For an entity that exports something the two are
+        # one file, and both carry it: the panel declares on the entity, and the picker ticks
+        # what crosses out of those declarations.
+        entity["qml"] = _read_text(root / appmodel.entity_file_path(entity))
     return {
         "version": VERSION,
         "project": name,
