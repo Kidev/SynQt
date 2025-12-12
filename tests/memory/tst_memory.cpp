@@ -438,14 +438,17 @@ private slots:
     // exactly the shape of thing that grows for a month and is noticed by nobody.
     //
     // Measured as a difference rather than against a fixed bound, and that is deliberate.
-    // A visitor who is new each time costs this edge about 3 KB that the run does not get
-    // back, whether or not anything is ever revoked; it reproduces with the client closing
-    // the socket and no session ending at all, so it is a separate question from this one
-    // and a fixed bound here would be a test that fails for somebody else's reason. What
-    // this asks is the question the sign-out path owns: given the same visitor arriving and
-    // connecting, does ending the session at the edge leave more behind than the visitor
-    // simply going away? It must not, and if the map or the Sources or the Callers it
-    // carries were ever left in place, it would.
+    // A visitor who is new each time reads as a cost this run does not get back, and it is
+    // not a leak: bisected on its own edge, every container the edge keys by session is
+    // empty afterwards (pending sessions, per-session Sources, per-session sockets, the
+    // per-IP counts), the sessions themselves are exactly the ones nobody signed out of,
+    // and what is left over is a fixed cost being amortised, falling from about 960 bytes
+    // a visit over 30 visits to about 530 over 150. A fixed bound here would be a test that
+    // fails for the allocator's reasons rather than for the edge's. What this asks is the
+    // question the sign-out path owns: given the same visitor arriving and connecting, does
+    // ending the session at the edge leave more behind than the visitor going away?
+    // It must not, and if the map or the Sources or the Callers it carries were ever left
+    // in place, it would.
     void signingOutLeavesNoMoreBehindThanClosingTheTab()
     {
         QQmlEngine engine;
