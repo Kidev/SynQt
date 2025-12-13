@@ -29,6 +29,8 @@ qt_add_library(SynQtConsumer STATIC
     deletesoon.h
     promise.cpp
     promise.h
+    readonlymodel.cpp
+    readonlymodel.h
 )
 
 set_target_properties(SynQtConsumer PROPERTIES AUTOMOC ON)

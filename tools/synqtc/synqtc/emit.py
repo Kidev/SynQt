@@ -1354,6 +1354,7 @@ def emit_consumer_header(syn: SynFile, lstem: str) -> str:
             "#  include <consumerbase.h>",
             "#  include <promise.h>", "",
             f'#  include "{lstem}_rep.h"', "",
+            "#  include <readonlymodel.h>", "",
             "#  include <QtQml/qqmlregistration.h>", "",
             "#  include <QAbstractItemModel>",
             "#  include <QList>",
@@ -1433,8 +1434,17 @@ def _consumer_class(contract: Contract, records, path) -> str:
         "protected:",
         "    void bindReplica() override;",
         "    void emitAllChanged() override;",
-        "};",
     ]
+    if contract.models:
+        lines += [
+            "",
+            "private:",
+            "    // What a consumer is handed for each published model: a read-only view of",
+            "    // the Replica's, never the Replica's own (SynQt::ReadOnlyModel).",
+        ]
+        for model in contract.models:
+            lines.append(f"    SynQt::ReadOnlyModel *m_{model.name}View{{nullptr}};")
+    lines.append("};")
     return "\n".join(lines)
 
 
@@ -1498,10 +1508,13 @@ def emit_consumer_source(syn: SynFile, lstem: str) -> str:
 def _consumer_impl(syn: SynFile, contract: Contract, records, path) -> str:
     name = contract.name
     cls = f"{name}Consumer"
+    built = "".join(
+        f"\n    m_{model.name}View = new SynQt::ReadOnlyModel{{this}};"
+        for model in contract.models)
     lines: List[str] = [
         f"{cls}::{cls}(QObject *parent)",
         f"    : SynQt::ConsumerBase{{parent}}",
-        "{",
+        "{" + built,
         "}",
         "",
         f"QString {cls}::contractName() const",
@@ -1542,8 +1555,17 @@ def _consumer_impl(syn: SynFile, contract: Contract, records, path) -> str:
             "    if (m_replica == nullptr) {",
             "        return nullptr;",
             "    }",
-            "    return qobject_cast<QAbstractItemModel *>(",
-            f'        qvariant_cast<QObject *>(m_replica->property("{model.name}")));',
+            "    QAbstractItemModel *published{qobject_cast<QAbstractItemModel *>(",
+            '        qvariant_cast<QObject *>(m_replica->property("' + model.name + '")))};',
+            "    if (published == nullptr) {",
+            "        return nullptr;",
+            "    }",
+            "    // Re-sourced rather than rebuilt, so a reconnect keeps the object every",
+            "    // binding on this model already resolved.",
+            "    if (m_" + model.name + "View->sourceModel() != published) {",
+            "        m_" + model.name + "View->setSourceModel(published);",
+            "    }",
+            "    return m_" + model.name + "View;",
             "}",
             "",
         ]

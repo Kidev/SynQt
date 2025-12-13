@@ -136,6 +136,21 @@ private slots:
             qobject_cast<QAbstractItemModel *>(facadeObject->property("rows").value<QObject *>())};
         QTRY_COMPARE(mirrored->rowCount(), 1);
 
+        // 2b) And it is a model to read, never one to write. The owner already refuses a
+        // write that reaches it, so this closes the half the owner cannot: QtRO's model
+        // Replica takes setData into its own cache and answers true before anything
+        // crosses the wire, which left the consumer that called it showing a value nobody
+        // else had until the next publish. A lie a view tells only to itself is the kind
+        // that survives review, so the facade hands out a read-only view of the Replica's
+        // model rather than the Replica's own. Before this, the call below returned true.
+        QVERIFY(!mirrored->setData(mirrored->index(0, 0), QStringLiteral("rewritten"),
+                                   Qt::UserRole));
+        QVERIFY(!(mirrored->flags(mirrored->index(0, 0)) & Qt::ItemIsEditable));
+        // And nothing moved at the owner, which is the boundary that was never at risk
+        // here and is asserted so that a future change cannot make it one.
+        QTest::qWait(100);
+        QCOMPARE(rowsModel.item(0)->text(), QStringLiteral("first"));
+
         // 3) Fire-and-forget slot through the facade reaches the owner (count 3 -> 8).
         QVERIFY(QMetaObject::invokeMethod(root.data(), "callBump", Q_ARG(int, 5)));
         QTRY_COMPARE(root->property("liveCount").toInt(), 8);

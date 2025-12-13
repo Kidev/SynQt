@@ -93,6 +93,13 @@
       "test": "consumerCannotWriteTheModel"
     },
     {
+      "id": "consumer-writes-its-own-replica-cache",
+      "what": "A consumer calls setData on the model its facade handed it. The write never reaches the owner, but QtRO's model Replica takes it into its own cache and answers true, so that consumer goes on showing a value nobody else has.",
+      "defended_by": "The facade hands out SynQt::ReadOnlyModel over the Replica's model, never the Replica's own: setData returns false and flags() clears ItemIsEditable, so a delegate offers no editor and a direct caller is refused. The owner-side half is SynQt::SourceModel.",
+      "file": "tests/consumer-facade/tst_consumer.cpp",
+      "test": "facadeSurfacesAndErgonomics"
+    },
+    {
       "id": "undeclared-field-crosses-the-wire",
       "what": "A row carries a field the contract never declared (an owner id, an email) and it reaches the browser.",
       "defended_by": "The boundary keeps the declared roles and drops the rest, where the rows are published.",
