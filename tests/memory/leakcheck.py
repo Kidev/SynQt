@@ -32,14 +32,26 @@ import sys
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
 
-# Where a repository frame has to appear in a leak's stack for the leak to be ours. Deeper
+# Where a repository frame has to appear in a leak's stack for the leak to be the repository's. Deeper
 # than this and the allocation belongs to whatever library the frames above it name: every
 # leak in a process has this repository's main() at the bottom of its stack, so "a frame of
-# ours is present" charges us with the C library's font cache.
+# the repository is present" charges the repository with the C library's font cache.
 NEAR_FRAMES = 12
 
+# Frames that end the search before it reaches a repository frame, however close one is underneath.
+#
+# A signal dispatch is a change of author. Above one, the code running is a slot somebody
+# else wrote, reacting to an event. Below it is whoever emitted. Emitting a signal is not
+# allocating, and charging the emitter for what a slot kept turns every `emit readyRead()`
+# in a transport into the owner of whatever the framework above it built. That is not a
+# hypothetical: QtRO builds a dynamic Replica's metaobject inside onClientRead and keeps
+# it, and the only repository frame in that stack is the `emit` five frames below the
+# allocation.
+DISPATCH_FRAMES = ("doActivate", "QSlotObjectBase::call", "QMetaObject::activate",
+                   "QMetaMethod::invoke", "QMetaObject::invokeMethod")
+
 # How much a binary may grow per repetition of its whole workload before this is called a
-# finding rather than a number. Deliberately loose: a suite repetition here builds and tears
+# finding rather than a number. It is loose, because a suite repetition here builds and tears
 # down entire QML engines, TLS servers and QtRO nodes, and Qt retains a little of each. It
 # is a net for the case nobody thought to write a steady-state test for, not the gate;
 # tests/memory/tst_memory.cpp is the gate, and it measures in bytes.
@@ -132,6 +144,8 @@ def _records(log_dir: Path, repo: Path) -> List[dict]:
                     depth = index
                     where = frame[frame.index(here) + len(here) + 1:].split()[0]
                     break
+                if any(marker in frame for marker in DISPATCH_FRAMES):
+                    break   # upstream reacting to an event of ours; see DISPATCH_FRAMES
             records.append({
                 "log": log.name,
                 "kind": head.group(1),
@@ -172,8 +186,8 @@ def sanitize(log_dir: Path, repo: Path) -> int:
 
     summarize("framework (src/), which is what this gate is for", framework)
     summarize("suites and benchmarks (a fixture the test never freed)", suites)
-    print(f"\nupstream (no frame of ours within {NEAR_FRAMES} of the allocation): "
-          f"{upstream} roots")
+    print(f"\nupstream (no frame of ours within {NEAR_FRAMES} of the allocation, or only "
+          f"below a signal dispatch): {upstream} roots")
 
     # Reported, never gated. An indirect record is a child of a leaked root, and a root can
     # be a region LeakSanitizer scanned conservatively, which is how an object of ours ends
