@@ -12,7 +12,7 @@ project(synqt_m8_auth LANGUAGES CXX)
 include("${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/SynQtBuildFlags.cmake")
 
 find_package(Qt6 6.11 REQUIRED COMPONENTS
-    Core Gui Network NetworkAuth Qml RemoteObjects WebSockets HttpServer Test)
+    Core Gui Network NetworkAuth Qml RemoteObjects Sql WebSockets HttpServer Test)
 qt_standard_project_setup()
 
 # Guarded: configured on its own, this suite is what pulls the runtime library in;
@@ -77,6 +77,25 @@ target_link_libraries(tst_desktop PRIVATE
     Qt6::Test
 )
 add_test(NAME desktop-signin COMMAND tst_desktop)
+
+# Staying signed in on the desktop: the device credential, its rotation, and the reuse
+# detection. Qt6::Sql not because the suite talks to a database, but because moving a row's
+# timestamps is the only way to reach the far side of a window measured in days.
+qt_add_executable(tst_device tst_device.cpp)
+target_compile_definitions(tst_device PRIVATE M8_SRCDIR="${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(tst_device PRIVATE
+    SynQtEdge
+    Qt6::Core
+    Qt6::Gui
+    Qt6::Network
+    Qt6::Qml
+    Qt6::RemoteObjects
+    Qt6::Sql
+    Qt6::WebSockets
+    Qt6::HttpServer
+    Qt6::Test
+)
+add_test(NAME device-credential COMMAND tst_device)
 
 # The env file behind every `env:` reference: it is what turns the NAME of a secret in
 # synqt.yaml into its value at startup, so its precedence rules are part of the security

@@ -50,6 +50,8 @@ include("${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/SynQtContracts.cmake")
 
 qt_add_library(SynQtIdentity STATIC
     identityconfig.h
+    deviceregistry.cpp
+    deviceregistry.h
     edgereplyhandler.cpp
     edgereplyhandler.h
     jwksverifier.cpp

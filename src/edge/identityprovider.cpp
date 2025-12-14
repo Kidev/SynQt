@@ -3,6 +3,7 @@
 
 #include "identityprovider.h"
 
+#include "deviceregistry.h"
 #include "identitymapping.h"
 #include "oauthbackend.h"
 #include "sessionmanager.h"
@@ -10,6 +11,7 @@
 #include <QCryptographicHash>
 #include <QDateTime>
 #include <QEventLoop>
+#include <QHostAddress>
 #include <QHttpHeaders>
 #include <QHttpServerRequest>
 #include <QHttpServerResponse>
@@ -150,6 +152,17 @@ bool isLoopbackReturn(const QUrl &url)
     return !url.hasQuery() && !url.hasFragment();
 }
 
+// The two desktop routes hang off the login route, so they move with it and a project that
+// renames its login has renamed all three.
+QString desktopRoute(const QString &loginRoute, const QString &leaf)
+{
+    QString route{loginRoute};
+    while (route.endsWith(QLatin1Char('/'))) {
+        route.chop(1);
+    }
+    return route + leaf;
+}
+
 QHttpServerResponse notFound()
 {
     // One answer for every way a claim can fail: unknown code, expired code, code already
@@ -199,6 +212,29 @@ IdentityProvider::IdentityProvider(IdentityConfig config, SessionManager *sessio
         m_backend = new OAuthBackend{m_config, this};
         m_backend->setAutoRefresh(m_config.refreshIntervalSeconds, m_config.refreshMarginSeconds);
     }
+
+    // Staying signed in across relaunches. Only for a project that both asked for it and
+    // builds a desktop client, because enrolment happens at the claim exchange and nothing
+    // but a native client ever reaches that.
+    if (m_config.device.enabled && m_config.allowDesktopLogin) {
+        auto *registry{new DeviceRegistry{m_config.device, this}};
+        QString error;
+        if (registry->open(&error)) {
+            m_devices = registry;
+            connect(m_devices, &DeviceRegistry::reuseDetected,
+                    this, &IdentityProvider::onReuseDetected);
+        } else {
+            // Loud, and then off: an edge that refused to start over an unreachable device
+            // store would trade "desktop users sign in every launch" for "nobody signs in at
+            // all". What must never happen quietly is the other direction, so this says
+            // which store and why, and the feature is not there.
+            delete registry;
+            qWarning("SynQt: identity.desktop_session is 'device' and the store would not "
+                     "open (%s), so desktop clients will sign in once per launch. No "
+                     "credential is persisted anywhere.",
+                     qUtf8Printable(error));
+        }
+    }
 }
 
 IdentityProvider::~IdentityProvider() = default;
@@ -220,11 +256,17 @@ QString IdentityProvider::logoutRoute() const
 
 QString IdentityProvider::claimRoute() const
 {
-    QString route{m_config.loginRoute};
-    while (route.endsWith(QLatin1Char('/'))) {
-        route.chop(1);
-    }
-    return route + QStringLiteral("/claim");
+    return desktopRoute(m_config.loginRoute, QStringLiteral("/claim"));
+}
+
+QString IdentityProvider::deviceRoute() const
+{
+    return desktopRoute(m_config.loginRoute, QStringLiteral("/device"));
+}
+
+DeviceRegistry *IdentityProvider::devices() const
+{
+    return m_devices;
 }
 
 void IdentityProvider::setEdgeOrigin(const QString &origin)
@@ -366,6 +408,9 @@ void IdentityProvider::releaseRemoteTokens(const QByteArray &sessionId)
 
 void IdentityProvider::forgetSession(const QByteArray &sessionId)
 {
+    // The back-reference goes, the family stays. A session running out of time is exactly
+    // what the device credential is for: the next launch redeems it and gets a new session.
+    m_sessionFamily.remove(sessionId);
     if (m_backend) {
         m_backend->releaseTokens(QString::fromLatin1(sessionId));
     } else {
@@ -583,9 +628,107 @@ QHttpServerResponse IdentityProvider::handleClaim(const QHttpServerRequest &requ
         return notFound();
     }
 
+    // Enrolment, when the client asked for it and the project persists sessions. No route of
+    // its own. This is the one place where a session has been proven to belong to the
+    // process asking, and adding an endpoint would be a second way to reach the same thing.
+    DeviceRegistry::Credential credential;
+    const bool wantsDevice{body.queryItemValue(QStringLiteral("device"))
+                           == QLatin1String("1")};
+    if (wantsDevice && m_devices) {
+        const SessionRecord *record{m_sessions->lookup(claim.sessionId)};
+        const QString sub{record ? record->identity.value(QStringLiteral("sub")).toString()
+                                 : QString{}};
+        if (record && !sub.isEmpty()) {
+            // The level the client reports about its own store. Below the configured floor
+            // this returns nothing, and that is not an error. The client stays signed in
+            // with the session it claimed and writes nothing anywhere.
+            const DeviceBinding binding{deviceBindingFromName(
+                body.queryItemValue(QStringLiteral("binding"), QUrl::FullyDecoded))};
+            credential = m_devices->enrol(sub, record->identity, m_edgeOrigin, binding,
+                                          body.queryItemValue(QStringLiteral("label"),
+                                                              QUrl::FullyDecoded));
+            bindFamily(claim.sessionId, credential.family);
+        }
+    }
+    return sessionAnswer(claim.sessionId, credential.family, credential.secret,
+                         credential.expiresMs);
+}
+
+QHttpServerResponse IdentityProvider::handleDevice(const QHttpServerRequest &request)
+{
+    if (!m_config.allowDesktopLogin || m_devices == nullptr) {
+        return notFound();
+    }
+    // As on the claim route, and for the same reason. The browser flow ends with a cookie and
+    // never comes here, so refusing anything carrying an Origin puts this endpoint out of
+    // reach of page script altogether rather than relying on a secret staying unguessable.
+    if (!request.value("Origin").isEmpty()) {
+        return notFound();
+    }
+    constexpr qsizetype kMaxDeviceBody{1024};
+    if (request.body().size() > kMaxDeviceBody) {
+        return notFound();
+    }
+
+    // Per-address fixed window. Cheap, and it is about the cost of a guess rather than its
+    // chance of succeeding. A 256-bit secret is not brute-forced, but nothing should be able
+    // to buy a database read per packet.
+    constexpr int kMaxAttemptsPerWindow{30};
+    constexpr qint64 kWindowMs{60 * 1000};
+    const QString peer{request.remoteAddress().toString()};
+    const qint64 now{QDateTime::currentMSecsSinceEpoch()};
+    RateWindow &window{m_deviceRate[peer]};
+    if (now - window.startedMs > kWindowMs) {
+        window.startedMs = now;
+        window.count = 0;
+    }
+    if (++window.count > kMaxAttemptsPerWindow) {
+        return notFound();
+    }
+    if (m_deviceRate.size() > 4096) {
+        // A table keyed by whatever address dialled in is a table an attacker can grow. It is
+        // only ever a rate window, so dropping it wholesale costs one window of leniency.
+        m_deviceRate.clear();
+    }
+
+    const QUrlQuery body{QString::fromUtf8(request.body())};
+    const QString family{body.queryItemValue(QStringLiteral("device_id"), QUrl::FullyDecoded)};
+    QByteArray secret{
+        body.queryItemValue(QStringLiteral("device_secret"), QUrl::FullyDecoded).toUtf8()};
+    const DeviceRegistry::Redemption redemption{m_devices->redeem(family, secret, m_edgeOrigin)};
+    secret.fill('\0');
+    secret.clear();
+    if (!redemption.ok) {
+        // One answer for unknown, expired, revoked, reused and wrong alike. Telling them
+        // apart would tell whoever found a file on a disk which half of it still works.
+        return notFound();
+    }
+
+    // The scope is re-derived here, every time, from the identity stored at enrolment. This
+    // is the reason that identity is a column instead of a lookup: somebody demoted from
+    // moderator yesterday must not carry moderator for the remaining 29 days of a credential
+    // issued while they still were one.
+    const QString scope{mapScope(redemption.identity)};
+    const QByteArray sessionId{m_sessions->createSession(scope, redemption.identity)};
+    bindFamily(sessionId, redemption.next.family);
+    return sessionAnswer(sessionId, redemption.next.family, redemption.next.secret,
+                         redemption.next.expiresMs);
+}
+
+QHttpServerResponse IdentityProvider::sessionAnswer(const QByteArray &sessionId,
+                                                    const QString &family,
+                                                    const QByteArray &secret, qint64 expiresMs)
+{
     QJsonObject answer;
-    answer.insert(QStringLiteral("session"), QString::fromLatin1(claim.sessionId));
+    answer.insert(QStringLiteral("session"), QString::fromLatin1(sessionId));
     answer.insert(QStringLiteral("cookie_name"), m_cookie.name);
+    if (!family.isEmpty() && !secret.isEmpty()) {
+        answer.insert(QStringLiteral("device_id"), family);
+        answer.insert(QStringLiteral("device_secret"), QString::fromLatin1(secret));
+        const qint64 remaining{expiresMs - QDateTime::currentMSecsSinceEpoch()};
+        answer.insert(QStringLiteral("expires_in"),
+                      static_cast<double>(qMax(qint64{0}, remaining / 1000)));
+    }
     QHttpServerResponse response{QJsonDocument{answer}.toJson(QJsonDocument::Compact)};
     QHttpHeaders headers{response.headers()};
     headers.append(QHttpHeaders::WellKnownHeader::ContentType,
@@ -597,6 +740,30 @@ QHttpServerResponse IdentityProvider::handleClaim(const QHttpServerRequest &requ
     return response;
 }
 
+void IdentityProvider::bindFamily(const QByteArray &sessionId, const QString &family)
+{
+    if (family.isEmpty()) {
+        return;
+    }
+    m_sessionFamily.insert(sessionId, family);
+}
+
+void IdentityProvider::onReuseDetected(const QString &family)
+{
+    // Two copies of one credential are in play and there is no telling which of them is the
+    // visitor, so everything the family opened goes. The row is already gone, and here go the
+    // sessions it minted. Somebody signs in again, which is the correct cost of the one event
+    // that means a credential was copied off a machine.
+    qWarning("SynQt: a retired device credential was presented past its overlap window, so "
+             "the device and every session it opened have been revoked. If this was not a "
+             "theft it was a client that could not store what it was given.");
+    const QList<QByteArray> sessions{m_sessionFamily.keys(family)};
+    for (const QByteArray &sessionId : sessions) {
+        m_sessionFamily.remove(sessionId);
+        m_sessions->revoke(sessionId);
+    }
+}
+
 QHttpServerResponse IdentityProvider::handleLogout(const QHttpServerRequest &request)
 {
     const QByteArray prefix{m_cookie.name.toUtf8() + "="};
@@ -605,6 +772,15 @@ QHttpServerResponse IdentityProvider::handleLogout(const QHttpServerRequest &req
         part = part.trimmed();
         if (part.startsWith(prefix)) {
             const QByteArray sessionId{part.mid(prefix.size())};
+            // Signing out ends the credential too, and it has to: a logout that leaves a
+            // redeemable credential on disk is worse than no logout at all, because the
+            // visitor believes it worked. This is also the only thing that ends a family
+            // early, which is why it reads the family from what this edge recorded when the
+            // session was minted rather than from anything the caller sent.
+            const QString family{m_sessionFamily.take(sessionId)};
+            if (m_devices && !family.isEmpty()) {
+                m_devices->forget(family);
+            }
             m_sessions->revoke(sessionId);
             if (m_backend) {
                 m_backend->releaseTokens(QString::fromLatin1(sessionId));

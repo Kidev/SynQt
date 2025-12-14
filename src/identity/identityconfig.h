@@ -4,6 +4,8 @@
 #ifndef SYNQT_IDENTITYCONFIG_H
 #define SYNQT_IDENTITYCONFIG_H
 
+#include "providerconfig.h"
+
 #include <QList>
 #include <QString>
 #include <QStringList>
@@ -67,6 +69,90 @@ struct IdentityProviderConfig
     bool devStub{false};
 };
 
+/// How strongly the OS store a desktop client keeps its device credential in binds that
+/// credential to this machine, this OS user, and this application. The levels are ordered,
+/// so a configured minimum is a floor rather than a set.
+///
+/// What reports it is the client, about its own store, which makes `min_binding` a fleet
+/// policy control and not an attack control. A patched client can claim Hardware and be
+/// believed. Proving a level needs key attestation (a TPM attestation statement, or
+/// SecKeyCreateAttestation on macOS), which SynQt does not do. This is the same distinction
+/// [Desktop](https://synqt.org/desktop/) draws for a `transport: local` link and for route
+/// guards, a control that keeps a well-behaved fleet in line rather than one that stops an attacker.
+enum class DeviceBinding {
+    None = 0,        ///< nothing can be persisted on this machine
+    User = 1,        ///< at rest under the OS user. Any process running as them can read it
+    Application = 2, ///< also bound to this application's code signature (signed macOS build)
+    Hardware = 3     ///< a non-exportable key in a secure element (Secure Enclave, TPM 2.0)
+};
+
+inline QString deviceBindingName(DeviceBinding binding)
+{
+    switch (binding) {
+    case DeviceBinding::None:
+        return QStringLiteral("none");
+    case DeviceBinding::User:
+        return QStringLiteral("user");
+    case DeviceBinding::Application:
+        return QStringLiteral("application");
+    case DeviceBinding::Hardware:
+        return QStringLiteral("hardware");
+    }
+    return QStringLiteral("none");
+}
+
+/// The level named, or None when the name is not one of the four. An unrecognized name is
+/// deliberately the weakest level and not the strongest: this parses a value a client sent,
+/// and a typo must never read as a stronger claim than the client made.
+inline DeviceBinding deviceBindingFromName(const QString &name)
+{
+    if (name == QLatin1String("user")) {
+        return DeviceBinding::User;
+    }
+    if (name == QLatin1String("application")) {
+        return DeviceBinding::Application;
+    }
+    if (name == QLatin1String("hardware")) {
+        return DeviceBinding::Hardware;
+    }
+    return DeviceBinding::None;
+}
+
+/// Staying signed in on the desktop across relaunches (`identity.desktop_session: device`).
+///
+/// What a client persists is never the session: it is a credential redeemable exactly once,
+/// at exactly one route, for a fresh session of the ordinary length. That separation is the
+/// whole point, because otherwise "stay signed in for a month" and "a stolen file is good
+/// for a month" would be one number, and product pressure would push a security parameter
+/// the wrong way forever.
+struct DeviceConfig
+{
+    /// Off unless the project opted in. Nothing is persisted, and a desktop visitor signs in
+    /// once per launch, which is what a project that says nothing gets.
+    bool enabled{false};
+
+    int lifetimeDays{30};   ///< absolute: a family is refused this long after it was enrolled
+    int inactivityDays{14}; ///< a family unused this long is refused
+
+    /// How long the generation a redemption retired may still be presented.
+    ///
+    /// A client that redeems and then loses the connection (or the process) before it has
+    /// written the answer to its store comes back holding the retired one. That is not
+    /// theft, and revoking on it would sign legitimate people out on every flaky network. Past
+    /// this window the same presentation means two copies are in play, and the family dies.
+    int overlapSeconds{120};
+
+    /// The weakest store a client may enrol from. A client below it keeps the session it
+    /// signed in for and persists nothing, which is exactly what `desktop_session:
+    /// memory` does. It is never a failure to sign in.
+    DeviceBinding minBinding{DeviceBinding::User};
+
+    /// Where the family table lives. Any persistence provider, because a multi-edge
+    /// deployment needs a credential enrolled through one edge to redeem at another. A
+    /// single edge can point it at a file of its own.
+    ProviderConfig store;
+};
+
 /// The edge's identity configuration. By default identity runs in process on the edge;
 /// provider_entity promotes it to a dedicated auth entity the edges consume over the mesh.
 struct IdentityConfig
@@ -116,9 +202,14 @@ struct IdentityConfig
     /// minute is already generous. The value is here because a slow machine is a machine
     /// question and not a protocol one. Clamped to [1, 300] where it is read: a claim code
     /// that lives for hours is a session sitting in a browser history, which is the thing
-    /// the code exists to avoid. Not a `synqt.yaml` key: no generated edge sets it, and a
+    /// the code exists to avoid. Not a `synqt.yaml` key. No generated edge sets it, and a
     /// project has no reason to want a different number.
     int claimTtlSeconds{60};
+
+    /// Staying signed in across relaunches on the desktop. Disabled unless the project asked
+    /// for it, and inert on a project with no desktop client. Enrolment happens at the claim
+    /// exchange, which only a native client ever reaches.
+    DeviceConfig device;
 
     const IdentityProviderConfig *provider(const QString &name) const
     {

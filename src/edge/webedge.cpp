@@ -768,6 +768,14 @@ bool WebEdge::start()
                             [this](const QHttpServerRequest &request) {
             return m_identity->handleClaim(request);
         });
+        // Staying signed in. The same shape, spending a credential the client stored at its
+        // last launch instead of a code its browser carried. Registered unconditionally
+        // and refused inside, so a project that persists nothing answers it the way it
+        // answers any other path it does not serve.
+        m_httpServer->route(m_identity->deviceRoute(), QHttpServerRequest::Method::Post,
+                            [this](const QHttpServerRequest &request) {
+            return m_identity->handleDevice(request);
+        });
     }
     // Delivery of the bundle itself, only when this edge is the app's origin.
     if (m_config.serveClient) {

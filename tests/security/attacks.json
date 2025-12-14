@@ -273,6 +273,48 @@
       "defended_by": "The endpoint refuses anything carrying an Origin at all, which puts it out of reach of page script rather than relying on the code being unguessable.",
       "file": "tests/m8-auth/tst_desktop.cpp",
       "test": "claimRefusesAnythingWithAnOrigin"
+    },
+    {
+      "id": "stolen-device-credential-replayed",
+      "what": "A device credential is copied off a disk and redeemed from another machine, alongside the machine it was taken from.",
+      "defended_by": "Every redemption rotates, so the two copies diverge at the next relaunch. Presenting a retired generation past the overlap window revokes the family and every session it opened, which is what turns a silent theft into an event the edge acts on.",
+      "file": "tests/m8-auth/tst_device.cpp",
+      "test": "aRetiredGenerationPastTheWindowRevokesTheFamily"
+    },
+    {
+      "id": "device-credential-used-as-a-session",
+      "what": "A device credential found on a disk is presented as the session cookie at the WebSocket upgrade.",
+      "defended_by": "What is persisted is not a session. Neither half of it is a live session credential, so the upgrade verifier refuses it before a socket exists; it is only redeemable at one POST route, once.",
+      "file": "tests/m8-auth/tst_device.cpp",
+      "test": "aDeviceSecretIsRefusedAtTheUpgrade"
+    },
+    {
+      "id": "device-redemption-from-page-script",
+      "what": "Page script on any origin POSTs to the device route to turn a credential into a session in a browser.",
+      "defended_by": "The route refuses any request carrying an Origin header at all, which puts it out of reach of page script rather than relying on the credential staying secret.",
+      "file": "tests/m8-auth/tst_device.cpp",
+      "test": "anOriginHeaderIsRefused"
+    },
+    {
+      "id": "signed-out-device-still-redeemable",
+      "what": "A visitor signs out, and the credential their app left on disk still buys a session.",
+      "defended_by": "Signing out deletes the family the session came from, read from what the edge recorded when it minted that session rather than from anything the caller sent.",
+      "file": "tests/m8-auth/tst_device.cpp",
+      "test": "logoutEndsTheFamily"
+    },
+    {
+      "id": "stale-scope-on-a-redeemed-session",
+      "what": "A visitor demoted since they signed in keeps the scope they had for the rest of their device credential's month.",
+      "defended_by": "Redemption re-runs the scope mapping hook against the identity stored with the family, every time, instead of carrying a scope forward.",
+      "file": "tests/m8-auth/tst_device.cpp",
+      "test": "redemptionRederivesScope"
+    },
+    {
+      "id": "device-family-denial-of-service",
+      "what": "Somebody who learned a device family id offers wrong secrets for it to get its owner signed out.",
+      "defended_by": "Only a retired generation past the overlap window revokes a family. A secret belonging to no generation is refused and costs the owner nothing, and the route is rate limited per address.",
+      "file": "tests/m8-auth/tst_device.cpp",
+      "test": "anUnknownCredentialIsRefused"
     }
   ]
 }

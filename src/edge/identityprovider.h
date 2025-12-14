@@ -21,6 +21,7 @@ QT_END_NAMESPACE
 
 namespace SynQt {
 
+class DeviceRegistry;
 class SessionManager;
 class OAuthBackend;
 
@@ -60,15 +61,27 @@ public:
     QHttpServerResponse handleCallback(const QHttpServerRequest &request);
     QHttpServerResponse handleLogout(const QHttpServerRequest &request);
 
-    /// The desktop half: a native client exchanges the claim code the loopback redirect
+    /// The desktop half. A native client exchanges the claim code the loopback redirect
     /// carried for the session it stands for. POST only, single use, short lived.
     QHttpServerResponse handleClaim(const QHttpServerRequest &request);
+
+    /// Staying signed in. A native client spends the device credential it stored at its last
+    /// launch for a fresh session and the next credential. POST only, single use, and the one
+    /// route that turns something on disk back into a session.
+    QHttpServerResponse handleDevice(const QHttpServerRequest &request);
 
     QString loginRoute() const;
     QString callbackRoute() const;
     QString logoutRoute() const;
     /// Where handleClaim() is served, under the login route.
     QString claimRoute() const;
+    /// Where handleDevice() is served, under the login route.
+    QString deviceRoute() const;
+
+    /// The device registry, or nullptr when the project does not persist desktop sessions
+    /// (or the configured store would not open). Exposed for the tests and for the edge,
+    /// which ends a session's family when that session is signed out.
+    DeviceRegistry *devices() const;
 
     /// The edge's public origin (e.g. https://host:port), used to form the callback
     /// redirect_uri. Set once the edge has bound its port.
@@ -93,6 +106,9 @@ public:
     /// release for the session nobody logs out of, which is most of them: without it an
     /// edge keeps a visitor's access and refresh tokens for as long as the process lives,
     /// long after the session they belong to expired.
+    ///
+    /// Deliberately not the device credential: a session running out of time is what the
+    /// credential exists to survive. Only signing out ends the family (handleLogout).
     void forgetSession(const QByteArray &sessionId);
 
 signals:
@@ -142,6 +158,15 @@ private:
     void releaseRemoteTokens(const QByteArray &sessionId);
 
     QString mapScope(const QVariantMap &identity);
+    /// The one answer both desktop routes give: the session, the cookie name to present it
+    /// under, and the device credential to store in place of whatever was just spent (absent
+    /// when the project persists nothing or this client's store was below the floor).
+    QHttpServerResponse sessionAnswer(const QByteArray &sessionId, const QString &family,
+                                      const QByteArray &secret, qint64 expiresMs);
+    /// Remember which family a session came from, so signing that session out ends the
+    /// credential too, and so reuse detection can end every session a stolen family opened.
+    void bindFamily(const QByteArray &sessionId, const QString &family);
+    void onReuseDetected(const QString &family);
     QByteArray buildCookie(const QByteArray &token) const;
     QByteArray buildStateCookie(const QByteArray &value, bool expire) const;
     void expirePending();
@@ -161,8 +186,26 @@ private:
     QQmlComponent *m_mappingComponent{nullptr};
     QObject *m_mapping{nullptr};
 
+    DeviceRegistry *m_devices{nullptr};     ///< null unless the project persists sessions
+
     QHash<QString, PendingLogin> m_pending; ///< state -> browser CSRF binding
     QHash<QString, PendingClaim> m_claims;  ///< claim code -> the session it stands for
+
+    /// Which device family each live session came from. In memory, and rightly so: the point
+    /// of it is to end a family when its session is signed out, and a session does not
+    /// outlive this process either. Nothing authorizes off it; it is a back-reference.
+    QHash<QByteArray, QString> m_sessionFamily;
+
+    /// Fixed-window request counts per client address for the device route, so a machine
+    /// cannot sit there spending guesses. The secret is 256 bits, so this is not what makes
+    /// guessing hopeless; it is what keeps a guesser from costing the edge a database read
+    /// per attempt.
+    struct RateWindow
+    {
+        qint64 startedMs{0};
+        int count{0};
+    };
+    QHash<QString, RateWindow> m_deviceRate;
 
     /// Delegated results, keyed by request id, filled by the onBeginResult/onExchangeResult
     /// slots and consumed by the waiting route handler (provider_entity mode only).
