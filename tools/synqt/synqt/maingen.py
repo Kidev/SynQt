@@ -401,6 +401,10 @@ def _identity_lines(config: Dict[str, Any], edge: Dict[str, Any]) -> List[str]:
     # The dev-stub gate. `synqt dev` is the only launcher that passes --dev, so a stub
     # provider cannot run in anything that ships, which is the whole point of the gate.
     lines.append("    config.identity.allowDevStub = parser.isSet(devOption);")
+    # The desktop sign-in, on only for a project that actually builds a desktop client.
+    # Derived from `targets:`, not asked: see appmodel.has_desktop_client.
+    if appmodel.has_desktop_client(config):
+        lines.append("    config.identity.allowDesktopLogin = true;")
     # Refresh timing goes to whichever entity holds the tokens, and only there. A promoted
     # edge holds none, so setting it here would be a knob on the one entity that cannot act
     # on it.

@@ -644,6 +644,43 @@ private slots:
         QCOMPARE(connectedSpy.count(), 0);  // refused before a socket exists
     }
 
+    // The other half of the same gate, and the half that was missing. A session that HAS an
+    // identity gets in. Without it, the test above passes just as happily against an edge
+    // that refuses everybody, which is exactly what `identity.required: true` did until
+    // this was written. Being refused is what a broken accept looks like from the outside,
+    // so a refusal test on its own can never tell the two apart.
+    void authenticatedUpgradeIsAcceptedWhenIdentityIsRequired()
+    {
+        WebEdgeConfig config{makeConfig(false)};
+        config.identityRequired = true;
+        QQmlEngine engine;
+        WebEdge edge{config, &engine};
+        QVERIFY2(edge.start(), qPrintable(edge.errorString()));
+
+        // A signed-in session, minted the way a finished login mints one: a scope and the
+        // identity the provider returned. Nothing else about the connection differs from
+        // the anonymous case above.
+        const QByteArray token{edge.sessionManager()->createSession(
+            QStringLiteral("user"),
+            QVariantMap{{QStringLiteral("sub"), QStringLiteral("1")},
+                        {QStringLiteral("login"), QStringLiteral("octocat")}})};
+        QVERIFY(!token.isEmpty());
+
+        QSignalSpy rejectedSpy{&edge, &WebEdge::upgradeRejected};
+        QWebSocket socket;
+        socket.setSslConfiguration(insecureClientConfig());
+        QSignalSpy connectedSpy{&socket, &QWebSocket::connected};
+
+        QNetworkRequest request{QUrl{edge.wssOrigin() + QStringLiteral("/sync")}};
+        request.setRawHeader("Origin", edge.httpOrigin().toUtf8());
+        request.setRawHeader("Cookie", "synqt_session=" + token);
+        request.setSslConfiguration(insecureClientConfig());
+        socket.open(request);
+
+        QTRY_VERIFY(connectedSpy.count() == 1);
+        QCOMPARE(rejectedSpy.count(), 0);
+    }
+
     void connectionCapRefusesTheOneOverTheLimit()
     {
         // docs/security.md states these caps are applied inside the verifier, "so a

@@ -206,6 +206,18 @@ class TestIdentity(unittest.TestCase):
         self.assertIn("config.identity.allowDevStub = parser.isSet(devOption);",
                       render(self.config_with_login()))
 
+    def test_the_desktop_login_is_off_unless_the_project_builds_a_desktop_client(self):
+        # A loopback redirect is only ever answered by a native app. A project that builds
+        # none has nothing that could receive one, so issuing one would be a redirect to a
+        # port only something hostile would be listening on.
+        self.assertNotIn("allowDesktopLogin", render(self.config_with_login()))
+
+        config = self.config_with_login()
+        for entity in config["entities"]:
+            if appmodel.is_client(entity):
+                entity["targets"] = ["wasm", "desktop"]
+        self.assertIn("config.identity.allowDesktopLogin = true;", render(config))
+
     def test_the_session_cookie_and_ttl_reach_the_edge(self):
         source = render(self.config_with_login(
             required=True, session={"cookie_name": "app_session", "ttl_minutes": 60}))

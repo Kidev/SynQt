@@ -17,9 +17,7 @@ namespace SynQt {
 
 namespace {
 
-/// The live instance, so the popstate trampoline can reach it. One client
-/// runs one history. A second instance would mean a second router, which
-/// the runtime never creates.
+/// The live instance, for the popstate trampoline. One client has one history.
 QPointer<BrowserHistory> s_instance;
 
 QString normalizedBase(QString base)
@@ -37,31 +35,25 @@ QString normalizedBase(QString base)
 
 #ifdef Q_OS_WASM
 
-// Called from the popstate listener installed below. Kept alive through the
-// link because nothing in C++ references it.
+// Called from the popstate listener installed below; kept through the link because no C++
+// references it.
 extern "C" EMSCRIPTEN_KEEPALIVE void synqt_browserhistory_popped(const char *path)
 {
     if (s_instance) {
-        // Called straight through, not queued. A queued invocation would post a
-        // QEvent::MetaCall, and on this platform the posted-event queue has a
-        // single delivery path that one lost browser callback disables for the
-        // life of the page (see tests/m0-transport/FIREFOX-LINUX.md). Back and
-        // forward would then silently stop working while the rest of the client
-        // looked healthy. Running here instead matches how every other Qt event
-        // reaches the application on a non-asyncify WebAssembly build, where
-        // Module.qtSendPendingEvents() calls the C++ handlers directly from the
-        // browser callback. QString::fromUtf8 copies, so the caller is free to
-        // release the buffer as soon as this returns.
+        // Called directly, not queued. A queued call posts a QEvent::MetaCall, and on this
+        // platform one lost browser callback disables posted-event delivery for the life of
+        // the page (see tests/m0-transport/FIREFOX-LINUX.md), which would silently break
+        // Back and Forward. Non-asyncify WebAssembly delivers every Qt event this way
+        // (Module.qtSendPendingEvents() calls the handlers from the browser callback).
+        // QString::fromUtf8 copies, so the caller may free the buffer on return.
         s_instance->handlePopped(QString::fromUtf8(path));
     }
 }
 
-// Emscripten prunes any JS runtime helper nothing declares a need for, and
-// it does not scan EM_JS bodies for the ones they call. The body below runs
-// only on a real back or forward, so an undeclared helper would not show up
-// until a visitor pressed Back. Declared here, a missing one is a link
-// error instead. $stringToNewUTF8 pulls malloc in through its own
-// dependency. Free has to be named because the body calls _free directly.
+// Emscripten prunes JS runtime helpers nothing declares, and does not scan EM_JS bodies.
+// This body runs only on a real Back or Forward, so declaring the helpers turns a missing
+// one into a link error. $stringToNewUTF8 brings in malloc; _free is named because the body
+// calls it.
 EM_JS_DEPS(synqt_browserhistory, "$stringToNewUTF8,free");
 
 EM_JS(void, synqt_install_popstate_listener, (), {
@@ -85,18 +77,16 @@ bool leaveForUrl(const QString &url)
         return false;
     }
 #ifdef Q_OS_WASM
-    // assign(), not href=: both navigate, and assign is the one that says so. The app is
-    // torn down by the browser and rebuilt when the edge redirects back, which is the
-    // whole point of a sign-in leaving the page rather than fetching in the background.
+    // assign() rather than href=: both navigate, and assign states it. The browser tears
+    // the app down and rebuilds it when the edge redirects back.
     emscripten::val::global("location").call<void>("assign", url.toStdString());
     return true;
 #else
-    // A desktop build has nowhere to navigate to, and it does not open the system browser
-    // either: the OAuth flow for a native app returns over a loopback redirect this client
-    // does not listen on yet (docs/desktop.md, "Signing in"). Sending somebody to a sign-in
-    // whose answer nothing here can receive is worse than saying so.
-    qWarning("SynQt: %s is a browser navigation, and this is a native build. The desktop "
-             "sign-in flow is not wired up yet; see https://synqt.org/desktop/.",
+    // A desktop build has no page to leave. Sign-in there opens the system browser and
+    // waits on a loopback port (SynClient::beginDesktopLogin); nothing else asks a native
+    // window to navigate.
+    qWarning("SynQt: %s is a browser navigation, and this is a native build, which has no "
+             "page to leave. See https://synqt.org/desktop/.",
              qUtf8Printable(url));
     return false;
 #endif

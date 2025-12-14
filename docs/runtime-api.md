@@ -112,8 +112,9 @@ never holds the client secret (see [pitfall: OAuth cannot run in the
 browser](authentication.md)). `provider` is optional; pass it when more than one
 identity provider is configured, otherwise the default (or only) provider is used.
 In the browser this navigates to the edge's `login` route. On a
-[native desktop client](desktop.md#signing-in) it is not wired up yet and logs a
-warning; the browser is where signing in works today.
+[native desktop client](desktop.md#signing-in) it opens the system browser at that
+route and waits for the answer on a loopback port it holds for the length of the
+sign-in; the window stays where it was.
 
 `Session.logout()` calls the edge's `logout` route, which clears the session
 server-side and expires the credential. The session returns to `scopes.default`

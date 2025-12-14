@@ -63,40 +63,53 @@ should be able to retarget.
 
 ### Signing in
 
-!!! warning "Not implemented yet"
-    The desktop half of this is the design, not the state of the code. `Session.login()`
-    on a native build logs a warning and does nothing: nothing here listens on the
-    loopback URL step 3 describes, so opening a browser at the login route would send
-    somebody to a sign-in whose answer this process cannot receive. Signing in works in
-    the browser today; a desktop build that has a session by some other means can present
-    it through `SynClientConfig::sessionCookie`, which steps 4 onward already honour.
-    `Session.logout()` **does** work on both:
-    the native client calls the edge's logout route with the credential it holds, drops
-    it, and reconnects as an anonymous visitor.
-
 OAuth still runs entirely on the edge, and the desktop client never holds the client
 secret, exactly as in the browser. What differs is only how the finished session
 gets back to the app:
 
-1. `Session.login()` opens the user's system browser at the edge's `login`
-   route.
+1. `Session.login()` takes an ephemeral port on `127.0.0.1`, then opens the user's
+   system browser at the edge's `login` route, telling it that port as `return`.
 2. The edge runs the normal server-side OAuth2 flow (PKCE, state, token exchange,
    ID token verification) and creates the session, all as documented in
    [authentication](authentication.md).
 3. Instead of setting a cookie on its own origin, the edge redirects the system
-   browser to a loopback URL the desktop app is briefly listening on
-   (`http://127.0.0.1:<port>/...`, the native-app pattern of RFC 8252), handing
-   back a one-time session token.
-4. The app stores that token in the OS secure store (Keychain on macOS,
-   Credential Manager on Windows, the Secret Service / libsecret on Linux) and
-   presents it on the `wss` handshake, exactly as the browser presents its cookie.
-   A native client terminates its own TLS, so it sets the header itself and needs no
-   cookie jar. No secret and no long-lived token is ever written to plain disk.
+   browser to that loopback URL (the native-app pattern of RFC 8252), handing back
+   a **one-time claim code**. Not the session: a URL a browser was sent to is
+   written into that browser's history, and on a shared machine the history
+   outlives the sign-in.
+4. The app exchanges the code for the session over its own verified connection to
+   the edge, and presents the session on the `wss` handshake exactly as the browser
+   presents its cookie. A native client terminates its own TLS, so it sets the
+   header itself and needs no cookie jar.
 
    The session travels in the same header the browser uses, not in a WebSocket
    subprotocol. `security.session_transport: subprotocol` is refused, because Qt 6.11
    gives the edge no way to select the subprotocol it would have to echo; see
    [`session_transport`](project-layout-and-config.md#security-browser-hardening-and-connection-gating) for the measurement.
+
+The whole flow is off unless a client entity lists the `desktop` target. You do not
+turn it on. The edge reads `targets:` and decides. A project that ships no desktop
+client has nothing that could receive a loopback answer, so its edge refuses to issue
+one at all.
+
+Four things make the round trip safe, and each one is a test in
+[`m8-auth`](https://github.com/Kidev/SynQt/tree/main/tests/m8-auth):
+
+- The `return` URL is an allowlist of exactly one shape: `http`, a loopback literal
+  (`127.0.0.1` or `[::1]`, never the name `localhost`), a port, and nothing else, with
+  no userinfo, no path, no query and no fragment. Anything else refuses the login outright,
+  before the provider is contacted, because an open redirect here hands out sessions.
+- The claim code lives for a minute, and the first attempt to spend it is the only
+  one, right or wrong.
+- Spending it needs a verifier the app generated and never sent anywhere except that
+  one exchange. Its SHA-256 goes to the edge when the login starts, the way PKCE does
+  it, so a code read out of a browser history buys nothing.
+- The client refuses any arrival on its loopback port that does not carry the nonce it
+  generated for the sign-in it started. Any local process can connect to that port, and
+  a code from one of them would otherwise sign the visitor in as somebody else.
+
+The browser is not left signed in either. The edge sets no session cookie at the end
+of a desktop login, because the system browser is not the app.
 
 `Session.logout()` calls the edge logout route with the credential this client holds,
 drops it, and reconnects as an anonymous visitor. Unlike the browser, which has to
@@ -105,9 +118,17 @@ owns its credential and can end the session without leaving the window.
 
 ### Storing the session
 
-The browser keeps the session in an httpOnly cookie it cannot read; the desktop
-app keeps it in the OS secure store. In both cases the app code never sees a raw
-credential; `Session` exposes state and identity, never the token.
+The browser keeps the session in an httpOnly cookie it cannot read. The desktop app
+keeps it in memory, for the life of the process: signing in is once per launch, and
+closing the app ends it. App code never sees a raw credential either way; `Session`
+exposes state and identity, never the token.
+
+!!! note "Not stored between launches"
+    The OS secure store (Keychain on macOS, Credential Manager on Windows, the Secret
+    Service on Linux) is not wired up. It is three platform backends or a third-party
+    dependency, and it is a separate decision from making sign-in work; nothing about
+    the flow above changes when it arrives. Until then, no credential is written to
+    disk at all, which is the safe half of the trade.
 
 ### Navigating without an address bar
 

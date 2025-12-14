@@ -60,9 +60,15 @@ public:
     QHttpServerResponse handleCallback(const QHttpServerRequest &request);
     QHttpServerResponse handleLogout(const QHttpServerRequest &request);
 
+    /// The desktop half: a native client exchanges the claim code the loopback redirect
+    /// carried for the session it stands for. POST only, single use, short lived.
+    QHttpServerResponse handleClaim(const QHttpServerRequest &request);
+
     QString loginRoute() const;
     QString callbackRoute() const;
     QString logoutRoute() const;
+    /// Where handleClaim() is served, under the login route.
+    QString claimRoute() const;
 
     /// The edge's public origin (e.g. https://host:port), used to form the callback
     /// redirect_uri. Set once the edge has bound its port.
@@ -108,6 +114,23 @@ private:
     {
         QString csrfToken;  ///< bound to the initiating browser via a cookie (login CSRF)
         qint64 createdMs{0};
+
+        /// The desktop flow, all three empty for a browser login. The loopback URL the
+        /// system browser is sent back to, the nonce the native client will match that
+        /// arrival against, and the S256 challenge whose verifier only that client holds.
+        QString returnUrl;
+        QString returnState;
+        QString returnChallenge;
+    };
+
+    /// A finished desktop login, waiting to be collected. The session already exists; this
+    /// is the one-time code that stands for it until the client that started the login
+    /// exchanges it over its own connection.
+    struct PendingClaim
+    {
+        QByteArray sessionId;
+        QString challenge;  ///< S256, matched against the verifier presented at the claim
+        qint64 createdMs{0};
     };
 
     /// Delegates to the local backend or the remote auth entity depending on the mode.
@@ -122,6 +145,11 @@ private:
     QByteArray buildCookie(const QByteArray &token) const;
     QByteArray buildStateCookie(const QByteArray &value, bool expire) const;
     void expirePending();
+    void expireClaims();
+    /// The loopback redirect the system browser is sent to once the session exists, or an
+    /// empty response when this login was not a desktop one.
+    QHttpServerResponse loopbackRedirect(const PendingLogin &pending, const QString &code,
+                                         const QString &error) const;
 
     IdentityConfig m_config;
     SessionManager *m_sessions;
@@ -134,6 +162,7 @@ private:
     QObject *m_mapping{nullptr};
 
     QHash<QString, PendingLogin> m_pending; ///< state -> browser CSRF binding
+    QHash<QString, PendingClaim> m_claims;  ///< claim code -> the session it stands for
 
     /// Delegated results, keyed by request id, filled by the onBeginResult/onExchangeResult
     /// slots and consumed by the waiting route handler (provider_entity mode only).

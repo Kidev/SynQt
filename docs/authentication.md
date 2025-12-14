@@ -138,6 +138,14 @@ sequenceDiagram
 The browser only ever holds the opaque session cookie. Every token stays on the
 edge.
 
+A [native desktop client](desktop.md#signing-in) runs the same flow with one
+difference at the end. It has no origin for a cookie to be set on, so the edge
+redirects the system browser to a loopback port the app is listening on and hands
+back a one-time claim code, which the app exchanges for the session over its own
+connection. Everything before that step, including where the secret lives, is
+unchanged. The edge serves that exchange at `<login route>/claim`, and only when a
+client entity lists the `desktop` target.
+
 ## The identity object
 
 Every authenticated session carries a normalized identity, so app code and the

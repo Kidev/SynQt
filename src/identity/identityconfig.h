@@ -95,8 +95,30 @@ struct IdentityConfig
     int refreshIntervalSeconds{60};
     int refreshMarginSeconds{120};
 
-    /// Only true under `synqt dev`; gates the dev stub provider so it can never ship.
+    /// Only true under `synqt dev`. Gates the dev stub provider so it can never ship.
     bool allowDevStub{false};
+
+    /// Whether a login may hand its answer back over a loopback redirect, which is how a
+    /// native desktop client signs in (see [Desktop](https://synqt.org/desktop/)).
+    ///
+    /// Off unless the project builds a desktop client, and derived rather than
+    /// asked. The generated edge sets it when a client entity lists the `desktop` target.
+    /// The reason it is a gate at all is that `?return=http://127.0.0.1:<port>/` is a link
+    /// somebody can be sent, and a machine already running something hostile could be
+    /// listening on that port. Strict validation is what makes a redirect safe to issue;
+    /// only a project with no desktop client can refuse to issue one at all, and most
+    /// projects are that project.
+    bool allowDesktopLogin{false};
+
+    /// How long a desktop claim code stands for its session, in seconds.
+    ///
+    /// The hop it covers is the loopback listener calling straight back to the edge, so a
+    /// minute is already generous. The value is here because a slow machine is a machine
+    /// question and not a protocol one. Clamped to [1, 300] where it is read: a claim code
+    /// that lives for hours is a session sitting in a browser history, which is the thing
+    /// the code exists to avoid. Not a `synqt.yaml` key: no generated edge sets it, and a
+    /// project has no reason to want a different number.
+    int claimTtlSeconds{60};
 
     const IdentityProviderConfig *provider(const QString &name) const
     {

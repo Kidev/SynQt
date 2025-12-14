@@ -7,6 +7,7 @@
 #include "oauthbackend.h"
 #include "sessionmanager.h"
 
+#include <QCryptographicHash>
 #include <QDateTime>
 #include <QEventLoop>
 #include <QHttpHeaders>
@@ -81,6 +82,82 @@ bool constantTimeEquals(const QByteArray &lhs, const QByteArray &rhs)
 // The cookie name that binds a pending login to the browser that started it.
 const QByteArray kOauthStateCookie{QByteArrayLiteral("synqt_oauth_state")};
 
+// How long a desktop claim code may stand for its session. This is a machine-to-machine hop
+// that happens the instant the loopback listener is hit, not a human step, so it is short
+// on purpose: the code has already been written into the system browser's history by the
+// time it exists, and its whole defence is being useless by the time anyone reads it back.
+// Clamped rather than trusted, because the configured value can only make it worse.
+qint64 claimTtlMs(const IdentityConfig &config)
+{
+    return 1000 * qBound(1, config.claimTtlSeconds, 300);
+}
+
+// A base64url S256 digest is 43 characters, and nothing else is accepted: pinning the shape
+// here means a caller cannot register a challenge that no verifier can ever match (which
+// would be a claim code nobody can collect) or one short enough to guess.
+constexpr qsizetype kChallengeLength{43};
+
+// The nonce the native client matches the loopback arrival against travels back through a
+// URL, so it is bounded rather than reflected at whatever length was sent.
+constexpr qsizetype kMaxReturnStateLength{128};
+
+bool isBase64UrlDigest(const QString &value)
+{
+    if (value.size() != kChallengeLength) {
+        return false;
+    }
+    for (const QChar character : value) {
+        const bool allowed{character.isLetterOrNumber() && character.unicode() < 128};
+        if (!allowed && character != QLatin1Char('-') && character != QLatin1Char('_')) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/// Whether a `return` URL may be redirected to at the end of a desktop login.
+///
+/// This is the single most dangerous line in the desktop flow. Whatever passes here is
+/// where a freshly authenticated visitor's browser gets sent, so anything short of exact is
+/// an open redirect that hands out sessions. It is an allowlist of one shape, not a filter
+/// of known-bad ones.
+///
+///  - `http` only, and only to the loopback literals. Not `localhost`, which is a name and
+///    can be pointed elsewhere by a hosts file (RFC 8252 says the same).
+///  - No userinfo, because `http://127.0.0.1@evil.example/` has host `evil.example` and
+///    reads to a human as loopback. The host check alone already refuses it. The userinfo
+///    check is there so the refusal does not depend on getting the parse right.
+///  - No path beyond `/`, no query, no fragment. The redirect appends its own query, and a
+///    caller-supplied one is a way to smuggle parameters past that.
+bool isLoopbackReturn(const QUrl &url)
+{
+    if (!url.isValid() || url.scheme() != QLatin1String("http")) {
+        return false;
+    }
+    if (!url.userInfo().isEmpty()) {
+        return false;
+    }
+    const QString host{url.host()};
+    if (host != QLatin1String("127.0.0.1") && host != QLatin1String("::1")) {
+        return false;
+    }
+    if (url.port() < 1 || url.port() > 65535) {
+        return false;
+    }
+    if (!url.path().isEmpty() && url.path() != QLatin1String("/")) {
+        return false;
+    }
+    return !url.hasQuery() && !url.hasFragment();
+}
+
+QHttpServerResponse notFound()
+{
+    // One answer for every way a claim can fail: unknown code, expired code, code already
+    // spent, wrong verifier. Telling them apart would tell an attacker which half of a
+    // guess was right.
+    return QHttpServerResponse{QHttpServerResponse::StatusCode::NotFound};
+}
+
 // How long a delegated begin/exchange over the mesh may take before the handler gives up.
 constexpr int kRemoteTimeoutMs{20000};
 
@@ -139,6 +216,15 @@ QString IdentityProvider::callbackRoute() const
 QString IdentityProvider::logoutRoute() const
 {
     return m_config.logoutRoute;
+}
+
+QString IdentityProvider::claimRoute() const
+{
+    QString route{m_config.loginRoute};
+    while (route.endsWith(QLatin1Char('/'))) {
+        route.chop(1);
+    }
+    return route + QStringLiteral("/claim");
 }
 
 void IdentityProvider::setEdgeOrigin(const QString &origin)
@@ -298,10 +384,39 @@ QVariantMap IdentityProvider::tokensForSession(const QByteArray &sessionId) cons
 QHttpServerResponse IdentityProvider::handleLogin(const QHttpServerRequest &request)
 {
     expirePending();
+    expireClaims();
     const QUrlQuery query{request.url().query()};
     QString providerName{query.queryItemValue(QStringLiteral("provider"))};
     if (providerName.isEmpty() && !m_config.providers.isEmpty()) {
         providerName = m_config.providers.first().name;
+    }
+
+    // The desktop half, decided before a single byte goes to the provider. A login that
+    // asks for a loopback answer and does not fully qualify for one is refused outright
+    // rather than quietly downgraded to the browser flow. Downgrading would sign somebody
+    // in on a machine whose app is still waiting, and set a cookie in a browser that is not
+    // the app. Refusing is the only outcome that leaves nothing behind.
+    QString returnUrl;
+    const QString requestedReturn{query.queryItemValue(QStringLiteral("return"),
+                                                       QUrl::FullyDecoded)};
+    const QString returnState{query.queryItemValue(QStringLiteral("return_state"),
+                                                   QUrl::FullyDecoded)};
+    const QString returnChallenge{query.queryItemValue(QStringLiteral("return_challenge"),
+                                                       QUrl::FullyDecoded)};
+    if (!requestedReturn.isEmpty()) {
+        if (!m_config.allowDesktopLogin) {
+            return QHttpServerResponse{QByteArrayLiteral("text/plain"),
+                                       QByteArrayLiteral("desktop login is not enabled"),
+                                       QHttpServerResponse::StatusCode::BadRequest};
+        }
+        if (!isLoopbackReturn(QUrl{requestedReturn, QUrl::StrictMode})
+            || returnState.isEmpty() || returnState.size() > kMaxReturnStateLength
+            || !isBase64UrlDigest(returnChallenge)) {
+            return QHttpServerResponse{QByteArrayLiteral("text/plain"),
+                                       QByteArrayLiteral("invalid return"),
+                                       QHttpServerResponse::StatusCode::BadRequest};
+        }
+        returnUrl = requestedReturn;
     }
 
     const BeginOutcome begin{beginLogin(providerName)};
@@ -329,6 +444,9 @@ QHttpServerResponse IdentityProvider::handleLogin(const QHttpServerRequest &requ
     PendingLogin pending;
     pending.csrfToken = csrfToken;
     pending.createdMs = QDateTime::currentMSecsSinceEpoch();
+    pending.returnUrl = returnUrl;
+    pending.returnState = returnState;
+    pending.returnChallenge = returnChallenge;
     m_pending.insert(begin.state, pending);
 
     return redirectTo(begin.authorizeUrl, {buildStateCookie(csrfToken.toUtf8(), false)});
@@ -361,6 +479,12 @@ QHttpServerResponse IdentityProvider::handleCallback(const QHttpServerRequest &r
 
     const ExchangeOutcome exchange{exchangeCode(state, code)};
     if (exchange.identity.isEmpty()) {
+        if (!pending.returnUrl.isEmpty()) {
+            // Tell the waiting desktop client it failed. Without this the app sits on its
+            // loopback listener until the timeout with nothing to report, which reads to
+            // the visitor as a sign-in that hung rather than one that was refused.
+            return loopbackRedirect(pending, QString{}, QStringLiteral("access_denied"));
+        }
         return redirectTo(m_config.appRoute, {buildStateCookie(QByteArray{}, true)});
     }
 
@@ -375,9 +499,102 @@ QHttpServerResponse IdentityProvider::handleCallback(const QHttpServerRequest &r
         m_backend->rekeyTokens(exchange.tokenKey, QString::fromLatin1(sessionId));
     }
 
+    if (!pending.returnUrl.isEmpty()) {
+        // A desktop login ends here, and deliberately not with a cookie: the system browser
+        // is not the app. Leaving it signed in would put a live session in a browser the
+        // visitor did not sign in with, on a machine that may not be theirs alone, and
+        // nothing would ever end it. What crosses the loopback is a code that stands for the
+        // session for the next minute, exchangeable once, by whoever holds the verifier.
+        const QString claimCode{randomToken()};
+        PendingClaim claim;
+        claim.sessionId = sessionId;
+        claim.challenge = pending.returnChallenge;
+        claim.createdMs = QDateTime::currentMSecsSinceEpoch();
+        m_claims.insert(claimCode, claim);
+        return loopbackRedirect(pending, claimCode, QString{});
+    }
+
     // Set the session cookie and clear the now-consumed login-state cookie.
     return redirectTo(m_config.appRoute,
                       {buildCookie(sessionId), buildStateCookie(QByteArray{}, true)});
+}
+
+QHttpServerResponse IdentityProvider::loopbackRedirect(const PendingLogin &pending,
+                                                       const QString &code,
+                                                       const QString &error) const
+{
+    // Built through QUrl rather than by concatenation. The URL itself was validated to
+    // carry no query of its own at login, and the state is the caller's own string, so the
+    // encoding is what keeps it a value rather than a second parameter.
+    QUrl target{pending.returnUrl, QUrl::StrictMode};
+    QUrlQuery query;
+    if (!code.isEmpty()) {
+        query.addQueryItem(QStringLiteral("code"), code);
+    }
+    if (!error.isEmpty()) {
+        query.addQueryItem(QStringLiteral("error"), error);
+    }
+    query.addQueryItem(QStringLiteral("state"), pending.returnState);
+    target.setQuery(query);
+    return redirectTo(target.toString(QUrl::FullyEncoded),
+                      {buildStateCookie(QByteArray{}, true)});
+}
+
+QHttpServerResponse IdentityProvider::handleClaim(const QHttpServerRequest &request)
+{
+    expireClaims();
+    if (!m_config.allowDesktopLogin) {
+        return notFound();
+    }
+    // No browser has any business here. The browser flow ends with a cookie and never
+    // claims. Refusing anything that carries an Origin puts this endpoint out of reach of
+    // page script altogether, rather than relying on the code being unguessable.
+    if (!request.value("Origin").isEmpty()) {
+        return notFound();
+    }
+
+    // A code and a verifier are 64 hex characters each. Anything past this is not a claim,
+    // and refusing it before the decode keeps a large body from being turned into a QString
+    // and parsed as a query. (What QHttpServer buffered before reaching here is its own
+    // affair. This is the part the edge decides.)
+    constexpr qsizetype kMaxClaimBody{1024};
+    if (request.body().size() > kMaxClaimBody) {
+        return notFound();
+    }
+    const QUrlQuery body{QString::fromUtf8(request.body())};
+    const QString code{body.queryItemValue(QStringLiteral("code"), QUrl::FullyDecoded)};
+    const QString verifier{body.queryItemValue(QStringLiteral("verifier"),
+                                               QUrl::FullyDecoded)};
+    if (code.isEmpty() || !m_claims.contains(code)) {
+        return notFound();
+    }
+
+    // Taken out before it is checked, so a wrong verifier spends the code rather than
+    // leaving it there to be tried again. One code, one attempt.
+    const PendingClaim claim{m_claims.take(code)};
+    if (QDateTime::currentMSecsSinceEpoch() - claim.createdMs > claimTtlMs(m_config)) {
+        return notFound();
+    }
+    const QByteArray digest{QCryptographicHash::hash(verifier.toUtf8(),
+                                                     QCryptographicHash::Sha256)
+                                .toBase64(QByteArray::Base64UrlEncoding
+                                          | QByteArray::OmitTrailingEquals)};
+    if (!constantTimeEquals(digest, claim.challenge.toUtf8())) {
+        return notFound();
+    }
+
+    QJsonObject answer;
+    answer.insert(QStringLiteral("session"), QString::fromLatin1(claim.sessionId));
+    answer.insert(QStringLiteral("cookie_name"), m_cookie.name);
+    QHttpServerResponse response{QJsonDocument{answer}.toJson(QJsonDocument::Compact)};
+    QHttpHeaders headers{response.headers()};
+    headers.append(QHttpHeaders::WellKnownHeader::ContentType,
+                   QByteArrayLiteral("application/json"));
+    // The body is a live credential. Nothing between here and the app may keep a copy.
+    headers.append(QHttpHeaders::WellKnownHeader::CacheControl,
+                   QByteArrayLiteral("no-store"));
+    response.setHeaders(std::move(headers));
+    return response;
 }
 
 QHttpServerResponse IdentityProvider::handleLogout(const QHttpServerRequest &request)
@@ -457,6 +674,23 @@ void IdentityProvider::expirePending()
     for (auto it{m_pending.begin()}; it != m_pending.end();) {
         if (now - it->createdMs > 5 * 60 * 1000) {  // a login has 5 minutes to complete
             it = m_pending.erase(it);
+        } else {
+            ++it;
+        }
+    }
+}
+
+void IdentityProvider::expireClaims()
+{
+    // Swept on the way in to the two routes that can add one, so an uncollected code cannot
+    // outlive its minute even on an edge nobody signs into again. A claim that expires here
+    // takes nothing with it: the session it stood for is a real session, and it lives or
+    // expires on the session manager's own terms.
+    const qint64 now{QDateTime::currentMSecsSinceEpoch()};
+    const qint64 ttl{claimTtlMs(m_config)};
+    for (auto it{m_claims.begin()}; it != m_claims.end();) {
+        if (now - it->createdMs > ttl) {
+            it = m_claims.erase(it);
         } else {
             ++it;
         }

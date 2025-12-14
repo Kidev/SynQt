@@ -38,7 +38,7 @@ def load_config(project_dir: os.PathLike[str] | str,
 
 
 def _client_targets(entity: Dict[str, Any], requested: str) -> List[str]:
-    declared = entity.get("targets", ["wasm"])
+    declared = appmodel.client_targets(entity)
     if requested == "all":
         return declared
     return [requested] if requested in declared else []

@@ -238,6 +238,41 @@
       "defended_by": "The `<scope>` gate on the member is applied by the owner before the slot runs, so there is no check in the QML to forget.",
       "file": "tests/fix1-auction/tst_fix1.cpp",
       "test": "auctionAuthorizationMatrix"
+    },
+    {
+      "id": "desktop-login-open-redirect",
+      "what": "A visitor is sent a login link whose `return` points somewhere the attacker controls, so the finished sign-in is redirected to them.",
+      "defended_by": "The edge accepts one shape of return URL and no other: http, a loopback literal, a port, no userinfo, no path, no query, no fragment. Anything else refuses the login outright, before the provider is contacted.",
+      "file": "tests/m8-auth/tst_desktop.cpp",
+      "test": "returnMustBeLoopback"
+    },
+    {
+      "id": "desktop-claim-read-out-of-browser-history",
+      "what": "Somebody reads the loopback URL back out of the system browser's history, or off a synced copy of it, and uses what it carried to sign in as that visitor.",
+      "defended_by": "The URL carries a claim code, never the session. The code lives a minute, is spent by the first attempt whether or not that attempt was right, and buys nothing without the S256 verifier that never left the app.",
+      "file": "tests/m8-auth/tst_desktop.cpp",
+      "test": "claimIsSingleUseAndBoundToItsVerifier"
+    },
+    {
+      "id": "desktop-login-answered-by-a-local-process",
+      "what": "A process on the same machine connects to the app's loopback port and hands it a claim code for an account the attacker controls, signing the visitor in as somebody else.",
+      "defended_by": "The client refuses any arrival that does not carry the nonce it generated for the sign-in it started, compared in constant time, and claims nothing.",
+      "file": "tests/m8-auth/tst_desktop.cpp",
+      "test": "loopbackReceiverServesOneAnswer"
+    },
+    {
+      "id": "desktop-login-on-a-project-without-one",
+      "what": "A loopback login is started against an edge whose project ships no desktop client, so the redirect goes to a port only something hostile would be listening on.",
+      "defended_by": "The whole flow is off unless the project builds a desktop client: the login refuses the return, and the claim endpoint answers nothing.",
+      "file": "tests/m8-auth/tst_desktop.cpp",
+      "test": "withoutADesktopClientThereIsNoDesktopLogin"
+    },
+    {
+      "id": "claim-endpoint-reached-from-page-script",
+      "what": "Script on any page posts to the claim endpoint, spending a code a sign-in is halfway through.",
+      "defended_by": "The endpoint refuses anything carrying an Origin at all, which puts it out of reach of page script rather than relying on the code being unguessable.",
+      "file": "tests/m8-auth/tst_desktop.cpp",
+      "test": "claimRefusesAnythingWithAnOrigin"
     }
   ]
 }

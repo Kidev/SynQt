@@ -56,6 +56,28 @@ target_link_libraries(tst_m8 PRIVATE
 
 add_test(NAME m8 COMMAND tst_m8)
 
+# The desktop half of the same feature: the loopback redirect, the claim code, and a native
+# client signing in end to end. It is the one suite that links both runtimes, because the
+# flow is a conversation between them.
+if(NOT TARGET SynQtClient)
+    add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../../src/client" "${CMAKE_BINARY_DIR}/SynQtClient")
+endif()
+qt_add_executable(tst_desktop tst_desktop.cpp)
+target_compile_definitions(tst_desktop PRIVATE M8_SRCDIR="${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(tst_desktop PRIVATE
+    SynQtEdge
+    SynQtClient
+    Qt6::Core
+    Qt6::Gui
+    Qt6::Network
+    Qt6::Qml
+    Qt6::RemoteObjects
+    Qt6::WebSockets
+    Qt6::HttpServer
+    Qt6::Test
+)
+add_test(NAME desktop-signin COMMAND tst_desktop)
+
 # The env file behind every `env:` reference: it is what turns the NAME of a secret in
 # synqt.yaml into its value at startup, so its precedence rules are part of the security
 # story rather than a convenience. No contract, no certificates, no network.

@@ -270,6 +270,26 @@ def is_client(entity: Dict[str, Any]) -> bool:
     return entity_type(entity) == "client"
 
 
+def client_targets(entity: Dict[str, Any]) -> List[str]:
+    """What a client entity is packaged as. `wasm` unless it says otherwise."""
+    declared = entity.get("targets", ["wasm"])
+    return [str(t) for t in declared] if isinstance(declared, list) else ["wasm"]
+
+
+def has_desktop_client(config: Dict[str, Any]) -> bool:
+    """Whether this project builds a client as a native desktop app.
+
+    The generated edge reads this to decide whether a login may answer over a loopback
+    redirect, which is the only way a native app can be handed a finished sign-in. It is
+    derived from `targets:` rather than asked as a question of its own, because there is no
+    case where a project wants one answer here and the other one there. A project with no
+    desktop client has nothing that could receive a loopback answer, and issuing one anyway
+    is a redirect to a port only something hostile would be listening on.
+    """
+    return any("desktop" in client_targets(entity)
+               for entity in entities(config) if is_client(entity))
+
+
 def is_edge(entity: Dict[str, Any]) -> bool:
     return entity_type(entity) == "web_edge"
 

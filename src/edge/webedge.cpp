@@ -761,6 +761,13 @@ bool WebEdge::start()
                             [this](const QHttpServerRequest &request) {
             return m_identity->handleLogout(request);
         });
+        // The desktop half. POST only, so the code and its verifier stay out of request
+        // logs, out of the browser's address bar, and out of any cache. The handler itself
+        // refuses everything unless the project builds a desktop client.
+        m_httpServer->route(m_identity->claimRoute(), QHttpServerRequest::Method::Post,
+                            [this](const QHttpServerRequest &request) {
+            return m_identity->handleClaim(request);
+        });
     }
     // Delivery of the bundle itself, only when this edge is the app's origin.
     if (m_config.serveClient) {
@@ -1000,12 +1007,22 @@ QHttpServerWebSocketUpgradeResponse WebEdge::verifyUpgrade(const QHttpServerRequ
             401, QByteArrayLiteral("no valid session"));
     }
 
-    // 3. Scope precondition: an anonymous connection is rejected when identity is
-    //    required (per-connect-point scope gating lands with sessions in M7).
+    // 3. Scope precondition. An anonymous connection is rejected when identity is required.
+    //
+    // Anonymous means the session carries no identity, which is what a session created for
+    // a visitor who has not signed in carries. Refusing the upgrade on the flag
+    // alone, without looking at the session, makes `identity.required: true`
+    // refuse everybody, signed in or not, so an app that sets it cannot be connected to
+    // at all. A test of the flag that covers only the half that is
+    // right (an anonymous visitor is refused) cannot see that, because being refused is
+    // also what a broken accept looks like from there.
     if (m_config.identityRequired) {
-        emit upgradeRejected(QStringLiteral("authentication required"));
-        return QHttpServerWebSocketUpgradeResponse::deny(
-            403, QByteArrayLiteral("authentication required"));
+        const SessionRecord *record{m_sessionManager->lookup(sessionId)};
+        if (!record || record->identity.isEmpty()) {
+            emit upgradeRejected(QStringLiteral("authentication required"));
+            return QHttpServerWebSocketUpgradeResponse::deny(
+                403, QByteArrayLiteral("authentication required"));
+        }
     }
 
     // 4. Rate and resource checks: per-IP and global connection caps.

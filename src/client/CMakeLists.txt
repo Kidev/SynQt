@@ -12,7 +12,11 @@
 # even if that executable's own find_package did not list the component. See the note in
 # src/consumer/CMakeLists.txt: the promotion belongs to the add_subdirectory'd leaf, not each
 # consumer, and prevents the "Qml target mentioned as a dependency but not declared" warning.
-find_package(Qt6 6.11 REQUIRED COMPONENTS Core Network WebSockets Qml RemoteObjects GLOBAL)
+# Gui is here for one call: QDesktopServices::openUrl, which is how the native desktop
+# build hands a sign-in to the system browser. Both client targets link Gui anyway (a client
+# renders QML), and on the WebAssembly build the object file that uses it is never pulled
+# out of this static library, because nothing on that side references it.
+find_package(Qt6 6.11 REQUIRED COMPONENTS Core Gui Network WebSockets Qml RemoteObjects GLOBAL)
 
 # The shared transport adapter (guarded so several entities can pull it in once).
 if(NOT TARGET SynQtTransport)
@@ -38,6 +42,8 @@ qt_add_library(SynQtClient STATIC
     graphicsnotice.h
     graphicsprobe.cpp
     graphicsprobe.h
+    loopbackreceiver.cpp
+    loopbackreceiver.h
     qmlpalette.cpp
     qmlpalette.h
     remotepageloader.cpp
@@ -64,6 +70,7 @@ target_link_libraries(SynQtClient PUBLIC
     SynQtTransport
     SynQtConsumer
     Qt6::Core
+    Qt6::Gui
     Qt6::Network
     Qt6::WebSockets
     Qt6::Qml

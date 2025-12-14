@@ -41,6 +41,43 @@ browser only ever ends with an httpOnly session cookie.
 5. devStubRefusedWithoutGate: with the dev gate off, the dev stub provider is refused
    (403).
 
+## The desktop half (`tst_desktop.cpp`)
+
+A native app has no origin, so the finished session cannot be handed back as a cookie. It
+comes back over a loopback redirect instead (the native-app pattern of RFC 8252), and what
+crosses that redirect is a one-time claim code rather than the session, because the URL a
+browser was sent to is written into that browser's history. See
+[desktop](../../docs/desktop.md).
+
+`LoopbackReceiver` (`src/client`) is the listener, bound to `127.0.0.1` and closed the
+moment the answer arrives. `IdentityProvider::handleClaim` is the exchange, served at
+`<login route>/claim`, POST only.
+
+What the suite proves, in the order it would hurt to get wrong:
+
+1. `returnMustBeLoopback` and `returnNeedsItsNonceAndChallenge`: the `return` URL is an
+   allowlist of one shape, checked before the provider is contacted. Thirteen refusals
+   including `http://127.0.0.1@evil.example/`, `localhost` by name, and a return carrying a
+   path, a query or a fragment of its own. An open redirect here hands out sessions.
+2. `claimIsSingleUseAndBoundToItsVerifier`: the redirect carries a code and the app's own
+   nonce, the browser is left with no session cookie, and the code is spent by the first
+   attempt whether or not that attempt had the right verifier.
+3. `claimBuysTheSessionOnce`: the right verifier buys a real session carrying the
+   provider's identity, answered `no-store`, and not a second time.
+4. `claimRefusesAnythingWithAnOrigin` and `claimRefusesAGet`: page script cannot reach the
+   endpoint at all, and a GET neither hands out a session nor burns the code.
+5. `withoutADesktopClientThereIsNoDesktopLogin`: none of it exists unless a client entity
+   lists the `desktop` target.
+6. `anUncollectedClaimExpires`: a code nobody collects stops standing for its session.
+7. `loopbackReceiverServesOneAnswer`: the listener is loopback-only, survives the favicon
+   request a browser makes beside the redirect, reflects nothing from the request into the
+   page it serves, and is closed afterwards.
+8. `nativeClientSignsInEndToEnd`: `Session.login()` through the real client runtime, a real
+   edge and the stub provider. The edge is configured `identityRequired`, so a client that
+   reaches `connected` has proved it is presenting an authenticated credential. The system
+   browser is stood in for through `QDesktopServices::setUrlHandler`, Qt's own seam;
+   nothing in the client is widened to be testable.
+
 ## The promoted auth entity (`identity.provider_entity`)
 
 `providerEntityCentralizedLogin` and `providerEntityDistributedSessions` cover the shape

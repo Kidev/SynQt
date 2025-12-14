@@ -28,11 +28,18 @@
 #include <QWebSocket>
 
 #ifndef Q_OS_WASM
+#  include "loopbackreceiver.h"
+
+#  include <QCryptographicHash>
+#  include <QDesktopServices>
+#  include <QJsonDocument>
+#  include <QJsonObject>
 #  include <QNetworkAccessManager>
 #  include <QNetworkCookie>
 #  include <QNetworkCookieJar>
 #  include <QNetworkReply>
 #  include <QNetworkRequest>
+#  include <QRandomGenerator>
 #  include <QSslCertificate>
 #  include <QSslConfiguration>
 #  include <QSslSocket>
@@ -130,6 +137,42 @@ QSslConfiguration nativeTlsConfiguration(const SynClientConfig &config)
     return tls;
 }
 
+/// A cryptographically random opaque value, hex-encoded. The system generator, not the
+/// default one: these are the two values a desktop sign-in rests on, and a predictable
+/// nonce is a sign-in somebody else can finish.
+QByteArray randomToken()
+{
+    QByteArray raw(32, Qt::Uninitialized);
+    QRandomGenerator::system()->fillRange(reinterpret_cast<quint32 *>(raw.data()),
+                                          raw.size() / static_cast<int>(sizeof(quint32)));
+    return raw.toHex();
+}
+
+/// The S256 challenge for a verifier, in the form the edge registers it.
+QByteArray challengeFor(const QByteArray &verifier)
+{
+    return QCryptographicHash::hash(verifier, QCryptographicHash::Sha256)
+        .toBase64(QByteArray::Base64UrlEncoding | QByteArray::OmitTrailingEquals);
+}
+
+/// Length-constant comparison, so a mismatch does not leak position via timing.
+///
+/// It matters here and not only on the edge: any local process can connect to the loopback
+/// port and offer this client a code of its own, and the nonce is the only thing that
+/// refuses it. A comparison that gives up at the first wrong byte is a nonce that can be
+/// walked one byte at a time by a process that is already on the machine.
+bool constantTimeEquals(const QByteArray &lhs, const QByteArray &rhs)
+{
+    if (lhs.isEmpty() || lhs.size() != rhs.size()) {
+        return false;
+    }
+    quint8 difference{0};
+    for (qsizetype i{0}; i < lhs.size(); ++i) {
+        difference |= static_cast<quint8>(lhs.at(i)) ^ static_cast<quint8>(rhs.at(i));
+    }
+    return difference == 0;
+}
+
 } // namespace
 #endif
 
@@ -212,6 +255,7 @@ void SynClient::beginLogin(const QString &provider)
                  "with a provider (synqt add auth <provider>).");
         return;
     }
+#ifdef Q_OS_WASM
     QUrl target{QString::fromUtf8(edgeHttpOrigin()) + m_config.loginRoute};
     if (!provider.isEmpty()) {
         QUrlQuery query;
@@ -219,7 +263,150 @@ void SynClient::beginLogin(const QString &provider)
         target.setQuery(query);
     }
     leaveForUrl(target.toString());
+#else
+    beginDesktopLogin(provider);
+#endif
 }
+
+#ifndef Q_OS_WASM
+
+void SynClient::beginDesktopLogin(const QString &provider)
+{
+    // A native window cannot navigate, so the sign-in happens in the system browser and
+    // the answer comes back over a port this process holds for the length of it. What
+    // comes back is a claim code. The URL the browser was sent to is in that browser's
+    // history, and a session there would outlive the sign-in on a machine that may not be
+    // this visitor's alone.
+    if (m_loopback) {
+        // Already waiting on one. Starting a second would take a second port and leave the
+        // first listening, and the visitor already has a browser open on the first.
+        qWarning("SynQt: a sign-in is already in progress.");
+        return;
+    }
+    auto *loopback{new LoopbackReceiver{this}};
+    if (!loopback->listen()) {
+        delete loopback;
+        qWarning("SynQt: could not take a loopback port for the sign-in, so there is "
+                 "nowhere for the answer to come back to. Not opening a browser.");
+        return;
+    }
+    m_loopback = loopback;
+    m_loginState = randomToken();
+    m_loginVerifier = randomToken();
+
+    QUrl target{QString::fromUtf8(edgeHttpOrigin()) + m_config.loginRoute};
+    QUrlQuery query;
+    if (!provider.isEmpty()) {
+        query.addQueryItem(QStringLiteral("provider"), provider);
+    }
+    query.addQueryItem(QStringLiteral("return"), loopback->returnUrl());
+    query.addQueryItem(QStringLiteral("return_state"),
+                       QString::fromLatin1(m_loginState));
+    query.addQueryItem(QStringLiteral("return_challenge"),
+                       QString::fromLatin1(challengeFor(m_loginVerifier)));
+    target.setQuery(query);
+
+    connect(loopback, &LoopbackReceiver::received, this, &SynClient::onLoginAnswer);
+    connect(loopback, &LoopbackReceiver::timedOut, this, [this]() {
+        qWarning("SynQt: the sign-in was not finished in time, so this client stopped "
+                 "waiting for it.");
+        endDesktopLogin();
+    });
+    QDesktopServices::openUrl(target);
+}
+
+void SynClient::onLoginAnswer(const QString &code, const QString &state, const QString &error)
+{
+    // Any local process can reach that port, so nothing that arrives on it is trusted for
+    // being there. Only an answer carrying the nonce this client generated a moment ago
+    // belongs to the sign-in it started. Without this check a process on the same machine
+    // could hand over a code for an account it controls and have the visitor signed in as
+    // somebody else, which is session fixation with extra steps.
+    if (!constantTimeEquals(state.toUtf8(), m_loginState)) {
+        qWarning("SynQt: an answer arrived on the sign-in port that this client did not "
+                 "ask for. Refused; no session was claimed.");
+        endDesktopLogin();
+        return;
+    }
+    if (!error.isEmpty() || code.isEmpty()) {
+        qWarning("SynQt: the sign-in did not complete (%s).",
+                 error.isEmpty() ? "no code was returned" : qUtf8Printable(error));
+        endDesktopLogin();
+        return;
+    }
+    claimSession(code);
+}
+
+void SynClient::claimSession(const QString &code)
+{
+    if (!m_network) {
+        m_network = new QNetworkAccessManager{this};
+    }
+    QString route{m_config.loginRoute};
+    while (route.endsWith(QLatin1Char('/'))) {
+        route.chop(1);
+    }
+    QNetworkRequest request{QUrl{QString::fromUtf8(edgeHttpOrigin()) + route
+                                 + QStringLiteral("/claim")}};
+    // This client's own verified connection to the edge, which is the whole reason the
+    // loopback carried a code and not a session: the exchange happens here, over TLS this
+    // process terminates, and not through a browser.
+    request.setSslConfiguration(nativeTlsConfiguration(m_config));
+    request.setHeader(QNetworkRequest::ContentTypeHeader,
+                      QByteArrayLiteral("application/x-www-form-urlencoded"));
+
+    QUrlQuery body;
+    body.addQueryItem(QStringLiteral("code"), code);
+    body.addQueryItem(QStringLiteral("verifier"), QString::fromLatin1(m_loginVerifier));
+    const QByteArray payload{body.toString(QUrl::FullyEncoded).toUtf8()};
+    // The verifier has done its work; it is of no further use to this client and of every
+    // use to anything reading this process, so it stops existing here rather than at the
+    // end of the sign-in.
+    m_loginVerifier.fill('\0');
+    m_loginVerifier.clear();
+
+    QNetworkReply *reply{m_network->post(request, payload)};
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        const QByteArray answer{reply->readAll()};
+        const int status{
+            reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt()};
+        deleteSoon(reply);
+        endDesktopLogin();
+
+        const QJsonObject fields{QJsonDocument::fromJson(answer).object()};
+        const QString session{fields.value(QStringLiteral("session")).toString()};
+        const QString cookieName{fields.value(QStringLiteral("cookie_name")).toString()};
+        if (status != 200 || session.isEmpty() || cookieName.isEmpty()) {
+            // Every refusal looks the same from here on purpose (the edge answers 404 to an
+            // unknown, expired, spent or mismatched code alike), so there is nothing more
+            // specific to report than that it was refused.
+            qWarning("SynQt: the edge refused the sign-in claim, so this client is still "
+                     "signed out.");
+            return;
+        }
+        m_sessionCookie = cookieName.toUtf8() + '=' + session.toUtf8();
+        // Kept on the config too, because that is what a reconnect reads: without it the
+        // next start() would bootstrap a fresh anonymous session and quietly sign the
+        // visitor back out.
+        m_config.sessionCookie = m_sessionCookie;
+        start();
+    });
+}
+
+void SynClient::endDesktopLogin()
+{
+    if (m_loopback) {
+        m_loopback->stop();
+        deleteSoon(m_loopback);
+        m_loopback = nullptr;
+    }
+    m_loginState.fill('\0');
+    m_loginState.clear();
+    m_loginVerifier.fill('\0');
+    m_loginVerifier.clear();
+}
+
+#endif // !Q_OS_WASM
 
 void SynClient::endSession()
 {
@@ -233,6 +420,9 @@ void SynClient::endSession()
     // The cookie is the browser's, and only the route that expires it can take it away.
     leaveForUrl(target);
 #else
+    // Signing out while a sign-in is still open in the browser: the port goes, and an
+    // answer arriving after this is answering a request that no longer exists.
+    endDesktopLogin();
     // The native client is holding the credential, so it presents it once, to be told to
     // stop holding it. The reconnect below is what makes the rest of the client agree:
     // the edge closes this session's connections as it revokes it, and start() comes back
@@ -265,9 +455,10 @@ void SynClient::start()
     // wss handshake automatically.
     connectToEdge();
 #else
-    // Native desktop: a client that already holds a session (e.g. from a stored desktop
-    // login, M8) presents it directly; otherwise obtain an anonymous session from the
-    // edge (the loopback-redirect login flow arrives in M8) before the wss handshake.
+    // Native desktop: a client that already holds a session (one it just signed in for, or
+    // one it was configured with) presents it directly; otherwise it obtains an anonymous
+    // session from the edge before the wss handshake, and stays anonymous until somebody
+    // calls Session.login().
     if (!m_config.sessionCookie.isEmpty()) {
         m_sessionCookie = m_config.sessionCookie;
         connectToEdge();
