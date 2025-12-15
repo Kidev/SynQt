@@ -6,6 +6,10 @@
 
 #include "synclientconfig.h"
 
+#ifndef Q_OS_WASM
+#  include "devicecredential.h"
+#endif
+
 #include <QByteArray>
 #include <QObject>
 #include <QString>
@@ -88,6 +92,21 @@ private:
     void claimSession(const QString &code);
     /// Give up the port and forget the two secrets, however the sign-in ended.
     void endDesktopLogin();
+
+    /// Obtain a session before connecting: spend the stored device credential if there is
+    /// one and this attempt needs one, otherwise bootstrap an anonymous session over GET /.
+    /// Both end in connectToEdge().
+    void openSession();
+    /// Spend the stored credential for a fresh session and the next credential. A refusal
+    /// (and only an explicit refusal, never a network failure) drops what is stored: the
+    /// edge has said it is no longer redeemable, and keeping it would mean trying it again
+    /// at every launch forever.
+    void redeemDeviceCredential();
+    /// The anonymous path: ask the edge for a session and connect with it.
+    void bootstrapAnonymousSession();
+    /// The credential store, built on the first launch that could use one. Null when the
+    /// project does not persist desktop sessions.
+    DeviceCredential *deviceStore();
 #endif
 
     /// End the session at the edge, not only in this client.
@@ -134,6 +153,18 @@ private:
     LoopbackReceiver *m_loopback{nullptr};
     QByteArray m_loginState;
     QByteArray m_loginVerifier;
+
+    /// Staying signed in between launches. The store is built lazily, because a project that
+    /// does not persist desktop sessions must never touch a keyring at all. The pair is kept
+    /// in memory alongside it so a reconnect does not go back to the keyring for it.
+    DeviceCredential *m_device{nullptr};
+    DeviceCredential::Held m_held;
+    /// Whether the credential this client is currently presenting has been accepted at least
+    /// once. It is what tells a reconnect apart from a launch against an edge that restarted:
+    /// the first failure retries with the same session, and the one after it spends the
+    /// device credential for a new one.
+    bool m_sessionAccepted{false};
+    bool m_redeeming{false};
 #endif
 
     QString m_state{QStringLiteral("offline")};

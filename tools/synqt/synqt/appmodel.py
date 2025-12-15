@@ -943,13 +943,70 @@ def identity_session(config: Dict[str, Any]) -> Dict[str, Any]:
     return dict(session) if isinstance(session, dict) else {}
 
 
+# Staying signed in on the desktop
+#
+# `memory` is the default and means what it has always meant. The credential lives for the
+# life of the process, so a desktop visitor signs in once per launch. `device` opts into
+# something being written to the OS secure store between launches, which is a decision about
+# the visitor's disk and so is the author's to make out loud.
+DESKTOP_SESSIONS = ("memory", "device")
+
+# What a client's store binds its credential to. Ordered, so a configured minimum is a floor.
+# Above `user` this is a property of the machine and not of the platform, which is why it is
+# enforced at enrolment by the edge and only warned about here.
+DEVICE_BINDINGS = ("user", "application", "hardware")
+
+
+def desktop_session(config: Dict[str, Any]) -> str:
+    """``identity.desktop_session``: "memory" (the default) or "device"."""
+    declared = identity_settings(config).get("desktop_session")
+    if declared is None:
+        return "memory"
+    session = str(declared).strip()
+    if session not in DESKTOP_SESSIONS:
+        raise AppGenError(
+            f"identity.desktop_session: {session!r} is not one of "
+            f"{', '.join(DESKTOP_SESSIONS)}. 'memory' signs a desktop visitor in once per "
+            "launch; 'device' keeps a rotating credential in the OS secure store.")
+    return session
+
+
+def device_settings(config: Dict[str, Any]) -> Dict[str, Any]:
+    """The declared ``identity.device`` block, empty when the project declares none."""
+    device = identity_settings(config).get("device")
+    return dict(device) if isinstance(device, dict) else {}
+
+
+def device_store(config: Dict[str, Any]) -> Dict[str, Any]:
+    """``identity.device.store``: the persistence provider the family table lives in.
+
+    Empty when none is configured, which `synqt check` refuses under ``desktop_session:
+    device`` rather than letting it degrade to a feature that silently does nothing.
+    """
+    store = device_settings(config).get("store")
+    return dict(store) if isinstance(store, dict) else {}
+
+
+def device_min_binding(config: Dict[str, Any]) -> str:
+    """``identity.device.min_binding``, defaulting to the level all three platforms meet."""
+    declared = device_settings(config).get("min_binding")
+    if declared is None:
+        return "user"
+    binding = str(declared).strip()
+    if binding not in DEVICE_BINDINGS:
+        raise AppGenError(
+            f"identity.device.min_binding: {binding!r} is not one of "
+            f"{', '.join(DEVICE_BINDINGS)}.")
+    return binding
+
+
 def identity_refresh(config: Dict[str, Any]) -> Dict[str, Any]:
-    """The declared ``identity.refresh`` block: how the access-token sweep is timed.
+    """The declared ``identity.refresh`` block. How the access-token sweep is timed.
 
     ``interval_seconds`` is how often the entity holding the tokens looks for expiring
     ones, and ``margin_seconds`` is how far ahead of expiry it renews them. Both were
     reachable only as C++ defaults before, which made the documented "the edge refreshes
-    the access token server side" untunable: a provider issuing short-lived tokens needs a
+    the access token server side" untunable. A provider issuing short-lived tokens needs a
     margin wider than 120 seconds, and there was no way to say so.
     """
     refresh = identity_settings(config).get("refresh")

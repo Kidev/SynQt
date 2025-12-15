@@ -766,6 +766,17 @@ identity:
 
   mapping:
     hook: web/edge/identity/map.qml    # optional QML returning a scope for an identity
+
+  desktop_session: memory         # or `device`: a native client stays signed in between
+                                  # launches, through the OS secure store
+  device:                         # read only under `desktop_session: device`
+    store:                        # a provider block, exactly like an entity's
+      name: sqlite
+      file: .synqt/devices.db
+    lifetime_days: 30
+    inactivity_days: 14
+    overlap_seconds: 120
+    min_binding: user             # user | application | hardware
 ```
 
 A provider named `github` or `google` may be written as just a name, a `client_id`
@@ -799,6 +810,20 @@ What changes about the edge is what it stops holding. A promoted edge is given p
 It drives the browser facing half (the login and callback routes, the session cookie) and
 asks the auth entity for every step that needs a secret. See
 [Where identity runs](authentication.md#where-identity-runs-at-the-edge-or-as-its-own-entity).
+
+`desktop_session` is the one key here that puts something on a visitor's disk, which is
+why it is asked for rather than defaulted to. Under `device`, a native client keeps a
+rotating, single-use *device credential* in the OS secure store and spends it at the
+next launch for a fresh session; the session's own lifetime does not change. `store` is
+an ordinary provider block (the same keys an entity's `provider:` takes, `env:`
+references included), and it has to be one a second edge could reach if the deployment
+ever runs two. The full treatment, including what each platform binds the credential to
+and why there is no file fallback, is in [desktop clients](desktop.md#storing-the-session).
+
+`synqt check` refuses `device` with no `store` and `device` with no client entity
+listing the `desktop` target, because both produce a build in which nobody ever stays
+signed in and nothing says why. It only warns about `min_binding`, since which level a
+machine reaches is a property of that machine and is settled by the edge at enrolment.
 
 Two things once listed here are not settings, because they are not optional and a
 key that could contradict them would be a way to get them wrong. The session cookie's

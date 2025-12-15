@@ -148,6 +148,18 @@ QByteArray randomToken()
     return raw.toHex();
 }
 
+/// The two desktop routes hang off the login route, exactly as the edge hangs them off it
+/// (IdentityProvider::claimRoute and deviceRoute), so a project that renamed its login route
+/// renamed these with it.
+QString desktopRoute(const QString &loginRoute, const QString &leaf)
+{
+    QString route{loginRoute};
+    while (route.endsWith(QLatin1Char('/'))) {
+        route.chop(1);
+    }
+    return route + leaf;
+}
+
 /// The S256 challenge for a verifier, in the form the edge registers it.
 QByteArray challengeFor(const QByteArray &verifier)
 {
@@ -342,12 +354,9 @@ void SynClient::claimSession(const QString &code)
     if (!m_network) {
         m_network = new QNetworkAccessManager{this};
     }
-    QString route{m_config.loginRoute};
-    while (route.endsWith(QLatin1Char('/'))) {
-        route.chop(1);
-    }
-    QNetworkRequest request{QUrl{QString::fromUtf8(edgeHttpOrigin()) + route
-                                 + QStringLiteral("/claim")}};
+    QNetworkRequest request{QUrl{QString::fromUtf8(edgeHttpOrigin())
+                                 + desktopRoute(m_config.loginRoute,
+                                                QStringLiteral("/claim"))}};
     // This client's own verified connection to the edge, which is the whole reason the
     // loopback carried a code and not a session: the exchange happens here, over TLS this
     // process terminates, and not through a browser.
@@ -358,8 +367,19 @@ void SynClient::claimSession(const QString &code)
     QUrlQuery body;
     body.addQueryItem(QStringLiteral("code"), code);
     body.addQueryItem(QStringLiteral("verifier"), QString::fromLatin1(m_loginVerifier));
+    // Enrolment rides on the claim rather than on a route of its own, because this is the
+    // one moment where the session has been proved to belong to this process. The
+    // binding is what this machine's store gives, reported as it is. A deployment
+    // that asked for more than this machine can give gets no credential, and the visitor is
+    // still signed in.
+    DeviceCredential *store{deviceStore()};
+    if (store != nullptr && store->isAvailable()) {
+        body.addQueryItem(QStringLiteral("device"), QStringLiteral("1"));
+        body.addQueryItem(QStringLiteral("binding"), store->bindingName());
+        body.addQueryItem(QStringLiteral("label"), DeviceCredential::machineLabel());
+    }
     const QByteArray payload{body.toString(QUrl::FullyEncoded).toUtf8()};
-    // The verifier has done its work; it is of no further use to this client and of every
+    // The verifier has done its work. It is of no further use to this client and of every
     // use to anything reading this process, so it stops existing here rather than at the
     // end of the sign-in.
     m_loginVerifier.fill('\0');
@@ -384,12 +404,22 @@ void SynClient::claimSession(const QString &code)
                      "signed out.");
             return;
         }
+        DeviceCredential::Held enrolled;
+        enrolled.id = fields.value(QStringLiteral("device_id")).toString();
+        enrolled.secret = fields.value(QStringLiteral("device_secret")).toString().toLatin1();
+        if (enrolled.isValid() && m_device) {
+            m_device->save(enrolled);
+            m_held = enrolled;
+        }
+
         m_sessionCookie = cookieName.toUtf8() + '=' + session.toUtf8();
         // Kept on the config too, because that is what a reconnect reads: without it the
         // next start() would bootstrap a fresh anonymous session and quietly sign the
         // visitor back out.
         m_config.sessionCookie = m_sessionCookie;
-        start();
+        // Straight to the socket, and not through start(): the session is in hand, and
+        // openSession() would spend the credential that was enrolled to get another.
+        connectToEdge();
     });
 }
 
@@ -420,9 +450,17 @@ void SynClient::endSession()
     // The cookie is the browser's, and only the route that expires it can take it away.
     leaveForUrl(target);
 #else
-    // Signing out while a sign-in is still open in the browser: the port goes, and an
+    // Signing out while a sign-in is still open in the browser. The port goes, and an
     // answer arriving after this is answering a request that no longer exists.
     endDesktopLogin();
+    // And the stored credential goes with it, before the request rather than after: a logout
+    // that leaves something redeemable on the disk is worse than no logout at all, because
+    // the visitor believes it worked. The edge deletes its half of the same pair when it
+    // revokes the session. This half must not depend on that request arriving.
+    m_held = DeviceCredential::Held{};
+    if (m_device) {
+        m_device->erase();
+    }
     // The native client is holding the credential, so it presents it once, to be told to
     // stop holding it. The reconnect below is what makes the rest of the client agree:
     // the edge closes this session's connections as it revokes it, and start() comes back
@@ -455,15 +493,132 @@ void SynClient::start()
     // wss handshake automatically.
     connectToEdge();
 #else
+    openSession();
+#endif
+}
+
+#ifndef Q_OS_WASM
+
+DeviceCredential *SynClient::deviceStore()
+{
+    if (!m_config.deviceSession) {
+        // A project that does not persist desktop sessions never touches a keyring, which is
+        // also why this is built here and not in the constructor.
+        return nullptr;
+    }
+    if (m_device == nullptr) {
+        m_device = new DeviceCredential{m_config.edgeUrl, this};
+    }
+    return m_device;
+}
+
+void SynClient::openSession()
+{
     // Native desktop: a client that already holds a session (one it just signed in for, or
-    // one it was configured with) presents it directly; otherwise it obtains an anonymous
-    // session from the edge before the wss handshake, and stays anonymous until somebody
-    // calls Session.login().
+    // one it was configured with) presents it directly; otherwise it either spends a device
+    // credential stored at a previous launch or obtains an anonymous session from the edge,
+    // and in the anonymous case stays anonymous until somebody calls Session.login().
+    //
+    // The second condition is what makes an edge restart survivable. A reconnect that has
+    // already been accepted once retries with the same session, because a dropped socket is
+    // usually a network blip. One that has not is either a fresh launch or an edge that came
+    // back without the session table it had, and there the stored credential is exactly the
+    // thing that gets the visitor back in without a sign-in.
+    if (!m_config.sessionCookie.isEmpty() && m_sessionAccepted) {
+        // Cleared as the attempt starts, and set again only by connecting: that is what
+        // makes this one retry rather than a loop against a session the edge has forgotten.
+        m_sessionAccepted = false;
+        m_sessionCookie = m_config.sessionCookie;
+        connectToEdge();
+        return;
+    }
+    DeviceCredential *store{deviceStore()};
+    if (store != nullptr && !m_redeeming) {
+        if (!m_held.isValid()) {
+            m_held = store->load();
+        }
+        if (m_held.isValid()) {
+            redeemDeviceCredential();
+            return;
+        }
+    }
     if (!m_config.sessionCookie.isEmpty()) {
         m_sessionCookie = m_config.sessionCookie;
         connectToEdge();
         return;
     }
+    bootstrapAnonymousSession();
+}
+
+void SynClient::redeemDeviceCredential()
+{
+    setState(QStringLiteral("connecting"));
+    if (!m_network) {
+        m_network = new QNetworkAccessManager{this};
+    }
+    m_redeeming = true;
+
+    QNetworkRequest request{QUrl{QString::fromUtf8(edgeHttpOrigin())
+                                 + desktopRoute(m_config.loginRoute,
+                                                QStringLiteral("/device"))}};
+    request.setSslConfiguration(nativeTlsConfiguration(m_config));
+    request.setHeader(QNetworkRequest::ContentTypeHeader,
+                      QByteArrayLiteral("application/x-www-form-urlencoded"));
+    QUrlQuery body;
+    body.addQueryItem(QStringLiteral("device_id"), m_held.id);
+    body.addQueryItem(QStringLiteral("device_secret"), QString::fromLatin1(m_held.secret));
+
+    QNetworkReply *reply{m_network->post(request, body.toString(QUrl::FullyEncoded).toUtf8())};
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        const QByteArray answer{reply->readAll()};
+        const int status{
+            reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt()};
+        deleteSoon(reply);
+        m_redeeming = false;
+
+        const QJsonObject fields{QJsonDocument::fromJson(answer).object()};
+        const QString session{fields.value(QStringLiteral("session")).toString()};
+        const QString cookieName{fields.value(QStringLiteral("cookie_name")).toString()};
+        if (status == 200 && !session.isEmpty() && !cookieName.isEmpty()) {
+            DeviceCredential::Held next;
+            next.id = fields.value(QStringLiteral("device_id")).toString();
+            next.secret = fields.value(QStringLiteral("device_secret")).toString().toLatin1();
+            // Stored before the session is used, because the generation presented is
+            // already retired at the edge. Losing this write is the case the edge's overlap
+            // window exists for, and it is not one to walk into on purpose.
+            if (next.isValid() && m_device) {
+                m_device->save(next);
+                m_held = next;
+            }
+            m_sessionCookie = cookieName.toUtf8() + '=' + session.toUtf8();
+            m_config.sessionCookie = m_sessionCookie;
+            connectToEdge();
+            return;
+        }
+        if (status != 0 && status != 200) {
+            // The edge answered, and its answer was no. Whatever is stored cannot become a
+            // session again, so it goes: keeping it would mean presenting a dead credential
+            // at every launch for the rest of the installation's life.
+            m_held = DeviceCredential::Held{};
+            if (m_device) {
+                m_device->erase();
+            }
+            qInfo("SynQt: the stored sign-in is no longer valid, so this launch starts "
+                  "signed out.");
+        }
+        // A transport failure keeps it: the edge said nothing, so nothing is known about
+        // whether the credential is still good.
+        if (!m_config.sessionCookie.isEmpty()) {
+            m_sessionCookie = m_config.sessionCookie;
+            connectToEdge();
+            return;
+        }
+        bootstrapAnonymousSession();
+    });
+}
+
+void SynClient::bootstrapAnonymousSession()
+{
     setState(QStringLiteral("connecting"));
     if (!m_network) {
         m_network = new QNetworkAccessManager{this};
@@ -480,8 +635,9 @@ void SynClient::start()
         deleteSoon(reply);
         connectToEdge();
     });
-#endif
 }
+
+#endif // !Q_OS_WASM
 
 void SynClient::connectToEdge()
 {
@@ -536,6 +692,11 @@ void SynClient::connectToEdge()
 void SynClient::onConnected()
 {
     m_backoffMs = m_config.reconnectBaseMs;
+#ifndef Q_OS_WASM
+    // The edge accepted this credential, so the next dropped socket is a network event and
+    // not an edge that came back without the session table it had. See openSession().
+    m_sessionAccepted = true;
+#endif
     setState(QStringLiteral("connected"));
 }
 

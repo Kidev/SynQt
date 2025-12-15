@@ -36,6 +36,7 @@ _MODULE_LICENSE = {
 _THIRD_PARTY = {
     "jwt-cpp": "MIT", "picojson": "BSD-2-Clause", "OpenSSL": "Apache-2.0",
     "MariaDB Connector/C": "LGPL-2.1-only",
+    "libsecret (Linux desktop builds only)": "LGPL-2.1-or-later",
 }
 
 
@@ -86,7 +87,15 @@ def entity_modules(entity: Dict[str, Any], target: str = "wasm",
 
 
 def entity_third_party(entity: Dict[str, Any],
-                       config: Optional[Dict[str, Any]] = None) -> List[str]:
+                       config: Optional[Dict[str, Any]] = None,
+                       target: str = "wasm") -> List[str]:
+    if appmodel.is_client(entity):
+        # A client links no mesh transport and no OAuth engine. What a native build on Linux
+        # does link is libsecret, which is how it keeps a device credential in the Secret
+        # Service. The macOS and Windows stores are system frameworks and not third-party
+        # code. Listed for the desktop target as a whole, because which platform a desktop
+        # build is for is a property of the machine it is built on and not of the topology.
+        return ["libsecret (Linux desktop builds only)"] if target == "desktop" else []
     libs: List[str] = ["OpenSSL"]  # the mesh transport is mutual TLS on every link
     provider = (entity.get("provider") or {}).get("name", "")
     # jwt-cpp verifies an OIDC ID token's signature, and it is linked by the same library
@@ -113,7 +122,7 @@ def generate(entity: Dict[str, Any], *, target: str = "wasm",
     """The THIRD-PARTY-LICENSES text for one entity/target."""
     name = entity.get("name", "entity")
     modules = entity_modules(entity, target, config)
-    third_party = entity_third_party(entity, config)
+    third_party = entity_third_party(entity, config, target)
     effective = effective_license(modules, qt_license_mode)
 
     lines = [

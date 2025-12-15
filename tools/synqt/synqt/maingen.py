@@ -405,6 +405,7 @@ def _identity_lines(config: Dict[str, Any], edge: Dict[str, Any]) -> List[str]:
     # Derived from `targets:`, not asked: see appmodel.has_desktop_client.
     if appmodel.has_desktop_client(config):
         lines.append("    config.identity.allowDesktopLogin = true;")
+    lines += _identity_device_lines(config)
     # Refresh timing goes to whichever entity holds the tokens, and only there. A promoted
     # edge holds none, so setting it here would be a knob on the one entity that cannot act
     # on it.
@@ -412,6 +413,56 @@ def _identity_lines(config: Dict[str, Any], edge: Dict[str, Any]) -> List[str]:
         lines += _identity_refresh_lines(config, "config.identity")
     lines += [_identity_provider_block(provider, index, with_secret=not provider_entity)
               for index, provider in enumerate(appmodel.identity_providers(config))]
+    return lines
+
+
+def _identity_device_lines(config: Dict[str, Any]) -> List[str]:
+    """The `identity.device` block, or nothing when desktop sessions are not persisted.
+
+    Emitted on the edge only. The auth entity gets none of it even when identity is
+    promoted: what a redemption needs is the family table and the scope-mapping hook, and
+    the hook is each edge's own policy, so the edge is where the route lives either way.
+    """
+    if appmodel.desktop_session(config) != "device":
+        return []
+    device = appmodel.device_settings(config)
+    lines = ["    config.identity.device.enabled = true;",
+             "    config.identity.device.minBinding = DeviceBinding::%s;"
+             % appmodel.device_min_binding(config).capitalize()]
+    for key, field in (("lifetime_days", "lifetimeDays"),
+                       ("inactivity_days", "inactivityDays"),
+                       ("overlap_seconds", "overlapSeconds")):
+        if key in device:
+            lines.append(f"    config.identity.device.{field} = "
+                         f"{_int_literal('identity.device.' + key, device[key])};")
+    # The store is an ordinary provider block, spelled the way every entity spells one, and
+    # read through the same env resolution. A password in synqt.yaml is a password in a git
+    # repository, here as anywhere else.
+    for key, field in (("name", "name"), ("host", "host"), ("database", "database"),
+                       ("user", "user"), ("sslmode", "sslMode"), ("ca_cert", "caCert")):
+        value = appmodel.device_store(config).get(key)
+        if isinstance(value, str) and value.strip():
+            lines.append(f"    config.identity.device.store.{field} = "
+                         f"{_configured_value(value.strip())};")
+    store_file = appmodel.device_store(config).get("file")
+    if isinstance(store_file, str) and store_file.strip():
+        # Resolved against the project the way the mapping hook and the pages directory are.
+        # A relative path here would otherwise land wherever the edge happened to be started
+        # from, which is a different database per launcher and a fresh one under a service
+        # manager. Everybody signed out, with no error anywhere.
+        path = store_file.strip()
+        absolute = path.startswith("env:") or path.startswith("/") or path[1:3] == ":\\"
+        lines.append("    config.identity.device.store.file = %s%s;"
+                     % ("" if absolute else "qmlDir + QStringLiteral(\"/\") + ",
+                        _configured_value(path)))
+    port = appmodel.device_store(config).get("port")
+    if port is not None:
+        lines.append("    config.identity.device.store.port = %s;"
+                     % _int_literal("identity.device.store.port", port))
+    password = appmodel.device_store(config).get("password")
+    if isinstance(password, str) and password.strip():
+        lines.append(f"    config.identity.device.store.password = "
+                     f"{_configured_value(password.strip())};")
     return lines
 
 
@@ -664,6 +715,12 @@ def render_client_main(config: Dict[str, Any], uri: str) -> str:
             route = route.strip() if isinstance(route, str) and route.strip() else fallback
             auth_lines += (f'\n    config.{field} = '
                            f'QStringLiteral("{cxx_string_literal(route)}");')
+        # Staying signed in between launches. Emitted for both targets and read by neither
+        # in the browser. A WASM build has no OS store to keep anything in, and the browser
+        # already keeps the session cookie itself. What it gates on the desktop is whether
+        # this client touches a keyring at all.
+        if appmodel.desktop_session(config) == "device":
+            auth_lines += "\n    config.deviceSession = true;"
 
     body = f"""{_HEADER_CPP}
 // The {name} entry point, built for the browser (WASM) and as a native desktop app from

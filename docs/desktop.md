@@ -119,16 +119,85 @@ owns its credential and can end the session without leaving the window.
 ### Storing the session
 
 The browser keeps the session in an httpOnly cookie it cannot read. The desktop app
-keeps it in memory, for the life of the process: signing in is once per launch, and
-closing the app ends it. App code never sees a raw credential either way; `Session`
-exposes state and identity, never the token.
+keeps it in memory, for the life of the process. App code never sees a raw credential
+either way. `Session` exposes state and identity, never the token.
 
-!!! note "Not stored between launches"
-    The OS secure store (Keychain on macOS, Credential Manager on Windows, the Secret
-    Service on Linux) is not wired up. It is three platform backends or a third-party
-    dependency, and it is a separate decision from making sign-in work; nothing about
-    the flow above changes when it arrives. Until then, no credential is written to
-    disk at all, which is the safe half of the trade.
+By default that is the whole story. Signing in is once per launch, and closing the app
+ends it. A project that wants the visitor to stay signed in asks for it:
+
+```yaml
+identity:
+  desktop_session: device        # default: memory
+  device:
+    store:                       # where the edge keeps the device table
+      name: sqlite
+      file: .synqt/devices.db
+    lifetime_days: 30            # absolute
+    inactivity_days: 14          # since it was last used
+    overlap_seconds: 120
+    min_binding: user            # user | application | hardware
+```
+
+**What is stored is not the session.** It is a *device credential*: an opaque pair the
+edge issues, redeemable exactly once, at exactly one route, and what it buys is a fresh
+session of the ordinary length. That separation is the point. If the stored thing were
+the session id, "stay signed in for a month" and "a stolen file is good for a month"
+would be one number, and the pressure would always be to make it larger.
+
+Three properties follow:
+
+- **Every redemption rotates.** The generation just presented is retired and a new one
+  takes its place, so a credential copied off a disk is good only until the machine it
+  came from next starts up.
+- **A retired generation coming back is an event.** Presented inside
+  `overlap_seconds` it is the honest case, a client that lost the answer before it
+  could store it, and it costs nothing. Presented after that window it means two copies
+  exist, so the device and every session it opened are revoked and somebody signs in
+  again. This is the property no file permission gives: theft stops being silent.
+- **Scope is re-derived at every redemption**, through the same
+  [mapping hook](authentication.md) a login runs through. Somebody demoted yesterday
+  does not carry yesterday's scope for the rest of the month.
+
+Signing out deletes the credential on both sides, and the edge reads which one to
+delete from what it recorded when it minted that session, not from anything the client
+sends.
+
+#### Where it lives, per platform
+
+| | store | binds to |
+|---|---|---|
+| macOS | Keychain Services, `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly` | this application's code signature, on a signed build |
+| Windows | Credential Manager, `CRED_PERSIST_LOCAL_MACHINE` | this OS user (DPAPI at rest) |
+| Linux | the Secret Service (`org.freedesktop.secrets`) through libsecret | this OS user |
+
+**There is no file fallback**, on any platform, in any build, including development. A
+machine with no store persists nothing and its visitor signs in once per launch, which
+is exactly what `desktop_session: memory` does everywhere. That is deliberate: what
+makes this credential safe to hand out at all is that a copy of it cannot be taken
+without taking the OS store's protection with it.
+
+Some honest limits, stated rather than implied:
+
+- On Windows and Linux the boundary is the OS user, not the application. Any process
+  running as that user can read the item back. macOS is the only one of the three with
+  a real per-application boundary, and only on a signed build, which is why
+  `synqt build --deploy --sign` has a security consequence there and not only a
+  Gatekeeper one.
+- Nothing ever prompts. A locked keyring yields no secret rather than a password
+  dialog, because this read happens before the first frame and a modal there is a hang
+  on a headless or SSH session.
+- `min_binding` is a **fleet policy control, not an attack control**. The level is
+  reported by the client about its own store, and a patched client can claim more than
+  it has; proving it would need key attestation, which SynQt does not do. It is the
+  same kind of control as [route guards](programming-model.md) and a
+  [`transport: local`](security.md) link.
+
+Raising `min_binding` never breaks a platform. A client whose store cannot meet the
+floor keeps the session it just signed in for, writes nothing, and behaves exactly as
+it does under `desktop_session: memory`; `synqt check` warns at build time about which
+machines that will be, so it is a choice rather than a surprise. Above `user` the
+answer is a property of the machine anyway: `hardware` also excludes an older Intel Mac
+and a PC with its TPM turned off.
 
 ### Navigating without an address bar
 

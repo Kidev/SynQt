@@ -37,6 +37,12 @@ qt_add_library(SynQtClient STATIC
     browserhistory.h
     clientupdate.cpp
     clientupdate.h
+    devicecredential.cpp
+    devicecredential.h
+    securestore.cpp
+    securestore.h
+    nullstore.cpp
+    nullstore.h
     graphics.cpp
     graphics.h
     graphicsnotice.h
@@ -63,6 +69,41 @@ qt_add_library(SynQtClient STATIC
 )
 
 set_target_properties(SynQtClient PROPERTIES AUTOMOC ON)
+
+# Where a native client keeps the device credential that lets a visitor stay signed in
+# between launches. One store per platform, chosen here rather than at runtime, and nothing
+# at all on WebAssembly (no OS store, and the browser keeps the session cookie itself).
+#
+# There is deliberately no fallback that writes a file. A platform with no store persists
+# nothing and its visitor signs in once per launch; see src/client/nullstore.h.
+if(APPLE)
+    target_sources(SynQtClient PRIVATE keychainstore.cpp keychainstore.h)
+    target_link_libraries(SynQtClient PRIVATE "-framework Security"
+                                              "-framework CoreFoundation")
+elseif(WIN32)
+    target_sources(SynQtClient PRIVATE credentialmanagerstore.cpp credentialmanagerstore.h)
+    target_link_libraries(SynQtClient PRIVATE Advapi32)
+elseif(UNIX AND NOT EMSCRIPTEN)
+    # libsecret (LGPL-2.1), the supported way in to org.freedesktop.secrets. Optional at
+    # configure time: a build host without the development package still produces a working
+    # client, one that does not stay signed in. It is reported either way, because "the app
+    # forgets me on Linux" must be traceable to a line in a build log.
+    find_package(PkgConfig QUIET)
+    if(PkgConfig_FOUND)
+        pkg_check_modules(LIBSECRET QUIET libsecret-1)
+    endif()
+    if(LIBSECRET_FOUND)
+        target_sources(SynQtClient PRIVATE secretservicestore.cpp secretservicestore.h)
+        target_include_directories(SynQtClient SYSTEM PRIVATE ${LIBSECRET_INCLUDE_DIRS})
+        target_link_libraries(SynQtClient PRIVATE ${LIBSECRET_LIBRARIES})
+        target_compile_definitions(SynQtClient PRIVATE SYNQT_HAVE_LIBSECRET)
+        message(STATUS "SynQt: desktop sign-in persists through the Secret Service "
+                       "(libsecret ${LIBSECRET_VERSION})")
+    else()
+        message(STATUS "SynQt: libsecret not found, so a desktop client on this platform "
+                       "will not stay signed in between launches (install libsecret-1-dev)")
+    endif()
+endif()
 
 target_include_directories(SynQtClient PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 

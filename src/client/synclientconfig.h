@@ -57,10 +57,18 @@ struct SynClientConfig
     /// trust a pinned/self-hosted certificate. The client never disables verification.
     QString pinnedCaCertPath;
 
-    /// A session credential the native client already holds (e.g. from a desktop login
-    /// stored in the OS secure store, M8). When set, the native client presents it instead
-    /// of bootstrapping a fresh anonymous session over GET /. Full cookie form "name=token".
+    /// A session credential the native client already holds (from a desktop login, or from
+    /// redeeming a device credential at startup). When set, the native client presents it
+    /// instead of bootstrapping a fresh anonymous session over GET /. Full cookie form
+    /// "name=token".
     QByteArray sessionCookie;
+
+    /// Whether this client keeps a device credential in the OS secure store between
+    /// launches (`identity.desktop_session: device`). Off means the credential lives for the
+    /// life of the process and a desktop visitor signs in once per launch, which is what a
+    /// project that says nothing gets. Nothing at all on the browser. There is no OS store
+    /// to keep it in, and the browser already keeps the session cookie itself.
+    bool deviceSession{false};
 
     QList<RouteConfig> routes;
     QString routerFallback{QStringLiteral("/")};

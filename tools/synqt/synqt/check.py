@@ -727,6 +727,64 @@ def _identity_messages(config: Dict[str, Any]) -> List[str]:
         if not str(provider.get("client_id") or "").strip():
             messages.append(f"error: identity provider '{name}' has no client_id")
         messages += _insecure_endpoint_messages(name, provider)
+    messages += _device_session_messages(config)
+    return messages
+
+
+# Who reaches each binding level. Only the first is something every desktop platform gives;
+# above it the answer depends on the machine and not on the build, which is why raising the
+# floor is reported here and decided at enrolment.
+_DEVICE_BINDING_REACH = {
+    "user": "",
+    "application": ("only a signed macOS build reaches it, so a Windows or Linux client "
+                    "persists nothing"),
+    "hardware": ("only a Mac with a Secure Enclave or a PC with TPM 2.0 enabled reaches it, "
+                 "so a Linux client, an older Intel Mac and a PC with its TPM off persist "
+                 "nothing"),
+}
+
+
+def _device_session_messages(config: Dict[str, Any]) -> List[str]:
+    """`identity.desktop_session: device` writes something to a visitor's disk, so the two
+    ways of configuring it into doing nothing at all are refused rather than tolerated.
+
+    Both are about the project and not about the platform: a project with no desktop client
+    has nothing that could ever enrol, and one with no durable store has nowhere to keep what
+    it enrolled. Neither degrades quietly, because the symptom of both is the same as the
+    feature working perfectly and nobody ever staying signed in.
+
+    `min_binding` is not refused, only reported. Which level a machine reaches is a property
+    of that machine, so the edge settles it at enrolment; what is worth saying at build time
+    is which whole platforms in `targets` cannot reach the configured level, so raising the
+    bar is not a silent way to turn persistence off for a third of your users.
+    """
+    try:
+        session = appmodel.desktop_session(config)
+    except appmodel.AppGenError as failure:
+        return [f"error: {failure}"]
+    if session != "device":
+        return []
+
+    messages: List[str] = []
+    if not appmodel.has_desktop_client(config):
+        messages.append(
+            "error: identity.desktop_session is 'device' but no client entity lists the "
+            "desktop target, so nothing would ever enrol a device credential")
+    if not str(appmodel.device_store(config).get("name") or "").strip():
+        messages.append(
+            "error: identity.desktop_session is 'device' but identity.device.store names no "
+            "provider, so there is nowhere to keep the credentials it would issue")
+
+    try:
+        floor = appmodel.device_min_binding(config)
+    except appmodel.AppGenError as failure:
+        return messages + [f"error: {failure}"]
+    out_of_reach = _DEVICE_BINDING_REACH.get(floor, "")
+    if out_of_reach:
+        messages.append(
+            f"warn: identity.device.min_binding is '{floor}': {out_of_reach}. Those clients "
+            "still build and still sign in, once per launch, exactly as they would under "
+            "desktop_session: memory")
     return messages
 
 

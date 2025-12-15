@@ -97,6 +97,25 @@ target_link_libraries(tst_device PRIVATE
 )
 add_test(NAME device-credential COMMAND tst_device)
 
+# The client half: what goes into the OS secure store, that nothing goes anywhere else, and
+# that a second launch comes back signed in. Links both runtimes, because the last of those
+# is a conversation between them.
+qt_add_executable(tst_devicestore tst_devicestore.cpp)
+target_compile_definitions(tst_devicestore PRIVATE M8_SRCDIR="${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(tst_devicestore PRIVATE
+    SynQtEdge
+    SynQtClient
+    Qt6::Core
+    Qt6::Gui
+    Qt6::Network
+    Qt6::Qml
+    Qt6::RemoteObjects
+    Qt6::WebSockets
+    Qt6::HttpServer
+    Qt6::Test
+)
+add_test(NAME device-store COMMAND tst_devicestore)
+
 # The env file behind every `env:` reference: it is what turns the NAME of a secret in
 # synqt.yaml into its value at startup, so its precedence rules are part of the security
 # story rather than a convenience. No contract, no certificates, no network.
