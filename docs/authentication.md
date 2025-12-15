@@ -223,6 +223,13 @@ and the two customizations either side of it.
   session authorized as it revokes it, so nothing goes on being pushed to a tab that
   signed out, and the client comes back as an anonymous visitor.
 
+None of that changes for a desktop app that stays signed in between launches
+(`identity.desktop_session: device`). What it keeps in the OS secure store is not a
+session: it is a single-use credential it spends at the next launch for a session of
+exactly the length above, so the TTL, the rotation and the revocation here are the
+same numbers either way. See
+[storing the session](desktop.md#storing-the-session).
+
 ## Where identity runs: at the edge, or as its own entity
 
 By default identity runs in process on the web edge. This is the simplest and is
