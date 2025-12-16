@@ -36,11 +36,17 @@ public:
     };
 
     /// One credential per edge origin. Not per signed-in visitor, which would read better in
-    /// a keychain listing and cannot work: at the launch that matters nothing knows who the
+    /// a keychain listing and cannot work. At the launch that matters nothing knows who the
     /// visitor is yet, which is the entire question the stored credential answers. Signing in
     /// as somebody else on the same machine replaces it, which is what a desktop app should
     /// do anyway.
     explicit DeviceCredential(const QUrl &edgeUrl, QObject *parent = nullptr);
+    /// The same thing over a store that is handed in rather than chosen by the factory. It
+    /// exists for the tests, which need a store that fails on demand. The failure paths here
+    /// are the ones that decide whether a legitimate machine is later read as a stolen one,
+    /// and they cannot be reached by asking a working keyring nicely.
+    DeviceCredential(const QUrl &edgeUrl, std::unique_ptr<SecureStore> store,
+                     QObject *parent = nullptr);
     ~DeviceCredential() override;
 
     /// Whether anything can be persisted on this machine. False is an ordinary answer (a

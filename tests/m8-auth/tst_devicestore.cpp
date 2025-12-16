@@ -1,18 +1,22 @@
 // SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 // SPDX-License-Identifier: Apache-2.0
 
-// The client half of staying signed in: what goes into the OS secure store, that nothing
-// goes anywhere else, and that a second launch really does come back signed in.
+// The client half of staying signed in. What goes into the OS secure store, that nothing
+// goes anywhere else, and that a second launch does come back signed in.
 //
 // The first test here is the one that matters most, and it is the one that would still pass
-// if the feature were quietly broken: with no store available, nothing is written anywhere.
-// There is no file fallback in SynQt, and the moment one exists every honest sentence about
-// where this credential lives stops being true. It is asserted against the actual config,
+// if the feature were quietly broken. With no store available, nothing is written anywhere.
+// There is no file fallback in SynQt, and the moment one exists every sentence about
+// where this credential lives stops being true. It is asserted against the real config,
 // data and cache directories rather than against a promise in a comment.
 //
-// The rest needs a real keyring, so it skips where there is none (a container, CI without a
-// session bus, a headless box). Skipping is the right outcome there and not a gap: it is
-// exactly what a visitor on such a machine gets, which is a sign-in per launch.
+// The rest needs a real keyring. On Linux ctest runs this suite through
+// tests/lib/keyring-session.sh, which gives it a private session bus and a private keyring
+// rather than the developer's own, so the Secret Service backend is exercised on a CI runner
+// too. Where those tools are absent the tests skip, which is the right outcome and not a gap:
+// it is exactly what a visitor on such a machine gets, which is a sign-in per launch. CI sets
+// SYNQT_REQUIRE_SECURE_STORE on the column that does provide one, so a skip there is a broken
+// recipe and fails rather than passing quietly.
 
 #include "devicecredential.h"
 #include "identityconfig.h"
@@ -29,6 +33,7 @@
 #include <QDirIterator>
 #include <QElapsedTimer>
 #include <QEventLoop>
+#include <QHash>
 #include <QNetworkAccessManager>
 #include <QNetworkCookieJar>
 #include <QNetworkReply>
@@ -82,7 +87,81 @@ QSet<QString> filesUnder(const QStringList &roots)
     return seen;
 }
 
+/// A store that answers everything except a write, on demand.
+///
+/// It is not a convenience: it is the one machine state a working keyring cannot be asked
+/// to reproduce, and it is the state that decides whether an honest machine is later read as
+/// a stolen one. Real examples are a Secret Service with no default collection, a keychain
+/// item whose ACL has been revoked, and a full disk.
+class HalfWorkingStore : public SecureStore
+{
+public:
+    bool refusesWrites{false};
+
+    bool isAvailable(QString *reason) const override
+    {
+        Q_UNUSED(reason);
+        return true;
+    }
+
+    bool store(const QString &account, const QByteArray &secret, QString *error) override
+    {
+        if (refusesWrites) {
+            if (error) {
+                *error = QStringLiteral("the collection will not take a new value");
+            }
+            return false;
+        }
+        m_items.insert(account, secret);
+        return true;
+    }
+
+    bool load(const QString &account, QByteArray *secret, QString *error) override
+    {
+        Q_UNUSED(error);
+        const auto found{m_items.constFind(account)};
+        if (found == m_items.constEnd()) {
+            return false;
+        }
+        if (secret) {
+            *secret = found.value();
+        }
+        return true;
+    }
+
+    bool erase(const QString &account, QString *error) override
+    {
+        Q_UNUSED(error);
+        m_items.remove(account);
+        return true;
+    }
+
+    Binding binding() const override { return Binding::User; }
+    QString name() const override { return QStringLiteral("half-working"); }
+
+private:
+    QHash<QString, QByteArray> m_items;
+};
+
 } // namespace
+
+/// Skip when this machine has no secure store, unless it was supposed to have one.
+///
+/// A skip is the right answer on a headless box or a container, and it is also how a backend
+/// goes unexercised for months without anybody noticing. CI sets SYNQT_REQUIRE_SECURE_STORE
+/// on the column where the recipe provides a store (tests/lib/keyring-session.sh), so there
+/// the absence of one is a broken recipe rather than a property of the machine, and it fails
+/// instead of passing quietly.
+#define SYNQT_SKIP_WITHOUT_A_STORE(credential)                                            \
+    do {                                                                                  \
+        if (!(credential).isAvailable()) {                                                \
+            if (qEnvironmentVariableIsSet("SYNQT_REQUIRE_SECURE_STORE")) {                \
+                QFAIL("SYNQT_REQUIRE_SECURE_STORE is set, so this machine is supposed to " \
+                      "have a secure store, and it has none");                            \
+            }                                                                             \
+            QSKIP("no secure store on this machine, which is a supported outcome");       \
+        }                                                                                 \
+    } while (false)
 
 class DeviceStoreTest : public QObject
 {
@@ -225,9 +304,7 @@ private slots:
     void storeRoundTrip()
     {
         DeviceCredential credential{edgeWsUrl()};
-        if (!credential.isAvailable()) {
-            QSKIP("no secure store on this machine, which is a supported outcome");
-        }
+        SYNQT_SKIP_WITHOUT_A_STORE(credential);
         const auto cleanup{qScopeGuard([&credential]() { credential.erase(); })};
 
         DeviceCredential::Held held;
@@ -255,14 +332,41 @@ private slots:
         QVERIFY(!credential.load().isValid());
     }
 
+    // The failure that would otherwise stage a theft. A store that reads but cannot write
+    // leaves the generation this rotation was replacing sitting there; the edge has already
+    // retired that one, so presenting it at the next launch is the signature of a second copy
+    // in circulation, and the family and every session on it are revoked. The visitor did
+    // nothing wrong and their keyring is the only thing that failed, so a failed write leaves
+    // nothing behind instead, and the next launch is an ordinary sign-in.
+    void aRotationThatCannotBeStoredLeavesNothingBehind()
+    {
+        auto owned{std::make_unique<HalfWorkingStore>()};
+        HalfWorkingStore *store{owned.get()};
+        DeviceCredential credential{edgeWsUrl(), std::move(owned)};
+        QVERIFY(credential.isAvailable());
+
+        DeviceCredential::Held enrolled;
+        enrolled.id = QStringLiteral("a-family-id");
+        enrolled.secret = QByteArrayLiteral("the-first-generation");
+        QVERIFY(credential.save(enrolled));
+        QCOMPARE(credential.load().secret, enrolled.secret);
+
+        store->refusesWrites = true;
+        DeviceCredential::Held rotated;
+        rotated.id = enrolled.id;
+        rotated.secret = QByteArrayLiteral("the-second-generation");
+        QVERIFY(!credential.save(rotated));
+        QVERIFY2(!credential.load().isValid(),
+                 "a rotation that could not be written left the retired generation behind, "
+                 "which the next launch would present as a stolen copy");
+    }
+
     // Whatever the store does, it does within the deadline. A keyring that stopped to ask
     // the visitor something would otherwise be an app that never draws its first frame.
     void theStoreAnswersWithinItsDeadline()
     {
         DeviceCredential credential{edgeWsUrl()};
-        if (!credential.isAvailable()) {
-            QSKIP("no secure store on this machine, which is a supported outcome");
-        }
+        SYNQT_SKIP_WITHOUT_A_STORE(credential);
         QElapsedTimer clock;
         clock.start();
         credential.load();
@@ -275,9 +379,7 @@ private slots:
     void aSecondLaunchIsStillSignedIn()
     {
         DeviceCredential probe{edgeWsUrl()};
-        if (!probe.isAvailable()) {
-            QSKIP("no secure store on this machine, which is a supported outcome");
-        }
+        SYNQT_SKIP_WITHOUT_A_STORE(probe);
         probe.erase();
         const auto cleanup{qScopeGuard([&probe]() { probe.erase(); })};
 

@@ -81,8 +81,14 @@ DeviceCredential::Held unpacked(const QByteArray &blob)
 } // namespace
 
 DeviceCredential::DeviceCredential(const QUrl &edgeUrl, QObject *parent)
+    : DeviceCredential{edgeUrl, makeSecureStore(), parent}
+{
+}
+
+DeviceCredential::DeviceCredential(const QUrl &edgeUrl, std::unique_ptr<SecureStore> store,
+                                   QObject *parent)
     : QObject{parent}
-    , m_store{makeSecureStore()}
+    , m_store{std::move(store)}
 {
     QUrl origin{edgeUrl};
     origin.setScheme(origin.scheme() == QLatin1String("wss") ? QStringLiteral("https")
@@ -178,6 +184,13 @@ bool DeviceCredential::save(const Held &held)
         // and in particular it is never a reason to fail the sign-in that just succeeded.
         qWarning("SynQt: could not store the sign-in for the next launch (%s).",
                  qUtf8Printable(outcome->error));
+        // A store that reads but cannot write is the one shape of failure that is worse than
+        // having no store at all. What it leaves behind is the generation this call was
+        // replacing, which the edge has already retired, so the next launch would present a
+        // second copy of a spent credential. The exact signature of a stolen one, answered by
+        // revoking the family and every session on it. Leave nothing instead. The visitor
+        // signs in again next launch, which is what a machine with no store does anyway.
+        erase();
     }
     return outcome->ok;
 }
