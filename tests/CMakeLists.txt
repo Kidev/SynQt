@@ -55,7 +55,8 @@ set(SYNQT_SUITES_ELSEWHERE
     wasm-quick3dphysics  # WASM only; wasm-proofs.yml
     split-origin         # two sites in a real browser, no Qt at all; browser-matrix.yml
     designer             # the design editor in a browser, no Qt at all; tests.yml
-    lib                  # shared shell helpers the runners source; nothing to run
+    lib                  # shared shell helpers: sourced by the runners, or wrapped around a
+                         # test (keyring-session.sh). Nothing to run on its own
     security             # the attack index: a list, not a suite. The tests it names live
                          # beside the code they are about; the guard that keeps the list
                          # honest is tools/synqt/tests/test_security_index.py, in the

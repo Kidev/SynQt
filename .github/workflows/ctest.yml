@@ -203,8 +203,24 @@ jobs:
               # for the QPSQL plugin's client library. All three are optional to the build
               # and none of the other columns install them, which is the point: the engines
               # below only run here.
+              # libsecret-1-dev is not optional coverage the way the three above are: without
+              # it src/client/CMakeLists.txt leaves SecretServiceStore out of the build
+              # entirely, so the backend that ships to every Linux desktop visitor
+              # (docs/desktop.md#storing-the-session) was not merely untested here, it was not
+              # compiled. gnome-keyring and dbus are what tests/lib/keyring-session.sh needs to
+              # hand the suite a private session bus and a private, unlocked keyring; a runner
+              # has neither logged in, and without them every store test skips.
               sudo apt-get install -y libssl-dev libgl1-mesa-dev \
-                  libhiredis-dev libmongoc-dev libpq-dev
+                  libhiredis-dev libmongoc-dev libpq-dev \
+                  libsecret-1-dev gnome-keyring dbus
+              # The store tests skip on a machine with no store, which is correct there and
+              # useless here: this column is the one that has one. Fail if it does not, rather
+              # than reporting green over a package that quietly stopped installing.
+              if ! pkg-config --exists libsecret-1; then
+                echo "::error::libsecret-1 is missing, so the Linux secure store would not be built"
+                exit 1
+              fi
+              echo "SYNQT_REQUIRE_SECURE_STORE=1" >> "$GITHUB_ENV"
               ;;
             macOS)
               brew install openssl@3

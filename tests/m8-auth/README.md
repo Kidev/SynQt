@@ -55,28 +55,57 @@ moment the answer arrives. `IdentityProvider::handleClaim` is the exchange, serv
 
 What the suite proves, in the order it would hurt to get wrong:
 
-1. `returnMustBeLoopback` and `returnNeedsItsNonceAndChallenge`: the `return` URL is an
+1. `returnMustBeLoopback` and `returnNeedsItsNonceAndChallenge`. The `return` URL is an
    allowlist of one shape, checked before the provider is contacted. Thirteen refusals
    including `http://127.0.0.1@evil.example/`, `localhost` by name, and a return carrying a
    path, a query or a fragment of its own. An open redirect here hands out sessions.
-2. `claimIsSingleUseAndBoundToItsVerifier`: the redirect carries a code and the app's own
+2. `claimIsSingleUseAndBoundToItsVerifier`. The redirect carries a code and the app's own
    nonce, the browser is left with no session cookie, and the code is spent by the first
    attempt whether or not that attempt had the right verifier.
-3. `claimBuysTheSessionOnce`: the right verifier buys a real session carrying the
+3. `claimBuysTheSessionOnce`. The right verifier buys a real session carrying the
    provider's identity, answered `no-store`, and not a second time.
-4. `claimRefusesAnythingWithAnOrigin` and `claimRefusesAGet`: page script cannot reach the
+4. `claimRefusesAnythingWithAnOrigin` and `claimRefusesAGet`. Page script cannot reach the
    endpoint at all, and a GET neither hands out a session nor burns the code.
-5. `withoutADesktopClientThereIsNoDesktopLogin`: none of it exists unless a client entity
+5. `withoutADesktopClientThereIsNoDesktopLogin`. None of it exists unless a client entity
    lists the `desktop` target.
-6. `anUncollectedClaimExpires`: a code nobody collects stops standing for its session.
-7. `loopbackReceiverServesOneAnswer`: the listener is loopback-only, survives the favicon
+6. `anUncollectedClaimExpires`. A code nobody collects stops standing for its session.
+7. `loopbackReceiverServesOneAnswer`. The listener is loopback-only, survives the favicon
    request a browser makes beside the redirect, reflects nothing from the request into the
    page it serves, and is closed afterwards.
-8. `nativeClientSignsInEndToEnd`: `Session.login()` through the real client runtime, a real
+8. `nativeClientSignsInEndToEnd`. `Session.login()` through the real client runtime, a real
    edge and the stub provider. The edge is configured `identityRequired`, so a client that
    reaches `connected` has proved it is presenting an authenticated credential. The system
-   browser is stood in for through `QDesktopServices::setUrlHandler`, Qt's own seam;
+   browser is stood in for through `QDesktopServices::setUrlHandler`, Qt's own seam, and
    nothing in the client is widened to be testable.
+
+## Staying signed in (`tst_device.cpp`, `tst_devicestore.cpp`)
+
+`identity.desktop_session: device` lets a native app come back signed in without a browser.
+What it keeps is not the session: it is a device credential, redeemable once, at one route,
+for a fresh session of the ordinary length. See
+[desktop](../../docs/desktop.md#storing-the-session).
+
+`tst_device.cpp` is the edge half, driven over real HTTP against a `DeviceRegistry` on a
+throwaway SQLite store: enrolment issues a credential and not a session, a device secret
+presented at the WebSocket upgrade is refused, every redemption rotates, a retired generation
+inside the overlap window costs nothing and past it revokes the family and its sessions,
+scope is re-derived through the mapping hook, both expiry clocks are enforced, an `Origin`
+header is refused, logout ends the family, and an unknown secret is refused without signing
+its owner out. The far side of a window measured in days is reached by moving a row's
+timestamps with SQL, not by adding millisecond knobs to the config.
+
+`tst_devicestore.cpp` is the client half. The test that matters most is the one that would
+still pass if the feature were broken: with no store available, nothing is written anywhere,
+asserted against the real config, data and cache directories, because there is no file
+fallback and never will be. It also covers the round trip, that erasing what is not there
+succeeds, that a failed write leaves nothing behind (otherwise a keyring that cannot write
+would stage a theft the edge acts on), that the 2 s deadline holds, and end to end that a
+second launch is still signed in and a logout stops the third.
+
+On Linux ctest runs it through `tests/lib/keyring-session.sh`, which gives it a private
+session bus and a private keyring rather than the developer's own; where those tools are
+missing the store tests skip, which is what a visitor on such a machine gets. CI sets
+`SYNQT_REQUIRE_SECURE_STORE` on the column that provides a store, so a skip there fails.
 
 ## The promoted auth entity (`identity.provider_entity`)
 

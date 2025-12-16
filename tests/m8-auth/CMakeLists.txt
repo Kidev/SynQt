@@ -114,7 +114,18 @@ target_link_libraries(tst_devicestore PRIVATE
     Qt6::HttpServer
     Qt6::Test
 )
-add_test(NAME device-store COMMAND tst_devicestore)
+if(UNIX AND NOT APPLE)
+    # The Linux store is the Secret Service, and no CI runner or container has one logged in,
+    # so without help this test skips everywhere except a developer's desktop -- where it would
+    # instead write a credential into the keyring they keep their life in. The wrapper gives it
+    # a private bus and a private keyring, and falls through to running the binary directly
+    # where those tools are absent, which leaves the skip exactly as it is today.
+    add_test(NAME device-store
+             COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/../lib/keyring-session.sh"
+                     "$<TARGET_FILE:tst_devicestore>")
+else()
+    add_test(NAME device-store COMMAND tst_devicestore)
+endif()
 
 # The env file behind every `env:` reference: it is what turns the NAME of a secret in
 # synqt.yaml into its value at startup, so its precedence rules are part of the security
