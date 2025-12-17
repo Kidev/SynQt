@@ -101,7 +101,9 @@ ApplicationWindow {
             }
         }
 
-        // Listen for a rejection meant for us (attached signal on the connect point).
-        Auction.onBidRejected: reason => errorLabel.text = reason
+        // Listen for a rejection meant for this caller. The attached handler names the contract, which
+        // is the owner's name (`Edge`), where the calls above go through `Server`, the client's
+        // alias for whichever edge it is attached to.
+        Edge.onBidRejected: reason => errorLabel.text = reason
     }
 }
