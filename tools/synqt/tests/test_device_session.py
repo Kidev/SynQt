@@ -9,10 +9,12 @@ working perfectly and nobody staying signed in, which is why neither is allowed 
 warning: a project with no desktop client has nothing that could enrol, and one with no
 durable store has nowhere to keep what it enrolled.
 
-`min_binding` is the opposite case and is only reported. Which level a machine reaches is a
-property of that machine, not of the build, so the edge settles it at enrolment; a project
-can ship all three platforms under a policy only two of them meet, and the third signs in
-per launch instead of failing to build.
+A `min_binding` that some machines meet is the opposite case and is only reported. Which
+level a machine reaches is a property of that machine, not of the build, so the edge settles
+it at enrolment; a project can ship all three platforms under a policy only two of them meet,
+and the third signs in per launch instead of failing to build. A floor no store reports at
+all is back in the first group, because it is not a policy about machines, it is the feature
+turned off everywhere.
 """
 
 import unittest
@@ -84,9 +86,17 @@ class DeviceSessionCheckTest(unittest.TestCase):
         self.assertTrue(any("desktop target" in m for m in found), found)
 
     def test_a_raised_floor_warns_and_does_not_fail(self):
-        config = device_config(min_binding="hardware")
+        config = device_config(min_binding="application")
         self.assertEqual(messages(config, "error:"), [])
         found = messages(config, "warn:")
+        self.assertTrue(any("min_binding" in m for m in found), found)
+
+    def test_a_floor_no_store_reports_is_refused(self):
+        # Not a warning. Nothing SynQt ships reports 'hardware', so it does not describe a
+        # subset of machines the way 'application' does. It turns persistence off for all of
+        # them, which is indistinguishable from the feature being on and nobody staying
+        # signed in.
+        found = messages(device_config(min_binding="hardware"), "error:")
         self.assertTrue(any("min_binding" in m for m in found), found)
 
     def test_the_default_floor_says_nothing(self):

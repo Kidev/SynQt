@@ -135,7 +135,7 @@ identity:
     lifetime_days: 30            # absolute
     inactivity_days: 14          # since it was last used
     overlap_seconds: 120
-    min_binding: user            # user | application | hardware
+    min_binding: user            # user | application (see below about hardware)
 ```
 
 **What is stored is not the session.** It is a *device credential*: an opaque pair the
@@ -186,6 +186,14 @@ Some honest limits, stated rather than implied:
 - Nothing ever prompts. A locked keyring yields no secret rather than a password
   dialog, because this read happens before the first frame and a modal there is a hang
   on a headless or SSH session.
+- A redeemed session carries the visitor's identity and scope, and no provider tokens.
+  Tokens belong to the session the login created (see
+  [session lifecycle](authentication.md#session-lifecycle)) and that session is gone by
+  the next launch, so what a relaunch restores is who somebody is, not a live
+  authorization to call the provider's API on their behalf. Nothing in SynQt hands an
+  entity those tokens today, so nothing breaks; a system that later needs them across a
+  relaunch has to have the visitor sign in again, which is the honest version of a
+  30-day refresh token sitting on a disk.
 - `min_binding` is a **fleet policy control, not an attack control**. The level is
   reported by the client about its own store, and a patched client can claim more than
   it has; proving it would need key attestation, which SynQt does not do. It is the
@@ -195,9 +203,16 @@ Some honest limits, stated rather than implied:
 Raising `min_binding` never breaks a platform. A client whose store cannot meet the
 floor keeps the session it just signed in for, writes nothing, and behaves exactly as
 it does under `desktop_session: memory`; `synqt check` warns at build time about which
-machines that will be, so it is a choice rather than a surprise. Above `user` the
-answer is a property of the machine anyway: `hardware` also excludes an older Intel Mac
-and a PC with its TPM turned off.
+machines that will be, so it is a choice rather than a surprise. Which machines those
+are is a property of each machine and not of the build, which is why the edge settles
+it at enrolment.
+
+There are two levels to choose between today. `hardware` is in the vocabulary and no
+store reports it: nothing here talks to a Secure Enclave or a TPM yet, so a project
+that asked for it would turn persistence off on every platform at once rather than on
+some of them. `synqt check` refuses that floor and says so, instead of leaving a
+feature switched on and inert. The level keeps its name so that a store which does
+reach it later has one to report.
 
 ### Navigating without an address bar
 

@@ -738,25 +738,30 @@ _DEVICE_BINDING_REACH = {
     "user": "",
     "application": ("only a signed macOS build reaches it, so a Windows or Linux client "
                     "persists nothing"),
-    "hardware": ("only a Mac with a Secure Enclave or a PC with TPM 2.0 enabled reaches it, "
-                 "so a Linux client, an older Intel Mac and a PC with its TPM off persist "
-                 "nothing"),
 }
+
+# The level the vocabulary reserves and no store reports yet. It is refused rather than
+# warned about, because a warning would be describing machines that do not exist: raising the
+# floor to it today turns persistence off for every client on every platform, which is the
+# third way of configuring this feature into doing nothing at all.
+_DEVICE_BINDING_UNBUILT = "hardware"
 
 
 def _device_session_messages(config: Dict[str, Any]) -> List[str]:
-    """`identity.desktop_session: device` writes something to a visitor's disk, so the two
+    """`identity.desktop_session: device` writes something to a visitor's disk, so the three
     ways of configuring it into doing nothing at all are refused rather than tolerated.
 
-    Both are about the project and not about the platform: a project with no desktop client
-    has nothing that could ever enrol, and one with no durable store has nowhere to keep what
-    it enrolled. Neither degrades quietly, because the symptom of both is the same as the
-    feature working perfectly and nobody ever staying signed in.
+    Two are about the project and not about the platform. A project with no desktop client has
+    nothing that could ever enrol, and one with no durable store has nowhere to keep what it
+    enrolled. The third is a floor no store can meet. None of them degrades quietly, because
+    the symptom of all three is the same as the feature working perfectly and nobody ever
+    staying signed in.
 
-    `min_binding` is not refused, only reported. Which level a machine reaches is a property
-    of that machine, so the edge settles it at enrolment; what is worth saying at build time
-    is which whole platforms in `targets` cannot reach the configured level, so raising the
-    bar is not a silent way to turn persistence off for a third of your users.
+    A floor that some machines do meet is reported instead of refused. Which level a machine
+    reaches is a property of that machine, so the edge settles it at enrolment. What is worth
+    saying at build time is which whole platforms in `targets` cannot reach the configured
+    level, so raising the bar is not a silent way to turn persistence off for a third of your
+    users.
     """
     try:
         session = appmodel.desktop_session(config)
@@ -779,6 +784,12 @@ def _device_session_messages(config: Dict[str, Any]) -> List[str]:
         floor = appmodel.device_min_binding(config)
     except appmodel.AppGenError as failure:
         return messages + [f"error: {failure}"]
+    if floor == _DEVICE_BINDING_UNBUILT:
+        return messages + [
+            "error: identity.device.min_binding is 'hardware', and no secure store SynQt "
+            "ships reports that level yet (macOS reports 'application' on a signed build, "
+            "Windows and Linux report 'user'), so every client on every platform would fail "
+            "the floor and persist nothing. Use 'application' or 'user'"]
     out_of_reach = _DEVICE_BINDING_REACH.get(floor, "")
     if out_of_reach:
         messages.append(

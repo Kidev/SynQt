@@ -776,7 +776,8 @@ identity:
     lifetime_days: 30
     inactivity_days: 14
     overlap_seconds: 120
-    min_binding: user             # user | application | hardware
+    min_binding: user             # user | application; `hardware` is reserved and refused
+                                  # until a store reports it (see desktop.md)
 ```
 
 A provider named `github` or `google` may be written as just a name, a `client_id`
@@ -820,10 +821,12 @@ references included), and it has to be one a second edge could reach if the depl
 ever runs two. The full treatment, including what each platform binds the credential to
 and why there is no file fallback, is in [desktop clients](desktop.md#storing-the-session).
 
-`synqt check` refuses `device` with no `store` and `device` with no client entity
-listing the `desktop` target, because both produce a build in which nobody ever stays
-signed in and nothing says why. It only warns about `min_binding`, since which level a
-machine reaches is a property of that machine and is settled by the edge at enrolment.
+`synqt check` refuses `device` with no `store`, `device` with no client entity listing
+the `desktop` target, and `min_binding: hardware`, because all three produce a build in
+which nobody ever stays signed in and nothing says why. No store SynQt ships reports the
+`hardware` level, so asking for it as a floor excludes every machine rather than some.
+A floor of `application` is warned about instead of refused, since which machines reach
+it is a property of those machines and is settled by the edge at enrolment.
 
 Two things once listed here are not settings, because they are not optional and a
 key that could contradict them would be a way to get them wrong. The session cookie's

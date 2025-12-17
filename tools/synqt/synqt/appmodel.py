@@ -952,8 +952,13 @@ def identity_session(config: Dict[str, Any]) -> Dict[str, Any]:
 DESKTOP_SESSIONS = ("memory", "device")
 
 # What a client's store binds its credential to. Ordered, so a configured minimum is a floor.
-# Above `user` this is a property of the machine and not of the platform, which is why it is
-# enforced at enrolment by the edge and only warned about here.
+# Above `user` this is a property of the machine and not of the platform, which is why the
+# floor is enforced at enrolment by the edge rather than at build time.
+#
+# `hardware` is in the vocabulary and reaches the C++ enum, and no store SynQt ships reports
+# it yet, so `synqt check` refuses it as a floor. It is spelled here rather than left out so
+# that the day a Secure Enclave or TPM backend lands, the level it reports already has a name
+# and every stored credential keeps meaning what it meant.
 DEVICE_BINDINGS = ("user", "application", "hardware")
 
 
