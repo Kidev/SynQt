@@ -109,6 +109,18 @@ private slots:
         node.setHeartbeatInterval(100);
 
         ServerAccessor accessor{{{QStringLiteral("widget"), QStringLiteral("Widget")}}};
+
+        // The QML is loaded before the node is bound, because that is the order every client
+        // starts in. The engine is up and the first page is loading long before a socket
+        // connects. An attached type that only resolved once a Replica had arrived would fail
+        // the page itself ("Could not create attached properties object"), not merely arrive
+        // late, and the assertions below then prove the same facade is the one the link fills.
+        QQmlEngine engine;
+        engine.rootContext()->setContextProperty(QStringLiteral("Server"), &accessor);
+        QQmlComponent component{&engine, QUrl::fromLocalFile(QStringLiteral(SRCDIR "/client/Main.qml"))};
+        QScopedPointer<QObject> root{component.create()};
+        QVERIFY2(!root.isNull(), qPrintable(component.errorString()));
+
         accessor.bindNode(&node);
 
         // Server.widget is the generated facade, not the raw Replica.
@@ -117,12 +129,6 @@ private slots:
         ConsumerBase *facade{qobject_cast<ConsumerBase *>(facadeObject)};
         QVERIFY2(facade != nullptr, "Server.widget must be the consumer facade");
         QTRY_VERIFY_WITH_TIMEOUT(facade->isReady(), 8000);
-
-        QQmlEngine engine;
-        engine.rootContext()->setContextProperty(QStringLiteral("Server"), &accessor);
-        QQmlComponent component{&engine, QUrl::fromLocalFile(QStringLiteral(SRCDIR "/client/Main.qml"))};
-        QScopedPointer<QObject> root{component.create()};
-        QVERIFY2(!root.isNull(), qPrintable(component.errorString()));
 
         // 1) Push property forwarded through the facade to a live QML binding.
         source.setCount(3);

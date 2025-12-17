@@ -26,9 +26,13 @@ void ConsumerBase::setPoint(const QString &point)
         return;
     }
     m_point = point;
-    if (m_replica != nullptr) {
-        ConnectPointResolver::instance()->publish(contractName(), m_point, this);
-    }
+    // Published as soon as it is named, not once a Replica arrives. Every app loads its QML
+    // before the first socket is open, so `<Owner>.on<Signal>` resolves against a facade that
+    // has no Replica yet. Waiting made the attached type unresolvable at load and failed the
+    // whole page ("Could not create attached properties object"), which is the one order in
+    // which a client starts. The facade is the same object either way, so a handler
+    // wired now is the handler that fires when the link comes up.
+    ConnectPointResolver::instance()->publish(contractName(), m_point, this);
 }
 
 QString ConsumerBase::point() const
