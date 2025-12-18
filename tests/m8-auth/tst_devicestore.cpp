@@ -34,6 +34,7 @@
 #include <QElapsedTimer>
 #include <QEventLoop>
 #include <QHash>
+#include <QMutex>
 #include <QNetworkAccessManager>
 #include <QNetworkCookieJar>
 #include <QNetworkReply>
@@ -44,6 +45,7 @@
 #include <QTcpSocket>
 #include <QTemporaryDir>
 #include <QTest>
+#include <QThread>
 #include <QUrlQuery>
 
 #include <memory>
@@ -93,10 +95,18 @@ QSet<QString> filesUnder(const QStringList &roots)
 /// to reproduce, and it is the state that decides whether an honest machine is later read as
 /// a stolen one. Real examples are a Secret Service with no default collection, a keychain
 /// item whose ACL has been revoked, and a full disk.
+/// It is locked because a call abandoned at its deadline keeps running: the credential goes
+/// on to erase while the write it gave up on is still inside this object, which is exactly
+/// what happens on a real store and would otherwise be a race in the test rather than in the
+/// thing under test.
 class HalfWorkingStore : public SecureStore
 {
 public:
+    /// Fail every write, the way a locked collection or a revoked ACL does.
     bool refusesWrites{false};
+    /// Answer a write only after this long, the way a wedged keyring does. Past the
+    /// credential's deadline this is a write whose outcome nobody ever learns.
+    int writeDelayMs{0};
 
     bool isAvailable(QString *reason) const override
     {
@@ -106,12 +116,16 @@ public:
 
     bool store(const QString &account, const QByteArray &secret, QString *error) override
     {
+        if (writeDelayMs > 0) {
+            QThread::msleep(static_cast<unsigned long>(writeDelayMs));
+        }
         if (refusesWrites) {
             if (error) {
                 *error = QStringLiteral("the collection will not take a new value");
             }
             return false;
         }
+        const QMutexLocker locked{&m_lock};
         m_items.insert(account, secret);
         return true;
     }
@@ -119,6 +133,7 @@ public:
     bool load(const QString &account, QByteArray *secret, QString *error) override
     {
         Q_UNUSED(error);
+        const QMutexLocker locked{&m_lock};
         const auto found{m_items.constFind(account)};
         if (found == m_items.constEnd()) {
             return false;
@@ -132,6 +147,7 @@ public:
     bool erase(const QString &account, QString *error) override
     {
         Q_UNUSED(error);
+        const QMutexLocker locked{&m_lock};
         m_items.remove(account);
         return true;
     }
@@ -139,7 +155,17 @@ public:
     Binding binding() const override { return Binding::User; }
     QString name() const override { return QStringLiteral("half-working"); }
 
+    /// What is on this store, asked directly rather than through the credential:
+    /// once a store has been written off for the launch, the credential answers from that
+    /// and would report an empty store however much was left in it.
+    bool holdsAnything()
+    {
+        const QMutexLocker locked{&m_lock};
+        return !m_items.isEmpty();
+    }
+
 private:
+    QMutex m_lock;
     QHash<QString, QByteArray> m_items;
 };
 
@@ -359,6 +385,40 @@ private slots:
         QVERIFY2(!credential.load().isValid(),
                  "a rotation that could not be written left the retired generation behind, "
                  "which the next launch would present as a stolen copy");
+    }
+
+    // The same hazard through the other door. A store that answers too late is abandoned at
+    // the deadline, and then nobody knows whether the write landed. What is on disk is either
+    // the new generation or the retired one, and the retired one is read as theft. Neither is
+    // worth keeping over a store this launch has already written off.
+    void aRotationThatTimesOutLeavesNothingBehind()
+    {
+        auto owned{std::make_unique<HalfWorkingStore>()};
+        HalfWorkingStore *store{owned.get()};
+        DeviceCredential credential{edgeWsUrl(), std::move(owned)};
+
+        DeviceCredential::Held enrolled;
+        enrolled.id = QStringLiteral("a-family-id");
+        enrolled.secret = QByteArrayLiteral("the-first-generation");
+        QVERIFY(credential.save(enrolled));
+        QVERIFY(store->holdsAnything());
+
+        // Longer than the credential's deadline, and it ends in a refusal, so this models a
+        // keyring that hung and stored nothing.
+        store->writeDelayMs = 2500;
+        store->refusesWrites = true;
+        DeviceCredential::Held rotated;
+        rotated.id = enrolled.id;
+        rotated.secret = QByteArrayLiteral("the-second-generation");
+        QVERIFY(!credential.save(rotated));
+
+        // Asked of the store rather than the credential. The credential has written this
+        // store off for the launch and would report it empty whatever is in it. Waited out
+        // past the abandoned write, so a store that came back and wrote anyway is caught too.
+        QTest::qWait(1200);
+        QVERIFY2(!store->holdsAnything(),
+                 "a rotation abandoned at its deadline left something on the store, and the "
+                 "next launch would present it");
     }
 
     // Whatever the store does, it does within the deadline. A keyring that stopped to ask

@@ -318,8 +318,8 @@
     },
     {
       "id": "reuse-detection-fired-by-a-broken-store",
-      "what": "A machine whose secure store can be read but not written signs its owner out: the rotation it could not save leaves the retired generation on disk, and the next launch presents it as a second copy in circulation.",
-      "defended_by": "A write that fails leaves nothing behind, so the retired generation is never presented again and the family survives. Revocation stays the answer to two copies existing, which is what makes it worth acting on.",
+      "what": "A machine whose secure store cannot complete a write signs its owner out: the rotation it could not save leaves the retired generation on disk, and the next launch presents it as a second copy in circulation.",
+      "defended_by": "A write that fails, and a write abandoned at its deadline, both leave nothing behind, so the retired generation is never presented again and the family survives. Revocation stays the answer to two copies existing, which is what makes it worth acting on.",
       "file": "tests/m8-auth/tst_devicestore.cpp",
       "test": "aRotationThatCannotBeStoredLeavesNothingBehind"
     }

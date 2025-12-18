@@ -176,6 +176,12 @@ bool DeviceCredential::save(const Held &held)
     blob.fill('\0');
     blob.clear();
     if (timedOut) {
+        // Same reason as the failure below, plus one this path has of its own: nothing here
+        // knows whether the write landed. A store that answered too late may have taken the
+        // new generation or kept the old one, so what is on disk is a coin flip, and one of
+        // its faces is a retired credential the edge would read as a second copy. Erase
+        // before writing the store off, on the same deadline, so neither face is left.
+        erase();
         m_available = false;
         return false;
     }
