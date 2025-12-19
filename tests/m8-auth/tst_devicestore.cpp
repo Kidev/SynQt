@@ -20,6 +20,7 @@
 
 #include "devicecredential.h"
 #include "identityconfig.h"
+#include "nullstore.h"
 #include "securestore.h"
 #include "session.h"
 #include "stubidentityserver.h"
@@ -89,10 +90,33 @@ QSet<QString> filesUnder(const QStringList &roots)
     return seen;
 }
 
+/// Point the writable locations at a test directory for as long as the return value lives.
+///
+/// Nothing is given up by it. A fallback that resolved one of these locations would resolve
+/// the redirected one and still land where the walk looks. What it buys is that the walk stops
+/// being a recursive crawl of the user's entire profile, which on a Windows runner cost a
+/// minute per call, and that a developer's own files are never what the walk is counting.
+[[nodiscard]] auto scopedStandardPaths()
+{
+    QStandardPaths::setTestModeEnabled(true);
+    return qScopeGuard([]() { QStandardPaths::setTestModeEnabled(false); });
+}
+
+/// The locations an application is allowed to write to, which is where a file fallback would
+/// have to put its file. Call it inside the scope above, so it reports the redirected paths.
+QStringList writableRoots()
+{
+    return {QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation),
+            QStandardPaths::writableLocation(QStandardPaths::AppDataLocation),
+            QStandardPaths::writableLocation(QStandardPaths::CacheLocation),
+            QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation),
+            QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation)};
+}
+
 /// A store that answers everything except a write, on demand.
 ///
-/// It is not a convenience: it is the one machine state a working keyring cannot be asked
-/// to reproduce, and it is the state that decides whether an honest machine is later read as
+/// It is not a convenience. It is the one machine state a working keyring cannot be asked
+/// to reproduce, and it is the state that decides whether an innocent machine is later read as
 /// a stolen one. Real examples are a Secret Service with no default collection, a keychain
 /// item whose ACL has been revoked, and a full disk.
 /// It is locked because a call abandoned at its deadline keeps running: the credential goes
@@ -169,9 +193,31 @@ private:
     QHash<QString, QByteArray> m_items;
 };
 
+/// Does this machine have a store these tests can use?
+///
+/// `isAvailable()` is the question the client asks, and it is the right one there: it has to
+/// be cheap and it must never prompt. It is not enough to decide whether a test can run,
+/// because two of the three backends answer it without touching the store at all. A Mac has
+/// a keychain, so the macOS backend says yes unconditionally and what varies is whether this
+/// process may use it. The same is true of a Windows Credential Manager behind a policy. So
+/// the suite proves it with a round trip through the same public API a client uses, and takes
+/// its probe back out again.
+bool aStoreThatWorks(DeviceCredential &credential)
+{
+    if (!credential.isAvailable()) {
+        return false;
+    }
+    DeviceCredential::Held probe;
+    probe.id = QStringLiteral("a-probe");
+    probe.secret = QByteArrayLiteral("is this store usable");
+    const bool stored{credential.save(probe)};
+    credential.erase();
+    return stored;
+}
+
 } // namespace
 
-/// Skip when this machine has no secure store, unless it was supposed to have one.
+/// Skip when this machine has no usable secure store, unless it was supposed to have one.
 ///
 /// A skip is the right answer on a headless box or a container, and it is also how a backend
 /// goes unexercised for months without anybody noticing. CI sets SYNQT_REQUIRE_SECURE_STORE
@@ -180,10 +226,10 @@ private:
 /// instead of passing quietly.
 #define SYNQT_SKIP_WITHOUT_A_STORE(credential)                                            \
     do {                                                                                  \
-        if (!(credential).isAvailable()) {                                                \
+        if (!aStoreThatWorks(credential)) {                                               \
             if (qEnvironmentVariableIsSet("SYNQT_REQUIRE_SECURE_STORE")) {                \
-                QFAIL("SYNQT_REQUIRE_SECURE_STORE is set, so this machine is supposed to " \
-                      "have a secure store, and it has none");                            \
+                QFAIL("SYNQT_REQUIRE_SECURE_STORE is set, so this machine is supposed " \
+                      "to have a secure store, and it has none it can write to");        \
             }                                                                             \
             QSKIP("no secure store on this machine, which is a supported outcome");       \
         }                                                                                 \
@@ -289,16 +335,50 @@ private slots:
         QVERIFY(m_edgePort != 0);
     }
 
-    // The promise the whole design rests on: with no store, nothing is persisted anywhere.
+    // The promise the whole design rests on. With no store, nothing is persisted anywhere.
     // Not a file under the config directory, not one under data, not one under cache.
+    //
+    // The store is injected rather than taken from the machine, because "this computer has
+    // no keyring" is not a state Windows or macOS can be put into. Both always have one, and
+    // stripping a session bus only speaks to the Linux backend. The claim being made is about
+    // what DeviceCredential does when its store holds nothing, so it is asked of the store
+    // that stands for a machine with none, on every platform. What the platform picker itself
+    // does when its keyring is out of reach is the test below, where it belongs.
     void withoutAStoreNothingIsWritten()
     {
-        const QStringList roots{
-            QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation),
-            QStandardPaths::writableLocation(QStandardPaths::AppDataLocation),
-            QStandardPaths::writableLocation(QStandardPaths::CacheLocation),
-            QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation),
-            QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation)};
+        const auto scoped{scopedStandardPaths()};
+        const QStringList roots{writableRoots()};
+        const QSet<QString> before{filesUnder(roots)};
+
+        DeviceCredential credential{edgeWsUrl(), std::make_unique<NullStore>()};
+        QVERIFY(!credential.isAvailable());
+        QCOMPARE(credential.binding(), SecureStore::Binding::None);
+        QCOMPARE(credential.bindingName(), QStringLiteral("none"));
+        QCOMPARE(credential.storeName(), QStringLiteral("none"));
+
+        DeviceCredential::Held held;
+        held.id = QStringLiteral("family");
+        held.secret = QByteArrayLiteral("secret");
+        QVERIFY(!credential.save(held));
+        QVERIFY(!credential.load().isValid());
+        credential.erase();  // must not throw, hang, or create anything
+
+        QCOMPARE(filesUnder(roots), before);
+    }
+
+    // The same promise where the platform picker makes it. A machine whose keyring is out of
+    // reach must come back with a store that reports itself unavailable, never with one that
+    // quietly became a file, and that is a decision makeSecureStore() takes rather than the
+    // credential. Only Linux can be put into the state from a test, which is the whole reason
+    // the test above injects instead of arranging for one.
+    void anUnreachableKeyringIsNotAFileFallback()
+    {
+#if defined(Q_OS_MACOS) || defined(Q_OS_WIN)
+        QSKIP("the store on this platform is always reachable, so there is no such state to "
+              "put it in; the injected case above carries the claim here");
+#else
+        const auto scoped{scopedStandardPaths()};
+        const QStringList roots{writableRoots()};
         const QSet<QString> before{filesUnder(roots)};
 
         // A stripped environment is what a container, a CI runner and an SSH session look
@@ -314,16 +394,16 @@ private slots:
         DeviceCredential credential{edgeWsUrl()};
         QVERIFY(!credential.isAvailable());
         QCOMPARE(credential.binding(), SecureStore::Binding::None);
-        QCOMPARE(credential.bindingName(), QStringLiteral("none"));
 
         DeviceCredential::Held held;
         held.id = QStringLiteral("family");
         held.secret = QByteArrayLiteral("secret");
         QVERIFY(!credential.save(held));
         QVERIFY(!credential.load().isValid());
-        credential.erase();  // must not throw, hang, or create anything
+        credential.erase();
 
         QCOMPARE(filesUnder(roots), before);
+#endif
     }
 
     // The round trip, on whatever store this machine has.
