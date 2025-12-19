@@ -76,8 +76,11 @@ QString describe(OSStatus status)
     const CFIndex length{CFStringGetMaximumSizeForEncoding(CFStringGetLength(message),
                                                            kCFStringEncodingUTF8) + 1};
     QByteArray buffer(static_cast<qsizetype>(length), '\0');
-    const bool converted{CFStringGetCString(message, buffer.data(), length,
-                                            kCFStringEncodingUTF8)};
+    // CoreFoundation's Boolean is an unsigned char, so this is a narrowing conversion and
+    // the brace would refuse it. The cast is the conversion this file is full of at the C
+    // boundary, written out rather than hidden behind a parenthesis.
+    const bool converted{static_cast<bool>(CFStringGetCString(message, buffer.data(), length,
+                                                              kCFStringEncodingUTF8))};
     CFRelease(message);
     return converted ? QString::fromUtf8(buffer.constData())
                      : QStringLiteral("Keychain error %1").arg(static_cast<long>(status));
