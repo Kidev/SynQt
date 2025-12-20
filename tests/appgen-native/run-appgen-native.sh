@@ -408,12 +408,19 @@ export GW_API_KEYS="appgen-native-key,second-key"
     >"$WORK/gateway-gw.log" 2>&1) &
 gw_pid=$!
 
+# The route is handed over as a whole URL rather than as a path, and the variable is not named
+# after one. Git Bash's MSYS runtime rewrites a value that looks like an absolute POSIX path
+# into a Windows path before a native program sees it, and it treats a *PATH variable as a path
+# list besides. Python received 'C:/Program Files/Git/health' where /health was meant, built a
+# URL with a space in it and refused all three calls, which failed this suite on the Windows
+# column alone. A value starting with http:// is left alone. Same runtime, and the same shape
+# of surprise, as the openssl subject in tests/lib/mesh-certs.sh.
 gateway_call() {
-    SYNQT_KEY="${2:-}" SYNQT_PATH="$1" SYNQT_BODY="${3:-}" python3 - <<'PY'
+    SYNQT_KEY="${2:-}" SYNQT_URL="http://127.0.0.1:18456$1" SYNQT_BODY="${3:-}" python3 - <<'PY'
 import json, os, urllib.error, urllib.request
 
 body = os.environ["SYNQT_BODY"].encode() or None
-request = urllib.request.Request("http://127.0.0.1:18456" + os.environ["SYNQT_PATH"],
+request = urllib.request.Request(os.environ["SYNQT_URL"],
                                  data=body, method="POST" if body else "GET")
 request.add_header("Content-Type", "application/json")
 if os.environ["SYNQT_KEY"]:
