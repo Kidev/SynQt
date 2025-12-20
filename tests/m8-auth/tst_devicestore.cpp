@@ -438,8 +438,41 @@ private slots:
         QVERIFY(!credential.load().isValid());
     }
 
+    // The launch this feature exists for, asked of the store alone: one that has written
+    // nothing, and whose first question is a read.
+    //
+    // Every other test here happens to write before it reads, the skip guard included, and a
+    // store can be perfectly good at answering a read that follows one of its own writes and
+    // useless at the only read that matters. It is the first call SynClient::openSession makes
+    // and there is no second chance at it: a miss is not an error, it is an ordinary first
+    // launch, so the app quietly signs in again with the credential still sitting on the store.
+    // macOS is where this went wrong, because which of its two keychains an item lands in
+    // depends on how the build was signed and a read is not told about it the way a write is.
+    void aLaunchWhoseFirstCallIsAReadFindsIt()
+    {
+        DeviceCredential writer{edgeWsUrl()};
+        SYNQT_SKIP_WITHOUT_A_STORE(writer);
+        const auto cleanup{qScopeGuard([&writer]() { writer.erase(); })};
+
+        DeviceCredential::Held held;
+        held.id = QStringLiteral("a-family-id");
+        held.secret = QByteArrayLiteral("what-the-next-launch-has-to-find");
+        QVERIFY(writer.save(held));
+
+        // Deliberately not the credential above, and deliberately not through the skip guard:
+        // both of those have written to this store already, and having written is exactly the
+        // thing a next launch has not done.
+        DeviceCredential reader{edgeWsUrl()};
+        const DeviceCredential::Held found{reader.load()};
+        QVERIFY2(found.isValid(),
+                 "the store held a credential and a launch that had written nothing did not "
+                 "find it, so every launch signs in again with the credential still there");
+        QCOMPARE(found.id, held.id);
+        QCOMPARE(found.secret, held.secret);
+    }
+
     // The failure that would otherwise stage a theft. A store that reads but cannot write
-    // leaves the generation this rotation was replacing sitting there; the edge has already
+    // leaves the generation this rotation was replacing sitting there. The edge has already
     // retired that one, so presenting it at the next launch is the signature of a second copy
     // in circulation, and the family and every session on it are revoked. The visitor did
     // nothing wrong and their keyring is the only thing that failed, so a failed write leaves
