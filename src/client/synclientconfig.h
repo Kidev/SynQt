@@ -101,6 +101,19 @@ struct SynClientConfig
     int reconnectBaseMs{500};
     int reconnectMaxMs{10000};
     int heartbeatMs{2000};
+
+    /// How long the client waits on the edge to say something, per attempt: the native
+    /// client's own HTTP requests (the session bootstrap, the sign-in claim, a device
+    /// redemption, the sign-out), and the socket handshake on both targets.
+    ///
+    /// There has to be a limit. A socket that is accepted and then answered by nobody is
+    /// not an error and never becomes one: it is what a hung reverse proxy and a load
+    /// balancer in front of a dead backend both look like, and every one of those waits is
+    /// a step the rest of the client is behind. Without this, one of them stalling is an
+    /// app that sits on its first frame for as long as it is left running, with no state
+    /// change to notice it by; with it, the wait ends and the ordinary reconnect backoff
+    /// takes over.
+    int requestTimeoutMs{15000};
 };
 
 } // namespace SynQt

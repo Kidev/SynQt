@@ -197,9 +197,16 @@ SynClient::SynClient(SynClientConfig config, QQmlEngine *engine, QObject *parent
     , m_update{new ClientUpdate{this}}
     , m_engine{engine}
     , m_reconnectTimer{new QTimer{this}}
+    , m_handshakeTimer{new QTimer{this}}
     , m_backoffMs{m_config.reconnectBaseMs}
 {
     m_reconnectTimer->setSingleShot(true);
+    m_handshakeTimer->setSingleShot(true);
+    // An edge that took the socket and then said nothing is treated as a socket that
+    // dropped, because to everything above here it is the same thing and the answer is the
+    // same: back off and try again. Without it the client waits on that handshake for as
+    // long as the app is left running, with no state change to notice it by.
+    connect(m_handshakeTimer, &QTimer::timeout, this, [this]() { onDisconnected(); });
     // Reconnect through start() so a native client re-bootstraps its session (the edge
     // may have restarted); on WASM start() just reconnects (the browser holds the cookie).
     connect(m_reconnectTimer, &QTimer::timeout, this, [this]() { start(); });
@@ -351,9 +358,6 @@ void SynClient::onLoginAnswer(const QString &code, const QString &state, const Q
 
 void SynClient::claimSession(const QString &code)
 {
-    if (!m_network) {
-        m_network = new QNetworkAccessManager{this};
-    }
     QNetworkRequest request{QUrl{QString::fromUtf8(edgeHttpOrigin())
                                  + desktopRoute(m_config.loginRoute,
                                                 QStringLiteral("/claim"))}};
@@ -385,7 +389,7 @@ void SynClient::claimSession(const QString &code)
     m_loginVerifier.fill('\0');
     m_loginVerifier.clear();
 
-    QNetworkReply *reply{m_network->post(request, payload)};
+    QNetworkReply *reply{network()->post(request, payload)};
     connect(reply, &QNetworkReply::finished, this, [this, reply]() {
         const QByteArray answer{reply->readAll()};
         const int status{
@@ -397,11 +401,18 @@ void SynClient::claimSession(const QString &code)
         const QString session{fields.value(QStringLiteral("session")).toString()};
         const QString cookieName{fields.value(QStringLiteral("cookie_name")).toString()};
         if (status != 200 || session.isEmpty() || cookieName.isEmpty()) {
-            // Every refusal looks the same from here on purpose (the edge answers 404 to an
+            // Every refusal looks the same from here (the edge answers 404 to an
             // unknown, expired, spent or mismatched code alike), so there is nothing more
-            // specific to report than that it was refused.
-            qWarning("SynQt: the edge refused the sign-in claim, so this client is still "
-                     "signed out.");
+            // specific to report than that it was refused. Not reaching the edge at all is
+            // a different sentence, because it is a different thing for whoever reads it:
+            // one of them is worth trying again.
+            if (status == 0) {
+                qWarning("SynQt: the edge did not answer the sign-in claim, so this client "
+                         "is still signed out. Signing in again is worth a try.");
+            } else {
+                qWarning("SynQt: the edge refused the sign-in claim, so this client is "
+                         "still signed out.");
+            }
             return;
         }
         DeviceCredential::Held enrolled;
@@ -469,18 +480,15 @@ void SynClient::endSession()
     // stop holding it. The reconnect below is what makes the rest of the client agree:
     // the edge closes this session's connections as it revokes it, and start() comes back
     // with no cookie and therefore as a fresh anonymous visitor.
-    if (!m_network) {
-        m_network = new QNetworkAccessManager{this};
-    }
     QNetworkRequest request{QUrl{target}};
     request.setSslConfiguration(nativeTlsConfiguration(m_config));
     if (!m_sessionCookie.isEmpty()) {
         request.setRawHeader("Cookie", m_sessionCookie);
     }
-    QNetworkReply *reply{m_network->get(request)};
+    QNetworkReply *reply{network()->get(request)};
     connect(reply, &QNetworkReply::finished, this, [this, reply]() {
         deleteSoon(reply);
-        // Dropped whatever the edge answered: a logout that the edge refused is still a
+        // Dropped whatever the edge answered. A logout that the edge refused is still a
         // logout as far as this client is concerned, and going on holding a credential
         // the visitor asked to be rid of is the one outcome that would be wrong.
         m_sessionCookie.clear();
@@ -516,10 +524,24 @@ DeviceCredential *SynClient::deviceStore()
     return m_device;
 }
 
+QNetworkAccessManager *SynClient::network()
+{
+    if (m_network == nullptr) {
+        m_network = new QNetworkAccessManager{this};
+        // Every request this client makes is a step something else is waiting on: the
+        // session it needs before it can open a socket, the claim that finishes a sign-in,
+        // the redemption that keeps a visitor signed in. A socket the far end accepts and
+        // then answers on nobody's schedule is not an error and does not become one, so
+        // without this the wait is the life of the process.
+        m_network->setTransferTimeout(m_config.requestTimeoutMs);
+    }
+    return m_network;
+}
+
 void SynClient::openSession()
 {
-    // Native desktop: a client that already holds a session (one it just signed in for, or
-    // one it was configured with) presents it directly; otherwise it either spends a device
+    // Native desktop. A client that already holds a session (one it signed in for, or
+    // one it was configured with) presents it directly. Otherwise it either spends a device
     // credential stored at a previous launch or obtains an anonymous session from the edge,
     // and in the anonymous case stays anonymous until somebody calls Session.login().
     //
@@ -566,9 +588,6 @@ void SynClient::openSession()
 void SynClient::redeemDeviceCredential()
 {
     setState(QStringLiteral("connecting"));
-    if (!m_network) {
-        m_network = new QNetworkAccessManager{this};
-    }
     m_redeeming = true;
 
     QNetworkRequest request{QUrl{QString::fromUtf8(edgeHttpOrigin())
@@ -581,7 +600,8 @@ void SynClient::redeemDeviceCredential()
     body.addQueryItem(QStringLiteral("device_id"), m_held.id);
     body.addQueryItem(QStringLiteral("device_secret"), QString::fromLatin1(m_held.secret));
 
-    QNetworkReply *reply{m_network->post(request, body.toString(QUrl::FullyEncoded).toUtf8())};
+    QNetworkReply *reply{network()->post(request,
+                                        body.toString(QUrl::FullyEncoded).toUtf8())};
     connect(reply, &QNetworkReply::finished, this, [this, reply]() {
         const QByteArray answer{reply->readAll()};
         const int status{
@@ -655,16 +675,13 @@ void SynClient::redeemDeviceCredential()
 void SynClient::bootstrapAnonymousSession()
 {
     setState(QStringLiteral("connecting"));
-    if (!m_network) {
-        m_network = new QNetworkAccessManager{this};
-    }
     QUrl httpUrl{m_config.edgeUrl};
     httpUrl.setScheme(httpUrl.scheme() == QLatin1String("wss") ? QStringLiteral("https")
                                                                : QStringLiteral("http"));
     httpUrl.setPath(QStringLiteral("/"));
     QNetworkRequest request{httpUrl};
     request.setSslConfiguration(nativeTlsConfiguration(m_config));
-    QNetworkReply *reply{m_network->get(request)};
+    QNetworkReply *reply{network()->get(request)};
     connect(reply, &QNetworkReply::finished, this, [this, reply, httpUrl]() {
         m_sessionCookie = heldCredential(m_network, httpUrl);
         deleteSoon(reply);
@@ -685,6 +702,10 @@ void SynClient::connectToEdge()
     // run after exec() has returned. The parent is what makes the last one deterministic.
     m_socket = new QWebSocket{QString{}, QWebSocketProtocol::VersionLatest, this};
     m_transport = new WebSocketTransport{m_socket, this};
+    // Started here rather than after open(), so it covers connecting as well as upgrading:
+    // both are waits on somebody else, and neither reports anything if the far side
+    // holds the socket. Stopped by onConnected(), and by teardown() on the way out.
+    m_handshakeTimer->start(m_config.requestTimeoutMs);
 
     connect(m_socket, &QWebSocket::connected, this, [this]() { onConnected(); });
     connect(m_socket, &QWebSocket::disconnected, this, [this]() { onDisconnected(); });
@@ -726,6 +747,7 @@ void SynClient::connectToEdge()
 
 void SynClient::onConnected()
 {
+    m_handshakeTimer->stop();
     m_backoffMs = m_config.reconnectBaseMs;
 #ifndef Q_OS_WASM
     // The edge accepted this credential, so the next dropped socket is a network event and
@@ -759,6 +781,7 @@ void SynClient::scheduleReconnect()
 
 void SynClient::teardown()
 {
+    m_handshakeTimer->stop();
     if (m_socket) {
         m_socket->disconnect(this);
         m_socket->abort();

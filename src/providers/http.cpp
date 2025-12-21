@@ -333,6 +333,14 @@ HttpPromise *Http::send(const QString &method, const QString &url, const QVarian
     }
 
     QNetworkRequest request{target};
+    // Every call has an end. Without this a third party that accepts the connection and
+    // then answers nothing (a wedged gateway, a machine that went away mid-request) leaves
+    // a promise that never settles and a reply that is never freed, one per call, for the
+    // life of the entity. A `.catchError()` written for exactly this case never runs. Qt's
+    // own default rather than a number invented here, and it is a deadline on transfer
+    // rather than on the whole exchange, so a slow stream that keeps arriving is not cut
+    // off at an arbitrary total.
+    request.setTransferTimeout();
     // The endpoint's own headers first, so a call site can add to them but the credential
     // the deployment declared is not something a call site has to remember to send.
     applyHeaders(request, endpoint->headers);

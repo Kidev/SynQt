@@ -90,6 +90,11 @@ and "are we connected."
 | `connected` | the link is up and replicas are live. |
 | `reconnecting` | the link dropped or was refused; the client is retrying with capped exponential backoff. Replicas report not-ready; bindings hold their last values. |
 
+So is an edge that accepts the connection and then says nothing, which is what a hung
+proxy looks like and is not a failure anything reports: each attempt has a deadline of
+its own, and when it passes the client gives up on that attempt and backs off like any
+other. `connecting` is therefore always a state the client leaves.
+
 A refused upgrade is `reconnecting` too, not a state of its own. The browser does
 not report why a WebSocket handshake failed, so a client cannot tell an edge that
 is down from an edge that rejected its session, and a state that claimed to know
@@ -620,6 +625,12 @@ outlives every call, so a promise nobody retires is a call nobody can ever free.
 
 `Http` is outbound only and verifies TLS. In a release build it refuses a plaintext
 URL rather than downgrading, so a gateway cannot quietly stop encrypting.
+
+Every call has a deadline (Qt's own 30 seconds, on transfer rather than on the whole
+exchange, so a slow reply that keeps arriving is not cut off). A third party that
+accepts the connection and then answers nothing is not an error and never becomes one,
+so without it the error handler written for exactly that case would never run and the
+call would never be freed.
 
 It also refuses any URL that is not under one of the prefixes this entity's
 `network.outbound` names, and the rejection message carries the list, because the

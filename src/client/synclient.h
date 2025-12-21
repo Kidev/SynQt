@@ -112,6 +112,12 @@ private:
     /// The credential store, built on the first launch that could use one. Null when the
     /// project does not persist desktop sessions.
     DeviceCredential *deviceStore();
+    /// The network manager for this client's own requests to the edge, built on first use.
+    ///
+    /// One accessor rather than four places creating it, because it is where the transfer
+    /// timeout is set, and a request that went out through a manager without one waits
+    /// forever on an edge that answers nothing (see `requestTimeoutMs`).
+    QNetworkAccessManager *network();
 #endif
 
     /// End the session at the edge, not only in this client.
@@ -148,6 +154,13 @@ private:
     QWebSocket *m_socket{nullptr};
     WebSocketTransport *m_transport{nullptr};
     QTimer *m_reconnectTimer;
+    /// How long an opened socket has to become a connection before it is given up on.
+    ///
+    /// The other half of `requestTimeoutMs`, and needed for the same reason: a far side
+    /// that accepts the TCP connection and never answers the upgrade leaves the socket in
+    /// "connecting" with nothing to report, on the browser as much as on the desktop.
+    /// Neither QWebSocket nor a browser bounds that wait, so this does.
+    QTimer *m_handshakeTimer;
     QByteArray m_sessionCookie;
 
 #ifndef Q_OS_WASM

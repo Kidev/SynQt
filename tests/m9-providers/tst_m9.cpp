@@ -30,6 +30,9 @@
 #include "sqlsupport.h"
 
 #include <QJSEngine>
+#include <QNetworkAccessManager>
+#include <QNetworkReply>
+#include <QNetworkRequest>
 #include <QQmlComponent>
 #include <QQmlContext>
 #include <QQmlEngine>
@@ -69,6 +72,23 @@ public:
     Q_INVOKABLE void record(const QVariant &value) { last = value; }
     int count{0};
     QVariant last;
+};
+
+// A network manager that keeps the last request it was handed, so a test can ask what the
+// runtime put on a request rather than infer it from how the far side behaved.
+class RequestProbe : public QNetworkAccessManager
+{
+    Q_OBJECT
+public:
+    QNetworkRequest sent;
+
+protected:
+    QNetworkReply *createRequest(Operation operation, const QNetworkRequest &request,
+                                 QIODevice *outgoing) override
+    {
+        sent = request;
+        return QNetworkAccessManager::createRequest(operation, request, outgoing);
+    }
 };
 
 // A custom persistence provider, exactly as docs/providers.md tells a user to write one:
@@ -956,10 +976,33 @@ private slots:
                  "a URL outside the allowlist must be refused before it is sent");
     }
 
-    // The allowlist is a place, not a string.
+    // Every outbound call has an end, whatever the far side does.
     //
-    // It used to be `normalized.startsWith(endpoint.url)`, which is the obvious way to
-    // write it and lets three different URLs out of a declared prefix: userinfo
+    // A third party that accepts the connection and then answers nothing is not an error and
+    // never becomes one, so the promise never settles, the reply is never freed, and the
+    // `.catchError()` an author wrote for exactly this case never runs. One per call, for as
+    // long as the entity runs. Asserted on the request rather than by waiting out a real
+    // timeout, because the deadline is thirty seconds and a suite cannot spend that to watch
+    // a socket do nothing.
+    void everyOutboundCallCarriesADeadline()
+    {
+        QJSEngine engine;
+        RequestProbe network;
+        // Port 1: nothing is listening, so this is refused at once and nothing waits. What
+        // is under test happened before the connection was ever attempted.
+        const QString base{QStringLiteral("http://127.0.0.1:1/")};
+        Http http{&network, &engine, /*release*/ false, {HttpEndpointConfig{{}, base, {}}}};
+        http.get(base + QStringLiteral("thing"));
+
+        QVERIFY2(network.sent.transferTimeout() > 0,
+                 "an outbound request went out with no deadline, so a far side that "
+                 "accepts and answers nothing holds the promise for the life of the entity");
+    }
+
+    // The allowlist is a place rather than a string.
+    //
+    // `normalized.startsWith(endpoint.url)` is the obvious way to
+    // write it and lets three different URLs out of a declared prefix. The userinfo shape
     // (`https://api.example.com@evil.test/`, whose host is evil.test and whose *string*
     // begins with the prefix), a suffix on the host (`api.example.com.evil.test`), and a
     // suffix on the last path segment (`/v1evil` under `/v1`). Each one is worse than a

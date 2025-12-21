@@ -19,6 +19,7 @@
 
 #include "counter_sourcehelper.h"  // synqtRegisterCounterSources()
 
+#include <QHostAddress>
 #include <QQmlEngine>
 #include <qqml.h>
 #include <QRemoteObjectDynamicReplica>
@@ -26,6 +27,8 @@
 #include <QRemoteObjectReplica>
 #include <QSignalSpy>
 #include <QSslSocket>
+#include <QTcpServer>
+#include <QTcpSocket>
 #include <QTest>
 #include <QUrl>
 
@@ -74,6 +77,32 @@ SynClientConfig clientConfig(quint16 port)
     config.reconnectBaseMs = 200;
     return config;
 }
+
+/// A server that accepts every connection and answers none of them, holding each open.
+///
+/// Not a refusal, which is the point: a refused connection is reported to the client at
+/// once and it moves on. This is the state that is indistinguishable from a slow answer
+/// until somebody decides how long to wait, and it is what a hung proxy looks like.
+class BlackHoleServer : public QTcpServer
+{
+    Q_OBJECT
+
+public:
+    int accepted() const { return m_accepted; }
+
+protected:
+    void incomingConnection(qintptr descriptor) override
+    {
+        ++m_accepted;
+        auto *socket{new QTcpSocket{this}};
+        socket->setSocketDescriptor(descriptor);
+        // Parented and otherwise left alone. Nothing is written, nothing is closed, and the
+        // far end is never told anything at all.
+    }
+
+private:
+    int m_accepted{0};
+};
 
 QObject *counterReplica(SynClient *client)
 {
@@ -249,9 +278,42 @@ private slots:
         QCOMPARE(client.session()->scope().toString(), QStringLiteral("anonymous"));
     }
 
+    // An edge that accepts the connection and then answers nothing.
+    //
+    // This is not a refusal and never becomes one: a hung reverse proxy, a load balancer
+    // holding the socket in front of a backend that is down, a machine that went away
+    // between the SYN and the answer. The native client asks for a session over HTTP before
+    // it can open its socket, and a request with no deadline at all leaves the app on its
+    // first frame for as long as it is left running, with no session,
+    // no socket, no reconnect timer, and nothing to notice it had happened.
+    //
+    // Reaching "reconnecting" is the whole proof, and it takes both halves: the client had
+    // to stop waiting for the session request, and then stop waiting for the socket
+    // handshake, which nothing in QWebSocket or in a browser bounds either. With either one
+    // missing this sits in "connecting" until the test times out, which is what the app does.
+    void aStalledEdgeDoesNotHangTheClient()
+    {
+        BlackHoleServer stalled;
+        QVERIFY(stalled.listen(QHostAddress::LocalHost));
+
+        SynClientConfig config{clientConfig(stalled.serverPort())};
+        // Plaintext: TLS would fail in the handshake and prove nothing about the wait.
+        config.edgeUrl = QUrl{QStringLiteral("ws://127.0.0.1:%1/sync")
+                                  .arg(stalled.serverPort())};
+        config.requestTimeoutMs = 500;
+
+        QQmlEngine engine;
+        SynClient client{config, &engine};
+        client.start();
+
+        QTRY_COMPARE_WITH_TIMEOUT(client.state(), QStringLiteral("reconnecting"), 8000);
+        QVERIFY2(stalled.accepted() >= 2,
+                 "the client never got past its first request to the edge");
+    }
+
     void routeGuardRedirectsAboveScope()
     {
-        // No edge needed: a guard is navigation-only. An anonymous session lacks "admin".
+        // No edge needed. A guard is navigation-only. An anonymous session lacks "admin".
         QQmlEngine engine;
         SynClient client{clientConfig(1), &engine};
         Router *router{client.router()};
