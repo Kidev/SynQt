@@ -162,6 +162,14 @@ Signing out deletes the credential on both sides, and the edge reads which one t
 delete from what it recorded when it minted that session, not from anything the client
 sends.
 
+**A credential buys a session, not a connection.** The client spends it once per session
+it gets accepted, and no more: if the session it bought cannot get a socket accepted, it
+retries with that session rather than buying another one exactly like it. And what is
+stored is deleted only when the edge refuses the credential itself. A rate limit (the
+route allows 30 redemptions a minute per address, which is shared with every other
+machine behind the same address), a network that is down, a proxy having a bad minute:
+none of those is an answer about the credential, so the app waits and stays signed in.
+
 #### Where it lives, per platform
 
 | | store | binds to |

@@ -246,11 +246,13 @@ private:
     QTemporaryDir m_storeDir;
     QNetworkAccessManager m_browser;
     quint16 m_edgePort{0};
+    quint16 m_altEdgePort{0};
     QUrl m_browserLanding;
 
-    QUrl edgeWsUrl() const
+    QUrl edgeWsUrl(quint16 port = 0) const
     {
-        return QUrl{QStringLiteral("ws://127.0.0.1:%1/sync").arg(m_edgePort)};
+        return QUrl{QStringLiteral("ws://127.0.0.1:%1/sync")
+                        .arg(port == 0 ? m_edgePort : port)};
     }
 
     Response get(const QUrl &url)
@@ -270,6 +272,48 @@ private:
         return response;
     }
 
+    Response post(quint16 port, const QString &path, const QUrlQuery &form)
+    {
+        QNetworkRequest request{
+            QUrl{QStringLiteral("http://127.0.0.1:%1%2").arg(port).arg(path)}};
+        request.setHeader(QNetworkRequest::ContentTypeHeader,
+                          QStringLiteral("application/x-www-form-urlencoded"));
+        QNetworkReply *reply{
+            m_browser.post(request, form.toString(QUrl::FullyEncoded).toUtf8())};
+        QEventLoop loop;
+        connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+        loop.exec();
+        Response response;
+        response.status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        response.body = reply->readAll();
+        reply->deleteLater();
+        return response;
+    }
+
+    /// Sign one client in and wait for the credential to reach the store.
+    ///
+    /// Deliberately not waiting for "connected": one caller's edge refuses every socket on
+    /// purpose, and enrolment does not depend on one. It rides the claim, over HTTP, which
+    /// is why a client can be enrolled and unable to connect at the same time.
+    DeviceCredential::Held signInAndEnrol(SynClient &client, DeviceCredential &probe)
+    {
+        QDesktopServices::setUrlHandler(QStringLiteral("http"), this, "driveBrowser");
+        const auto releaseHandler{qScopeGuard([]() {
+            QDesktopServices::unsetUrlHandler(QStringLiteral("http"));
+        })};
+
+        client.start();
+        client.session()->login(QStringLiteral("stub"));
+        DeviceCredential::Held enrolled;
+        // Polled at a human interval rather than through QTRY_VERIFY: every turn of this is
+        // a real read of a real keyring, and a 50 ms poll would be hundreds of them.
+        for (int attempt{0}; attempt < 40 && !enrolled.isValid(); ++attempt) {
+            QTest::qWait(250);
+            enrolled = probe.load();
+        }
+        return enrolled;
+    }
+
     static void hitLoopback(quint16 port, const QByteArray &target)
     {
         QTcpSocket socket;
@@ -287,10 +331,44 @@ private:
         Q_UNUSED(closed);
     }
 
-    SynClientConfig clientConfig() const
+    /// The edge every test here talks to, before the one tweak a test makes to it. The two
+    /// tests that need an edge in a state the rest must not see build their own from this.
+    WebEdgeConfig baseEdgeConfig(const QString &deviceStoreFile) const
+    {
+        WebEdgeConfig config;
+        config.bundleDir = QStringLiteral(M8_SRCDIR "/bundle");
+        config.host = QStringLiteral("127.0.0.1");
+        config.port = 0;
+        config.identity.enabled = true;
+        config.identity.allowDevStub = true;
+        config.identity.allowDesktopLogin = true;
+        config.identity.providers = {stubProvider(m_stub->baseUrl())};
+        config.identity.device.enabled = true;
+        config.identity.device.store.name = QStringLiteral("sqlite");
+        config.identity.device.store.file = deviceStoreFile;
+        // Nothing anonymous gets on, so a client that reaches "connected" has proved it is
+        // presenting an authenticated session and not merely that a session exists.
+        config.identityRequired = true;
+        return config;
+    }
+
+    /// Bring up an edge of its own for one test, and let driveBrowser know about its port so
+    /// the stand-in browser can still tell a loopback redirect from an edge hop.
+    std::unique_ptr<WebEdge> startOwnEdge(const WebEdgeConfig &config, quint16 *port)
+    {
+        auto edge{std::make_unique<WebEdge>(config, m_engine.get())};
+        if (!edge->start()) {
+            return {};
+        }
+        *port = edge->serverPort();
+        m_altEdgePort = *port;
+        return edge;
+    }
+
+    SynClientConfig clientConfig(quint16 port = 0) const
     {
         SynClientConfig config;
-        config.edgeUrl = edgeWsUrl();
+        config.edgeUrl = edgeWsUrl(port);
         config.loginRoute = QStringLiteral("/auth/login");
         config.logoutRoute = QStringLiteral("/auth/logout");
         config.deviceSession = true;
@@ -313,22 +391,8 @@ private slots:
 
         m_engine = std::make_unique<QQmlEngine>();
 
-        WebEdgeConfig config;
-        config.bundleDir = QStringLiteral(M8_SRCDIR "/bundle");
-        config.host = QStringLiteral("127.0.0.1");
-        config.port = 0;
-        config.identity.enabled = true;
-        config.identity.allowDevStub = true;
-        config.identity.allowDesktopLogin = true;
-        config.identity.providers = {stubProvider(m_stub->baseUrl())};
-        config.identity.device.enabled = true;
-        config.identity.device.store.name = QStringLiteral("sqlite");
-        config.identity.device.store.file =
-            QDir{m_storeDir.path()}.filePath(QStringLiteral("devices.db"));
-        // Nothing anonymous gets on, so a client that reaches "connected" has proved it is
-        // presenting an authenticated session and not merely that a session exists.
-        config.identityRequired = true;
-
+        const WebEdgeConfig config{baseEdgeConfig(
+            QDir{m_storeDir.path()}.filePath(QStringLiteral("devices.db")))};
         m_edge = std::make_unique<WebEdge>(config, m_engine.get());
         QVERIFY2(m_edge->start(), qPrintable(m_edge->errorString()));
         m_edgePort = m_edge->serverPort();
@@ -601,6 +665,118 @@ private slots:
         QVERIFY2(third.state() != QStringLiteral("connected"), qPrintable(third.state()));
     }
 
+    // What the credential is spent on. It buys a session, and it does not buy a connection.
+    //
+    // Here is an edge that is up and answering HTTP, and will not accept this client's
+    // socket. The reason is mundane (its allowed origins are somebody else's,
+    // which is what a hardened deployment or a misconfigured one both look like from the
+    // client) because the client cannot see the reason anyway. A refused socket tells it
+    // nothing except that it was refused.
+    //
+    // So the client reconnects, every few hundred milliseconds, and a client that spends
+    // the stored credential on each of those reconnects, for a session identical to the one
+    // already in hand, does two things. It retires a generation per reconnect, and it uses
+    // up the edge's rate window (30 a minute, per address, shared with everyone else behind it)
+    // inside a minute. The refusal that follows is then read as "this credential is
+    // dead" and the credential is deleted. A month of staying signed in, lost to a bad
+    // afternoon at the edge.
+    void aClientThatCannotConnectSpendsTheCredentialOnce()
+    {
+        WebEdgeConfig config{baseEdgeConfig(
+            QDir{m_storeDir.path()}.filePath(QStringLiteral("unreachable.db")))};
+        config.allowedOrigins = {QStringLiteral("https://somewhere.else.example")};
+        quint16 port{0};
+        const std::unique_ptr<WebEdge> edge{startOwnEdge(config, &port)};
+        QVERIFY(edge);
+        // The port is only a landmark for the stand-in browser while this edge is alive;
+        // left behind, it is one a later test's loopback listener could be handed.
+        const auto forgetPort{qScopeGuard([this]() { m_altEdgePort = 0; })};
+
+        DeviceCredential probe{edgeWsUrl(port)};
+        SYNQT_SKIP_WITHOUT_A_STORE(probe);
+        probe.erase();
+        const auto cleanup{qScopeGuard([&probe]() { probe.erase(); })};
+
+        QQmlEngine engine;
+        SynClient client{clientConfig(port), &engine};
+        const DeviceCredential::Held enrolled{signInAndEnrol(client, probe)};
+        QVERIFY2(enrolled.isValid(), "signing in did not enrol a device credential");
+
+        // Reconnects are 200 to 400 ms apart here, so this is a dozen or so attempts, and
+        // every one of them is an opportunity to spend the credential again.
+        QTest::qWait(4000);
+        QVERIFY2(client.state() != QStringLiteral("connected"), qPrintable(client.state()));
+
+        const DeviceCredential::Held afterwards{probe.load()};
+        QVERIFY2(afterwards.isValid(),
+                 "the stored sign-in was deleted while the edge was refusing sockets");
+        QCOMPARE(afterwards.id, enrolled.id);
+        QVERIFY2(afterwards.secret == enrolled.secret,
+                 "the credential rotated while the client was failing to connect, so it is "
+                 "being spent once per reconnect for a session it already has");
+    }
+
+    // And the refusal that is not about the credential at all. The route is rate limited per
+    // address, which is a good thing to have and is also shared with every other machine
+    // behind the same address: a home, an office, a container host, a mobile carrier. When
+    // somebody else spends that window, this visitor's client must wait, not conclude that
+    // what it is holding is dead and delete it.
+    //
+    // Both halves of that are load bearing. The edge has to answer the limit differently
+    // from a refused credential (it decides it before it has so much as read the credential,
+    // so it gives nothing away), and the client has to act only on the answer that is about
+    // the credential. Either one missing signs the visitor out.
+    void aRateLimitDoesNotCostTheStoredSignIn()
+    {
+        quint16 port{0};
+        const std::unique_ptr<WebEdge> edge{startOwnEdge(
+            baseEdgeConfig(QDir{m_storeDir.path()}.filePath(QStringLiteral("busy.db"))),
+            &port)};
+        QVERIFY(edge);
+        // The port is only a landmark for the stand-in browser while this edge is alive;
+        // left behind, it is one a later test's loopback listener could be handed.
+        const auto forgetPort{qScopeGuard([this]() { m_altEdgePort = 0; })};
+
+        DeviceCredential probe{edgeWsUrl(port)};
+        SYNQT_SKIP_WITHOUT_A_STORE(probe);
+        probe.erase();
+        const auto cleanup{qScopeGuard([&probe]() { probe.erase(); })};
+
+        QQmlEngine engine;
+        DeviceCredential::Held enrolled;
+        {
+            SynClient first{clientConfig(port), &engine};
+            enrolled = signInAndEnrol(first, probe);
+            QVERIFY2(enrolled.isValid(), "signing in did not enrol a device credential");
+            QTRY_COMPARE_WITH_TIMEOUT(first.state(), QStringLiteral("connected"), 15000);
+        }
+
+        // The neighbour, spending the window on credentials of their own that are worth
+        // nothing. Bounded rather than counted out exactly, so the window's size stays the
+        // edge's business.
+        QUrlQuery junk;
+        junk.addQueryItem(QStringLiteral("device_id"), QStringLiteral("not-a-family"));
+        junk.addQueryItem(QStringLiteral("device_secret"), QStringLiteral("not-a-secret"));
+        Response refused;
+        for (int attempt{0}; attempt < 60 && refused.status != 429; ++attempt) {
+            refused = post(port, QStringLiteral("/auth/login/device"), junk);
+        }
+        QVERIFY2(refused.status == 429,
+                 "the rate window answers exactly as a dead credential does, so no client "
+                 "can tell being told to wait from being told to give up");
+
+        // And now the visitor opens their app, into a window they never touched.
+        SynClient second{clientConfig(port), &engine};
+        second.start();
+        QTest::qWait(3000);
+
+        const DeviceCredential::Held afterwards{probe.load()};
+        QVERIFY2(afterwards.isValid(),
+                 "a rate limit somebody else spent deleted this visitor's stored sign-in, "
+                 "so their app asks them to sign in again over a busy minute");
+        QCOMPARE(afterwards.secret, enrolled.secret);
+    }
+
     void cleanupTestCase()
     {
         m_edge.reset();
@@ -616,6 +792,7 @@ public slots:
             const QUrl next{hop.location};
             if (next.host() == QLatin1String("127.0.0.1")
                 && next.port() != m_edgePort
+                && next.port() != m_altEdgePort
                 && next.port() != QUrl{m_stub->baseUrl()}.port()) {
                 m_browserLanding = next;
                 hitLoopback(static_cast<quint16>(next.port()),

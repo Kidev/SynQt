@@ -57,6 +57,7 @@ struct Response
     int status{0};
     QString location;
     QByteArray cacheControl;
+    QByteArray retryAfter;
     QByteArray body;
 
     QJsonObject json() const { return QJsonDocument::fromJson(body).object(); }
@@ -148,6 +149,7 @@ private:
         response.status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
         response.location = QString::fromUtf8(reply->rawHeader("Location"));
         response.cacheControl = reply->rawHeader("Cache-Control");
+        response.retryAfter = reply->rawHeader("Retry-After");
         response.body = reply->readAll();
         reply->deleteLater();
         return response;
@@ -497,9 +499,45 @@ private slots:
         QVERIFY(!held.hasCredential());
     }
 
+    // The one refusal on this route that is allowed to look different, and has to.
+    //
+    // Everything above answers alike so that nothing learns which half of a guess was right.
+    // The rate window is decided before the credential is so much as read, so it says nothing
+    // about it, and answering it with the same 404 costs a real visitor their sign-in: their
+    // client reads "this credential is dead", deletes it, and asks them to sign in again,
+    // over somebody else behind the same address spending a window they share. `Retry-After`
+    // is how long is left of it, so a client can wait instead of guessing.
+    //
+    // Last in the file, because it spends the window it is testing, and the window is per
+    // address for a whole minute, which is longer than this suite runs.
+    void theRateWindowSaysWaitAndNotNo()
+    {
+        Held unknown;
+        unknown.deviceId = QStringLiteral("no-such-family");
+        unknown.deviceSecret = QStringLiteral("no-such-secret");
+
+        Response answer;
+        for (int attempt{0}; attempt < 60 && answer.status != 429; ++attempt) {
+            answer = redeem(unknown);
+            QVERIFY2(answer.status == 404 || answer.status == 429,
+                     qPrintable(QStringLiteral("unexpected status %1").arg(answer.status)));
+        }
+        QCOMPARE(answer.status, 429);
+        bool numeric{false};
+        const int seconds{answer.retryAfter.toInt(&numeric)};
+        QVERIFY2(numeric && seconds > 0,
+                 "the refusal tells a client to wait and not how long, so it can only guess");
+
+        // And it is the request that is refused, not the credential. A good one presented
+        // into a spent window is told the same thing, and is still good when the window is.
+        const Held held{signIn(QStringLiteral("user"))};
+        QVERIFY(held.hasCredential());
+        QCOMPARE(redeem(held).status, 429);
+    }
+
     void cleanupTestCase()
     {
-        // The edge holds the store open; drop it before the temporary directory goes.
+        // The edge holds the store open. Drop it before the temporary directory goes.
         m_edge.reset();
     }
 };

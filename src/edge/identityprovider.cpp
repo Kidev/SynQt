@@ -171,6 +171,24 @@ QHttpServerResponse notFound()
     return QHttpServerResponse{QHttpServerResponse::StatusCode::NotFound};
 }
 
+/// "You are going too fast", and deliberately not the answer above.
+///
+/// Everything else on these routes answers alike on purpose, so nothing learns which half
+/// of a guess was right. This refusal is decided before the credential is so much as read,
+/// so it says nothing about it, and it must be distinguishable. A legitimate client reading
+/// "too fast" as "this credential is dead" deletes the visitor's stored sign-in over
+/// somebody else behind the same address making a nuisance of themselves. `Retry-After` is
+/// what is left of the window, so a client can wait it out instead of guessing.
+QHttpServerResponse tooManyRequests(qint64 retryAfterMs)
+{
+    QHttpServerResponse response{QHttpServerResponse::StatusCode::TooManyRequests};
+    QHttpHeaders headers{response.headers()};
+    headers.append(QHttpHeaders::WellKnownHeader::RetryAfter,
+                   QByteArray::number(qMax(qint64{1}, (retryAfterMs + 999) / 1000)));
+    response.setHeaders(std::move(headers));
+    return response;
+}
+
 // How long a delegated begin/exchange over the mesh may take before the handler gives up.
 constexpr int kRemoteTimeoutMs{20000};
 
@@ -683,7 +701,7 @@ QHttpServerResponse IdentityProvider::handleDevice(const QHttpServerRequest &req
         window.count = 0;
     }
     if (++window.count > kMaxAttemptsPerWindow) {
-        return notFound();
+        return tooManyRequests(window.startedMs + kWindowMs - now);
     }
     if (m_deviceRate.size() > 4096) {
         // A table keyed by whatever address dialled in is a table an attacker can grow. It is

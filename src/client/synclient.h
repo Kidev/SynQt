@@ -11,6 +11,7 @@
 #endif
 
 #include <QByteArray>
+#include <QDeadlineTimer>
 #include <QObject>
 #include <QString>
 
@@ -93,16 +94,20 @@ private:
     /// Give up the port and forget the two secrets, however the sign-in ended.
     void endDesktopLogin();
 
-    /// Obtain a session before connecting: spend the stored device credential if there is
+    /// Obtain a session before connecting. Spend the stored device credential if there is
     /// one and this attempt needs one, otherwise bootstrap an anonymous session over GET /.
     /// Both end in connectToEdge().
     void openSession();
-    /// Spend the stored credential for a fresh session and the next credential. A refusal
-    /// (and only an explicit refusal, never a network failure) drops what is stored: the
-    /// edge has said it is no longer redeemable, and keeping it would mean trying it again
-    /// at every launch forever.
+    /// Spend the stored credential for a fresh session and the next credential.
+    ///
+    /// What is stored is dropped on the edge's own refusal of the credential, and on that
+    /// alone. It has said the credential is no longer redeemable, and keeping it would mean
+    /// trying it again at every launch forever. A network failure, a rate limit, a proxy's
+    /// bad gateway and anything else that is not that answer all keep it, because none of
+    /// them is the edge saying no to the credential, and deleting it on one of those signs
+    /// the visitor out for good over something that will be over in a minute.
     void redeemDeviceCredential();
-    /// The anonymous path: ask the edge for a session and connect with it.
+    /// The anonymous path. Ask the edge for a session and connect with it.
     void bootstrapAnonymousSession();
     /// The credential store, built on the first launch that could use one. Null when the
     /// project does not persist desktop sessions.
@@ -165,6 +170,20 @@ private:
     /// device credential for a new one.
     bool m_sessionAccepted{false};
     bool m_redeeming{false};
+    /// Whether the credential in hand has already bought the session this client is trying.
+    ///
+    /// A credential buys a session, not a connection. Once it has bought one, spending it
+    /// again before that session has been accepted only mints a second session exactly as
+    /// good as the first, and retires a generation to do it. A client whose socket keeps
+    /// failing would rotate at every reconnect, spend the edge's per-address rate window,
+    /// and be told no. So this is set when a session is obtained (at a sign-in, or at a
+    /// redemption) and cleared when one is accepted, and a redemption needs it clear.
+    bool m_credentialSpent{false};
+    /// When the credential may next be spent. Only ever moved by an edge that answered
+    /// something other than a session. It said no to the request rather than to the
+    /// credential, so trying again is right, but not immediately and not at the pace of a
+    /// reconnect loop.
+    QDeadlineTimer m_redeemNotBefore;
 #endif
 
     QString m_state{QStringLiteral("offline")};

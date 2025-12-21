@@ -410,6 +410,10 @@ void SynClient::claimSession(const QString &code)
         if (enrolled.isValid() && m_device) {
             m_device->save(enrolled);
             m_held = enrolled;
+            // It was issued alongside the session below, so it has bought that session
+            // already. A socket that then fails must retry it rather than spend a
+            // credential one second old for a second session exactly like it.
+            m_credentialSpent = true;
         }
 
         m_sessionCookie = cookieName.toUtf8() + '=' + session.toUtf8();
@@ -524,6 +528,14 @@ void SynClient::openSession()
     // usually a network blip. One that has not is either a fresh launch or an edge that came
     // back without the session table it had, and there the stored credential is exactly the
     // thing that gets the visitor back in without a sign-in.
+    //
+    // And it is spent at most once per session it buys, which is what m_credentialSpent is
+    // for. The socket failing says nothing about the session. Whatever refused it would
+    // refuse a brand new one the same. Spending the credential again for that would
+    // retire a generation per reconnect, walk into the edge's per-address rate limit within
+    // the minute, and end with the credential deleted for a refusal that was never about it.
+    // So a failure the session cannot answer is retried with the session, and the credential
+    // waits for the next one that a connection has been accepted since.
     if (!m_config.sessionCookie.isEmpty() && m_sessionAccepted) {
         // Cleared as the attempt starts, and set again only by connecting: that is what
         // makes this one retry rather than a loop against a session the edge has forgotten.
@@ -533,7 +545,8 @@ void SynClient::openSession()
         return;
     }
     DeviceCredential *store{deviceStore()};
-    if (store != nullptr && !m_redeeming) {
+    if (store != nullptr && !m_redeeming && !m_credentialSpent
+        && m_redeemNotBefore.hasExpired()) {
         if (!m_held.isValid()) {
             m_held = store->load();
         }
@@ -573,6 +586,7 @@ void SynClient::redeemDeviceCredential()
         const QByteArray answer{reply->readAll()};
         const int status{
             reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt()};
+        const QByteArray retryAfter{reply->rawHeader("Retry-After")};
         deleteSoon(reply);
         m_redeeming = false;
 
@@ -590,24 +604,45 @@ void SynClient::redeemDeviceCredential()
                 m_device->save(next);
                 m_held = next;
             }
+            // The credential has bought the session below. It buys no other until this one
+            // has been accepted and later stops working. See openSession().
+            m_credentialSpent = true;
             m_sessionCookie = cookieName.toUtf8() + '=' + session.toUtf8();
             m_config.sessionCookie = m_sessionCookie;
             connectToEdge();
             return;
         }
-        if (status != 0 && status != 200) {
-            // The edge answered, and its answer was no. Whatever is stored cannot become a
-            // session again, so it goes: keeping it would mean presenting a dead credential
-            // at every launch for the rest of the installation's life.
+        if (status == 404) {
+            // The edge answered about the credential, and its answer was no. Whatever is
+            // stored cannot become a session again, so it goes. Keeping it would mean
+            // presenting a dead credential at every launch for the rest of the
+            // installation's life.
             m_held = DeviceCredential::Held{};
             if (m_device) {
                 m_device->erase();
             }
             qInfo("SynQt: the stored sign-in is no longer valid, so this launch starts "
                   "signed out.");
+        } else if (status != 0) {
+            // The edge answered something else: 429 from its own rate window, or whatever a
+            // proxy in front of it makes of a bad minute. None of that is an answer about
+            // the credential, so the credential stays, and this waits rather than asking
+            // again at the pace of a reconnect loop. The wait is the one the edge named if
+            // it named one, and a minute otherwise, that being the length of the window
+            // this is nearly always about.
+            constexpr qint64 kDefaultHoldMs{60 * 1000};
+            constexpr qint64 kMaxHoldMs{5 * 60 * 1000};
+            bool numeric{false};
+            // Bounded rather than believed. This is a number a proxy can put in front of
+            // the edge, and an app that took it at face value could be told to stop trying
+            // for a week.
+            const qint64 asked{static_cast<qint64>(retryAfter.toInt(&numeric)) * 1000};
+            m_redeemNotBefore.setRemainingTime(
+                numeric && asked > 0 ? qMin(asked, kMaxHoldMs) : kDefaultHoldMs);
         }
-        // A transport failure keeps it: the edge said nothing, so nothing is known about
-        // whether the credential is still good.
+        // A transport failure keeps it and holds nothing off: the edge said nothing, so
+        // nothing is known about whether the credential is still good, and the next attempt
+        // may well reach an edge that is back.
         if (!m_config.sessionCookie.isEmpty()) {
             m_sessionCookie = m_config.sessionCookie;
             connectToEdge();
@@ -696,6 +731,10 @@ void SynClient::onConnected()
     // The edge accepted this credential, so the next dropped socket is a network event and
     // not an edge that came back without the session table it had. See openSession().
     m_sessionAccepted = true;
+    // And this session was worth having, so the stored credential is free to buy the next
+    // one if this one ever stops working. Cleared here and nowhere else. It is a connection
+    // the edge accepted, not merely a session it minted, that says the round trip works.
+    m_credentialSpent = false;
 #endif
     setState(QStringLiteral("connected"));
 }

@@ -324,6 +324,20 @@
       "test": "aRotationThatCannotBeStoredLeavesNothingBehind"
     },
     {
+      "id": "device-rate-window-spent-by-a-neighbour",
+      "what": "Somebody behind the same address spends the device route's per-address rate window, and every honest client on that address deletes the stored sign-in it is holding, because the refusal it gets back is the one that means the credential is dead.",
+      "defended_by": "The rate window answers 429 with Retry-After and not the credential refusal, which gives nothing away because it is decided before the credential is read, and the client drops what is stored only on the edge's own refusal of the credential. Everything else, a rate limit and a proxy's bad minute alike, is waited out with the credential intact.",
+      "file": "tests/m8-auth/tst_devicestore.cpp",
+      "test": "aRateLimitDoesNotCostTheStoredSignIn"
+    },
+    {
+      "id": "device-credential-burnt-by-a-refused-socket",
+      "what": "An edge that answers HTTP but refuses this client's WebSocket leaves it reconnecting every few hundred milliseconds, and each reconnect spends the stored credential again for a session identical to the one already in hand: a generation retired per reconnect, the shared rate window gone within the minute, and then the credential deleted over the refusal that follows.",
+      "defended_by": "The credential buys a session, not a connection. It is spent at most once per session that a connection has been accepted for, so a socket the session cannot answer for is retried with the session it already bought.",
+      "file": "tests/m8-auth/tst_devicestore.cpp",
+      "test": "aClientThatCannotConnectSpendsTheCredentialOnce"
+    },
+    {
       "id": "device-credential-copied-off-disk",
       "what": "Somebody with read access to a machine's files copies the stored sign-in and replays it from their own, which a credential written to a file would let them do without ever facing the OS store that was supposed to protect it.",
       "defended_by": "There is no file fallback anywhere, on any platform or in any build: a machine with no secure store keeps the credential for the life of the process and signs in again next launch. Proved against the real config, data and cache directories rather than against the absence of a code path, with the store injected so the claim is checked on every platform and not only where a keyring happens to be missing.",
