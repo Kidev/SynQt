@@ -204,11 +204,21 @@ SynClient::SynClient(SynClientConfig config, QQmlEngine *engine, QObject *parent
     m_handshakeTimer->setSingleShot(true);
     // An edge that took the socket and then said nothing is treated as a socket that
     // dropped, because to everything above here it is the same thing and the answer is the
-    // same: back off and try again. Without it the client waits on that handshake for as
+    // same. Back off and try again. Without it the client waits on that handshake for as
     // long as the app is left running, with no state change to notice it by.
-    connect(m_handshakeTimer, &QTimer::timeout, this, [this]() { onDisconnected(); });
+    //
+    // Aborted rather than left to run. A handshake this client has stopped waiting on must
+    // not complete a few seconds later, behind the reconnect that has already replaced it,
+    // and report a connection nothing is holding. The abort is enough on its own. The
+    // node and its replicas are retired where they always are, by the next connectToEdge().
+    connect(m_handshakeTimer, &QTimer::timeout, this, [this]() {
+        if (m_socket) {
+            m_socket->abort();
+        }
+        onDisconnected();
+    });
     // Reconnect through start() so a native client re-bootstraps its session (the edge
-    // may have restarted); on WASM start() just reconnects (the browser holds the cookie).
+    // may have restarted). On WASM start() reconnects (the browser holds the cookie).
     connect(m_reconnectTimer, &QTimer::timeout, this, [this]() { start(); });
 
     // The two actions Session offers QML. Session reports them and this answers them,
