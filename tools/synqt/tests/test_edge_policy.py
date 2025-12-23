@@ -331,5 +331,38 @@ class TestEnvFile(unittest.TestCase):
         self.assertNotIn("envfile.h", source)
 
 
+class TestTrustedProxies(unittest.TestCase):
+    """`public.trusted_proxies` is what tells the edge its peer is a balancer.
+
+    Every per-IP limit is only as good as its notion of "IP", and a balancer in front
+    makes that notion wrong for every connection at once. The key is how a deployment
+    says which peer is not a visitor. Without it the edge believes what it can see.
+    """
+
+    def test_declared_proxies_are_emitted(self):
+        config = base_config()
+        edge_of(config)["public"] = {"trusted_proxies": ["10.0.0.1", "10.0.0.0/24"]}
+        source = render(config)
+        self.assertIn('config.trustedProxies = {QStringLiteral("10.0.0.1"), '
+                      'QStringLiteral("10.0.0.0/24")};', source)
+
+    def test_absent_proxies_emit_nothing(self):
+        # The default is the peer address, which is the struct's default. A line here
+        # would be a second copy of it and a way for the two to disagree.
+        self.assertNotIn("trustedProxies", render(base_config()))
+
+    def test_a_non_list_is_refused(self):
+        config = base_config()
+        edge_of(config)["public"] = {"trusted_proxies": "10.0.0.1"}
+        with self.assertRaises(appmodel.AppGenError):
+            render(config)
+
+    def test_the_accessor_reads_the_block(self):
+        edge = {"name": "web", "type": "web_edge",
+                "public": {"trusted_proxies": ["10.0.0.1"]}}
+        self.assertEqual(appmodel.trusted_proxies(edge), ["10.0.0.1"])
+        self.assertEqual(appmodel.trusted_proxies({"name": "web"}), [])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -123,6 +123,15 @@ struct WebEdgeConfig
     int maxConnectionsGlobal{1000};
     qint64 maxMessageBytes{1048576};
 
+    /// Peers whose `X-Forwarded-For` this edge believes, as addresses or CIDR ranges.
+    ///
+    /// Empty (the default) means the connecting peer IS the client, which is true of an
+    /// edge facing the internet directly and false of every connection at once as soon as
+    /// a balancer sits in front. Nothing is trusted implicitly. A header arriving from a
+    /// peer that is not on this list is ignored outright, because otherwise the per-IP
+    /// caps become a bucket each client picks for itself. See SynQt::ClientAddress.
+    QStringList trustedProxies;
+
     QList<WebEdgeConnectPoint> connectPoints;
 
     /// Edge-delivered pages (see https://synqt.org/remote-pages/). Empty disables the

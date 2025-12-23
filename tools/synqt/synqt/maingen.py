@@ -251,6 +251,13 @@ def _edge_policy_lines(config: Dict[str, Any], edge: Dict[str, Any]) -> List[str
         lines.append("    config.serveClient = %s;"
                      % _bool_literal("public.serve_client", public["serve_client"]))
 
+    # Where the client address comes from. Absent, it is the peer address; present, the
+    # peer is a balancer and the visitor is behind it (src/edge/clientaddress.h). It is
+    # the key every per-IP limit on the edge depends on being right.
+    proxies = appmodel.trusted_proxies(edge)
+    if proxies:
+        lines.append("    config.trustedProxies = {%s};" % string_list_literal(proxies))
+
     # Origin and session. `origin_model` is what decides whether the session cookie can
     # survive a cross-origin upgrade at all (SameSite=Lax against None; Secure), so a
     # split-origin deployment that never reached the edge could not log anyone in.

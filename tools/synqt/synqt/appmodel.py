@@ -761,6 +761,24 @@ def public_settings(entity: Dict[str, Any]) -> Dict[str, Any]:
     return dict(settings) if isinstance(settings, dict) else {}
 
 
+def trusted_proxies(entity: Dict[str, Any]) -> List[str]:
+    """``public.trusted_proxies``: the hops whose ``X-Forwarded-For`` this edge believes.
+
+    Empty (the default) means the peer address is the client address, which is what an
+    edge facing the internet directly should think. A balancer in front makes that false
+    for every connection at once, so the list is how a deployment says which peer is not
+    a visitor. The rules for reading the header are in ``src/edge/clientaddress.h``.
+    """
+    declared = public_settings(entity).get("trusted_proxies")
+    if declared is None:
+        return []
+    if not isinstance(declared, list):
+        raise AppGenError(
+            f"public.trusted_proxies must be a list of addresses or CIDR ranges, "
+            f"not {declared!r}")
+    return [str(entry) for entry in declared]
+
+
 def tls_settings(entity: Dict[str, Any]) -> Dict[str, Any]:
     """The declared ``tls:`` block of a web edge: the public certificate for the browser."""
     settings = entity.get("tls")
