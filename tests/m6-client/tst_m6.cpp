@@ -250,13 +250,24 @@ private slots:
                                    .value(QStringLiteral("token")).toString().toLatin1()};
         QVERIFY(edge.sessionManager()->isLive(token));
 
+        // Counted from before the logout, because what proves the client came back is the
+        // round trip and not the state it ends in. Reading state() alone cannot see it:
+        // "connected" is still the answer for as long as it takes the edge's close to
+        // arrive, so a state check taken right after the edge dropped the session is
+        // answered by the connection that is on its way out, at the one instant when the
+        // edge holds no session at all. That is a flake, and it was one on Windows.
+        QSignalSpy states{client.session(), &Session::stateChanged};
+
         client.session()->logout();
 
         QTRY_VERIFY2_WITH_TIMEOUT(!edge.sessionManager()->isLive(token),
                                   "the session outlived the logout that ended it", 8000);
-        // And the client is usable again, as a visitor the edge has never met.
-        QTRY_COMPARE_WITH_TIMEOUT(client.session()->state(), QStringLiteral("connected"),
-                                  8000);
+        // And the client is usable again, as a visitor the edge has never met: it left
+        // "connected" and came back to it, which is at least two transitions.
+        QTRY_VERIFY2_WITH_TIMEOUT(states.size() >= 2
+                                      && client.session()->state()
+                                          == QStringLiteral("connected"),
+                                  "the client never reconnected after signing out", 8000);
         QVERIFY(!edge.sessionManager()->snapshot().isEmpty());
         QCOMPARE(edge.sessionManager()->snapshot().first().toMap()
                      .value(QStringLiteral("token")).toString().toLatin1() == token, false);
