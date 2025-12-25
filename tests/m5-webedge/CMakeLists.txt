@@ -55,3 +55,18 @@ target_link_libraries(tst_m5 PRIVATE
 )
 
 add_test(NAME m5 COMMAND tst_m5)
+
+# The client-address resolver on its own. It needs no server, no certificate and no
+# contract: it is a pure function of the peer, the header and the configured list, and
+# that is exactly why it is testable to the corner cases an end-to-end upgrade cannot
+# reach (a forged hop, a trusted hop, a malformed entry).
+qt_add_executable(tst_clientaddress tst_clientaddress.cpp)
+
+target_link_libraries(tst_clientaddress PRIVATE
+    SynQtEdge
+    Qt6::Core
+    Qt6::Network
+    Qt6::Test
+)
+
+add_test(NAME clientaddress COMMAND tst_clientaddress)
