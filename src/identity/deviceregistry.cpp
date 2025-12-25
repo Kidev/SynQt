@@ -132,6 +132,26 @@ bool DeviceRegistry::open(QString *error)
         m_store.reset();
         return false;
     }
+
+    // Which family a session came from. Here rather than in the edge's memory for the
+    // reason bindSession() gives: a session outlives the process that minted it as soon as
+    // the session table is shared, and the sign-out that must end the credential can land
+    // on a process that never saw the enrolment. Same portable types, same reasoning about
+    // CREATE TABLE IF NOT EXISTS against a database whose migration counter is the app's.
+    const QString sessions{QStringLiteral(
+        "CREATE TABLE IF NOT EXISTS synqt_session_family ("
+        "  session_id TEXT PRIMARY KEY,"
+        "  family TEXT NOT NULL,"
+        "  created_ms BIGINT NOT NULL)")};
+    const DbResult sessionsCreated{m_store->exec(sessions, {})};
+    if (!sessionsCreated.ok) {
+        if (error) {
+            *error = sessionsCreated.error;
+        }
+        m_store.reset();
+        return false;
+    }
+
     purgeExpired();
     return true;
 }
@@ -311,6 +331,64 @@ void DeviceRegistry::forgetSub(const QString &sub)
         return;
     }
     m_store->exec(QStringLiteral("DELETE FROM synqt_devices WHERE sub = ?"), {sub});
+}
+
+void DeviceRegistry::bindSession(const QByteArray &sessionId, const QString &family)
+{
+    if (!isOpen() || sessionId.isEmpty() || family.isEmpty()) {
+        return;
+    }
+    // Delete then insert rather than an upsert: the two engines behind this interface
+    // spell an upsert differently, and this table is small and written once per sign-in.
+    const QString token{QString::fromLatin1(sessionId)};
+    m_store->exec(QStringLiteral("DELETE FROM synqt_session_family WHERE session_id = ?"),
+                  {token});
+    m_store->exec(QStringLiteral("INSERT INTO synqt_session_family "
+                                 "(session_id, family, created_ms) VALUES (?, ?, ?)"),
+                  {token, family, QDateTime::currentMSecsSinceEpoch()});
+}
+
+QString DeviceRegistry::familyOf(const QByteArray &sessionId) const
+{
+    if (!isOpen() || sessionId.isEmpty()) {
+        return QString{};
+    }
+    const DbResult found{m_store->query(
+        QStringLiteral("SELECT family FROM synqt_session_family WHERE session_id = ?"),
+        {QString::fromLatin1(sessionId)})};
+    if (!found.ok || found.rows.isEmpty()) {
+        return QString{};
+    }
+    return found.rows.first().toMap().value(QStringLiteral("family")).toString();
+}
+
+void DeviceRegistry::unbindSession(const QByteArray &sessionId)
+{
+    if (!isOpen() || sessionId.isEmpty()) {
+        return;
+    }
+    m_store->exec(QStringLiteral("DELETE FROM synqt_session_family WHERE session_id = ?"),
+                  {QString::fromLatin1(sessionId)});
+}
+
+QList<QByteArray> DeviceRegistry::sessionsOfFamily(const QString &family) const
+{
+    QList<QByteArray> sessions;
+    if (!isOpen() || family.isEmpty()) {
+        return sessions;
+    }
+    const DbResult found{m_store->query(
+        QStringLiteral("SELECT session_id FROM synqt_session_family WHERE family = ?"),
+        {family})};
+    if (!found.ok) {
+        return sessions;
+    }
+    sessions.reserve(found.rows.size());
+    for (const QVariant &row : found.rows) {
+        sessions.append(
+            row.toMap().value(QStringLiteral("session_id")).toString().toLatin1());
+    }
+    return sessions;
 }
 
 void DeviceRegistry::purgeExpired()

@@ -433,8 +433,10 @@ void IdentityProvider::releaseRemoteTokens(const QByteArray &sessionId)
 void IdentityProvider::forgetSession(const QByteArray &sessionId)
 {
     // The back-reference goes, the family stays. A session running out of time is exactly
-    // what the device credential is for: the next launch redeems it and gets a new session.
-    m_sessionFamily.remove(sessionId);
+    // what the device credential is for. The next launch redeems it and gets a new session.
+    if (m_devices) {
+        m_devices->unbindSession(sessionId);
+    }
     if (m_backend) {
         m_backend->releaseTokens(QString::fromLatin1(sessionId));
     } else {
@@ -772,10 +774,10 @@ QHttpServerResponse IdentityProvider::sessionAnswer(const QByteArray &sessionId,
 
 void IdentityProvider::bindFamily(const QByteArray &sessionId, const QString &family)
 {
-    if (family.isEmpty()) {
+    if (family.isEmpty() || m_devices == nullptr) {
         return;
     }
-    m_sessionFamily.insert(sessionId, family);
+    m_devices->bindSession(sessionId, family);
 }
 
 void IdentityProvider::onReuseDetected(const QString &family)
@@ -787,9 +789,12 @@ void IdentityProvider::onReuseDetected(const QString &family)
     qWarning("SynQt: a retired device credential was presented past its overlap window, so "
              "the device and every session it opened have been revoked. If this was not a "
              "theft it was a client that could not store what it was given.");
-    const QList<QByteArray> sessions{m_sessionFamily.keys(family)};
+    if (m_devices == nullptr) {
+        return;
+    }
+    const QList<QByteArray> sessions{m_devices->sessionsOfFamily(family)};
     for (const QByteArray &sessionId : sessions) {
-        m_sessionFamily.remove(sessionId);
+        m_devices->unbindSession(sessionId);
         m_sessions->revoke(sessionId);
     }
 }
@@ -807,9 +812,12 @@ QHttpServerResponse IdentityProvider::handleLogout(const QHttpServerRequest &req
             // visitor believes it worked. This is also the only thing that ends a family
             // early, which is why it reads the family from what this edge recorded when the
             // session was minted rather than from anything the caller sent.
-            const QString family{m_sessionFamily.take(sessionId)};
-            if (m_devices && !family.isEmpty()) {
-                m_devices->forget(family);
+            if (m_devices) {
+                const QString family{m_devices->familyOf(sessionId)};
+                m_devices->unbindSession(sessionId);
+                if (!family.isEmpty()) {
+                    m_devices->forget(family);
+                }
             }
             m_sessions->revoke(sessionId);
             if (m_backend) {

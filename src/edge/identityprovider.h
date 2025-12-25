@@ -199,11 +199,6 @@ private:
     QHash<QString, PendingLogin> m_pending; ///< state -> browser CSRF binding
     QHash<QString, PendingClaim> m_claims;  ///< claim code -> the session it stands for
 
-    /// Which device family each live session came from. In memory, and rightly so: the point
-    /// of it is to end a family when its session is signed out, and a session does not
-    /// outlive this process either. Nothing authorizes off it; it is a back-reference.
-    QHash<QByteArray, QString> m_sessionFamily;
-
     /// Fixed-window request counts per client address for the device route, so a machine
     /// cannot sit there spending guesses. The secret is 256 bits, so this is not what makes
     /// guessing hopeless; it is what keeps a guesser from costing the edge a database read

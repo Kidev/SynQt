@@ -90,6 +90,28 @@ public:
     /// Delete a family outright (logging out, or the owner retiring a device). Idempotent.
     void forget(const QString &family);
 
+    /// Remember which family a session was minted from, so signing that session out ends
+    /// the credential too.
+    ///
+    /// It lives in the store rather than in the edge's memory because a session can now
+    /// outlive the process that minted it: the session table is shared as soon as identity
+    /// is promoted to its own entity, and the edge is replicable as soon as it is. A
+    /// visitor enrolling through one process and signing out against another would
+    /// otherwise keep the credential the sign-out was meant to end, with nothing about the
+    /// sign-out looking wrong. Rebinding a session replaces its row, because a session id
+    /// rotates on elevation and the old id must not go on naming the family.
+    ///
+    /// Nothing authorizes off this: it is a back-reference, and the authority for what a
+    /// credential can do is the family row itself.
+    void bindSession(const QByteArray &sessionId, const QString &family);
+    QString familyOf(const QByteArray &sessionId) const;
+    void unbindSession(const QByteArray &sessionId);
+
+    /// Every session minted from one family. What reuse detection revokes: two copies of a
+    /// credential are in play and there is no telling which holder is the visitor, so
+    /// everything the family opened goes, wherever it was opened from.
+    QList<QByteArray> sessionsOfFamily(const QString &family) const;
+
     /// Delete every family belonging to a visitor. This is what signing out means for
     /// somebody who signed in on more than one machine.
     void forgetSub(const QString &sub);
