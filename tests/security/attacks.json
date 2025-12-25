@@ -343,6 +343,20 @@
       "defended_by": "There is no file fallback anywhere, on any platform or in any build: a machine with no secure store keeps the credential for the life of the process and signs in again next launch. Proved against the real config, data and cache directories rather than against the absence of a code path, with the store injected so the claim is checked on every platform and not only where a keyring happens to be missing.",
       "file": "tests/m8-auth/tst_devicestore.cpp",
       "test": "withoutAStoreNothingIsWritten"
+    },
+    {
+      "id": "forged-forwarded-for-escapes-the-cap",
+      "what": "A visitor writes their own X-Forwarded-For to be counted as somebody else, so the per-IP connection cap becomes a bucket they pick per connection.",
+      "defended_by": "The forwarding header is read only when the direct peer is on public.trusted_proxies; from anyone else it is ignored outright and the peer address is the visitor.",
+      "file": "tests/m5-webedge/tst_m5.cpp",
+      "test": "aForgedForwardedHeaderDoesNotMoveTheCap"
+    },
+    {
+      "id": "prepended-forwarded-hops",
+      "what": "A visitor behind the real balancer prepends hops to X-Forwarded-For, so the address the edge reads is one they chose rather than the one the balancer observed.",
+      "defended_by": "Only the rightmost entry that is not itself a trusted hop is taken as the client; everything left of it was written by the client and is never the answer.",
+      "file": "tests/m5-webedge/tst_clientaddress.cpp",
+      "test": "appendedHopsDoNotBecomeTheClient"
     }
   ]
 }

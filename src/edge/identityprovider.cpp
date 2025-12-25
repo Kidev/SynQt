@@ -3,6 +3,7 @@
 
 #include "identityprovider.h"
 
+#include "clientaddress.h"
 #include "deviceregistry.h"
 #include "identitymapping.h"
 #include "oauthbackend.h"
@@ -256,6 +257,11 @@ IdentityProvider::IdentityProvider(IdentityConfig config, SessionManager *sessio
 }
 
 IdentityProvider::~IdentityProvider() = default;
+
+void IdentityProvider::setClientAddress(const ClientAddress *resolver)
+{
+    m_clientAddress = resolver;
+}
 
 QString IdentityProvider::loginRoute() const
 {
@@ -693,7 +699,13 @@ QHttpServerResponse IdentityProvider::handleDevice(const QHttpServerRequest &req
     // to buy a database read per packet.
     constexpr int kMaxAttemptsPerWindow{30};
     constexpr qint64 kWindowMs{60 * 1000};
-    const QString peer{request.remoteAddress().toString()};
+    // The visitor's address, not the peer's. Behind a balancer the peer is one address for
+    // everybody, so a window keyed on it would be a single global budget that any one
+    // client can exhaust for every other client at once.
+    const QString peer{m_clientAddress
+                           ? m_clientAddress->resolve(request.remoteAddress(),
+                                                      request.value("X-Forwarded-For"))
+                           : request.remoteAddress().toString()};
     const qint64 now{QDateTime::currentMSecsSinceEpoch()};
     RateWindow &window{m_deviceRate[peer]};
     if (now - window.startedMs > kWindowMs) {

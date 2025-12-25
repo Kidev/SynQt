@@ -737,6 +737,108 @@ private slots:
         QTRY_VERIFY_WITH_TIMEOUT(thirdConnected.count() >= 1, 5000);
     }
 
+    void connectionCapCountsTheVisitorBehindABalancer()
+    {
+        // The same cap, one balancer in front. Two visitors arriving through it share a
+        // peer address and must not share a bucket, and a visitor must not be able to
+        // choose their own bucket by writing the header. Both halves are the feature:
+        // without the first a replicated deployment refuses its own users at the cap,
+        // and without the second the cap is advisory.
+        WebEdgeConfig config{makeConfig(false)};
+        config.maxConnectionsPerIp = 1;
+        config.trustedProxies = {QStringLiteral("127.0.0.1")};
+        QQmlEngine engine;
+        WebEdge edge{config, &engine};
+        QVERIFY2(edge.start(), qPrintable(edge.errorString()));
+
+        const auto liveCookie{[&]() {
+            QNetworkReply *reply{httpGet(edge.httpOrigin() + QStringLiteral("/"))};
+            const QByteArray cookie{reply ? sessionCookie(reply) : QByteArray{}};
+            if (reply) {
+                reply->deleteLater();
+            }
+            return cookie;
+        }};
+        const auto openAs{[&](QWebSocket *socket, const QByteArray &cookie,
+                              const QByteArray &visitor) {
+            socket->setSslConfiguration(insecureClientConfig());
+            QNetworkRequest request{QUrl{edge.wssOrigin() + QStringLiteral("/sync")}};
+            request.setRawHeader("Origin", edge.httpOrigin().toUtf8());
+            request.setRawHeader("Cookie", cookie);
+            request.setRawHeader("X-Forwarded-For", visitor);
+            request.setSslConfiguration(insecureClientConfig());
+            socket->open(request);
+        }};
+
+        QWebSocket first;
+        QSignalSpy firstConnected{&first, &QWebSocket::connected};
+        openAs(&first, liveCookie(), "198.51.100.7");
+        QTRY_VERIFY(firstConnected.count() >= 1);
+
+        // A different visitor through the same balancer. accepted. Before the resolver
+        // this was refused, because both of them were 127.0.0.1.
+        QWebSocket second;
+        QSignalSpy secondConnected{&second, &QWebSocket::connected};
+        openAs(&second, liveCookie(), "198.51.100.8");
+        QTRY_VERIFY_WITH_TIMEOUT(secondConnected.count() >= 1, 5000);
+
+        // The first visitor again. Refused, because one is still the cap for them.
+        QSignalSpy rejectedSpy{&edge, &WebEdge::upgradeRejected};
+        QWebSocket third;
+        QSignalSpy thirdConnected{&third, &QWebSocket::connected};
+        openAs(&third, liveCookie(), "198.51.100.7");
+        QTRY_VERIFY(rejectedSpy.count() >= 1);
+        QCOMPARE(rejectedSpy.takeFirst().first().toString(),
+                 QStringLiteral("connection cap reached"));
+        QCOMPARE(thirdConnected.count(), 0);
+    }
+
+    void aForgedForwardedHeaderDoesNotMoveTheCap()
+    {
+        // No trusted proxy configured, which is every edge facing the internet directly.
+        // A visitor writing the header is writing about themselves, and it must count for
+        // nothing. Otherwise the per-IP cap is a bucket each client picks, and picking a
+        // fresh one per connection is free.
+        WebEdgeConfig config{makeConfig(false)};
+        config.maxConnectionsPerIp = 1;
+        QQmlEngine engine;
+        WebEdge edge{config, &engine};
+        QVERIFY2(edge.start(), qPrintable(edge.errorString()));
+
+        const auto liveCookie{[&]() {
+            QNetworkReply *reply{httpGet(edge.httpOrigin() + QStringLiteral("/"))};
+            const QByteArray cookie{reply ? sessionCookie(reply) : QByteArray{}};
+            if (reply) {
+                reply->deleteLater();
+            }
+            return cookie;
+        }};
+        const auto openAs{[&](QWebSocket *socket, const QByteArray &cookie,
+                              const QByteArray &claimed) {
+            socket->setSslConfiguration(insecureClientConfig());
+            QNetworkRequest request{QUrl{edge.wssOrigin() + QStringLiteral("/sync")}};
+            request.setRawHeader("Origin", edge.httpOrigin().toUtf8());
+            request.setRawHeader("Cookie", cookie);
+            request.setRawHeader("X-Forwarded-For", claimed);
+            request.setSslConfiguration(insecureClientConfig());
+            socket->open(request);
+        }};
+
+        QWebSocket first;
+        QSignalSpy firstConnected{&first, &QWebSocket::connected};
+        openAs(&first, liveCookie(), "198.51.100.7");
+        QTRY_VERIFY(firstConnected.count() >= 1);
+
+        QSignalSpy rejectedSpy{&edge, &WebEdge::upgradeRejected};
+        QWebSocket second;
+        QSignalSpy secondConnected{&second, &QWebSocket::connected};
+        openAs(&second, liveCookie(), "198.51.100.99");  // a different lie, same client
+        QTRY_VERIFY(rejectedSpy.count() >= 1);
+        QCOMPARE(rejectedSpy.takeFirst().first().toString(),
+                 QStringLiteral("connection cap reached"));
+        QCOMPARE(secondConnected.count(), 0);
+    }
+
     void stalledUpgradeClosed()
     {
         QQmlEngine engine;

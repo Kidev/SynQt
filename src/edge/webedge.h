@@ -4,6 +4,7 @@
 #ifndef SYNQT_WEBEDGE_H
 #define SYNQT_WEBEDGE_H
 
+#include "clientaddress.h"
 #include "webedgeconfig.h"
 
 #include <QHash>
@@ -126,7 +127,8 @@ private:
     /// Hand the verified session id for this peer to hostConnection(), and drop any
     /// entry whose socket never arrived, so a refused or abandoned upgrade cannot make
     /// the map grow without bound.
-    void rememberVerifiedSession(const QString &peer, const QByteArray &sessionId);
+    void rememberVerifiedSession(const QString &peer, const QByteArray &sessionId,
+                                 const QString &clientIp);
     QObject *createSource(const WebEdgeConnectPoint &connectPoint, QObject *caller,
                           QObject *parent, QString *error);
     /// The Source this connection acquires for one connect point, minted or continued.
@@ -225,6 +227,11 @@ private:
     {
         QByteArray id;
         qint64 verifiedMs{0};
+        /// The visitor's address as the verifier resolved it. Carried rather than
+        /// recomputed because an accepted socket's handshake headers are not re-readable,
+        /// so by the time the connection is hosted the forwarding header is gone and the
+        /// peer address is the balancer's for every visitor alike.
+        QString clientIp;
     };
     QHash<QString, VerifiedSession> m_pendingSessions;
 
@@ -262,9 +269,12 @@ private:
     /// What answers for each entity this edge fronts a point with, by entity name.
     QHash<QString, QPointer<QObject>> m_entitiesBehind;
 
-    /// Connection caps.
+    /// Connection caps. Keyed on the visitor's address as m_clientAddress resolves it,
+    /// which is the peer's own address until a deployment names a balancer in front.
     int m_activeGlobal{0};
     QHash<QString, int> m_activePerIp;
+    /// Which address is the visitor, given who this edge was told to believe.
+    ClientAddress m_clientAddress;
 };
 
 } // namespace SynQt

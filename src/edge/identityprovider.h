@@ -21,6 +21,7 @@ QT_END_NAMESPACE
 
 namespace SynQt {
 
+class ClientAddress;
 class DeviceRegistry;
 class SessionManager;
 class OAuthBackend;
@@ -69,6 +70,12 @@ public:
     /// launch for a fresh session and the next credential. POST only, single use, and the one
     /// route that turns something on disk back into a session.
     QHttpServerResponse handleDevice(const QHttpServerRequest &request);
+
+    /// The edge's client-address resolver, so the device route's rate window counts the
+    /// visitor rather than the balancer. Owned by the WebEdge that sets it, which outlives
+    /// this. Null means the peer address is the visitor, which is true until a deployment
+    /// says otherwise.
+    void setClientAddress(const ClientAddress *resolver);
 
     QString loginRoute() const;
     QString callbackRoute() const;
@@ -187,6 +194,7 @@ private:
     QObject *m_mapping{nullptr};
 
     DeviceRegistry *m_devices{nullptr};     ///< null unless the project persists sessions
+    const ClientAddress *m_clientAddress{nullptr};  ///< the edge's; null means the peer
 
     QHash<QString, PendingLogin> m_pending; ///< state -> browser CSRF binding
     QHash<QString, PendingClaim> m_claims;  ///< claim code -> the session it stands for

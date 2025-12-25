@@ -133,6 +133,7 @@ WebEdge::WebEdge(WebEdgeConfig config, QQmlEngine *engine, QObject *parent)
     , m_engine{engine}
     , m_sessionManager{new SessionManager{m_config.defaultScope,
                                           m_config.sessionTtlMinutes, this}}
+    , m_clientAddress{m_config.trustedProxies}
 {
 }
 
@@ -745,6 +746,10 @@ bool WebEdge::start()
         cookie.secure = m_config.usesTls();
         m_identity = new IdentityProvider{m_config.identity, m_sessionManager, m_engine,
                                           httpOrigin(), cookie, this};
+        // One notion of "which address is the visitor" for the whole edge. The device
+        // route rate-limits on it exactly as the upgrade verifier caps on it, and two
+        // answers to that question is how one of them ends up being the balancer's.
+        m_identity->setClientAddress(&m_clientAddress);
         // A session that runs out of time takes its server-side tokens with it. Logging
         // out already released them; almost nobody logs out.
         connect(m_sessionManager, &SessionManager::sessionExpired, m_identity,
@@ -1033,8 +1038,14 @@ QHttpServerWebSocketUpgradeResponse WebEdge::verifyUpgrade(const QHttpServerRequ
         }
     }
 
-    // 4. Rate and resource checks: per-IP and global connection caps.
-    const QString ip{request.remoteAddress().toString()};
+    // 4. Rate and resource checks. Per-IP and global connection caps.
+    //
+    // The address the cap counts against is the visitor's, which is the peer's until a
+    // deployment names a balancer in front of this edge. Counting the peer there would
+    // put every visitor in one bucket, so the cap would either refuse the whole site at
+    // the twentieth connection or, raised to compensate, limit nobody.
+    const QString ip{m_clientAddress.resolve(request.remoteAddress(),
+                                             request.value("X-Forwarded-For"))};
     if (m_activeGlobal >= m_config.maxConnectionsGlobal
         || m_activePerIp.value(ip) >= m_config.maxConnectionsPerIp) {
         emit upgradeRejected(QStringLiteral("connection cap reached"));
@@ -1045,12 +1056,13 @@ QHttpServerWebSocketUpgradeResponse WebEdge::verifyUpgrade(const QHttpServerRequ
     // Accepted: stash the verified id by peer so the accepted socket (whose headers are
     // not re-readable) can be bound to its session when it is hosted. Last, after every
     // check, so a refused upgrade leaves nothing behind.
-    rememberVerifiedSession(key, sessionId);
+    rememberVerifiedSession(key, sessionId, ip);
     emit upgradeAccepted(key);
     return QHttpServerWebSocketUpgradeResponse::accept();
 }
 
-void WebEdge::rememberVerifiedSession(const QString &peer, const QByteArray &sessionId)
+void WebEdge::rememberVerifiedSession(const QString &peer, const QByteArray &sessionId,
+                                      const QString &clientIp)
 {
     const qint64 now{QDateTime::currentMSecsSinceEpoch()};
     // An accepted upgrade is hosted in the same event-loop turn it is accepted in, so
@@ -1066,7 +1078,7 @@ void WebEdge::rememberVerifiedSession(const QString &peer, const QByteArray &ses
             ++it;
         }
     }
-    m_pendingSessions.insert(peer, VerifiedSession{sessionId, now});
+    m_pendingSessions.insert(peer, VerifiedSession{sessionId, now, clientIp});
 }
 
 QObject *WebEdge::createSource(const WebEdgeConnectPoint &connectPoint, QObject *caller,
@@ -1332,14 +1344,20 @@ void WebEdge::hostConnection(QWebSocket *socket)
     socket->setMaxAllowedIncomingMessageSize(static_cast<quint64>(m_config.maxMessageBytes));
     socket->setMaxAllowedIncomingFrameSize(static_cast<quint64>(m_config.maxMessageBytes));
 
-    const QString ip{socket->peerAddress().toString()};
+    // Identify the session behind this socket, and the visitor behind the peer: both were
+    // stashed by the verifier for this peer, because the accepted socket's handshake
+    // headers are not re-readable server-side. The address especially: the forwarding
+    // header is gone by now, so recomputing it here would give the balancer every time
+    // and the release below would decrement a bucket the accept never incremented.
+    const QString key{peerKey(socket->peerAddress().toString(), socket->peerPort())};
+    const VerifiedSession verified{m_pendingSessions.take(key)};
+    const QByteArray sessionId{verified.id};
+    const QString ip{verified.clientIp.isEmpty()
+                         ? normalizedAddress(socket->peerAddress()).toString()
+                         : verified.clientIp};
+
     ++m_activeGlobal;
     ++m_activePerIp[ip];
-
-    // Identify the session behind this socket: the id the verifier stashed for this peer
-    // (the accepted socket's handshake headers are not re-readable server-side).
-    const QString key{peerKey(socket->peerAddress().toString(), socket->peerPort())};
-    const QByteArray sessionId{m_pendingSessions.take(key).id};
 
     // Claimed before any Source is reached for, and released when the socket closes. The
     // count is what keeps a session's shared Sources alive across a tab closing while
