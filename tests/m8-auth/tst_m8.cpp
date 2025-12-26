@@ -125,6 +125,23 @@ IdentityProviderConfig plaintextProvider()
     return provider;
 }
 
+/// One edge process, with everything it needs to reach an auth entity.
+///
+/// A replicated deployment is N of these against one auth entity, which is why this exists
+/// as a thing that can be made twice rather than as a block of setup inlined once.
+///
+/// Declaration order is destruction order reversed, and it matters: the edge's
+/// IdentityProvider is the receiver of a dynamic Replica that frees its runtime metaobject
+/// when it is destroyed, so the Replica (parented to the node, in meshScope) must outlive
+/// the edge. Declaring meshScope first destroys it last.
+struct EdgeProcess
+{
+    QQmlEngine engine;
+    QObject meshScope;
+    std::unique_ptr<WebEdge> edge;
+    quint16 port{0};
+};
+
 } // namespace
 
 class TestM8 : public QObject
@@ -137,6 +154,142 @@ private:
     std::unique_ptr<WebEdge> m_edge;
     QNetworkAccessManager m_browser;
     quint16 m_edgePort{0};
+
+    /// The auth entity `identity.provider_entity` names. One OAuth engine, holding the
+    /// secret, behind an Identity Source over mutual TLS. Every replica consumes this one.
+    struct AuthEntity
+    {
+        IdentityConfig config;
+        std::unique_ptr<IdentityService> service;
+        QQmlEngine engine;
+        std::unique_ptr<ConnectPointHost> host;
+        QString error;
+
+        bool start(TestM8 *owner)
+        {
+            config.enabled = true;
+            config.allowDevStub = true;
+            config.providers = {stubProvider(owner->m_stub->baseUrl())};
+            service = std::make_unique<IdentityService>(config);
+
+            ConnectPointConfig point;
+            point.name = QStringLiteral("identity");
+            point.contract = QStringLiteral("Identity");
+            point.owner = QStringLiteral("auth");
+            point.consumers = {QStringLiteral("web")};
+            point.serverFile = QStringLiteral(M8_SRCDIR "/auth/Identity.qml");
+            point.shared = false;
+            point.endpoint.mode = MeshTransportMode::MutualTls;
+            point.endpoint.host = QStringLiteral("127.0.0.1");
+            point.endpoint.port = 0;
+
+            host = std::make_unique<ConnectPointHost>(point, credsFor(QStringLiteral("auth")),
+                                                      &engine);
+            host->setContextObject(QStringLiteral("IdentityEngine"), service.get());
+            if (!host->start()) {
+                error = host->errorString();
+                return false;
+            }
+            return true;
+        }
+
+        quint16 port() const { return host ? host->serverPort() : 0; }
+    };
+
+    /// One more replica. A secret-less edge that reaches the auth entity over the mesh.
+    /// Every one of them presents the entity name "web", which is what makes them
+    /// interchangeable to the auth entity rather than merely similar.
+    std::unique_ptr<EdgeProcess> startEdge(quint16 authPort)
+    {
+        auto process{std::make_unique<EdgeProcess>()};
+
+        WebEdgeConfig config;
+        config.bundleDir = QStringLiteral(M8_SRCDIR "/bundle");
+        config.host = QStringLiteral("127.0.0.1");
+        config.port = 0;
+        config.identity.enabled = true;
+        config.identity.providerEntity = QStringLiteral("auth");
+        config.identity.mappingHook = QStringLiteral(M8_SRCDIR "/web/identity/map.qml");
+        IdentityProviderConfig nameOnly;
+        nameOnly.name = QStringLiteral("stub");
+        config.identity.providers = {nameOnly};
+
+        process->edge = std::make_unique<WebEdge>(config, &process->engine);
+        if (!process->edge->start()) {
+            return nullptr;
+        }
+        process->port = process->edge->serverPort();
+
+        QRemoteObjectNode *node{new QRemoteObjectNode{&process->meshScope}};
+        MeshClient *client{new MeshClient{&process->meshScope}};
+        IdentityProvider *provider{process->edge->identityProvider()};
+        connect(client, &MeshClient::connected, node, [node, provider](QIODevice *device) {
+            node->addClientSideConnection(device);
+            QRemoteObjectDynamicReplica *replica{node->acquireDynamic(QStringLiteral("identity"))};
+            replica->setParent(node);
+            connect(replica, &QRemoteObjectDynamicReplica::initialized, provider,
+                    [provider, replica]() { provider->attachRemote(replica); });
+        });
+        client->connectMutualTls(QHostAddress::LocalHost, authPort, QStringLiteral("auth"),
+            loadCertificate(QStringLiteral(M8_CERT_DIR "/ca.crt")),
+            loadCertificate(QStringLiteral(M8_CERT_DIR "/web.crt")),
+            loadPrivateKey(QStringLiteral(M8_CERT_DIR "/web.key")));
+
+        // The link has to be up and the Replica initialized before a login is driven through
+        // it, or the first request fails on "auth entity not connected" and says nothing
+        // about the thing under test. isRemote() is not the signal for that: it answers for
+        // the configuration (this edge delegates) and is true from construction, not for the
+        // link. The readiness that matters is the Replica having attached, and the login
+        // route is what reports it, so this drives one and retries rather than sleeping a
+        // number somebody guessed.
+        for (int attempt{0}; attempt < 40; ++attempt) {
+            QTest::qWait(50);
+            QNetworkAccessManager probe;
+            probe.setCookieJar(new QNetworkCookieJar{&probe});
+            const Response ready{hopWith(probe, edgeBase(*process)
+                                         + QStringLiteral("/auth/login?provider=stub"))};
+            if (ready.status == 302) {
+                return process;
+            }
+        }
+        return nullptr;
+    }
+
+    static QString edgeBase(const EdgeProcess &process)
+    {
+        return QStringLiteral("http://127.0.0.1:%1").arg(process.port);
+    }
+
+    /// The provider's redirect, pointed at a named replica.
+    ///
+    /// The provider sends the browser to the callback URL the login was begun with, which
+    /// names the replica that began it. A balancer in front of N replicas would pick again
+    /// here, independently, so this is what redirecting the callback elsewhere looks like
+    /// from the edge's side. The same URL on a different port.
+    static QString redirectedTo(const QString &location, const EdgeProcess &process)
+    {
+        QUrl url{location};
+        url.setPort(process.port);
+        return url.toString(QUrl::FullyEncoded);
+    }
+
+    Response hopWith(QNetworkAccessManager &browser, const QString &url)
+    {
+        QNetworkRequest request{QUrl{url}};
+        request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
+                             QNetworkRequest::ManualRedirectPolicy);
+        QNetworkReply *reply{browser.get(request)};
+        QEventLoop loop;
+        connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+        loop.exec();
+        Response response;
+        response.status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        response.location = QString::fromUtf8(reply->rawHeader("Location"));
+        response.setCookie = reply->rawHeader("Set-Cookie");
+        response.body = reply->readAll();
+        reply->deleteLater();
+        return response;
+    }
 
     Response get(const QUrl &url)
     {
@@ -781,6 +934,119 @@ private slots:
         QVERIFY2(!callback.setCookie.contains(access.toUtf8()),
                  "the access token must never appear in what the browser receives");
         QVERIFY(!callback.body.contains(access.toUtf8()));
+    }
+
+    // A replicated edge is N interchangeable processes behind a balancer, and the OAuth
+    // callback is a fresh top-level navigation from the provider. Nothing steers it back to
+    // the process that began the login, so with N replicas N-1 of every N logins land
+    // somewhere else. These three cases are that whole story, and they only work because the
+    // pending record (the CSRF binding and the desktop context) is held by the auth entity
+    // with the state rather than in the memory of whichever edge answered first.
+    //
+    // What makes it work is worth naming exactly, because the obvious answer is wrong. It is
+    // not that the replicas share a Source: this point is per-caller, and they would still
+    // work if each held its own. It is that every Source on the auth entity bridges to the
+    // SAME engine, so the record is one record however many Sources are in front of it.
+    //
+    // The first of these three is the load-bearing one. Against the old code the other two
+    // pass for the wrong reason: the edge refused every cross-replica callback outright, so
+    // a test that only ever asserts a refusal is green whether the gate works or is stuck
+    // shut. Only an accept that must succeed can tell those apart.
+    void aLoginBegunOnOneEdgeCompletesOnAnother()
+    {
+        AuthEntity auth;
+        QVERIFY2(auth.start(this), qPrintable(auth.error));
+        std::unique_ptr<EdgeProcess> first{startEdge(auth.port())};
+        std::unique_ptr<EdgeProcess> second{startEdge(auth.port())};
+        QVERIFY(first && second);
+        QVERIFY(first->port != second->port);
+
+        QNetworkAccessManager browser;
+        browser.setCookieJar(new QNetworkCookieJar{&browser});
+
+        // Begin at one replica, walk the provider, and come back to the OTHER one. The
+        // cookie jar sends the state cookie to both, which is not a convenience of the test:
+        // cookies are not keyed by port, so a real balancer in front of one hostname
+        // behaves exactly this way.
+        const Response login{hopWith(browser, edgeBase(*first)
+                                     + QStringLiteral("/auth/login?provider=stub"))};
+        QCOMPARE(login.status, 302);
+        const Response authorize{hopWith(browser, login.location)};
+        QCOMPARE(authorize.status, 302);
+        const QString callbackUrl{redirectedTo(authorize.location, *second)};
+
+        const Response callback{hopWith(browser, callbackUrl)};
+        QCOMPARE(callback.status, 302);
+        QVERIFY2(callback.setCookie.contains("synqt_session="),
+                 "the replica that received the callback must be able to finish the login");
+
+        const QByteArray token{sessionToken(callback.setCookie)};
+        QVERIFY(!token.isEmpty());
+        const SessionRecord *record{second->edge->sessionManager()->lookup(token)};
+        QVERIFY2(record != nullptr, "the session belongs to the replica that minted it");
+        QCOMPARE(record->identity.value(QStringLiteral("login")).toString(),
+                 QStringLiteral("octocat"));
+    }
+
+    void aCallbackWithTheWrongBindingIsRefusedOnEveryEdge()
+    {
+        // The defence a state alone does not provide. An attacker hands a victim a state
+        // they began and their own authorization code, and the victim's browser completes
+        // it. Moving the record to the auth entity must not have moved this check away
+        // with it, and it must hold on a replica that saw none of the login.
+        AuthEntity auth;
+        QVERIFY2(auth.start(this), qPrintable(auth.error));
+        std::unique_ptr<EdgeProcess> first{startEdge(auth.port())};
+        std::unique_ptr<EdgeProcess> second{startEdge(auth.port())};
+        QVERIFY(first && second);
+
+        QNetworkAccessManager attacker;
+        attacker.setCookieJar(new QNetworkCookieJar{&attacker});
+        const Response login{hopWith(attacker, edgeBase(*first)
+                                     + QStringLiteral("/auth/login?provider=stub"))};
+        QCOMPARE(login.status, 302);
+        const Response authorize{hopWith(attacker, login.location)};
+        QCOMPARE(authorize.status, 302);
+        const QString callbackUrl{redirectedTo(authorize.location, *second)};
+
+        // A different browser. It holds no state cookie, so it presents no binding.
+        QNetworkAccessManager victim;
+        victim.setCookieJar(new QNetworkCookieJar{&victim});
+        const Response forged{hopWith(victim, callbackUrl)};
+        QCOMPARE(forged.status, 400);
+        QVERIFY2(!forged.setCookie.contains("synqt_session="),
+                 "a callback without the binding must not mint a session anywhere");
+    }
+
+    void aReplayedCallbackIsRefusedOnEveryEdge()
+    {
+        // Single use, and single use across the whole deployment rather than once per
+        // process. A record consumed on one replica has to be gone for all of them, or a
+        // replayed callback buys a second session on the next replica along.
+        AuthEntity auth;
+        QVERIFY2(auth.start(this), qPrintable(auth.error));
+        std::unique_ptr<EdgeProcess> first{startEdge(auth.port())};
+        std::unique_ptr<EdgeProcess> second{startEdge(auth.port())};
+        QVERIFY(first && second);
+
+        QNetworkAccessManager browser;
+        browser.setCookieJar(new QNetworkCookieJar{&browser});
+        const Response login{hopWith(browser, edgeBase(*first)
+                                     + QStringLiteral("/auth/login?provider=stub"))};
+        QCOMPARE(login.status, 302);
+        const Response authorize{hopWith(browser, login.location)};
+        QCOMPARE(authorize.status, 302);
+
+        const QString atFirst{redirectedTo(authorize.location, *first)};
+        const Response accepted{hopWith(browser, atFirst)};
+        QCOMPARE(accepted.status, 302);
+        QVERIFY(accepted.setCookie.contains("synqt_session="));
+
+        const QString atSecond{redirectedTo(authorize.location, *second)};
+        const Response replayed{hopWith(browser, atSecond)};
+        QCOMPARE(replayed.status, 400);
+        QVERIFY2(!replayed.setCookie.contains("synqt_session="),
+                 "a callback already spent on one replica must be spent for all of them");
     }
 
     void unknownStateRejected()

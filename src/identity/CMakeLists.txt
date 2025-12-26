@@ -49,6 +49,7 @@ endif()
 include("${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/SynQtContracts.cmake")
 
 qt_add_library(SynQtIdentity STATIC
+    constanttime.h
     identityconfig.h
     deviceregistry.cpp
     deviceregistry.h

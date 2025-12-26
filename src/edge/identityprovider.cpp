@@ -4,6 +4,7 @@
 #include "identityprovider.h"
 
 #include "clientaddress.h"
+#include "constanttime.h"
 #include "deviceregistry.h"
 #include "identitymapping.h"
 #include "oauthbackend.h"
@@ -67,19 +68,6 @@ QByteArray cookieValue(const QByteArray &cookieHeader, const QByteArray &name)
         }
     }
     return {};
-}
-
-// Length-constant comparison, so a mismatch does not leak position via timing.
-bool constantTimeEquals(const QByteArray &lhs, const QByteArray &rhs)
-{
-    if (lhs.isEmpty() || lhs.size() != rhs.size()) {
-        return false;
-    }
-    quint8 difference{0};
-    for (qsizetype i{0}; i < lhs.size(); ++i) {
-        difference |= static_cast<quint8>(lhs.at(i)) ^ static_cast<quint8>(rhs.at(i));
-    }
-    return difference == 0;
 }
 
 // The cookie name that binds a pending login to the browser that started it.
@@ -319,8 +307,8 @@ void IdentityProvider::attachRemote(QObject *identityReplica)
             SIGNAL(beginResult(QString, QString, QString, QString)),
             this, SLOT(onBeginResult(QString, QString, QString, QString)));
     connect(identityReplica,
-            SIGNAL(exchangeResult(QString, QString, QString)),
-            this, SLOT(onExchangeResult(QString, QString, QString)));
+            SIGNAL(exchangeResult(QString, QString, QString, QString)),
+            this, SLOT(onExchangeResult(QString, QString, QString, QString)));
 }
 
 void IdentityProvider::onBeginResult(const QString &requestId, const QString &state,
@@ -335,22 +323,26 @@ void IdentityProvider::onBeginResult(const QString &requestId, const QString &st
 }
 
 void IdentityProvider::onExchangeResult(const QString &requestId, const QString &identityJson,
-                                        const QString &error)
+                                        const QString &context, const QString &error)
 {
     ExchangeOutcome outcome;
     outcome.identity = identityJson.isEmpty()
         ? QVariantMap{}
         : QJsonDocument::fromJson(identityJson.toUtf8()).object().toVariantMap();
+    outcome.context = context;
     outcome.error = error;
     m_exchangeResults.insert(requestId, outcome);
     emit exchangeArrived(requestId);
 }
 
-IdentityProvider::BeginOutcome IdentityProvider::beginLogin(const QString &providerName)
+IdentityProvider::BeginOutcome IdentityProvider::beginLogin(const QString &providerName,
+                                                            const QString &binding,
+                                                            const QString &context)
 {
     const QString redirectUri{m_edgeOrigin + m_config.callbackRoute};
     if (!isRemote()) {
-        const OAuthBackend::BeginResult result{m_backend->begin(providerName, redirectUri)};
+        const OAuthBackend::BeginResult result{
+            m_backend->begin(providerName, redirectUri, binding, context)};
         return BeginOutcome{result.state, result.authorizeUrl.toString(QUrl::FullyEncoded),
                             result.error};
     }
@@ -369,7 +361,8 @@ IdentityProvider::BeginOutcome IdentityProvider::beginLogin(const QString &provi
     });
     QTimer::singleShot(kRemoteTimeoutMs, &loop, &QEventLoop::quit);
     QMetaObject::invokeMethod(m_remote, "beginLogin", Q_ARG(QString, requestId),
-                              Q_ARG(QString, providerName), Q_ARG(QString, redirectUri));
+                              Q_ARG(QString, providerName), Q_ARG(QString, redirectUri),
+                              Q_ARG(QString, binding), Q_ARG(QString, context));
     loop.exec();
 
     if (!m_beginResults.contains(requestId)) {
@@ -379,16 +372,18 @@ IdentityProvider::BeginOutcome IdentityProvider::beginLogin(const QString &provi
 }
 
 IdentityProvider::ExchangeOutcome IdentityProvider::exchangeCode(const QString &state,
-                                                                 const QString &code)
+                                                                 const QString &code,
+                                                                 const QString &presentedBinding)
 {
     const QString redirectUri{m_edgeOrigin + m_config.callbackRoute};
     if (!isRemote()) {
-        const OAuthBackend::ExchangeResult result{m_backend->exchange(state, code, redirectUri)};
-        return ExchangeOutcome{result.identity, result.tokenKey, result.error};
+        const OAuthBackend::ExchangeResult result{
+            m_backend->exchange(state, code, redirectUri, presentedBinding)};
+        return ExchangeOutcome{result.identity, result.tokenKey, result.error, result.context};
     }
     if (!m_remote) {
         return ExchangeOutcome{QVariantMap{}, QString{},
-                               QStringLiteral("auth entity not connected")};
+                               QStringLiteral("auth entity not connected"), QString{}};
     }
 
     const QString requestId{randomToken()};
@@ -402,11 +397,13 @@ IdentityProvider::ExchangeOutcome IdentityProvider::exchangeCode(const QString &
     QTimer::singleShot(kRemoteTimeoutMs, &loop, &QEventLoop::quit);
     QMetaObject::invokeMethod(m_remote, "exchangeCode", Q_ARG(QString, requestId),
                               Q_ARG(QString, state), Q_ARG(QString, code),
-                              Q_ARG(QString, redirectUri));
+                              Q_ARG(QString, redirectUri),
+                              Q_ARG(QString, presentedBinding));
     loop.exec();
 
     if (!m_exchangeResults.contains(requestId)) {
-        return ExchangeOutcome{QVariantMap{}, QString{}, QStringLiteral("auth entity timed out")};
+        return ExchangeOutcome{QVariantMap{}, QString{},
+                               QStringLiteral("auth entity timed out"), QString{}};
     }
     ExchangeOutcome outcome{m_exchangeResults.take(requestId)};
     // The tokens are held on the auth entity under the state key until the session exists.
@@ -454,7 +451,6 @@ QVariantMap IdentityProvider::tokensForSession(const QByteArray &sessionId) cons
 
 QHttpServerResponse IdentityProvider::handleLogin(const QHttpServerRequest &request)
 {
-    expirePending();
     expireClaims();
     const QUrlQuery query{request.url().query()};
     QString providerName{query.queryItemValue(QStringLiteral("provider"))};
@@ -490,7 +486,17 @@ QHttpServerResponse IdentityProvider::handleLogin(const QHttpServerRequest &requ
         returnUrl = requestedReturn;
     }
 
-    const BeginOutcome begin{beginLogin(providerName)};
+    // Bind this login to the browser that started it. A random value set as a cookie now
+    // and required to match on the callback (defeats login CSRF / fixation). It goes to the
+    // identity engine with the state rather than into a table here, so the callback is
+    // answerable by any edge process. See IdentityProvider::LoginContext.
+    const QString csrfToken{randomToken()};
+    LoginContext context;
+    context.returnUrl = returnUrl;
+    context.returnState = returnState;
+    context.returnChallenge = returnChallenge;
+
+    const BeginOutcome begin{beginLogin(providerName, csrfToken, context.toJson())};
     if (!begin.error.isEmpty()) {
         // Preserve the specific status codes the browser flow relies on.
         if (begin.error == QLatin1String("unknown provider")) {
@@ -509,17 +515,6 @@ QHttpServerResponse IdentityProvider::handleLogin(const QHttpServerRequest &requ
         return QHttpServerResponse{QHttpServerResponse::StatusCode::InternalServerError};
     }
 
-    // Bind this pending login to the browser that started it: a random value set as a
-    // cookie now and required to match on the callback (defeats login CSRF / fixation).
-    const QString csrfToken{randomToken()};
-    PendingLogin pending;
-    pending.csrfToken = csrfToken;
-    pending.createdMs = QDateTime::currentMSecsSinceEpoch();
-    pending.returnUrl = returnUrl;
-    pending.returnState = returnState;
-    pending.returnChallenge = returnChallenge;
-    m_pending.insert(begin.state, pending);
-
     return redirectTo(begin.authorizeUrl, {buildStateCookie(csrfToken.toUtf8(), false)});
 }
 
@@ -529,32 +524,36 @@ QHttpServerResponse IdentityProvider::handleCallback(const QHttpServerRequest &r
     const QString code{query.queryItemValue(QStringLiteral("code"))};
     const QString state{query.queryItemValue(QStringLiteral("state"))};
 
-    // Framework state verification: only a state this edge issued (and still holds) is
-    // accepted. An unknown or replayed state is rejected before any token exchange.
-    if (state.isEmpty() || !m_pending.contains(state)) {
-        return QHttpServerResponse{QByteArrayLiteral("text/plain"),
-                                   QByteArrayLiteral("invalid or expired state"),
-                                   QHttpServerResponse::StatusCode::BadRequest};
-    }
-    PendingLogin pending{m_pending.take(state)};
-
-    // Login-CSRF defense: the callback must come from the same browser that started the
-    // login, proven by the state cookie set then. A state alone is not enough; an
-    // attacker could hand a victim a valid state and their own authorization code.
+    // The state and binding checks happen where the record is, which is the
+    // identity engine. It holds the state, the CSRF binding and the desktop context
+    // together, refuses a callback whose binding does not match BEFORE spending the code,
+    // and consumes the record either way. Doing it there rather than here is what lets an
+    // edge process answer a callback for a login it never saw the start of, and what keeps
+    // the record single-use across every process rather than once per process.
+    //
+    // The login-CSRF defense is unchanged in substance. A state alone is still not enough,
+    // because an attacker can hand a victim a valid state and their own authorization code.
+    // What changed is only which process is holding the value it is checked against.
     const QByteArray presentedCsrf{cookieValue(request.value("Cookie"), kOauthStateCookie)};
-    if (!constantTimeEquals(presentedCsrf, pending.csrfToken.toUtf8())) {
+    const ExchangeOutcome exchange{exchangeCode(state, code,
+                                                QString::fromUtf8(presentedCsrf))};
+    const LoginContext context{LoginContext::fromJson(exchange.context)};
+
+    // These two are refusals of the request, not failures of the exchange, and they keep the
+    // status codes the browser flow has always answered them with.
+    if (exchange.error == QLatin1String("invalid or expired state")
+        || exchange.error == QLatin1String("login session mismatch")) {
         return QHttpServerResponse{QByteArrayLiteral("text/plain"),
-                                   QByteArrayLiteral("login session mismatch"),
+                                   exchange.error.toUtf8(),
                                    QHttpServerResponse::StatusCode::BadRequest};
     }
 
-    const ExchangeOutcome exchange{exchangeCode(state, code)};
     if (exchange.identity.isEmpty()) {
-        if (!pending.returnUrl.isEmpty()) {
+        if (context.isDesktop()) {
             // Tell the waiting desktop client it failed. Without this the app sits on its
             // loopback listener until the timeout with nothing to report, which reads to
             // the visitor as a sign-in that hung rather than one that was refused.
-            return loopbackRedirect(pending, QString{}, QStringLiteral("access_denied"));
+            return loopbackRedirect(context, QString{}, QStringLiteral("access_denied"));
         }
         return redirectTo(m_config.appRoute, {buildStateCookie(QByteArray{}, true)});
     }
@@ -570,7 +569,7 @@ QHttpServerResponse IdentityProvider::handleCallback(const QHttpServerRequest &r
         m_backend->rekeyTokens(exchange.tokenKey, QString::fromLatin1(sessionId));
     }
 
-    if (!pending.returnUrl.isEmpty()) {
+    if (context.isDesktop()) {
         // A desktop login ends here, and deliberately not with a cookie: the system browser
         // is not the app. Leaving it signed in would put a live session in a browser the
         // visitor did not sign in with, on a machine that may not be theirs alone, and
@@ -579,10 +578,10 @@ QHttpServerResponse IdentityProvider::handleCallback(const QHttpServerRequest &r
         const QString claimCode{randomToken()};
         PendingClaim claim;
         claim.sessionId = sessionId;
-        claim.challenge = pending.returnChallenge;
+        claim.challenge = context.returnChallenge;
         claim.createdMs = QDateTime::currentMSecsSinceEpoch();
         m_claims.insert(claimCode, claim);
-        return loopbackRedirect(pending, claimCode, QString{});
+        return loopbackRedirect(context, claimCode, QString{});
     }
 
     // Set the session cookie and clear the now-consumed login-state cookie.
@@ -590,14 +589,14 @@ QHttpServerResponse IdentityProvider::handleCallback(const QHttpServerRequest &r
                       {buildCookie(sessionId), buildStateCookie(QByteArray{}, true)});
 }
 
-QHttpServerResponse IdentityProvider::loopbackRedirect(const PendingLogin &pending,
+QHttpServerResponse IdentityProvider::loopbackRedirect(const LoginContext &context,
                                                        const QString &code,
                                                        const QString &error) const
 {
     // Built through QUrl rather than by concatenation. The URL itself was validated to
     // carry no query of its own at login, and the state is the caller's own string, so the
     // encoding is what keeps it a value rather than a second parameter.
-    QUrl target{pending.returnUrl, QUrl::StrictMode};
+    QUrl target{context.returnUrl, QUrl::StrictMode};
     QUrlQuery query;
     if (!code.isEmpty()) {
         query.addQueryItem(QStringLiteral("code"), code);
@@ -605,7 +604,7 @@ QHttpServerResponse IdentityProvider::loopbackRedirect(const PendingLogin &pendi
     if (!error.isEmpty()) {
         query.addQueryItem(QStringLiteral("error"), error);
     }
-    query.addQueryItem(QStringLiteral("state"), pending.returnState);
+    query.addQueryItem(QStringLiteral("state"), context.returnState);
     target.setQuery(query);
     return redirectTo(target.toString(QUrl::FullyEncoded),
                       {buildStateCookie(QByteArray{}, true)});
@@ -882,16 +881,26 @@ QByteArray IdentityProvider::buildCookie(const QByteArray &token) const
     return cookie;
 }
 
-void IdentityProvider::expirePending()
+QString IdentityProvider::LoginContext::toJson() const
 {
-    const qint64 now{QDateTime::currentMSecsSinceEpoch()};
-    for (auto it{m_pending.begin()}; it != m_pending.end();) {
-        if (now - it->createdMs > 5 * 60 * 1000) {  // a login has 5 minutes to complete
-            it = m_pending.erase(it);
-        } else {
-            ++it;
-        }
+    if (!isDesktop()) {
+        return QString{};  // a browser login has nothing to carry. Do not send "{}" for it
     }
+    QJsonObject object;
+    object.insert(QStringLiteral("returnUrl"), returnUrl);
+    object.insert(QStringLiteral("returnState"), returnState);
+    object.insert(QStringLiteral("returnChallenge"), returnChallenge);
+    return QString::fromUtf8(QJsonDocument{object}.toJson(QJsonDocument::Compact));
+}
+
+IdentityProvider::LoginContext IdentityProvider::LoginContext::fromJson(const QString &json)
+{
+    const QJsonObject object{QJsonDocument::fromJson(json.toUtf8()).object()};
+    LoginContext context;
+    context.returnUrl = object.value(QStringLiteral("returnUrl")).toString();
+    context.returnState = object.value(QStringLiteral("returnState")).toString();
+    context.returnChallenge = object.value(QStringLiteral("returnChallenge")).toString();
+    return context;
 }
 
 void IdentityProvider::expireClaims()

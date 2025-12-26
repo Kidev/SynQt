@@ -16,14 +16,17 @@ import SynQt
 Identity {
     id: source
 
-    function beginLogin(requestId, provider, redirectUri) {
-        const result = IdentityEngine.beginLogin(provider, redirectUri);
+    function beginLogin(requestId, provider, redirectUri, binding, context) {
+        const result = IdentityEngine.beginLogin(provider, redirectUri, binding, context);
         source.emitBeginResult(requestId, result.state, result.authorizeUrl, result.error);
     }
 
-    function exchangeCode(requestId, state, code, redirectUri) {
-        const result = IdentityEngine.exchangeCode(state, code, redirectUri);
-        source.emitExchangeResult(requestId, result.identityJson, result.error);
+    // The binding an edge tied this login to is held here with the state and checked here,
+    // before the code is spent, so any edge process can answer a callback any other one
+    // started and none of them can answer it twice.
+    function exchangeCode(requestId, state, code, redirectUri, presentedBinding) {
+        const result = IdentityEngine.exchangeCode(state, code, redirectUri, presentedBinding);
+        source.emitExchangeResult(requestId, result.identityJson, result.context, result.error);
     }
 
     function bindSession(state, sessionId) {

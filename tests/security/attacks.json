@@ -357,6 +357,20 @@
       "defended_by": "Only the rightmost entry that is not itself a trusted hop is taken as the client; everything left of it was written by the client and is never the answer.",
       "file": "tests/m5-webedge/tst_clientaddress.cpp",
       "test": "appendedHopsDoNotBecomeTheClient"
+    },
+    {
+      "id": "login-csrf-across-replicas",
+      "what": "An attacker begins a login, hands the victim the state plus their own authorization code, and aims the callback at an edge process that never saw the login start.",
+      "defended_by": "The browser CSRF binding is held with the state by the identity engine, not by the edge that began the login, and is compared there in constant time before the code is spent.",
+      "file": "tests/m8-auth/tst_m8.cpp",
+      "test": "aCallbackWithTheWrongBindingIsRefusedOnEveryEdge"
+    },
+    {
+      "id": "callback-replayed-against-another-replica",
+      "what": "A completed OAuth callback is replayed against a second edge process, to buy a second session from a record the first process already spent.",
+      "defended_by": "The pending record is consumed on the identity engine, so it is single-use for the whole deployment rather than once per process.",
+      "file": "tests/m8-auth/tst_m8.cpp",
+      "test": "aReplayedCallbackIsRefusedOnEveryEdge"
     }
   ]
 }

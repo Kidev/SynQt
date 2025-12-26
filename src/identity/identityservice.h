@@ -33,13 +33,25 @@ public:
 
     /// Build the authorization URL for a provider (PKCE + state held here). Returns
     /// { state, authorizeUrl, error }.
-    Q_INVOKABLE QVariantMap beginLogin(const QString &provider, const QString &redirectUri);
+    ///
+    /// `binding` is what the calling edge must present again on the callback, and `context`
+    /// is opaque and handed back on exchange. Both are held against the state on this entity
+    /// rather than on that edge, which is what lets any edge process finish a login any
+    /// other one began. See OAuthBackend::begin.
+    Q_INVOKABLE QVariantMap beginLogin(const QString &provider, const QString &redirectUri,
+                                       const QString &binding = QString{},
+                                       const QString &context = QString{});
 
     /// Exchange the returned code for tokens (secret + verifier), verify and normalize the
-    /// identity, and store the tokens under the state key. Returns { identityJson, error };
-    /// the tokens never leave this entity.
+    /// identity, and store the tokens under the state key. Returns
+    /// { identityJson, context, error }; the tokens never leave this entity.
+    ///
+    /// `presentedBinding` is checked against what beginLogin stored, before the code is
+    /// spent, and the record is consumed either way, so a callback is answerable exactly
+    /// once across every edge consuming this point.
     Q_INVOKABLE QVariantMap exchangeCode(const QString &state, const QString &code,
-                                         const QString &redirectUri);
+                                         const QString &redirectUri,
+                                         const QString &presentedBinding = QString{});
 
     /// Move the tokens from the temporary state key to the stable session id.
     Q_INVOKABLE void bindSession(const QString &state, const QString &sessionId);

@@ -3,6 +3,7 @@
 
 #include "oauthbackend.h"
 
+#include "constanttime.h"
 #include "edgereplyhandler.h"
 #include "jwksverifier.h"
 
@@ -113,7 +114,9 @@ QOAuth2AuthorizationCodeFlow *OAuthBackend::makeFlow(const IdentityProviderConfi
 }
 
 OAuthBackend::BeginResult OAuthBackend::begin(const QString &providerName,
-                                              const QString &redirectUri)
+                                              const QString &redirectUri,
+                                              const QString &binding,
+                                              const QString &context)
 {
     expirePending();
     BeginResult result;
@@ -168,6 +171,8 @@ OAuthBackend::BeginResult OAuthBackend::begin(const QString &providerName,
     pending.flow = flow;
     pending.providerName = providerName;
     pending.nonce = nonce;
+    pending.binding = binding;
+    pending.context = context;
     pending.createdMs = QDateTime::currentMSecsSinceEpoch();
     m_pending.insert(state, pending);
 
@@ -177,7 +182,8 @@ OAuthBackend::BeginResult OAuthBackend::begin(const QString &providerName,
 }
 
 OAuthBackend::ExchangeResult OAuthBackend::exchange(const QString &state, const QString &code,
-                                                    const QString &redirectUri)
+                                                    const QString &redirectUri,
+                                                    const QString &presentedBinding)
 {
     Q_UNUSED(redirectUri);  // the pending flow already carries the matching redirect_uri
     ExchangeResult result;
@@ -190,6 +196,22 @@ OAuthBackend::ExchangeResult OAuthBackend::exchange(const QString &state, const 
     }
     Pending pending{m_pending.take(state)};
     QOAuth2AuthorizationCodeFlow *flow{pending.flow};
+
+    // Login-CSRF defense, checked here rather than by the caller and checked before the
+    // code is spent. Here, because the record it is checked against lives here, and a
+    // check that travels away from its data is a check each caller can forget. Before,
+    // because exchanging first would hand a real authorization code to whoever sent this
+    // callback and only then notice it was not the browser that started the login.
+    //
+    // The pending record is already taken, so this is single-use whichever way it goes: a
+    // callback replayed after a success finds no state, and one replayed after a mismatch
+    // finds none either.
+    if (!pending.binding.isEmpty() && !constantTimeEquals(presentedBinding, pending.binding)) {
+        flow->deleteLater();
+        result.error = QStringLiteral("login session mismatch");
+        return result;
+    }
+    result.context = pending.context;
 
     const IdentityProviderConfig *provider{m_config.provider(pending.providerName)};
     if (!provider) {

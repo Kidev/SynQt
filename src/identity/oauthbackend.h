@@ -50,9 +50,22 @@ public:
         QUrl authorizeUrl;
         QString error;
     };
-    BeginResult begin(const QString &providerName, const QString &redirectUri);
+    /// Two things travel with the state, and they have different jobs:
+    ///
+    ///  - `binding` is what the caller must present again on the callback, and exchange()
+    ///    refuses one that does not. The edge puts the browser's CSRF cookie value here, so
+    ///    a state alone is not enough to complete a login.
+    ///  - `context` is opaque and is handed back on exchange. The edge puts the
+    ///    desktop loopback return in it, which it needs to answer the waiting client.
+    ///
+    /// Both are held here with the state rather than by the caller, which is what lets any
+    /// edge process finish a login any other one started (a replicated edge). With a single
+    /// edge it changes nothing except where the record lives.
+    BeginResult begin(const QString &providerName, const QString &redirectUri,
+                      const QString &binding = QString{},
+                      const QString &context = QString{});
 
-    /// The token step: exchange the returned authorization code for tokens (client secret +
+    /// The token step. Exchange the returned authorization code for tokens (client secret +
     /// PKCE verifier), verify and normalize the identity, and store the tokens under a key
     /// (the state, until rekeyed to a stable session id). Consumes the pending state.
     struct ExchangeResult
@@ -60,9 +73,21 @@ public:
         QVariantMap identity;
         QString tokenKey;
         QString error;
+        /// The `context` begin() was given, back again. It comes back on a failed exchange
+        /// too, deliberately: a desktop login that is refused has to tell the waiting client
+        /// so, over the loopback address that is in here, or the app sits on its listener
+        /// until the timeout and the visitor reads a refusal as a hang. Empty only when
+        /// there was no record to match (unknown or expired state) or the presented binding
+        /// did not match it, since neither of those is a login this caller started.
+        QString context;
     };
+    /// `presentedBinding` is checked against what begin() stored, in constant time, BEFORE
+    /// the code is spent: a callback whose binding does not match is somebody else's, and
+    /// exchanging first would burn a real authorization code on it. The pending record is
+    /// consumed either way, so a callback cannot be replayed against a second process.
     ExchangeResult exchange(const QString &state, const QString &code,
-                            const QString &redirectUri);
+                            const QString &redirectUri,
+                            const QString &presentedBinding = QString{});
 
     /// Move a stored token entry to a stable key (the session id) once the session exists.
     void rekeyTokens(const QString &fromKey, const QString &toKey);
@@ -94,6 +119,8 @@ private:
         QOAuth2AuthorizationCodeFlow *flow{nullptr};
         QString providerName;
         QString nonce;
+        QString binding;   ///< must be re-presented on the callback. See begin()
+        QString context;   ///< opaque, handed back on exchange. See begin()
         qint64 createdMs{0};
     };
 

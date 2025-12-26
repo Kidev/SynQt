@@ -40,9 +40,11 @@ OAuthBackend *IdentityService::backend() const
     return m_backend;
 }
 
-QVariantMap IdentityService::beginLogin(const QString &provider, const QString &redirectUri)
+QVariantMap IdentityService::beginLogin(const QString &provider, const QString &redirectUri,
+                                        const QString &binding, const QString &context)
 {
-    const OAuthBackend::BeginResult result{m_backend->begin(provider, redirectUri)};
+    const OAuthBackend::BeginResult result{
+        m_backend->begin(provider, redirectUri, binding, context)};
     return QVariantMap{
         {QStringLiteral("state"), result.state},
         {QStringLiteral("authorizeUrl"), result.authorizeUrl.toString(QUrl::FullyEncoded)},
@@ -50,11 +52,14 @@ QVariantMap IdentityService::beginLogin(const QString &provider, const QString &
 }
 
 QVariantMap IdentityService::exchangeCode(const QString &state, const QString &code,
-                                          const QString &redirectUri)
+                                          const QString &redirectUri,
+                                          const QString &presentedBinding)
 {
-    const OAuthBackend::ExchangeResult result{m_backend->exchange(state, code, redirectUri)};
+    const OAuthBackend::ExchangeResult result{
+        m_backend->exchange(state, code, redirectUri, presentedBinding)};
     return QVariantMap{
         {QStringLiteral("identityJson"), identityToJson(result.identity)},
+        {QStringLiteral("context"), result.context},
         {QStringLiteral("error"), result.error}};
 }
 

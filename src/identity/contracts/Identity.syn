@@ -8,13 +8,23 @@
 // browser-facing half (cookies, session), so no secret and no token ever reaches an edge.
 //
 // A per_peer Source answers each edge on itself, so a user's identity never crosses to
-// another edge. Requests carry a requestId the edge correlates its answer against; the
+// another edge. Requests carry a requestId the edge correlates its answer against. The
 // normalized identity travels back as a JSON string.
+//
+// Two values travel with the state, and they have different jobs. `binding` is what the edge
+// must present again on the callback (the browser's CSRF cookie value), checked here in
+// constant time before the code is spent. `context` is opaque and is handed back on the
+// exchange (the desktop loopback return, when there is one).
+//
+// Both are held HERE rather than on the edge that began the login, which is the whole point:
+// it makes a login answerable by any edge process rather than only the one that started it,
+// which is what a replicated edge needs (specs/2026-08-15-multi-edges.md), and it makes the
+// record single-use across all of them rather than once per process.
 contract Identity {
-    slot beginLogin(string requestId, string provider, string redirectUri)
-    slot exchangeCode(string requestId, string state, string code, string redirectUri)
+    slot beginLogin(string requestId, string provider, string redirectUri, string binding, string context)
+    slot exchangeCode(string requestId, string state, string code, string redirectUri, string presentedBinding)
     slot bindSession(string state, string sessionId)
     slot releaseSession(string sessionId)
     signal beginResult(string requestId, string state, string authorizeUrl, string error)
-    signal exchangeResult(string requestId, string identityJson, string error)
+    signal exchangeResult(string requestId, string identityJson, string context, string error)
 }

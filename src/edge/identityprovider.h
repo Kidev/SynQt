@@ -130,20 +130,29 @@ private slots:
     void onBeginResult(const QString &requestId, const QString &state,
                        const QString &authorizeUrl, const QString &error);
     void onExchangeResult(const QString &requestId, const QString &identityJson,
-                          const QString &error);
+                          const QString &context, const QString &error);
 
 private:
-    struct PendingLogin
+    /// What the callback needs handed back: the desktop flow's answer, all three empty for
+    /// a browser login. The loopback URL the system browser is sent back to, the nonce the
+    /// native client will match that arrival against, and the S256 challenge whose verifier
+    /// only that client holds.
+    ///
+    /// This is not held on this edge. It is serialized as the `context` the identity engine
+    /// keeps with the state (in process, or on the auth entity when identity is promoted)
+    /// and comes back on the exchange, alongside the CSRF `binding` the engine checks. That
+    /// is the whole of what makes a login answerable by an edge process other than the one
+    /// that began it, which is what a replicated edge needs and what a single edge is
+    /// unaffected by.
+    struct LoginContext
     {
-        QString csrfToken;  ///< bound to the initiating browser via a cookie (login CSRF)
-        qint64 createdMs{0};
-
-        /// The desktop flow, all three empty for a browser login. The loopback URL the
-        /// system browser is sent back to, the nonce the native client will match that
-        /// arrival against, and the S256 challenge whose verifier only that client holds.
         QString returnUrl;
         QString returnState;
         QString returnChallenge;
+
+        bool isDesktop() const { return !returnUrl.isEmpty(); }
+        QString toJson() const;
+        static LoginContext fromJson(const QString &json);
     };
 
     /// A finished desktop login, waiting to be collected. The session already exists; this
@@ -158,9 +167,17 @@ private:
 
     /// Delegates to the local backend or the remote auth entity depending on the mode.
     struct BeginOutcome { QString state; QString authorizeUrl; QString error; };
-    BeginOutcome beginLogin(const QString &providerName);
-    struct ExchangeOutcome { QVariantMap identity; QString tokenKey; QString error; };
-    ExchangeOutcome exchangeCode(const QString &state, const QString &code);
+    BeginOutcome beginLogin(const QString &providerName, const QString &binding,
+                            const QString &context);
+    struct ExchangeOutcome
+    {
+        QVariantMap identity;
+        QString tokenKey;
+        QString error;
+        QString context;  ///< what beginLogin was given, back again. See LoginContext
+    };
+    ExchangeOutcome exchangeCode(const QString &state, const QString &code,
+                                 const QString &presentedBinding);
     void bindRemoteSession(const QString &state, const QByteArray &sessionId);
     void releaseRemoteTokens(const QByteArray &sessionId);
 
@@ -176,11 +193,10 @@ private:
     void onReuseDetected(const QString &family);
     QByteArray buildCookie(const QByteArray &token) const;
     QByteArray buildStateCookie(const QByteArray &value, bool expire) const;
-    void expirePending();
     void expireClaims();
     /// The loopback redirect the system browser is sent to once the session exists, or an
     /// empty response when this login was not a desktop one.
-    QHttpServerResponse loopbackRedirect(const PendingLogin &pending, const QString &code,
+    QHttpServerResponse loopbackRedirect(const LoginContext &context, const QString &code,
                                          const QString &error) const;
 
     IdentityConfig m_config;
@@ -196,7 +212,6 @@ private:
     DeviceRegistry *m_devices{nullptr};     ///< null unless the project persists sessions
     const ClientAddress *m_clientAddress{nullptr};  ///< the edge's; null means the peer
 
-    QHash<QString, PendingLogin> m_pending; ///< state -> browser CSRF binding
     QHash<QString, PendingClaim> m_claims;  ///< claim code -> the session it stands for
 
     /// Fixed-window request counts per client address for the device route, so a machine

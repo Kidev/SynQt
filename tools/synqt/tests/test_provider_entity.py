@@ -262,8 +262,15 @@ class SourceQmlBridges(unittest.TestCase):
     def test_each_bridge_forwards_to_the_context_object_its_main_installs(self):
         identity = authentity.render_source_qml("Identity")
         self.assertIn("Identity {", identity)
-        self.assertIn("IdentityEngine.beginLogin(provider, redirectUri)", identity)
-        self.assertIn("IdentityEngine.exchangeCode(state, code, redirectUri)", identity)
+        # The binding and the context travel with the state to the engine, which is what
+        # lets any edge process finish a login another one began (a replicated edge). A
+        # bridge that dropped them would compile, run, and quietly put the record back in
+        # the memory of whichever process happened to answer first.
+        self.assertIn("IdentityEngine.beginLogin(provider, redirectUri, binding, context)",
+                      identity)
+        self.assertIn("IdentityEngine.exchangeCode(state, code, redirectUri, presentedBinding)",
+                      identity)
+        self.assertIn("result.context", identity)
         session = authentity.render_source_qml("SessionStore")
         self.assertIn("SessionStore {", session)
         self.assertIn("Sessions.applyUpsert(token, scope, identityJson, createdMs)",
