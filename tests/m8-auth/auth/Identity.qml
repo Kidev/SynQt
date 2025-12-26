@@ -33,6 +33,17 @@ Identity {
         IdentityEngine.bindSession(state, sessionId);
     }
 
+    // A desktop claim is minted on whichever edge answered the callback and redeemed over a
+    // connection the native client opens for itself, so it is held here where every edge
+    // can reach it. An empty sessionId is every failure alike.
+    function holdClaim(code, sessionId, challenge) {
+        IdentityEngine.holdClaim(code, sessionId, challenge);
+    }
+
+    function takeClaim(requestId, code, verifier) {
+        source.emitClaimResult(requestId, IdentityEngine.takeClaim(code, verifier));
+    }
+
     function releaseSession(sessionId) {
         IdentityEngine.releaseSession(sessionId);
     }

@@ -5,6 +5,7 @@
 
 #include "oauthbackend.h"
 
+#include <QDateTime>
 #include <QJsonDocument>
 #include <QJsonObject>
 
@@ -28,6 +29,7 @@ QString identityToJson(const QVariantMap &identity)
 IdentityService::IdentityService(const IdentityConfig &config, QObject *parent)
     : QObject{parent}
     , m_backend{new OAuthBackend{config, this}}
+    , m_claimTtlMs{claimTtlMsFrom(config.claimTtlSeconds)}
 {
     // The auth entity is the single place tokens live, so it runs the refresh sweep.
     m_backend->setAutoRefresh(config.refreshIntervalSeconds, config.refreshMarginSeconds);
@@ -66,6 +68,20 @@ QVariantMap IdentityService::exchangeCode(const QString &state, const QString &c
 void IdentityService::bindSession(const QString &state, const QString &sessionId)
 {
     m_backend->rekeyTokens(state, sessionId);
+}
+
+void IdentityService::holdClaim(const QString &code, const QString &sessionId,
+                                const QString &challenge)
+{
+    const qint64 now{QDateTime::currentMSecsSinceEpoch()};
+    m_claims.expire(now, m_claimTtlMs);
+    m_claims.hold(code, sessionId.toLatin1(), challenge, now);
+}
+
+QString IdentityService::takeClaim(const QString &code, const QString &verifier)
+{
+    const qint64 now{QDateTime::currentMSecsSinceEpoch()};
+    return QString::fromLatin1(m_claims.take(code, verifier, now, m_claimTtlMs));
 }
 
 void IdentityService::releaseSession(const QString &sessionId)

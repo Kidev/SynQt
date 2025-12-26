@@ -371,6 +371,20 @@
       "defended_by": "The pending record is consumed on the identity engine, so it is single-use for the whole deployment rather than once per process.",
       "file": "tests/m8-auth/tst_m8.cpp",
       "test": "aReplayedCallbackIsRefusedOnEveryEdge"
+    },
+    {
+      "id": "desktop-claim-replayed-against-another-replica",
+      "what": "A desktop claim code, read out of the system browser's history, is spent again against a second edge process to buy a second session.",
+      "defended_by": "The claim is held by the identity engine, not by the edge that minted it, so spending it on one process spends it for all of them.",
+      "file": "tests/m8-auth/tst_m8.cpp",
+      "test": "aDesktopClaimIsSpentOnceAcrossReplicas"
+    },
+    {
+      "id": "desktop-claim-verifier-guessing",
+      "what": "A claim code is held and verifiers are tried against it repeatedly, on any process that will answer.",
+      "defended_by": "The code is taken out of the store before the verifier is checked, so a wrong guess spends it: one code, one attempt, deployment-wide.",
+      "file": "tests/m8-auth/tst_m8.cpp",
+      "test": "aDesktopClaimWithTheWrongVerifierIsRefusedAndSpent"
     }
   ]
 }

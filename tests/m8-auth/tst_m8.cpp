@@ -28,6 +28,7 @@
 #include <QHostAddress>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QCryptographicHash>
 #include <QNetworkAccessManager>
 #include <QNetworkCookieJar>
 #include <QNetworkReply>
@@ -209,6 +210,7 @@ private:
         config.port = 0;
         config.identity.enabled = true;
         config.identity.providerEntity = QStringLiteral("auth");
+        config.identity.allowDesktopLogin = true;
         config.identity.mappingHook = QStringLiteral(M8_SRCDIR "/web/identity/map.qml");
         IdentityProviderConfig nameOnly;
         nameOnly.name = QStringLiteral("stub");
@@ -271,6 +273,67 @@ private:
         QUrl url{location};
         url.setPort(process.port);
         return url.toString(QUrl::FullyEncoded);
+    }
+
+    /// Drive a whole desktop sign-in through one replica and return the claim code the
+    /// loopback redirect carries. Empty if any hop of it did not do what it should.
+    QString desktopClaimFrom(const EdgeProcess &process, const QByteArray &verifier)
+    {
+        const QByteArray challenge{
+            QCryptographicHash::hash(verifier, QCryptographicHash::Sha256)
+                .toBase64(QByteArray::Base64UrlEncoding | QByteArray::OmitTrailingEquals)};
+
+        QUrlQuery query;
+        query.addQueryItem(QStringLiteral("provider"), QStringLiteral("stub"));
+        query.addQueryItem(QStringLiteral("return"),
+                           QStringLiteral("http://127.0.0.1:5555/"));
+        query.addQueryItem(QStringLiteral("return_state"), QStringLiteral("apps-own-nonce"));
+        query.addQueryItem(QStringLiteral("return_challenge"),
+                           QString::fromLatin1(challenge));
+        QUrl login{edgeBase(process) + QStringLiteral("/auth/login")};
+        login.setQuery(query);
+
+        QNetworkAccessManager browser;
+        browser.setCookieJar(new QNetworkCookieJar{&browser});
+        const Response begun{hopWith(browser, login.toString(QUrl::FullyEncoded))};
+        if (begun.status != 302) {
+            return {};
+        }
+        const Response authorize{hopWith(browser, begun.location)};
+        if (authorize.status != 302) {
+            return {};
+        }
+        const Response callback{hopWith(browser, authorize.location)};
+        if (callback.status != 302) {
+            return {};
+        }
+        return QUrlQuery{QUrl{callback.location}.query()}
+            .queryItemValue(QStringLiteral("code"));
+    }
+
+    /// Redeem a claim at a named replica, the way the native client does. A POST with no
+    /// Origin, over a connection of its own.
+    Response claimAt(const EdgeProcess &process, const QString &code, const QString &verifier)
+    {
+        QUrlQuery form;
+        form.addQueryItem(QStringLiteral("code"), code);
+        form.addQueryItem(QStringLiteral("verifier"), verifier);
+
+        QNetworkRequest request{QUrl{edgeBase(process)
+                                     + QStringLiteral("/auth/login/claim")}};
+        request.setHeader(QNetworkRequest::ContentTypeHeader,
+                          QByteArrayLiteral("application/x-www-form-urlencoded"));
+        QNetworkAccessManager client;
+        QNetworkReply *reply{client.post(
+            request, form.toString(QUrl::FullyEncoded).toUtf8())};
+        QEventLoop loop;
+        connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+        loop.exec();
+        Response response;
+        response.status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        response.body = reply->readAll();
+        reply->deleteLater();
+        return response;
     }
 
     Response hopWith(QNetworkAccessManager &browser, const QString &url)
@@ -1049,9 +1112,70 @@ private slots:
                  "a callback already spent on one replica must be spent for all of them");
     }
 
+    // The desktop half of the same problem, and a sharper version of it: the browser that
+    // signs in and the native client that collects are two different programs opening two
+    // different connections, so a balancer places them independently even when the visitor
+    // does everything in one sitting.
+    void aDesktopClaimMintedOnOneEdgeIsRedeemedOnAnother()
+    {
+        AuthEntity auth;
+        QVERIFY2(auth.start(this), qPrintable(auth.error));
+        std::unique_ptr<EdgeProcess> first{startEdge(auth.port())};
+        std::unique_ptr<EdgeProcess> second{startEdge(auth.port())};
+        QVERIFY(first && second);
+
+        const QByteArray verifier{QByteArrayLiteral("a-verifier-only-this-process-has")};
+        const QString code{desktopClaimFrom(*first, verifier)};
+        QVERIFY2(!code.isEmpty(), "the desktop login must end at a loopback claim code");
+
+        // Collected against the replica that saw none of it.
+        const Response collected{claimAt(*second, code, QString::fromLatin1(verifier))};
+        QCOMPARE(collected.status, 200);
+        QVERIFY2(collected.body.contains("\"session\""),
+                 "the replica that received the claim must be able to answer it");
+    }
+
+    void aDesktopClaimIsSpentOnceAcrossReplicas()
+    {
+        AuthEntity auth;
+        QVERIFY2(auth.start(this), qPrintable(auth.error));
+        std::unique_ptr<EdgeProcess> first{startEdge(auth.port())};
+        std::unique_ptr<EdgeProcess> second{startEdge(auth.port())};
+        QVERIFY(first && second);
+
+        const QByteArray verifier{QByteArrayLiteral("another-verifier-entirely")};
+        const QString code{desktopClaimFrom(*first, verifier)};
+        QVERIFY(!code.isEmpty());
+
+        QCOMPARE(claimAt(*first, code, QString::fromLatin1(verifier)).status, 200);
+        // Not "spent on this process": spent, full stop. A code that buys a second session
+        // from the next replica along is not single use in any sense that matters.
+        QCOMPARE(claimAt(*second, code, QString::fromLatin1(verifier)).status, 404);
+    }
+
+    void aDesktopClaimWithTheWrongVerifierIsRefusedAndSpent()
+    {
+        // Both halves, because the second is the surprising one and is deliberate: the
+        // code is taken out before the verifier is checked, so a wrong guess spends it.
+        // A code read out of a browser history must not be something a guesser can sit and
+        // try verifiers against.
+        AuthEntity auth;
+        QVERIFY2(auth.start(this), qPrintable(auth.error));
+        std::unique_ptr<EdgeProcess> first{startEdge(auth.port())};
+        std::unique_ptr<EdgeProcess> second{startEdge(auth.port())};
+        QVERIFY(first && second);
+
+        const QByteArray verifier{QByteArrayLiteral("the-real-verifier-for-this-one")};
+        const QString code{desktopClaimFrom(*first, verifier)};
+        QVERIFY(!code.isEmpty());
+
+        QCOMPARE(claimAt(*second, code, QStringLiteral("not-the-verifier")).status, 404);
+        QCOMPARE(claimAt(*first, code, QString::fromLatin1(verifier)).status, 404);
+    }
+
     void unknownStateRejected()
     {
-        // The framework accepts only a state it issued: a forged/expired state is refused
+        // The framework accepts only a state it issued. A forged/expired state is refused
         // before any token exchange.
         const Response forged{get(QUrl{edgeUrl(
             QStringLiteral("/auth/callback?code=whatever&state=forged-nonsense"))})};

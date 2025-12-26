@@ -3,6 +3,7 @@
 
 #include "identityprovider.h"
 
+#include "claimstore.h"
 #include "clientaddress.h"
 #include "constanttime.h"
 #include "deviceregistry.h"
@@ -72,16 +73,6 @@ QByteArray cookieValue(const QByteArray &cookieHeader, const QByteArray &name)
 
 // The cookie name that binds a pending login to the browser that started it.
 const QByteArray kOauthStateCookie{QByteArrayLiteral("synqt_oauth_state")};
-
-// How long a desktop claim code may stand for its session. This is a machine-to-machine hop
-// that happens the instant the loopback listener is hit, not a human step, so it is short
-// on purpose: the code has already been written into the system browser's history by the
-// time it exists, and its whole defence is being useless by the time anyone reads it back.
-// Clamped rather than trusted, because the configured value can only make it worse.
-qint64 claimTtlMs(const IdentityConfig &config)
-{
-    return 1000 * qBound(1, config.claimTtlSeconds, 300);
-}
 
 // A base64url S256 digest is 43 characters, and nothing else is accepted: pinning the shape
 // here means a caller cannot register a challenge that no verifier can ever match (which
@@ -309,6 +300,9 @@ void IdentityProvider::attachRemote(QObject *identityReplica)
     connect(identityReplica,
             SIGNAL(exchangeResult(QString, QString, QString, QString)),
             this, SLOT(onExchangeResult(QString, QString, QString, QString)));
+    connect(identityReplica,
+            SIGNAL(claimResult(QString, QString)),
+            this, SLOT(onClaimResult(QString, QString)));
 }
 
 void IdentityProvider::onBeginResult(const QString &requestId, const QString &state,
@@ -320,6 +314,12 @@ void IdentityProvider::onBeginResult(const QString &requestId, const QString &st
     outcome.error = error;
     m_beginResults.insert(requestId, outcome);
     emit beginArrived(requestId);
+}
+
+void IdentityProvider::onClaimResult(const QString &requestId, const QString &sessionId)
+{
+    m_claimResults.insert(requestId, sessionId.toLatin1());
+    emit claimArrived(requestId);
 }
 
 void IdentityProvider::onExchangeResult(const QString &requestId, const QString &identityJson,
@@ -409,6 +409,49 @@ IdentityProvider::ExchangeOutcome IdentityProvider::exchangeCode(const QString &
     // The tokens are held on the auth entity under the state key until the session exists.
     outcome.tokenKey = state;
     return outcome;
+}
+
+void IdentityProvider::holdClaim(const QString &code, const QByteArray &sessionId,
+                                 const QString &challenge)
+{
+    const qint64 now{QDateTime::currentMSecsSinceEpoch()};
+    if (!isRemote()) {
+        m_claims.hold(code, sessionId, challenge, now);
+        return;
+    }
+    if (m_remote) {
+        // Fire and forget. The claim is written before the loopback redirect that names it
+        // leaves this process, and the client cannot present it before it has that.
+        QMetaObject::invokeMethod(m_remote, "holdClaim", Q_ARG(QString, code),
+                                  Q_ARG(QString, QString::fromLatin1(sessionId)),
+                                  Q_ARG(QString, challenge));
+    }
+}
+
+QByteArray IdentityProvider::takeClaim(const QString &code, const QString &verifier)
+{
+    if (!isRemote()) {
+        return m_claims.take(code, verifier, QDateTime::currentMSecsSinceEpoch(),
+                             claimTtlMsFrom(m_config.claimTtlSeconds));
+    }
+    if (!m_remote) {
+        return {};
+    }
+
+    // The same bounded nested loop the begin/exchange pair uses, for the same reason: the
+    // route handler is synchronous and the answer comes back as a correlated signal.
+    const QString requestId{randomToken()};
+    QEventLoop loop;
+    connect(this, &IdentityProvider::claimArrived, &loop, [&loop, requestId](const QString &id) {
+        if (id == requestId) {
+            loop.quit();
+        }
+    });
+    QTimer::singleShot(kRemoteTimeoutMs, &loop, &QEventLoop::quit);
+    QMetaObject::invokeMethod(m_remote, "takeClaim", Q_ARG(QString, requestId),
+                              Q_ARG(QString, code), Q_ARG(QString, verifier));
+    loop.exec();
+    return m_claimResults.take(requestId);
 }
 
 void IdentityProvider::bindRemoteSession(const QString &state, const QByteArray &sessionId)
@@ -576,11 +619,7 @@ QHttpServerResponse IdentityProvider::handleCallback(const QHttpServerRequest &r
         // nothing would ever end it. What crosses the loopback is a code that stands for the
         // session for the next minute, exchangeable once, by whoever holds the verifier.
         const QString claimCode{randomToken()};
-        PendingClaim claim;
-        claim.sessionId = sessionId;
-        claim.challenge = context.returnChallenge;
-        claim.createdMs = QDateTime::currentMSecsSinceEpoch();
-        m_claims.insert(claimCode, claim);
+        holdClaim(claimCode, sessionId, context.returnChallenge);
         return loopbackRedirect(context, claimCode, QString{});
     }
 
@@ -635,21 +674,13 @@ QHttpServerResponse IdentityProvider::handleClaim(const QHttpServerRequest &requ
     const QString code{body.queryItemValue(QStringLiteral("code"), QUrl::FullyDecoded)};
     const QString verifier{body.queryItemValue(QStringLiteral("verifier"),
                                                QUrl::FullyDecoded)};
-    if (code.isEmpty() || !m_claims.contains(code)) {
-        return notFound();
-    }
-
-    // Taken out before it is checked, so a wrong verifier spends the code rather than
-    // leaving it there to be tried again. One code, one attempt.
-    const PendingClaim claim{m_claims.take(code)};
-    if (QDateTime::currentMSecsSinceEpoch() - claim.createdMs > claimTtlMs(m_config)) {
-        return notFound();
-    }
-    const QByteArray digest{QCryptographicHash::hash(verifier.toUtf8(),
-                                                     QCryptographicHash::Sha256)
-                                .toBase64(QByteArray::Base64UrlEncoding
-                                          | QByteArray::OmitTrailingEquals)};
-    if (!constantTimeEquals(digest, claim.challenge.toUtf8())) {
+    // One answer for every way this can fail (unknown code, expired code, code already
+    // spent, wrong verifier), and the code is spent either way. One code, one attempt.
+    // Where the record lives is the only thing that differs between an edge running
+    // identity in process and one asking the auth entity, which is what lets a replica
+    // that never saw the login honour the claim it produced.
+    const QByteArray claimedSession{takeClaim(code, verifier)};
+    if (claimedSession.isEmpty()) {
         return notFound();
     }
 
@@ -660,7 +691,7 @@ QHttpServerResponse IdentityProvider::handleClaim(const QHttpServerRequest &requ
     const bool wantsDevice{body.queryItemValue(QStringLiteral("device"))
                            == QLatin1String("1")};
     if (wantsDevice && m_devices) {
-        const SessionRecord *record{m_sessions->lookup(claim.sessionId)};
+        const SessionRecord *record{m_sessions->lookup(claimedSession)};
         const QString sub{record ? record->identity.value(QStringLiteral("sub")).toString()
                                  : QString{}};
         if (record && !sub.isEmpty()) {
@@ -672,10 +703,10 @@ QHttpServerResponse IdentityProvider::handleClaim(const QHttpServerRequest &requ
             credential = m_devices->enrol(sub, record->identity, m_edgeOrigin, binding,
                                           body.queryItemValue(QStringLiteral("label"),
                                                               QUrl::FullyDecoded));
-            bindFamily(claim.sessionId, credential.family);
+            bindFamily(claimedSession, credential.family);
         }
     }
-    return sessionAnswer(claim.sessionId, credential.family, credential.secret,
+    return sessionAnswer(claimedSession, credential.family, credential.secret,
                          credential.expiresMs);
 }
 
@@ -907,17 +938,14 @@ void IdentityProvider::expireClaims()
 {
     // Swept on the way in to the two routes that can add one, so an uncollected code cannot
     // outlive its minute even on an edge nobody signs into again. A claim that expires here
-    // takes nothing with it: the session it stood for is a real session, and it lives or
+    // takes nothing with it. The session it stood for is a real session, and it lives or
     // expires on the session manager's own terms.
-    const qint64 now{QDateTime::currentMSecsSinceEpoch()};
-    const qint64 ttl{claimTtlMs(m_config)};
-    for (auto it{m_claims.begin()}; it != m_claims.end();) {
-        if (now - it->createdMs > ttl) {
-            it = m_claims.erase(it);
-        } else {
-            ++it;
-        }
-    }
+    //
+    // In provider_entity mode this table is empty and the auth entity sweeps its own, on
+    // the same clamp (SynQt::claimTtlMsFrom), so a claim cannot expire on one side and not
+    // the other.
+    m_claims.expire(QDateTime::currentMSecsSinceEpoch(),
+                    claimTtlMsFrom(m_config.claimTtlSeconds));
 }
 
 } // namespace SynQt

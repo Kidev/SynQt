@@ -4,6 +4,7 @@
 #ifndef SYNQT_IDENTITYPROVIDER_H
 #define SYNQT_IDENTITYPROVIDER_H
 
+#include "claimstore.h"
 #include "identityconfig.h"
 
 #include <QHash>
@@ -123,6 +124,7 @@ signals:
     /// auth entity, so the waiting route handler can resume.
     void beginArrived(const QString &requestId);
     void exchangeArrived(const QString &requestId);
+    void claimArrived(const QString &requestId);
 
 private slots:
     /// The auth entity's answers to a delegated begin/exchange (provider_entity mode). String
@@ -131,9 +133,10 @@ private slots:
                        const QString &authorizeUrl, const QString &error);
     void onExchangeResult(const QString &requestId, const QString &identityJson,
                           const QString &context, const QString &error);
+    void onClaimResult(const QString &requestId, const QString &sessionId);
 
 private:
-    /// What the callback needs handed back: the desktop flow's answer, all three empty for
+    /// What the callback needs handed back. The desktop flow's answer, all three empty for
     /// a browser login. The loopback URL the system browser is sent back to, the nonce the
     /// native client will match that arrival against, and the S256 challenge whose verifier
     /// only that client holds.
@@ -153,16 +156,6 @@ private:
         bool isDesktop() const { return !returnUrl.isEmpty(); }
         QString toJson() const;
         static LoginContext fromJson(const QString &json);
-    };
-
-    /// A finished desktop login, waiting to be collected. The session already exists; this
-    /// is the one-time code that stands for it until the client that started the login
-    /// exchanges it over its own connection.
-    struct PendingClaim
-    {
-        QByteArray sessionId;
-        QString challenge;  ///< S256, matched against the verifier presented at the claim
-        qint64 createdMs{0};
     };
 
     /// Delegates to the local backend or the remote auth entity depending on the mode.
@@ -194,6 +187,11 @@ private:
     QByteArray buildCookie(const QByteArray &token) const;
     QByteArray buildStateCookie(const QByteArray &value, bool expire) const;
     void expireClaims();
+    /// Hold a finished desktop login for collection, here or on the auth entity.
+    void holdClaim(const QString &code, const QByteArray &sessionId,
+                   const QString &challenge);
+    /// Spend one. Empty for every way it can fail. See SynQt::ClaimStore::take.
+    QByteArray takeClaim(const QString &code, const QString &verifier);
     /// The loopback redirect the system browser is sent to once the session exists, or an
     /// empty response when this login was not a desktop one.
     QHttpServerResponse loopbackRedirect(const LoginContext &context, const QString &code,
@@ -212,7 +210,11 @@ private:
     DeviceRegistry *m_devices{nullptr};     ///< null unless the project persists sessions
     const ClientAddress *m_clientAddress{nullptr};  ///< the edge's; null means the peer
 
-    QHash<QString, PendingClaim> m_claims;  ///< claim code -> the session it stands for
+    /// Claims minted by this process, when identity runs in process. In provider_entity
+    /// mode this stays empty and the auth entity holds them, because the native client
+    /// redeems its code over a connection of its own that a balancer places independently
+    /// of the browser that caused it.
+    ClaimStore m_claims;
 
     /// Fixed-window request counts per client address for the device route, so a machine
     /// cannot sit there spending guesses. The secret is 256 bits, so this is not what makes
@@ -229,6 +231,7 @@ private:
     /// slots and consumed by the waiting route handler (provider_entity mode only).
     QHash<QString, BeginOutcome> m_beginResults;
     QHash<QString, ExchangeOutcome> m_exchangeResults;
+    QHash<QString, QByteArray> m_claimResults;
 };
 
 } // namespace SynQt

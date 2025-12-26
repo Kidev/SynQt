@@ -20,11 +20,20 @@
 // it makes a login answerable by any edge process rather than only the one that started it,
 // which is what a replicated edge needs (specs/2026-08-15-multi-edges.md), and it makes the
 // record single-use across all of them rather than once per process.
+//
+// The desktop claim codes are here for the same reason and no other. A code is minted by
+// whichever process answered the callback and redeemed over a connection the native client
+// opens for itself, which a balancer places independently of the browser that caused it.
+// `claimResult` carries an empty sessionId for every way a claim can fail, because telling
+// unknown from expired from already-spent from wrong-verifier is the oracle a guesser wants.
 contract Identity {
     slot beginLogin(string requestId, string provider, string redirectUri, string binding, string context)
     slot exchangeCode(string requestId, string state, string code, string redirectUri, string presentedBinding)
     slot bindSession(string state, string sessionId)
+    slot holdClaim(string code, string sessionId, string challenge)
+    slot takeClaim(string requestId, string code, string verifier)
     slot releaseSession(string sessionId)
     signal beginResult(string requestId, string state, string authorizeUrl, string error)
     signal exchangeResult(string requestId, string identityJson, string context, string error)
+    signal claimResult(string requestId, string sessionId)
 }

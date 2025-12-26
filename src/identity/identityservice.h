@@ -4,6 +4,7 @@
 #ifndef SYNQT_IDENTITYSERVICE_H
 #define SYNQT_IDENTITYSERVICE_H
 
+#include "claimstore.h"
 #include "identityconfig.h"
 
 #include <QObject>
@@ -56,6 +57,16 @@ public:
     /// Move the tokens from the temporary state key to the stable session id.
     Q_INVOKABLE void bindSession(const QString &state, const QString &sessionId);
 
+    /// A finished desktop login, waiting for the native client to collect it. Held here
+    /// rather than on the edge that minted it, because the client redeems it over a
+    /// connection of its own that a balancer places independently. See SynQt::ClaimStore.
+    Q_INVOKABLE void holdClaim(const QString &code, const QString &sessionId,
+                               const QString &challenge);
+
+    /// Spend a claim. An empty return is every failure alike (unknown, expired, already
+    /// spent, wrong verifier), and the code is spent either way. One code, one attempt.
+    Q_INVOKABLE QString takeClaim(const QString &code, const QString &verifier);
+
     /// Drop the tokens for a session (logout / expiry).
     Q_INVOKABLE void releaseSession(const QString &sessionId);
 
@@ -63,6 +74,8 @@ public:
 
 private:
     OAuthBackend *m_backend;
+    ClaimStore m_claims;
+    qint64 m_claimTtlMs{0};
 };
 
 } // namespace SynQt
