@@ -379,6 +379,7 @@ def validate(config: Dict[str, Any], *, release: bool = False,
     messages += _network_messages(declared)
     messages += _shared_messages(declared)
     messages += _orphan_messages(config, declared)
+    messages += _replica_messages(config, entities)
 
     # The endpoints the build will actually write, not the keys as spelled: a link's
     # transport and host can come from the owner entity's `mesh:` block as easily as from
@@ -745,6 +746,101 @@ _DEVICE_BINDING_REACH = {
 # floor to it today turns persistence off for every client on every platform, which is the
 # third way of configuring this feature into doing nothing at all.
 _DEVICE_BINDING_UNBUILT = "hardware"
+
+
+# Persistence providers whose store belongs to one process on one machine. A device
+# credential kept in one of these cannot be redeemed by a second replica, because the
+# second replica is not looking at that file.
+_EMBEDDED_STORES = ("sqlite", "memory")
+
+
+def _replica_messages(config: Dict[str, Any],
+                      entities: Dict[str, Any]) -> List[str]:
+    """What running N of an entity requires, checked only where N is written.
+
+    Every rule here is dormant at `replicas: 1` and with the key absent. That is the
+    governing constraint of the feature and not an implementation detail: a project that
+    never asks to be replicated must not gain a single message it did not have before.
+    """
+    messages: List[str] = []
+    for name, entity in entities.items():
+        try:
+            count = appmodel.replicas(entity)
+        except appmodel.AppGenError as failure:
+            messages.append(f"error: entity '{name}': {failure}")
+            continue
+        if count == 1:
+            continue
+        if not _is_web_edge(entity):
+            messages.append(
+                f"error: entity '{name}' declares 'replicas: {count}', which is the web "
+                f"edge's key. A service is reached at one address from the mesh, and N of "
+                f"them behind one address is a different feature than this one")
+            continue
+        messages += _replicated_edge_messages(config, name, entity, count)
+    return messages
+
+
+def _replicated_edge_messages(config: Dict[str, Any], name: str,
+                              entity: Dict[str, Any], count: int) -> List[str]:
+    """The four things a replicated edge must have, and the one it should."""
+    messages: List[str] = []
+    where = f"edge '{name}' declares 'replicas: {count}'"
+
+    identity = appmodel.identity_settings(config)
+    if identity and not str(identity.get("provider_entity") or "").strip():
+        messages.append(
+            f"error: {where} and configures identity in process. Sessions would then live in "
+            f"whichever process minted them, so a visitor is signed in on one replica and "
+            f"anonymous on the next. Set 'identity.provider_entity' to a service entity that "
+            f"owns them")
+
+    public = appmodel.public_settings(entity)
+    if not str(public.get("origin") or "").strip():
+        messages.append(
+            f"error: {where} and names no 'public.origin'. Each replica is reached at the "
+            f"balancer's origin and not at its own, and nothing else can work that out")
+    try:
+        proxies = appmodel.trusted_proxies(entity)
+    except appmodel.AppGenError as failure:
+        return messages + [f"error: entity '{name}': {failure}"]
+    if not proxies:
+        messages.append(
+            f"warn: {where} and names no 'public.trusted_proxies'. Every per-IP cap and rate "
+            f"limit will see the balancer instead of the visitor, so they will count every "
+            f"visitor as one")
+
+    for point in appmodel.connect_points(config):
+        if point.get("owner") != name:
+            continue
+        if not appmodel.is_front(point):
+            messages.append(
+                f"error: {where} and owns a connect point with no 'behind:'. A replicated "
+                f"edge is a front: it carries the session and hands each caller to the "
+                f"entity that answers for them. A point it implements itself holds its props "
+                f"and rows in one process, so two tabs of one session that land on different "
+                f"replicas disagree with nothing to say why")
+
+    messages += _replicated_device_store_messages(config, where)
+    return messages
+
+
+def _replicated_device_store_messages(config: Dict[str, Any], where: str) -> List[str]:
+    """A device credential store a second replica cannot read is not a store."""
+    try:
+        if appmodel.desktop_session(config) != "device":
+            return []
+    except appmodel.AppGenError:
+        return []  # already reported, in its own words, by _device_session_messages
+    engine = str(appmodel.device_store(config).get("name") or "").strip()
+    if engine not in _EMBEDDED_STORES:
+        return []
+    return [
+        f"error: {where} and keeps device credentials in an embedded '{engine}' store. That "
+        f"belongs to one process, so a device credential enrolled through one replica cannot "
+        f"be redeemed through another and the visitor is signed out at the next launch on "
+        f"whichever replica they reach. Point 'identity.device.store' at an engine every "
+        f"replica can read"]
 
 
 def _device_session_messages(config: Dict[str, Any]) -> List[str]:

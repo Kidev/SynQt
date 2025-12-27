@@ -385,6 +385,20 @@
       "defended_by": "The code is taken out of the store before the verifier is checked, so a wrong guess spends it: one code, one attempt, deployment-wide.",
       "file": "tests/m8-auth/tst_m8.cpp",
       "test": "aDesktopClaimWithTheWrongVerifierIsRefusedAndSpent"
+    },
+    {
+      "id": "replicated-edge-with-per-process-sessions",
+      "what": "A deployment runs several edge processes with identity in process, so each holds its own session table and a revoked or elevated session is judged differently by each of them.",
+      "defended_by": "synqt check refuses replicas > 1 without identity.provider_entity, naming the key that moves the session table to one authoritative entity.",
+      "file": "tools/synqt/tests/test_check_replicas.py",
+      "test": "test_a_replicated_edge_needs_a_provider_entity"
+    },
+    {
+      "id": "replicated-edge-with-an-embedded-device-store",
+      "what": "A device credential is enrolled through one replica and presented to another, which holds a different embedded store and cannot tell a real credential from a forged one because it has never seen either.",
+      "defended_by": "synqt check refuses an embedded (sqlite/memory) identity.device.store under replicas > 1.",
+      "file": "tools/synqt/tests/test_check_replicas.py",
+      "test": "test_an_embedded_device_store_is_an_error"
     }
   ]
 }

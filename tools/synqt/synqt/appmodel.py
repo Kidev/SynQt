@@ -779,6 +779,25 @@ def trusted_proxies(entity: Dict[str, Any]) -> List[str]:
     return [str(entry) for entry in declared]
 
 
+def replicas(entity: Dict[str, Any]) -> int:
+    """``replicas:``: how many interchangeable processes of this entity run.
+
+    One (the default, and the absence of the key) is every project that exists. More than
+    one is a promise that nothing a browser reaches lives in any single process, which
+    `synqt check` proves rather than takes on trust. See the replica rules there and
+    "Running more than one edge" in the deployment docs.
+    """
+    declared = entity.get("replicas")
+    if declared is None:
+        return 1
+    # bool before int, because bool IS an int in Python and `replicas: true` would
+    # otherwise read as one replica and look like it worked.
+    if isinstance(declared, bool) or not isinstance(declared, int) or declared < 1:
+        raise AppGenError(
+            f"replicas must be a whole number of 1 or more, not {declared!r}")
+    return declared
+
+
 def tls_settings(entity: Dict[str, Any]) -> Dict[str, Any]:
     """The declared ``tls:`` block of a web edge: the public certificate for the browser."""
     settings = entity.get("tls")
