@@ -230,7 +230,68 @@ origin](project-layout-and-config.md#serving-the-client-from-another-origin) fir
 supported and validated, and it is deprecated, for reasons that are about browser cookie
 policy rather than about SynQt.
 
-## 8. Desktop clients, if you ship one
+## 8. Running more than one edge
+
+One edge process serves many clients, and for most systems that is the end of it. When it
+is not, the edge can be run as N interchangeable processes behind an ordinary load
+balancer. It is opt in, one key:
+
+```yaml
+  - name: edge
+    type: web_edge
+    replicas: 4
+    public:
+      origin: https://app.example.com
+      trusted_proxies: [10.0.0.1]
+      tls_terminated_upstream: true
+```
+
+`synqt build` and [`synqt docker init`](docker.md) then write N services from the one
+image and a `docker/nginx.conf` in front of them, and only that front publishes a port.
+The four things the balancer has to do are in the generated file, and they are the same
+four whatever you balance with: pass the WebSocket upgrade through, state the visitor's
+address in `X-Forwarded-For`, keep the read timeout above the heartbeat, and prefer the
+replica with the fewest open connections rather than round robin (a browser link is long
+lived, so what needs balancing is how many are open, not how many were handed out).
+
+### A replicated edge is a front
+
+That sentence is the whole design, and `synqt check` enforces it. Under `replicas: > 1`
+every connect point the edge owns must have [`behind:`](programming-model.md#handing-callers-on-behind):
+the edge carries the session and hands each caller to the entity that answers for them,
+and that entity is one process whichever replica the caller reached. A point the edge
+implements itself holds its props and rows in one process, so two tabs of one session that
+land on different replicas would see different values with nothing in the system to say so.
+
+The other three refusals are about state that used to be per process and no longer can be:
+
+| Refused | Why |
+|---|---|
+| `identity` configured without `identity.provider_entity` | Sessions would live in whichever process minted them, so a visitor is signed in on one replica and anonymous on the next |
+| No `public.origin` | Each replica is reached at the balancer's origin rather than its own, and nothing else can work that out |
+| An embedded `identity.device.store` (`sqlite`, `memory`) | A device credential enrolled through one replica cannot be redeemed through another |
+
+Missing `public.trusted_proxies` is a warning rather than an error. The system runs, but
+every per-IP cap and rate limit sees the balancer instead of the visitor and counts every
+visitor as one.
+
+### What does not scale by raising the number
+
+Worth reading before you raise it, because none of these announces itself:
+
+- **State in an edge singleton is per replica.** The rule above covers connect points. An
+  edge singleton can still hold state a remote-page route or an `Api` handler reads, and
+  each replica has its own. The [multiplayer arena](tutorial-multiplayer.md) is the honest
+  counter-example: replicate it and you get N separate worlds, each convinced it is the
+  only one. An app like that scales by sharding players across edges, which is a different
+  thing than replicating one.
+- **`Caller.emit` to a session reaches the replica holding that connection**, and no other.
+  Notifying one user from an entity is a per-connection act.
+- **The device route's rate limit is per replica**, so the budget it enforces is multiplied
+  by the replica count. It is a cost control rather than the security boundary (the
+  credential is 256 random bits), which is why it is not worth a shared write per attempt.
+
+## 9. Desktop clients, if you ship one
 
 A desktop client is built per host platform and deployed separately from the services:
 
@@ -249,7 +310,7 @@ The desktop client changes nothing about the deployment above. It reaches the sa
 over the same `wss://` link, holds no secret and no mesh certificate, and is authorized
 by the same user sessions.
 
-## 9. Before you call it done
+## 10. Before you call it done
 
 Run [the security checklist](security.md#security-checklist-use-before-every-deploy). It
 is short, it is written to be read at deploy time rather than at design time, and it

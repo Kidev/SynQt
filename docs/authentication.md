@@ -245,6 +245,16 @@ facing flow is unchanged; only where the session state lives moves. Promoting to
 auth entity is a configuration change, not a rewrite, because the edge already
 talks to identity through a connect point boundary.
 
+It is what a [replicated edge](deploying.md#8-running-more-than-one-edge) requires, and
+`synqt check` refuses `replicas: > 1` without it. Three things move with it, and the last
+two are less obvious than the first: the session table, so a visitor is not signed in on
+one replica and anonymous on the next; the pending login, so the OAuth callback can be
+answered by whichever process the balancer sends it to rather than only the one that began
+it; and the desktop claim code, which the native client redeems over a connection of its
+own that lands independently of the browser that produced it. Every replica presents one
+entity identity, so the auth entity is answering one consumer that happens to be several
+processes.
+
 It is also literally one line, because everything the line implies is generated. Declare
 the entity, name it, and `synqt build` writes the two connect points (`identity` and
 `sessions`, one Source per caller so one edge's answer never reaches another), the Source QML that

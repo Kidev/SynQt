@@ -326,9 +326,11 @@ SQLite connection on the thread that created it, per the Qt SQL threading rule.
   than reimplementing durability. Writing a brand new storage engine is out of scope;
   using an existing one through a provider is supported (see
   [providers](providers.md)).
-- Multi instance horizontal scaling of a single entity with shared state behind a
-  load balancer. SynQt targets one process per entity (each serving many
-  clients). The mesh model does not preclude a future clustered entity, but it is
-  not specified here.
+- Multi instance horizontal scaling of a *stateful* entity. A web edge does scale out
+  ([running more than one edge](deploying.md#8-running-more-than-one-edge)), and it can
+  because a replicated edge is a front. It carries the session, hands each
+  caller to the entity that answers for them, and holds nothing itself, which `synqt
+  check` proves rather than assumes. A service entity that owns state is one process. The
+  mesh model does not preclude a future clustered entity, but it is not specified here.
 - Browser to browser connections. All traffic flows through entities, which is
   also where authorization lives.

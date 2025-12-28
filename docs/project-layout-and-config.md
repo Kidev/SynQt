@@ -254,11 +254,25 @@ side, the mesh (service to service) side, the public TLS, and its env file:
     identity: true            # serve the login routes here (the default wherever
                               # the project declares an `identity` section; set it
                               # to false on an edge that must not sign anyone in)
+    # replicas: 4
+    #   Run this edge as N interchangeable processes behind a load balancer. Default 1,
+    #   which is every project that does not write this. Above 1, `synqt check` proves
+    #   the edge holds nothing a second process would need: every connect point it owns
+    #   must have `behind:`, identity must be promoted to its own entity, and the device
+    #   store must be one every replica can read. See
+    #   https://synqt.org/deploying/#8-running-more-than-one-edge
 
     public:                   # the internet facing side (delivery + browser wss)
       host: 0.0.0.0           # default: all interfaces; the only public bind in the system
       port: 8443              # default
       serve_client: true      # serve the client bundle from this entity
+      # trusted_proxies: [10.0.0.1, 10.0.0.0/24]
+      #   The peers whose `X-Forwarded-For` this edge believes, as addresses or CIDR
+      #   ranges. Empty (the default) means the connecting peer IS the visitor, which is
+      #   true of an edge facing the internet directly and false of every connection at
+      #   once as soon as a proxy or balancer sits in front. Nothing is trusted
+      #   implicitly: a header from a peer not on this list is ignored, because otherwise
+      #   the per-IP connection cap and rate limits become a bucket each client picks.
       # origin: https://app.example.com
       #   The origin browsers reach this edge at, which is not the bind address above
       #   when a proxy or a load balancer sits in front. Required with
