@@ -101,6 +101,7 @@ _QT_RUNTIME_LIBS = (
 )
 
 COMPOSE_FILE = "docker-compose.yml"
+FRONT_FILE = "nginx.conf"
 PROFILE = "docker"
 DOCKER_DIR = "docker"
 CLIENT_MODES = ("image", "host")
@@ -231,27 +232,79 @@ def embedded_data_dirs(config: Dict[str, Any]) -> Dict[str, str]:
     return dirs
 
 
-def mesh_addresses(config: Dict[str, Any], subnet: str = DEFAULT_SUBNET) -> Dict[str, str]:
-    """One address per entity container, assigned in the order the entities are declared.
+def replica_names(entity: Dict[str, Any]) -> List[str]:
+    """The compose service names for one entity's processes.
 
-    Deterministic on purpose: the address ends up in the generated profile, in the compose
+    One replica keeps the entity's own name, so a project that never asks to be replicated
+    generates the compose file it generated before any of this existed. That is the point:
+    the un-replicated case must not pay for the replicated one.
+    """
+    name = str(entity.get("name"))
+    if appmodel.replicas(entity) == 1:
+        return [name]
+    return [f"{name}-{index}" for index in range(1, appmodel.replicas(entity) + 1)]
+
+
+def container_names(config: Dict[str, Any]) -> List[str]:
+    """Every container that needs an address, in declaration order.
+
+    An entity is usually one, and a replicated web edge is N plus the front that balances
+    them. The front is last so adding replicas does not renumber it, and so a project that
+    grows one keeps every address it already had.
+    """
+    names: List[str] = []
+    for entity in service_entities(config):
+        names += replica_names(entity)
+    if front_name(config):
+        names.append(FRONT_SERVICE)
+    return names
+
+
+FRONT_SERVICE = "front"
+
+
+def front_name(config: Dict[str, Any]) -> str:
+    """The balancer's service name, or empty when this project needs none.
+
+    Needed exactly when the web edge is replicated. One process behind a balancer is a
+    balancer nobody asked for, and the published port belongs on the edge itself there.
+    """
+    edge = edge_entity(config)
+    if edge and appmodel.replicas(edge) > 1:
+        return FRONT_SERVICE
+    return ""
+
+
+def mesh_addresses(config: Dict[str, Any], subnet: str = DEFAULT_SUBNET) -> Dict[str, str]:
+    """One address per container, assigned in the order the entities are declared.
+
+    Deterministic, because the address ends up in the generated profile, in the compose
     file, and through the topology in what each entity dials. Regenerating has to produce
     the same wiring, or a half-regenerated project talks to itself wrong.
+
+    A replicated edge takes one address per replica, and the entity's own name also maps to
+    the first of them. Nothing dials a web edge over the mesh (it consumes and never hosts),
+    so that entry is for the readers that index by entity name rather than for any traffic.
     """
     try:
         network = ipaddress.ip_network(subnet, strict=True)
     except ValueError as error:
         raise DockerError(f"{subnet} is not a usable subnet: {error}") from error
-    entities = service_entities(config)
-    # Counted rather than listing every host: a /16 would materialize 65534 addresses to
+    names = container_names(config)
+    # Counted rather than listing every host. A /16 would materialize 65534 addresses to
     # take the first few off the front of.
     room = network.num_addresses - FIRST_HOST - 1
-    if len(entities) > room:
+    if len(names) > room:
         raise DockerError(
-            f"{subnet} has room for {max(room, 0)} entities and this project has "
-            f"{len(entities)}. Pass a larger --subnet.")
-    return {entity["name"]: str(network.network_address + FIRST_HOST + index)
-            for index, entity in enumerate(entities)}
+            f"{subnet} has room for {max(room, 0)} containers and this project needs "
+            f"{len(names)}. Pass a larger --subnet.")
+    addresses = {name: str(network.network_address + FIRST_HOST + index)
+                 for index, name in enumerate(names)}
+    for entity in service_entities(config):
+        replicas = replica_names(entity)
+        if replicas[0] != entity["name"]:
+            addresses[entity["name"]] = addresses[replicas[0]]
+    return addresses
 
 
 def secret_names(config: Dict[str, Any]) -> Dict[str, List[str]]:
@@ -782,67 +835,18 @@ def render_compose(config: Dict[str, Any], addresses: Dict[str, str], *,
         "",
     ]
 
+    front = front_name(config)
     for entity in service_entities(config):
-        name = entity["name"]
-        is_edge = name == edge_name
-        lines.append(f"  {name}:")
-        lines.append("    <<: *synqt-entity")
-        lines.append(f'    command: ["{name}"]')
-        if name in engine_of:
-            engine_name, _ = engine_of[name]
-            service = engine_service_name(name, engine_name)
-            lines.append("    # This entity and its engine share one network namespace, held")
-            lines.append(f"    # by '{service}' below, where {addresses[name]} is assigned.")
-            lines.append("    # So this entity answers on the mesh at that address and")
-            lines.append("    # reaches its engine at 127.0.0.1, with no database password")
-            lines.append("    # on any network. The engine holds the address because the")
-            lines.append("    # namespace has to exist before anything joins it, and this")
-            lines.append("    # entity is the one that waits for the engine to be ready.")
-            lines.append(f'    network_mode: "service:{service}"')
-        else:
-            lines.append("    networks:")
-            lines.append("      synqt:")
-            lines.append(f"        ipv4_address: {addresses[name]}")
-        lines.append("    volumes:")
-        lines.append("      # This entity's certificate and the CA it verifies peers with.")
-        lines.append(f"      - mesh:{APP_DIR}/synqt/mesh")
-        if name in data_dirs:
-            lines.append("      # Its database. In a volume rather than the container's own")
-            lines.append("      # layer, so `up --build` does not quietly start it over from")
-            lines.append("      # nothing every time the app is rebuilt.")
-            lines.append(f"      - {name}-data:{APP_DIR}/{data_dirs[name]}")
-        if is_edge and client == "host":
-            lines.append("      # The browser bundle, built outside with `synqt build`.")
-            lines.append("      # Read-only: the edge serves it and never writes to it.")
-            lines.append(f"      - ./build/client:{APP_DIR}/build/client:ro")
-        env_file = appmodel.env_file(entity)
-        if env_file:
-            lines.append("    env_file:")
-            # `required: false` so a project with no secrets still comes up: an absent .env
-            # is the normal case, not a misconfiguration.
-            lines.append(f"      - path: {env_file}")
-            lines.append("        required: false")
-        if is_edge:
-            lines.append("    # The only entity with a published port. Everything else is")
-            lines.append("    # reachable only from inside this network, which is what the")
-            lines.append("    # deny-by-default topology looks like written as compose.")
-            lines.append("    ports:")
-            lines.append(f'      - "{edge_port}:{edge_port}"')
-        if name in engine_of:
-            engine_name, _ = engine_of[name]
-            # Restated in full rather than added to: a mapping key in a service replaces the
-            # one the anchor merged in, so naming only the engine here would drop the wait
-            # for the certificates.
-            lines.append("    depends_on:")
-            lines.append("      mesh-init:")
-            lines.append("        condition: service_completed_successfully")
-            lines.append(f"      {engine_service_name(name, engine_name)}:")
-            lines.append("        condition: service_healthy")
-        lines.append("")
+        for name in replica_names(entity):
+            lines += _entity_service(config, entity, name, addresses, edge_name, engine_of,
+                                     data_dirs, client, edge_port, bool(front))
+
+    if front:
+        lines += _front_service(config, addresses, edge_port)
 
     for entity, engine_name, spec in engines(config):
         lines += _engine_service(entity, engine_name, spec, addresses[entity["name"]])
-
+    
     lines += [
         "networks:",
         "  # A network of this project's own, with its range written down: the entities",
@@ -865,6 +869,176 @@ def render_compose(config: Dict[str, Any], addresses: Dict[str, str], *,
     for entity, engine_name, _ in engines(config):
         lines.append(f"  {engine_service_name(entity['name'], engine_name)}-data:")
     lines.append("")
+    return "\n".join(lines)
+
+
+def _entity_service(config: Dict[str, Any], entity: Dict[str, Any], name: str,
+                    addresses: Dict[str, str], edge_name: Optional[str],
+                    engine_of: Dict[str, Any], data_dirs: Dict[str, str], client: str,
+                    edge_port: int, behind_front: bool) -> List[str]:
+    """One entity container.
+
+    `name` is the SERVICE name and `entity["name"]` the entity's. They differ only for a
+    replicated web edge, where N services run the one entity. Everything that follows the
+    process (its address, and the fact that it publishes no port when a front does) keys on
+    the service name. Everything that follows the entity (its engine, its data volume, its
+    env file) keys on the entity's, because N replicas are one entity and share those.
+    """
+    entity_name = entity["name"]
+    is_edge = entity_name == edge_name
+    lines = [
+        f"  {name}:",
+        "    <<: *synqt-entity",
+        f'    command: ["{entity_name}"]',
+    ]
+    if entity_name in engine_of:
+        engine_name, _ = engine_of[entity_name]
+        service = engine_service_name(entity_name, engine_name)
+        lines.append("    # This entity and its engine share one network namespace, held")
+        lines.append(f"    # by '{service}' below, where {addresses[name]} is assigned.")
+        lines.append("    # So this entity answers on the mesh at that address and")
+        lines.append("    # reaches its engine at 127.0.0.1, with no database password")
+        lines.append("    # on any network. The engine holds the address because the")
+        lines.append("    # namespace has to exist before anything joins it, and this")
+        lines.append("    # entity is the one that waits for the engine to be ready.")
+        lines.append(f'    network_mode: "service:{service}"')
+    else:
+        lines.append("    networks:")
+        lines.append("      synqt:")
+        lines.append(f"        ipv4_address: {addresses[name]}")
+    lines.append("    volumes:")
+    lines.append("      # This entity's certificate and the CA it verifies peers with.")
+    lines.append(f"      - mesh:{APP_DIR}/synqt/mesh")
+    if entity_name in data_dirs:
+        lines.append("      # Its database. In a volume rather than the container's own")
+        lines.append("      # layer, so `up --build` does not quietly start it over from")
+        lines.append("      # nothing every time the app is rebuilt.")
+        lines.append(f"      - {entity_name}-data:{APP_DIR}/{data_dirs[entity_name]}")
+    if is_edge and client == "host":
+        lines.append("      # The browser bundle, built outside with `synqt build`.")
+        lines.append("      # Read-only: the edge serves it and never writes to it.")
+        lines.append(f"      - ./build/client:{APP_DIR}/build/client:ro")
+    env_file = appmodel.env_file(entity)
+    if env_file:
+        lines.append("    env_file:")
+        # `required: false` so a project with no secrets still comes up: an absent .env
+        # is the normal case, not a misconfiguration.
+        lines.append(f"      - path: {env_file}")
+        lines.append("        required: false")
+    if is_edge and not behind_front:
+        lines.append("    # The only entity with a published port. Everything else is")
+        lines.append("    # reachable only from inside this network, which is what the")
+        lines.append("    # deny-by-default topology looks like written as compose.")
+        lines.append("    ports:")
+        lines.append(f'      - "{edge_port}:{edge_port}"')
+    elif is_edge:
+        lines.append("    # No published port: this replica is reached through 'front'")
+        lines.append("    # below, which is the only thing outside this network sees.")
+    if entity_name in engine_of:
+        engine_name, _ = engine_of[entity_name]
+        # Restated in full rather than added to. A mapping key in a service replaces the
+        # one the anchor merged in, so naming only the engine here would drop the wait
+        # for the certificates.
+        lines.append("    depends_on:")
+        lines.append("      mesh-init:")
+        lines.append("        condition: service_completed_successfully")
+        lines.append(f"      {engine_service_name(entity_name, engine_name)}:")
+        lines.append("        condition: service_healthy")
+    lines.append("")
+    return lines
+
+
+def _front_service(config: Dict[str, Any], addresses: Dict[str, str],
+                   edge_port: int) -> List[str]:
+    """The balancer in front of a replicated edge.
+
+    An off-the-shelf nginx with a generated configuration, and deliberately not a SynQt
+    process: distributing TCP connections is a solved problem with good implementations,
+    and what is interesting about a replicated SynQt deployment is that the edges hold
+    nothing, not that the thing in front of them is ours.
+    """
+    edge = edge_entity(config)
+    replicas = replica_names(edge)
+    return [
+        f"  {FRONT_SERVICE}:",
+        "    # The one published port in the system now. The replicas behind it are reachable",
+        "    # only from inside this network, exactly as every other entity is.",
+        "    image: nginx:alpine",
+        "    restart: unless-stopped",
+        "    depends_on: [" + ", ".join(replicas) + "]",
+        "    ports:",
+        f'      - "{edge_port}:{edge_port}"',
+        "    volumes:",
+        f"      - ./{DOCKER_DIR}/{FRONT_FILE}:/etc/nginx/nginx.conf:ro",
+        "    networks:",
+        "      synqt:",
+        f"        ipv4_address: {addresses[FRONT_SERVICE]}",
+        "",
+    ]
+
+
+def render_front_config(config: Dict[str, Any], addresses: Dict[str, str]) -> str:
+    """``nginx.conf``: one balancer in front of N identical edges.
+
+    Empty for a project whose edge is not replicated, which is every project that has not
+    asked for this. There is nothing to balance and no file to write.
+    """
+    edge = edge_entity(config)
+    if not edge or not front_name(config):
+        return ""
+    names = replica_names(edge)
+    port = int(appmodel.public_settings(edge).get("port") or 8443)
+    lines = [
+        "# SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux",
+        "# SPDX-License-Identifier: Apache-2.0",
+        "",
+        "# Generated by `synqt docker init` from synqt.yaml. Regenerate it with",
+        "# `synqt docker init --force` rather than editing it, because a hand edit is lost.",
+        "#",
+        "# What the edges need from whatever sits in front of them, and nothing else: the",
+        "# WebSocket upgrade passed through, the visitor's address stated, and a read timeout",
+        "# longer than the heartbeat. A deployment with its own balancer wants these four",
+        "# things in it, whatever it is written in.",
+        "",
+        "events { worker_connections 4096; }",
+        "",
+        "http {",
+        "  upstream synqt_edges {",
+        "    # least_conn rather than round robin: a browser link is long lived, so what has",
+        "    # to be balanced is how many are open on each replica, not how many have been",
+        "    # handed out since the process started.",
+        "    least_conn;",
+    ]
+    for name in names:
+        lines.append(f"    server {addresses[name]}:{port};")
+    lines += [
+        "  }",
+        "",
+        "  map $http_upgrade $connection_upgrade {",
+        "    default upgrade;",
+        "    ''      close;",
+        "  }",
+        "",
+        "  server {",
+        f"    listen {port};",
+        "    location / {",
+        "      proxy_pass http://synqt_edges;",
+        "      proxy_http_version 1.1;",
+        "      proxy_set_header Upgrade $http_upgrade;",
+        '      proxy_set_header Connection "upgrade";',
+        "      proxy_set_header Host $host;",
+        "      # The edge reads this, and only from a peer on public.trusted_proxies. Without",
+        "      # both halves every per-IP cap and rate limit counts every visitor as one.",
+        "      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;",
+        "      proxy_set_header X-Forwarded-Proto $scheme;",
+        "      # Longer than the QtRO heartbeat, or a live but quiet connection is reaped as",
+        "      # idle and every client reconnects for no reason.",
+        "      proxy_read_timeout 300s;",
+        "    }",
+        "  }",
+        "}",
+        "",
+    ]
     return "\n".join(lines)
 
 
@@ -1053,10 +1227,19 @@ def _relative(path: Path, root: Path) -> str:
 
 # writing it all out
 
-def generated_files() -> Tuple[str, ...]:
-    """Everything `init` writes, so `--force` and the tests agree on one list."""
-    return (f"synqt.{PROFILE}.yaml", COMPOSE_FILE, f"{DOCKER_DIR}/Dockerfile",
-            f"{DOCKER_DIR}/entrypoint.sh", ".dockerignore")
+def generated_files(config: Optional[Dict[str, Any]] = None) -> Tuple[str, ...]:
+    """Everything `init` writes for this project, so `--force` and the tests agree.
+
+    All but one are written for every project. The balancer configuration is written only
+    where there is something to balance, so it is in the list only when a config is given
+    and that config replicates its edge. Without a config the answer is the set every
+    project gets.
+    """
+    always = (f"synqt.{PROFILE}.yaml", COMPOSE_FILE, f"{DOCKER_DIR}/Dockerfile",
+              f"{DOCKER_DIR}/entrypoint.sh", ".dockerignore")
+    if config is not None and front_name(config):
+        return always + (f"{DOCKER_DIR}/{FRONT_FILE}",)
+    return always
 
 
 def init(project_dir: os.PathLike[str] | str, config: Dict[str, Any], *,
@@ -1104,6 +1287,12 @@ def init(project_dir: os.PathLike[str] | str, config: Dict[str, Any], *,
         f"{DOCKER_DIR}/entrypoint.sh": render_entrypoint(edge.get("name") or "web"),
         ".dockerignore": render_dockerignore(),
     }
+    # Only when there is something to balance. An unreplicated project writes no nginx.conf
+    # at all, rather than one describing a balancer in front of a single process.
+    front = render_front_config(config, addresses)
+    if front:
+        files[f"{DOCKER_DIR}/{FRONT_FILE}"] = front
+
     existing = [name for name in files if (root / name).exists()]
     if existing and not force:
         raise DockerError(

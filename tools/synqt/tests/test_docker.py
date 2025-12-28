@@ -389,8 +389,11 @@ class InitTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = self._project(tmp, _config())
             docker.init(root, _config(), source=None)
-            for name in docker.generated_files():
+            for name in docker.generated_files(_config()):
                 self.assertTrue((root / name).is_file(), name)
+            # And nothing more. An unreplicated project gets no balancer configuration,
+            # rather than one describing a balancer in front of a single process.
+            self.assertFalse((root / f"{docker.DOCKER_DIR}/{docker.FRONT_FILE}").exists())
             with self.assertRaises(docker.DockerError) as error:
                 docker.init(root, _config(), source=None)
             self.assertIn("--force", str(error.exception))
@@ -531,3 +534,109 @@ class DriveTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def _replicated(count=4):
+    """The same project with a replicated edge: N interchangeable processes, one front."""
+    config = _config()
+    for entity in config["entities"]:
+        if entity["name"] == "web":
+            entity["replicas"] = count
+            entity["public"] = {"port": 8443, "origin": "https://shop.example",
+                                "trusted_proxies": ["172.30.0.0/16"]}
+    config["connect_points"][0]["behind"] = {"anonymous": "store"}
+    return config
+
+
+def _edge_of(config):
+    return next(e for e in config["entities"] if e["name"] == "web")
+
+
+class ReplicatedEdgeTest(unittest.TestCase):
+    """N interchangeable edge processes, and the one thing in front of them.
+
+    The load balancer is generated rather than written, and generated rather than replaced
+    by one of SynQt's own. Distributing TCP connections is solved, and the property
+    of a replicated SynQt deployment that matters is that the edges hold nothing, rather
+    than that the thing in front of them is SynQt's.
+    """
+
+    def test_one_replica_is_one_service_named_as_before(self):
+        config = _replicated(count=1)
+        self.assertEqual(docker.replica_names(_edge_of(config)), ["web"])
+        compose = yaml.safe_load(docker.render_compose(config, docker.mesh_addresses(config)))
+        self.assertIn("web", compose["services"])
+        self.assertNotIn("front", compose["services"])
+
+    def test_no_replicas_key_is_one_service_named_as_before(self):
+        config = _config()
+        self.assertEqual(docker.replica_names(_edge_of(config)), ["web"])
+        compose = yaml.safe_load(docker.render_compose(config, docker.mesh_addresses(config)))
+        self.assertIn("web", compose["services"])
+        self.assertNotIn("front", compose["services"])
+
+    def test_four_replicas_are_four_services_and_a_front(self):
+        config = _replicated(count=4)
+        self.assertEqual(docker.replica_names(_edge_of(config)),
+                         ["web-1", "web-2", "web-3", "web-4"])
+        compose = yaml.safe_load(docker.render_compose(config, docker.mesh_addresses(config)))
+        for name in ("web-1", "web-2", "web-3", "web-4", "front"):
+            self.assertIn(name, compose["services"])
+        self.assertNotIn("web", compose["services"])
+
+    def test_each_replica_gets_its_own_address(self):
+        config = _replicated(count=4)
+        addresses = docker.mesh_addresses(config)
+        assigned = [addresses[name] for name in docker.replica_names(_edge_of(config))]
+        self.assertEqual(len(set(assigned)), 4, assigned)
+        # And the front needs one too, or compose cannot place it on a subnet it declared.
+        self.assertIn("front", addresses)
+        self.assertNotIn(addresses["front"], assigned)
+
+    def test_only_the_front_publishes_the_public_port(self):
+        config = _replicated(count=4)
+        compose = yaml.safe_load(docker.render_compose(config, docker.mesh_addresses(config)))
+        published = {name: service.get("ports")
+                     for name, service in compose["services"].items()
+                     if service.get("ports")}
+        self.assertEqual(list(published), ["front"])
+        self.assertEqual(published["front"], ["8443:8443"])
+
+    def test_the_front_config_lists_every_replica(self):
+        config = _replicated(count=3)
+        addresses = docker.mesh_addresses(config)
+        front = docker.render_front_config(config, addresses)
+        for name in docker.replica_names(_edge_of(config)):
+            self.assertIn(f"server {addresses[name]}:8443;", front)
+        # A browser link is long lived, so what has to be balanced is how many are open on
+        # each replica and not how many have been handed out.
+        self.assertIn("least_conn;", front)
+
+    def test_the_front_carries_the_upgrade_and_the_client_address(self):
+        config = _replicated(count=3)
+        front = docker.render_front_config(config, docker.mesh_addresses(config))
+        self.assertIn("proxy_set_header Upgrade $http_upgrade;", front)
+        self.assertIn('proxy_set_header Connection "upgrade";', front)
+        self.assertIn("proxy_set_header X-Forwarded-For", front)
+        self.assertIn("proxy_read_timeout", front)
+
+    def test_an_unreplicated_project_generates_no_front_config(self):
+        self.assertEqual(docker.render_front_config(_config(), docker.mesh_addresses(_config())),
+                         "")
+
+
+class ReplicatedInitTest(unittest.TestCase):
+    def test_init_writes_the_front_config_for_a_replicated_edge(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "app"
+            root.mkdir()
+            (root / "synqt.yaml").write_text("project:\n  name: shop\n", encoding="utf-8")
+            config = _replicated(count=3)
+            docker.init(root, config, source=None)
+            for name in docker.generated_files(config):
+                self.assertTrue((root / name).is_file(), name)
+            front = (root / f"{docker.DOCKER_DIR}/{docker.FRONT_FILE}").read_text()
+            self.assertIn("least_conn;", front)
+            self.assertEqual(front.count("server 172."), 3)
