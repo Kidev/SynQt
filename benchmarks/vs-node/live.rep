@@ -1,0 +1,16 @@
+// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+// SPDX-License-Identifier: Apache-2.0
+
+// The contract for the live-path comparison: the smallest thing that is still the workload.
+// One publisher changes a value at a fixed rate and N subscribers must each see every change.
+//
+// One property and not two, deliberately. QtRO coalesces outbound property changes, so a
+// stamp pushed beside a payload can arrive in either order or merged, and the measurement
+// would be of the coalescing rather than of the path. The frame carries its own stamp
+// instead: the first 8 bytes are microseconds since the run began, the rest is the payload.
+// That is also exactly what the Node side puts on the wire, so the two columns are timing
+// the same interval in the same way and differ only in the protocol carrying it.
+class LiveFeed
+{
+    PROP(QByteArray frame READPUSH)
+}
