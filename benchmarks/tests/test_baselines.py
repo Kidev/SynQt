@@ -507,3 +507,53 @@ def test_compare_of_runs_with_no_metric_in_common_is_an_error(tmp_path, capsys):
     second.write_text(json.dumps(other), encoding="utf-8")
     assert baselines.main(["compare", str(first), str(second)]) == 1
     assert "nothing to compare" in capsys.readouterr().err
+
+
+# The replica sweep: the acceptance criterion for `replicas:` written as a claim.
+
+
+def _replica_sweep(throughputs):
+    """A vs-node-replicas document with one row per process count."""
+    return {
+        "benchmark": "vs-node-replicas",
+        "stack": "synqt",
+        "qt_version": "6.11.1",
+        "host": "test",
+        "arch": "x86_64",
+        "recorded": "2026-08-15T00:00:00Z",
+        "processes": [
+            {"count": count, "throughput_msgs_per_sec": value,
+             "propagation": {"unit": "ms", "samples": 10, "min": 0.1, "p50": 0.2,
+                             "p95": 0.3, "p99": 0.4, "max": 0.5, "mean": 0.2},
+             "delivered": 100, "expected": 100}
+            for count, value in throughputs
+        ],
+    }
+
+
+def test_a_replica_sweep_that_scales_passes():
+    report = baselines.check_document(_replica_sweep([(1, 100.0), (2, 190.0), (4, 360.0)]))
+    assert report.ok, [c.detail for c in report.failures]
+
+
+def test_a_replica_sweep_that_does_not_scale_fails():
+    """The whole promise of `replicas:` is that adding processes adds throughput. A run
+    where it does not is the feature not working, whatever the absolute numbers say."""
+    report = baselines.check_document(_replica_sweep([(1, 100.0), (4, 101.0)]))
+    assert not report.ok
+    assert any("scale" in c.name for c in report.failures)
+
+
+def test_a_replica_sweep_that_drops_frames_fails():
+    """Throughput bought by dropping deliveries is not throughput."""
+    document = _replica_sweep([(1, 100.0), (4, 400.0)])
+    document["processes"][1]["delivered"] = 40
+    report = baselines.check_document(document)
+    assert not report.ok
+    assert any("delivered" in c.name for c in report.failures)
+
+
+def test_a_replica_sweep_of_one_point_says_so_rather_than_passing():
+    """One process count is not a scaling measurement, and must not read as one."""
+    report = baselines.check_document(_replica_sweep([(1, 100.0)]))
+    assert not report.ok

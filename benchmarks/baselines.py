@@ -1024,6 +1024,70 @@ def _check_buildtime(document: Mapping[str, Any], checks: List[Check]) -> None:
         )
 
 
+def _check_vs_node_replicas(document: Mapping[str, Any], checks: List[Check]) -> None:
+    """The acceptance criterion for `replicas:`, as a machine-independent claim.
+
+    Absolute throughput is a fact about one machine and is not gated here, for the reason
+    the whole file gives. That throughput RISES as processes are added is a fact about the
+    design, and it is the entire promise the key makes. A replicated edge that does not go
+    faster than one process is a deployment paying for N processes and getting one.
+
+    The threshold is 1.5x from the smallest process count to the largest, not the 2x this
+    file uses elsewhere. 2x is right for comparing two modes on one run, where the baseline
+    is fixed. Here the baseline moves with the machine, real scaling is sublinear (the
+    balancer, the shared auth entity and the host's own contention all take a cut), and
+    "clearly more than one process" is the reading of the promise that holds.
+    """
+    processes = document.get("processes", [])
+    if len(processes) < 2:
+        checks.append(
+            Check("replicas.sweep", False,
+                  "a scaling measurement needs at least two process counts; this has "
+                  f"{len(processes)}"))
+        return
+
+    ordered = sorted(processes, key=lambda row: row.get("count", 0))
+    first, last = ordered[0], ordered[-1]
+    base = float(first.get("throughput_msgs_per_sec") or 0.0)
+    top = float(last.get("throughput_msgs_per_sec") or 0.0)
+    grew = _ratio(top, base)
+    checks.append(
+        Check(
+            "replicas.throughput_scales_with_processes",
+            grew >= 1.5,
+            f"{first.get('count')} process -> {last.get('count')}: "
+            f"{base:.6g} -> {top:.6g} msg/s ({grew:.2f}x, band: >= 1.5x)",
+        )
+    )
+
+    # Throughput bought by dropping deliveries is not throughput, so the claim above is
+    # only meaningful alongside this one.
+    dropped = [
+        f"{row.get('count')} processes delivered {row.get('delivered')}/{row.get('expected')}"
+        for row in ordered
+        if row.get("expected") and row.get("delivered", 0) < 0.99 * row["expected"]
+    ]
+    checks.append(
+        Check(
+            "replicas.delivered_everything_it_published",
+            not dropped,
+            "every process count delivered what it published"
+            if not dropped else "; ".join(dropped),
+        )
+    )
+
+    curve = [(row.get("count"), row.get("throughput_msgs_per_sec", 0.0)) for row in ordered]
+    checks.append(
+        Check(
+            "replicas.throughput_curve",
+            True,
+            " -> ".join(f"{count}: {value:.6g} msg/s" for count, value in curve)
+            + " (printed, not gated: where it goes sublinear is a fact about this host)",
+            enforced=False,
+        )
+    )
+
+
 INVARIANTS: Dict[str, Callable[[Mapping[str, Any], List[Check]], None]] = {
     "transport": _check_transport,
     "mesh": _check_mesh,
@@ -1036,6 +1100,7 @@ INVARIANTS: Dict[str, Callable[[Mapping[str, Any], List[Check]], None]] = {
     "client-frame-time": _check_client_frame_time,
     "remote-pages": _check_remote_pages,
     "buildtime": _check_buildtime,
+    "vs-node-replicas": _check_vs_node_replicas,
 }
 
 

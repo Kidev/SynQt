@@ -95,6 +95,59 @@ The Node columns wait on `await sleep()`, which blocks in the poll, so the two w
 comparable. Both sides now wait the same way, and the figure moved to 16. If you extend
 this harness, the rule is that nothing inside a measured window may spin.
 
+## The sweep: what each stack does with four cores
+
+This is the part of the comparison that is also the acceptance test for
+[`replicas:`](../../docs/deploying.md#8-running-more-than-one-edge). Both runtimes are
+single-threaded per process and reach the other cores the same way, by running more of
+themselves: SynQt through `replicas:`, Node through `cluster`. So the fair question is not
+which is faster on one core but what each does with four.
+
+```sh
+python3 benchmarks/vs-node/sweep.py --processes 1,2,4,8 --subscribers 200 --seconds 10
+```
+
+It holds one workload fixed and splits the subscribers across the processes, so the
+question stays "what do N processes do with this" rather than "what does N times the work
+look like". `benchmarks/baselines.py check` then gates two claims on the result, both
+machine-independent: throughput must rise by at least 1.5x from the smallest process count
+to the largest, and no process count may buy its throughput by dropping deliveries.
+
+Two things about how it measures, both of which it got wrong first:
+
+**It saturates rather than paces.** At a fixed publish rate the throughput *is* the publish
+rate, so every process count reports the same number: the first version of this script
+reported 960 msg/s at 1, 2 and 4 processes alike and looked like a working measurement.
+Capacity is what scaling is about, so the loop publishes, waits for the whole fleet to have
+the frame, and publishes again. Open-looping at "maximum rate" would not do: QtRO coalesces
+outbound property changes, so frames published faster than the transport drains are merged
+and the publisher would report a throughput nobody received.
+
+**The Node wait is `setImmediate`, not a zero-millisecond timer.** `setTimeout(0)` still
+goes through the timer phase and does not fire faster than about a millisecond, which
+capped the Node column at ~800 frames a second and made it look like Node scaled 1.14x over
+four processes. It was a fact about the wait. With `setImmediate` the same column runs 3.7x
+faster and scales 3.86x, and it is the number below.
+
+### Reading the result honestly
+
+On the author's workstation, 40 subscribers, 3 second windows:
+
+| processes | SynQt | Node (bare) |
+|---|---|---|
+| 1 | 103 k msg/s | 117 k msg/s |
+| 2 | 214 k msg/s | 231 k msg/s |
+| 4 | 429 k msg/s (4.15x) | 452 k msg/s (3.86x) |
+
+Node's bare column is about 10% ahead on raw saturating throughput, and both scale close to
+linearly. That is the result, and it belongs here in the same size type as everything else:
+a stack that only publishes the benchmarks it wins is not publishing benchmarks.
+
+What SynQt is ahead on is what the same workload *costs*, which is the paced table above:
+roughly 2 to 3 times less CPU per delivery and roughly 3 to 6 times less memory per
+connection. Those are the figures that decide how many users a host holds, which is why
+`users / core / GiB` is derived from them and not from peak throughput.
+
 ## The supporting table: HTTP
 
 The six TechEmpower test types (`/plaintext`, `/json`, `/db`, `/queries`, `/updates`,

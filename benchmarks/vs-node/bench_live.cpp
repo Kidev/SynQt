@@ -233,23 +233,31 @@ int main(int argc, char *argv[])
     const QCommandLineOption payloadOption{
         QStringLiteral("payload"), QStringLiteral("Payload bytes per frame."),
         QStringLiteral("n"), QStringLiteral("256")};
+    const QCommandLineOption saturateOption{
+        QStringLiteral("saturate"),
+        QStringLiteral("Ignore --hz: publish as fast as every subscriber can keep up, "
+                       "closed loop. This is the mode that measures capacity.")};
     const QCommandLineOption outOption{
         QStringLiteral("out"), QStringLiteral("Write the JSON result here."),
         QStringLiteral("file")};
-    parser.addOptions({sizesOption, secondsOption, hzOption, payloadOption, outOption});
+    parser.addOptions({sizesOption, secondsOption, hzOption, payloadOption, saturateOption,
+                       outOption});
     parser.process(app);
 
     const QList<int> sizes{parseSizes(parser.value(sizesOption))};
     const int seconds{qMax(1, parser.value(secondsOption).toInt())};
     const int hz{qMax(1, parser.value(hzOption).toInt())};
     const int payloadBytes{qMax(0, parser.value(payloadOption).toInt())};
+    const bool saturate{parser.isSet(saturateOption)};
     if (sizes.isEmpty()) {
         out << "no subscriber counts to sweep" << Qt::endl;
         return 2;
     }
 
-    out << "SynQt live path: " << seconds << "s at " << hz << " Hz, " << payloadBytes
-        << " byte payload, subscribers " << parser.value(sizesOption) << Qt::endl;
+    out << "SynQt live path: " << seconds << "s at "
+        << (saturate ? QStringLiteral("saturation") : QStringLiteral("%1 Hz").arg(hz))
+        << ", " << payloadBytes << " byte payload, subscribers "
+        << parser.value(sizesOption) << Qt::endl;
 
     QJsonArray sweep;
     const qint64 baselineRss{residentBytes()};
@@ -286,6 +294,7 @@ int main(int argc, char *argv[])
         Distribution propagation;
         propagation.samples.reserve(subscriberCount * seconds * hz);
 
+        int deliveredThisFrame{0};
         QList<Subscriber> subscribers;
         subscribers.reserve(subscriberCount);
         for (int i{0}; i < subscriberCount; ++i) {
@@ -323,7 +332,8 @@ int main(int argc, char *argv[])
         for (Subscriber &subscriber : subscribers) {
             Subscriber *self{&subscriber};
             QObject::connect(subscriber.replica, &LiveFeedReplica::frameChanged, &app,
-                             [self, &propagation, &runClock](const QByteArray &frame) {
+                             [self, &propagation, &runClock,
+                              &deliveredThisFrame](const QByteArray &frame) {
                 if (frame.size() < static_cast<int>(sizeof(quint64))) {
                     return;
                 }
@@ -332,6 +342,7 @@ int main(int argc, char *argv[])
                 const double nowUs{static_cast<double>(runClock.nsecsElapsed()) / 1000.0};
                 propagation.samples.append((nowUs - static_cast<double>(stampUs)) / 1000.0);
                 ++self->delivered;
+                ++deliveredThisFrame;
             });
         }
 
@@ -360,18 +371,42 @@ int main(int argc, char *argv[])
             subscriber.delivered = 0;
         }
 
-        const int ticks{seconds * hz};
+        int ticks{0};
         const double cpuBefore{cpuMilliseconds()};
         QElapsedTimer window;
         window.start();
-        for (int tick{0}; tick < ticks; ++tick) {
-            publish();
-            const qint64 due{static_cast<qint64>(tick + 1) * 1000 / hz};
-            waitMs(static_cast<int>(due - window.elapsed()));
+        if (saturate) {
+            // Closed loop: publish, wait for every subscriber to have it, publish again.
+            // Open-looping at "maximum rate" would not measure capacity, because QtRO
+            // coalesces outbound property changes: frames published faster than the
+            // transport drains are merged, so the publisher would report a throughput
+            // nobody received. Waiting for the fleet each time makes the rate the fleet's
+            // own and cannot outrun it.
+            while (window.elapsed() < static_cast<qint64>(seconds) * 1000) {
+                deliveredThisFrame = 0;
+                publish();
+                ++ticks;
+                const bool landed{spinUntil(
+                    [&deliveredThisFrame, subscriberCount]() {
+                        return deliveredThisFrame >= subscriberCount;
+                    }, 5000)};
+                if (!landed) {
+                    out << "  a frame never reached every subscriber at N="
+                        << subscriberCount << Qt::endl;
+                    return 1;
+                }
+            }
+        } else {
+            ticks = seconds * hz;
+            for (int tick{0}; tick < ticks; ++tick) {
+                publish();
+                const qint64 due{static_cast<qint64>(tick + 1) * 1000 / hz};
+                waitMs(static_cast<int>(due - window.elapsed()));
+            }
+            // Let what is in flight land before the window closes, or the tail of every run
+            // is counted as loss that is really just the harness stopping first.
+            waitMs(500);
         }
-        // Let what is in flight land before the window closes, or the tail of every run is
-        // counted as loss that is really just the harness stopping first.
-        waitMs(500);
         const double elapsedSeconds{window.elapsed() / 1000.0};
         const double cpuUsed{cpuMilliseconds() - cpuBefore};
 
@@ -420,7 +455,8 @@ int main(int argc, char *argv[])
     root.insert(QStringLiteral("arch"), QSysInfo::currentCpuArchitecture());
     root.insert(QStringLiteral("recorded"),
                 QDateTime::currentDateTimeUtc().toString(Qt::ISODate));
-    root.insert(QStringLiteral("hz"), hz);
+    root.insert(QStringLiteral("hz"), saturate ? 0 : hz);
+    root.insert(QStringLiteral("saturated"), saturate);
     root.insert(QStringLiteral("seconds"), seconds);
     root.insert(QStringLiteral("payload_bytes"), payloadBytes);
     root.insert(QStringLiteral("rss_available"), residentBytes() > 0);

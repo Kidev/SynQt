@@ -22,6 +22,7 @@ const args = parseArgs({
     seconds: "5",
     hz: "30",
     payload: "256",
+    saturate: false,
     out: "",
 });
 
@@ -31,9 +32,10 @@ const sizes = String(args.subscribers).split(",")
 const seconds = Math.max(1, Number.parseInt(args.seconds, 10));
 const hz = Math.max(1, Number.parseInt(args.hz, 10));
 const payloadBytes = Math.max(0, Number.parseInt(args.payload, 10));
+const saturate = args.saturate === true || args.saturate === "true";
 
 console.log(
-    `Node (bare) live path: ${seconds}s at ${hz} Hz, ${payloadBytes} byte payload, ` +
+    `Node (bare) live path: ${seconds}s at ${saturate ? "saturation" : `${hz} Hz`}, ${payloadBytes} byte payload, ` +
     `subscribers ${args.subscribers}`);
 
 const payload = Buffer.alloc(payloadBytes, 0x78);
@@ -44,6 +46,7 @@ for (const subscriberCount of sizes) {
     const server = await startBroadcastServer();
     const propagation = [];
     let delivered = 0;
+    let deliveredThisFrame = 0;
     let measuring = false;
 
     const sockets = [];
@@ -57,6 +60,7 @@ for (const subscriberCount of sizes) {
             const frame = Buffer.from(event.data);
             propagation.push((nowMicros() - readStamp(frame)) / 1000);
             delivered += 1;
+            deliveredThisFrame += 1;
         });
         sockets.push(socket);
     }
@@ -80,20 +84,50 @@ for (const subscriberCount of sizes) {
     }
 
     measuring = true;
-    const ticks = seconds * hz;
+    let ticks = seconds * hz;
     const cpuBefore = cpuMilliseconds();
     const startedAt = Date.now();
-    for (let tick = 0; tick < ticks; tick += 1) {
-        server.broadcast(makeFrame(nowMicros(), payload));
-        const due = startedAt + Math.round(((tick + 1) * 1000) / hz);
-        const wait = due - Date.now();
-        if (wait > 0) {
-            await sleep(wait);
+    if (saturate) {
+        // Closed loop: publish, wait for the whole fleet to have it, publish again. Open
+        // -looping at "maximum rate" would measure the send buffer rather than the
+        // capacity, and the SynQt side cannot open-loop at all (QtRO coalesces outbound
+        // property changes), so this is the mode both columns share.
+        ticks = 0;
+        while (Date.now() - startedAt < seconds * 1000) {
+            deliveredThisFrame = 0;
+            server.broadcast(makeFrame(nowMicros(), payload));
+            ticks += 1;
+            const frameDeadline = Date.now() + 5000;
+            while (deliveredThisFrame < subscriberCount && Date.now() < frameDeadline) {
+                // setImmediate, not sleep(0). A zero-millisecond setTimeout still goes
+                // through the timer phase and does not fire faster than about a
+                // millisecond, so waiting on it caps this loop at ~800 frames a second
+                // whatever Node can actually do: the first version of this measured 31k
+                // msg/s and reported Node as scaling 1.14x over four processes, which was
+                // a fact about the wait and not about Node. setImmediate runs in the check
+                // phase, right after the I/O the deliveries arrive on.
+                await new Promise((resolve) => setImmediate(resolve));
+            }
+            if (deliveredThisFrame < subscriberCount) {
+                console.error(`a frame never reached every subscriber at N=${subscriberCount}`);
+                process.exit(1);
+            }
+        }
+    } else {
+        for (let tick = 0; tick < ticks; tick += 1) {
+            server.broadcast(makeFrame(nowMicros(), payload));
+            const due = startedAt + Math.round(((tick + 1) * 1000) / hz);
+            const wait = due - Date.now();
+            if (wait > 0) {
+                await sleep(wait);
+            }
         }
     }
     // Let what is in flight land, or the tail of every run reads as loss that is really the
     // harness stopping first.
-    await sleep(500);
+    if (!saturate) {
+        await sleep(500);
+    }
     const elapsedSeconds = (Date.now() - startedAt) / 1000;
     const cpuMs = cpuMilliseconds() - cpuBefore;
     measuring = false;
@@ -123,7 +157,8 @@ for (const subscriberCount of sizes) {
 writeResult(args.out, {
     stack: "node-bare",
     path: "node:http + hand-rolled RFC 6455",
-    hz,
+    hz: saturate ? 0 : hz,
+    saturated: saturate,
     seconds,
     payload_bytes: payloadBytes,
     sweep,
