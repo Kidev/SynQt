@@ -237,11 +237,16 @@ int main(int argc, char *argv[])
         QStringLiteral("saturate"),
         QStringLiteral("Ignore --hz: publish as fast as every subscriber can keep up, "
                        "closed loop. This is the mode that measures capacity.")};
+    const QCommandLineOption rawOption{
+        QStringLiteral("raw"),
+        QStringLiteral("Fan out over a bare QWebSocket instead of QtRemoteObjects, "
+                       "holding everything else identical. The difference between the "
+                       "two runs is what the object protocol costs.")};
     const QCommandLineOption outOption{
         QStringLiteral("out"), QStringLiteral("Write the JSON result here."),
         QStringLiteral("file")};
     parser.addOptions({sizesOption, secondsOption, hzOption, payloadOption, saturateOption,
-                       outOption});
+                       rawOption, outOption});
     parser.process(app);
 
     const QList<int> sizes{parseSizes(parser.value(sizesOption))};
@@ -249,12 +254,13 @@ int main(int argc, char *argv[])
     const int hz{qMax(1, parser.value(hzOption).toInt())};
     const int payloadBytes{qMax(0, parser.value(payloadOption).toInt())};
     const bool saturate{parser.isSet(saturateOption)};
+    const bool raw{parser.isSet(rawOption)};
     if (sizes.isEmpty()) {
         out << "no subscriber counts to sweep" << Qt::endl;
         return 2;
     }
 
-    out << "SynQt live path: " << seconds << "s at "
+    out << (raw ? "Qt raw-WebSocket live path: " : "SynQt live path: ") << seconds << "s at "
         << (saturate ? QStringLiteral("saturation") : QStringLiteral("%1 Hz").arg(hz))
         << ", " << payloadBytes << " byte payload, subscribers "
         << parser.value(sizesOption) << Qt::endl;
@@ -272,11 +278,16 @@ int main(int argc, char *argv[])
         const quint16 port{server.serverPort()};
 
         QRemoteObjectHost host;
+        QList<QWebSocket *> rawPeers;
         host.setHostUrl(QUrl{QStringLiteral("synqt-live:///host")},
                         QRemoteObjectHost::AllowExternalRegistration);
         QObject::connect(&server, &QWebSocketServer::newConnection, &host,
-                         [&server, &host]() {
+                         [&server, &host, &rawPeers, raw]() {
             while (QWebSocket *socket{server.nextPendingConnection()}) {
+                if (raw) {
+                    rawPeers.append(socket);
+                    continue;
+                }
                 WebSocketTransport *transport{new WebSocketTransport{socket, socket}};
                 transport->open(QIODevice::ReadWrite);
                 host.addHostSideConnection(transport);
@@ -284,7 +295,7 @@ int main(int argc, char *argv[])
         });
 
         LiveFeedSimpleSource feed;
-        if (!host.enableRemoting(&feed, QStringLiteral("LiveFeed"))) {
+        if (!raw && !host.enableRemoting(&feed, QStringLiteral("LiveFeed"))) {
             out << "cannot host the feed" << Qt::endl;
             return 1;
         }
@@ -295,11 +306,18 @@ int main(int argc, char *argv[])
         propagation.samples.reserve(subscriberCount * seconds * hz);
 
         int deliveredThisFrame{0};
+        QEventLoop *frameLoop{nullptr};
         QList<Subscriber> subscribers;
         subscribers.reserve(subscriberCount);
         for (int i{0}; i < subscriberCount; ++i) {
             Subscriber subscriber;
             subscriber.socket = new QWebSocket{};
+            if (raw) {
+                subscriber.socket->open(
+                    QUrl{QStringLiteral("ws://localhost:%1").arg(port)});
+                subscribers.append(subscriber);
+                continue;
+            }
             subscriber.transport = new WebSocketTransport{subscriber.socket,
                                                           subscriber.socket};
             subscriber.node = new QRemoteObjectNode{};
@@ -309,12 +327,17 @@ int main(int argc, char *argv[])
             subscriber.node->addClientSideConnection(subscriber.transport);
             subscribers.append(subscriber);
         }
-        for (Subscriber &subscriber : subscribers) {
-            subscriber.replica = subscriber.node->acquire<LiveFeedReplica>(
-                QStringLiteral("LiveFeed"));
+        if (!raw) {
+            for (Subscriber &subscriber : subscribers) {
+                subscriber.replica = subscriber.node->acquire<LiveFeedReplica>(
+                    QStringLiteral("LiveFeed"));
+            }
         }
 
-        const bool ready{spinUntil([&subscribers]() {
+        const bool ready{spinUntil([&subscribers, &rawPeers, subscriberCount, raw]() {
+            if (raw) {
+                return rawPeers.size() >= subscriberCount;
+            }
             return std::all_of(subscribers.cbegin(), subscribers.cend(),
                                [](const Subscriber &s) {
                                    return s.replica && s.replica->isInitialized();
@@ -329,11 +352,13 @@ int main(int argc, char *argv[])
         // propagation. Each subscriber stamps its own arrival, so the distribution is over
         // deliveries and not over ticks: a tick that reached 9 of 10 subscribers late is
         // nine late samples, which is what a user of the tenth would call it.
+        //
+        // Both columns record through this same lambda, so the only thing that differs
+        // between them is what carried the frame to it.
         for (Subscriber &subscriber : subscribers) {
             Subscriber *self{&subscriber};
-            QObject::connect(subscriber.replica, &LiveFeedReplica::frameChanged, &app,
-                             [self, &propagation, &runClock,
-                              &deliveredThisFrame](const QByteArray &frame) {
+            const auto record{[self, &propagation, &runClock, &frameLoop, subscriberCount,
+                               &deliveredThisFrame](const QByteArray &frame) {
                 if (frame.size() < static_cast<int>(sizeof(quint64))) {
                     return;
                 }
@@ -343,7 +368,17 @@ int main(int argc, char *argv[])
                 propagation.samples.append((nowUs - static_cast<double>(stampUs)) / 1000.0);
                 ++self->delivered;
                 ++deliveredThisFrame;
-            });
+                if (frameLoop && deliveredThisFrame >= subscriberCount) {
+                    frameLoop->quit();
+                }
+            }};
+            if (raw) {
+                QObject::connect(subscriber.socket, &QWebSocket::binaryMessageReceived,
+                                 &app, record);
+            } else {
+                QObject::connect(subscriber.replica, &LiveFeedReplica::frameChanged, &app,
+                                 record);
+            }
         }
 
         const qint64 connectedRss{residentBytes()};
@@ -351,14 +386,23 @@ int main(int argc, char *argv[])
         // Warm up: the first ticks pay for lazily built metaobject plumbing on both sides,
         // and they would otherwise land entirely in the tail of a short run.
         const QByteArray payload(payloadBytes, 'x');
-        const auto publish{[&feed, &runClock, &payload]() {
+        const auto publish{[&feed, &runClock, &payload, &rawPeers, raw]() {
             QByteArray frame;
             frame.reserve(static_cast<int>(sizeof(quint64)) + payload.size());
             const quint64 stampUs{
                 static_cast<quint64>(runClock.nsecsElapsed() / 1000)};
             frame.append(reinterpret_cast<const char *>(&stampUs), sizeof(stampUs));
             frame.append(payload);
-            feed.setFrame(frame);
+            if (!raw) {
+                feed.setFrame(frame);
+                return;
+            }
+            // The raw column's fan-out, written the way the Node column writes its own:
+            // frame once, then hand the same bytes to every socket.
+            for (QWebSocket *peer : std::as_const(rawPeers)) {
+                peer->sendBinaryMessage(frame);
+                peer->flush();
+            }
         }};
 
         const int warmupTicks{qMin(hz, 30)};
@@ -384,12 +428,22 @@ int main(int argc, char *argv[])
             // own and cannot outrun it.
             while (window.elapsed() < static_cast<qint64>(seconds) * 1000) {
                 deliveredThisFrame = 0;
+                QEventLoop loop;
+                frameLoop = &loop;
+                bool landed{true};
+                QTimer guard;
+                guard.setSingleShot(true);
+                QObject::connect(&guard, &QTimer::timeout, &loop, [&loop, &landed]() {
+                    landed = false;
+                    loop.quit();
+                });
+                guard.start(5000);
                 publish();
                 ++ticks;
-                const bool landed{spinUntil(
-                    [&deliveredThisFrame, subscriberCount]() {
-                        return deliveredThisFrame >= subscriberCount;
-                    }, 5000)};
+                if (deliveredThisFrame < subscriberCount) {
+                    loop.exec();
+                }
+                frameLoop = nullptr;
                 if (!landed) {
                     out << "  a frame never reached every subscriber at N="
                         << subscriberCount << Qt::endl;
@@ -448,7 +502,8 @@ int main(int argc, char *argv[])
 
     QJsonObject root;
     root.insert(QStringLiteral("benchmark"), QStringLiteral("vs-node-live"));
-    root.insert(QStringLiteral("stack"), QStringLiteral("synqt"));
+    root.insert(QStringLiteral("stack"),
+                raw ? QStringLiteral("qt-raw") : QStringLiteral("synqt"));
     root.insert(QStringLiteral("path"), QStringLiteral("qtro-over-websockets"));
     root.insert(QStringLiteral("qt_version"), QString::fromLatin1(qVersion()));
     root.insert(QStringLiteral("host"), QSysInfo::prettyProductName());
