@@ -131,22 +131,120 @@ faster and scales 3.86x, and it is the number below.
 
 ### Reading the result honestly
 
-On the author's workstation, 40 subscribers, 3 second windows:
+Arch Linux, x86_64, Qt 6.11.1 against Node 22.22, 200 subscribers split across the
+processes, 10 second windows:
 
-| processes | SynQt | Node (bare) |
+| processes | SynQt | Node (bare) | worst p99, SynQt | worst p99, Node |
+|---|---|---|---|---|
+| 1 | 86,920 msg/s | 117,220 msg/s | 2.338 ms | 1.725 ms |
+| 2 | 192,330 msg/s | 218,420 msg/s | 1.026 ms | 0.958 ms |
+| 4 | 402,090 msg/s | 452,810 msg/s | 0.495 ms | 0.484 ms |
+| 8 | 821,825 msg/s (9.45x) | 857,050 msg/s (7.31x) | 0.250 ms | 0.319 ms |
+
+Node's bare column is ahead on raw saturating throughput at every process count, by 26% on
+one process narrowing to 4% on eight. SynQt scales better (9.45x against 7.31x) and holds
+the lower tail latency once there are eight processes, which is the same fact twice: what
+SynQt gives up is per-process efficiency, not the ability to use the machine.
+
+That is the result, and it belongs here in the same size type as everything else: a stack
+that only publishes the benchmarks it wins is not publishing benchmarks. The gap is
+attributed rather than left as a mystery in
+[what the gap is made of](#what-the-gap-against-node-is-made-of) below.
+
+### What each column is actually better at
+
+From the paced table, same host:
+
+| | SynQt | vs Node (bare) | vs Socket.IO |
+|---|---|---|---|
+| Latency, N=10 | 0.142 ms | **1.6x better** | **2.8x better** |
+| Latency, N=250 | 3.297 ms | 1.65x worse | **1.3x better** |
+| CPU / 1k msgs, N=10 | 15.7 ms | **3.8x better** | **5.5x better** |
+| CPU / 1k msgs, N=250 | 14.2 ms | 1.6x worse | **1.3x better** |
+| Marginal KiB / conn, N=250 | 60.9 | **1.7x better** | **1.8x better** |
+| Users / GiB, N=250 | 17,224 | **1.7x better** | **1.8x better** |
+
+Three things this says, none of which is "SynQt is faster":
+
+- **Against Socket.IO, which is the stack a Node team would actually deploy, SynQt is
+  ahead on every row.** That is the comparison a reader choosing between frameworks is
+  making, and it is the reason both Node columns are printed.
+- **Against bare Node, SynQt trades.** It is far cheaper at small subscriber counts,
+  because Node's fixed per-process cost dominates there, and it is behind on CPU and
+  latency once the per-message cost dominates instead. The crossover is around 50
+  subscribers on this host.
+- **Memory per connection is the one row SynQt wins at every size**, and it wins it against
+  both columns. That is what `users / GiB` is derived from, and on this host it is the half
+  of `users / core / GiB` that binds later, so it is not the number that sizes a host.
+  Prefer whichever half is smaller for your workload rather than the flattering one.
+
+## What the gap against Node is made of
+
+"Node is ahead on throughput" is not an actionable sentence, so the harness splits it. The
+`--raw` flag runs the identical workload in the identical process with the identical
+publisher, subscribers, stamp, warm-up and closed loop, and changes exactly one thing:
+the frames go out over a bare `QWebSocket` instead of through QtRemoteObjects.
+
+```sh
+./build/bench-vs-node/bench_live --subscribers 40 --saturate --seconds 3
+./build/bench-vs-node/bench_live --subscribers 40 --saturate --seconds 3 --raw
+```
+
+40 subscribers, three second windows, same host as the tables above:
+
+| | msg/s | propagation p50 |
 |---|---|---|
-| 1 | 103 k msg/s | 117 k msg/s |
-| 2 | 214 k msg/s | 231 k msg/s |
-| 4 | 429 k msg/s (4.15x) | 452 k msg/s (3.86x) |
+| Qt, bare `QWebSocket` | 126,500 | 0.249 ms |
+| Node, bare | 117,133 | - |
+| SynQt, over QtRemoteObjects | 107,400 | 0.285 ms |
 
-Node's bare column is about 10% ahead on raw saturating throughput, and both scale close to
-linearly. That is the result, and it belongs here in the same size type as everything else:
-a stack that only publishes the benchmarks it wins is not publishing benchmarks.
+**Qt's socket stack is not what is behind. It is about 8% ahead of Node's.** The whole
+deficit, and about half as much again, is the object protocol sitting on top: roughly 15%
+between the bare-socket column and the QtRO one.
 
-What SynQt is ahead on is what the same workload *costs*, which is the paced table above:
-roughly 2 to 3 times less CPU per delivery and roughly 3 to 6 times less memory per
-connection. Those are the figures that decide how many users a host holds, which is why
-`users / core / GiB` is derived from them and not from peak throughput.
+That is a real cost for a real thing. The Node column carries an opaque buffer to a
+callback and the receiver casts it; the QtRO column carries a typed property change
+against a schema, resolves it on a replica that stays in sync, coalesces pushes that
+overtake each other, and lands in a slot where `Caller` is already known. Half of what
+this framework does is in that 15%.
+
+### Where the 15% actually goes, and what would move it
+
+Each of these was found by profiling the steady-state loop or by reading the path, and
+each is stated with whose code it is in, because that decides how fixable it is.
+
+1. **The receive path copies twice.** `QWebSocket` hands over a `QByteArray`, the adapter
+   appends it into one growing buffer, and QtRO copies back out of that buffer through
+   `readData`. A queue of frames served in place would remove one of the two. Ours, and
+   the most straightforward of these.
+2. **Deserialization goes through `QDataStream` in small reads.** `QIODevicePrivate::read`
+   and `QRingBuffer::read` sit near the top of the steady-state profile, above anything
+   doing arithmetic. That is per-message framing overhead, not payload work. Upstream, or
+   a codec of our own.
+3. **`QWebSocket` copies every outgoing payload whether or not it needs to.**
+   `doWriteFrames` does `QByteArray tmpData(data); tmpData.detach();` unconditionally,
+   though the copy exists only so masking can be done in place, and a server never masks.
+   Upstream. Removing our own copy on the way in (`fromRawData`) was measurable at zero,
+   so this one is likely small too, but it is a copy per message per connection.
+4. **Neither runtime uses more than one core per process, but only one of them could.**
+   This is the structural item and the largest. Node reaches other cores with `cluster`,
+   which gives every worker its own copy of the value and needs a hop between processes to
+   keep them agreeing; the sweep above deliberately gives Node its best case by letting
+   each worker publish independently, with nothing shared. SynQt is C++ and could serialize
+   a change once and write it from a pool of I/O threads inside one process, with no hop at
+   all. That is the shape in which SynQt would be ahead rather than level, and it is not
+   built. `replicas:` today is the same shared-nothing answer Node gives.
+
+The first three are worth a few percent between them. The fourth is the one that changes
+the answer, and it is a design question and not a tuning pass, which is why it is written
+here as a finding rather than done in passing.
+
+One thing that is already done and is worth about 3%: the adapter now asks each socket to
+put its buffered bytes on the wire just before the event loop blocks, rather than waiting a
+poll round trip for Qt's write notifier. On a fan-out that round trip is paid by every
+socket for a single frame each. See `flushBeforeBlocking` in
+[`websockettransport.cpp`](../../src/transport/websockettransport.cpp), which also records
+why the obvious version of it corrupts the stream.
 
 ## The supporting table: HTTP
 
