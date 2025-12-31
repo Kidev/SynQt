@@ -23,6 +23,7 @@
 #include <QPointer>
 #include <QScopedPointer>
 #include <QSignalSpy>
+#include <QTimer>
 #include <QTest>
 #include <QUrl>
 #include <QWebSocket>
@@ -203,6 +204,29 @@ private slots:
         QCOMPARE(readyReads.count(), 2);  // one per frame, never coalesced
         QCOMPARE(link.peer()->readAll(), QByteArrayLiteral("abcde"));
         QCOMPARE(link.peer()->bytesAvailable(), 0);
+    }
+
+    // The same two writes, issued from inside a pass of the event loop rather than from
+    // the test body, which is where a real caller writes from and where the adapter's
+    // flush bookkeeping is engaged.
+    //
+    // It asserts the readyRead count and the content, not merely that something arrived:
+    // a write path that drops or merges a message reports no error, so a test that only
+    // checked for bytes would pass on half of them.
+    void writesFromInsideTheEventLoopStaySeparate()
+    {
+        Link link;
+        QVERIFY(link.connectPair());
+        QSignalSpy readyReads{link.peer(), &QIODevice::readyRead};
+
+        QTimer::singleShot(0, link.client(), [&link]() {
+            link.client()->write(QByteArrayLiteral("first"));
+            link.client()->write(QByteArrayLiteral("second"));
+        });
+
+        QVERIFY(waitForBytes(link.peer(), 11));
+        QCOMPARE(readyReads.count(), 2);
+        QCOMPARE(link.peer()->readAll(), QByteArrayLiteral("firstsecond"));
     }
 
     // Partial reads: a consumer that takes less than has arrived keeps the remainder, in

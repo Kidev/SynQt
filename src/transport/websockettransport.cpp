@@ -3,6 +3,7 @@
 
 #include "websockettransport.h"
 
+#include <QAbstractEventDispatcher>
 #include <QWebSocket>
 
 #include <algorithm>
@@ -17,6 +18,23 @@ namespace {
 // reallocates; what crosses it is the occasional large frame, which is exactly the
 // allocation worth not pinning for the life of the connection.
 constexpr qsizetype RetainedCapacityBytes{64 * 1024};
+
+/// The transports on one thread that have written since the event loop last blocked.
+struct PendingFlushes
+{
+    QList<QPointer<WebSocketTransport>> transports;
+    // Compared, never dereferenced, and cleared by QPointer when the dispatcher goes: a
+    // thread whose event loop is torn down and started again gets a new one to hook.
+    QPointer<QAbstractEventDispatcher> hooked;
+};
+
+PendingFlushes &pendingFlushes()
+{
+    // Deliberately not a QObject. A thread_local QObject is destroyed after
+    // QCoreApplication is, and ~QObject then walks per-thread data that is already gone.
+    static thread_local PendingFlushes state;
+    return state;
+}
 
 } // namespace
 
@@ -150,11 +168,75 @@ qint64 WebSocketTransport::readData(char *data, qint64 maxSize)
 
 qint64 WebSocketTransport::writeData(const char *data, qint64 maxSize)
 {
-    if (m_socket) {
-        return m_socket->sendBinaryMessage(
-            QByteArray{data, static_cast<qsizetype>(maxSize)});
+    if (!m_socket) {
+        return -1;
     }
-    return -1;
+    // fromRawData rather than a fresh QByteArray: QWebSocket copies the payload once on
+    // its way into the frame regardless, so materializing another copy here only to hand
+    // it over is a per-message allocation on every connection in a fan-out.
+    const qint64 written{m_socket->sendBinaryMessage(
+        QByteArray::fromRawData(data, static_cast<qsizetype>(maxSize)))};
+    flushBeforeBlocking();
+    return written;
+}
+
+/// Ask for this connection's buffered bytes to reach the kernel before the event loop
+/// blocks, instead of a poll round trip later when Qt's write notifier fires.
+///
+/// That round trip is what a fan-out pays for: every socket carries one message, so every
+/// socket waits a whole pass for a notifier before its single frame moves. Preempting it
+/// is worth about 3% of saturating throughput in benchmarks/vs-node, and nothing
+/// measurable on the paced latency at 250 subscribers. It is a small win and is written
+/// down as one; the large one on that path is not here (see that harness's README on what
+/// the object protocol costs).
+///
+/// Waiting for aboutToBlock() rather than flushing inside writeData() is not a style
+/// choice. Flushing there costs about 2% more throughput and breaks the stack: with it in
+/// place, two QtRO calls issued back to back reach the owner as one, and tst_m6 fails on
+/// a counter that reads 1 after two increments. Nothing reports an error. The likely path
+/// is QAbstractSocket::flush() emitting bytesWritten under the write already running, but
+/// that was not run to ground, because the deferred form is the one worth having anyway:
+/// it also collapses a whole pass into one syscall per socket, which is what keeps it
+/// free on a burst where one socket carries thousands of messages.
+void WebSocketTransport::flushBeforeBlocking()
+{
+    if (m_flushQueued) {
+        return;
+    }
+    QAbstractEventDispatcher *dispatcher{QAbstractEventDispatcher::instance()};
+    if (!dispatcher) {
+        return;  // no event loop on this thread, so Qt's own draining is all there is
+    }
+    PendingFlushes &pending{pendingFlushes()};
+    if (pending.hooked != dispatcher) {
+        pending.hooked = dispatcher;
+        // Written here rather than beside PendingFlushes so it can reach flushNow(), which
+        // is nobody else's business. The dispatcher is the context as well as the sender,
+        // so the connection goes when it does.
+        QObject::connect(dispatcher, &QAbstractEventDispatcher::aboutToBlock, dispatcher,
+                         []() {
+            PendingFlushes &queue{pendingFlushes()};
+            // Taken before flushing: a flush can close a connection, and closing one must
+            // not modify the list being walked.
+            const QList<QPointer<WebSocketTransport>> due{std::move(queue.transports)};
+            queue.transports.clear();
+            for (const QPointer<WebSocketTransport> &transport : due) {
+                if (transport) {
+                    transport->flushNow();
+                }
+            }
+        });
+    }
+    m_flushQueued = true;
+    pending.transports.append(this);
+}
+
+void WebSocketTransport::flushNow()
+{
+    m_flushQueued = false;
+    if (m_socket) {
+        m_socket->flush();
+    }
 }
 
 } // namespace SynQt

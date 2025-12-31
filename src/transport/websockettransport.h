@@ -66,12 +66,15 @@ protected:
 
 private:
     void discardOnOverflow(qint64 incomingBytes);
+    void flushBeforeBlocking();
+    void flushNow();
 
     QPointer<QWebSocket> m_socket;
     QByteArray m_readBuffer;
     QUrl m_url;
     qint64 m_readBufferLimit{DefaultReadBufferLimit};
     bool m_readBufferOverflowed{false};
+    bool m_flushQueued{false};
 };
 
 } // namespace SynQt

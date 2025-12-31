@@ -30,10 +30,12 @@ public:
     using EchoSimpleSource::EchoSimpleSource;
 
     int lastPoke{-1};
+    int pokeCount{0};
 
     void poke(int n) override
     {
         lastPoke = n;
+        ++pokeCount;
     }
 };
 
@@ -89,6 +91,23 @@ private slots:
         // A slot call from the client reaches the Source.
         replica->poke(42);
         QTRY_COMPARE(source.lastPoke, 42);
+
+        // Two calls issued back to back, in one pass of the client's event loop, arrive
+        // as two. A change to how the adapter writes can drop the second one and report
+        // nothing, so this counts arrivals rather than checking the last value: 44 alone
+        // would read the same whether one call was lost or none was.
+        source.pokeCount = 0;
+        replica->poke(43);
+        replica->poke(44);
+        QTRY_COMPARE(source.pokeCount, 2);
+        QCOMPARE(source.lastPoke, 44);
+
+        // The same shape in the other direction. Two pushes from the owner in one pass.
+        // Losing the second leaves the Replica on the first, which is a stale value and
+        // not an error, so nothing but a comparison against the last one finds it.
+        source.setValue(8);
+        source.setValue(9);
+        QTRY_COMPARE(replica->value(), 9);
     }
 };
 
