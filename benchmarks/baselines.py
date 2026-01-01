@@ -218,6 +218,21 @@ def flatten(document: Mapping[str, Any]) -> Dict[str, Metric]:
                 unit = _sweep_unit(name)
                 metrics[key] = Metric(key, float(value), unit, _lower_is_better(unit))
 
+    # The process sweep records two stacks side by side under two keys, so each row is
+    # labelled with the stack it came from and the two never land on the same metric.
+    for key_name, stack in (("processes", str(document.get("stack", "synqt"))),
+                            ("node_processes", "node")):
+        for row in document.get(key_name, []):
+            label = f"{stack}.p{row.get('count', 0)}"
+            for name, value in row.items():
+                if isinstance(value, Mapping):
+                    _flatten_distribution(f"{label}.{name}", value, metrics)
+                elif isinstance(value, (int, float)) and not isinstance(value, bool):
+                    unit = _sweep_unit(name)
+                    metrics[f"{label}.{name}"] = Metric(
+                        f"{label}.{name}", float(value), unit, _lower_is_better(unit)
+                    )
+
     for row in document.get("results", []):
         label = f"{row.get('test', 'unnamed')}.{row.get('connections', 0)}c"
         metrics[f"{label}.requests_per_sec"] = Metric(
@@ -263,7 +278,7 @@ def _sweep_label(kind: str, row: Mapping[str, Any]) -> str:
     """
     if "mode" in row and "consumers" in row:
         return f"{row['mode']}.n{row['consumers']}"
-    for axis in ("players", "sessions", "consumers", "blobs", "target"):
+    for axis in ("players", "sessions", "consumers", "subscribers", "blobs", "target"):
         if axis in row:
             return f"{axis}_{row[axis]}"
     return "sweep"
@@ -301,15 +316,22 @@ def _finite(value: Any) -> bool:
 def _check_metadata(document: Mapping[str, Any], kind: str, checks: List[Check]) -> None:
     """A baseline nobody can attribute is not a baseline.
 
-    Which machine, which Qt, and when: without all three a later run has nothing to
+    Which machine, which Qt, and when. Without all three a later run has nothing to
     compare itself against, and the number is only a number.
     """
-    missing = [key for key in REQUIRED_METADATA if not document.get(key)]
+    required = list(REQUIRED_METADATA)
+    # A run of another stack has no Qt in it, and demanding one would only teach whoever
+    # records it to write a Qt version that had nothing to do with the number. What it
+    # must say instead is which runtime produced it, so the comparison stays attributable.
+    if document.get("node_version"):
+        required = [key if key != "qt_version" else "node_version" for key in required]
+    missing = [key for key in required if not document.get(key)]
     checks.append(
         Check(
             "metadata",
             not missing,
-            "host, qt_version and recorded are present"
+            f"host, {'node_version' if 'node_version' in required else 'qt_version'} "
+            "and recorded are present"
             if not missing
             else f"missing: {', '.join(missing)}",
         )
@@ -1088,6 +1110,69 @@ def _check_vs_node_replicas(document: Mapping[str, Any], checks: List[Check]) ->
     )
 
 
+def _check_vs_node_live(document: Mapping[str, Any], checks: List[Check]) -> None:
+    """One column of the live-path comparison, gated on the things that make a column
+    comparable at all rather than on how fast it was.
+
+    Speed is deliberately not gated. Three stacks are recorded here, two of them not ours,
+    and a gate on absolute numbers would fail the moment the host changed or would quietly
+    become a gate on the machine. What has to hold for the table to mean anything is that
+    every column carried the whole workload, and that the harness knows which stack it was
+    measuring: a column that dropped a third of its frames posts an excellent latency over
+    the survivors, and it is exactly the failure that reads as a win.
+    """
+    sweep = document.get("sweep", [])
+    if not sweep:
+        checks.append(Check("live.sweep", False, "no subscriber counts were measured"))
+        return
+
+    checks.append(
+        Check(
+            "live.stack_is_named",
+            bool(document.get("stack")),
+            f"column: {document.get('stack')}" if document.get("stack")
+            else "the result does not say which stack produced it",
+        )
+    )
+
+    dropped = [
+        f"N={row.get('subscribers')} delivered {row.get('delivered')}/{row.get('expected')}"
+        for row in sweep
+        if row.get("expected") and row.get("delivered", 0) < 0.99 * row["expected"]
+    ]
+    checks.append(
+        Check(
+            "live.delivered_everything_it_published",
+            not dropped,
+            "every subscriber count received every frame"
+            if not dropped else "; ".join(dropped),
+        )
+    )
+
+    # A column whose per-message cost falls as connections are added is measuring its own
+    # fixed cost divided by N, which is why the table prefers the marginal memory row. The
+    # note prints the slope so a reader of the JSON alone can see the same thing.
+    sized = sorted(sweep, key=lambda row: row.get("subscribers", 0))
+    if len(sized) >= 2:
+        first, last = sized[0], sized[-1]
+        span = float(last.get("subscribers", 0) - first.get("subscribers", 0))
+        marginal = (
+            (float(last.get("rss_total_bytes") or 0) - float(first.get("rss_total_bytes") or 0))
+            / span
+            if span > 0 else 0.0
+        )
+        checks.append(
+            Check(
+                "live.marginal_memory_per_connection",
+                True,
+                f"{first.get('subscribers')} -> {last.get('subscribers')} subscribers: "
+                f"{marginal / 1024.0:.1f} KiB per additional connection "
+                "(printed, not gated: it is a fact about this host)",
+                enforced=False,
+            )
+        )
+
+
 INVARIANTS: Dict[str, Callable[[Mapping[str, Any], List[Check]], None]] = {
     "transport": _check_transport,
     "mesh": _check_mesh,
@@ -1100,6 +1185,7 @@ INVARIANTS: Dict[str, Callable[[Mapping[str, Any], List[Check]], None]] = {
     "client-frame-time": _check_client_frame_time,
     "remote-pages": _check_remote_pages,
     "buildtime": _check_buildtime,
+    "vs-node-live": _check_vs_node_live,
     "vs-node-replicas": _check_vs_node_replicas,
 }
 

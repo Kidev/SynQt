@@ -557,3 +557,77 @@ def test_a_replica_sweep_of_one_point_says_so_rather_than_passing():
     """One process count is not a scaling measurement, and must not read as one."""
     report = baselines.check_document(_replica_sweep([(1, 100.0)]))
     assert not report.ok
+
+
+# The live-path columns, three stacks, only one of them SynQt's.
+
+
+def _live_column(stack, rows, node=False):
+    """A vs-node-live document with one row per subscriber count."""
+    document = {
+        "benchmark": "vs-node-live",
+        "stack": stack,
+        "host": "test",
+        "arch": "x86_64",
+        "recorded": "2026-08-15T00:00:00Z",
+        "sweep": [
+            {"subscribers": count,
+             "propagation": {"unit": "ms", "samples": 10, "min": 0.1, "p50": 0.2,
+                             "p95": 0.3, "p99": 0.4, "max": 0.5, "mean": 0.2},
+             "throughput_msgs_per_sec": 100.0 * count,
+             "cpu_ms_per_1k": 12.0,
+             "rss_total_bytes": 50_000_000 + 60_000 * count,
+             "delivered": delivered, "expected": 100 * count}
+            for count, delivered in rows
+        ],
+    }
+    document["node_version" if node else "qt_version"] = "test-runtime"
+    return document
+
+
+def test_a_live_column_that_carried_every_frame_passes():
+    report = baselines.check_document(_live_column("synqt", [(10, 1000), (100, 10000)]))
+    assert report.ok, [c.detail for c in report.failures]
+
+
+def test_a_node_column_is_attributed_by_its_runtime_and_not_by_qt():
+    """Two of the three columns have no Qt in them. Demanding a Qt version of those would
+    only teach whoever records one to write a version that had nothing to do with it."""
+    report = baselines.check_document(
+        _live_column("node-bare", [(10, 1000), (100, 10000)], node=True))
+    assert report.ok, [c.detail for c in report.failures]
+
+
+def test_a_live_column_that_dropped_frames_fails():
+    """A column that drops frames posts an excellent latency over the survivors, so this
+    is the check that stops the failure from reading as the win."""
+    report = baselines.check_document(_live_column("synqt", [(10, 1000), (100, 6000)]))
+    assert not report.ok
+    assert any("delivered" in c.name for c in report.failures)
+
+
+def test_a_live_column_must_say_which_stack_it_is():
+    report = baselines.check_document(_live_column("", [(10, 1000), (100, 10000)]))
+    assert not report.ok
+    assert any("stack" in c.name for c in report.failures)
+
+
+def test_each_subscriber_count_flattens_to_its_own_metrics():
+    """Every sweep row needs a label of its own. Without `subscribers` among the axes they
+    all collapsed onto one, and a comparison silently read only the last size."""
+    metrics = baselines.flatten(_live_column("synqt", [(10, 1000), (100, 10000)]))
+    assert "subscribers_10.throughput_msgs_per_sec" in metrics
+    assert "subscribers_100.throughput_msgs_per_sec" in metrics
+
+
+def test_both_stacks_in_a_process_sweep_flatten_side_by_side():
+    """The sweep records SynQt's column and Node's in one file. They must not overwrite each
+    other, or a comparison would diff one stack against the other."""
+    document = _replica_sweep([(1, 100.0), (4, 400.0)])
+    document["node_processes"] = [
+        {"count": 1, "throughput_msgs_per_sec": 120.0, "delivered": 100, "expected": 100},
+        {"count": 4, "throughput_msgs_per_sec": 430.0, "delivered": 100, "expected": 100},
+    ]
+    metrics = baselines.flatten(document)
+    assert metrics["synqt.p4.throughput_msgs_per_sec"].value == 400.0
+    assert metrics["node.p4.throughput_msgs_per_sec"].value == 430.0
