@@ -21,9 +21,11 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List
 
-# The order the table reads in: what SynQt does, then the floor it has to beat, then what a
-# Node team would actually deploy.
-STACK_ORDER = ["synqt", "node-bare", "node-socketio"]
+# The order the table reads in: what SynQt does, then the same fan-out with the object
+# protocol taken off it, then the floor SynQt has to beat, then what a Node team would
+# actually deploy. `qt-raw` sits second because it is what separates "Qt's sockets are
+# slow" from "the object protocol costs something", and those have different answers.
+STACK_ORDER = ["synqt", "qt-raw", "node-bare", "node-socketio"]
 
 
 def load(paths: List[str]) -> Dict[str, Dict[str, Any]]:

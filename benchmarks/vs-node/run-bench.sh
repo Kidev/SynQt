@@ -47,6 +47,10 @@ echo "== SynQt =="
 "$BUILD_DIR/bench_live" --out "$RESULTS_DIR/vs-node-synqt-${HOST_TAG}.json" "$@"
 
 echo
+echo "== Qt, bare QWebSocket (the same fan-out with no object protocol on it) =="
+"$BUILD_DIR/bench_live" --raw --out "$RESULTS_DIR/vs-node-qtraw-${HOST_TAG}.json" "$@"
+
+echo
 echo "== Node, bare (node:http + hand-rolled RFC 6455) =="
 (cd "$NODE_DIR" && node live-bare.mjs \
     --out "$REPO_ROOT/$RESULTS_DIR/vs-node-bare-${HOST_TAG}.json" "$@")
