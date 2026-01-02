@@ -27,13 +27,14 @@ binary frame and is not Socket.IO's envelope. That is not a flaw in the comparis
 the comparison: each stack is measured carrying its own protocol, because that is what a
 deployment would be running.
 
-## The three columns
+## The columns
 
 | Column | What it is | Why it is here |
 |---|---|---|
 | `synqt` | The real path: `QWebSocketServer` into a `QRemoteObjectHost`, N consumer nodes over the framework's own `WebSocketTransport`, a generated Source and Replica | The stack a browser client reaches, minus the browser |
 | `node-bare` | `node:http` plus a hand-rolled RFC 6455 server, and the global `WebSocket` client Node 22 ships. Zero dependencies | The fastest honest Node, so SynQt cannot be accused of sandbagging |
 | `node-socketio` | Socket.IO, websocket transport pinned, compression off, binary frames | What a Node team would actually deploy |
+| `qt-raw` | The same fan-out over a bare `QWebSocket`, no QtRemoteObjects, everything else identical | Separates what Qt's sockets cost from what the object protocol on them costs |
 
 Both Node columns exist because either alone is arguable. Bare builtins are a number
 nobody ships. Socket.IO is a number that flatters us. Printed side by side, the spread
@@ -52,7 +53,7 @@ the payload travels as a `Buffer` so it is a binary frame rather than base64.
 ```
 
 It builds the SynQt column, installs the Node columns' dependencies on first run, runs all
-three over the same sweep, writes one baseline each under `benchmarks/results/` keyed by
+four over the same sweep, writes one baseline each under `benchmarks/results/` keyed by
 hostname, and prints the table. To re-render a table from baselines already on disk:
 
 ```sh
