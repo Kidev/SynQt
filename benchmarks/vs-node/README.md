@@ -16,7 +16,7 @@ thing that is easiest to measure. A framework comparison that led with request t
 would be comparing SynQt on somebody else's ground; the HTTP table below is here as
 supporting evidence, not as the headline.
 
-**Held constant across the three columns**: the outcome (N clients live on a shared
+**Held constant across every column**: the outcome (N clients live on a shared
 value), the machine, the subscriber sweep, the publish rate, the payload size, the frame
 layout (8 bytes of microsecond stamp, then payload), the warm-up, the measured window, the
 drain at the end of it, and the statistics. Publisher and subscribers share one process in
@@ -32,9 +32,9 @@ deployment would be running.
 | Column | What it is | Why it is here |
 |---|---|---|
 | `synqt` | The real path: `QWebSocketServer` into a `QRemoteObjectHost`, N consumer nodes over the framework's own `WebSocketTransport`, a generated Source and Replica | The stack a browser client reaches, minus the browser |
+| `qt-raw` | The same fan-out over a bare `QWebSocket`, no QtRemoteObjects, everything else identical | Separates what Qt's sockets cost from what the object protocol on them costs |
 | `node-bare` | `node:http` plus a hand-rolled RFC 6455 server, and the global `WebSocket` client Node 22 ships. Zero dependencies | The fastest honest Node, so SynQt cannot be accused of sandbagging |
 | `node-socketio` | Socket.IO, websocket transport pinned, compression off, binary frames | What a Node team would actually deploy |
-| `qt-raw` | The same fan-out over a bare `QWebSocket`, no QtRemoteObjects, everything else identical | Separates what Qt's sockets cost from what the object protocol on them costs |
 
 Both Node columns exist because either alone is arguable. Bare builtins are a number
 nobody ships. Socket.IO is a number that flatters us. Printed side by side, the spread
