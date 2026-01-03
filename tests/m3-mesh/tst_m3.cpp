@@ -244,6 +244,48 @@ private slots:
         QVERIFY(observedPeer.authenticated);
     }
 
+    // Both ends of a mesh link carry TCP_NODELAY.
+    //
+    // A mesh link carries a push protocol: small frames, sent when something happened, with
+    // no bulk transfer to batch them into. Nagle holds a small segment back until the
+    // previous one is acknowledged and the peer's delayed-ACK timer holds that
+    // acknowledgement back in turn, so a frame that was ready to leave waits on two timers
+    // that are each reasonable alone. Qt sets this option itself on a socket QWebSocket
+    // dials out on, and on nothing else, so neither end of a mesh link had it.
+    //
+    // Read back through socketOption(), which is a getsockopt on the live socket rather than
+    // an echo of what was asked for, so this fails if the option never reached the kernel.
+    void bothEndsOfAMeshLinkSendWithoutWaiting()
+    {
+        const QSslCertificate ca{loadCert(QStringLiteral("ca"))};
+
+        MeshServer server;
+        QVERIFY2(server.listenMutualTls(QHostAddress::LocalHost, 0, ca,
+                                        loadCert(QStringLiteral("alpha")),
+                                        loadKey(QStringLiteral("alpha"))),
+                 qPrintable(server.errorString()));
+
+        QIODevice *accepted{nullptr};
+        connect(&server, &MeshServer::peerConnected, this,
+                [&accepted](QIODevice *device, const MeshPeer &) { accepted = device; });
+
+        MeshClient client;
+        QSignalSpy connectedSpy{&client, &MeshClient::connected};
+        QVERIFY(client.connectMutualTls(QHostAddress::LocalHost, server.serverPort(),
+                                        QStringLiteral("alpha"), ca,
+                                        loadCert(QStringLiteral("beta")),
+                                        loadKey(QStringLiteral("beta"))));
+        QTRY_VERIFY_WITH_TIMEOUT(connectedSpy.count() >= 1, 5000);
+        QTRY_VERIFY(accepted != nullptr);
+
+        QAbstractSocket *dialled{qobject_cast<QAbstractSocket *>(client.device())};
+        QAbstractSocket *answered{qobject_cast<QAbstractSocket *>(accepted)};
+        QVERIFY(dialled != nullptr);
+        QVERIFY(answered != nullptr);
+        QCOMPARE(dialled->socketOption(QAbstractSocket::LowDelayOption).toInt(), 1);
+        QCOMPARE(answered->socketOption(QAbstractSocket::LowDelayOption).toInt(), 1);
+    }
+
     // Clause 2: a consumer presenting no certificate is rejected at the handshake.
     void missingCertificateRejected()
     {

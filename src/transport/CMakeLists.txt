@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # The shared QWebSocket QIODevice adapter used by both the client runtime (to reach the
-# edge) and the web edge (to wrap accepted browser sockets); RoutePattern, the route
+# edge) and the web edge (to wrap accepted browser sockets); the socket options every
+# SynQt link is opened with; RoutePattern, the route
 # matcher both the client (navigation) and a service (fetchPage authorization) compile a
 # request path against; and the proxy policy every server-side manager takes. A leaf
 # library so both sides can depend on it without one depending on the other.
@@ -14,6 +15,8 @@ find_package(Qt6 6.11 REQUIRED COMPONENTS Core Network WebSockets GLOBAL)
 qt_add_library(SynQtTransport STATIC
     websockettransport.cpp
     websockettransport.h
+    socketoptions.cpp
+    socketoptions.h
     routepattern.cpp
     routepattern.h
     proxypolicy.cpp

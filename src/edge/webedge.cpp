@@ -12,6 +12,7 @@
 #include "sessionmanager.h"
 #include "sourcefactory.h"
 #include "topology.h"           // loadCertificate / loadPrivateKey
+#include "socketoptions.h" // reused host-side (from src/transport)
 #include "websockettransport.h" // reused host-side (from src/transport)
 
 #include <QCryptographicHash>
@@ -118,6 +119,7 @@ protected:
             delete socket;
             return;
         }
+        disableNagle(socket);
         if (onAccepted) {
             onAccepted(socket);
         }

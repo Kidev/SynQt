@@ -29,6 +29,7 @@
 #include "rep_live_source.h"
 #include "rep_live_replica.h"
 
+#include "socketoptions.h"
 #include "websockettransport.h"
 
 #include <QByteArray>
@@ -48,6 +49,8 @@
 #include <QRemoteObjectNode>
 #include <QString>
 #include <QSysInfo>
+#include <QTcpServer>
+#include <QTcpSocket>
 #include <QTextStream>
 #include <QTimer>
 #include <QUrl>
@@ -185,6 +188,42 @@ void waitMs(int milliseconds)
     loop.exec();
 }
 
+/// The listening socket, so the accepted connection can be tuned the way SynQt's own edge
+/// and Node's harness both tune theirs.
+///
+/// QWebSocketServer accepts through a QTcpServer of its own and never surfaces the socket,
+/// and Qt sets TCP_NODELAY only on a socket QWebSocket dials out on, never on one a server
+/// accepted. So the fan-out here would run with Nagle on while node/wsserver.mjs calls
+/// setNoDelay(true) on every connection it accepts, and the comparison would be measuring
+/// that difference. handleConnection() is the supported way to put a QWebSocketServer
+/// behind a QTcpServer that is yours.
+class BenchTcpServer : public QTcpServer
+{
+    Q_OBJECT
+
+public:
+    BenchTcpServer(QWebSocketServer *webSocketServer, QObject *parent = nullptr)
+        : QTcpServer{parent}
+        , m_webSocketServer{webSocketServer}
+    {
+    }
+
+protected:
+    void incomingConnection(qintptr socketDescriptor) override
+    {
+        QTcpSocket *socket{new QTcpSocket{this}};
+        if (!socket->setSocketDescriptor(socketDescriptor)) {
+            delete socket;
+            return;
+        }
+        SynQt::disableNagle(socket);
+        m_webSocketServer->handleConnection(socket);
+    }
+
+private:
+    QWebSocketServer *m_webSocketServer{nullptr};
+};
+
 struct Subscriber
 {
     QWebSocket *socket{nullptr};
@@ -271,11 +310,12 @@ int main(int argc, char *argv[])
     for (const int subscriberCount : sizes) {
         QWebSocketServer server{QStringLiteral("bench-live"),
                                 QWebSocketServer::NonSecureMode};
-        if (!server.listen(QHostAddress::LocalHost)) {
-            out << "cannot listen: " << server.errorString() << Qt::endl;
+        BenchTcpServer listener{&server};
+        if (!listener.listen(QHostAddress::LocalHost)) {
+            out << "cannot listen: " << listener.errorString() << Qt::endl;
             return 1;
         }
-        const quint16 port{server.serverPort()};
+        const quint16 port{listener.serverPort()};
 
         QRemoteObjectHost host;
         QList<QWebSocket *> rawPeers;
@@ -497,6 +537,7 @@ int main(int argc, char *argv[])
             delete subscriber.socket;
         }
         host.disableRemoting(&feed);
+        listener.close();
         server.close();
     }
 
@@ -530,3 +571,5 @@ int main(int argc, char *argv[])
     }
     return 0;
 }
+
+#include "bench_live.moc"

@@ -9,6 +9,8 @@
 
 #include "meshserver.h"
 
+#include "socketoptions.h"
+
 #include <QLocalServer>
 #include <QLocalSocket>
 #include <QSslCertificate>
@@ -150,6 +152,7 @@ void MeshServer::onTlsConnectionPending()
             pending->deleteLater();
             continue;
         }
+        disableNagle(socket);
         connect(socket, &QSslSocket::disconnected, socket, &QObject::deleteLater);
         // The handshake completed and the certificate verified against the CA; the
         // subject is the calling entity.

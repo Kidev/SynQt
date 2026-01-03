@@ -4,6 +4,7 @@
 #include "meshclient.h"
 
 #include "deletesoon.h"
+#include "socketoptions.h"
 
 #include <QLocalSocket>
 #include <QSslConfiguration>
@@ -61,6 +62,9 @@ void MeshClient::openMutualTls()
     // client has already moved on from cannot be mistaken for the current one's.
     QSslSocket *socket{m_sslSocket};
     connect(socket, &QSslSocket::encrypted, this, [this, socket]() {
+        // Once the socket is connected, so the option has an engine to reach. Qt sets this
+        // itself only on a socket QWebSocket dials, and a mesh link is SynQt's on both ends.
+        disableNagle(socket);
         m_backoffMs = ReconnectBaseMs;
         emit connected(socket);
     });
