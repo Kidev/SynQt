@@ -187,8 +187,9 @@ qint64 WebSocketTransport::writeData(const char *data, qint64 maxSize)
 /// socket waits a whole pass for a notifier before its single frame moves. Preempting it
 /// is worth about 3% of saturating throughput in benchmarks/vs-node, and nothing
 /// measurable on the paced latency at 250 subscribers. It is a small win and is written
-/// down as one; the large one on that path is not here (see that harness's README on what
-/// the object protocol costs).
+/// down as one. The large one on that path is not here: most of the distance to a bare
+/// socket is per-subscriber cost inside QWebSocket and QtRO, which that harness's README
+/// fits across the sweep.
 ///
 /// Waiting for aboutToBlock() rather than flushing inside writeData() is not a style
 /// choice. Flushing there costs about 2% more throughput and breaks the stack: with it in

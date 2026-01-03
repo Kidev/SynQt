@@ -1,0 +1,92 @@
+{
+    "arch": "x86_64",
+    "benchmark": "vs-node-live",
+    "host": "Arch Linux",
+    "hz": 30,
+    "path": "qtro-over-websockets",
+    "payload_bytes": 256,
+    "qt_version": "6.11.1",
+    "recorded": "2026-08-15T17:09:49Z",
+    "rss_available": true,
+    "saturated": false,
+    "seconds": 10,
+    "stack": "qt-raw",
+    "sweep": [
+        {
+            "cpu_ms_per_1k": 12.637999999999998,
+            "delivered": 3000,
+            "expected": 3000,
+            "propagation": {
+                "max": 0.17502400000020862,
+                "mean": 0.11928439633333297,
+                "min": 0.057251000000163914,
+                "p50": 0.12075149999978022,
+                "p95": 0.15576604999983681,
+                "p99": 0.1641344899994507,
+                "samples": 3000,
+                "unit": "ms"
+            },
+            "rss_bytes_per_conn": 1245593.6,
+            "rss_total_bytes": 37031936,
+            "subscribers": 10,
+            "throughput_msgs_per_sec": 285.687077421198
+        },
+        {
+            "cpu_ms_per_1k": 10.707599999999998,
+            "delivered": 15000,
+            "expected": 15000,
+            "propagation": {
+                "max": 0.7493080000001937,
+                "mean": 0.5314260688000039,
+                "min": 0.2778289999999106,
+                "p50": 0.5286990000000223,
+                "p95": 0.6937573000003117,
+                "p99": 0.7177017400001852,
+                "samples": 15000,
+                "unit": "ms"
+            },
+            "rss_bytes_per_conn": 283361.28,
+            "rss_total_bytes": 38744064,
+            "subscribers": 50,
+            "throughput_msgs_per_sec": 1428.2993715482764
+        },
+        {
+            "cpu_ms_per_1k": 10.014299999999997,
+            "delivered": 30000,
+            "expected": 30000,
+            "propagation": {
+                "max": 1.427839999999851,
+                "mean": 1.0119064051666697,
+                "min": 0.6161999999992549,
+                "p50": 1.0075400000000374,
+                "p95": 1.3044629999992439,
+                "p99": 1.3631841400003526,
+                "samples": 30000,
+                "unit": "ms"
+            },
+            "rss_bytes_per_conn": 166338.56,
+            "rss_total_bytes": 41209856,
+            "subscribers": 100,
+            "throughput_msgs_per_sec": 2856.87077421198
+        },
+        {
+            "cpu_ms_per_1k": 10.793533333333333,
+            "delivered": 75000,
+            "expected": 75000,
+            "propagation": {
+                "max": 3.726189999999944,
+                "mean": 2.687115446933327,
+                "min": 1.8484670000001788,
+                "p50": 2.6870025000004096,
+                "p95": 3.2049361000003294,
+                "p99": 3.3343873200001006,
+                "samples": 75000,
+                "unit": "ms"
+            },
+            "rss_bytes_per_conn": 94044.16,
+            "rss_total_bytes": 48087040,
+            "subscribers": 250,
+            "throughput_msgs_per_sec": 7142.17693552995
+        }
+    ]
+}
