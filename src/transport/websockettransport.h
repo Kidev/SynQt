@@ -6,6 +6,7 @@
 
 #include <QByteArray>
 #include <QIODevice>
+#include <QList>
 #include <QPointer>
 #include <QUrl>
 
@@ -65,12 +66,22 @@ protected:
     qint64 writeData(const char *data, qint64 maxSize) override;
 
 private:
+    /// Bytes received and not yet handed to a reader.
+    qint64 pendingBytes() const;
     void discardOnOverflow(qint64 incomingBytes);
     void flushBeforeBlocking();
     void flushNow();
 
     QPointer<QWebSocket> m_socket;
+    /// The bytes received and not yet read. While the reader keeps up this is the very
+    /// QByteArray QWebSocket delivered, shared rather than copied; it only becomes a
+    /// buffer of its own once a second message arrives before the first was drained.
     QByteArray m_readBuffer;
+    /// How far into m_readBuffer the reader has got. An offset rather than erasing at the
+    /// front, so taking the common case's shared array does not have to detach it: the
+    /// first read of a message would otherwise copy the whole message to remove the part
+    /// it had just consumed.
+    qsizetype m_readOffset{0};
     QUrl m_url;
     qint64 m_readBufferLimit{DefaultReadBufferLimit};
     bool m_readBufferOverflowed{false};

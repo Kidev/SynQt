@@ -374,20 +374,18 @@ private slots:
 
     // Draining a large buffer in small reads costs time linear in its size, not quadratic.
     //
-    // readData() erases from the front of the read buffer on every call, which reads like
-    // the classic quadratic drain: move every unread byte down, once per read. It is not,
-    // and the reason is worth pinning. QArrayDataPointer::erase (qarraydataops.h) special
-    // cases a range at the front and advances the begin pointer instead of moving anything
-    // (`if (b == this->begin() && e != this->end()) this->ptr = e;`), and the free space it
-    // leaves is reclaimed by the next append that needs to grow. So the front erase is
-    // amortized constant, and reimplementing that bookkeeping in the adapter would buy
-    // nothing.
+    // readData() advances an offset into the read buffer rather than erasing from its
+    // front, so a read moves only the bytes it returns and the drain is linear by
+    // construction. The erase it replaced was linear too, but only because
+    // QArrayDataPointer::erase (qarraydataops.h) special cases a range at the front and
+    // advances the begin pointer instead of moving anything. That is an implementation
+    // property of Qt 6's container and not a documented guarantee, since
+    // QByteArray::remove() promises only that capacity is preserved.
     //
-    // That is an implementation property of Qt 6's container, not a documented guarantee:
-    // QByteArray::remove() promises only that capacity is preserved. Relying on it is the
-    // right call, and this is what makes relying on it safe. If it ever stops holding, or
-    // the buffer is reimplemented by someone who reads the erase as a memmove, the result
-    // does not change and only the clock notices, so nothing else in this suite would.
+    // So this no longer guards a bet on somebody else's container. What it still guards is
+    // the adapter. A reader that walks the buffer with an offset is one edit away from a
+    // reader that compacts on every call, and the result does not change when it does.
+    // Only the clock notices, so nothing else in this suite would.
     //
     // 16 MiB drained 1 KiB at a time is 16384 reads. Amortized constant measures 1 to 2 ms
     // here. Quadratic would move about 128 GiB and run for tens of seconds. The budget
@@ -495,11 +493,18 @@ private slots:
 
     // A drained buffer hands its allocation back to the process.
     //
-    // QByteArray::remove() preserves capacity by design, which is the right default for a
-    // buffer that keeps being refilled and the wrong one here: a connection that carries a
-    // single large frame would otherwise hold that allocation until it closed. One idle
-    // browser tab that once received a large model would keep megabytes on the edge, times
-    // the connection cap.
+    // A buffer that keeps being refilled wants to keep its capacity; a connection does not.
+    // One idle browser tab that once received a large model would otherwise hold that
+    // allocation until it closed, times the connection cap. So the adapter drops the buffer
+    // outright once the reader has taken the last byte of it.
+    //
+    // This is also what decides the shape of the read path. Holding each message in its own
+    // array would take a copy off the arrival of every message, and it is the reason this
+    // test exists rather than that one: message-sized blocks are under glibc's mmap
+    // threshold, so a backlog freed one message at a time goes back to the arena and not to
+    // the operating system, and the resident set below would never come down. A backlog is
+    // therefore appended into one block, and only the uncontended case, where nothing is
+    // pending and there is nothing to append to, takes the array as it came.
     //
     // Capacity is not observable from outside the class and widening the API to see it
     // would be testing through a hole cut for the test, so this measures the process
