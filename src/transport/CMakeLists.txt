@@ -17,6 +17,10 @@ qt_add_library(SynQtTransport STATIC
     websockettransport.h
     socketoptions.cpp
     socketoptions.h
+    iothreadpool.cpp
+    iothreadpool.h
+    socketchannel.cpp
+    socketchannel.h
     routepattern.cpp
     routepattern.h
     proxypolicy.cpp

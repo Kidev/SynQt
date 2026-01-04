@@ -3,11 +3,14 @@
 
 #include "websockettransport.h"
 
+#include "socketchannel.h"
+
 #include <QAbstractEventDispatcher>
 #include <QWebSocket>
 
 #include <algorithm>
 #include <cstring>
+#include <utility>
 
 namespace SynQt {
 
@@ -38,39 +41,57 @@ WebSocketTransport::WebSocketTransport(QWebSocket *socket, QObject *parent)
 {
     connect(socket, &QWebSocket::disconnected, this, &WebSocketTransport::disconnected);
     connect(socket, &QWebSocket::binaryMessageReceived, this,
-            [this](const QByteArray &message) {
-                if (m_readBufferOverflowed) {
-                    return;  // already closed; frames still in flight are not buffered
-                }
-                const qint64 incoming{message.size()};
-                // Summed as qint64: both sides are qsizetype, which is int on a 32-bit
-                // host, and the sum of two large frames is what would overflow it.
-                if (m_readBufferLimit > 0
-                    && (pendingBytes() + incoming) > m_readBufferLimit) {
-                    discardOnOverflow(incoming);
-                    return;
-                }
-                if (m_readOffset == m_readBuffer.size()) {
-                    // Nothing pending, which is the case on every message while the reader
-                    // keeps up: QtRO drains synchronously on readyRead. Take the array
-                    // QWebSocket already built instead of copying its bytes into one of
-                    // ours, which on a fan-out is a copy per connection per message.
-                    m_readBuffer = message;
-                    m_readOffset = 0;
-                } else {
-                    // A reader that fell behind. Appending detaches the shared array, and
-                    // that copy is the price of the backlog being one block: it is what
-                    // lets a large one go back to the operating system when it drains,
-                    // which many separate message-sized blocks would not (they are under
-                    // glibc's mmap threshold and stay in the arena). tst_wstransport
-                    // measures both halves of that bargain.
-                    m_readBuffer.remove(0, m_readOffset);
-                    m_readOffset = 0;
-                    m_readBuffer.append(message);
-                }
-                emit readyRead();
-            });
+            [this](const QByteArray &message) { deliver(message); });
     connect(socket, &QWebSocket::bytesWritten, this, &WebSocketTransport::bytesWritten);
+}
+
+/// The split form. Nothing here knows which thread the channel is on, and nothing needs
+/// to. An automatic connection is direct while the two are together and queued the moment
+/// the channel is handed to an IO thread, so the same wiring serves before and after.
+WebSocketTransport::WebSocketTransport(SocketChannel *channel, QObject *parent)
+    : QIODevice{parent}
+    , m_channel{channel}
+{
+    connect(channel, &SocketChannel::closed, this, &WebSocketTransport::disconnected);
+    connect(channel, &SocketChannel::received, this,
+            [this](const QByteArray &message) { deliver(message); });
+    connect(channel, &SocketChannel::bytesSent, this, &WebSocketTransport::bytesWritten);
+}
+
+void WebSocketTransport::deliver(const QByteArray &message)
+{
+    if (m_readBufferOverflowed) {
+        return;  // already closed. Frames still in flight are not buffered
+    }
+    const qint64 incoming{message.size()};
+    // Summed as qint64: both sides are qsizetype, which is int on a 32-bit host, and the
+    // sum of two large frames is what would overflow it.
+    if (m_readBufferLimit > 0 && (pendingBytes() + incoming) > m_readBufferLimit) {
+        discardOnOverflow(incoming);
+        return;
+    }
+    if (m_readOffset == m_readBuffer.size()) {
+        // Nothing pending, which is the case on every message while the reader keeps up:
+        // QtRO drains synchronously on readyRead. Take the array QWebSocket already built
+        // instead of copying its bytes into a new one, which on a fan-out is a copy per
+        // connection per message.
+        m_readBuffer = message;
+        m_readOffset = 0;
+    } else {
+        // A reader that fell behind. Appending detaches the shared array, and that copy is
+        // the price of the backlog being one block. It is what lets a large one go back to
+        // the operating system when it drains, which many separate message-sized blocks
+        // would not (they are under glibc's mmap threshold and stay in the arena).
+        // tst_wstransport measures both halves of that bargain.
+        //
+        // A split device reaches this more often than an unsplit one, because messages
+        // keep arriving on the socket's thread while this one is busy. That is the branch
+        // working as intended. A backlog is one block either way.
+        m_readBuffer.remove(0, m_readOffset);
+        m_readOffset = 0;
+        m_readBuffer.append(message);
+    }
+    emit readyRead();
 }
 
 void WebSocketTransport::setReadBufferLimit(qint64 bytes)
@@ -81,6 +102,35 @@ void WebSocketTransport::setReadBufferLimit(qint64 bytes)
 qint64 WebSocketTransport::readBufferLimit() const
 {
     return m_readBufferLimit;
+}
+
+void WebSocketTransport::setWriteBatchLimit(qint64 bytes)
+{
+    m_writeBatchLimit = bytes;
+}
+
+qint64 WebSocketTransport::writeBatchLimit() const
+{
+    return m_writeBatchLimit;
+}
+
+void WebSocketTransport::shutdown(QWebSocketProtocol::CloseCode closeCode,
+                                  const QString &reason)
+{
+    if (m_channel) {
+        // Anything already batched goes first, so a connection being ended deliberately
+        // still delivers what it was told to say before the close reaches the peer.
+        sendBatch();
+        QMetaObject::invokeMethod(m_channel, [channel = m_channel, closeCode, reason]() {
+            if (channel) {
+                channel->shutdown(closeCode, reason);
+            }
+        });
+        return;
+    }
+    if (m_socket) {
+        m_socket->close(closeCode, reason);
+    }
 }
 
 /// A peer that keeps sending while nothing reads is either broken or hostile, and either
@@ -135,15 +185,18 @@ qint64 WebSocketTransport::bytesAvailable() const
 
 bool WebSocketTransport::open(OpenMode mode)
 {
-    if (!m_socket) {
+    if (!m_socket && !m_channel) {
         return false;
     }
     if (!QIODevice::open(mode)) {
         return false;
     }
-    // Client case: connect the socket to its url. Accepted-socket case (no url, socket
-    // already connected): leave the live connection alone and just be open for I/O.
-    if (!m_url.isEmpty() && m_socket->state() == QAbstractSocket::UnconnectedState) {
+    // In the client case, connect the socket to its url. In the accepted-socket case (no
+    // url, socket already connected), leave the live connection alone and be open for I/O. A
+    // split device is always the second. An edge accepts its browser links and never
+    // dials one, which is the only reason it has no url to reach for here.
+    if (m_socket && !m_url.isEmpty()
+        && m_socket->state() == QAbstractSocket::UnconnectedState) {
         m_socket->open(m_url);
     }
     return true;
@@ -151,7 +204,11 @@ bool WebSocketTransport::open(OpenMode mode)
 
 void WebSocketTransport::close()
 {
-    if (m_socket) {
+    if (m_channel) {
+        // The close code QWebSocket::close() would have used, said out loud because the
+        // call has to cross a thread and cannot carry a default argument with it.
+        shutdown(QWebSocketProtocol::CloseCodeNormal, QString{});
+    } else if (m_socket) {
         m_socket->close();
     }
     QIODevice::close();
@@ -185,6 +242,9 @@ qint64 WebSocketTransport::readData(char *data, qint64 maxSize)
 
 qint64 WebSocketTransport::writeData(const char *data, qint64 maxSize)
 {
+    if (m_channel) {
+        return batchData(data, maxSize);
+    }
     if (!m_socket) {
         return -1;
     }
@@ -255,6 +315,68 @@ void WebSocketTransport::flushNow()
     if (m_socket) {
         m_socket->flush();
     }
+}
+
+/// Ask for the batch to cross when control next returns to the event loop.
+///
+/// A queued call to itself, rather than the aboutToBlock hook the unsplit device uses.
+/// The distinction is not stylistic: on the unsplit device the bytes are already the
+/// socket's and the hook only brings a syscall forward, so a pass that never blocks costs
+/// latency and nothing else. Here the batch has not gone anywhere yet, so whatever flushes
+/// it has to run on *every* pass and not only on the ones that end in a block.
+/// QCoreApplication::processEvents(), which is what a nested event loop and a test both
+/// spin on, returns without ever blocking; hanging delivery off aboutToBlock would leave a
+/// batch sitting there for as long as that lasted.
+void WebSocketTransport::scheduleBatchFlush()
+{
+    if (m_flushQueued) {
+        return;
+    }
+    m_flushQueued = true;
+    QMetaObject::invokeMethod(this, [this]() {
+        m_flushQueued = false;
+        sendBatch();
+    }, Qt::QueuedConnection);
+}
+
+/// Gather one QtRO message into the batch that crosses to the socket's thread.
+///
+/// Batching is what makes the split pay. A queued call costs roughly a microsecond, which
+/// is nothing against the send work it moves off this thread, but only once per pass: one
+/// call per message would spend more crossing than it saved. So every message written
+/// before the event loop next blocks travels together, in one call and one WebSocket
+/// message, and the far end takes them apart again because QtRO frames its own.
+qint64 WebSocketTransport::batchData(const char *data, qint64 maxSize)
+{
+    // The ceiling is on what goes on the wire, so it is checked before the append rather
+    // than after: what is already gathered leaves as its own message and this one starts
+    // the next batch. sendBatch() rather than flushNow() deliberately, so the pending
+    // flush this device is already registered for stays exactly one registration.
+    if (!m_writeBatch.isEmpty() && m_writeBatchLimit > 0
+        && (static_cast<qint64>(m_writeBatch.size()) + maxSize) > m_writeBatchLimit) {
+        sendBatch();
+    }
+    m_writeBatch.append(data, static_cast<qsizetype>(maxSize));
+    scheduleBatchFlush();
+    return maxSize;
+}
+
+void WebSocketTransport::sendBatch()
+{
+    if (m_writeBatch.isEmpty() || !m_channel) {
+        return;
+    }
+    // Moved into the call rather than copied: the batch is the one allocation this device
+    // makes per pass, and handing it over is the whole of what crosses. The channel is the
+    // context as well as the receiver, so a batch posted to a connection that is torn down
+    // before it runs is dropped with it rather than delivered to nothing.
+    QMetaObject::invokeMethod(m_channel,
+                              [channel = m_channel, batch = std::move(m_writeBatch)]() {
+        if (channel) {
+            channel->send(batch);
+        }
+    });
+    m_writeBatch.clear();
 }
 
 } // namespace SynQt

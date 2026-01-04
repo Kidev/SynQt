@@ -9,12 +9,15 @@
 #include <QList>
 #include <QPointer>
 #include <QUrl>
+#include <QWebSocketProtocol>
 
 QT_BEGIN_NAMESPACE
 class QWebSocket;
 QT_END_NAMESPACE
 
 namespace SynQt {
+
+class SocketChannel;
 
 /// The QIODevice adapter that carries QtRemoteObjects traffic over a QWebSocket, the
 /// only transport a browser client can use to reach an arbitrary host. QtRO does not
@@ -39,7 +42,22 @@ public:
     /// edge tightens it per connection, where the peer is a browser (see WebEdge).
     static constexpr qint64 DefaultReadBufferLimit{64 * 1024 * 1024};
 
+    /// The default ceiling on one batched WebSocket message, matching the default
+    /// `security.max_message_bytes` a browser link is held to. A threaded edge sets its
+    /// own from the configured value; this is what an unconfigured device uses.
+    static constexpr qint64 DefaultWriteBatchLimit{1024 * 1024};
+
     explicit WebSocketTransport(QWebSocket *socket, QObject *parent = nullptr);
+
+    /// The split form: this device stays on the thread that creates it while the socket
+    /// runs on the channel's thread. Writes accumulate here and cross once per pass of
+    /// this thread's event loop; messages arrive as queued signals.
+    ///
+    /// The channel may still be on this thread when the device is built, and usually is:
+    /// the edge builds both, opens the device, hosts the connection on it, and only then
+    /// hands the channel to an IO thread. Every call across is an automatic connection,
+    /// so it is direct before the move and queued after, with nothing to switch over.
+    explicit WebSocketTransport(SocketChannel *channel, QObject *parent = nullptr);
 
     void setUrl(const QUrl &url);
     QUrl url() const;
@@ -49,6 +67,18 @@ public:
     /// in it is worse than no stream. Zero or less disables the ceiling.
     void setReadBufferLimit(qint64 bytes);
     qint64 readBufferLimit() const;
+
+    /// The ceiling on one batched message, on the split form. Batching merges the QtRO
+    /// messages written in one pass into a single WebSocket message, which is safe
+    /// because QtRO frames its own; this is what keeps the merged result inside what the
+    /// far end will accept. A message already over the ceiling on its own goes alone and
+    /// whole, exactly as it would with no batching at all. Zero or less disables the
+    /// ceiling. Ignored on the unsplit form, which never batches.
+    void setWriteBatchLimit(qint64 bytes);
+    qint64 writeBatchLimit() const;
+
+    /// Close with a WebSocket close code and reason, whichever thread the socket is on.
+    void shutdown(QWebSocketProtocol::CloseCode closeCode, const QString &reason);
 
     bool isSequential() const override;
     qint64 bytesAvailable() const override;
@@ -68,13 +98,28 @@ protected:
 private:
     /// Bytes received and not yet handed to a reader.
     qint64 pendingBytes() const;
+    /// Take one arriving message into the read buffer. The same for both forms: it
+    /// arrives straight from the socket on the unsplit one and as a queued signal from
+    /// the channel on the split one, and there is nothing to tell apart after that.
+    void deliver(const QByteArray &message);
     void discardOnOverflow(qint64 incomingBytes);
     void flushBeforeBlocking();
     void flushNow();
+    /// Ask for the batch to cross on the next pass of this thread's event loop.
+    void scheduleBatchFlush();
+    /// Add one QtRO message to the batch waiting to cross to the socket's thread.
+    qint64 batchData(const char *data, qint64 maxSize);
+    /// Hand the accumulated batch to the channel, if there is one waiting.
+    void sendBatch();
 
+    /// The socket, on the unsplit form only. Null on the split form on purpose: the
+    /// socket belongs to another thread there, and a pointer that is not there is a
+    /// stronger guarantee than a rule about not using it.
     QPointer<QWebSocket> m_socket;
+    /// The socket's side of a split device, or null on the unsplit form.
+    QPointer<SocketChannel> m_channel;
     /// The bytes received and not yet read. While the reader keeps up this is the very
-    /// QByteArray QWebSocket delivered, shared rather than copied; it only becomes a
+    /// QByteArray QWebSocket delivered, shared rather than copied. It only becomes a
     /// buffer of its own once a second message arrives before the first was drained.
     QByteArray m_readBuffer;
     /// How far into m_readBuffer the reader has got. An offset rather than erasing at the
@@ -82,8 +127,12 @@ private:
     /// first read of a message would otherwise copy the whole message to remove the part
     /// it had just consumed.
     qsizetype m_readOffset{0};
+    /// What has been written since the last flush, waiting to cross as one message. Only
+    /// the split form uses it; the unsplit one hands each message straight to the socket.
+    QByteArray m_writeBatch;
     QUrl m_url;
     qint64 m_readBufferLimit{DefaultReadBufferLimit};
+    qint64 m_writeBatchLimit{DefaultWriteBatchLimit};
     bool m_readBufferOverflowed{false};
     bool m_flushQueued{false};
 };

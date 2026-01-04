@@ -21,7 +21,7 @@ endif()
 
 enable_testing()
 
-qt_add_executable(tst_m2 tst_m2.cpp)
+qt_add_executable(tst_m2 tst_m2.cpp tcplistener.h)
 
 # A single both-sided test target; the rep has no POD, so separate source and replica
 # headers coexist in one target without a duplicate-symbol clash.
@@ -54,6 +54,30 @@ target_link_libraries(tst_wstransport PRIVATE
 )
 
 add_test(NAME wstransport COMMAND tst_wstransport)
+
+# The split transport: the device on this thread, its socket on another one.
+qt_add_executable(tst_threadedsocket tst_threadedsocket.cpp tcplistener.h)
+
+target_link_libraries(tst_threadedsocket PRIVATE
+    SynQtClient
+    Qt6::Core
+    Qt6::Network
+    Qt6::WebSockets
+    Qt6::Test
+)
+
+add_test(NAME threadedsocket COMMAND tst_threadedsocket)
+
+# The threads a threaded entity spreads its sockets across.
+qt_add_executable(tst_iothreads tst_iothreads.cpp)
+
+target_link_libraries(tst_iothreads PRIVATE
+    SynQtClient
+    Qt6::Core
+    Qt6::Test
+)
+
+add_test(NAME iothreads COMMAND tst_iothreads)
 
 # The other half of SynQtTransport: which way an entity's outbound calls leave the host.
 qt_add_executable(tst_proxypolicy tst_proxypolicy.cpp)
