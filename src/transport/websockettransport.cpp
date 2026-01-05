@@ -58,6 +58,20 @@ WebSocketTransport::WebSocketTransport(SocketChannel *channel, QObject *parent)
     connect(channel, &SocketChannel::bytesSent, this, &WebSocketTransport::bytesWritten);
 }
 
+/// The socket goes with the device, on whichever thread it is.
+///
+/// deleteLater() rather than delete, because a channel that has been handed to an IO
+/// thread must be destroyed there. A QWebSocket torn down from a thread that is not its
+/// own leaves socket notifiers being disabled from the wrong side, which Qt refuses to do.
+/// Posting it works even at shutdown, because quitting a thread's event loop delivers the
+/// deferred deletes still queued for it.
+WebSocketTransport::~WebSocketTransport()
+{
+    if (m_channel) {
+        m_channel->deleteLater();
+    }
+}
+
 void WebSocketTransport::deliver(const QByteArray &message)
 {
     if (m_readBufferOverflowed) {
@@ -112,6 +126,15 @@ void WebSocketTransport::setWriteBatchLimit(qint64 bytes)
 qint64 WebSocketTransport::writeBatchLimit() const
 {
     return m_writeBatchLimit;
+}
+
+void WebSocketTransport::moveSocketToThread(QThread *thread)
+{
+    if (m_channel) {
+        // The channel and not the socket. The QWebSocket and the raw socket under it are
+        // both its children, so one move takes the whole connection.
+        m_channel->moveToThread(thread);
+    }
 }
 
 void WebSocketTransport::shutdown(QWebSocketProtocol::CloseCode closeCode,

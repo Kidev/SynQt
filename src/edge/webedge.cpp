@@ -12,6 +12,8 @@
 #include "sessionmanager.h"
 #include "sourcefactory.h"
 #include "topology.h"           // loadCertificate / loadPrivateKey
+#include "iothreadpool.h"       // reused host-side (from src/transport)
+#include "socketchannel.h"      // reused host-side (from src/transport)
 #include "socketoptions.h" // reused host-side (from src/transport)
 #include "websockettransport.h" // reused host-side (from src/transport)
 
@@ -133,13 +135,27 @@ WebEdge::WebEdge(WebEdgeConfig config, QQmlEngine *engine, QObject *parent)
     : QObject{parent}
     , m_config{std::move(config)}
     , m_engine{engine}
+    , m_connections{new QObject{this}}
     , m_sessionManager{new SessionManager{m_config.defaultScope,
                                           m_config.sessionTtlMinutes, this}}
     , m_clientAddress{m_config.trustedProxies}
 {
 }
 
-WebEdge::~WebEdge() = default;
+/// Put the connections down before the threads their sockets are on.
+///
+/// Destroying a connection destroys its device, and a device on a threaded edge answers
+/// that by asking its channel to delete itself on the thread it lives on. Stopping the
+/// pool first would leave those deletions posted to threads that had already gone. Doing
+/// it after works because quitting a thread's event loop delivers what is still queued
+/// for it, including the deferred deletes.
+WebEdge::~WebEdge()
+{
+    delete m_connections;
+    m_connections = nullptr;
+    delete m_ioThreads;
+    m_ioThreads = nullptr;
+}
 
 QString WebEdge::errorString() const
 {
@@ -826,6 +842,13 @@ bool WebEdge::start()
         m_transportServer = tcpServer;
     }
 
+    // The threads accepted sockets are spread across, on an edge that asked for more than
+    // one. Built before anything is listening, so no connection can arrive and find the
+    // pool half there.
+    if (m_config.socketThreads > 1) {
+        m_ioThreads = new IoThreadPool{m_config.socketThreads, this};
+    }
+
     if (!m_transportServer->listen(QHostAddress{m_config.host}, m_config.port)) {
         m_errorString = m_transportServer->errorString();
         return false;
@@ -875,6 +898,22 @@ void WebEdge::trackPendingUpgrade(QAbstractSocket *socket)
     // child of the socket, so it dies with it and nothing wildcard-disconnects the timer.
     connect(timer, &QObject::destroyed, this, [this, key]() { m_pendingTimers.remove(key); });
     m_pendingTimers.insert(key, timer);
+    // Caught here because this is the last place it can be. Once the upgrade is accepted,
+    // the QWebSocket on top of this socket does not lead back to it (it is not its child)
+    // and there is no other way to ask. A threaded edge has to move both or the connection
+    // ends up read on one thread and written on another.
+    if (m_ioThreads) {
+        // A tag whose whole job is to say when this socket is gone. The timeout timer
+        // above cannot serve, however tempting: it is deleted the moment a valid upgrade
+        // request arrives, which is exactly when the raw socket is still wanted, so
+        // hanging the entry off it means every threaded connection quietly falls back to
+        // this thread. A plain QObject child dies with the socket instead, and nothing
+        // wildcard-disconnects it (see the note on the timer above for why that matters).
+        QObject *tag{new QObject{socket}};
+        connect(tag, &QObject::destroyed, this,
+                [this, key]() { m_pendingRawSockets.remove(key); });
+        m_pendingRawSockets.insert(key, socket);
+    }
     timer->start(m_config.handshakeTimeoutMs);
 }
 
@@ -1142,20 +1181,20 @@ QObject *WebEdge::sharedSource(const WebEdgeConnectPoint &connectPoint, QString 
 }
 
 QObject *WebEdge::sourceForConnection(const WebEdgeConnectPoint &connectPoint,
-                                      const QByteArray &sessionId, QWebSocket *socket,
+                                      const QByteArray &sessionId, QObject *connection,
                                       QString *error)
 {
     // An anonymous browser holds no session, so there is nothing to key a continuing Source
-    // on: it gets one per connection, parented to the socket, and nothing is remembered.
+    // on: it gets one per connection, parented to the connection, and nothing is remembered.
     if (sessionId.isEmpty()) {
         Caller *caller{Caller::forUser(connectPoint.contract, m_sessionManager, sessionId,
-                                       nullptr, socket)};
+                                       nullptr, connection)};
         caller->setScopeOrder(m_config.scopeOrder, m_config.scopesHierarchical);
         QObject *source{!connectPoint.behind.isEmpty()
-                            ? relayFor(connectPoint, caller, socket, error)
+                            ? relayFor(connectPoint, caller, connection, error)
                         : connectPoint.shared
-                            ? mirrorFor(connectPoint, caller, socket, error)
-                            : createSource(connectPoint, caller, socket, error)};
+                            ? mirrorFor(connectPoint, caller, connection, error)
+                            : createSource(connectPoint, caller, connection, error)};
         if (source) {
             caller->setParent(source);
             caller->setSource(source);
@@ -1298,16 +1337,19 @@ void WebEdge::dropSession(const QByteArray &sessionId)
     if (!m_sessionManager->rotationOf(sessionId).isEmpty()) {
         return;
     }
-    // Taken first: closing a socket runs its disconnected handler, which comes back through
+    // Taken first. Closing a socket runs its disconnected handler, which comes back through
     // releaseSessionSources and would otherwise be walking a container being iterated.
-    const QList<QWebSocket *> open{m_sessionSockets.values(sessionId)};
+    const QList<WebSocketTransport *> open{m_sessionSockets.values(sessionId)};
     m_sessionSockets.remove(sessionId);
-    for (QWebSocket *socket : open) {
-        if (socket) {
+    for (WebSocketTransport *transport : open) {
+        if (transport) {
             // Going Away, the code a browser reads as "the server ended this on purpose",
-            // which is what the client's reconnect backoff is written against.
-            socket->close(QWebSocketProtocol::CloseCodeGoingAway,
-                          QStringLiteral("session ended"));
+            // which is what the client's reconnect backoff is written against. Asked of
+            // the device rather than the socket, so it still arrives when the socket is on
+            // another thread. Calling close() on it from here would do nothing at all and
+            // report nothing, which is read access outliving the credential all over again.
+            transport->shutdown(QWebSocketProtocol::CloseCodeGoingAway,
+                                QStringLiteral("session ended"));
         }
     }
 }
@@ -1334,10 +1376,42 @@ void WebEdge::releaseSessionSources(const QByteArray &sessionId)
 void WebEdge::onNewWebSocketConnection()
 {
     while (std::unique_ptr<QWebSocket> pending{m_httpServer->nextPendingWebSocketConnection()}) {
-        QWebSocket *socket{pending.release()};
-        socket->setParent(this);
-        hostConnection(socket);
+        // Left unparented: hostConnection() decides what carries it, which on a threaded
+        // edge is a channel bound for another thread and not anything of this one's.
+        hostConnection(pending.release());
     }
+}
+
+/// Give the accepted socket to whatever carries it, and hand back the device QtRO writes.
+///
+/// On a one-thread edge that is the socket itself and nothing has changed. On a threaded
+/// edge the socket and the raw socket underneath it become a channel's children and go to
+/// an IO thread together, leaving the device here, on the thread the QtRO host and every
+/// Source live on. The move is deliberately not done here: the caller does it last, once
+/// the connection is hosted, so nothing runs on the socket between the two.
+WebSocketTransport *WebEdge::carry(QWebSocket *socket, QObject *connection)
+{
+    QAbstractSocket *raw{m_ioThreads ? m_pendingRawSockets.take(
+                             peerKey(socket->peerAddress().toString(), socket->peerPort()))
+                                     : nullptr};
+    if (m_ioThreads && !raw) {
+        // Should not happen: every accepted socket is remembered by the same key on the
+        // way in. If it ever does, this connection stays on this thread rather than going
+        // half way, because a QWebSocket read on one thread and written on another is a
+        // data race that presents as a connection which receives and never answers.
+        qWarning("SynQt: no raw socket found for an accepted upgrade; serving this "
+                 "connection on the main thread instead of an IO thread");
+    }
+    if (!m_ioThreads || !raw) {
+        socket->setParent(connection);
+        return new WebSocketTransport{socket, connection};
+    }
+    SocketChannel *channel{new SocketChannel{socket, raw}};
+    WebSocketTransport *transport{new WebSocketTransport{channel, connection}};
+    // What a batch may grow to is what the browser end is allowed to receive, since
+    // batching merges the messages written in one pass into a single WebSocket message.
+    transport->setWriteBatchLimit(m_config.maxMessageBytes);
+    return transport;
 }
 
 void WebEdge::hostConnection(QWebSocket *socket)
@@ -1358,6 +1432,14 @@ void WebEdge::hostConnection(QWebSocket *socket)
                          ? normalizedAddress(socket->peerAddress()).toString()
                          : verified.clientIp};
 
+    // Everything this connection owns on this thread hangs off one object, so ending it is
+    // one deletion and the edge's own teardown can put every connection down before the
+    // threads their sockets are on. Its children are deleted in the order they were added,
+    // which is why the device is built after the node and not before: QtRO writes a last
+    // message to every listener as the node goes, and a device already destroyed by then
+    // is a null QIODevice being asked whether it is open.
+    QObject *connection{new QObject{m_connections}};
+
     ++m_activeGlobal;
     ++m_activePerIp[ip];
 
@@ -1367,25 +1449,11 @@ void WebEdge::hostConnection(QWebSocket *socket)
     if (!sessionId.isEmpty()) {
         ++m_sessionSources[sessionId].connections;
     }
-    if (!sessionId.isEmpty()) {
-        m_sessionSockets.insert(sessionId, socket);
-    }
-    connect(socket, &QWebSocket::disconnected, this, [this, socket, ip, sessionId]() {
-        --m_activeGlobal;
-        if (--m_activePerIp[ip] <= 0) {
-            m_activePerIp.remove(ip);
-        }
-        if (!sessionId.isEmpty()) {
-            m_sessionSockets.remove(sessionId, socket);
-            releaseSessionSources(sessionId);
-        }
-        socket->deleteLater();  // deletes the per-connection node/sources/caller parented to it
-    });
 
     // One QtRO host node per connection, and one Source per connect point on it, minted
     // fresh with a Caller bound to this session. The node is per connection whatever the
     // Sources do, which is why reusing one Source across connections saved so little.
-    QRemoteObjectHost *node{new QRemoteObjectHost{socket}};
+    QRemoteObjectHost *node{new QRemoteObjectHost{connection}};
     node->setHostUrl(QUrl{QStringLiteral("synqt-edge:///%1")
                               .arg(QUuid::createUuid().toString(QUuid::WithoutBraces))},
                      QRemoteObjectHost::AllowExternalRegistration);
@@ -1402,7 +1470,7 @@ void WebEdge::hostConnection(QWebSocket *socket)
             continue;
         }
         QString error;
-        QObject *source{sourceForConnection(connectPoint, sessionId, socket, &error)};
+        QObject *source{sourceForConnection(connectPoint, sessionId, connection, &error)};
         if (!source) {
             emit upgradeRejected(error);
             continue;
@@ -1423,10 +1491,10 @@ void WebEdge::hostConnection(QWebSocket *socket)
     // so there is no single connect-point-level scope to check here.
     if (m_pagesService) {
         Caller *pagesCaller{Caller::forUser(QStringLiteral("Pages"), m_sessionManager,
-                                            sessionId, nullptr, socket)};
+                                            sessionId, nullptr, connection)};
         pagesCaller->setScopeOrder(m_config.scopeOrder, m_config.scopesHierarchical);
         PagesEdgeSource *pagesSource{
-            new PagesEdgeSource{m_pageStore, m_pagesService, pagesCaller, socket}};
+            new PagesEdgeSource{m_pageStore, m_pagesService, pagesCaller, connection}};
         pagesCaller->setParent(pagesSource);
         pagesCaller->setSource(pagesSource);
         if (!node->enableRemoting(pagesSource, QStringLiteral("Pages"))) {
@@ -1434,10 +1502,39 @@ void WebEdge::hostConnection(QWebSocket *socket)
         }
     }
 
-    WebSocketTransport *transport{new WebSocketTransport{socket, socket}};
+    // The device the browser is reached through, built last so it outlives the node above.
+    WebSocketTransport *transport{carry(socket, connection)};
     transport->setReadBufferLimit(m_config.maxMessageBytes * ReadBufferFrames);
     transport->open(QIODevice::ReadWrite);
     node->addHostSideConnection(transport);
+
+    if (!sessionId.isEmpty()) {
+        m_sessionSockets.insert(sessionId, transport);
+    }
+    // Watched on the device rather than the socket: the device is on this thread whatever
+    // the socket is doing, and it relays the socket's disconnect either way.
+    connect(transport, &WebSocketTransport::disconnected, this,
+            [this, transport, connection, ip, sessionId]() {
+        --m_activeGlobal;
+        if (--m_activePerIp[ip] <= 0) {
+            m_activePerIp.remove(ip);
+        }
+        if (!sessionId.isEmpty()) {
+            m_sessionSockets.remove(sessionId, transport);
+            releaseSessionSources(sessionId);
+        }
+        // Takes the node, the Sources, the Callers and the device with it, and the device
+        // in turn puts the socket down on whichever thread the socket is on.
+        connection->deleteLater();
+    });
+
+    // Last, and only now. The socket goes to its thread with the connection already hosted
+    // on it, so nothing runs on it between being wired up and being somewhere else.
+    // Anything QtRO has already written is waiting in the device's batch and crosses on
+    // the next pass, by which time the channel is where it is going to stay.
+    if (m_ioThreads) {
+        transport->moveSocketToThread(m_ioThreads->nextThread());
+    }
 }
 
 } // namespace SynQt

@@ -29,6 +29,8 @@
 #include <QWebSocket>
 #include <QWebSocketHandshakeOptions>
 
+#include <array>
+
 using SynQt::WebEdge;
 using SynQt::WebEdgeConfig;
 using SynQt::WebEdgeConnectPoint;
@@ -43,9 +45,10 @@ QSslConfiguration insecureClientConfig()
     return configuration;
 }
 
-WebEdgeConfig makeConfig(bool crossOriginIsolation)
+WebEdgeConfig makeConfig(bool crossOriginIsolation, int socketThreads = 1)
 {
     WebEdgeConfig config;
+    config.socketThreads = socketThreads;
     config.bundleDir = QStringLiteral(M5_SRCDIR "/bundle");
     config.host = QStringLiteral("127.0.0.1");
     config.port = 0;  // OS-assigned
@@ -314,9 +317,142 @@ private slots:
         QVERIFY(!edge.sessionManager()->isLive(token));
     }
 
+    // A threaded edge serves a browser exactly like an unthreaded one.
+    //
+    // `threads: N` spreads accepted sockets over N IO threads and leaves everything else
+    // where it was: one QtRO host per connection, the per-session Sources, the QML engine
+    // and the entity singleton all stay on the main thread. That is what makes it a
+    // different tool from `replicas: N`, which is a front and needs every point the edge
+    // owns to say what is behind it. So what has to be proved here is an absence: nothing
+    // about the browser's side of the contract changed. The upgrade goes through the same
+    // verifier, the connect point comes up, and its property arrives with the right value.
+    void aThreadedEdgeServesTheSameConnectPoint()
+    {
+        QQmlEngine engine;
+        WebEdge edge{makeConfig(false, 4), &engine};
+        QVERIFY2(edge.start(), qPrintable(edge.errorString()));
+
+        QNetworkReply *reply{httpGet(edge.httpOrigin() + QStringLiteral("/"))};
+        QVERIFY(reply != nullptr);
+        const QByteArray cookie{sessionCookie(reply)};
+        reply->deleteLater();
+
+        QWebSocket socket;
+        socket.setSslConfiguration(insecureClientConfig());
+        WebSocketTransport transport{&socket};
+        QVERIFY(transport.open(QIODevice::ReadWrite));
+
+        QRemoteObjectNode node;
+        node.addClientSideConnection(&transport);
+        node.setHeartbeatInterval(300);
+
+        QNetworkRequest request{QUrl{edge.wssOrigin() + QStringLiteral("/sync")}};
+        request.setRawHeader("Origin", edge.httpOrigin().toUtf8());
+        request.setRawHeader("Cookie", cookie);
+        request.setSslConfiguration(insecureClientConfig());
+        socket.open(request);
+
+        QScopedPointer<QRemoteObjectDynamicReplica> replica{
+            node.acquireDynamic(QStringLiteral("greeting"))};
+        QVERIFY2(replica->waitForSource(5000),
+                 "a threaded edge did not expose the connect point");
+        QCOMPARE(replica->property("value").toInt(), 7);
+    }
+
+    // Several browsers at once, landing on different IO threads.
+    //
+    // One connection proves the machinery. This proves the spread. With four threads and
+    // round robin, these three land on three different ones, and each still gets its own
+    // QtRO host, its own Sources and its own Caller, all built and living on the main
+    // thread. A connection whose socket went to a thread while its node stayed behind
+    // would come up and then go quiet, so acquiring is the assert.
+    void severalThreadedConnectionsEachComeUp()
+    {
+        QQmlEngine engine;
+        WebEdge edge{makeConfig(false, 4), &engine};
+        QVERIFY2(edge.start(), qPrintable(edge.errorString()));
+
+        constexpr int Connections{3};
+        std::array<QWebSocket, Connections> sockets;
+        std::array<QScopedPointer<WebSocketTransport>, Connections> transports;
+        std::array<QRemoteObjectNode, Connections> nodes;
+        std::array<QScopedPointer<QRemoteObjectDynamicReplica>, Connections> replicas;
+
+        for (int index{0}; index < Connections; ++index) {
+            QNetworkReply *reply{httpGet(edge.httpOrigin() + QStringLiteral("/"))};
+            QVERIFY(reply != nullptr);
+            const QByteArray cookie{sessionCookie(reply)};
+            reply->deleteLater();
+
+            sockets[index].setSslConfiguration(insecureClientConfig());
+            transports[index].reset(new WebSocketTransport{&sockets[index]});
+            QVERIFY(transports[index]->open(QIODevice::ReadWrite));
+            nodes[index].addClientSideConnection(transports[index].data());
+            nodes[index].setHeartbeatInterval(300);
+
+            QNetworkRequest request{QUrl{edge.wssOrigin() + QStringLiteral("/sync")}};
+            request.setRawHeader("Origin", edge.httpOrigin().toUtf8());
+            request.setRawHeader("Cookie", cookie);
+            request.setSslConfiguration(insecureClientConfig());
+            sockets[index].open(request);
+            replicas[index].reset(nodes[index].acquireDynamic(QStringLiteral("greeting")));
+        }
+
+        for (int index{0}; index < Connections; ++index) {
+            QVERIFY2(replicas[index]->waitForSource(5000),
+                     qPrintable(QStringLiteral("connection %1 never came up").arg(index)));
+            QCOMPARE(replicas[index]->property("value").toInt(), 7);
+        }
+    }
+
+    // Ending a session still ends its connections when the socket is on another thread.
+    //
+    // This is the same rule as revokingASessionClosesTheConnectionsItAuthorized, on the
+    // path where it is easiest to lose. Closing a connection means reaching a QWebSocket
+    // that no longer belongs to this thread. Calling close() on it from here does nothing
+    // and reports nothing, and the result is the exact failure that test was written for,
+    // back again on a threaded edge only. The credential is gone, a new call is refused,
+    // and everything the owner pushes goes on arriving in a tab that signed out.
+    void revokingASessionClosesAThreadedConnection()
+    {
+        QQmlEngine engine;
+        WebEdge edge{makeConfig(false, 4), &engine};
+        QVERIFY2(edge.start(), qPrintable(edge.errorString()));
+
+        QNetworkReply *reply{httpGet(edge.httpOrigin() + QStringLiteral("/"))};
+        QVERIFY(reply != nullptr);
+        const QByteArray cookie{sessionCookie(reply)};
+        reply->deleteLater();
+        const QByteArray token{cookie.mid(cookie.indexOf('=') + 1)};
+
+        QWebSocket socket;
+        socket.setSslConfiguration(insecureClientConfig());
+        WebSocketTransport transport{&socket};
+        QVERIFY(transport.open(QIODevice::ReadWrite));
+        QRemoteObjectNode node;
+        node.addClientSideConnection(&transport);
+        node.setHeartbeatInterval(300);
+
+        QNetworkRequest request{QUrl{edge.wssOrigin() + QStringLiteral("/sync")}};
+        request.setRawHeader("Origin", edge.httpOrigin().toUtf8());
+        request.setRawHeader("Cookie", cookie);
+        request.setSslConfiguration(insecureClientConfig());
+        socket.open(request);
+
+        QScopedPointer<QRemoteObjectDynamicReplica> replica{
+            node.acquireDynamic(QStringLiteral("greeting"))};
+        QVERIFY2(replica->waitForSource(5000), "the authorized upgrade never came up");
+
+        QSignalSpy closed{&socket, &QWebSocket::disconnected};
+        edge.sessionManager()->revoke(token);
+        QVERIFY2(closed.wait(5000),
+                 "a threaded connection outlived the session that authorized it");
+        QVERIFY(!edge.sessionManager()->isLive(token));
+    }
+
     // ...and a scope change is not that. `Caller.setScope` rotates the credential, which
     // the manager reports as the old id being removed, but the visitor is still signed in
-    // and still connected: dropping them there would make raising somebody's scope hang up
+    // and still connected. Dropping them there would make raising somebody's scope hang up
     // on them, from inside the very slot that raised it.
     void rotatingASessionLeavesTheConnectionAlone()
     {

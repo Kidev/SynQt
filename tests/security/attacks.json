@@ -37,6 +37,13 @@
       "test": "revokingASessionClosesTheConnectionsItAuthorized"
     },
     {
+      "id": "read-access-outlives-the-credential-on-a-threaded-edge",
+      "what": "The same sign-out, on an edge running `threads: N`, where the socket to close belongs to an IO thread and not to the one the session manager runs on.",
+      "defended_by": "The edge ends a connection through its device, which is on its own thread whichever thread the socket is on, and never by calling close() on the socket across a thread, which does nothing and reports nothing.",
+      "file": "tests/m5-webedge/tst_m5.cpp",
+      "test": "revokingASessionClosesAThreadedConnection"
+    },
+    {
       "id": "sign-out-that-signs-nobody-out",
       "what": "Session.logout() resets the client and leaves the session alive at the edge, so the next page load signs the visitor straight back in.",
       "defended_by": "SynClient answers the request by reaching the edge's logout route; the session is gone from the edge afterwards.",

@@ -31,11 +31,13 @@ namespace SynQt {
 
 class Caller;
 class IdentityProvider;
+class IoThreadPool;
 class PageStore;
 class PagesService;
 class SessionManager;
+class WebSocketTransport;
 
-/// The web edge: the only internet-facing entity. It serves the client bundle over
+/// The web edge. The only internet-facing entity. It serves the client bundle over
 /// QHttpServer with the browser-hardening headers, accepts the browser's WebSocket
 /// through the upgrade verifier (rejecting bad requests before a socket exists), and
 /// hands accepted sockets to a QtRO host so the browser can acquire the edge's connect
@@ -129,6 +131,10 @@ private:
     /// the map grow without bound.
     void rememberVerifiedSession(const QString &peer, const QByteArray &sessionId,
                                  const QString &clientIp);
+    /// Adopt the accepted socket into the object that carries it, which on a threaded edge
+    /// is on one of the IO threads. Returns the device the QtRO host is given, whose own
+    /// thread is this one either way.
+    WebSocketTransport *carry(QWebSocket *socket, QObject *connection);
     QObject *createSource(const WebEdgeConnectPoint &connectPoint, QObject *caller,
                           QObject *parent, QString *error);
     /// The Source this connection acquires for one connect point, minted or continued.
@@ -138,7 +144,7 @@ private:
     /// the one Source everybody is answered from; otherwise it is that session's own
     /// Source. Returns nullptr on a load failure, with the reason in *error.
     QObject *sourceForConnection(const WebEdgeConnectPoint &connectPoint,
-                                 const QByteArray &sessionId, QWebSocket *socket,
+                                 const QByteArray &sessionId, QObject *connection,
                                  QString *error);
     /// The one Source a shared edge answers a connect point from, loaded on first use and
     /// kept for the life of the edge.
@@ -182,6 +188,16 @@ private:
     QQmlEngine *m_engine;
     QHttpServer *m_httpServer{nullptr};
     QTcpServer *m_transportServer{nullptr};
+    /// The IO threads accepted sockets are spread across, or null on a one-thread edge.
+    /// Built in start() and destroyed last, after every connection that might still be
+    /// deleting a socket on one of them.
+    IoThreadPool *m_ioThreads{nullptr};
+    /// The parent of everything each live connection owns on this thread: its QtRO host,
+    /// its Sources, their Callers and its device. One object to end them all, which is
+    /// what lets the destructor put the connections down before the threads their sockets
+    /// are on. The socket itself is not among them, because on a threaded
+    /// edge it is not on this thread to be a child of anything here.
+    QObject *m_connections{nullptr};
     SessionManager *m_sessionManager{nullptr};
     IdentityProvider *m_identity{nullptr};
     quint16 m_port{0};
@@ -218,6 +234,14 @@ private:
 
     /// Pending upgrades, for the framework-enforced handshake timeout.
     QHash<QString, QTimer *> m_pendingTimers;
+    /// The raw socket under each pending upgrade, keyed the same way, so a threaded edge
+    /// can move it with the QWebSocket that ends up on top of it.
+    ///
+    /// It has to be caught on the way in. The raw socket is not the QWebSocket's child and
+    /// QWebSocket does not hand it out, so by the time the upgrade is accepted there is no
+    /// way left to find it. Kept as a QPointer and dropped by the same handler that drops
+    /// the timeout timer, which is a child of the socket and therefore dies with it.
+    QHash<QString, QPointer<QAbstractSocket>> m_pendingRawSockets;
     /// The verified session id per accepted upgrade (keyed by peer), carried from the
     /// verifier to the accepted socket (whose handshake headers are not re-readable).
     /// hostConnection() takes the entry in the same turn the upgrade is accepted, so an
@@ -255,7 +279,12 @@ private:
     QHash<QByteArray, SessionSources> m_sessionSources;
     /// The live browser connections of each session, so ending a session can close them.
     /// A session may hold several (one per tab), and an anonymous connection holds none.
-    QMultiHash<QByteArray, QWebSocket *> m_sessionSockets;
+    ///
+    /// Held as the device rather than the socket, because on a threaded edge the socket
+    /// belongs to another thread and calling close() on it from here would do nothing and
+    /// say nothing. The device is on this thread whatever the socket is doing, and its
+    /// shutdown() is the one call that reaches either.
+    QMultiHash<QByteArray, WebSocketTransport *> m_sessionSockets;
 
     /// On a shared edge, the single Source per connect point that every session's mirror
     /// answers through, with the Caller its QML names alongside it (adopted per call into

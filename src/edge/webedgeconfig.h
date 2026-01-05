@@ -117,6 +117,21 @@ struct WebEdgeConfig
     /// The client's shell cache registers a service worker (build.client_cache).
     bool serviceWorker{true};
 
+    /// How many IO threads accepted browser sockets are spread across (`threads:`).
+    ///
+    /// One, the default, is the whole edge on one thread and is what every project starts
+    /// as. More than one moves each accepted socket onto a thread of its own and leaves
+    /// everything else exactly where it was. One QtRO host per connection, the per-session
+    /// Sources, the QML engine and the entity singleton all stay on the main thread. That
+    /// is the difference from `replicas:`, which is a front and needs every point the edge
+    /// owns to name what is behind it. Threads change no part of the programming model,
+    /// because nothing a developer wrote moves.
+    ///
+    /// What it buys is the send side of a fan-out, which is where most of the per-consumer
+    /// cost of a browser link is. Framing and writing one message per socket. What it does
+    /// not buy is a faster owner, since the Source still runs once, on the main thread.
+    int socketThreads{1};
+
     /// Resource limits (framework enforced on the upgrade path).
     int handshakeTimeoutMs{10000};
     int maxConnectionsPerIp{20};

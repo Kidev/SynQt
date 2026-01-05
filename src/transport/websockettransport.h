@@ -59,6 +59,10 @@ public:
     /// so it is direct before the move and queued after, with nothing to switch over.
     explicit WebSocketTransport(SocketChannel *channel, QObject *parent = nullptr);
 
+    /// Puts the channel down on the thread it lives on, so a device is the whole of what
+    /// a connection has to be given to end it.
+    ~WebSocketTransport() override;
+
     void setUrl(const QUrl &url);
     QUrl url() const;
 
@@ -79,6 +83,14 @@ public:
 
     /// Close with a WebSocket close code and reason, whichever thread the socket is on.
     void shutdown(QWebSocketProtocol::CloseCode closeCode, const QString &reason);
+
+    /// Hand this device's socket to `thread`, on the split form.
+    ///
+    /// Call it last, once the connection is hosted, so nothing runs on the socket between
+    /// being wired up and being somewhere else. Anything already written is waiting in the
+    /// batch and crosses on the next pass, by which time the socket is where it will stay.
+    /// Does nothing on the unsplit form, whose socket is this thread's.
+    void moveSocketToThread(QThread *thread);
 
     bool isSequential() const override;
     qint64 bytesAvailable() const override;
