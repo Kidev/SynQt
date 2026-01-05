@@ -261,6 +261,13 @@ side, the mesh (service to service) side, the public TLS, and its env file:
     #   must have `behind:`, identity must be promoted to its own entity, and the device
     #   store must be one every replica can read. See
     #   https://synqt.org/deploying/#8-running-more-than-one-edge
+    # threads: 4
+    #   Spread this edge's accepted browser sockets across N IO threads, in one process.
+    #   Default 1, which is every project that does not write this. Nothing you wrote
+    #   moves: the Sources, the QML engine and the entity singleton stay on the main
+    #   thread, so unlike `replicas:` there is nothing for `synqt check` to prove and no
+    #   `behind:` requirement. See
+    #   https://synqt.org/deploying/#running-one-edge-on-more-than-one-core
 
     public:                   # the internet facing side (delivery + browser wss)
       host: 0.0.0.0           # default: all interfaces; the only public bind in the system

@@ -798,6 +798,30 @@ def replicas(entity: Dict[str, Any]) -> int:
     return declared
 
 
+def threads(entity: Dict[str, Any]) -> int:
+    """``threads:``: how many IO threads a web edge spreads its browser sockets across.
+
+    One (the default, and the absence of the key) is the whole edge on one thread. More
+    than one moves each accepted socket onto a thread of its own and leaves everything else
+    exactly where it was: one QtRO host per connection, the per-session Sources, the QML
+    engine and the entity singleton all stay on the main thread.
+
+    That is what makes it a different key from ``replicas``, which is a front and asks the
+    project for four things in return. Threading asks for nothing, because nothing a
+    developer wrote moves. See "Running an edge on more than one core" in the deployment
+    docs.
+    """
+    declared = entity.get("threads")
+    if declared is None:
+        return 1
+    # bool before int, for the same reason as replicas: `threads: true` would otherwise
+    # read as one thread and look like it had been accepted.
+    if isinstance(declared, bool) or not isinstance(declared, int) or declared < 1:
+        raise AppGenError(
+            f"threads must be a whole number of 1 or more, not {declared!r}")
+    return declared
+
+
 def tls_settings(entity: Dict[str, Any]) -> Dict[str, Any]:
     """The declared ``tls:`` block of a web edge: the public certificate for the browser."""
     settings = entity.get("tls")

@@ -380,8 +380,9 @@ def validate(config: Dict[str, Any], *, release: bool = False,
     messages += _shared_messages(declared)
     messages += _orphan_messages(config, declared)
     messages += _replica_messages(config, entities)
+    messages += _thread_messages(entities)
 
-    # The endpoints the build will actually write, not the keys as spelled: a link's
+    # The endpoints the build will write, not the keys as spelled: a link's
     # transport and host can come from the owner entity's `mesh:` block as easily as from
     # the connect point, and a rule that read only one of the two would pass a topology
     # the generator then wires the other way (see topologywriter.mesh_settings).
@@ -778,6 +779,32 @@ def _replica_messages(config: Dict[str, Any],
                 f"them behind one address is a different feature than this one")
             continue
         messages += _replicated_edge_messages(config, name, entity, count)
+    return messages
+
+
+def _thread_messages(entities: Dict[str, Any]) -> List[str]:
+    """Where `threads:` may be written, and what it has to say.
+
+    One rule, against `replicas:`'s four, and the asymmetry is the point. Replicating an
+    edge is a promise about state that the project has to keep; threading one is a promise
+    about nothing, because the only thing that moves is the socket. So all that is left to
+    check is that the key is on the entity it means something to, since a `threads:` that
+    quietly does nothing is worse than one that is refused.
+    """
+    messages: List[str] = []
+    for name, entity in entities.items():
+        if "threads" not in entity:
+            continue
+        try:
+            count = appmodel.threads(entity)
+        except appmodel.AppGenError as failure:
+            messages.append(f"error: entity '{name}': {failure}")
+            continue
+        if count > 1 and not _is_web_edge(entity):
+            messages.append(
+                f"error: entity '{name}' declares 'threads: {count}', which is the web "
+                f"edge's key: it spreads accepted browser sockets across threads. A "
+                f"service is reached over the mesh, whose links this does not touch")
     return messages
 
 

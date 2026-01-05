@@ -297,6 +297,11 @@ def _edge_policy_lines(config: Dict[str, Any], edge: Dict[str, Any]) -> List[str
     if "csp" in security:
         string_line("csp", str(security["csp"]).strip())
 
+    # How many threads accepted browser sockets are spread across. On the entity and not
+    # in `security:` because it is a property of this process, the way `replicas:` is.
+    if "threads" in edge:
+        lines.append(f"    config.socketThreads = {appmodel.threads(edge)};")
+
     # Resource limits on the upgrade path.
     for key, field in (("handshake_timeout_ms", "handshakeTimeoutMs"),
                        ("max_connections_per_ip", "maxConnectionsPerIp"),

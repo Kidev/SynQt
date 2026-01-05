@@ -291,6 +291,53 @@ Worth reading before you raise it, because none of these announces itself:
   by the replica count. It is a cost control rather than the security boundary (the
   credential is 256 random bits), which is why it is not worth a shared write per attempt.
 
+### Running one edge on more than one core
+
+Replicating is not the only way to use more of a machine, and for some systems it is the
+wrong one. A single edge can spread its accepted browser sockets across IO threads
+instead, in one process. Also opt in, also one key:
+
+```yaml
+  - name: edge
+    type: web_edge
+    threads: 4
+```
+
+Each browser connection is put on one of the four threads when it is accepted and stays
+there. Everything else stays where it was. The QtRO host each connection gets, the
+Sources it acquires, the QML engine, and the entity singleton all live on the main thread,
+the same as at `threads: 1`.
+
+That is the whole difference between the two keys, and it decides which one you want:
+
+| | `replicas: N` | `threads: N` |
+|---|---|---|
+| What it multiplies | Processes, behind a balancer | Socket threads, in one process |
+| What it asks of the project | Every owned point needs `behind:`, identity promoted, a shared device store | Nothing |
+| Shared state | None: each process is on its own | All of it: one singleton, one set of Sources |
+| Survives a process dying | Yes, the others carry on | No |
+| Scales past one machine | Yes | No |
+
+So the [multiplayer arena](tutorial-multiplayer.md), which replicating turns into N
+separate worlds each convinced it is the only one, is exactly the shape `threads:` serves:
+one authoritative world, simulated once, with the cost of sending each player their slice
+spread over four cores. And the plain request-shaped app that already satisfies the front
+rules is better served by `replicas:`, which survives losing a machine.
+
+They compose, and neither implies the other: N replicas of an edge that threads its own
+sockets is N processes each using several cores.
+
+**What it does not buy.** The Source still runs once, on the main thread, so an owner that
+is slow to compute what it publishes is exactly as slow with four threads as with one.
+What moves off the main thread is the per-connection cost of delivering it, which on a
+fan-out to many browsers is where most of the time goes. If a profile says your edge is
+busy in QML rather than in its sockets, this key will not show up in it.
+
+**Message size.** Writes to one connection made in the same pass of the event loop travel
+together, as one WebSocket message, so `security.max_message_bytes` also caps how large a
+batch may grow. Nothing to configure: a single message already over that ceiling still
+goes on its own, exactly as it does unthreaded.
+
 ## 9. Desktop clients, if you ship one
 
 A desktop client is built per host platform and deployed separately from the services:

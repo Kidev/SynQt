@@ -28,6 +28,8 @@
 #include "rep_fanout_source.h"
 #include "rep_fanout_replica.h"
 
+#include "iothreadpool.h"
+#include "socketchannel.h"
 #include "websockettransport.h"
 
 #include <QCommandLineOption>
@@ -48,7 +50,10 @@
 #include <QStandardItemModel>
 #include <QString>
 #include <QSysInfo>
+#include <QTcpServer>
+#include <QTcpSocket>
 #include <QTextStream>
+#include <QThread>
 #include <QUrl>
 #include <QWebSocket>
 #include <QWebSocketServer>
@@ -56,11 +61,51 @@
 #include <algorithm>
 #include <cmath>
 
+using SynQt::IoThreadPool;
+using SynQt::SocketChannel;
 using SynQt::WebSocketTransport;
 
 namespace {
 
-// The three fan-out strategies under test. shared = one world for everyone; per_session = a
+/// A QTcpServer that hands each accepted socket to a QWebSocketServer, keeping the raw
+/// socket. Needed only for --threads: the socket under an accepted QWebSocket is not its
+/// child and QWebSocket does not hand it out, so this is the one place it can be caught,
+/// and both halves have to move together. The web edge catches its own the same way.
+class RawKeepingListener : public QTcpServer
+{
+    Q_OBJECT
+
+public:
+    explicit RawKeepingListener(QWebSocketServer *webSockets, QObject *parent = nullptr)
+        : QTcpServer{parent}
+        , m_webSockets{webSockets}
+    {
+    }
+
+    QTcpSocket *lastAccepted() const { return m_lastAccepted; }
+
+protected:
+    void incomingConnection(qintptr socketDescriptor) override
+    {
+        QTcpSocket *socket{new QTcpSocket{this}};
+        if (!socket->setSocketDescriptor(socketDescriptor)) {
+            delete socket;
+            return;
+        }
+        m_lastAccepted = socket;
+        m_webSockets->handleConnection(socket);
+    }
+
+private:
+    QWebSocketServer *m_webSockets{nullptr};
+    QTcpSocket *m_lastAccepted{nullptr};
+};
+
+} // namespace
+
+namespace {
+
+// The three fan-out strategies under test. shared = one world for everyone, per_session = a
 // Source per player, naive (whole world each) or interest-managed (k nearest each).
 enum class Mode { Shared, PerSessionNaive, PerSessionInterest };
 
@@ -301,12 +346,18 @@ int main(int argc, char *argv[])
         QStringLiteral("40")};
     const QCommandLineOption outOption{QStringLiteral("out"),
         QStringLiteral("JSON baseline output path."), QStringLiteral("file")};
-    parser.addOptions({sizesOption, ticksOption, interestOption, warmupOption, outOption});
+    const QCommandLineOption threadsOption{QStringLiteral("threads"),
+        QStringLiteral("IO threads the host spreads accepted sockets across "
+                       "(the edge's `threads:` key). 1 keeps everything on one thread."),
+        QStringLiteral("n"), QStringLiteral("1")};
+    parser.addOptions({sizesOption, ticksOption, interestOption, warmupOption, outOption,
+                       threadsOption});
     parser.process(app);
 
     const int ticks{parser.value(ticksOption).toInt()};
     const int interestCap{parser.value(interestOption).toInt()};
     const int warmup{parser.value(warmupOption).toInt()};
+    const int ioThreadCount{std::max(1, parser.value(threadsOption).toInt())};
     QList<int> sizes;
     for (const QString &token : parser.value(sizesOption).split(QLatin1Char(','),
                                                                 Qt::SkipEmptyParts)) {
@@ -320,24 +371,39 @@ int main(int argc, char *argv[])
     // Host: a QWebSocketServer feeding a QtRO host (no registry), one shared Source and maxN
     // per-session Sources, exactly as the arena edge owns a shared world plus a per-session view.
     QWebSocketServer server{QStringLiteral("fanout"), QWebSocketServer::NonSecureMode};
-    if (!server.listen(QHostAddress::LocalHost, 0)) {
+    RawKeepingListener listener{&server};
+    if (!listener.listen(QHostAddress::LocalHost, 0)) {
         qCritical("bench-fanout: cannot listen");
         return 1;
     }
-    const quint16 port{server.serverPort()};
+    const quint16 port{listener.serverPort()};
+
+    // The edge's `threads:` key, as the host side of this harness. Null at 1, which is the
+    // unthreaded shape every earlier baseline in this file was taken with.
+    QScopedPointer<IoThreadPool> ioThreads;
+    if (ioThreadCount > 1) {
+        ioThreads.reset(new IoThreadPool{ioThreadCount});
+    }
 
     QRemoteObjectHost host;
     host.setHostUrl(QUrl{QStringLiteral("synqt-fanout:///host")},
                     QRemoteObjectHost::AllowExternalRegistration);
-    QObject::connect(&server, &QWebSocketServer::newConnection, &host, [&server, &host]() {
+    QObject::connect(&server, &QWebSocketServer::newConnection, &host,
+                     [&server, &host, &listener, &ioThreads]() {
         while (QWebSocket *incoming{server.nextPendingConnection()}) {
-            auto *transport{new WebSocketTransport{incoming}};
+            if (!ioThreads) {
+                auto *transport{new WebSocketTransport{incoming, &host}};
+                transport->open(QIODevice::ReadWrite);
+                host.addHostSideConnection(transport);
+                continue;
+            }
+            // Build, open, host, and only then hand the socket to its thread, which is the
+            // order the edge uses and the order the move depends on.
+            auto *channel{new SocketChannel{incoming, listener.lastAccepted()}};
+            auto *transport{new WebSocketTransport{channel, &host}};
             transport->open(QIODevice::ReadWrite);
-            QObject::connect(incoming, &QWebSocket::disconnected, incoming,
-                             &QWebSocket::deleteLater);
-            QObject::connect(incoming, &QObject::destroyed, transport,
-                             &WebSocketTransport::deleteLater);
             host.addHostSideConnection(transport);
+            transport->moveSocketToThread(ioThreads->nextThread());
         }
     });
 
@@ -405,6 +471,7 @@ int main(int argc, char *argv[])
     QTextStream out{stdout};
     out << "SynQt edge fan-out baseline (arena publish(): QtRO over QtWebSockets, loopback ws)"
         << Qt::endl;
+    out << "io threads " << ioThreadCount << Qt::endl;
     out << "Qt " << qVersion() << " on " << QSysInfo::prettyProductName() << " ("
         << QSysInfo::currentCpuArchitecture() << ")" << Qt::endl;
     out << "ticks/measurement=" << ticks << " interest_k=" << interestCap << " warmup=" << warmup
@@ -452,6 +519,9 @@ int main(int argc, char *argv[])
     root.insert(QStringLiteral("qt_version"), QString::fromLatin1(qVersion()));
     root.insert(QStringLiteral("host"), QSysInfo::prettyProductName());
     root.insert(QStringLiteral("arch"), QSysInfo::currentCpuArchitecture());
+    // Recorded because it changes the numbers below. A baseline that does not say
+    // how many IO threads the host ran with cannot be compared to one that does.
+    root.insert(QStringLiteral("io_threads"), ioThreadCount);
     root.insert(QStringLiteral("recorded"), QDateTime::currentDateTimeUtc().toString(Qt::ISODate));
     root.insert(QStringLiteral("ticks"), ticks);
     root.insert(QStringLiteral("interest_k"), interestCap);
@@ -477,3 +547,5 @@ int main(int argc, char *argv[])
     }
     return 0;
 }
+
+#include "bench_fanout.moc"
