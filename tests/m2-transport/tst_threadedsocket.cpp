@@ -19,6 +19,7 @@
 #include <QByteArray>
 #include <QHostAddress>
 #include <QList>
+#include <QPointer>
 #include <QScopedPointer>
 #include <QSignalSpy>
 #include <QTest>
@@ -47,15 +48,13 @@ public:
 
     ~ThreadedLink()
     {
-        if (m_channel) {
-            // Deleted on the thread it lives on, and waited for, so the thread below is
-            // never stopped out from under a socket that is still open.
-            m_channel->deleteLater();
-            m_channel = nullptr;
-        }
+        // Nothing here puts the channel down by hand. The device owns its socket, so
+        // destroying it posts the channel's deletion to the thread the channel lives on,
+        // and quitting that thread's event loop is what delivers it. Every case in this
+        // file therefore exercises that contract, and one of them asserts it.
+        m_transport.reset();
         m_ioThread.quit();
         m_ioThread.wait();
-        m_transport.reset();
         m_listener.close();
         m_server.close();
     }
@@ -90,6 +89,15 @@ public:
 
     WebSocketTransport *transport() const { return m_transport.data(); }
     SocketChannel *channel() const { return m_channel; }
+
+    /// The two steps the destructor takes, separately, so a test can look in between.
+    void destroyDevice() { m_transport.reset(); }
+    void stopIoThread()
+    {
+        m_ioThread.quit();
+        m_ioThread.wait();
+    }
+
     QThread *ioThread() { return &m_ioThread; }
     QWebSocket *client() { return &m_client; }
     const QList<QByteArray> &clientReceived() const { return m_clientReceived; }
@@ -129,6 +137,7 @@ private slots:
     void aBatchNeverExceedsItsLimit();
     void aMessageLargerThanTheBatchLimitStillGoesWhole();
     void shutdownClosesASocketOnAnotherThread();
+    void destroyingTheDeviceDestroysItsSocketOnItsOwnThread();
 };
 
 void TestThreadedSocket::theSocketMovesAndTheDeviceStaysPut()
@@ -235,6 +244,30 @@ void TestThreadedSocket::shutdownClosesASocketOnAnotherThread()
     QTRY_COMPARE(clientClosed.size(), 1);
     QTRY_COMPARE(deviceClosed.size(), 1);
     QCOMPARE(link.client()->closeCode(), QWebSocketProtocol::CloseCodeGoingAway);
+}
+
+void TestThreadedSocket::destroyingTheDeviceDestroysItsSocketOnItsOwnThread()
+{
+    // A QWebSocket torn down from a thread that is not its own leaves socket notifiers
+    // being disabled from the wrong side, which Qt refuses to do, so the device asks for
+    // the channel to be deleted on its thread rather than deleting it. The half of that
+    // worth pinning is that it actually happens: a deferred delete only runs if something
+    // delivers it, and at shutdown the only thing left to is the event loop being quit.
+    ThreadedLink link;
+    QVERIFY(link.connectPair());
+
+    QPointer<QObject> channel{link.channel()};
+    QPointer<QObject> socket{link.channel()->socket()};
+    QVERIFY(!channel.isNull());
+    QVERIFY(!socket.isNull());
+
+    link.destroyDevice();
+    // Not yet: the deletion is posted, not done, and it belongs to the other thread.
+    QVERIFY(!channel.isNull());
+
+    link.stopIoThread();
+    QVERIFY2(channel.isNull(), "the channel outlived the device that owned it");
+    QVERIFY2(socket.isNull(), "the socket outlived the channel it was a child of");
 }
 
 QTEST_MAIN(TestThreadedSocket)
