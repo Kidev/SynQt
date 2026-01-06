@@ -333,6 +333,11 @@ What moves off the main thread is the per-connection cost of delivering it, whic
 fan-out to many browsers is where most of the time goes. If a profile says your edge is
 busy in QML rather than in its sockets, this key will not show up in it.
 
+**Give it the cores.** Nothing checks that the machine has them, and nothing can: a
+container with a one-CPU quota runs four socket threads perfectly well and gains nothing
+from them but context switches. Set the number against the CPU the process is actually
+allowed, not against the host's core count.
+
 **Message size.** Writes to one connection made in the same pass of the event loop travel
 together, as one WebSocket message, so `security.max_message_bytes` also caps how large a
 batch may grow. Nothing to configure: a single message already over that ceiling still
