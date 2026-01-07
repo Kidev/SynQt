@@ -40,6 +40,7 @@
 #include <QElapsedTimer>
 #include <QEventLoop>
 #include <QFile>
+#include <QHash>
 #include <QHostAddress>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -68,9 +69,17 @@ using SynQt::WebSocketTransport;
 namespace {
 
 /// A QTcpServer that hands each accepted socket to a QWebSocketServer, keeping the raw
-/// socket. Needed only for --threads: the socket under an accepted QWebSocket is not its
+/// socket. Needed only for --threads. The socket under an accepted QWebSocket is not its
 /// child and QWebSocket does not hand it out, so this is the one place it can be caught,
 /// and both halves have to move together. The web edge catches its own the same way.
+///
+/// Keyed by peer address and port, and not by "the one accepted most recently", because
+/// the handshake finishes asynchronously. With a hundred consumers arriving at once, the
+/// socket accepted last is nobody's in particular by the time newConnection fires. Getting
+/// that wrong moves one half of a connection and leaves the other, which does not report
+/// an error, it prints "QSocketNotifier: socket notifiers cannot be enabled or disabled
+/// from another thread" a few times and then dumps core. The edge keys its own the same
+/// way, for the same reason.
 class RawKeepingListener : public QTcpServer
 {
     Q_OBJECT
@@ -82,7 +91,10 @@ public:
     {
     }
 
-    QTcpSocket *lastAccepted() const { return m_lastAccepted; }
+    QTcpSocket *take(const QWebSocket *webSocket)
+    {
+        return m_accepted.take(peerKey(webSocket->peerAddress(), webSocket->peerPort()));
+    }
 
 protected:
     void incomingConnection(qintptr socketDescriptor) override
@@ -92,13 +104,18 @@ protected:
             delete socket;
             return;
         }
-        m_lastAccepted = socket;
+        m_accepted.insert(peerKey(socket->peerAddress(), socket->peerPort()), socket);
         m_webSockets->handleConnection(socket);
     }
 
 private:
+    static QString peerKey(const QHostAddress &address, quint16 port)
+    {
+        return QStringLiteral("%1|%2").arg(address.toString()).arg(port);
+    }
+
     QWebSocketServer *m_webSockets{nullptr};
-    QTcpSocket *m_lastAccepted{nullptr};
+    QHash<QString, QTcpSocket *> m_accepted;
 };
 
 } // namespace
@@ -399,7 +416,7 @@ int main(int argc, char *argv[])
             }
             // Build, open, host, and only then hand the socket to its thread, which is the
             // order the edge uses and the order the move depends on.
-            auto *channel{new SocketChannel{incoming, listener.lastAccepted()}};
+            auto *channel{new SocketChannel{incoming, listener.take(incoming)}};
             auto *transport{new WebSocketTransport{channel, &host}};
             transport->open(QIODevice::ReadWrite);
             host.addHostSideConnection(transport);
