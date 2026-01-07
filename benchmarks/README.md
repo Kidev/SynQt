@@ -238,7 +238,14 @@ propagation latency to every consumer:
 ```sh
 ./benchmarks/fanout/run-bench.sh
 ./benchmarks/fanout/run-bench.sh --sizes 1,10,50,100,250 --ticks 400 --interest 16
+./benchmarks/fanout/run-bench.sh --sizes 100 --threads 4      # the edge's `threads:` key
 ```
+
+`--threads N` puts each accepted socket on one of N IO threads, which is what an edge
+declaring [`threads: N`](../docs/deploying.md#running-one-edge-on-more-than-one-core)
+does. The count is recorded in the baseline as `io_threads`, because it changes the
+numbers and a file that does not say which one it ran with cannot be compared to one that
+does. Default 1, so every baseline taken before the key existed still means what it said.
 
 ### Baseline captured on this checkout
 
@@ -267,6 +274,37 @@ only viable when every client legitimately needs the whole world. Propagation la
 alongside (and tracks the same ordering; interest lowest, naive highest, at every N >= 25); its
 low-N floor reflects QtRO's outbound property-change coalescing, so the CPU columns are the primary
 characterization.
+
+### What the socket threads move, and what this harness cannot see
+
+Sweeping `--threads` at N = 100 (Qt 6.11.1, Arch Linux x86_64, 120 ticks, warmup 30,
+`interest_k=16`). Publish CPU p50, in ms:
+
+| mode | 1 thread | 2 | 4 | 8 |
+|------|---------:|--:|--:|--:|
+| shared | 1.47 | **0.74** | 0.76 | 0.74 |
+| per_session_interest | 2.52 | 2.35 | 2.34 | 2.31 |
+| per_session_naive | 12.1 | 11.2 | 11.1 | 11.1 |
+
+`shared` halves at two threads and then stops moving, and that is the whole result. Its
+owner-side work is a single revision bump, so nearly all of what was being measured was
+per-socket framing and writing, once per consumer; moving that off leaves the model build,
+which no number of socket threads can touch. Three runs at each point: 1.47 / 1.46 / 1.43
+against 0.76 / 0.68 / 0.70, so the 2.1x is the measurement and not the run.
+
+The other two modes barely move, for the same reason read the other way round. Their
+publish CPU is mostly the owner building 100 slices, on the main thread, by design. This is
+the number behind the plain claim in the deployment docs: threading buys the cost of
+*delivering* what an owner publishes, and buys nothing at all on the cost of computing it.
+
+**Propagation latency is flat across the sweep, and this harness cannot tell you whether
+that is true.** Every consumer here runs in this process, on the publisher's own thread,
+which is deliberate (it is what lets a tick be measured on one clock rather than across
+two) and which makes the main thread the end-to-end bottleneck by construction. Freeing it
+of socket work therefore shows up in the CPU column and nowhere else. In a deployment the
+consumers are browsers on other machines and the thread being freed is the edge's, so the
+end-to-end half of this lever is not measured anywhere in this tree. The CPU column is what
+is being claimed; the propagation column is reported because hiding it would be worse.
 
 A note on how the harness publishes, because it changed the numbers above. Each tick builds the
 row items, resets the model, and appends them, which is what the generated `set<Model>(rows)` does
