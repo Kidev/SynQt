@@ -289,8 +289,9 @@ Sweeping `--threads` at N = 100 (Qt 6.11.1, Arch Linux x86_64, 120 ticks, warmup
 `shared` halves at two threads and then stops moving, and that is the whole result. Its
 owner-side work is a single revision bump, so nearly all of what was being measured was
 per-socket framing and writing, once per consumer; moving that off leaves the model build,
-which no number of socket threads can touch. Three runs at each point: 1.47 / 1.46 / 1.43
-against 0.76 / 0.68 / 0.70, so the 2.1x is the measurement and not the run.
+which no number of socket threads can touch. Four runs at each point: 1.467 / 1.457 / 1.430 /
+1.425 against 0.755 / 0.683 / 0.696 / 0.694, so the 2.1x is the measurement and not the
+run.
 
 The other two modes barely move, for the same reason read the other way round. Their
 publish CPU is mostly the owner building 100 slices, on the main thread, by design. This is
