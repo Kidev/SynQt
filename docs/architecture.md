@@ -204,6 +204,11 @@ Service runtime (native, used by every service entity):
 - `WebEdge` (only on a `type: web_edge` entity): owns the QHttpServer,
   TLS for the public port, static bundle serving, the header policy, the
   WebSocket upgrade pipeline, the SessionManager, and the optional IdentityProvider.
+  Under [`threads: N`](deploying.md#running-one-edge-on-more-than-one-core) it also owns
+  the IO threads accepted browser sockets are spread across. Only the socket moves: the
+  QtRO host each connection gets, the Sources it acquires, the QML engine and the entity
+  singleton all stay on the main thread, which is why threading an edge changes nothing
+  about how it is written.
 
 Generated layer:
 
