@@ -30,6 +30,8 @@
 #include "rep_live_replica.h"
 
 #include "socketoptions.h"
+#include "iothreadpool.h"
+#include "socketchannel.h"
 #include "websockettransport.h"
 
 #include <QByteArray>
@@ -66,6 +68,8 @@
 #include <unistd.h>
 #endif
 
+using SynQt::IoThreadPool;
+using SynQt::SocketChannel;
 using SynQt::WebSocketTransport;
 
 namespace {
@@ -208,6 +212,18 @@ public:
     {
     }
 
+    /// The raw socket under an accepted QWebSocket, for --threads.
+    ///
+    /// Keyed by peer address and port, not by "the one accepted most recently": the
+    /// handshake finishes asynchronously, so with subscribers arriving together the socket
+    /// accepted last is nobody's in particular by the time newConnection fires. Moving one
+    /// half of a connection and leaving the other does not report an error, it prints a few
+    /// socket-notifier warnings and then dumps core. The web edge keys its own the same way.
+    QTcpSocket *take(const QWebSocket *webSocket)
+    {
+        return m_accepted.take(peerKey(webSocket->peerAddress(), webSocket->peerPort()));
+    }
+
 protected:
     void incomingConnection(qintptr socketDescriptor) override
     {
@@ -217,11 +233,18 @@ protected:
             return;
         }
         SynQt::disableNagle(socket);
+        m_accepted.insert(peerKey(socket->peerAddress(), socket->peerPort()), socket);
         m_webSocketServer->handleConnection(socket);
     }
 
 private:
+    static QString peerKey(const QHostAddress &address, quint16 port)
+    {
+        return QStringLiteral("%1|%2").arg(address.toString()).arg(port);
+    }
+
     QWebSocketServer *m_webSocketServer{nullptr};
+    QHash<QString, QTcpSocket *> m_accepted;
 };
 
 struct Subscriber
@@ -284,7 +307,13 @@ int main(int argc, char *argv[])
     const QCommandLineOption outOption{
         QStringLiteral("out"), QStringLiteral("Write the JSON result here."),
         QStringLiteral("file")};
+    const QCommandLineOption threadsOption{
+        QStringLiteral("threads"),
+        QStringLiteral("IO threads the host spreads accepted sockets across (the edge's "
+                       "`threads:` key). 1 keeps everything on one thread."),
+        QStringLiteral("n"), QStringLiteral("1")};
     parser.addOptions({sizesOption, secondsOption, hzOption, payloadOption, saturateOption,
+                       threadsOption,
                        rawOption, outOption});
     parser.process(app);
 
@@ -293,7 +322,16 @@ int main(int argc, char *argv[])
     const int hz{qMax(1, parser.value(hzOption).toInt())};
     const int payloadBytes{qMax(0, parser.value(payloadOption).toInt())};
     const bool saturate{parser.isSet(saturateOption)};
+    const int ioThreadCount{std::max(1, parser.value(threadsOption).toInt())};
     const bool raw{parser.isSet(rawOption)};
+    if (raw && ioThreadCount > 1) {
+        // The bare-socket column writes to its peers directly and owns no device to split,
+        // so --threads would silently do nothing there and the baseline would claim
+        // otherwise. Refuse rather than record that.
+        out << "--threads applies to the QtRO column; the bare-socket column (--raw) has "
+               "no transport to split" << Qt::endl;
+        return 2;
+    }
     if (sizes.isEmpty()) {
         out << "no subscriber counts to sweep" << Qt::endl;
         return 2;
@@ -311,6 +349,12 @@ int main(int argc, char *argv[])
         QWebSocketServer server{QStringLiteral("bench-live"),
                                 QWebSocketServer::NonSecureMode};
         BenchTcpServer listener{&server};
+        // The edge's `threads:` key. Null at 1, which is the shape every earlier baseline
+        // in this harness was taken with.
+        QScopedPointer<IoThreadPool> ioThreads;
+        if (ioThreadCount > 1) {
+            ioThreads.reset(new IoThreadPool{ioThreadCount});
+        }
         if (!listener.listen(QHostAddress::LocalHost)) {
             out << "cannot listen: " << listener.errorString() << Qt::endl;
             return 1;
@@ -322,15 +366,25 @@ int main(int argc, char *argv[])
         host.setHostUrl(QUrl{QStringLiteral("synqt-live:///host")},
                         QRemoteObjectHost::AllowExternalRegistration);
         QObject::connect(&server, &QWebSocketServer::newConnection, &host,
-                         [&server, &host, &rawPeers, raw]() {
+                         [&server, &host, &rawPeers, &listener, &ioThreads, raw]() {
             while (QWebSocket *socket{server.nextPendingConnection()}) {
                 if (raw) {
                     rawPeers.append(socket);
                     continue;
                 }
-                WebSocketTransport *transport{new WebSocketTransport{socket, socket}};
+                if (!ioThreads) {
+                    WebSocketTransport *transport{new WebSocketTransport{socket, socket}};
+                    transport->open(QIODevice::ReadWrite);
+                    host.addHostSideConnection(transport);
+                    continue;
+                }
+                // Build, open, host, and only then hand the socket to its thread: the
+                // order the edge uses, and the order the move depends on.
+                auto *channel{new SocketChannel{socket, listener.take(socket)}};
+                auto *transport{new WebSocketTransport{channel, &host}};
                 transport->open(QIODevice::ReadWrite);
                 host.addHostSideConnection(transport);
+                transport->moveSocketToThread(ioThreads->nextThread());
             }
         });
 
@@ -553,6 +607,9 @@ int main(int argc, char *argv[])
                 QDateTime::currentDateTimeUtc().toString(Qt::ISODate));
     root.insert(QStringLiteral("hz"), saturate ? 0 : hz);
     root.insert(QStringLiteral("saturated"), saturate);
+    // Recorded because it changes the numbers: a baseline that does not say how many IO
+    // threads the host ran with cannot be compared to one that does.
+    root.insert(QStringLiteral("io_threads"), ioThreadCount);
     root.insert(QStringLiteral("seconds"), seconds);
     root.insert(QStringLiteral("payload_bytes"), payloadBytes);
     root.insert(QStringLiteral("rss_available"), residentBytes() > 0);
