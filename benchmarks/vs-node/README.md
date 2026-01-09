@@ -107,9 +107,12 @@ fitted across four sizes for that reason.
 
 This is the part of the comparison that is also the acceptance test for
 [`replicas:`](../../docs/deploying.md#8-running-more-than-one-edge). Both runtimes are
-single-threaded per process and reach the other cores the same way, by running more of
-themselves: SynQt through `replicas:`, Node through `cluster`. So the fair question is not
-which is faster on one core but what each does with four.
+single-threaded per process, and this is the way they both reach the other cores: by
+running more of themselves, SynQt through `replicas:`, Node through `cluster`. So the fair
+question is not which is faster on one core but what each does with four.
+
+SynQt now has a second way, which Node has no equivalent of and which this sweep does not
+measure; it is [below](#threads-the-core-that-is-not-a-process).
 
 ```sh
 python3 benchmarks/vs-node/sweep.py --processes 1,2,4,8 --subscribers 200 --seconds 10
@@ -185,6 +188,47 @@ Three things this says, none of which is "SynQt is faster":
   both columns. That is what `users / GiB` is derived from, and on this host it is the half
   of `users / core / GiB` that binds later, so it is not the number that sizes a host.
   Prefer whichever half is smaller for your workload rather than the flattering one.
+
+### Threads: the core that is not a process
+
+Everything above reaches a second core by starting a second process, and pays for it in
+the only currency that matters here: the two processes hold two values. Split 200
+subscribers across eight of them and there are eight publishers, eight values, and no way
+to make all 200 agree on one without a broadcast between processes that none of those
+numbers include.
+
+A web edge can also spread its accepted sockets over IO threads inside one process
+([`threads: N`](../../docs/deploying.md#running-one-edge-on-more-than-one-core)), which
+keeps the single value. `--threads` runs the SynQt column that way:
+
+```sh
+build/bench-vs-node/bench_live --subscribers 100 --seconds 6 --saturate --threads 4
+```
+
+It applies to the QtRO column only. `--raw --threads N` is refused rather than ignored:
+the bare-socket column writes to its peers directly and owns no device to split, so the
+flag would do nothing and the baseline would claim otherwise.
+
+Arch Linux, x86_64, Qt 6.11.1 against Node 22.22, **100** subscribers, 6 second windows:
+
+| cores | SynQt `threads:` | one value? | SynQt `replicas:` | Node `cluster` |
+|---|---|---|---|---|
+| 1 | 107,517 msg/s | yes | 108,233 | 110,467 |
+| 2 | 189,150 msg/s | yes | 239,192 | 234,075 |
+| 4 | 189,967 msg/s | yes | 505,325 | 463,958 |
+| 8 | 175,050 msg/s | yes | 1,023,340 | 861,700 |
+
+Read down the first column, not across the row. Threading is worth 1.76x from one core to
+two and nothing after it, and it costs a little by eight; it is not a way to buy throughput
+without limit. What it is, is the only column here whose every row still delivers one value
+to all 100 subscribers, which is the case `replicas:` and `cluster` cannot serve at all.
+
+Two cautions before quoting any of this. These runs used 100 subscribers and 6 second
+windows, and [the sweep table above](#reading-the-result-honestly) used 200 and 10, so the
+two tables are different workloads and reading one against the other is a mistake. And the
+one-core rows disagree with that table about who leads, which is unexplained here: it could
+be the subscriber count, the window, or the socket-option and read-path changes that landed
+between them. It is written down as unattributed rather than guessed at.
 
 ## What the gap against Node is made of
 

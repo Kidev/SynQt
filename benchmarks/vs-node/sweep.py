@@ -5,9 +5,14 @@
 """Throughput against process count, for SynQt and for Node.
 
 This is the part of the comparison that is also the acceptance test for `replicas:`. Both
-runtimes are single-threaded per process and reach the other cores the same way, by running
-more of themselves: SynQt through `replicas:`, Node through `cluster`. So the fair question
-is not "which is faster on one core" but "what does each do with four".
+runtimes are single-threaded per process, and this is the way they both reach the other
+cores: by running more of themselves, SynQt through `replicas:`, Node through `cluster`. So
+the fair question is not "which is faster on one core" but "what does each do with four".
+
+A web edge has a second way that Node has no equivalent of (`threads:`, which spreads its
+sockets over IO threads inside one process and so keeps a single shared value). This script
+does not measure it, because what it measures is process count; `bench_live --threads N`
+does, and benchmarks/vs-node/README.md prints the two side by side.
 
     python3 benchmarks/vs-node/sweep.py --processes 1,2,4,8 --subscribers 200 --seconds 10
 

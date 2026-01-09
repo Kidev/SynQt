@@ -100,6 +100,33 @@ entity's connect points, and the whole security model around them, identical.
 Read [security](https://synqt.org/security/) before deploying, and
 [deploying a SynQt system](https://synqt.org/deploying/) when you do.
 
+## How fast the live path is
+
+The thing SynQt is for is a value changing on the server and every client seeing it, so
+that is what is measured: one publisher, 100 subscribers, saturating, 256 byte payload.
+Deliveries per second on a 32 core Linux host, Qt 6.11.1, Node 22:
+
+| | 1 core | 2 | 4 | 8 |
+|---|---|---|---|---|
+| SynQt, more processes (`replicas:`) | 108 233 | 239 192 | 505 325 | 1 023 340 |
+| Node 22, more processes (`cluster`) | 110 467 | 234 075 | 463 958 | 861 700 |
+| SynQt, more threads (`threads:`) | 107 517 | 189 150 | 189 967 | 175 050 |
+
+Per core the two stacks are close, and which one leads depends on the subscriber count:
+Qt wins the fixed cost of a publish and Node wins the per subscriber one. Adding processes
+scales both about as well, and it scales N separate systems: eight processes hold eight
+values, and delivering one value to everybody from all of them costs a broadcast between
+processes that is in none of these numbers.
+
+The third row is the one that is not a process count. A single edge can spread its browser
+sockets over IO threads (`threads: N`) and still hold one value that every subscriber sees.
+It is worth about 1.8x and then it flattens, so it is not unlimited throughput; it is two
+to four cores spent on something the process-count rows cannot do at all.
+
+Every harness, the committed baselines, and what each number does and does not support are
+in [`benchmarks/`](benchmarks/), and the picture is in
+[deploying](https://synqt.org/deploying/#running-one-edge-on-more-than-one-core).
+
 ## Where to go next
 
 - [Getting started](https://synqt.org/getting-started/), then the

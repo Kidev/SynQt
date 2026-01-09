@@ -327,6 +327,37 @@ rules is better served by `replicas:`, which survives losing a machine.
 They compose, and neither implies the other: N replicas of an edge that threads its own
 sockets is N processes each using several cores.
 
+#### What the two keys actually buy
+
+![Deliveries per second against core count: SynQt replicas and Node cluster both rise
+close to linearly to about 1.0M and 862k at eight processes, while SynQt threads rises to
+189k at two cores and then stays flat, and is the only one of the three that keeps a single
+shared value.](assets/scaling-cores.svg){ width="100%" }
+
+One publisher, 100 subscribers, saturating, 256 byte payload; 32 core Linux host, Qt
+6.11.1, Node 22. Reproduce it with `benchmarks/vs-node/run-bench.sh` and
+`benchmarks/vs-node/sweep.py`.
+
+| cores | `replicas: N` | Node `cluster` | `threads: N` |
+|---|---|---|---|
+| 1 | 108 233 | 110 467 | 107 517 |
+| 2 | 239 192 | 234 075 | 189 150 |
+| 4 | 505 325 | 463 958 | 189 967 |
+| 8 | 1 023 340 | 861 700 | 175 050 |
+
+Read the two dashed lines against the solid one rather than against each other. Processes
+scale close to linearly, and SynQt and Node do about equally well at it, which is the
+honest state of that comparison. What they are scaling, though, is N separate systems: at
+eight processes there are eight publishers holding eight values, and delivering *one*
+value to every subscriber from all of them costs a broadcast between processes that is in
+none of these numbers.
+
+The solid line is the one that keeps the shared value, and it flattens: 1.76x from one
+core to two, nothing after that, and a slight loss by eight. So `threads:` is not a way to
+buy throughput without limit. It is a way to spend two to four cores on delivering
+something every subscriber must agree on, which is the case `replicas:` cannot serve at
+all.
+
 **What it does not buy.** The Source still runs once, on the main thread, so an owner that
 is slow to compute what it publishes is exactly as slow with four threads as with one.
 What moves off the main thread is the per-connection cost of delivering it, which on a
