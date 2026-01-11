@@ -102,29 +102,34 @@ Read [security](https://synqt.org/security/) before deploying, and
 
 ## How fast the live path is
 
-The thing SynQt is for is a value changing on the server and every client seeing it, so
-that is what is measured: one publisher, 100 subscribers, saturating, 256 byte payload.
-Deliveries per second on a 32 core Linux host, Qt 6.11.1, Node 22:
+A value changes on the server and every connected client has to see it. That is what SynQt
+is for, so that is what is measured: one publisher, 100 subscribers, saturating, 256 byte
+payload, on a 32 core Linux host with Qt 6.11.1 and Node 22.22.
 
-| | 1 core | 2 | 4 | 8 |
-|---|---|---|---|---|
-| SynQt, more processes (`replicas:`) | 108 233 | 239 192 | 505 325 | 1 023 340 |
-| Node 22, more processes (`cluster`) | 110 467 | 234 075 | 463 958 | 861 700 |
-| SynQt, more threads (`threads:`) | 107 517 | 189 150 | 189 967 | 175 050 |
+Both stacks reach more cores by running more processes, so that is the like-for-like
+comparison. Deliveries per second:
 
-Per core the two stacks are close, and which one leads depends on the subscriber count:
-Qt wins the fixed cost of a publish and Node wins the per subscriber one. Adding processes
-scales both about as well, and it scales N separate systems: eight processes hold eight
-values, and delivering one value to everybody from all of them costs a broadcast between
-processes that is in none of these numbers.
+| processes | SynQt | Node 22 | |
+|---|---|---|---|
+| 1 | 108k | 110k | 2% behind |
+| 2 | 239k | 234k | 2% ahead |
+| 4 | 505k | 464k | 9% ahead |
+| 8 | **1.02M** | 862k | **19% ahead** |
 
-The third row is the one that is not a process count. A single edge can spread its browser
-sockets over IO threads (`threads: N`) and still hold one value that every subscriber sees.
-It is worth about 1.8x and then it flattens, so it is not unlimited throughput; it is two
-to four cores spent on something the process-count rows cannot do at all.
+The Node column here is the fastest honest one: `node:http` with a hand-written WebSocket
+implementation and no dependencies, which is not what anyone deploys. Socket.IO, which is,
+does 62k on one process, so SynQt is 1.7x that before it uses a second core.
+
+**Then there is the part Node has no equivalent of.** Scaling by processes splits the
+value: eight processes hold eight of them, and making all 100 subscribers agree on one
+costs a broadcast between processes that is in none of the numbers above. A SynQt edge can
+instead spread its sockets across IO threads inside one process (`threads: N`) and keep the
+single value, which is worth 108k -> 189k deliveries per second on two cores and then
+flattens. That is not unlimited throughput, and it is the only option on this page that
+serves the case at all.
 
 Every harness, the committed baselines, and what each number does and does not support are
-in [`benchmarks/`](benchmarks/), and the picture is in
+in [`benchmarks/`](benchmarks/); the curve is in
 [deploying](https://synqt.org/deploying/#running-one-edge-on-more-than-one-core).
 
 ## Where to go next
