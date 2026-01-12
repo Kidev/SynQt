@@ -3,9 +3,8 @@
 This is a hands on, build it yourself introduction to SynQt. You will build one
 project across three stages, and each stage adds exactly one new idea. By the end
 you will have a working real time auction with sign in and a persistent Hall of
-Fame, and, more importantly, you will understand why SynQt is shaped the way it is,
-because at a few points you will try the tempting shortcut, watch it fail, and see
-the reason for the safe path.
+Fame, and you will have seen why SynQt is shaped the way it is. At a few points you
+will try the tempting shortcut, watch it fail, and see the reason for the safe path.
 
 You do not need to know Qt or QML beforehand. You need to be comfortable in a
 terminal and a code editor. The auth stage needs a GitHub account. Plan on about
@@ -59,8 +58,8 @@ flowchart LR
   even though it can see the data the edge chooses to publish.
 
 > [!NOTE]
-> This tutorial is the friendly front door. When you want the full reference for
-> anything it touches, follow the links: the [programming model](programming-model.md),
+> This tutorial introduces each idea as you use it. When you want the full reference
+> for anything it touches, follow the links: the [programming model](programming-model.md),
 > [configuration](project-layout-and-config.md), [security](security.md),
 > [entities](entities.md), [authentication](authentication.md),
 > and [providers](providers.md).

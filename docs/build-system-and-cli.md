@@ -199,47 +199,48 @@ unless you add `--force`, because what is on disk is somebody's writing and this
 reading of a shape. `--json` prints the same result as the document `synqt design` draws,
 which is how the editor offers to fill a contract in for you.
 
-The result is evidence rather than proof. Nothing is compiled: the scan matches shapes in the source, so
-a literal argument proves a type and an expression proves nothing. A member it had to
-guess at is marked `check this type` on its own line rather than presented as fact, and
-the lines it names are there so the first thing you can do with a guess is go and look at
-what produced it. Two ordinary QML habits make the answer much better, and they are the
-habits the [QML conventions](https://doc.qt.io/qt-6/qml-codingconventions.html) recommend
-anyway: annotate a function's parameters, and take a model role in a delegate with
+The result is evidence rather than proof. Nothing is compiled. The scan matches shapes
+in the source, so a literal argument proves a type and an expression proves nothing. A
+member it had to guess at is marked `check this type` on its own line rather than
+presented as fact, and it names the lines so you can look at what produced a guess. Two
+ordinary QML habits make the answer much better, and they are the habits the
+[QML conventions](https://doc.qt.io/qt-6/qml-codingconventions.html) recommend
+anyway. Annotate a function's parameters, and take a model role in a delegate with
 `required property string winner` rather than reading `model.winner`. Both are
 declarations, so both come back typed.
 
 Most arguments are neither a literal nor a declaration, though. `recordWinner(item, winner,
-amount)` is where three values ended up, not where they were built, and following one back
-is a type checker's job. `--types` says who does it. `ts` hands the JavaScript inside your
-QML to TypeScript, which infers over plain JavaScript and follows each value to where it
-came from; it needs node and `ts-morph` (`npm install ts-morph` in the project), and it
-refuses rather than quietly answering worse when they are missing. `heuristic` is the
-literal reader on its own, and needs nothing. The default, `auto`, uses TypeScript where it
-is installed and the literal reader where it is not, and the last line of the report says
-which one answered. Neither ever invents a type: what nothing in the QML gave a type to
-comes back `var`, marked for you to fill in.
+amount)` is where three values ended up rather than where they were built, and following
+one back is a type checker's job. `--types` says who does it. `ts` hands the JavaScript
+inside your QML to TypeScript, which infers over plain JavaScript and follows each value
+to where it came from. It needs node and `ts-morph` (`npm install ts-morph` in the
+project), and it refuses rather than quietly answering worse when they are missing.
+`heuristic` is the literal reader on its own, and needs nothing. The default, `auto`,
+uses TypeScript where it is installed and the literal reader where it is not, and the
+last line of the report says which one answered. Neither ever invents a type. Whatever
+nothing in the QML gave a type to comes back `var`, marked for you to fill in.
 
-`synqt check` reads the same two ends and asks a narrower question: has the contract on
-this link and the QML around it drifted apart? Three answers come out of it, and each is
-narrow, because a check that cries wolf about correct code is one people learn
-to run with their eyes closed. A consumer naming a member the contract does not declare is
-an **error**: the replica it holds has no such member, so the call fails in a browser and
-not at build time. A member the contract declares that neither end mentions is a **note**:
-it costs nothing at run time, so it is worth seeing and not worth failing a build over. An
-argument whose type is known and cannot be what the parameter is declared as is an
-**error**, naming the point, the slot, the parameter, what was declared and what arrived.
-That last one is why `synqt check` takes `--types` too: an argument nobody could type is an
-argument it says nothing about, so the literal reader alone never produces one of these
-and TypeScript produces the ones it is sure of. What an owner's own Source keeps for itself
-is not judged, because a Source is an ordinary QML object and its `property var store: []`
-crosses nothing; neither is a point some QML reached by a computed name, because the scan
-cannot follow that and "nobody uses this" would be a claim about what it failed to read.
+`synqt check` reads the same two ends and asks a narrower question, whether the contract
+on this link and the QML around it have drifted apart. Three answers come out of it, and
+each is narrow, because people learn to run a check that cries wolf about correct code
+with their eyes closed. A consumer naming a member the contract does not declare is an
+**error**, because the replica it holds has no such member, so the call fails in a
+browser rather than at build time. A member the contract declares that neither end
+mentions is a **note**, because it costs nothing at run time, so it is worth seeing and
+not worth failing a build over. An argument whose type is known and cannot be what the
+parameter is declared as is an **error**, naming the point, the slot, the parameter, what
+was declared and what arrived. That last one is why `synqt check` takes `--types` too. An
+argument nobody could type is an argument it says nothing about, so the literal reader
+alone never produces one of these and TypeScript produces the ones it is sure of. The
+check does not judge what an owner's own Source keeps for itself, because a Source is an
+ordinary QML object and its `property var store: []` crosses nothing. Nor does it judge a
+point some QML reached by a computed name, because the scan cannot follow that, and
+"nobody uses this" would be a claim about what it failed to read.
 
-The same reading answers a second question, on the owner's side of the link: does the
-owner implement what its point exports? A member nothing in the Source implements is an
-error, because a slot with no QML function behind it returns a default and says nothing;
-so is a member exported as one kind and written as another, and a property exported as a
+The same reading answers a second question, on the owner's side of the link, whether the
+owner implements what its point exports. A member nothing in the Source implements is an
+error, because a slot with no QML function behind it returns a default and says nothing.
+So is a member exported as one kind and written as another, and a property exported as a
 type the owner plainly contradicts. It is also what lets an `export:` line be nothing but
 the name of a member the owner already has, written out from what that owner says. See
 [exporting by name](programming-model.md#exporting-by-name).

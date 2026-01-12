@@ -32,14 +32,14 @@ The owner is `edge`, so the type it exports is `Edge`. That is the name you will
 write in QML in a moment, and nothing else names it.
 
 > [!NOTE]
-> Notice the directions. Properties flow from the owner out to everyone watching.
-> Slots flow the other way: a consumer asks, and the owner decides. That one
-> directional trust is the whole point, and you will feel why in a moment. The
+> Properties flow from the owner out to everyone watching.
+> Slots flow the other way. A consumer asks, and the owner decides. Step 4 shows why
+> that direction matters. The
 > full contract format, and the sizes in those brackets, are in
 > [the programming model](programming-model.md#the-types-a-contract-can-name).
 
 Once the edge implements this, in step 3, those three properties can be exported by name
-alone: `synqt` reads what they are from the owner, and `synqt check` refuses a name the
+alone. `synqt` reads what they are from the owner, and `synqt check` refuses a name the
 owner does not have. Written out is never wrong, and it is the only way to narrow a type
 with a bound, which is why the tutorial writes them out here. See
 [exporting by name](programming-model.md#exporting-by-name).
@@ -147,17 +147,16 @@ ApplicationWindow {
 }
 ```
 
-`Server` is how the browser reaches the edge's connect points. `Server.auction` is
-the live copy of the auction the edge owns.
+`Server` is how the browser reaches the edge's connect point. `Server.itemName`,
+`Server.highBid` and `Server.highBidder` are the live copies of what the edge owns.
 
 ## Step 4: Run it
 
 Save everything and look at the browser. You should see the lasagna and a current
 bid of 0. Place a bid of 50. The current bid jumps to 50 with your name.
 
-Now the fun part. Open the same URL in a second browser tab. Bid 75 in tab two, and
-watch tab one update to 75 instantly, with no refresh and no code from you to make
-that happen.
+Open the same URL in a second browser tab. Bid 75 in tab two, and watch tab one
+update to 75 instantly, with no refresh and no code from you to make that happen.
 
 > [!TIP]
 > If the page is blank, check the terminal running `synqt dev` for a QML error
@@ -179,7 +178,7 @@ because the edge refuses any bid that does not beat the current high bid.
 Delete the check, save, and bid 10 against a standing 50. It wins. The high bid
 drops to 10 for everyone.
 
-The lesson: the rule lives on the owner (the edge), and only there. The browser
+The rule lives on the owner (the edge), and only there. The browser
 never enforced it. If the only check were in the client, anyone could remove it
 (it is their browser) and send any bid they liked. This is why in SynQt the owner
 of a connect point is the single authority, and every rule that matters lives in

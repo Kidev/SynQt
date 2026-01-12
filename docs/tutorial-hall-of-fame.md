@@ -21,11 +21,11 @@ separate database server to install or run. It is masked behind the entity, so t
 rest of your app only ever talks to connect points.
 
 > [!NOTE]
-> "Embedded" means the storage is a library inside the database entity, not a
+> "Embedded" means the storage is a library inside the database entity rather than a
 > separate product you operate. Later you could point the same entity at PostgreSQL
 > or MongoDB by changing one setting, with no other code change. That is the
-> provider system in [providers](providers.md). For this tutorial the default is
-> perfect.
+> provider system in [providers](providers.md). This tutorial uses the default
+> throughout.
 
 ## Step 2: A connect point for the ledger (the database owns it)
 
@@ -102,19 +102,17 @@ The browser must never reach the database directly (more on that in a moment). S
 the edge publishes a live list of winners, and fills it from the
 database.
 
-Add its connect point to `synqt.yaml` too:
+An entity has one connect point, so this goes into the edge's existing `export:` block
+in `synqt.yaml`, beside the auction members from
+[the base case](tutorial-base-auction.md):
 
 ```yaml
-  - name: hall
-    owner: edge               # the edge owns what the browser sees
-    consumers: [app]
-    export: |
       model winners(string[120] item, string[80] winner, int amount)  // browser watches it
 ```
 
 The list is the same for everyone, so it belongs to the edge, which is where the lot
 already lives. Add it to `web/edge/Edge.qml`, alongside what you put there in
-[the base auction](tutorial-base-auction.md):
+[the base case](tutorial-base-auction.md):
 
 ```qml
 property var winners: []
@@ -157,7 +155,7 @@ function closeLot(nextItem) {
 ```
 
 Nothing here asks whether the caller is the auctioneer. `closeLot` is declared
-`admin slot` in the `export:` block, so a caller without that scope never reaches the
+`<admin> slot` in the `export:` block, so a caller without that scope never reaches the
 function at all.
 
 ## Step 6: Show the Hall of Fame

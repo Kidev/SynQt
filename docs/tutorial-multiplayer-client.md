@@ -177,9 +177,9 @@ Repeater {
 ```
 
 > [!NOTE]
-> This is proper entity interpolation. Each remote blob is rendered at `renderNow`, a
-> fixed 100 ms behind real time, always *between* two snapshots you already have rather
-> than guessing ahead toward the newest one. Because snapshots arrive about every 50 ms, there are reliably two to
+> Each remote blob is rendered at `renderNow`, a fixed 100 ms behind real time, always
+> between two snapshots you already have rather than guessing ahead toward the newest
+> one. Because snapshots arrive about every 50 ms, there are reliably two to
 > interpolate between, so motion stays smooth even when a packet is late. The buffer is
 > keyed by the blob's id, so it survives the model reordering as sizes change. The one
 > technique left, replaying your own unacknowledged inputs on top of each authoritative
@@ -214,10 +214,10 @@ Column {
 
 ## Step 4: Latency and the kill feed
 
-`ping` returns a value, so it is an asynchronous request: send the current time, await
+`ping` returns a value, so it is an asynchronous request. Send the current time, await
 the reply, and the round trip is the difference. React to the `eaten` signal with a
-banner: this is where the contract's attached handlers earn their keep, no
-`Connections` block, just `Arena.on<Signal>` (see [handling a connect point's
+banner through the contract's attached handler, `Edge.on<Signal>`, with no `Connections`
+block (see [handling a connect point's
 signals](programming-model.md#handling-a-connect-points-signals)). Add inside the root
 `Item`:
 

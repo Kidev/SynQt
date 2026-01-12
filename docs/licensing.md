@@ -116,7 +116,7 @@ the port is GPLv3 or commercial.
 | api entity with `network.inbound` (native) | HTTP Server (GPLv3) plus LGPL | GPLv3 | Usually no |
 | database, cache, jobs (native) | only LGPL modules | LGPLv3 | Usually no |
 
-The services row is enforced by how the runtime is built, not by care. The framework
+The runtime's build enforces the services row structurally rather than by discipline. The framework
 ships four service libraries rather than one: `SynQtService` (mesh, entity runtime,
 sessions, Caller) links only LGPL modules, `SynQtIdentity` adds Network Authorization,
 `SynQtEdge` adds HTTP Server, and `SynQtGateway` adds HTTP Server for an entity that
@@ -153,7 +153,7 @@ not conveying." The deciding phrase is "with no transfer of a copy."
   license.
 
 A common hope is that serving WASM counts as network use rather than distribution,
-so the GPL would not trigger. It does not survive the text. Network use without a
+so the GPL would not trigger. That reading does not survive the text. Network use without a
 copy transfer is the AGPL gap, and it applies to programs that run on the server.
 WASM always transfers a copy to the browser, so plain GPLv3 conveying already
 covers it, and GPL versus AGPL makes no difference for the client. This is also why

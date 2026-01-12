@@ -218,19 +218,22 @@ QML lives in `web/`, its secrets in `web/edge/.env`, and its build output in `bu
 A client entity's window is `<name>/Main.qml`, always, which is why nothing declares
 an entry point either.
 
-Every other entity's own file is `<name>/<Name>.qml`, a `pragma Singleton` written when
-the entity is created. It is where state belonging to the whole entity goes, and every
-Source that entity owns reaches it by that name. It is not the same thing as a connect
-point's `server` file: a Source is created per caller, so anything the callers share has
-to outlive any one of them, and this file is the thing that does. It is also what the
-entity's own engine helper (`Db`, `Cache`, and the rest) is in scope in, and it is created
-when the entity starts rather than when its first caller arrives, so an entity that
-subscribes to a mesh signal or starts a loop here misses nothing.
+Every other entity's own file is `<name>/<Name>.qml`, written when the entity is
+created and rooted at the type the entity exports. It is the entity and the surface
+it exports at once: the connect point's `server` file defaults to it, and on a shared
+entity (the default) there is one of it for the whole process.
 
-It is the entity, not a caller, so `Caller` is not in scope in it and `synqt check` says
-so: an authorization line here would read like a rule and run as a ReferenceError. Those
-belong in the Source, where a caller actually arrives. An entity that has no use for the
-file can delete it.
+State that has to outlive any one caller goes in a `pragma Singleton` file beside it,
+named whatever suits it (the arena's `World.qml`). This matters on an entity with
+`shared: false`, where `<Name>.qml` is minted per caller and anything the callers
+share cannot live there. A singleton is discovered by the `pragma Singleton` line
+itself, so adding one needs no declaration anywhere; it is also created when the
+entity starts rather than when its first caller arrives, so an entity that subscribes
+to a mesh signal or starts a loop there misses nothing.
+
+A singleton is the entity, not a caller, so `Caller` is not in scope in it and `synqt
+check` says so: an authorization line there would read like a rule and run as a
+ReferenceError. Those belong in the Source, where a caller actually arrives.
 
 A client entity:
 

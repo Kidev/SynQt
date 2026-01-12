@@ -45,24 +45,24 @@ function loadCurrent() {
 }
 ```
 
-The lot lives in `web/edge/Edge.qml`, so that is where it is loaded and saved: once at
-startup for the whole entity, not once per browser. Add a `root.saveNow()` at the end of
-`accept` and of `openLot`, plus:
+The lot lives in `web/edge/Edge.qml`, so that is where it is loaded and saved, once at
+startup for the whole entity rather than once per browser. Add an `auction.saveNow()` at the
+end of `placeBid` and of `closeLot`, plus:
 
 ```qml
 Component.onCompleted: {
     // loadCurrent() returns a value, so it resolves asynchronously.
     Books.loadCurrent().then(saved => {
         if (saved) {
-            root.itemName = saved.item;
-            root.highBid = saved.amount;
-            root.highBidder = saved.bidder;
+            auction.itemName = saved.item;
+            auction.highBid = saved.amount;
+            auction.highBidder = saved.bidder;
         }
     });
 }
 
 function saveNow() {
-    Books.saveCurrent(root.itemName, root.highBid, root.highBidder);
+    Books.saveCurrent(auction.itemName, auction.highBid, auction.highBidder);
 }
 ```
 
@@ -178,23 +178,48 @@ bidder a Source of their own instead of a mirror of one:
     shared: false
 ```
 
-Then in `web/edge/Edge.qml`, beside the auction members:
+That one line changes where the lot has to live. `Edge.qml` is now minted per caller, so
+the auction itself would become one lot per bidder. Move the shared part into a
+`pragma Singleton` beside it, `web/edge/Lot.qml`:
 
 ```qml
+pragma Singleton
+
+import QtQuick
+
+QtObject {
+    id: lot
+
+    property string itemName: "A homemade lasagna, baked fresh this morning"
+    property int highBid: 0
+    property string highBidder: "nobody yet"
+}
+```
+
+Then `web/edge/Edge.qml` binds the shared members to it and keeps the private one to
+itself:
+
+```qml
+    itemName: Lot.itemName
+    highBid: Lot.highBid
+    highBidder: Lot.highBidder
+
     property int maxBid: 0
 
     function setMax(amount) {
-        point.maxBid = amount
+        auction.maxBid = amount
     }
 ```
 
-In the client, read and set it with `Server.maxBid` and `Server.setMax(...)`. Because the
-entity mints a Source per caller, there is no shared object through which one user could
-ever see another's maximum, and the bidder's own second tab opens on the maximum they
-already set. The lot itself is unaffected: it lives in `Edge.qml`, which is one for the whole
-entity however many callers arrive. From here, making `placeBid`
-automatically raise a user up to their stored maximum is an obvious next step, now that the
-value has a safe, private home.
+`placeBid` and `closeLot` write to `Lot` rather than to `auction`, so one bidder's raise
+still reaches every session.
+
+In the client, read and set the private value with `Server.maxBid` and
+`Server.setMax(...)`. Because the entity mints a Source per caller, there is no shared
+object through which one user could ever see another's maximum, and the bidder's own
+second tab opens on the maximum they already set. From here, making `placeBid`
+automatically raise a user up to their stored maximum is an obvious next step, now that
+the value has a safe, private home.
 
 ## Pin the rules you checked by hand
 
@@ -291,8 +316,7 @@ at a time, into a three entity system:
 - Entities (an edge, a database) each own their data, authenticate each other, and
   are segmented so the browser can reach only the edge.
 
-That progression, simple by default and expandable when you need it, is the core of
-SynQt. From here, the reference documents go deeper on every piece you used. A good
+From here, the reference documents go deeper on every piece you used. A good
 next read is [the programming model](programming-model.md), which formalizes
 everything you just did by hand. Before the app grows much further, [testing your
 app](testing.md) is how the rules you checked by hand keep being checked. When the
