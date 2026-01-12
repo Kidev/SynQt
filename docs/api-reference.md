@@ -30,7 +30,7 @@ explains what each is responsible for and why they are split the way they are.
 Every class and member is listed, whether or not it carries a comment, so the reference
 is a complete map of the runtime rather than a partial one. Private members are listed
 too, grouped separately from the callable surface: much of what explains a runtime class
-is the state it keeps, not the state it exposes.
+is the state it keeps rather than the state it exposes.
 
 ### Finding a class from a QML name
 

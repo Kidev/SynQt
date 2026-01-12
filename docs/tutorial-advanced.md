@@ -3,16 +3,15 @@
 
 # Adaptors of your own
 
-The other tutorials build apps. This one builds the pieces underneath one, for the day
-your system has to reach something SynQt has never heard of: an in house key value
-store, a warehouse database three teams already depend on, the single sign on service
-your company will not be replacing for you.
+The other tutorials build apps. This one builds what sits underneath, for when your
+system must reach something SynQt does not support: an in-house key value store, a
+warehouse database three teams depend on, or your company's single sign-on service.
 
-There is exactly one seam in SynQt for that, and it is deliberately narrow. An entity
-has two faces. Inward, it is a connect point: a typed contract, carried over the
-authenticated mesh, authorized in every slot. Outward, it is a provider: the one part
-of the entity that knows what the data is actually stored in. Consumers see only the
-first face, so the second can be anything, including something you wrote yourself.
+SynQt has one narrow place for this. An entity has two faces. Facing the system, it is a
+connect point: a typed contract, carried over the authenticated mesh and authorized in
+every slot. Facing its storage, it is a provider: the only part of the entity that knows
+what stores the data. Consumers see only the first face, so the second can be anything,
+including code you write.
 
 ```mermaid
 flowchart LR
@@ -31,91 +30,79 @@ flowchart LR
   style Y fill:#fde,stroke:#c39,color:#1a1a2e
 ```
 
-An adaptor is that lower box, a class implementing one family interface, registered
-under a name, selected by one line of configuration. Nothing above it changes. The same
+An adaptor is the lower box: a class that implements one family interface, is registered
+under a name, and is selected by one line of configuration. Nothing above it changes. The
 `Items.qml` that ran against SQLite runs against your engine, with the same `Caller`
-checks, the same deny by default topology, and the same guarantee that no consumer can
-reach past the entity to the engine behind it.
+checks, the same topology that denies by default, and the same guarantee that no consumer
+can reach past the entity to its engine.
 
 ## What you will learn
 
-- Where the seam is, and why it is the only one. What a provider may decide, and what it
-  is never allowed to decide.
-- How to implement a family interface end to end, in the two shapes real engines come
-  in, one that speaks SQL through a Qt driver, and one that speaks its own protocol over
-  a socket.
-- How to register an adaptor so `provider.name: custom:YourEngine` finds it, why
-  `custom:` is a namespace rather than decoration, and what happens when a name selects
-  nothing.
-- How to honor the contract every provider is held to: parameters passed separately,
-  errors returned rather than thrown, credentials from the entity environment only, and
-  a verified connection or none at all.
-- What to do when your engine does not fit the interface. Some engines have no
-  transactions, some have no TLS, some cannot count atomically. Each of those has a
-  right answer, and it is never to pretend.
-- Why identity is not a provider, and what the equivalent seam looks like for an
-  authentication service that is not an OAuth2 provider off the shelf.
+- **The boundary:** where a provider sits, why it is the only extension point, and what a
+  provider may and may not decide.
+- **A full implementation:** a family interface end to end, for both kinds of engine: one
+  that speaks SQL through a Qt driver, and one with its own protocol over a socket.
+- **Registration:** how `provider.name: custom:YourEngine` finds your adaptor, why
+  `custom:` is a namespace, and what happens when a name selects nothing.
+- **The provider contract:** parameters passed separately, errors returned instead of
+  thrown, credentials only from the entity environment, and a verified connection or none.
+- **Engines that do not fit:** some have no transactions, no TLS, or no atomic counters.
+  Each case has a right answer, and pretending the engine can do it is never it.
+- **Identity:** why authentication is not a provider, and how to integrate a login service
+  that is not a standard OAuth2 provider.
 
 ## Before you start
 
 Do [the auction](tutorial.md) first, at least through
-[a permanent Hall of Fame](tutorial-hall-of-fame.md), so an entity with a database
-behind it is familiar rather than new. Read [providers](providers.md) for the
-shape of the system you are extending. This track is C++ where the others were QML,
-so you want to be comfortable reading a class. You do not need to be a Qt expert, and
-every Qt type used here is linked to its documentation.
+[a permanent Hall of Fame](tutorial-hall-of-fame.md), so an entity with a database behind
+it is familiar. Read [providers](providers.md) for the system you are extending. This track
+is C++, not QML, so you should be comfortable reading a class. You need not be a Qt expert;
+every Qt type used here links to its documentation.
 
-You do not need a project of your own to follow along. Each page is a complete adaptor
-you could paste into an entity, and you can read them without running anything. If you
-do want to run one, any project from an earlier tutorial with a database entity in it
-will do.
+You do not need a project to follow along. Each page is a complete adaptor you could paste
+into an entity, and you can read it without running anything. To run one, use any project
+from an earlier tutorial that has a database entity.
 
 ## The three parts
 
-1. [A database of your own](tutorial-advanced-database.md): the persistence family, end
-   to end, against Microsoft SQL Server through Qt's ODBC driver. Connection, verified
-   TLS, parameterized statements, transactions, and forward only migrations.
-2. [A cache of your own](tutorial-advanced-cache.md): the cache family, against
-   Memcached, which Qt has no driver for at all. A wire protocol written by hand, and
-   what to do about an engine whose `incr` refuses to create a counter.
+1. [A database of your own](tutorial-advanced-database.md): the persistence family, end to
+   end, against Microsoft SQL Server through Qt's ODBC driver: connection, verified TLS,
+   parameterized statements, transactions and forward only migrations.
+2. [A cache of your own](tutorial-advanced-cache.md): the cache family, against Memcached,
+   which Qt has no driver for. A wire protocol written by hand, and how to handle an
+   engine whose `incr` will not create a counter.
 3. [An identity service of your own](tutorial-advanced-identity.md): why authentication
-   has no provider interface, the three levels of customization it has instead, and how
-   to put a login system SynQt has never seen behind the same session and scope model.
+   has no provider interface, the three levels of customization it offers instead, and how
+   to put an unfamiliar login system behind the same session and scope model.
 
 > [!NOTE]
-> The reference behind all three is [providers](providers.md) for the families and the
-> selection syntax, [entities](entities.md) for what an entity is allowed to be,
+> The references are [providers](providers.md) for the families and the selection syntax,
+> [entities](entities.md) for what an entity may be,
 > [authentication](authentication.md) for the identity model, and
-> [security](security.md) for the rules an adaptor inherits rather than chooses.
+> [security](security.md) for the rules every adaptor inherits.
 
 ## When yours works, send it
 
-An adaptor that works is not a private detail of your project. Somebody else is about to
-need the same engine, and what stands between them and it is a file you have already
-written, so please open a pull request against
-[the SynQt repository](https://github.com/Kidev/SynQt) and let it become a bundled
-provider.
+Someone else will need the same engine, and you have already written the file they need.
+Please open a pull request against [the SynQt repository](https://github.com/Kidev/SynQt)
+so your adaptor becomes a bundled provider.
 
-That is how the provider list grows past the handful of engines it started with. A
-contributed provider goes in beside `postgres` and `redis`,
-where it is built in CI, kept working across Qt releases, and found by
-`synqt providers` rather than by whoever thinks to search for it.
+That is how the provider list grows. A contributed provider sits beside `postgres` and
+`redis`: CI builds it, it is kept working across Qt releases, and `synqt providers` lists
+it.
 
-What a provider needs to be accepted is what this track already had you do. Implement the
-family interface and nothing wider, take parameters separately, return errors instead of
-throwing, keep credentials in the entity environment, refuse an unverified connection in
-release, and be honest in the documentation about anything the engine cannot do. Two
-practical things on top of that, both of which are the framework's own rules rather than
-extra hurdles:
+To be accepted, a provider does what this track teaches: it implements the family
+interface and nothing more, takes parameters separately, returns errors instead of
+throwing, keeps credentials in the entity environment, refuses an unverified connection in
+release, and documents what its engine cannot do. The framework adds two rules:
 
-- If your provider wraps a third party client library, it must be pinned through the
-  vcpkg baseline and its license must be compatible with the modules in the same entity.
-  This is the reason the bundled MySQL provider builds against MariaDB Connector/C and
-  never Oracle's client, and [licensing](licensing.md) explains why that distinction is
-  not negotiable.
-- Bring a test. The bundled providers each have one, and a provider with no way to
-  exercise it is a provider that quietly stops working on the next Qt release.
+- **A wrapped client library is pinned and license compatible.** It must be pinned in the
+  vcpkg baseline, and its license must be compatible with the other modules in the entity.
+  That is why the bundled MySQL provider uses MariaDB Connector/C and never Oracle's client;
+  [licensing](licensing.md) explains why.
+- **It comes with a test.** Every bundled provider has one. Without a test, a provider
+  silently breaks on the next Qt release.
 
-The house style and the contribution terms, including the CLA, are in
+The code style and contribution terms, including the CLA, are in
 [`CONTRIBUTING.md`](https://github.com/Kidev/SynQt/blob/main/CONTRIBUTING.md). If you are
-unsure whether an engine is wanted, open an issue first and ask.
+unsure whether an engine is wanted, open an issue and ask first.

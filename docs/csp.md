@@ -67,7 +67,7 @@ bundle change without you hand-editing the string:
    this directive if you did not write one, so the threaded client can start its pthread
    workers.
 
-    The `blob:` half is a deliberate margin rather than a present need. Against the pinned
+    The `blob:` half is a margin for a future toolchain rather than a present need. Against the pinned
     toolchain (Qt 6.11.1, Emscripten 4.0.7) the loader spawns its workers from the
     same-origin `client.js`, not from `blob:` URLs, and the
     [multi threaded proof](https://github.com/Kidev/SynQt/blob/main/tests/m0-transport/verify/verify-mt.mjs)
@@ -149,6 +149,6 @@ inside the WebAssembly module parses it. It never reaches the browser's JavaScri
 never turned into a `<script>`, and never touches `eval()`. The `script-src` policy governs
 what the browser's own JavaScript engine may run, and a remote page is invisible to it, so
 `'unsafe-inline'` and `'unsafe-eval'` stay out and the strict policy above is unchanged whether
-or not an app uses remote pages. What bounds a delivered page is not the CSP but the
+or not an app uses remote pages. What bounds a delivered page is the
 [palette](remote-pages.md#the-palette-what-a-delivered-page-may-import), the set of QML modules
-it may import, enforced by the client itself.
+it may import, enforced by the client itself, rather than the CSP.

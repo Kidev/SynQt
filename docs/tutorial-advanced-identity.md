@@ -4,19 +4,18 @@
 # An identity service of your own
 
 The first two pages of this track each implemented an interface. This one does not,
-because there is no `IIdentityProvider` to implement, and the reason for that absence is
-the most useful thing on this page.
+because there is no `IIdentityProvider` to implement.
 
 A database provider is swappable because every relational engine answers the same
-question: here is a statement and its parameters, give me rows. Authentication has no such
+question, which is to take a statement and its parameters and give back rows. Authentication has no such
 question. Two login systems differ in what the browser is made to do, what is signed,
 what is verified, and what the resulting claim means, rather than in how they answer.
 Freezing that behind one interface would mean either an interface so wide it
 guarantees nothing, or one so narrow it fits only what its author had in mind.
 
-So SynQt puts the seam somewhere else. It is not at the login system. It is at the
-session: a bounded, revocable, server-held record carrying a scope and a normalized
-identity. Everything upstream of that record is negotiable. Nothing downstream of it is,
+So SynQt puts the seam at the session instead of at the login system, as a bounded,
+revocable, server-held record carrying a scope and a normalized identity. Everything
+upstream of that record is negotiable. Nothing downstream of it is,
 which is why a connect point's `scope:` and a slot's `Caller.hasScope()` work identically
 whoever signed the user in.
 
@@ -36,7 +35,7 @@ the third one need the first.
 ## Level 1: A provider SynQt has no template for
 
 If your login system speaks OAuth2 or OpenID Connect, and almost every corporate one does,
-then you are not writing code. You are writing down its endpoints.
+then you are writing down its endpoints rather than writing code.
 
 `synqt add auth <name>` scaffolds a generic OpenID Connect block for any issuer, and you
 fill in what its discovery document says:
@@ -73,7 +72,7 @@ endpoint and you must say which raw field feeds each normalized one:
 `sub_field` deserves a moment. It becomes `identity.sub`, which is what durable data is
 keyed on, so it has to be the identifier that survives a rename, a marriage, a department
 transfer, and a change of email address. If the only stable thing your provider returns is
-an opaque number, that is the right answer and the friendly one is not.
+an opaque number, use it rather than the friendlier field.
 
 The whole flow, PKCE, the state parameter, the token exchange, the httpOnly cookie, is
 unchanged, and none of it became your problem by using an unusual provider. See
@@ -111,7 +110,7 @@ IdentityMapping {
 }
 ```
 
-Three things about this hook are worth stating plainly.
+Three things about this hook matter.
 
 It runs on the edge, after a successful login, and nowhere else. Nothing in it is
 reachable from a browser, and the value it returns is written into a server-held session
@@ -127,8 +126,8 @@ directory replace it whenever it changes; the edge's copy is current, and the ho
 lookup. If a scope genuinely cannot be derived without a round trip, do the round trip in
 the slot that needs it and raise the session with `Caller.setScope()` there instead.
 
-It must tolerate a missing field. `identity.email` is nullable, deliberately: a provider
-may simply not give you one. A hook that keys authorization on an email is a hook that
+It must tolerate a missing field. `identity.email` is nullable because a provider may
+simply not give you one. A hook that keys authorization on an email is a hook that
 grants the wrong scope on the day someone signs up without one.
 
 ## Level 3: A login system that is not OAuth2 at all
@@ -137,49 +136,51 @@ Now the interesting case: a staff directory that authenticates a username and pa
 over LDAP, a hardware token service, a legacy ticket system. No authorization endpoint, no
 ID token, nothing to configure.
 
-The move is not to extend the identity system. It is to notice that this is an ordinary
-entity problem, and that SynQt already has an answer for those. Build the login system as
-an entity, give it a connect point, and let the edge consume it. What that entity does
-inside itself is not the framework's business, exactly as a database entity's engine is
-not.
+This is an ordinary entity problem, and SynQt already has an answer for those. Build the
+login system as an entity, give it a connect point, and let the edge consume it. What that
+entity does inside itself is not the framework's business, exactly as a database entity's
+engine is not.
 
 ```mermaid
 flowchart LR
   user(("browser"))
-  user -->|"wss, Auth.signIn(user, secret)"| web
+  user -->|"wss, Server.signIn(user, secret)"| web
   subgraph public
-    web["<span style='color:#1a1a2e'>web edge<br/>(owns the Auth connect point,<br/>issues the session)</span>"]
+    web["<span style='color:#1a1a2e'>web edge<br/>(owns the connect point<br/>the browser reaches,<br/>issues the session)</span>"]
   end
   subgraph private["private network"]
     dir["<span style='color:#1a1a2e'>directory entity<br/>(speaks LDAP)</span>"]
   end
-  web -->|"Staff.verify(user, secret), mesh mTLS"| dir
+  web -->|"Directory.verify(user, secret), mesh mTLS"| dir
   style web fill:#fde,stroke:#c39,color:#1a1a2e
   style dir fill:#def,stroke:#39c,color:#1a1a2e
 ```
 
-The contract the browser sees carries no secrets and no roles:
+What the edge exports to the browser carries no secrets and no roles:
 
-```syn
-contract Auth {
-    prop bool ready
-    slot signIn(string username, string secret)
-    signal signedIn()
-    signal refused(string reason)
-}
+```yaml
+connect_points:
+  - owner: edge
+    consumers: [app]
+    export: |
+      prop bool ready
+      slot signIn(string[64] username, string[128] secret)
+      signal signedIn()
+      signal refused(string[120] reason)
 ```
 
 `signIn` returns nothing and answers with a signal, because verifying a credential means
-a mesh call and a mesh call is a promise. The auction taught this shape already: a
+a mesh call and a mesh call is a promise. The auction taught this shape already. A
 consumer asks, and the owner answers when it has an answer.
 
-The directory entity's own contract is the one that touches LDAP, and only the edge is on
+The directory entity's own point is the one that touches LDAP, and only the edge is on
 its consumer list:
 
-```syn
-contract Staff {
-    slot verify(string username, string secret): var
-}
+```yaml
+  - owner: directory
+    consumers: [edge]
+    export: |
+      slot var verify(string[64] username, string[128] secret)
 ```
 
 The edge's Source is where the session is actually issued:
@@ -188,16 +189,16 @@ The edge's Source is where the session is actually issued:
 import QtQuick
 import SynQt
 
-Auth {
+Edge {
     id: auth
 
     ready: true
 
     function signIn(username, secret) {
         // The credential goes straight to the entity that can check it, and nowhere
-        // else. It is not stored, not logged, and not put on a property: the only thing
+        // else. It is not stored, not logged, and not put on a property. The only thing
         // that outlives this call is the session.
-        Directory.staff.verify(username, secret).then(person => {
+        Directory.verify(username, secret).then(person => {
             if (!person.ok) {
                 // One message for a bad username and a bad password alike. Two messages
                 // is an account enumeration feature.
@@ -218,36 +219,36 @@ Auth {
 ```
 
 `Caller.setScope()` rotates the session id as it raises the scope, which is what closes
-session fixation: a token someone held before signing in is not the token they hold after.
+session fixation. A token someone held before signing in is not the token they hold after.
 The open connection carries on with the new id, and the browser is still holding the old
 one in a cookie that no slot call can rewrite, so the edge hands it the replacement on the
-next page load. Nothing to write: a visitor whose scope you raised keeps it across a
+next page load. There is nothing to write. A visitor whose scope you raised keeps it across a
 refresh, and the id they had before it is refused from the moment it is rotated away.
 
 Four rules apply to this shape, and none of them is new. They are the same rules the rest
 of SynQt already runs on.
 
 The check is on the owner. `signIn` is a slot on the edge, so its body runs on the
-edge. A client cannot call `setScope` and cannot reach `Directory.staff` at all: the
+edge. A client cannot call `setScope` and cannot reach `Directory` at all, because the
 directory's consumer list has one entry on it, and that entry is the edge.
 
 The identity is normalized. Fill `sub`, `login`, `name`, and `email`, because that is
-what every hook, every slot, and every example reads. `sub` is the stable one: an employee
-number, not a username somebody will change.
+what every hook, every slot, and every example reads. `sub` is the stable one, an employee
+number rather than a username somebody will change.
 
 The credential is not data. It arrives as a slot argument, is passed to the one entity
-that can verify it, and is never written anywhere. Not a property, not a model, not a log
-line, not a cache key.
+that can verify it, and is never written anywhere, so never to a property, a model, a log
+line, or a cache key.
 
 Rate limiting is yours here. An OAuth2 provider was absorbing brute force attempts on
-your behalf; a `signIn` slot is not. Count failures per session and per address on the
+your behalf, and a `signIn` slot is not. Count failures per session and per address on the
 edge and refuse past a threshold, in the same slot, before the mesh call.
 
 > [!IMPORTANT]
 > A password crossing a slot is a password crossing the wire, so this shape is only
 > acceptable over the `wss` link SynQt already requires, to an edge that is the one
 > entity facing the internet. That is the default, and it is not a place to make an
-> exception for a development convenience: `synqt dev` issues real certificates so you
+> exception for a development convenience. `synqt dev` issues real certificates so you
 > do not have to.
 
 ## Where identity runs
@@ -268,14 +269,14 @@ This is worth doing when you have more than one edge, and not before.
 ## Try it, then think
 
 > [!QUESTION]
-> A colleague proposes skipping the edge: let the client call `Directory.staff.verify()`
+> A colleague proposes skipping the edge: let the client call `Directory.verify()`
 > itself and set its own scope from the answer, saving a hop. Two things make that
 > impossible rather than merely unwise. What are they?
 
 <details class="solution" markdown>
 <summary>Solution</summary>
 
-The first is topology. Adding `app` to the `staff` connect point's consumer list fails
+The first is topology. Adding `app` to the directory's consumer list fails
 `synqt check`, because a connect point a client consumes must be owned by a web edge, and
 the directory is not one. There is no configuration in which a browser reaches that entity,
 so the hop that was going to be saved does not exist.
@@ -293,20 +294,20 @@ Both are the same design showing up twice. The browser is a consumer, and a cons
 
 ## What you learned
 
-- Identity has no provider interface on purpose. The swappable thing in SynQt is the
-  session, not the login system, because that is the boundary every other rule is written
+- Identity has no provider interface. The swappable thing in SynQt is the session rather
+  than the login system, because that is the boundary every other rule is written
   against.
-- Most custom authentication is configuration: an OIDC issuer's endpoints, and
+- Most custom authentication is configuration, an OIDC issuer's endpoints, and
   `use_id_token: true` so claims are verified against its JWKS before they are read.
-- `sub_field` picks the identifier your data is keyed on forever. Choose the stable one,
-  not the readable one.
+- `sub_field` picks the identifier your data is keyed on forever. Choose the stable one
+  rather than the readable one.
 - The mapping hook is where your rules live, it runs only on the edge, it may consult a
   connect point so roles are data, and it must survive a null email.
 - A login system that is not OAuth2 is an ordinary entity with an ordinary connect point,
   and the seam it plugs into is `Caller.setScope()`, which rotates the session as it
   raises it.
-- What you inherit either way: the credential never becomes data, the check runs on the
-  owner, and the browser reaches exactly one entity.
+- What you inherit either way is that the credential never becomes data, the check runs
+  on the owner, and the browser reaches exactly one entity.
 
 That covers the seam. Back to [the overview](tutorial-advanced.md), or on to
 [providers](providers.md) for the reference behind the two interfaces this track

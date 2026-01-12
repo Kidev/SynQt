@@ -5,9 +5,9 @@
 
 SynQt's client is WebAssembly in a real browser, and the link it depends on most
 (QtRemoteObjects over QtWebSockets) is not officially supported by Qt. So "it works in
-a browser" is proven by driving real browser engines, not asserted. This page is the map
-of what each browser harness covers and how to run it. It is written for people working
-on SynQt itself; building an application needs none of it.
+a browser" is proven by driving real browser engines. This page maps what each browser
+harness covers and how to run it. It is written for people working on SynQt itself.
+Building an application needs none of it.
 
 ## What is covered
 
@@ -107,5 +107,5 @@ WebAssembly kit, which ships no QtRemoteObjects, so neither runs on every push.
   that runs there: it serves the threaded bundle under a strict `worker-src 'self'`
   and prints each engine's violations. Chromium, Firefox, and WebKit have all now
   answered no `blob:` and yes SharedArrayBuffer, WebKit on 2026-07-31 on macOS 15.7.8
-  (WebKit 26.5). The allowance stays as a margin for a future toolchain, not for want
-  of an answer. See [Content-Security-Policy](csp.md).
+  (WebKit 26.5). The allowance stays as a margin for a future toolchain. See
+  [Content-Security-Policy](csp.md).

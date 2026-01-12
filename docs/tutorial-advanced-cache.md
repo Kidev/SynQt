@@ -3,14 +3,14 @@
 
 # A cache of your own
 
-[The database page](tutorial-advanced-database.md) had Qt doing most of the work: a
+[The database page](tutorial-advanced-database.md) had Qt doing most of the work. A
 driver existed, so the adaptor was a connection and a dialect. This page is the other
 shape. Memcached has no Qt driver, no Qt module, and no client library SynQt pulls in, so
 the adaptor is the protocol itself, written by hand over a socket.
 
-That is a good thing to have done once. Most engines worth adapting are in this shape,
-and the protocol is usually the easy part: what takes the thought is what to do where the
-engine and the interface disagree, and Memcached disagrees in three interesting places.
+Most engines worth adapting are in this shape, and the protocol is usually the easy part.
+What takes the thought is what to do where the engine and the interface disagree, and
+Memcached disagrees in three places.
 
 ## Step 1: A smaller interface, and a different error model
 
@@ -337,23 +337,23 @@ public:
 
 ## Step 4: The three disagreements
 
-Here is where an adaptor stops being transcription. Memcached and `ICacheProvider` do not
-agree about counters, and there are exactly three gaps.
+Memcached and `ICacheProvider` do not agree about counters, and there are exactly three
+gaps.
 
 It will not create the counter. `incr` on a key that does not exist returns
-`NOT_FOUND`; it does not start at zero. The interface promises to return the new value, so
+`NOT_FOUND`. It does not start at zero. The interface promises to return the new value, so
 "the key was missing" is not an answer you may pass upwards. The fix is `add`, which
 stores only if the key is still absent, so the race with another entity doing the same
-thing at the same moment resolves rather than corrupting: whoever loses the `add` simply
+thing at the same moment resolves rather than corrupting. Whoever loses the `add`
 increments what the winner created.
 
 It only counts up. Memcached has `incr` and a separate `decr`, and `by` in the
 interface is signed. Pick the command from the sign.
 
-It floors at zero. `decr` past zero gives zero, not a negative number, and there is
+It floors at zero. `decr` past zero gives zero rather than a negative number, and there is
 nothing you can do about that from outside the engine. So say so, in the code, where
 someone reaching for a counter that goes negative will read it. Documenting a limitation
-is a real fix; hiding it behind a read-modify-write that is no longer atomic is not.
+is a real fix. Hiding it behind a read-modify-write that is no longer atomic is not.
 
 ```cpp
     qint64 incr(const QString &key, qint64 by) override
@@ -470,20 +470,20 @@ exists.
 
 ## What you learned
 
-- An engine with no Qt driver is still one class: the family interface does not care
+- An engine with no Qt driver is still one class. The family interface does not care
   whether there is a library behind it.
-- The cache family's error model is deliberately lossy. A miss and a failure look the
-  same, on purpose, so a broken cache degrades a system instead of breaking it.
+- The cache family's error model is lossy. A miss and a failure look the same, so a
+  broken cache degrades a system instead of breaking it.
 - A synchronous family interface means a blocking call on the entity's event loop, so it
   needs a short timeout and a treat-it-as-a-miss policy. An engine too slow for that
-  belongs behind a connect point, not behind a cache interface.
+  belongs behind a connect point rather than behind a cache interface.
 - The engine's own features constrain your encoding. A native atomic counter dictated how
   integers are stored here, and the `flags` field is what let the rest stay opaque.
-- Where the engine and the interface disagree, close the gap honestly: emulate what can
+- Where the engine and the interface disagree, close the gap honestly. Emulate what can
   be emulated without losing a guarantee (creating a missing counter with `add`), and
   document what cannot (a counter that will not go negative).
 - Any engine with a syntax has an injection. Encode at the boundary, once, in one
   function.
 
-The same invitation as the last page: if you have built this against a real engine,
+The same invitation as the last page applies. If you have built this against a real engine,
 [send it](tutorial-advanced.md#when-yours-works-send-it) rather than keeping it.

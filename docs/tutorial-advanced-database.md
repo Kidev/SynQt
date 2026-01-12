@@ -207,14 +207,14 @@ Three rules are being obeyed here, and none of them is optional.
 
 The credentials never leave. `m_config.password` came from the entity's own
 environment, through an `env:` reference the build refuses to resolve in a client target.
-It is written into the connection and into nothing else: not a log line, not an error
-message, not a property on a connect point. The error above names the host, deliberately,
-and not the string the host was reached with.
+It is written into the connection and into nothing else, so never a log line, an error
+message, or a property on a connect point. The error above names the host rather than
+the string the host was reached with.
 
 An unverified connection is refused in release. `refusesInsecure()`, two steps below,
 is the whole of that policy. Development on loopback stays easy, and a release build
-pointed at a real address with verification off does not start. This is a rule an adaptor
-inherits, not one it decides: see
+pointed at a real address with verification off does not start. An adaptor inherits this
+rule rather than deciding it. See
 [security of third party backends](providers.md#security-of-third-party-backends).
 
 The connection belongs to one thread. Qt SQL requires that a `QSqlDatabase` be used
@@ -267,9 +267,9 @@ private:
     }
 ```
 
-That branch on `m_inTransaction` is the single most common bug in a hand-written
+That branch on `m_inTransaction` is an easy thing to leave out of a hand-written
 relational provider. A pool hands out whichever connection is free, and a transaction
-lives on one connection; take a fresh lease inside a transaction and the statement is
+lives on one connection. Take a fresh lease inside a transaction and the statement is
 committed independently while the transaction it was supposed to be part of rolls back
 around it. The symptom is half-written data that no test reproduces.
 
@@ -340,9 +340,9 @@ private:
 
 A migration list is the schema's history, and `migrate()` is handed all of it every time
 the entity starts. Its job is to apply the steps that have not been applied yet, in order,
-and to be a no-op when there are none. It never goes backwards: there is no `down`, on
-purpose, because a rollback that runs against production data is a data loss feature
-wearing a safety label.
+and to be a no-op when there are none. It never goes backwards. There is no `down`,
+because a rollback that runs against production data destroys data while looking like a
+safety measure.
 
 ```cpp
 public:

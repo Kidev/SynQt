@@ -3,15 +3,15 @@
 
 # The visual editor
 
-A SynQt system is a handful of entities and the connect points between them, which is a
-drawing before it is a configuration file. The editor is that drawing, live: entities as
-nodes, connect points as the lines between them, and a panel for what each one carries.
+A SynQt system is a handful of entities and the connect points between them. The editor
+draws it live: entities as nodes, connect points as the lines between them, and a panel
+for what each one carries.
 
-There are two of it, and they are the same page.
+There are two ways to open it, and both are the same page.
 
 - **In a project.** `synqt design` serves it on this machine and opens it. What you draw
-  is that project: Apply writes `synqt.yaml`, each contract into the folder of the
-  entity that owns it, and the QML files a new entity or connect point needs.
+  is that project: Apply writes `synqt.yaml` and the QML files a new entity or connect
+  point needs.
 - **[On this site](/designer/).** The same editor with nothing behind it. Draw a system,
   press Download, and you get the project as a zip. Nothing is installed and nothing is
   read off your machine, because there is no machine on the other end of the page.
@@ -47,7 +47,7 @@ beside it, under a name it chooses.
 The boxes behind the nodes are the three sides of a system, and they are drawn from what each
 entity is rather than from where it sits: the browser, the one entity facing the internet,
 and the mesh, which nothing outside can reach. Under each node is the file to open next:
-`client/app/Main`, `web/edge/Feed`, `db/relational/store/Access`.
+`client/app/Main`, `web/edge/Edge`, `db/relational/store/Store`.
 
 Hovering anything says the rest. An entity's card gives what it is, what can reach it, the
 connect points it owns and consumes, and its files; a connect point's gives its owner, its
@@ -71,7 +71,8 @@ apart into separate curves so each keeps its own lock and its own click.
 
 Selecting a node or a line opens the panel on the right, which is where the rest lives: an
 entity's provider, a connect point's consumer list, and what crosses it. The consumer list
-is the authorization, not a hint; an entity that is not on it is refused the replica. [Security](security.md) is where that is spelled out.
+is the authorization: an entity that is not on it is refused the replica.
+[Security](security.md) is where that is spelled out.
 
 What an entity **is** the panel states and does not offer. A database is a database because
 that is the row it was dragged from, and everything drawn against it since means what it
@@ -159,8 +160,8 @@ names that change set by its digest, and the server refuses anything else. If yo
 reviewing, the plan is void and Review comes back.
 
 This is why a project that does not pass `synqt check` still opens. A broken topology is
-what you came to fix, so the door is not the gate; the verdict arrives with the project,
-painted on the canvas, and it is Apply that holds the line.
+what you came to fix, so opening is not gated; the verdict arrives with the project,
+painted on the canvas, and Apply is what refuses it.
 
 ## Reading the contracts back
 
@@ -170,8 +171,9 @@ connect point with the members the code already uses: the props the owner's Sour
 the models it pushes, the signals it emits, and the slots the consumers call. A contract
 you have never written arrives drawn instead of typed out.
 
-It is evidence, not proof, and the page says so. A member nothing in the QML gave a type
-to comes back `var`, the hint counts them, and each one is yours to open and name. Where a
+The result is evidence rather than proof, and the page says so. A member nothing in the
+QML gave a type to comes back `var`, the hint counts them, and each one is yours to open
+and name. Where a
 box sits on the canvas is this page's drawing rather than the project's, so inferring does
 not rearrange what you have laid out.
 

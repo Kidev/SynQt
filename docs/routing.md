@@ -17,7 +17,7 @@ the edge does with a path it has never heard of.
 
 ## The route table
 
-Navigation is configuration, not code. `routes` maps a path to the page shown there, and
+Navigation is configuration. `routes` maps a path to the page shown there, and
 `router` says where a refused or unmatched path lands, what prefix the app is served
 under, and what a delivered page may import:
 
@@ -84,8 +84,7 @@ A route path is a sequence of segments, each either a literal or a `:name` param
 captures whatever sits in that position. Two rules decide everything else:
 
 - More literal segments win, whatever the declaration order. `/c/summary` beats
-  `/c/:campaign` even when `/c/:campaign` is written first. Precedence is a property of
-  the table, not of the order it happens to be written in, so moving a route in
+  `/c/:campaign` even when `/c/:campaign` is written first, so moving a route in
   `synqt.yaml` never silently changes which page a URL opens.
 - An empty segment is not a segment. `/c` and `/c/` are one route, and `synqt check`
   refuses a table that declares both rather than leaving one of them unreachable.
@@ -124,10 +123,10 @@ A visitor who bookmarked `/c/summer-sale`, or who pressed refresh while on it, s
 edge a path that no route of the edge's own answers. The edge serves the application shell
 there and the client resolves the path itself, before its link to the edge is even open.
 
-The edge is deliberate about which paths get the shell, because that response is the one
+The edge restricts which paths get the shell, because that response is the one
 HTML document in the system:
 
-- It is registered as a route, not as a missing-handler hook, so it carries the same
+- It is registered as a route rather than as a missing-handler hook, so it carries the same
   CSP, COOP, COEP, session cookie, and cache terms as the root document. Served through
   Qt's missing-handler path it would go out with none of them.
 - Only `GET` and `HEAD` get it. A `POST` to an unknown URL is a bug or a probe, and
@@ -140,8 +139,8 @@ The reasoning behind each of those is in
 
 At the moment a deep link resolves, the session holds only the default scope, because the
 link to the edge has not opened yet. A scope-gated deep link therefore resolves
-`Forbidden` at boot, and is resumed the instant the real scope arrives. That is not a bug
-to work around; it is the same guard behaving the same way it does mid-session.
+`Forbidden` at boot, and is resumed the instant the real scope arrives. That is the same
+guard behaving the way it does mid-session, rather than a bug to work around.
 
 ## Guards, refusals, and the login resume
 

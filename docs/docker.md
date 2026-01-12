@@ -175,7 +175,7 @@ mode exists to avoid.
 
 ## What this is not
 
-The generated setup is a development system, and two things about it are deliberately not
+The generated setup is a development system, and two things about it are not
 production-shaped:
 
 - **The mesh certificate authority is created inside the compose project.** A deployment

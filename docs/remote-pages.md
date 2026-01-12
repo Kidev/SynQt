@@ -75,21 +75,21 @@ router:
 ```
 
 With that palette, a delivered page may `import QtQuick` and `import QtQuick.Layouts`, and
-nothing else. A page that imports any other module is refused at delivery, not rendered.
-The palette is a trust boundary: it bounds what an edge-delivered page can do inside the
+nothing else. A page that imports any other module is refused at delivery rather than rendered.
+The palette is a trust boundary. It bounds what an edge-delivered page can do inside the
 client, so the surface an edge could reach through a delivered page is exactly the modules
-you chose to admit. Keep it as small as the pages actually need. `synqt check` refuses a
+you chose to admit. Keep it as small as the pages need. `synqt check` refuses a
 project that declares a `remote:` route with an empty palette, and refuses a delivered page
 that imports a module the palette does not list.
 
 The build-time palette check is a convenience that catches the mistake early. The client's
-own `QmlPalette` is what actually enforces the palette on a delivered page at run time, and
-it is stricter than the build-time scan: it strips comments first and refuses any quoted
+own `QmlPalette` enforces the palette on a delivered page at run time, and
+it is stricter than the build-time scan. It strips comments first and refuses any quoted
 (path) import outright. A page the build-time scan misses is still refused by the client,
-just later than you would like.
+at navigation time rather than at build time.
 
-The client reads a page the way the QML engine's own lexer reads it, which is the point:
-a check that reads it any other way has a hiding place in the difference. Comments and
+The client reads a page the way the QML engine's own lexer reads it, because a check that
+reads it any other way has a hiding place in the difference. Comments and
 string literals come out first, a statement ends at a semicolon as readily as at a line
 break, every line terminator the engine honors counts (a lone carriage return ends a line,
 and a leading byte order mark is skipped rather than mistaken for the start of the page
@@ -212,5 +212,4 @@ the bundle as a `view:`. Do not deliver them.
   `scope:` on the connect point that carries the data, as you would for any view.
 
 Reach for a remote page when a view is peripheral, changes on its own cadence, or is
-reached by a minority of visitors. That is where keeping it out of the bundle and editable
-on the edge earns its keep.
+reached by a minority of visitors.

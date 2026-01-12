@@ -118,7 +118,7 @@ anywhere else. The only SynQt-specific type is `EntityTest`.
 
 ## What is real and what is substituted
 
-This distinction is the whole value of the harness, so it is worth being exact about.
+The line between the two is what a test here can be trusted to prove.
 
 **Real**: the Source, compiled from your QML through the same generated
 `<Owner>Source` type the entity uses. `Caller`, minted through the same factory the
@@ -145,9 +145,9 @@ model, and there are four:
   consumed entities are absent. A slot that calls `Books.recordWinner(...)`
   fails with `Books is not defined`.
 
-That last one is a limit, not a defect, and it is worth saying why the accessor is absent
-rather than stubbed. A stub would have to invent what the other entity returns, and a test
-that passes against an invented answer is worse than no test. So the harness stays out of
+The accessor is absent rather than stubbed for a reason. A stub would have to invent what
+the other entity returns, and a test that passes against an invented answer is worse than
+no test. So the harness stays out of
 it and the missing name reports itself. What to do instead: test the callee's slot in its
 own file, where its rules are real, and leave the call between them to `synqt check` (which
 decides whether it is allowed at all) and to a running system.
