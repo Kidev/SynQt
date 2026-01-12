@@ -2,7 +2,7 @@
 
 This page describes how SynQt is put together and why each Qt technology was
 chosen. A SynQt system is a set of
-entities connected in a small service mesh. Every load bearing decision cites the
+entities connected in a small service mesh. Each decision below cites the
 Qt 6.11 documentation it relies on.
 
 ## Entities
@@ -30,22 +30,22 @@ serves the app and faces the internet is the service entity holding the web edge
 type, and the browser app is the client entity. Everything else is a
 service entity you add as needed.
 
-Why entities. A real system is more than a browser and one process. It
-has durable storage, caching, scheduled work, and integrations. Forcing all of
-that into a single server process, or pushing it onto third
-party products with their own deployment and security models, splinters the
-toolchain and the security story. Making every such
-component a first class SynQt entity means one toolchain, one contract format,
-one transport mechanism, and one security model across the whole system.
+A real system is more than a browser and one process. It has durable storage,
+caching, scheduled work, and integrations. Forcing all of that into a single
+server process, or pushing it onto third party products with their own
+deployment and security models, splinters the toolchain and the security story.
+Making every such component a first class SynQt entity means one toolchain, one
+contract format, one transport mechanism, and one security model across the
+whole system.
 
-## The browser constraint still anchors the shape
+## What the browser sandbox forces
 
 A browser is a sandbox. A WebAssembly program built with Qt can make HTTP
 requests to its own origin or to a CORS enabled server, and can open a WebSocket
 to any host, but it cannot open a listening socket of any kind. The Qt for
 WebAssembly platform notes are explicit that QWebSocketServer is unusable in the
 browser, and that QtRemoteObjects can ride QtWebSockets only if you supply your
-own QIODevice. That settles the direction of the client link:
+own QIODevice. This fixes the direction of the client link:
 
 - A client entity is always a connector. It reaches exactly one web edge entity
   over a WebSocket it opens itself.
@@ -63,15 +63,15 @@ direct and more efficient transports, described under
 
 ## Three planes
 
-SynQt separates concerns into three planes. Keeping them distinct is what lets the
-security model be strict without making the programming model painful.
+SynQt separates concerns into three planes. Keeping them distinct lets the
+security model stay strict without making the programming model painful.
 
 ### Plane A: delivery (how the client reaches the browser)
 
 The compiled WebAssembly client (a `.wasm` module, a loader, and assets) is
 static content. The web edge serves it over HTTPS using QHttpServer, stamping the
 browser isolation headers and content security policy. Delivery is one
-directional and stateless. After the browser has the bundle, plane A is done.
+directional and stateless. Once the browser has the bundle, plane A is finished.
 
 Rationale: QHttpServer gives a small routing server with `route()` for paths,
 `QHttpServerResponse::fromFile()` for assets, and `addAfterRequestHandler()` for
@@ -96,32 +96,32 @@ Plane B has one pipe per link in the mesh.
   socket exists.
 - Service to service (the mesh default, whether the link crosses a host or stays
   on one, where it binds to loopback): QtRemoteObjects over a mutually
-  authenticated TLS connection. The host side uses QSslServer; the client side a
+  authenticated TLS connection. The host side uses QSslServer and the client side a
   QSslSocket. Both verify the other against a project private certificate
   authority, with `QSslConfiguration::setPeerVerifyMode(QSslSocket::VerifyPeer)`.
   This is the QtRO SSL example pattern, and it gives encryption plus mutual
-  authentication: each entity proves its identity by certificate. The accepted
+  authentication, where each entity proves its identity by certificate. The accepted
   socket is handed to the QtRO node with `addHostSideConnection()` (host) and
   `addClientSideConnection()` (consumer).
 - Service to service on the same host (opt in): QtRemoteObjects over a local
   socket (QLocalServer and QLocalSocket). The socket is a filesystem object
   protected by filesystem permissions and never touches the network, so the
-  operating system enforces which user may connect, but not which entity: on this
+  operating system enforces which user may connect, but not which entity. On this
   transport the calling entity's name is trusted by colocation. You opt into it
-  for co located, equally trusted entities; the default even on one host is the
+  for co located, equally trusted entities. The default even on one host is the
   mutual TLS link over loopback, which keeps entity identity certificate
   authenticated everywhere (see [security](security.md)).
 
 ### Plane C: objects (the shared object tree)
 
 This is the plane developers program against. The owner of a connect point holds
-a QtRemoteObjects Source: the authoritative QObject whose properties, signals, and
-slots define the API. Each consumer holds a Replica: a live proxy of that Source.
-Quoting the QtRO behavior: properties and signals travel from Source to Replica,
-and slots travel from Replica to Source. A Replica behaves like any other QObject,
+a QtRemoteObjects Source, the authoritative QObject whose properties, signals, and
+slots define the API. Each consumer holds a Replica, a live proxy of that Source.
+In QtRO, properties and signals travel from Source to Replica, and slots travel
+from Replica to Source. A Replica behaves like any other QObject,
 so it appears in QML (or in another entity's code) as a normal object with
-bindable properties and callable methods. This is what makes a boundary feel local
-without hiding that it is asynchronous.
+bindable properties and callable methods. A boundary therefore reads like local
+code without hiding that it is asynchronous.
 
 ```mermaid
 flowchart LR
@@ -174,8 +174,7 @@ build, see [desktop clients](desktop.md)):
   own TLS and reads the edge URL from config instead of the served page.)
 - `WebSocketTransport`: the QIODevice adapter over the client's QWebSocket.
 - `ServerAccessor`: exposed to QML as `Server`. Holds the acquired Replica for
-  each connect point the client consumes, presented by name. A facade over
-  replicas, not a monolith.
+  each connect point the client consumes, presented by name.
 - `Session` and `Router`: read only session state (`scope`, `state`, `identity`,
   `login`, `logout`) and the scope gated route table from config. The full member
   reference is in the [runtime API reference](runtime-api.md).
@@ -221,17 +220,16 @@ Generated layer:
 
 QtRemoteObjects offers a registry that lets nodes discover sources and connect to
 them automatically: once a node joins the registry, it can acquire any source on
-the network and the registry initiates the connection for it. That convenience is
-exactly the wrong property for a security sensitive mesh. It is ambient discovery
-and ambient connection: it makes the set of reachable objects implicit and grows
-the attack surface of any node that can reach the registry.
+the network and the registry initiates the connection for it. Ambient discovery
+and ambient connection make the set of reachable objects implicit and grow the
+attack surface of any node that can reach the registry, which rules the registry
+out for a security sensitive mesh.
 
 SynQt instead derives the topology from the declared connect points (each names
 its owner and its allowed consumers) and opens only those connections, each
 mutually authenticated. There is no dynamic discovery and no ambient authority. An
-entity can reach only what configuration says it may. This deny by default
-posture is a deliberate trade of convenience for security and is revisited in
-[security](security.md).
+entity can reach only what configuration says it may. The trade of convenience for
+security is revisited in [security](security.md).
 
 ## End to end data flow
 
@@ -266,7 +264,7 @@ sequenceDiagram
 ```
 
 Two authorization checks happened, at two trust boundaries: the edge authorized
-the user, and the database authorized the edge. Neither trusts the other blindly.
+the user, and the database authorized the edge.
 
 ## Technology choices and their justification
 

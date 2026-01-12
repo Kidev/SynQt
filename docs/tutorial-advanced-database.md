@@ -39,8 +39,7 @@ bool migrate(const QStringList &steps, QString *error);
 QString name() const;
 ```
 
-Two things in that list are load bearing, and they are the reason the interface looks the
-way it does.
+Two things in that list are the reason the interface looks the way it does.
 
 The SQL and its parameters arrive separately, and there is no overload that takes
 them together. A provider is never handed a finished statement with a value already
@@ -383,8 +382,8 @@ private:
 };
 
 // This line is what makes the class reachable. It runs at static initialization, so
-// linking the file into the entity is the whole of the wiring. The name here is bare:
-// no `custom:` prefix, because the prefix is what routes a lookup to this registry.
+// linking the file into the entity is all the wiring there is. The name here is bare,
+// with no `custom:` prefix, because the prefix is what routes a lookup to this registry.
 SYNQT_REGISTER_PERSISTENCE_PROVIDER("SqlServer", SqlServerProvider)
 
 } // namespace SynQt

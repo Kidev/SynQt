@@ -91,8 +91,8 @@ puts it there.
 
 ## Step 3: Read the start plan
 
-Every build writes `build/process-manifest.json`. It is not documentation, it is the
-input your process manager wants:
+Every build writes `build/process-manifest.json`. It is the input your process manager
+wants:
 
 ```json
 {
@@ -171,8 +171,8 @@ Wants=network-online.target
 Type=simple
 User=gavel
 Group=gavel
-# The whole of the deployment shape in one line: every path the entity reads is
-# relative to the project root, so this is not a detail.
+# Every path the entity reads is relative to the project root, so this line decides
+# the deployment shape.
 WorkingDirectory=/srv/gavel
 ExecStart=/srv/gavel/build/books/books
 Restart=on-failure

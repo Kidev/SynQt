@@ -4,8 +4,8 @@
 # The local test network
 
 Two names, a loopback address each, and a development web CA. Several of the things
-SynQt has to prove are browser policy questions rather than Qt questions, and a browser
-will only answer them if it believes it is talking to two different sites. This is that
+SynQt has to prove are browser policy questions and not Qt questions, and a browser
+answers them only if it believes it is talking to two different sites. This is that
 plumbing, in one place.
 
 ```sh
@@ -20,57 +20,54 @@ inverses edit the machine, and elevate only for the file that needs it.
 
 ## Why a fake network is a real measurement here
 
-Same-site, `SameSite`, cookie partitioning, CORS and CSP are computed from the scheme and
-the registrable domain. None of them looks at where the packets went. A browser cannot
+Same-site, `SameSite`, cookie partitioning, CORS and CSP are computed from the scheme
+and the registrable domain. All of them ignore where the packets went. A browser cannot
 tell `https://synqtedge.test` on loopback from the same name in another country, so for
-those questions this is not an approximation of the real thing, it is the real thing. It
-stops being one the moment the question is latency, a proxy, or real TLS termination:
-those are properties of the path, and the path here is a lie.
+those questions this rig is the real thing and not an approximation. It stops being one
+the moment the question is latency, a proxy, or real TLS termination. Those are properties
+of the path, and the path here is a fiction.
 
 `.test` is reserved by RFC 6761 and can never be delegated, so no entry in
 [`sites.conf`](sites.conf) can ever shadow a site that exists.
 
-The premise is checked rather than assumed. The split-origin rig carries a `lax_control`
-variant whose only job is to fail: a `SameSite=Lax` cookie must never survive a
-cross-site read, and if it ever does, the two names are being treated as one site and
-every other number the rig produces is void. Point it at a new engine and it validates
-its own foundation before it reports anything.
+The rig checks that premise instead of assuming it. The split-origin rig carries a
+`lax_control` variant whose only job is to fail. A `SameSite=Lax` cookie must never
+survive a cross-site read. If it ever does, the browser is treating the two names as one
+site and every other number the rig produces is void. Point it at a new engine and it
+validates its own foundation before it reports anything.
 
 ## The three layers
 
 Names, through `/etc/hosts`. It is the only mechanism that reaches every engine.
-Chromium takes `--host-resolver-rules` and Firefox takes `network.dns.localDomains`, but
+Chromium takes `--host-resolver-rules` and Firefox takes `network.dns.localDomains`.
 WebKit takes neither, and WebKit is Safari's engine, the one browser whose third-party
 cookie policy this project cannot afford to guess at.
 
-Addresses, through loopback aliases. Both sites answer on `127.0.0.1` today because
-each rig binds one socket. Giving each site its own address buys real port 443 per origin
-(no `:8443` in a URL) and an edge that sees its clients as separate addresses, which is
-what makes its per-IP connection caps behave the way they will in production. Linux
-treats all of `127.0.0.0/8` as local already. macOS needs each address added to `lo0` by
-hand, which is what the `aliases` subcommand is for.
+Addresses, through loopback aliases. Both sites answer on `127.0.0.1` today, because
+each rig binds one socket. Giving each site its own address buys real port 443 per origin,
+with no `:8443` in a URL, and an edge that sees its clients as separate addresses, which
+is what makes its per-IP connection caps behave the way they will in production. Linux
+already treats all of `127.0.0.0/8` as local. macOS needs each address added to `lo0` by
+hand, which is what the `aliases` subcommand does.
 
-Trust, through a development web CA. The alternative is
-`--ignore-certificate-errors`, which is a blunt instrument that also hides real
-certificate bugs, and which Safari does not have at all. The CA is issued into
-`~/.cache/synqt-local-network` (override with `SYNQT_LOCAL_NETWORK_DIR`), never into the
-checkout, because a private key inside a repository is one `git add -A` from being
-published.
+Trust, through a development web CA. The alternative is `--ignore-certificate-errors`,
+which also hides real certificate bugs, and which Safari does not have at all. The script
+issues the CA into `~/.cache/synqt-local-network` (override with
+`SYNQT_LOCAL_NETWORK_DIR`) and never into the checkout, because a private key inside a
+repository is one `git add -A` from being published.
 
 Containers give separate hosts, but only on Linux runners. macOS CI has no Docker, and
-macOS is the leg that exists to reach Safari.
-Hosts entries and aliases behave identically on both, and give up nothing on a
-name-based question.
+macOS is the leg that exists to reach Safari. Hosts entries and aliases behave identically
+on both, and give up nothing on a name-based question.
 
-## This is not the mesh CA
+## Separate from the mesh CA
 
 The CA here signs server certificates for two fake websites so a browser will load them
-without a warning. It has nothing to do with the mesh certificate authority that
+without a warning. It is unrelated to the mesh certificate authority that
 authenticates entities to each other (`synqt mesh init`,
-[security](../../docs/security.md)), and the two must never be crossed. This key is
-issued by a test script, sits in a cache directory,
-and is trusted machine-wide while you are working. Nothing that authorizes an entity may
-ever chain to it.
+[security](../../docs/security.md)), and the two must never be crossed. A test script
+issues this key, it sits in a cache directory, and it is trusted machine-wide while you
+are working. Nothing that authorizes an entity may ever chain to it.
 
 ## What has been run
 
@@ -82,7 +79,7 @@ ever chain to it.
 | `aliases`, `unaliases` | a no-op on Linux, and reported as such | written, never run |
 | `trust`, `untrust` | written, never run (needs root) | written, never run |
 
-The macOS column is what a VM or the `macos-15` runner is for. Until then, read every
+A VM or the `macos-15` runner is what fills the macOS column. Until then, read every
 macOS line as an unverified claim.
 
 ## Who uses it

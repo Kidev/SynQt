@@ -23,9 +23,8 @@ drain at the end of it, and the statistics. Publisher and subscribers share one 
 every column, so each measures an interval on one monotonic clock rather than across two.
 
 **Not held constant**: the protocol on the wire. QtRemoteObjects framing is not a raw
-binary frame and is not Socket.IO's envelope. That is not a flaw in the comparison, it is
-the comparison: each stack is measured carrying its own protocol, because that is what a
-deployment would be running.
+binary frame and is not Socket.IO's envelope. Each stack is measured carrying its own
+protocol, because that is what a deployment would be running.
 
 ## The columns
 
@@ -182,8 +181,8 @@ Three things this says, none of which is "SynQt is faster":
   making, and it is the reason both Node columns are printed.
 - **Against bare Node, SynQt trades, and which way it trades depends on how many
   subscribers share the value.** SynQt is far cheaper at small counts and behind at large
-  ones. That is not a wash between two noisy numbers, it is two different cost curves
-  crossing; [the next section](#what-the-gap-against-node-is-made-of) separates them.
+  ones. Two cost curves cross there, rather than two noisy numbers averaging out;
+  [the next section](#what-the-gap-against-node-is-made-of) separates them.
 - **Memory per connection is the one row SynQt wins at every size**, and it wins it against
   both columns. That is what `users / GiB` is derived from, and on this host it is the half
   of `users / core / GiB` that binds later, so it is not the number that sizes a host.

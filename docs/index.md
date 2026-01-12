@@ -97,8 +97,9 @@ pipx install synqt
 
 -   :material-shield-lock: __Secure at every link__
 
-    You never opt into security. There is no insecure connection type to reach
-    for by mistake, only the one every entity already speaks.
+    Every link is encrypted and authenticated from the first build. There is no
+    plaintext connection type to reach for by mistake, only the one every entity
+    already speaks.
 
 </div>
 
@@ -434,7 +435,7 @@ connect_points:
 <li data-code="consumers: [edge]" data-href="entities/">The database is reachable by the edge, over mutual TLS, and by nothing else, browser included.</li>
 <li data-code="export: |" data-href="programming-model/">What may cross the link, and the whole of it. The owner names the type it exports: `edge` exports `Edge`, which is what both sides compile against.</li>
 <li data-code="prop bool loaded" data-href="programming-model/">Owner to consumers, pushed. A consumer sees it change; it cannot set it.</li>
-<li data-code="model rows(int id, string[120] title)" data-href="programming-model/">The roles listed here are the whole of what a row is allowed to carry to a browser, and the 120 is a rule the owner keeps, not a comment.</li>
+<li data-code="model rows(int id, string[120] title)" data-href="programming-model/">The roles listed here are the whole of what a row is allowed to carry to a browser, and the owner enforces the 120 at the boundary.</li>
 <li data-code="slot load()" data-href="programming-model/">Consumer to owner: the one direction a request travels.</li>
 <li data-code="signal denied(string[120] reason)" data-href="programming-model/">The owner's answer when it refuses, addressed to the caller that asked.</li>
 <li data-code="slot bool allows" data-href="programming-model/">A slot with a return type. The caller gets a promise, so the edge can wait on the answer without blocking anything else it is serving.</li>

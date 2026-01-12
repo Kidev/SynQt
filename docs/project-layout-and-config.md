@@ -64,18 +64,18 @@ Principles:
   `client/<name>/`, `web/<name>/`, `db/relational/<name>/`, and so on. Everything
   the entity is made of is in there and nowhere else, so a `.qml` file dropped
   beside it is importable from it with no wiring, and two databases never write
-  over each other. The layout is fixed rather than configurable: one rule, so
-  nothing can point half the build at one directory and half at another.
-- A contract lives in the folder of the entity that owns it, beside the Source that
-  answers it, because the two are one thing seen twice. It is still on the wire for
-  every consumer the connect point names, so changing it is a breaking change even
-  though it sits in one entity's folder.
+  over each other. The layout is fixed rather than configurable, so there is one rule
+  and nothing can point half the build at one directory and half at another.
+- A connect point's contract is its `export:` block in `synqt.yaml` rather than a file
+  in the entity's folder. The build writes the generated form under `generated/`. It is on the
+  wire for every consumer the connect point names, so changing it is a breaking change
+  even though only the owner's entry mentions it.
 - The root `CMakeLists.txt` is the one CMake file the project owns. It is written
   once, never rewritten, and all it does is include `generated/synqt.cmake`, so a
   target you add below the include survives every build. It sits at the root rather
   than inside `generated/` because the QML compiler names each compiled file after
-  its path relative to the directory that declared the QML module: declared one
-  level down, a view in `client/app/` compiled to a path with `..` in it, which is
+  its path relative to the directory that declared the QML module. Declared one
+  level down, a view in `client/app/` compiles to a path with `..` in it, which is
   a directory name Windows cannot create.
 - A service entity is never part of the WebAssembly build, and the client is never
   part of any service build. A connect point's `server` file is compiled into its
@@ -150,7 +150,7 @@ toolchain: it fixes the Qt version every entity builds against and, through it, 
 Emscripten version used for the client (see
 [build system and CLI](build-system-and-cli.md)).
 
-There is no `origin_model` here, and that is deliberate. A project with no
+There is no `origin_model` here. A project with no
 `origin_model` is same origin: the client and the web edge answer on one origin, the
 session cookie is first party, and the content security policy and the upgrade origin
 check stay in their simplest form. Everything in this document assumes that shape. The
@@ -160,7 +160,7 @@ origin](#serving-the-client-from-another-origin), which is where its cost is mea
 
 ### Where the framework reads and writes
 
-The project layout is fixed, not configured. There is no `paths` section: every
+The project layout is fixed. There is no `paths` section. Every
 path below is where the framework looks, always, so that a `synqt.yaml` describes
 an application and never a directory scheme.
 
@@ -182,8 +182,8 @@ committed.
 holds an x and a y per entity, which is where the [visual editor](visual-editor.md) left that
 node on its canvas, and it is advisory: nothing reads it but the editor, and an entity it
 says nothing about is laid out from the default any project gets, the browser on the left
-and everything it must not reach on the right. Delete it and you lose an arrangement, not
-a project. It is not git ignored, because a team that arranges a diagram usually wants the
+and everything it must not reach on the right. Deleting it loses the arrangement and
+nothing else. It is not git ignored, because a team that arranges a diagram usually wants the
 arrangement to be the same one on everybody's screen; ignore it in your own `.gitignore`
 if you would rather it were not.
 
@@ -432,8 +432,8 @@ entities:
 ```
 
 `outbound` is a list of URL prefixes. Declaring the key is what puts the `Http` helper
-in the entity's QML scope; the list is what `Http` will allow. The two are separate on
-purpose: `outbound: []` gives the entity the helper and lets it reach nowhere, so a
+in the entity's QML scope; the list is what `Http` will allow. The two are separate:
+`outbound: []` gives the entity the helper and lets it reach nowhere, so a
 call is refused by name and tells you which key to add, where no key at all would have
 been a ReferenceError on a helper that is not there. A prefix is matched against the
 normalized URL, so a traversal cannot escape it.
@@ -518,30 +518,30 @@ Source is rooted at. It is also `web/edge/Edge.qml`, the edge's own file, becaus
 and the surface it exports are one thing. The build writes the contract to
 `generated/<owner's folder>/Edge.syn`, which nobody edits.
 
-A second entry for one owner is refused. Two audiences on one point is what per-member
-`<scope>` is for, and two genuinely separate surfaces is two entities.
+A second entry for one owner is refused. Per-member `<scope>` is what covers two
+audiences on one point, and two genuinely separate surfaces are two entities.
 
 `server` and `scope` are optional. `server` defaults to that type's `.qml` in the owner's
-folder, so the two lines above spelling it out could both be left off; they are there to
+folder, so the two lines above spelling it out could both be left off. They are there to
 show where the file goes.
 
 Omitting `scope` means any session, including an anonymous one, may acquire the connect
-point; write protection then lives inside the slots, as in the examples.
+point. Write protection then lives inside the slots, as in the examples.
 
 A `scope` written on the point is also the default for every member of its `export:`, and
 a member may raise it with a `<scope>` prefix of its own:
 `<admin> slot restock(string[64] sku, int count)`. What the point requires decides who
-acquires it at all; what a member requires decides whether anything about that member ever
+acquires it at all. What a member requires decides whether anything about that member ever
 crosses to the caller who did. See
 [gating one member](programming-model.md#gating-one-member-scope).
 
 How many Sources a point mints is not written here. It follows from `shared:` on the
-entity that owns it: shared (the default) is one Source everybody reaches through a mirror
+entity that owns it. Shared (the default) is one Source everybody reaches through a mirror
 of their own, and `shared: false` is one Source per caller. See
 [the programming model](programming-model.md#how-many-of-an-entity-there-are-shared).
 
-There is no value meaning "one Source for everybody": such a Source could not be told who
-was calling, so its slots had no `Caller`. State every caller shares belongs in the owner
+There is no value meaning "one Source for everybody", because such a Source could not be told who
+was calling, so its slots would have no `Caller`. State every caller shares belongs in the owner
 entity's own
 [singleton](programming-model.md#connect-points-owned-by-one-entity-consumed-by-others),
 which outlives all of them. A Source is live state either way, and a per-caller one is
@@ -609,8 +609,8 @@ session cookie is issued `SameSite=None; Secure`, which the edge derives from
 check remains the anti hijacking control in both models. See [serving the client from
 another origin](#serving-the-client-from-another-origin).
 
-`session_transport: subprotocol` is refused, and it is worth saying why, because it is a
-limit of the toolkit rather than a feature nobody got to. Carrying the session in
+`session_transport: subprotocol` is refused because of a toolkit limit rather than an
+unimplemented feature. Carrying the session in
 `Sec-WebSocket-Protocol` requires the server to select one of the offered subprotocols and
 echo it in the `101` response. Qt 6.11 gives the edge nowhere to say which:
 `QHttpServerWebSocketUpgradeResponse::accept()` takes no arguments, and the
@@ -675,30 +675,29 @@ full table are in
 
 | regime | what happens |
 |---|---|
-| Chromium and Firefox today | works: bundle loads, session mints, `wss` upgrade carries it, login works |
-| WebKit, which is Safari's engine, today | **nothing works**: the session request comes back unreadable and the upgrade carries no credential, with or without `Partitioned` |
-| third party cookies restricted | **nothing works**: the session request is ignored, the upgrade arrives with no credential, the edge refuses it |
+| Chromium and Firefox today | works. The bundle loads, the session mints, the `wss` upgrade carries it, and login works |
+| WebKit, which is Safari's engine, today | nothing works. The session request comes back unreadable and the upgrade carries no credential, with or without `Partitioned` |
+| third party cookies restricted | nothing works. The session request is ignored, the upgrade arrives with no credential, and the edge refuses it |
 
-Those last two rows are not a slow degradation. The app appears on screen and is
-permanently disconnected. The middle row is today, in a shipping browser, and the
+In those last two rows the app appears on screen and is permanently disconnected,
+rather than degrading slowly. The middle row is today, in a shipping browser, and the
 others are where browsers are heading.
 
 The obvious repair does not work either. Marking the cookie `Partitioned` (CHIPS) is
 the standard way to keep a third party cookie alive, and it rescues the session
 bootstrap and the upgrade under restriction. It also breaks login everywhere, including
 browsers where the plain cookie still works, because the OAuth callback is a top level
-navigation onto the edge: the cookie is filed under the edge's own partition, and the
+navigation onto the edge, so the cookie is filed under the edge's own partition, and the
 client origin can never read it. That is measured, with the stored partition key
-visible, so the edge deliberately does not emit the attribute.
+visible, which is why the edge does not emit the attribute.
 
-There is a repair for that half, and it is worth saying why it was not built, because
-it needs nothing from Qt and could have been. The callback could hand the session back
-through the client context: the edge redirects to the client origin with a one time
-code, and the page exchanges it there, so the cookie is filed under the client's
-partition and login works. It buys one engine. In the same measurement Firefox stored
-the `Partitioned` cookie with no partition key, meaning it did not apply CHIPS at
-all, so under restriction the mode still dies there whatever the callback does; and
-WebKit, measured since, never reads the cookie back from the client site at all, with
+A repair for that half exists and needs nothing from Qt. The callback could hand the
+session back through the client context. The edge would redirect to the client origin
+with a one time code, and the page would exchange it there, so the cookie is filed under
+the client's partition and login works. It buys one engine. In the same measurement
+Firefox stored the `Partitioned` cookie with no partition key, meaning it did not apply
+CHIPS at all, so under restriction the mode still dies there whatever the callback does.
+And WebKit, measured since, never reads the cookie back from the client site at all, with
 the attribute or without it. A redesign that fixes Chromium and leaves Firefox and
 Safari where they are is not a fix for this, which is why the deprecation above is the
 answer instead.
@@ -735,7 +734,7 @@ mesh:
 
 Certificate lifetime is not a setting. Entity certificates are issued for 398 days
 and the CA for twice that, and `synqt mesh status` warns 30 days before one expires.
-398 is not a round number chosen for tidiness: Apple's verifier refuses a TLS leaf
+398 comes from Apple's verifier, which refuses a TLS leaf
 issued after 2020-09-01 whose validity runs past 398 days, whatever it chains to, so
 a longer lifetime is one a macOS host can reject on sight. Making it configurable
 would only offer a way to issue certificates that do not work.
@@ -827,7 +826,7 @@ like it worked. The named entity has to exist and has to be a service of its own
 the web edge is refused because that is what leaving it empty already means, and naming
 the client is refused because the client holds no secret and no mesh certificate.
 
-What changes about the edge is what it stops holding. A promoted edge is given provider
+A promoted edge is given provider
 *names* and nothing else: no client id, no provider endpoint, no secret, and no token.
 It drives the browser facing half (the login and callback routes, the session cookie) and
 asks the auth entity for every step that needs a secret. See
@@ -1015,19 +1014,19 @@ Three rules decide what a path resolves to:
   are ordered in the file. Declaration order never decides a match, so moving a
   route in the file cannot change what an existing link does.
 - An empty segment is not a segment. `/c`, `/c/`, and `/c//` are one and the
-  same route; declaring two of them is an error, since only the first could ever be
+  same route. Declaring two of them is an error, since only the first could ever be
   reached.
 - The query string is not part of the path. It is split off before matching and
   arrives as `Router.query`, so `/search` and `/search?q=hat` are the same route.
 
-A route guard is a redirect rule, not a secrecy mechanism: every view's QML ships
+A route guard redirects and keeps nothing secret. Every view's QML ships
 to every visitor, and what protects the data behind a privileged view is the
 scope-gated connect point the edge refuses to an under-scoped session. See
 [route guards](programming-model.md#route-guards-which-client-views-are-reachable).
 
 ### Development settings live on the command line
 
-There is no `dev` section. `synqt dev` is a command, not a deployment, so what
+There is no `dev` section. `synqt dev` is a command rather than a deployment, so what
 varies about a development run is passed to the run:
 
 | Flag | Default | Effect |
@@ -1038,7 +1037,7 @@ varies about a development run is passed to the run:
 | `--desktop` | browser | run the client as a native window against the same dev edge |
 | `--profile NAME` | none | layer `synqt.NAME.yaml` over `synqt.yaml`, which is where a per developer override belongs |
 
-Two things about a development run are not adjustable at all, deliberately. The
+Two things about a development run are not adjustable at all. The
 browser link runs plaintext, because it is on the loopback interface and a
 self-signed certificate there teaches the wrong habit. Mesh links keep mutual TLS,
 against a throwaway development CA `synqt dev` issues for you (see
@@ -1083,17 +1082,17 @@ every call that can suspend.
 What it changes is the platform underneath your code. Qt's WebAssembly event
 dispatcher has two shapes and picks one at run time by probing the Emscripten
 runtime, so this is a link flag on your client and needs no change to the Qt kit.
-Without asyncify the main thread cannot block: `exec()` hands control back to the
+Without asyncify the main thread cannot block. `exec()` hands control back to the
 browser, and the queue behind `deleteLater()` and every `Qt::QueuedConnection` is
 drained only when one zero-delay browser callback fires. If that callback is ever
 lost, nothing re-arms it and the queue stays undrained for the life of the page,
 in an application whose timers, sockets and property updates all go on working.
 With asyncify the main thread suspends inside `processEvents()` and any browser
-event at all resumes it and sweeps the queue, so no single callback is load
-bearing. Asyncify also lets `QEventLoop::exec()` run on the main thread, which
+event at all resumes it and sweeps the queue, so nothing depends on a single
+callback. Asyncify also lets `QEventLoop::exec()` run on the main thread, which
 otherwise calls `qFatal()`.
 
-SynQt does not need it to be correct. The framework resolves a returning-slot
+SynQt does not require it. The framework resolves a returning-slot
 reply from the call's own state rather than from a queued signal, and defers
 object deletion through a timer rather than a posted event, so nothing the
 framework does depends on that one callback. Turn it on if your own client C++
@@ -1416,7 +1415,7 @@ sets neither key is still refused, since there is nothing for it to show.
 ### Remote pages
 
 `synqt check` validates every route's `remote:` and `seed:` as well, because a bad
-[remote page](remote-pages.md) is the worst kind of defect: it builds and serves
+[remote page](remote-pages.md) builds and serves
 fine, and only fails the visitor who navigates to it, as a blank page (a missing
 file), a refused delivery (an import outside the palette), or a page that quietly
 shadows one the bundle already carries. A delivered page's file is checked under
@@ -1439,15 +1438,15 @@ message quoted:
 
 Two of those deserve a note:
 
-- The palette rule is a build-time convenience, not the security boundary. The
-  client's own `QmlPalette` is what enforces the palette on a delivered page at run
-  time, and it is stricter than this scan: it reads the page the way the QML lexer
+- The palette rule here is a build-time convenience. The
+  client's own `QmlPalette` enforces the palette on a delivered page at run
+  time, and it is stricter than this scan. It reads the page the way the QML lexer
   does, so it strips comments and string literals first, ends a statement at a
   semicolon as well as at a line break, honors a lone carriage return and a leading
   byte order mark, and refuses any quoted (path) import outright. A page this scan
-  waves through on any of those is still refused by the client, just later than you
-  would like.
+  waves through on any of those is still refused by the client, at navigation time
+  rather than at build time.
 - The shadow rule and the "sets both" rule guard opposite mistakes. A `remote:` at
-  the same path as a *separate* `view:` route is a shadow the edge could never win
+  the same path as a separate `view:` route is a shadow the edge could never win
   (the compiled-in half is kept), and is reported here. A single route that sets both
-  keys is not a shadow of itself; it is the "sets both" error instead.
+  keys reports the "sets both" error instead.

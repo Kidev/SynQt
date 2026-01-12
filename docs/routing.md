@@ -40,7 +40,7 @@ routes:
     scope: admin            # below this scope, the router redirects to the fallback
 ```
 
-A route names its page one of two ways, and the key is the whole of the difference.
+A route names its page one of two ways, and the key is what differs.
 `view:` is a QML file compiled into the bundle, downloaded once with everything else.
 `remote:` is a QML file the web edge keeps and delivers at navigation time, over the same
 authenticated `wss` link, so it never enters the bundle and changes without a client

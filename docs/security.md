@@ -13,12 +13,12 @@ how to widen them and what you give up.
 QtRemoteObjects has no built in authentication and no built in encryption. A bare
 QtRO host listens and will talk to anyone who connects. Qt's own guidance and long
 standing developer discussion treat raw QtRO as suitable for trusted inter process
-or controlled internal networks, not exposure to untrusted parties. SynQt's job is
+or controlled internal networks rather than exposure to untrusted parties. SynQt's job is
 to put every QtRO link behind a gate so that, by the time a QtRO message is
 processed, the link is encrypted, the peer is authenticated, and the action is
-authorized by the owner. None of that comes from QtRO. All of it comes from the
-layers SynQt wraps around each link. The rest of this document is those layers,
-applied to two kinds of link: browser to web edge, and entity to entity.
+authorized by the owner. All of that comes from the layers SynQt wraps around each
+link rather than from QtRO. The rest of this document is those layers, applied to
+two kinds of link: browser to web edge, and entity to entity.
 
 ## Threat model
 
@@ -107,7 +107,7 @@ Rejecting at upgrade, before a socket and before any QtRO state, keeps
 unauthenticated load off the object plane and closes the window where an attacker
 opens many sockets that consume resources before being rejected.
 
-Same origin, by writing nothing. A project that declares no `origin_model` serves the
+A project that declares no `origin_model` serves the
 client and the sync endpoint from one origin, so the session cookie is first party, the
 content security policy `connect-src 'self'` is sufficient, and there is no cross origin
 relaxation to get wrong. This is the deployment SynQt is built around.
@@ -120,18 +120,18 @@ that serves the bundle and terminates the browser link on one hostname instead. 
 endpoint, `allowed_origins` must list the client origin explicitly, and the session
 cookie is issued `SameSite=None; Secure` (the edge derives that from `origin_model`, so
 there is no second setting to get out of step). The origin check remains the anti
-hijacking control. Widening allowed origins is a deliberate, reviewed act, not a default.
+hijacking control. Widening allowed origins requires an explicit, reviewed change.
 
 That deployment also needs one narrow relaxation, because a browser arriving from a CDN
 has never made a request to the edge and so has no session to present at the upgrade.
 With `public.serve_client: false`, `client_route` returns `204` and the session cookie to
 a credentialed cross origin fetch, echoing back the requesting origin only when it is
 already an allowed origin, never a wildcard. It hands out nothing else. This is the only
-cross origin relaxation in the system, it exists solely because the credential has to
-start somewhere, and it is off entirely otherwise.
+cross origin relaxation in the system. It exists because the credential has to start
+somewhere, and it is off entirely otherwise.
 
-The cost is a third party session cookie, which is measured rather than assumed:
-under third party cookie restriction the session cannot be obtained and the upgrade is
+The cost is a third party session cookie, which is measured rather than assumed.
+Under third party cookie restriction the session cannot be obtained and the upgrade is
 refused, so the app loads and never connects, and the `Partitioned` (CHIPS) attribute
 does not repair it (it breaks login instead). The measurement and the full table are in
 [serving the client from another
@@ -177,8 +177,8 @@ local link, and a connect point that authorizes by `Caller.entity` should stay o
 the default mutual TLS transport unless every process running as that user on that
 host is trusted as much as the entities themselves.
 
-This is the only reason a second check exists, and it is worth being precise about
-when you need it. On every other topology `Caller.entity` is complete on its own: the
+This is the only reason a second check exists. On every other topology
+`Caller.entity` is complete on its own: the
 framework decides the name from a verified certificate, the caller never asserts it,
 and no amount of defensive coding in a slot adds anything. So write
 `if (Caller.entity !== "edge")` and stop. What a local link changes is who decides:
@@ -190,19 +190,19 @@ deployment that opted into it can say
 link that condition is dead code, and writing it everywhere buys nothing.
 
 Authorization by entity. Once the calling entity is known (by verified
-certificate on the default mutual TLS links; by colocation only on an opt in
+certificate on the default mutual TLS links, and by colocation only on an opt in
 local socket link), the owner authorizes per
 connect point and per slot. The consumer allowlist on each connect point is the
-coarse gate: only listed consumers may acquire the Replica, and the framework opens
+coarse gate. Only listed consumers may acquire the Replica, and the framework opens
 only those links. Inside a slot, the owner can check `Caller.entity` for fine
 grained decisions (for example, a database slot that only the edge may call). The
 push only property default and per peer instances apply here just as they do for
 browser users.
 
 No registry, deny by default. SynQt does not use the QtRO registry, because the
-registry provides ambient discovery and automatic connection: any node that
-reaches it can learn about and connect to sources. That is the opposite of what a
-zero trust mesh wants. Instead the topology is fully declared (each connect point
+registry provides ambient discovery and automatic connection, where any node that
+reaches it can learn about and connect to sources, which a zero trust mesh cannot
+allow. Instead the topology is fully declared (each connect point
 names its owner and consumers), and only those links are opened, each mutually
 authenticated. An entity can reach only what configuration permits. There is no
 dynamic discovery surface to attack.
@@ -213,16 +213,16 @@ The web edge is the only entity of `type: web_edge` and the only one bound
 to a public interface. Every other entity binds only to a private interface (or a
 local socket) and is unreachable from the internet. A database entity:
 
-- is not a web edge, so it never serves a client and never faces the net;
+- is not a web edge, so it never serves a client and never faces the net,
 - is listed as the consumer of nothing the browser owns and as the owner of connect
-  points consumed only by the entities that legitimately need its data (typically
-  the edge or a small number of services);
+  points consumed only by the entities that need its data (typically
+  the edge or a small number of services),
 - authorizes the calling entity inside its slots, so even a compromised cache that
-  somehow reached it would be refused by `Caller.entity` checks;
+  somehow reached it would be refused by `Caller.entity` checks,
 - holds its own secrets (the data file path, any encryption key) in its own `.env`,
-  not shared with the edge.
+  which it does not share with the edge.
 
-The result: there is no path from the browser to the database except through the
+There is no path from the browser to the database except through the
 edge connect points that the edge implements and authorizes, and those calls are
 themselves authenticated as coming from the edge. Two trust boundaries stand
 between an internet user and the durable data.
@@ -276,7 +276,7 @@ Layers, outermost to innermost:
 - Push only properties. Consumers cannot set owner properties directly, only
   request a change the owner controls.
 - In slot checks. Every slot checks `Caller` (a user scope and ownership, or a
-  calling entity) and validates input before acting. This is the real boundary.
+  calling entity) and validates input before acting.
 
 Client and consumer side checks (hiding a button, or an entity choosing not to
 call) are convenience only. The owner repeats every check.
@@ -289,9 +289,9 @@ browser can never reach still knows who a request is for (see
 [the session down the chain](runtime-api.md#the-session-down-the-chain)). Three properties
 make that safe to build on:
 
-- **It is authorization by certificate, then information.** The forwarded session is the
-  calling entity's assertion. It is worth trusting that entity and no more, which is a
-  decision the consumer allowlist already made. `Caller.entity` remains the check;
+- **The certificate is what authorizes the call.** The forwarded session is the calling
+  entity's assertion, worth trusting that entity and no more, which is a decision the
+  consumer allowlist already made. `Caller.entity` remains the check;
   `Caller.identity` is what the check lets you read.
 - **The browser has no such field.** A connect point only the client consumes carries no
   session on the wire at all, so there is nothing for a hand-crafted client to fill in. On
@@ -308,24 +308,24 @@ make that safe to build on:
 The contract is an allowlist of what may cross any link, and the framework cannot
 send what the contract does not declare. Models expose only their listed roles, so
 an owner row may carry owner ids, internal flags, or private fields that never
-serialize to any consumer. Only configured connect points are exposed; there is no
+serialize to any consumer. Only configured connect points are exposed. There is no
 ambient way for any consumer (browser or entity) to reach an arbitrary QObject, and
 with the registry rejected there is no discovery path either.
 
 The same allowlist runs per caller. A member written `<admin>` in the `export:` block
 ([gating one member](programming-model.md#gating-one-member-scope)) crosses only to a
-session holding that scope, and the check is on the flow rather than on the shape: the
+session holding that scope, and the check is on the flow rather than on the shape. The
 Source answering an under-scoped caller never seeds the member, never follows it, and
 never emits it, so nothing is sent to be filtered later. This matters most for the members
 that take no call to read. A gated `slot` can be refused when it is called, but a `prop`
-and a `model` are pushed state: were they sent and hidden, reading them would take a
-console, not an exploit.
+and a `model` are pushed state, and were they sent and hidden, a console would be enough to
+read them.
 
 ## Denial of service and resource limits
 
 - Handshake timeout. The edge accepts browser sockets through the QHttpServer
   upgrade path, which has no built in handshake timeout, so the framework enforces
-  `security.handshake_timeout_ms` itself (10 seconds by default): a connection that
+  `security.handshake_timeout_ms` itself (10 seconds by default). A connection that
   has not completed its upgrade within the window is closed and its resources
   reclaimed. (Qt's QWebSocketServer does enforce its own 10 second default, but
   that class is used only in the transport spike, never on the edge.) The
@@ -356,11 +356,12 @@ fully trust in one mesh, that is the assumption to revisit first.
 - Heartbeat and reconnection. The QtRO heartbeat detects dead connections so their
   resources are reclaimed, and capped exponential backoff avoids hammering a
   recovering entity.
-- Input bounds. This one is yours. A slot's arguments arrive typed but not bounded,
-  so validate length, range, and shape before acting on them, both for correctness
-  and so that no caller can spend an owner's time or memory by asking for it. The
+- Input bounds. These are the application's responsibility. A slot's arguments arrive
+  typed but not bounded, so validate length, range, and shape before acting on them,
+  both for correctness and so that no caller can spend an owner's time or memory by
+  asking for it. The
   framework can guarantee that only declared slots are reachable and that only
-  declared fields come back; it cannot know that your `add(string text)` should
+  declared fields come back. It cannot know that your `add(string text)` should
   refuse a megabyte.
 - Database specifics. The relational entity type serializes writes and sets a busy
   timeout, so concurrent transactions cannot deadlock the entity (SQLite blocks
@@ -395,17 +396,17 @@ handler:
 - Cross origin isolation. When `cross_origin_isolation` is true (required for the
   multi threaded client), the edge sends COOP `same-origin` and COEP `require-corp`,
   which the browser requires before granting SharedArrayBuffer. In this mode the
-  edge also adds `worker-src 'self' blob:` to the CSP. The `blob:` half is a
-  deliberate margin, not a present need: the pinned kit spawns its pthread workers
-  from same origin URLs, and the real threaded bundle served under a strict
+  edge also adds `worker-src 'self' blob:` to the CSP. The `blob:` half is a margin
+  for a future toolchain rather than a present need: the pinned kit spawns its pthread
+  workers from same origin URLs, and the real threaded bundle served under a strict
   `worker-src 'self'` stayed isolated, spawned every worker, and logged no violation
   in Chromium and Firefox, and the multi threaded proof now serves its bundle under
   that strict policy on every run, in every engine it can launch, reporting any
   violation by directive. It is kept because a future Emscripten could go back to
   `blob:` workers, and because it widens the attack surface by almost nothing:
   constructing a `blob:` worker already requires script execution, which `script-src`
-  governs. See [CSP](csp.md) for the measurement. The single threaded default needs none of this, one reason it is
-  the default.
+  governs. See [CSP](csp.md) for the measurement. The single threaded default needs
+  none of this.
 - Transport and content headers. `Strict-Transport-Security`,
   `X-Content-Type-Options: nosniff`, and a minimal `Referrer-Policy`.
 
@@ -421,12 +422,12 @@ The application shell for an unmatched path. A visitor who bookmarks
 answers. The edge serves `index.html` there, and the client resolves the path
 itself.
 
-- It is registered as a route, not as a missing handler. Qt answers a missing
+- It is registered as a route rather than as a missing handler. Qt answers a missing
   handler through a `QHttpServerResponder`, and it does not run after request
   handlers for a responder answered request, which is where every hardening header
-  is added. Served that way the shell would go out with no CSP, no COOP, and no
-  COEP: the one HTML document in the system, unprotected. As a route it takes the
-  same headers as every other response.
+  is added. Served that way the one HTML document in the system would go out with no
+  CSP, no COOP, and no COEP. As a route it takes the same headers as every other
+  response.
 - Only `GET` and `HEAD` get the shell. A `POST` or a `DELETE` to an unknown URL is
   a client bug or a probe, and answering it with HTML would hide that.
 - A path whose final segment contains a `.` returns 404 instead of HTML. An
@@ -457,30 +458,29 @@ path, so validation is the whole of what keeps a resume from becoming an open
 redirect. A stored path is accepted only when all of the following hold, checked
 again at the moment it is used rather than trusted for having been stored:
 
-- it is not empty, and is no longer than 2048 characters;
+- it is not empty, and is no longer than 2048 characters.
 - it starts with exactly one `/`. A protocol relative `//host` is another origin,
-  which is precisely the open redirect being guarded against;
+  which is precisely the open redirect being guarded against.
 - it contains no `:` anywhere. A scheme cannot follow a leading `/` in any case,
-  so this is wider than strictly needed, and that is the point: one line states the
-  rule;
+  so this is wider than strictly needed, which keeps the rule to one line.
 - it contains no `\`, which several browsers fold to `/`, turning `/\evil.example`
-  into that same protocol relative payload;
+  into that same protocol relative payload.
 - it contains no control character. Browsers strip tab, newline, and carriage
   return out of a URL before parsing it, so `/<tab>/evil.example` would arrive as
-  `//evil.example`;
+  `//evil.example`.
 - it contains no `#`, and no percent encoded separator (`%2f`, `%5c`), which would
-  decode into a separator after the match was decided;
+  decode into a separator after the match was decided.
 - it contains no `.` or `..` segment in any spelling, the percent encoded ones
   included. Any `%2e` in a segment is refused, which covers `.%2e`, `%2e.`, and
-  `%2e%2e` in one rule;
-- and it matches a route the client actually declares.
+  `%2e%2e` in one rule.
+- and it matches a route the client declares.
 
 The stored path is cleared as it is read, whether or not it validated, so a
-stale intent cannot steer a later visit. Anything that fails the check simply does
-not resume: the visitor stays where the guard put them. Nor does a path the new
+stale intent cannot steer a later visit. Anything that fails the check does not
+resume, and the visitor stays where the guard put them. Neither does a path the new
 scope still cannot reach, since going there would only bounce off the same guard.
 
-One user visible cost comes out of the colon rule: a path parameter containing a
+One user visible cost comes out of the colon rule. A path parameter containing a
 literal `:` cannot be resumed. Percent encode it as `%3A` in links you generate if
 those paths need to survive a login.
 
@@ -491,14 +491,13 @@ browser at navigation time, rather than compiling it into the client bundle. It
 crosses the same authenticated `wss` link as everything else, so it inherits the
 upgrade verifier, the session, and `Caller`. Three security facts govern it.
 
-**The owner-side check is the confidentiality boundary; the client route guard is
-not.** A route's `scope` is enforced on the edge, in `fetchPageFor`, before the edge
-delivers a single byte. The edge matches the route, reads its declared scope, and if
-the caller lacks it the request is refused. Only after that check passes does the
-edge read the page source, hash it, and produce the seed. The client-side route guard
-that redirects an under-scoped navigation is navigation only, exactly as it is for a
-compiled-in view: it steers the address bar, it is not what keeps the page's markup
-off an under-scoped machine. The edge's refusal is.
+**The edge enforces the scope before it delivers anything.** A route's `scope` is
+checked on the edge, in `fetchPageFor`. The edge matches the route, reads its declared
+scope, and if the caller lacks it the request is refused. Only after that check passes
+does the edge read the page source, hash it, and produce the seed. The client-side
+route guard that redirects an under-scoped navigation is navigation only, exactly as
+it is for a compiled-in view. It steers the address bar, and the edge's refusal is
+what keeps the page's markup off an under-scoped machine.
 
 A refusal carries nothing. When `fetchPageFor` refuses a request, `forbidden` for
 an under-scoped caller or `notFound` for a path no route answers, the reply carries no
@@ -510,7 +509,7 @@ The seed is public output of a privileged context. The seed hook runs on the edg
 after the scope check, with access to edge state and the `caller`. Whatever it returns
 is sent to the browser to paint the first frame, so treat its return value as public:
 scope it to what the caller is entitled to see, exactly as you would any value that
-crosses to the browser. The hook is privileged; its output is not.
+crosses to the browser.
 
 The palette is a trust boundary. `router.palette` is the whole set of QML modules
 a delivered page may import, enforced by the client's `QmlPalette` at run time (a page
@@ -527,12 +526,12 @@ without reasoning about how it got there.
 
 Accepted risk: a delivered page reaches the client accessors. A delivered page can
 still reach `Server`, `Session`, `Router`, and `App`, the same context the compiled-in
-views have. This is deliberate, and it is not a new exposure: the entity that can send
+views have. This is not a new exposure, because the entity that can send
 a malicious remote page is the web edge, and an edge that would ship a malicious page
-can equally ship a malicious *bundle*. The trust you place in your own edge is the same
-trust either way. The palette narrows what a page may import; it does not, and is not
+can equally ship a malicious bundle. The trust you place in your own edge is the same
+trust either way. The palette narrows what a page may import. It does not, and is not
 meant to, sandbox a page away from the runtime the client already trusts its edge to
-drive. What a remote page does not do is widen any data boundary: it reads a connect
+drive. What a remote page does not do is widen any data boundary. It reads a connect
 point through the same owner-side scope checks as any other consumer, so a `scope` on a
 page protects the page's markup, never the data the page later reads.
 

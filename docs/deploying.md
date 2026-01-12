@@ -16,8 +16,7 @@ worth saying which is which. That page gets a system running on a machine that h
 installed, with a certificate authority created and discarded inside the compose project.
 This page is about a system somebody else depends on.
 
-The one shape to have in mind first: **a SynQt deployment is a project directory, not a
-bare binary.** Every entity binary resolves its runtime files relative to the directory
+**A SynQt deployment is a project directory.** Every entity binary resolves its runtime files relative to the directory
 it is started from, exactly as they are spelled in `synqt.yaml`: its topology under
 `build/<entity>/`, its certificate under `synqt/mesh/`, its secrets in its own `.env`,
 and, for the edge, the client bundle under `build/client/`. Copy a binary out of that
@@ -65,16 +64,16 @@ What goes where matters more than the commands:
 
 - **The CA private key never leaves the machine that issues certificates.** It is not
   copied into any entity, and it is not in the repository. For a team or a pipeline it
-  belongs in a secret store, and issuance is a step you run deliberately, not part of a
-  build.
+  belongs in a secret store, and issuance is a step you run yourself rather than part of
+  a build.
 - **Each host gets only its own entities' material**: `<entity>.crt`, `<entity>.key`, and
   `ca.crt` to verify peers with. A database host has no reason to hold the edge's key.
 - **The client entity gets no certificate at all.** A browser authenticates with a user
   session, never with a mesh identity, and the two are never interchangeable.
 
 An entity configured for `transport: mtls` with no issued certificate is refused before
-it starts, with the command to fix it. That check is deliberately at start rather than at
-build, because the CA is not supposed to be on the machine that builds.
+it starts, with the command to fix it. That check runs at start rather than at build,
+because the CA is not supposed to be on the machine that builds.
 
 ## 3. Build
 
@@ -94,22 +93,21 @@ build/
 ```
 
 Each entity's QML is compiled into its binary, so a service directory is small: the
-binary, the `topology.json` it reads at startup, and its licenses. What does *not* move
-into `build/` is the data an
-entity owns: a relational entity applies `db/relational/store/schema.sql` and opens the file its
-`settings` name (`db/relational/store/data/app.db` by default), both relative to the project root
-and both still in the entity's own directory. Which is also why `synqt clean`, whose job
-is to remove build outputs, cannot take a database with it.
+binary, the `topology.json` it reads at startup, and its licenses. The data an entity
+owns does not move into `build/`. A relational entity applies
+`db/relational/store/schema.sql` and opens the file its `settings` name
+(`db/relational/store/data/app.db` by default), both relative to the project root and
+both still in the entity's own directory. That is also why `synqt clean`, whose job is to
+remove build outputs, cannot take a database with it.
 
 Each entity directory carries its own `THIRD-PARTY-LICENSES`, generated from what that
-entity actually links rather than maintained by hand. Under open source Qt the build also
+entity links rather than maintained by hand. Under open source Qt the build also
 prints the reminder that the client is conveyed to every visitor and is therefore GPLv3,
-and that distributing the edge binary triggers GPLv3 as well. Those are obligations, not
-warnings to skim; [licensing](licensing.md#obligations-checklist) says what discharges
-them.
+and that distributing the edge binary triggers GPLv3 as well. Those are obligations, and
+[licensing](licensing.md#obligations-checklist) says what discharges them.
 
-A build machine needs no certificates and no CA to do any of this, which is the point of
-step 2 being a separate step run somewhere else.
+A build machine needs no certificates and no CA to do any of this, which is why step 2
+runs somewhere else.
 
 ## 4. Copy the tree, keep the shape
 
@@ -252,13 +250,13 @@ The four things the balancer has to do are in the generated file, and they are t
 four whatever you balance with: pass the WebSocket upgrade through, state the visitor's
 address in `X-Forwarded-For`, keep the read timeout above the heartbeat, and prefer the
 replica with the fewest open connections rather than round robin (a browser link is long
-lived, so what needs balancing is how many are open, not how many were handed out).
+lived, so what needs balancing is how many are open rather than how many were handed out).
 
 ### A replicated edge is a front
 
-That sentence is the whole design, and `synqt check` enforces it. Under `replicas: > 1`
-every connect point the edge owns must have [`behind:`](programming-model.md#handing-callers-on-behind):
-the edge carries the session and hands each caller to the entity that answers for them,
+`synqt check` enforces that. Under `replicas: > 1`
+every connect point the edge owns must have [`behind:`](programming-model.md#handing-callers-on-behind).
+The edge carries the session and hands each caller to the entity that answers for them,
 and that entity is one process whichever replica the caller reached. A point the edge
 implements itself holds its props and rows in one process, so two tabs of one session that
 land on different replicas would see different values with nothing in the system to say so.
@@ -277,14 +275,14 @@ visitor as one.
 
 ### What does not scale by raising the number
 
-Worth reading before you raise it, because none of these announces itself:
+None of these announces itself:
 
 - **State in an edge singleton is per replica.** The rule above covers connect points. An
   edge singleton can still hold state a remote-page route or an `Api` handler reads, and
-  each replica has its own. The [multiplayer arena](tutorial-multiplayer.md) is the honest
-  counter-example: replicate it and you get N separate worlds, each convinced it is the
-  only one. An app like that scales by sharding players across edges, which is a different
-  thing than replicating one.
+  each replica has its own. The [multiplayer arena](tutorial-multiplayer.md) is the
+  counter-example. Replicate it and you get N separate worlds with no knowledge of each
+  other. An app like that scales by sharding players across edges, which is a different
+  thing from replicating one.
 - **`Caller.emit` to a session reaches the replica holding that connection**, and no other.
   Notifying one user from an entity is a per-connection act.
 - **The device route's rate limit is per replica**, so the budget it enforces is multiplied
@@ -293,9 +291,8 @@ Worth reading before you raise it, because none of these announces itself:
 
 ### Running one edge on more than one core
 
-Replicating is not the only way to use more of a machine, and for some systems it is the
-wrong one. A single edge can spread its accepted browser sockets across IO threads
-instead, in one process. Also opt in, also one key:
+A single edge can spread its accepted browser sockets across IO threads instead, in one
+process, which suits some systems better than replicating. Also opt in, also one key:
 
 ```yaml
   - name: edge
@@ -308,7 +305,7 @@ there. Everything else stays where it was. The QtRO host each connection gets, t
 Sources it acquires, the QML engine, and the entity singleton all live on the main thread,
 the same as at `threads: 1`.
 
-That is the whole difference between the two keys, and it decides which one you want:
+The difference between the two keys decides which one you want:
 
 | | `replicas: N` | `threads: N` |
 |---|---|---|
@@ -346,17 +343,16 @@ One publisher, 100 subscribers, saturating, 256 byte payload; 32 core Linux host
 | 8 | 1 023 340 | 861 700 | 175 050 |
 
 Read the two dashed lines against the solid one rather than against each other. Processes
-scale close to linearly, and SynQt and Node do about equally well at it, which is the
-honest state of that comparison. What they are scaling, though, is N separate systems: at
+scale close to linearly, and SynQt and Node do about equally well at it. What they are
+scaling, though, is N separate systems: at
 eight processes there are eight publishers holding eight values, and delivering *one*
 value to every subscriber from all of them costs a broadcast between processes that is in
 none of these numbers.
 
 The solid line is the one that keeps the shared value, and it flattens: 1.76x from one
-core to two, nothing after that, and a slight loss by eight. So `threads:` is not a way to
-buy throughput without limit. It is a way to spend two to four cores on delivering
-something every subscriber must agree on, which is the case `replicas:` cannot serve at
-all.
+core to two, nothing after that, and a slight loss by eight. `threads:` buys two to four
+cores of delivery for something every subscriber must agree on, which is the case
+`replicas:` cannot serve at all, and no more than that.
 
 **What it does not buy.** The Source still runs once, on the main thread, so an owner that
 is slow to compute what it publishes is exactly as slow with four threads as with one.

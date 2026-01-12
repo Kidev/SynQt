@@ -6,10 +6,10 @@ built as a native application for Windows, macOS, and Linux, connecting to the s
 web edge, over the same secure link, under the same security model. One QML codebase
 becomes a browser app and a native desktop app at once.
 
-This is a deliberate consequence of the architecture, not a bolt-on. The client is
-already the most constrained entity in the system (the browser sandbox anchors its
-shape: it can only connect out, never listen, and holds no secret and no mesh
-certificate). A native build lifts none of those constraints away. It keeps the
+This follows from the architecture. The client is
+already the most constrained entity in the system. The browser sandbox anchors its
+shape, so it can only connect out, never listen, and holds no secret and no mesh
+certificate. A native build lifts none of those constraints away. It keeps the
 client to exactly the same trust position, so the QML you already wrote runs
 unchanged. Desktop is a strict superset of the environment the client is written
 against.
@@ -43,23 +43,22 @@ Five things differ, all on the client side, all handled by the framework.
 
 ### Terminating TLS
 
-In the browser, the platform terminates `wss` for you: the WASM client sets no
+In the browser, the platform terminates `wss` for you. The WASM client sets no
 `QSslConfiguration`, because `QSsl` does not work in the browser (see the [Qt for
 WebAssembly notes](architecture.md#plane-b-transport-the-secure-pipes)). A native
-client has no such limitation: it terminates its own TLS with `QSslSocket`,
+client has no such limitation. It terminates its own TLS with `QSslSocket`,
 verifying the edge's public certificate against the operating system trust store
 (or a certificate you pin in config). It connects to the same public `wss`
-endpoint the browser uses; only who terminates the TLS differs.
+endpoint the browser uses. Only who terminates the TLS differs.
 
 ### Knowing where the edge is
 
 A browser client is served by the edge, so it learns the edge origin from the page
-it loaded: the runtime config is delivered with the bundle. A desktop client is
-not served by anyone; it must be told the edge's public URL. You provide it in
+it loaded, since the runtime config is delivered with the bundle. Nobody serves a
+desktop client, so it must be told the edge's public URL. You provide it in
 [`build.desktop.edge_url`](#configuration), and it is compiled into the binary. An
 app that has to reach more than one deployment is therefore more than one build,
-which is the honest shape: the edge a client trusts is not a preference a user
-should be able to retarget.
+because the edge a client trusts is not a preference a user should be able to retarget.
 
 ### Signing in
 
@@ -138,11 +137,11 @@ identity:
     min_binding: user            # user | application (see below about hardware)
 ```
 
-**What is stored is not the session.** It is a *device credential*: an opaque pair the
+What is stored is a device credential rather than the session. It is an opaque pair the
 edge issues, redeemable exactly once, at exactly one route, and what it buys is a fresh
-session of the ordinary length. That separation is the point. If the stored thing were
-the session id, "stay signed in for a month" and "a stolen file is good for a month"
-would be one number, and the pressure would always be to make it larger.
+session of the ordinary length. If the stored thing were the session id, "stay signed in
+for a month" and "a stolen file is good for a month" would be one number, and the
+pressure would always be to make it larger.
 
 Three properties follow:
 
@@ -150,10 +149,10 @@ Three properties follow:
   takes its place, so a credential copied off a disk is good only until the machine it
   came from next starts up.
 - **A retired generation coming back is an event.** Presented inside
-  `overlap_seconds` it is the honest case, a client that lost the answer before it
+  `overlap_seconds` it is the ordinary case, a client that lost the answer before it
   could store it, and it costs nothing. Presented after that window it means two copies
   exist, so the device and every session it opened are revoked and somebody signs in
-  again. This is the property no file permission gives: theft stops being silent.
+  again. Theft stops being silent, which no file permission achieves.
 - **Scope is re-derived at every redemption**, through the same
   [mapping hook](authentication.md) a login runs through. Somebody demoted yesterday
   does not carry yesterday's scope for the rest of the month.
@@ -178,15 +177,15 @@ none of those is an answer about the credential, so the app waits and stays sign
 | Windows | Credential Manager, `CRED_PERSIST_LOCAL_MACHINE` | this OS user (DPAPI at rest) |
 | Linux | the Secret Service (`org.freedesktop.secrets`) through libsecret | this OS user |
 
-**There is no file fallback**, on any platform, in any build, including development. A
+There is no file fallback, on any platform, in any build, including development. A
 machine with no store persists nothing and its visitor signs in once per launch, which
-is exactly what `desktop_session: memory` does everywhere. That is deliberate: what
-makes this credential safe to hand out at all is that a copy of it cannot be taken
-without taking the OS store's protection with it.
+is exactly what `desktop_session: memory` does everywhere. What makes this credential
+safe to hand out at all is that a copy of it cannot be taken without taking the OS
+store's protection with it.
 
-Some honest limits, stated rather than implied:
+Four limits apply:
 
-- On Windows and Linux the boundary is the OS user, not the application. Any process
+- On Windows and Linux the boundary is the OS user rather than the application. Any process
   running as that user can read the item back. macOS is the only one of the three with
   a real per-application boundary, and only on a signed build, which is why
   `synqt build --deploy --sign` has a security consequence there and not only a
@@ -197,26 +196,26 @@ Some honest limits, stated rather than implied:
 - A redeemed session carries the visitor's identity and scope, and no provider tokens.
   Tokens belong to the session the login created (see
   [session lifecycle](authentication.md#session-lifecycle)) and that session is gone by
-  the next launch, so what a relaunch restores is who somebody is, not a live
+  the next launch, so what a relaunch restores is who somebody is rather than a live
   authorization to call the provider's API on their behalf. Nothing in SynQt hands an
-  entity those tokens today, so nothing breaks; a system that later needs them across a
-  relaunch has to have the visitor sign in again, which is the honest version of a
+  entity those tokens today, so nothing breaks. A system that later needs them across a
+  relaunch has to have the visitor sign in again, rather than keeping a
   30-day refresh token sitting on a disk.
-- `min_binding` is a **fleet policy control, not an attack control**. The level is
-  reported by the client about its own store, and a patched client can claim more than
-  it has; proving it would need key attestation, which SynQt does not do. It is the
+- `min_binding` is a fleet policy control. The client reports the level of its own
+  store, and a patched client can claim more than it has. Proving it would need key
+  attestation, which SynQt does not do. It is the
   same kind of control as [route guards](programming-model.md) and a
   [`transport: local`](security.md) link.
 
 Raising `min_binding` never breaks a platform. A client whose store cannot meet the
 floor keeps the session it just signed in for, writes nothing, and behaves exactly as
-it does under `desktop_session: memory`; `synqt check` warns at build time about which
+it does under `desktop_session: memory`. `synqt check` warns at build time about which
 machines that will be, so it is a choice rather than a surprise. Which machines those
-are is a property of each machine and not of the build, which is why the edge settles
-it at enrolment.
+are is a property of each machine rather than of the build, which is why the edge
+settles it at enrolment.
 
 There are two levels to choose between today. `hardware` is in the vocabulary and no
-store reports it: nothing here talks to a Secure Enclave or a TPM yet, so a project
+store reports it. Nothing here talks to a Secure Enclave or a TPM yet, so a project
 that asked for it would turn persistence off on every platform at once rather than on
 some of them. `synqt check` refuses that floor and says so, instead of leaving a
 feature switched on and inert. The level keeps its name so that a store which does
@@ -326,31 +325,30 @@ Only system libraries are left to the host: the C runtime and the display server
 libraries, exactly as any other native application on the platform expects. For a single
 distributable file, wrap the tree with `linuxdeploy` or an AppImage recipe.
 
-Why the second flag is mandatory. What an unsigned build costs is different on each
+The second flag is mandatory because what an unsigned build costs is different on each
 platform, and only one of the three answers is "it will not run":
 
 | Platform | Unsigned binary | Signing is |
 |----------|-----------------|------------|
 | macOS | Gatekeeper refuses it anywhere but the machine that built it | **required** to distribute |
 | Windows | runs, but SmartScreen warns every downloader about an unrecognised publisher | **strongly advised** |
-| Linux | runs normally; there is no binary code signing | **not applicable**, sign the *package* |
+| Linux | runs normally, since there is no binary code signing | **not applicable**, sign the package |
 
 So `--deploy` alone is refused, and the refusal states which of those three applies to
 the host you are on, and offers only the flags that host accepts. `--unsigned` is an
-acknowledgement, not a workaround: on Linux it is simply the normal state, on macOS it
-means local use only.
+acknowledgement. On Linux it is the normal state, and on macOS it means local use only.
 
 `--sign` takes a codesign identity on macOS (passed to `macdeployqt -codesign`, which
 signs the frameworks and plugins inside the bundle before the bundle itself) and a
 certificate subject name on Windows (`signtool /n`, timestamped so the signature
 outlives the certificate). On Linux it is refused, with the reason. SynQt never
-notarizes: that needs your credentials and a network round trip, so `DEPLOY.txt` gives
-you the `notarytool` command instead.
+notarizes, because that needs your credentials and a network round trip, so `DEPLOY.txt`
+gives you the `notarytool` command instead.
 
 The bundle identifier defaults to a placeholder
 (`com.example.<project>.<client>`) and is a CMake cache entry rather than a
 `synqt.yaml` key, since it belongs with signing. Set it on the generated `host`
-preset once; the cache keeps it for later builds:
+preset once. The cache keeps it for later builds:
 
 ```cli
 cmake --preset host -DSYNQT_BUNDLE_ID=com.acme.gavel

@@ -27,7 +27,7 @@ is, not why. For the generated class and member reference, see the
 | [`overrides/`](https://github.com/Kidev/SynQt/tree/main/overrides) | MkDocs Material theme overrides. |
 | [`.github/`](https://github.com/Kidev/SynQt/tree/main/.github) | Continuous integration and release workflows. |
 
-A SynQt application has no top level CMake project, and that is deliberate: each entity is
+A SynQt application has no top level CMake project. Each entity is
 its own project that finds Qt through `CMAKE_PREFIX_PATH` and shares only the generated
 contract layer, because entities are separate targets and a client must not be able to link
 what a service links. Each test suite is laid out the same way for the same reason, and each
@@ -40,7 +40,7 @@ It builds nothing an application deploys, and `synqt build` never reads it.
 
 ## The runtime libraries ([`src/`](https://github.com/Kidev/SynQt/tree/main/src))
 
-The runtime is split by trust boundary, not by convenience. A client target must never
+The runtime is split by trust boundary. A client target must never
 link a service only module, so the libraries are separate and the client links only the
 two it is allowed to.
 
@@ -52,14 +52,14 @@ two it is allowed to.
 | `SynQtService`   | [`src/service`](https://github.com/Kidev/SynQt/tree/main/src/service)    | Qt Core, Network, Qml, RemoteObjects, WebSockets, OpenSSL | What every service entity needs and nothing more: `EntityRuntime` and `ConnectPointHost` (topology and hosting), the mesh transport (`MeshServer`, `MeshClient`, `MeshPeer`), `SessionManager` and `Caller`. Every module here is LGPLv3, which is what makes a relational, cache, document, jobs or plain service entity LGPLv3. |
 | `SynQtIdentity`  | [`src/identity`](https://github.com/Kidev/SynQt/tree/main/src/identity)   | `SynQtService`, Qt NetworkAuth, jwt-cpp | The login engine: `OAuthBackend` (the client secret and the tokens), `EdgeReplyHandler`, `JwksVerifier` (ID token signatures against the provider JWKS), and `IdentityService` with the `Identity` and `SessionStore` connect points a dedicated auth entity owns. Qt Network Authorization is GPLv3-only, so this is a library of its own and only the edge and the auth entity link it. |
 | `SynQtEdge`      | [`src/edge`](https://github.com/Kidev/SynQt/tree/main/src/edge)      | `SynQtIdentity`, Qt HttpServer | The one entity a browser reaches: `WebEdge` (bundle serving, the header policy, the WebSocket upgrade pipeline), `IdentityProvider` (the login, callback and logout routes), the `Pages` connect point (`PageStore`, `PagesService`, `PagesEdgeSource`) and the dev-only `StubIdentityServer`. Qt HTTP Server is GPLv3-only, so only a `type: web_edge` entity links this. |
-| `SynQtGateway`   | [`src/gateway`](https://github.com/Kidev/SynQt/tree/main/src/gateway)   | `SynQtService`, Qt HttpServer | The inbound HTTP surface an entity's `network.inbound` opens: `ApiServer` (the rate, key, origin and body-size checks, run before any handler exists) and the `Api` helper the entity's own singleton declares its routes on. Qt HTTP Server again, and deliberately not `SynQtIdentity`: a gateway authenticates machine callers with a key, so it has no reason to carry Qt Network Authorization. |
+| `SynQtGateway`   | [`src/gateway`](https://github.com/Kidev/SynQt/tree/main/src/gateway)   | `SynQtService`, Qt HttpServer | The inbound HTTP surface an entity's `network.inbound` opens: `ApiServer` (the rate, key, origin and body-size checks, run before any handler exists) and the `Api` helper the entity's own singleton declares its routes on. Qt HTTP Server again, and not `SynQtIdentity`: a gateway authenticates machine callers with a key, so it has no reason to carry Qt Network Authorization. |
 | `SynQtProviders` | [`src/providers`](https://github.com/Kidev/SynQt/tree/main/src/providers)  | Qt Sql, optional hiredis and mongo-c                               | The backend facing family interfaces (`IPersistenceProvider`, `IDocumentProvider`, `ICacheProvider`), the bundled providers (`sqlite`, `postgres`, `mysql`, the `memory` cache), the optional external ones (`redis`, `mongodb`, gated by their client libraries), the `ProviderRegistry` a custom provider registers with, and the entity QML helpers `Db`, `Cache`, `Docs`, `Http`, and `Jobs`. |
 
 The client links only `SynQtTransport`, `SynQtClient`, and `SynQtConsumer`. It never links
 `SynQtService` or `SynQtProviders`; the build fails on purpose if it tries, because those
 carry storage drivers and credentials that must never reach the browser.
 
-The line between the last three is the license, not tidiness. Qt HTTP Server and Qt Network
+The license is what separates the last three. Qt HTTP Server and Qt Network
 Authorization are GPLv3-only, and linking one makes that entity's binary GPLv3, so they are
 reached only through `SynQtEdge`, `SynQtIdentity` and `SynQtGateway`.
 `appmodel.service_libraries` says which of the four an entity links, and both the
@@ -328,7 +328,7 @@ the Python suite.
 
 ### Coverage
 
-How much of the framework the suites above actually reach is measured, not estimated:
+How much of the framework the suites above actually reach is measured:
 
 ```sh
 QT_HOST=/opt/Qt/6.11.1/gcc_64 tests/run-coverage.sh
@@ -367,7 +367,7 @@ C++ floor by the Linux column of
 [`ctest.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/ctest.yml), which
 already has the Qt kit the instrumented build needs.
 
-Two things move the figure, and it is worth knowing which is which.
+Two things move the figure.
 
 The external engine providers need an engine. Everything in `postgres`, `mysql`,
 `mongodb`, and `redis` past the connect call is unreachable without a live server, which is
@@ -393,9 +393,10 @@ exactly as it would have, because a coverage number is not worth a build that fa
 infrastructure. Two things gate the redis and mongodb halves further, and both are why that
 column installs `libhiredis-dev` and `libmongoc-dev`: without those headers at configure
 time, `src/providers/CMakeLists.txt` leaves the wrapper out of the build entirely, so the
-file is not uncovered, it is not there. Faking the wire protocols instead was considered and
-rejected: satisfying libpq or the MongoDB driver well enough to be useful is a large surface,
-and a green test against a fake proves the provider talks to the fake.
+file is absent from the build rather than present but uncovered. Faking the wire
+protocols instead was considered and rejected: satisfying libpq or the MongoDB driver
+well enough to be useful is a large surface, and a green test against a fake proves the
+provider talks to the fake.
 
 `mysql` needs one more thing than an engine, and it is a licensing consequence. Qt's
 prebuilt QMYSQL plugin is linked against Oracle's `libmysqlclient`, which SynQt may not
@@ -435,10 +436,9 @@ which drives the real transport in Chromium, Firefox, and WebKit, and by the `cl
 row of [`wasm-proofs.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/wasm-proofs.yml),
 which drives the client runtime itself in the same three engines. No line counter follows them
 there. Emscripten can emit LLVM coverage and the profile can be lifted out of the virtual
-filesystem after a run, so a number is obtainable; it is deliberately not worth a second
-coverage pipeline for a hundred lines whose failure mode (the address bar, the reconnect, the
-deep link) is what those two workflows assert directly, in every engine, which is a stronger
-statement than a percentage.
+filesystem after a run, so a number is obtainable, but a second coverage pipeline is not worth
+it for a hundred lines whose failure mode (the address bar, the reconnect, the deep link)
+is what those two workflows assert directly, in every engine.
 
 ### Memory
 
@@ -455,13 +455,13 @@ warms up first, because the first pass through any path allocates what every lat
 reuses; what it asserts is the difference between a warm system and the same warm system
 after doing the same work again.
 
-That shape is deliberate. Every leak this framework has actually had was perfectly
+Every leak this framework has actually had was perfectly
 reachable at the moment it mattered: a promise parented to a facade that lives as long as
 the connection, a node replaced but not retired on reconnect, a verifier map nothing ever
 removed from. A leak checker reports what is unreachable and would have called all three
 clean.
 
-The second way is the other half. It runs on demand, and in CI through
+The second way runs on demand, and in CI through
 [`leaks.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/leaks.yml): weekly,
 on dispatch, and on any push that touches `src/` or the harness. It is not on every push
 because the sanitizer pass rebuilds the whole tree instrumented and then runs every suite
@@ -487,7 +487,7 @@ named as excluded from the soak instead of quietly halved.
 
 ## Benchmarks ([`benchmarks/`](https://github.com/Kidev/SynQt/tree/main/benchmarks))
 
-Performance is measured, not assumed, because the client to edge path rides an officially
+Performance is measured, because the client to edge path rides an officially
 unsupported transport. Each harness lives in its own directory (`transport`, `mesh`,
 `fanout`, `sessions`, `persistence`, `edge`, `client`, `remote-pages`, `capstone`) and
 writes a JSON result under
@@ -622,14 +622,14 @@ That trade only works once the publisher is registered, which is a one-time manu
    and the approval is what stops a compromised workflow run from publishing on its own.
 3. Run the release workflow. `publish-pypi` waits for the approval, then uploads.
 
-Two things about it are worth knowing before the first run. PyPI never allows a version to
-be re-uploaded, so `publish-pypi` runs *after* the GitHub release is out rather than beside
-it, and `build-pypi` runs `twine check` and confirms the wheel actually carries `src/` and
-`cmake/` before anything is uploadable. And the publisher is matched on the workflow *file
-name*, so renaming `release.yml` breaks publishing until the publisher on PyPI is edited to
+Two things matter before the first run. PyPI never allows a version to
+be re-uploaded, so `publish-pypi` runs after the GitHub release is out rather than beside
+it, and `build-pypi` runs `twine check` and confirms the wheel carries `src/` and
+`cmake/` before anything is uploadable. And the publisher is matched on the workflow file
+name, so renaming `release.yml` breaks publishing until the publisher on PyPI is edited to
 match.
 
-A suffix that PEP 440 cannot express (`-nightly`, say) is not an error: the `version` job
+A suffix that PEP 440 cannot express (`-nightly`, say) is not an error. The `version` job
 says so, the GitHub release and the frozen binaries happen as usual, and only `publish-pypi`
 steps aside.
 

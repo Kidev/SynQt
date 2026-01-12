@@ -19,11 +19,10 @@ An entity is a unit of a SynQt system with:
 - a place in the deny by default topology and a transport binding.
 
 Entities are how SynQt lets you build a whole system (UI, edge, storage, cache,
-integrations) in one framework, one toolchain, one security model, without
-standing up separate third party products. You do not configure and secure
-Postgres, Redis, and a gateway as three external systems. You add three SynQt
-entities, and they share the contract format, the mesh transport, and the mutual
-TLS identity model.
+integrations) in one framework, one toolchain, and one security model. Postgres,
+Redis, and a gateway become three SynQt entities sharing the contract format, the
+mesh transport, and the mutual TLS identity model, rather than three external
+systems each configured and secured on its own.
 
 A typical system as a topology, with the internet on the left and the internal
 mesh on the right:
@@ -57,9 +56,9 @@ below and [providers](providers.md)).
 
 ## The one field: `type`
 
-One field says it. `type:` decides the folder the entity lives in, the helper the runtime
-puts in its QML, whether it faces the internet, and whether it is compiled native or to
-WebAssembly. An entity that names no type is a `service`.
+`type:` decides the folder the entity lives in, the helper the runtime puts in its QML,
+whether it faces the internet, and whether it is compiled native or to WebAssembly. An
+entity that names no type is a `service`.
 
 `type: client`:
 
@@ -96,9 +95,9 @@ authorize.
 
 Backend: a provider. The default provider is Qt SQL with the bundled SQLite driver
 (QSQLITE), the in process database with the best test coverage and platform support
-in Qt, running no separate daemon. This keeps the "no third party app" promise out
-of the box: the storage is an embedded library inside a SynQt entity, not a separate
-server you operate. The same entity can instead be backed by a third party engine
+in Qt, running no separate daemon. The storage is an embedded library inside a SynQt
+entity rather than a separate server to operate. The same entity can instead be backed
+by a third party engine
 (PostgreSQL, MySQL, and others, or a document engine through the document entity type)
 by selecting a provider, with the connect points and every consumer unchanged. The
 provider system, the available engines, and their security are the subject of
@@ -215,10 +214,10 @@ Security: identical in shape to the relational entity. Not a `web_edge`, a
 private or local only bind, the calling entity authorized in every slot, and its
 credentials in its own `.env`.
 
-One difference is worth stating plainly, because it has no equivalent on the
+One difference has no equivalent on the
 persistence side. A filter map is the document engine's query language, the way a
 string is SQL's. `Db` cannot be handed concatenated SQL, so a parameter is only ever
-data; a filter has no such separation, and a map forwarded whole from a caller can
+data. A filter has no such separation, and a map forwarded whole from a caller can
 carry engine operators the Source never meant to allow. So build the filter in the
 Source from the fields you accept:
 
@@ -248,7 +247,7 @@ release build, and refuses any URL that is not under one of the prefixes
 `network.outbound` names. Gateway code never touches a socket and never reaches
 somewhere the topology did not list.
 
-Under is a place and not a string. A declared `https://api.example.com/v1` covers that
+Prefixes are matched structurally. A declared `https://api.example.com/v1` covers that
 scheme, that host, that port, and that path or a path below it, and it covers nothing
 else: not `https://api.example.com@evil.test/v1` (whose host is evil.test), not
 `api.example.com.evil.test`, not `http://` instead of `https://`, and not `/v1evil`. The
@@ -354,13 +353,12 @@ The order is owners before the consumers that need them, though a consumer retri
 its owner is ready either way. [Deploying a SynQt system](deploying.md) walks the rest of
 the path.
 
-## Why this is safer than bolting on third party services
+## Compared with separate third party services
 
 A conventional stack wires together a database server, a cache server, a gateway,
 and a job runner, each with its own authentication, its own network exposure, its
 own configuration language, and its own failure modes. Every one of those is a
 separate thing to secure and a separate place to get it wrong. SynQt entities share
 one identity model (mesh mutual TLS), one authorization model (`Caller` checks in
-slots), one contract format, one transport, and one deny by default topology.
-There are fewer moving parts, fewer credentials, and one consistent security story
-to reason about and audit.
+slots), one contract format, one transport, and one deny by default topology, which
+leaves fewer credentials and one security story to audit.

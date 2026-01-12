@@ -45,9 +45,8 @@ connect_points:
       prop int value          // edge owned; clients read, edge writes
       slot increment()        // a request; the edge performs the change
       slot decrement()
-    # the edge says shared: false, so each session gets its
-    # own Source and each slot gets its Caller. The counter itself is one number for
-    # everybody, so it lives in the edge entity's own file below.
+    # the edge is shared (the default), so one Source holds one number for every
+    # browser watching, and each slot still arrives with its own Caller.
     # no scope: any session may use it
 ```
 
@@ -59,31 +58,11 @@ localhost. A release build refuses to start without TLS, so running it with
 certificate, as Example 2 shows (see the
 [validation rules](project-layout-and-config.md#validation)).
 
-### The edge entity, `web/edge/Edge.qml`
+### The edge, `web/edge/Edge.qml`
 
-The number itself, held by the entity rather than by any one connection. A Source is
-created per browser session and does not outlive it; this file is the entity and does.
-
-```qml
-pragma Singleton
-
-import QtQuick
-
-QtObject {
-    id: root
-
-    property int value: 0
-
-    function bump(by: int) {
-        root.value = root.value + by;
-    }
-}
-```
-
-### Edge, `web/edge/Edge.qml`
-
-One of these per browser session. It binds the contract property to the entity's number,
-so every session sees the same value and every slot still has a `Caller` to authorize.
+One file is the entity and the surface it exports. The edge is shared, so there is one
+of it holding one number however many browsers are watching, and every slot still has a
+`Caller` to authorize.
 
 ```qml
 import QtQuick
@@ -92,10 +71,10 @@ import SynQt
 Edge {
     id: counter
 
-    value: Edge.value
+    value: 0
 
-    function increment() { Edge.bump(1); }    // the edge is the writer
-    function decrement() { Edge.bump(-1); }
+    function increment() { counter.value = counter.value + 1; }   // the edge is the writer
+    function decrement() { counter.value = counter.value - 1; }
 }
 ```
 
@@ -132,19 +111,19 @@ ApplicationWindow {
 }
 ```
 
-Open the page in two browser tabs and the counter stays in sync: each tab has its own
-Source, and both bind to the one number the edge entity holds.
+Open the page in two browser tabs and the counter stays in sync, because both tabs mirror
+the one Source the edge holds.
 
 ## Example 2: the authenticated Todo app
 
-This is the canonical SynQt example: a shared todo list where anyone may read,
+This is the canonical SynQt example, a shared todo list where anyone may read,
 but only signed in users may add, and a user may only remove their own items.
 Moderators may remove anything. It demonstrates login, scopes, per row ownership
 that never leaves the edge, and an edge to client refusal channel.
 
 ### Configuration, `synqt.yaml`
 
-Note what is absent from the model role list below: there is no `ownerId`. The edge
+The model role list below has no `ownerId`. The edge
 will keep an owner id per row for authorization, and it will never reach any
 client because it is not a declared role.
 
@@ -198,8 +177,8 @@ connect_points:
       slot add(string[280] text)
       slot remove(int index)
       signal rejected(string[120] reason)   // the edge explains a refusal to one client
-    # the edge is not shared, so each slot has its Caller. The list everyone sees
-    # lives in the edge entity's own file, which outlives any one connection.
+    # the edge is shared (the default), so one Source holds the one list everybody
+    # sees, and each slot still arrives with its own Caller.
     # no scope on the connect point: anonymous users may acquire it and read.
     # write permission is enforced inside the slots, not at acquisition.
 ```
@@ -231,46 +210,23 @@ IdentityMapping {
 }
 ```
 
-### The edge entity, `web/edge/Edge.qml`
+### The edge, `web/edge/Edge.qml`
 
-The list is one list for the whole app, so it belongs to the entity and not to any one
-connection. `ownerId` is kept here and is not declared in the contract, so it cannot reach
-a browser however the Source is written.
-
-```qml
-pragma Singleton
-
-import QtQuick
-
-QtObject {
-    id: root
-
-    property var rows: []
-
-    function append(row) {
-        root.rows = root.rows.concat([row]);
-    }
-
-    function removeAt(index: int) {
-        const next = root.rows.slice();
-        next.splice(index, 1);
-        root.rows = next;
-    }
-}
-```
-
-### Edge, `web/edge/Edge.qml`
-
-One of these per browser session, which is what gives every slot below its `Client`
-(the browser-side name for `Caller`). It reads and writes the entity's list, and
-`setItems` copies only the declared roles out to that session.
+One file is the entity and the surface it exports. The list is one list for the whole
+app, and each slot still arrives with its own `Client` (the browser-side name for
+`Caller`). `ownerId` is kept on each row and is not a declared model role, so it cannot
+reach a browser however the file is written.
 
 ```qml
 import QtQuick
 import SynQt
 
 Edge {
-    count: Edge.rows.length
+    id: todo
+
+    property var rows: []
+
+    count: todo.rows.length
 
     function add(text) {
         if (!Client.hasScope("user")) {
@@ -282,32 +238,34 @@ Edge {
             Client.emitRejected("Items must be 1 to 280 characters.")
             return
         }
-        Edge.append({
+        todo.rows = todo.rows.concat([{
             text: clean,
             author: Client.identity.email,
             done: false,
             ownerId: Client.id              // edge only authorization data
-        })
+        }])
     }
 
     function remove(index) {
-        if (index < 0 || index >= Edge.rows.length) {
+        if (index < 0 || index >= todo.rows.length) {
             Client.emitRejected("No such item.")
             return
         }
-        const row = Edge.rows[index]
+        const row = todo.rows[index]
         const isOwner = row.ownerId === Client.id
         if (!isOwner && !Client.hasScope("moderator")) {
             Client.emitRejected("You can only remove your own items.")
             return
         }
-        Edge.removeAt(index)
+        const next = todo.rows.slice()
+        next.splice(index, 1)
+        todo.rows = next
     }
 
-    // Every session's Source republishes when the entity's list changes, so a change one
-    // user makes reaches all of them. `itemsRows` keeps only the roles `items` declares, so
-    // ownerId is dropped at this boundary and never crosses to a browser.
-    itemsRows: Edge.rows
+    // One binding, so a change any user makes reaches every browser watching.
+    // `itemsRows` keeps only the roles `items` declares, so ownerId is dropped at this
+    // boundary and never crosses to a browser.
+    itemsRows: todo.rows
 }
 ```
 
@@ -386,7 +344,7 @@ ApplicationWindow {
 
 - The client treats `add` and `remove` as requests. The edge authorizes them.
 - `ownerId` exists on every row for authorization and never crosses the boundary,
-  because it is not a declared model role. Confidentiality is structural.
+  because it is not a declared model role.
 - Client side `Session.hasScope("user")` only hides and disables UI. A modified
   client that calls `Server.add` while anonymous still hits an edge that
   refuses, with `rejected("Sign in to add items.")`.
@@ -403,25 +361,29 @@ ApplicationWindow {
 
 ## Example 3: a private per session draft (sketch)
 
-Every connect point already gets a Source per caller. What makes a draft private is that
-the Source keeps its state to itself instead of reading the entity's, and that the point is
-scoped so an anonymous client never acquires it at all:
+What makes a draft private is `shared: false` on the entity, which gives each caller a
+Source of its own, plus a scope on the point so an anonymous client never acquires it at
+all:
 
 ```yaml
+entities:
+  - name: edge
+    type: web_edge
+    shared: false             # a draft Source per session
+
 connect_points:
   - owner: edge
     consumers: [app]
     server: web/edge/Edge.qml
     scope: user               # only signed in users may acquire it at all
-                         # the edge is not shared: a draft Source per session
     export: |
       prop string[4000] body
       slot save(string[4000] text)
 ```
 
-One user's draft is a different Source instance from another's, and this one touches no
-singleton, so there is nothing through which one client could observe another's draft. The
-`scope: user` precondition means an anonymous client never even acquires the replica.
+One user's draft is a different Source instance from another's, so there is nothing
+through which one client could observe another's. The `scope: user` precondition means an
+anonymous client never even acquires the replica.
 
 ## Example 4: a three entity todo with durable storage
 
@@ -482,8 +444,8 @@ connect_points:
       slot add(string[280] text)
       slot remove(int index)
       signal rejected(string[120] reason)
-    # the edge says shared: false, which is what gives
-    # the slots below their Caller
+    # the edge is shared (the default): one Source, and each slot still arrives
+    # with its own Caller
 
   - owner: store              # the store entity owns durable storage
     consumers: [edge]         # only the edge may reach it; never the browser
@@ -624,7 +586,7 @@ not know a database exists; it only ever talks to the edge.
   the browser cannot physically reach a non edge entity anyway.
 - Data minimization across two hops. `ownerSub` is on the internal contract for the
   edge's ownership logic and is dropped before anything reaches the browser, because
-  it is not a the edge's `items` role. It carries `Caller.identity.sub`, the stable
+  it is not one of the edge's `items` roles. It carries `Caller.identity.sub`, the stable
   identity subject, rather than the session id (`Client.id`) that Example 2 used:
   the accessor is the same one Example 2 reaches through the `Client` alias, but a
   durable row must stay owned across new sessions and restarts, so it keys on the

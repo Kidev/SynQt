@@ -108,7 +108,7 @@ error: client 'client' consumes 'inventory', owned by 'stock', which is not a we
 entity (the browser can only reach a web edge)
 ```
 
-The check is not a style rule; it is a fact of the deployment. A browser can only physically
+The check states a fact of the deployment. A browser can only physically
 reach a web edge, so a connect point a client consumes must be owned by a web edge. The
 connect point is owned by `stock`, a `type: relational` database, which is
 not a web edge, so the browser cannot reach it and the check refuses to build a topology that

@@ -63,9 +63,9 @@ say what type it is. Write it out: 'slot add(var text)' is what was read, with w
 it left open to fill in
 ```
 
-That is the rule rather than an accident. A guess is a fine starting point for a person
-and a bad thing to put on a wire, so a type nobody read stays a question rather than
-becoming `var` in a contract. In practice a property bound to the entity's own singleton
+A type nobody read stays a question rather than becoming `var` in a contract, because a
+guess is a reasonable starting point for a person and a bad thing to put on a wire. In practice a
+property bound to the entity's own singleton
 resolves (the declaration is one file away), a slot's parameter types usually do not, and
 a model's roles never do, because the rows are built somewhere else.
 
@@ -91,8 +91,8 @@ the same reading `synqt infer` prints, and
 Mapping to the QtRO semantics the generated rep encodes:
 
 - `prop` generates a property with push semantics. The consumer gets a getter and
-  a generated push request; never a direct setter. The owner is the only writer.
-  This is the QtRO READPUSH default, and it is deliberate.
+  a generated push request, and never a direct setter. The owner is the only writer.
+  This is the QtRO READPUSH default.
 - `model` generates a QtRO MODEL exposing only the named roles. Any other field on
   an owner row is invisible to consumers. On the owner, the generated Source
   publishes it two ways, both from the row objects: bind `<model>Rows` to where the
@@ -161,18 +161,18 @@ limit:
 | `list[100]` | at most 100 elements |
 | `var[4096]` | at most 4096 bytes once serialized |
 
-A bound is a rule, not a comment. The owner-side boundary enforces it at every place a
+The owner-side boundary enforces a bound at every place a
 value crosses: an assignment to a bounded `prop`, a role on a published row, an argument
 arriving on a `slot`, and an argument leaving on a `signal`. A value that does not fit is
-refused and named in a warning, and nothing is truncated: a silently shortened name and a
-silently dropped tail are the bugs a bound exists to prevent. Bound the fields that reach
+refused and named in a warning, and nothing is truncated, because a silently shortened name
+and a silently dropped tail are the bugs a bound exists to prevent. Bound the fields that reach
 a database column, a filename, or a rendered label, and leave the rest unbounded.
 
-Why a friendlier surface instead of raw rep files. Rep defaults (push versus read
-or write, which roles a model exposes) are exactly the places a mistake becomes a
-security hole. The `export:` surface keeps the safe defaults obvious and emits
-correct rep without the developer memorizing rep keywords. The generated rep is
-available in the build directory for inspection.
+The `export:` surface exists instead of raw rep files because rep defaults (push
+versus read or write, which roles a model exposes) are the places a mistake becomes
+a security hole. It keeps the safe defaults obvious and emits correct rep without
+the developer memorizing rep keywords. The generated rep is available in the build
+directory for inspection.
 
 ## Connect points: owned by one entity, consumed by others
 
@@ -205,7 +205,7 @@ The configurable parts that matter:
   the required scope never gets the object, so cannot call its slots at all.
 - `export`. What may cross, written on the point. The type it becomes is the owner
   capitalized, so `owner: edge` exports `Edge`; nothing names it separately, and nothing
-  carries a suffix. One entity, one connect point, one name.
+  carries a suffix.
 - `server`. The file that implements the connect point, and its root element is the
   contract itself: `web/edge/Edge.qml` opens with `Edge { ... }`. That file is the entity,
   so it defaults to the entity's own file and most points never write this. Both ends of
@@ -282,7 +282,7 @@ owns an ordinary connect point of its own that the front consumes, and `synqt ch
 the two together: a tier carries exactly the members the front offers its callers, no more
 and no fewer.
 
-The point of the arrangement is what it removes. An entity behind a front is reached by
+An entity behind a front is reached by
 callers of one scope and no other, so it authorizes on `Caller` and never asks about scope;
 nothing enforces that at run time because nothing has to. And with a tier per process, an
 admin surface's rows never exist in the process serving anonymous visitors.
@@ -326,8 +326,8 @@ sees: an auction, a leaderboard, the live state of a game.
 `shared: false` is one Source per caller. What it holds is that caller's alone. A browser
 caller is a session, so their second tab continues what the first tab was using and a
 private window gets its own; a mesh caller is the calling entity, so each consuming entity
-gets its own. It is what a draft, a wizard's half-filled form or a per-player slice of a
-world wants.
+gets its own. It suits a draft, a wizard's half-filled form, or a per-player slice of a
+world.
 
 It is the entity's answer and not a connect point's, because an entity is one thing
 everybody reaches or one thing per caller, and it cannot be both at once for two of its own
@@ -346,10 +346,10 @@ Two things follow from that:
   caller. On an entity that is not shared there is a Source per caller and its `Caller`
   never changes.
 
-A Source is live state, not storage, whichever answer you give. A per-caller Source lasts
-as long as that caller has at least one link open and is gone once they all close, so what
-has to survive a user closing the last tab belongs in the singleton or behind a persistence
-connect point.
+A Source holds live state rather than storage, whichever answer you give. A per-caller
+Source lasts as long as that caller has at least one link open and is gone once they all
+close, so what has to survive a user closing the last tab belongs in the singleton or
+behind a persistence connect point.
 
 ## Reaching a connect point: accessors
 
@@ -503,7 +503,7 @@ Edge {
 ```
 
 `db/relational/store/Store.qml`, the authoritative Source on the database entity.
-It authorizes nobody, and that is the point: its consumer list has one name in it.
+It authorizes nobody, because its consumer list has one name in it.
 
 ```qml
 import QtQuick
@@ -555,15 +555,14 @@ On the client, session state is read only through `Session`:
 
 Client side scope checks (hiding a button) are user experience only. They are
 never the security boundary. Every privileged action is checked again on the
-owner, inside the slot, against `Caller`. This duplication is intentional and is
-restated in the security document.
+owner, inside the slot, against `Caller`. The security document restates why the
+check exists in both places.
 
 ## Route guards (which client views are reachable)
 
 The client is a single compiled bundle, so all of its QML ships to every visitor.
-That is fine: shipping the structure of a page is not shipping the data behind it,
-and data only arrives through scope gated connect points. Route guards steer
-navigation:
+Shipping the structure of a page is not shipping the data behind it, and data only
+arrives through scope gated connect points. Route guards steer navigation:
 
 ```yaml
 router:
@@ -588,7 +587,7 @@ members are listed in the [runtime API reference](runtime-api.md#client-router),
 and the keys in
 [configuration](project-layout-and-config.md#router-and-routes-client-navigation).
 
-A guard is a redirect rule, not a secrecy mechanism. The privileged screen still
+A guard redirects and keeps nothing secret. The privileged screen still
 renders nothing useful without privileged connect points, which the edge refuses
 to provide to an under scoped session, and which often resolve through services
 the browser cannot reach at all.
@@ -628,6 +627,6 @@ does not crash the edge.
 - The framework moves the bytes, reconnects, authenticates every link, and keeps
   per session and per peer authoritative state separate when you ask for it.
 
-There is no single Server object and no single Client object to subclass. There
-are entities, the connect points they own and consume, the callers that reach
-them, and the contracts that define exactly what may travel.
+There is no single Server object and no single Client object to subclass. There are
+entities, the connect points they own and consume, the callers that reach them, and
+the contracts that define what may travel.

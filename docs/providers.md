@@ -9,8 +9,8 @@ SynQt's own embedded engine and needs no configuration. A third party engine
 and masked behind the same entity, so the rest of the system, and its security
 model, do not change.
 
-The rule behind that is simple by default, expandable by
-configuration. A database entity is one line. A database entity backed by a managed
+The default is simple and configuration expands it. A database entity is one line. A
+database entity backed by a managed
 PostgreSQL cluster over verified TLS with a connection pool is a few more lines, in
 the same place, with nothing else in the system aware of the difference.
 
@@ -52,11 +52,11 @@ the engine, cannot see its credentials, and cannot bypass the `Caller` checks th
 entity enforces before any provider call. Swapping SQLite for MongoDB changes the
 provider and its config, and nothing else.
 
-## Blueprints define a provider family and interface
+## Entity types define a provider family and interface
 
-Each of them targets a family of engines and defines one backend interface that
-every provider in that family implements. A provider declares which family it
-serves.
+Each entity type with an engine behind it targets a family of engines and defines one
+backend interface that every provider in that family implements. A provider declares
+which family it serves.
 
 ```mermaid
 flowchart TB
@@ -113,7 +113,7 @@ rather than from its type, because what an entity may reach is a deployment's de
 Every member of every helper is listed under [the type
 helpers](runtime-api.md#service-the-type-helpers).
 
-## Bundled providers, and how honest each one is
+## Bundled providers and how each reaches its engine
 
 SynQt bundles providers across the families. They differ in how they reach the
 engine, and the documentation is explicit about it because it affects the build and
@@ -174,25 +174,23 @@ have given you. The certificate check that CA enables covers the host name too, 
 The document and cache providers ask for TLS in their own engine's terms, and each
 checks that it got it. `tls: true` on the `redis` provider upgrades the connection
 before anything is sent, verifying the server against `ca_cert` (or the system trust
-store when no CA is named); a build without `hiredis_ssl`, or a server that offers no
+store when no CA is named). A build without `hiredis_ssl`, or a server that offers no
 TLS, is a refused connection with a reason, never a plaintext one. `tls` defaults to
 true, so a development engine you started on this machine with no certificate is the
-one case that needs a line: write `tls: false` next to it, which the release build then
+one case that needs a line. Write `tls: false` next to it, which the release build then
 refuses to accept for anything but a loopback host. `tls: true` on the
-`mongodb` provider is checked against the connection string the driver is actually
-handed: a `uri` that does not enable TLS is refused, and so is one that turns the
+`mongodb` provider is checked against the connection string the driver is
+handed. A `uri` that does not enable TLS is refused, and so is one that turns the
 certificate check back off with `tlsInsecure`, `tlsAllowInvalidCertificates` or
-`tlsAllowInvalidHostnames`. The rule behind both is that a flag is not a setting: what
-the entity claims and what goes on the wire have to be the same thing, or the claim is
-worse than nothing.
+`tlsAllowInvalidHostnames`. In both cases what the entity claims and what goes on the
+wire have to be the same thing, or the claim is worse than nothing.
 
 Document and cache providers wrap an external client library, because Qt has no
-official MongoDB or Redis module. The MongoDB provider wraps the MongoDB C client;
-the Redis provider wraps a Redis client (or speaks RESP over Qt Network). These
-client libraries are pulled through the pinned vcpkg baseline and reviewed. This is
-the honest position: SynQt wraps a maintained client behind the entity rather than
-reimplementing the engine, so you get a Mongo backed entity without your
-system speaking Mongo anywhere but inside that entity.
+official MongoDB or Redis module. The MongoDB provider wraps the MongoDB C client,
+and the Redis provider wraps a Redis client (or speaks RESP over Qt Network). These
+client libraries are pulled through the pinned vcpkg baseline and reviewed. SynQt wraps
+a maintained client behind the entity rather than reimplementing the engine, so a Mongo
+backed entity leaves the rest of the system speaking no Mongo at all.
 
 The embedded defaults (SQLite for persistence, in memory for cache) need no engine
 and no extra build, which is why they are the defaults and why a fresh project runs
@@ -206,7 +204,6 @@ provider. This is the common case and needs nothing more.
 ```yaml
 entities:
   - name: store
-    type: service
     type: relational              # provider defaults to sqlite (embedded)
     settings:
       file: db/relational/store/data/app.db
@@ -297,8 +294,7 @@ credentials only the entity holds.
 ## Writing a custom provider
 
 When no bundled provider fits (a niche engine, an in house store, a SaaS data API),
-implement the family interface yourself. This is the expandability escape hatch and
-keeps the framework open ended.
+implement the family interface yourself.
 
 > [!TIP]
 > This section is the reference. For the same thing built step by step, with two complete
@@ -332,7 +328,7 @@ keeps the framework open ended.
    runs. There is no CMake to edit, and editing it would not last: the build regenerates
    the project's `CMakeLists.txt` from the topology every time.
 
-`custom:` is a namespace, not decoration. Only a name carrying it is looked up among
+`custom:` is a namespace. Only a name carrying it is looked up among
 your registrations, so a custom provider can never shadow a bundled one: `sqlite`
 always means the bundled SQLite provider, whatever you register. If the name selects
 nothing, the entity refuses to start and says which providers the family does have,
@@ -395,7 +391,6 @@ backend can change without touching consumers. Providers make that concrete. The
 same `store` entity can be SynQt's embedded SQLite during early development and a
 managed PostgreSQL or a MongoDB cluster in production, decided by one config value,
 with the mesh authentication, the `Caller` authorization, the data minimization, and
-the deny by default topology all unchanged. Simple by default, because the embedded
-provider needs no configuration. Expandable by configuration, because a third party
-engine is a provider selection and a connection block, masked behind an entity that
-keeps the whole system's security model intact.
+the deny by default topology all unchanged. The embedded provider needs no
+configuration, and a third party engine is a provider selection plus a connection
+block, masked behind an entity that keeps the system's security model intact.

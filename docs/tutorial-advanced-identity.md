@@ -9,9 +9,9 @@ the most useful thing on this page.
 
 A database provider is swappable because every relational engine answers the same
 question: here is a statement and its parameters, give me rows. Authentication has no such
-question. What varies between two login systems is not how they answer, it is what the
-browser is made to do, what is signed, what is verified, and what the resulting claim
-means. Freezing that behind one interface would mean either an interface so wide it
+question. Two login systems differ in what the browser is made to do, what is signed,
+what is verified, and what the resulting claim means, rather than in how they answer.
+Freezing that behind one interface would mean either an interface so wide it
 guarantees nothing, or one so narrow it fits only what its author had in mind.
 
 So SynQt puts the seam somewhere else. It is not at the login system. It is at the
@@ -308,6 +308,6 @@ Both are the same design showing up twice. The browser is a consumer, and a cons
 - What you inherit either way: the credential never becomes data, the check runs on the
   owner, and the browser reaches exactly one entity.
 
-That is the whole of the seam. Back to [the overview](tutorial-advanced.md), or on to
+That covers the seam. Back to [the overview](tutorial-advanced.md), or on to
 [providers](providers.md) for the reference behind the two interfaces this track
 implemented.

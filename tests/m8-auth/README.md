@@ -81,8 +81,8 @@ What the suite proves, in the order it would hurt to get wrong:
 ## Staying signed in (`tst_device.cpp`, `tst_devicestore.cpp`)
 
 `identity.desktop_session: device` lets a native app come back signed in without a browser.
-What it keeps is not the session: it is a device credential, redeemable once, at one route,
-for a fresh session of the ordinary length. See
+What it keeps is a device credential rather than the session: redeemable once, at one
+route, for a fresh session of the ordinary length. See
 [desktop](../../docs/desktop.md#storing-the-session).
 
 `tst_device.cpp` is the edge half, driven over real HTTP against a `DeviceRegistry` on a

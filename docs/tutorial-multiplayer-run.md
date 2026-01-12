@@ -219,7 +219,7 @@ Edge {
 }
 ```
 
-The edge's connect point in `synqt.yaml` does not change at all, and that is the point:
+The edge's connect point in `synqt.yaml` does not change at all:
 the arrangement this needed was already there, because every connect point already gets a
 Source per caller.
 
@@ -238,8 +238,8 @@ per-player delivery touched only the edge.
 
 ## Run it
 
-Save and play. Nothing looks different, and that is exactly the point: interest
-management is invisible to the player. You steer, grow, and eat as before, the camera
+Save and play. Nothing looks different, because interest management is invisible to the
+player. You steer, grow, and eat as before, the camera
 still glides with you, the clock still counts down, the Hall of Fame still fills. What
 changed is on the wire: each browser now receives only the blobs and pellets inside its
 view, not the whole map. With two players far apart, neither appears in the other's

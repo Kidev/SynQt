@@ -59,8 +59,7 @@ This is the decision on this page. Everything else is a command.
 
 **The CA private key never goes on a host that runs an entity, and never into CI.**
 Anyone holding `ca.key` can mint a certificate that says `web` on it, and every entity in
-your system will believe them. It is not a deployment input; it is the thing that makes
-deployment inputs meaningful.
+your system will believe them. It is what makes every deployment input meaningful.
 
 Practically, pick one:
 
@@ -180,9 +179,8 @@ error: entity "books" is configured for transport: mtls but has no certificate
        issue one with: synqt mesh cert books
 ```
 
-Put it back. That message is the whole of the design in one line: the failure names the
-entity, names the file, and names the command, and it happens before anything listens on
-a port.
+Put it back. That message carries the design: the failure names the entity, the file and
+the command, and it happens before anything listens on a port.
 
 ## Try it, then think
 

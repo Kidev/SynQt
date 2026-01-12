@@ -3,20 +3,20 @@
 
 # A patch to Qt, and how to put it on a kit
 
-One patch lives here. It is against Qt itself, not against SynQt, and it is the fix for the
-condition written up in [FIREFOX-LINUX.md](../FIREFOX-LINUX.md): a returning
+One patch lives here. It is against Qt itself rather than SynQt, and it fixes the
+condition written up in [FIREFOX-LINUX.md](../FIREFOX-LINUX.md), a returning
 QtRemoteObjects slot whose reply arrives and decodes but whose caller is never told, because
 `QRemoteObjectPendingCallWatcher::finished` travels over a `Qt::QueuedConnection` and the
 posted `QEvent::MetaCall` behind it is never delivered.
 
 [0001-wasm-send-posted-events-from-the-native-timer.patch](0001-wasm-send-posted-events-from-the-native-timer.patch)
 changes `QEventDispatcherWasm::onTimer()` in `qtbase` so the native timer callback sends
-posted events as well as timer events. That is four lines and one comment, and what it buys
-is a second, independent way for a posted event to be delivered. Today there is exactly one:
+posted events as well as timer events. That is four lines and one comment, and it buys a
+second, independent way for a posted event to be delivered. Stock Qt has exactly one.
 `wakeUp()` arms a zero-delay `QWasmTimer` from inside an `emscripten_async_call()` that is
 itself a zero-delay callback, and `wakeUp()` runs when an event is posted and not again while
-it waits. Drop either of those two browser callbacks and the event is not delayed, it is
-lost, permanently, in an application that otherwise looks perfectly healthy: timers keep
+it waits. Drop either of those two browser callbacks and the event is lost rather than
+delayed, permanently, in an application that otherwise looks healthy. Timers keep
 firing because `QTimerInfoList::activateTimers()` uses `sendEvent()`, and sockets keep
 reading because their callbacks are DOM events.
 
@@ -38,7 +38,7 @@ It defaults to `/opt/Qt/6.11.1/wasm_singlethread`, with `/opt/Qt/6.11.1/gcc_64` 
 anything else. Anything already built has to be relinked afterwards, which for the M0 client
 means deleting `build/m0-client/m0-client.wasm` and building again.
 
-Two compile flags are load-bearing and were found the hard way. `-DQT_BUILDING_QT` is what
+Two compile flags matter here, and were found the hard way. `-DQT_BUILDING_QT` is what
 puts the file's logging categories in the `QtPrivateLogging` inline namespace; without it the
 object exports differently-mangled symbols that nothing else in QtCore references, and the
 swap quietly changes QtCore's link surface. `-fexceptions` matches the libc++ ABI tags on the

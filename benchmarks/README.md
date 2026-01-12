@@ -250,7 +250,7 @@ does. Default 1, so every baseline taken before the key existed still means what
 ### Baseline captured on this checkout
 
 `results/fanout-kidevPC_.json` (Qt 6.11.1, Arch Linux x86_64; `interest_k=16`, 200 ticks). Publish
-CPU is the load-bearing number; it is where the O(N^2) lives:
+CPU is the number to read here: it is where the O(N^2) lives:
 
 | N | mode | slice (rows/session) | rows/tick | publish CPU p50 | publish CPU p99 |
 |---|------|----------------------|-----------|-----------------|-----------------|
@@ -286,7 +286,7 @@ Sweeping `--threads` at N = 100 (Qt 6.11.1, Arch Linux x86_64, 120 ticks, warmup
 | per_session_interest | 2.52 | 2.35 | 2.34 | 2.31 |
 | per_session_naive | 12.1 | 11.2 | 11.1 | 11.1 |
 
-`shared` halves at two threads and then stops moving, and that is the whole result. Its
+`shared` halves at two threads and then stops moving. Its
 owner-side work is a single revision bump, so nearly all of what was being measured was
 per-socket framing and writing, once per consumer; moving that off leaves the model build,
 which no number of socket threads can touch. Four runs at each point: 1.467 / 1.457 / 1.430 /

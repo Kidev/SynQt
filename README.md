@@ -79,11 +79,11 @@ there is none, which covers ordinary 2D Qt Quick completely. The few things that
 need a GPU show a notice in place of the content instead of a blank rectangle. See
 [graphics](https://synqt.org/project-layout-and-config/#graphics-which-routes-need-an-accelerated-scene-graph).
 
-You do not run Postgres, Redis, or an API gateway as separate products you configure
-and secure yourself. You run SynQt entities: one toolchain, one security model, one
-deploy story. When you do want a particular engine, a
-[provider](https://synqt.org/providers/) backs an entity with it and leaves that
-entity's connect points, and the whole security model around them, identical.
+A cache, a document store, or an API gateway is an entity like any other, built and
+deployed with the rest of the project rather than configured and secured as a separate
+product. When you want a particular engine behind one, a
+[provider](https://synqt.org/providers/) backs the entity with it and leaves that
+entity's connect points, and the security model around them, identical.
 
 ## Security is on by default
 
@@ -100,37 +100,43 @@ entity's connect points, and the whole security model around them, identical.
 Read [security](https://synqt.org/security/) before deploying, and
 [deploying a SynQt system](https://synqt.org/deploying/) when you do.
 
-## How fast the live path is
+## Performance
 
-A value changes on the server and every connected client has to see it. That is what SynQt
-is for, so that is what is measured: one publisher, 100 subscribers, saturating, 256 byte
-payload, on a 32 core Linux host with Qt 6.11.1 and Node 22.22.
+A value changes on the server and every connected client has to see it. One publisher,
+100 subscribers, saturating, 256 byte payload, on a 32 core Linux host with Qt 6.11.1 and
+Node 22.22. Deliveries per second:
 
-Both stacks reach more cores by running more processes, so that is the like-for-like
-comparison. Deliveries per second:
-
-| processes | SynQt | Node 22 | |
+| processes | SynQt | Node, built-ins only | Node, Socket.IO |
 |---|---|---|---|
-| 1 | 108k | 110k | 2% behind |
-| 2 | 239k | 234k | 2% ahead |
-| 4 | 505k | 464k | 9% ahead |
-| 8 | **1.02M** | 862k | **19% ahead** |
+| 1 | 108k | 110k | 62k |
+| 2 | 239k | 234k | |
+| 4 | 505k | 464k | |
+| 8 | 1.02M | 862k | |
 
-The Node column here is the fastest honest one: `node:http` with a hand-written WebSocket
-implementation and no dependencies, which is not what anyone deploys. Socket.IO, which is,
-does 62k on one process, so SynQt is 1.7x that before it uses a second core.
+Both runtimes run one thread per process and add capacity by running more processes. SynQt
+trails the built-ins column by 2% on one process and leads it by 19% on eight. That column
+is `node:http` with a hand written WebSocket implementation, which is faster than what most
+deployments run; Socket.IO is the usual choice, and the sweep measures it on one process
+only.
 
-**Then there is the part Node has no equivalent of.** Scaling by processes splits the
-value: eight processes hold eight of them, and making all 100 subscribers agree on one
-costs a broadcast between processes that is in none of the numbers above. A SynQt edge can
-instead spread its sockets across IO threads inside one process (`threads: N`) and keep the
-single value, which is worth 108k -> 189k deliveries per second on two cores and then
-flattens. That is not unlimited throughput, and it is the only option on this page that
-serves the case at all.
+Adding processes divides the subscribers between them, and each process holds its own copy
+of the value. A SynQt web edge can instead spread its sockets across IO threads inside one
+process, where all 100 subscribers still share a single value:
+
+| cores | `threads: N`, one process, one shared value | `replicas: N`, N processes, one value each |
+|---|---|---|
+| 1 | 108k | 108k |
+| 2 | 189k | 239k |
+| 4 | 190k | 505k |
+| 8 | 175k | 1.02M |
+
+The threads column stops improving after two cores. The processes column keeps scaling, and
+it cannot answer the case in the left column: making N processes agree on one value costs a
+broadcast between them that these numbers do not include.
 
 Every harness, the committed baselines, and what each number does and does not support are
-in [`benchmarks/`](benchmarks/); the curve is in
-[deploying](https://synqt.org/deploying/#running-one-edge-on-more-than-one-core).
+in [`benchmarks/`](benchmarks/). The deployment docs plot the same data under
+[running one edge on more than one core](https://synqt.org/deploying/#running-one-edge-on-more-than-one-core).
 
 ## Where to go next
 
@@ -174,7 +180,7 @@ Contributions are welcome under the CLA in [CLA.md](CLA.md). See
 ## Target Qt version
 
 SynQt targets Qt 6.11.1 and the Emscripten version Qt pins to it (4.0.7). These
-versions are load bearing: the browser transport (QtRO over a WebSocket QIODevice),
+versions matter: the browser transport (QtRO over a WebSocket QIODevice),
 the mesh transport (QtRO over mutual TLS), the WebSocket upgrade verifier in
 QHttpServer, OAuth2 with PKCE on by default, and the bundled SQLite driver all
 depend on current Qt. The build tool pins them so every entity and every
