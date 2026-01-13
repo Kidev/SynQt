@@ -4,10 +4,10 @@
 # Links that work
 
 The storefront from [part one](tutorial-remote-pages-build.md) has four routes, and two of
-them are delivered by the edge. This page is about the other half of a route: its URL. A
-campaign page nobody can link to is a campaign page nobody visits, so the address bar has to
-be real, and everything a visitor does to it, bookmark it, refresh it, edit it, press Back,
-has to land where they expect.
+them are delivered by the edge. This page is about the other half of a route, its URL. A
+campaign page needs a link somebody can share, so the address bar has to be real, and
+everything a visitor does to it, bookmark it, refresh it, edit it, press Back, has to land
+where they expect.
 
 Three checks you run yourself. Start the app with `synqt dev` and keep a browser tab on it.
 [Routes and URLs](routing.md) is the reference behind all three.
@@ -19,24 +19,24 @@ headline reads "Summer Sale".
 
 Now copy that URL, open a new tab, and paste it in.
 
-The page opens straight on the campaign. That is worth pulling apart, because two different
-pieces of the system cooperated to make it uneventful:
+The page opens straight on the campaign. Two different pieces of the system cooperated to
+make that uneventful:
 
 - The edge answered a path it does not know. `/c/summer-sale` is a client route. The
   edge has no handler for it, so it serves the application shell there, with the same CSP,
   the same session cookie, and the same cache terms as the root document.
 - The client resolved the URL before it had a connection. The router reads
   `window.location` at boot and matches it against the compiled route table, so the first
-  frame it paints is the campaign, not the home page followed by a jump.
+  frame it paints is the campaign rather than the home page followed by a jump.
 
-Then the page filled in, in two stages you can see if you watch closely: the headline first,
+Then the page filled in, in two stages you can see if you watch closely, the headline first,
 from the [seed](remote-pages.md#the-page-seed-painting-the-first-frame) the edge built for
-this slug, and the offers a moment later, once `Server.catalog` arrived over the `wss` link.
-A remote page and a deep link work together here: neither the page's markup nor its data was
+this slug, and the offers a moment later, once `Server.offers` arrived over the `wss` link.
+A remote page and a deep link work together here. Neither the page's markup nor its data was
 in the bundle, and the visitor still landed on a painted page.
 
 Type a slug of your own into the address bar, `/c/black-friday`, and press Enter. Same
-`Campaign.qml`, new headline. One page, one route, every campaign.
+`Campaign.qml`, new headline, because one route serves every campaign.
 
 ## Check 2: parameters, query, Back and Forward
 
@@ -91,8 +91,7 @@ The stall declares `/members` as `remote: Members.qml` with `scope: user`. You a
 by default (`scopes.default: anonymous` in `synqt.yaml`), so type `/members` into the address
 bar and press Enter.
 
-You land on `/`, the `router.fallback`. Two separate things refused you, and it is worth
-being clear about which did what:
+You land on `/`, the `router.fallback`. Two separate things refused you:
 
 - The router matched `/members`, saw a `scope:` the session lacks, went to the fallback
   instead, and reported `Forbidden`. That is navigation.

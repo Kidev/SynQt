@@ -4,8 +4,7 @@
 # The light storefront
 
 Every view a SynQt client can show is normally compiled into the bundle a visitor
-downloads, which is why the bundle is honest about its size: what you shipped is what
-they got. That is the right default, and it is the wrong one for a page that changes
+downloads. That is the right default, and it is the wrong one for a page that changes
 weekly and that most visitors never open. This tutorial is about the other kind of
 route, the one the web edge delivers on demand, and about being careful with it,
 because a page that arrives at run time is a page that arrived from the network.
@@ -100,7 +99,7 @@ synqt dev
    URL, and what a visitor may do to the address bar without breaking anything.
 
 > [!NOTE]
-> This tutorial is the friendly front door. The reference behind it is
+> This tutorial introduces each idea as you use it. The reference behind it is
 > [remote pages](remote-pages.md) for what the edge delivers and how,
 > [routes and URLs](routing.md) for the route table and the address bar, and
 > [security](security.md#remote-pages-edge-delivered-qml) for the trust position of a

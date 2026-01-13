@@ -4,8 +4,8 @@
 # Two authorities
 
 A deployed SynQt system uses two completely separate kinds of certificate, and confusing
-them is the most common way to end up with something that either does not start or is
-not as private as it looks.
+them is an easy way to end up with something that either does not start or is not as
+private as it looks.
 
 - **The public certificate.** For the browser. Issued by an authority the world already
   trusts, for a name in DNS. One of these, on the web edge, and nothing else in the
@@ -45,28 +45,28 @@ edge.crt          valid until 2027-09-05  (398 days)
 ```
 
 Each entity certificate carries the entity name as its subject. That is the whole
-mechanism behind `Caller.entity`: when the database checks `Caller.entity === "edge"`, it
+mechanism behind `Caller.entity`. When the database checks `Caller.entity === "edge"`, it
 is reading a name out of a certificate the other end proved it holds the key for, issued
 by an authority both of them verify against.
 
 There is no certificate for the client. A browser authenticates with a user session,
 never with a mesh identity, and the two are never interchangeable. If you find yourself
-wanting to issue one, what you actually want is a scope.
+wanting to issue one, what you want is a scope.
 
 ## Step 2: Decide where the key lives, once
 
 This is the decision on this page. Everything else is a command.
 
-**The CA private key never goes on a host that runs an entity, and never into CI.**
+The CA private key never goes on a host that runs an entity, and never into CI.
 Anyone holding `ca.key` can mint a certificate that says `web` on it, and every entity in
-your system will believe them. It is what makes every deployment input meaningful.
+your system will believe them.
 
 Practically, pick one:
 
-- **Solo project:** the key stays on your machine, backed up somewhere encrypted that is
+- For a solo project, the key stays on your machine, backed up somewhere encrypted that is
   not the repository. Issuing is something you do before a deploy.
-- **A team:** the key lives in a secret store (a password manager with file support, a
-  cloud KMS, a hardware token), and issuing is a deliberate step somebody runs, logs, and
+- For a team, the key lives in a secret store (a password manager with file support, a
+  cloud KMS, a hardware token), and issuing is a step somebody runs, logs, and
   can be asked about later.
 
 What each host gets is the small half:
@@ -203,8 +203,8 @@ stops being an authentication and becomes an assumption about who else is on the
 `synqt check` flags every local link for exactly that reason.
 
 Mutual TLS on loopback costs a handshake per connection, which happens once per link and
-not once per call. Take the ceremony. And when the database moves to its own host next
-week, nothing about its trust position changes, which is the real payoff.
+not once per call. Take the ceremony. When the database moves to its own host next week,
+nothing about its trust position changes.
 
 [The entity to entity links](security.md#the-entity-to-entity-links-the-mesh) has the
 full comparison.
@@ -213,21 +213,21 @@ full comparison.
 
 ## Advice worth taking now
 
-- **Put the expiry in a calendar.** Entity certificates are good for 398 days and the CA
+- Put the expiry in a calendar. Entity certificates are good for 398 days and the CA
   for twice that. `synqt mesh status` warns 30 days out, but only if somebody runs it. A
   reminder that fires a month before the first expiry costs nothing and saves an outage
   that will look, from the logs, like a networking fault.
-- **Rotating an entity is easy. Do it that way.** `synqt mesh rotate books` issues a
-  new leaf from the same authority; copy the new pair to that host and restart that one
+- Rotating an entity is easy, so do it that way. `synqt mesh rotate books` issues a
+  new leaf from the same authority. Copy the new pair to that host and restart that one
   entity. Its peers verify against the CA certificate, which did not change, so nothing
   else needs to know.
-- **Rotating the authority is a scheduled change.** Every entity trusts exactly one CA
-  certificate, so there is no overlap period to hide behind: a new authority means new
+- Rotating the authority is a scheduled change. Every entity trusts exactly one CA
+  certificate, so there is no overlap period to hide behind. A new authority means new
   leaves everywhere and a coordinated restart. Plan it as a maintenance window rather
   than discovering it during one.
-- **Never reuse the development CA.** `synqt dev` maintains a throwaway authority under
-  `synqt/mesh/dev/` so development keeps mutual TLS with no setup. It is separate on
-  purpose and a release build will not accept it.
+- Never reuse the development CA. `synqt dev` maintains a throwaway authority under
+  `synqt/mesh/dev/` so development keeps mutual TLS with no setup. It is separate, and a
+  release build will not accept it.
 
 Next: [Where the binaries go](tutorial-ship-hosts.md), and the shape that makes all of
 these paths resolve.

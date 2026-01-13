@@ -3,10 +3,10 @@
 
 # Cutting a release
 
-The auction is running on two hosts. Now for the part nobody writes down and everybody
-needs at four in the afternoon on a Friday: what a release is, how a browser that already
-has your client gets the new one, what signing a desktop app actually costs, what
-shipping a client obliges you to publish, and how to put it all back if you were wrong.
+The auction is running on two hosts. This page covers what a release is, how a browser
+that already has your client gets the new one, what signing a desktop app costs,
+what shipping a client obliges you to publish, and how to put it all back if you were
+wrong.
 
 ## Step 1: A release is a tag and an artifact
 
@@ -38,7 +38,9 @@ With the symlink layout, a deploy is four commands and a rollback is two.
 ```cli
 # on each host
 rsync -a gavel-v1.0.0/ /srv/gavel-v1.0.0/
-cp -a /srv/gavel/synqt/mesh /srv/gavel/*/.env /srv/gavel-v1.0.0/...   # the material that stays
+# the material that stays with the host, copied into the new tree in the same places
+cp -a /srv/gavel/synqt/mesh /srv/gavel-v1.0.0/synqt/
+cp -a /srv/gavel/web/edge/.env /srv/gavel-v1.0.0/web/edge/
 ln -sfn /srv/gavel-v1.0.0 /srv/gavel
 sudo systemctl restart gavel-books      # owners first, per process-manifest.json
 sudo systemctl restart gavel-edge
@@ -53,13 +55,12 @@ than correct. Doing it right means a restart nobody has to watch.
 
 > [!TIP]
 > A rollback is `ln -sfn /srv/gavel-v0.9.0 /srv/gavel` and the same two restarts. Practise
-> it once, on purpose, on a day when nothing is wrong. A rollback you have never run is a
-> plan, not a capability.
+> it once, on purpose, on a day when nothing is wrong.
 
 ## Step 3: How a browser gets the new client
 
-Your visitors already have the old client in their browser. Here is what happens to them,
-and it needs nothing from you.
+Your visitors already have the old client in their browser. What happens to them needs
+nothing from you.
 
 Every build stamps a build id into `build/client/synqt-manifest.json`. With the default
 `build.client_cache: service_worker`, a repeat visit is served from CacheStorage with no

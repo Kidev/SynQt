@@ -3,24 +3,22 @@
 
 # The pipeline that says no
 
-A pipeline earns its keep by refusing things. Building on every push is easy and
-almost worthless on its own: what you want is for the push that would have broken
-production to stop at the pipeline, with the reason on screen, before anyone has to
-think about rolling anything back.
+A pipeline is useful because it refuses things. Building on every push is easy and worth
+little alone. You want the push that would break production to stop in the pipeline, with
+the reason on screen, before anyone has to think about a rollback.
 
-SynQt gives you most of that for free, because the rules that make a deployment safe
-are already written down. They live in your `synqt.yaml`, and there is a command that
-holds you to them. This page turns those commands into a workflow.
+SynQt already provides most of this: the rules that make a deployment safe are in your
+`synqt.yaml`, and a command enforces them. This page turns those commands into a
+workflow.
 
-Everything here runs on your machine first. Run each command locally before you put it
-in CI, so that the first red pipeline is a real failure rather than a typo in a YAML
-file.
+Run each command locally before putting it in CI, so a typo shows up on your machine and
+the first red pipeline is a real failure.
 
 ## Step 1: Say what production is different about
 
-Your `gavel` project has one topology. Production changes a handful of values in it:
-the port, the TLS certificate, and the address the database answers on. Do not copy
-the file. Put the differences in a profile next to it.
+Your `gavel` project has one topology. Production changes a few of its values: the port,
+the TLS certificate, and the database's address. Do not copy the file; put the
+differences in a profile beside it.
 
 Create `synqt.production.yaml` in the project root:
 
@@ -45,16 +43,16 @@ entities:
       host: 10.0.0.20
 ```
 
-Two things about that file are worth more than the values in it.
+Two properties of this file matter more than its values.
 
-It **adds and changes, and never removes**. There is no syntax for dropping a consumer
-or an entity, because removing one is a security change and belongs in the file that
-declares the list. A profile you can read in ten seconds cannot quietly widen anything.
+**It adds and changes, and never removes.** There is no syntax for dropping a consumer or
+an entity: removing one is a security change and belongs in the file that declares the
+list. A profile you can read in ten seconds cannot quietly widen anything.
 
-And it holds **no secrets**. The database password is not here and will not be here;
-secrets come from a per entity env file and nowhere else, which
-[Two authorities](tutorial-ship-certificates.md) covers. If you are tempted to put one
-in, the validator will refuse it, which is the point.
+**It holds no secrets.** The database password is not here and never will be. Secrets come
+only from a per entity env file, covered in
+[Two authorities](tutorial-ship-certificates.md). The validator refuses a secret in a
+profile.
 
 The full layering rules are in [configuration resolution
 order](project-layout-and-config.md#configuration-resolution-order).
@@ -65,31 +63,31 @@ order](project-layout-and-config.md#configuration-resolution-order).
 synqt check --release --profile production
 ```
 
-Plain `synqt check` validates the system you are developing. It has to allow a
-localhost topology, because that is what you have been running all tutorial. `--release`
-adds the rules that bind only a system you ship:
+Plain `synqt check` validates the system you are developing, so it allows a localhost
+topology, which is what you have run so far. `--release` adds the rules that apply only
+to a system you ship:
 
 - the web edge must terminate TLS itself or declare that something in front of it does,
 - a mesh link that crosses hosts may not drop mutual TLS,
 - a desktop client's `edge_url` must be `wss://`,
 - an external provider may not connect in plaintext.
 
-Run it now and read what it says. If you wrote the profile above and your `synqt.yaml`
-is the auction's, it passes. Then break it on purpose: delete the `tls:` block from
-`synqt.production.yaml` and run it again.
+Run it now and read the output. With the profile above and the auction's `synqt.yaml`, it
+passes. Then break it on purpose: delete the `tls:` block from `synqt.production.yaml` and
+run it again.
 
 ```text
-error: entity "web" faces the internet with no TLS: add a tls block
-       (cert_file, key_file) or set public.tls_terminated_upstream: true
+error: web edge 'edge' has no tls section, so a release build would serve the browser
+over plaintext; give it tls.cert_file and tls.key_file, or set
+public.tls_terminated_upstream: true if a reverse proxy in front of it terminates TLS
 ```
 
-There is no third state and no default. A framework that guessed here would be
-guessing about whether your users' traffic is encrypted. Put the block back.
+There is no third option and no default: guessing here would mean guessing whether your
+users' traffic is encrypted. Put the block back.
 
-One rule deliberately does **not** fire here: a missing mesh certificate. Certificates
-are issued from a private key that is not supposed to exist on a build machine, so that
-check happens when entities start, not when they build. That asymmetry is the shape of
-the next page.
+One rule does not fire here: a missing mesh certificate. Certificates come from a private
+key that must not exist on a build machine, so that check runs when entities start, not
+when they build. The next page covers it.
 
 ## Step 3: The other three commands
 
@@ -98,16 +96,16 @@ synqt test
 synqt build --release --profile production
 ```
 
-`synqt test` builds and runs the project's own QML tests, the ones that load a connect
-point on its own and drive its slots as a chosen caller. If the auction has none yet,
-this is the moment to write one, because a pipeline that only builds tells you your
-code compiles. [Testing an application](testing.md) is the how.
+`synqt test` builds and runs the project's QML tests, which load one connect point alone
+and drive its slots as a chosen caller. If the auction has none yet, write one now: a
+pipeline that only builds only tells you the code compiles. See
+[testing an application](testing.md).
 
-`synqt build --release` compiles every entity through the pinned toolchain and writes
-one directory per entity under `build/`, plus `build/process-manifest.json`, the start
-plan. It also prints something you should read rather than skim. Under open source Qt,
-your client is GPLv3 and is conveyed to every visitor, so its source must be offered.
-[Cutting a release](tutorial-ship-release.md) comes back to that.
+`synqt build --release` compiles every entity with the pinned toolchain and writes one
+directory per entity under `build/`, plus `build/process-manifest.json`, the start plan.
+Read what it prints: under open source Qt your client is GPLv3 and is conveyed to every
+visitor, so you must offer its source. [Cutting a release](tutorial-ship-release.md)
+returns to this.
 
 Confirm what you got:
 
@@ -121,11 +119,10 @@ client/  books/  edge/  process-manifest.json
 
 ## Step 4: Write the workflow
 
-Now the same four commands, on a machine that is not yours. That machine starts with
-no Qt on it, and `synqt` does not download Qt. The provisioning step below is the set
-of commands `synqt doctor` prints on a machine with nothing installed, and they land
-in `synqt/toolchain/`, which the cache step keeps between runs. Create
-`.github/workflows/ship.yml`:
+Now run the same four commands on a CI machine. It starts with no Qt, and `synqt` does
+not download Qt. The provisioning step below runs the commands `synqt doctor` prints on a
+bare machine; they install into `synqt/toolchain/`, which the cache step keeps between
+runs. Create `.github/workflows/ship.yml`:
 
 ```yaml
 name: "[SHIP] Check, test and build gavel"
@@ -203,74 +200,69 @@ jobs:
             db/relational/books/schema.sql
 ```
 
-Four things in there are worth saying out loud.
+Five points matter:
 
-**The check runs first.** It takes seconds and it catches the failures that would
-otherwise cost you a build. Ordering a pipeline cheapest-first is not a
-micro-optimisation, it is what decides whether people wait for it.
-
-**The toolchain is cached on the configuration, not on the lockfile of the week.**
-`project.qt_version` in `synqt.yaml` is what pins Qt and, through it, Emscripten. Key
-the cache on that file and a run either reuses the exact kit the last one used or
-rebuilds because you changed the pin on purpose.
-
-**The artifact is the project shape, not just the binaries.** A SynQt deployment is a
-directory whose parts find each other by relative path, so an artifact that carries
-only `build/` is one you cannot start. [Where the binaries
-go](tutorial-ship-hosts.md) is about exactly that shape; the upload list above is its
-short version.
-
-**Nothing in this workflow can issue a certificate.** There is no CA key in the
-repository and none in the secrets. A pipeline that could mint a mesh identity is a
-pipeline that can impersonate any entity in your system, and CI is the part of your
-infrastructure with the most people and the most third party code in it. Issuing stays
-manual and stays elsewhere.
+- **The workflow provisions the toolchain, not `synqt`.** The CLI finds what is installed
+  and pins the versions, and `synqt doctor` prints the exact commands for what is
+  missing. The provisioning step runs those commands, and `synqt doctor` after it checks
+  that they installed where the build looks.
+- **The check runs first.** It takes seconds and catches failures that would otherwise
+  cost a build. Putting the cheapest step first keeps people from waiting.
+- **The cache key is the configuration.** `project.qt_version` in `synqt.yaml` pins Qt,
+  and through it Emscripten. Key the cache on that file, and a run either reuses the last
+  kit or rebuilds because you changed the pin on purpose.
+- **The artifact is the project layout, not just the binaries.** A SynQt deployment is a
+  directory whose parts find each other by relative path, so an artifact with only
+  `build/` cannot start. [Where the binaries go](tutorial-ship-hosts.md) describes that
+  layout; the upload list above is the short version.
+- **Nothing in this workflow can issue a certificate.** There is no CA key in the
+  repository or in the secrets. A pipeline that could create a mesh identity could
+  impersonate any entity in your system, and CI is the part of your infrastructure with
+  the most people and the most third party code. Issuing stays manual, and happens
+  elsewhere.
 
 ## Try it, then think
 
 > [!QUESTION]
-> Your pipeline builds and your tests pass, so the system is safe to deploy. Someone
-> opens a pull request that adds the client to the ledger connect point's consumers:
+> Your pipeline builds and your tests pass, so the system seems safe to deploy. Someone
+> opens a pull request that adds the client to the books entity's consumer list:
 >
-> ```
-> consumers = ["web", "client"]
+> ```yaml
+> consumers: [edge, app]
 > ```
 >
-> The QML compiles. The tests pass, because none of them looks at the database from
+> The QML compiles, and the tests pass, because none of them reaches the database from
 > the browser. Predict what the pipeline does.
 
 <details class="solution" markdown>
 <summary>Solution</summary>
 
-The `synqt check` step fails, and it fails first, before anything is compiled. A
-connect point the browser consumes must be owned by a web edge, and the database is
-not one.
+The `synqt check` step fails first, before anything compiles: a web edge must own any
+connect point the browser consumes, and the database is not a web edge.
 
-This is why the check step exists as a step. Tests answer "does the code do what its
-author meant". The check answers "is this system one that may be deployed at all", and
-those are different questions with different failure modes. A topology mistake usually
-compiles perfectly and usually passes the tests, because the tests were written by the
-same person who made the mistake.
+That is why the check is a separate step. Tests answer "does the code do what its author
+meant?" The check answers "may this system be deployed at all?" These questions fail in
+different ways. A topology mistake usually compiles and passes the tests, because the same
+person wrote the tests and made the mistake.
 
-The full list of what the check refuses, with and without `--release`, is under
-[validation](project-layout-and-config.md#validation).
+[Validation](project-layout-and-config.md#validation) lists everything the check refuses,
+with and without `--release`.
 
 </details>
 
 ## Advice worth taking now
 
-- Pin the Qt version and mean it. `project.qt_version` is the single value that
-  decides which compiler produced your binaries. Changing it is an act with
-  its own pull request rather than something that drifts because a runner image moved.
-- Build once, deploy that. The artifact your pipeline produced is what goes to
-  staging and then to production. Rebuilding for production because staging passed
-  means the thing you tested is not the thing you shipped.
-- Name artifacts by commit, as `gavel-${{ github.sha }}` above does. When someone asks
-  what is running on the edge host, you want the answer to be a commit rather than a date.
-- Do not put deployment in this workflow yet. A pipeline that can reach production
-  is a different security question from a pipeline that produces a file. Get the file
-  right first. The next two pages are what makes deploying it boring enough to
-  automate.
+- **Pin the Qt version.** `project.qt_version` alone decides which compiler built your
+  binaries. Change it in its own pull request, never by drift because a runner image
+  moved.
+- **Build once, deploy that build.** The artifact the pipeline produced goes to staging,
+  then to production. If you rebuild for production after staging passes, what you tested
+  is not what you shipped.
+- **Name artifacts by commit,** as `gavel-${{ github.sha }}` does above. When someone asks
+  what runs on the edge host, the answer should be a commit, not a date.
+- **Keep deployment out of this workflow for now.** A pipeline that can reach production
+  raises different security questions than one that produces a file. Get the file right
+  first; the next two pages make deploying it simple enough to automate.
 
-Next: [Two authorities](tutorial-ship-certificates.md), and the key that never comes
-near the pipeline you just wrote.
+Next: [Two authorities](tutorial-ship-certificates.md), and the key that never comes near
+this pipeline.

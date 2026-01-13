@@ -80,19 +80,16 @@ the edge.
 
 ## Check 3: the browser can never reach the database
 
-Edge-delivered pages are convenient, and it is tempting to think the convenience relaxes the
-boundaries. It does not. The durable stock lives in the `stock` database, which owns the
-`inventory` connect point, consumed only by the edge. The browser reaches the catalog through
-the edge and never touches the database. `synqt check` enforces that structurally, so try to
-break it.
+Convenience does not relax the boundaries. The durable stock lives in the `stock`
+database, which owns the connect point the edge consumes and nobody else does. The browser
+reaches the catalog through the edge and never touches the database. `synqt check` enforces
+that structurally, so try to break it.
 
 Open `synqt.yaml` and add the client as a consumer of the stock entity's connect point:
 
 ```yaml
-  - name: inventory
-    owner: stock
-    consumers: [edge, app]     # add client: let the browser reach the database
-    server: db/relational/stock/Stock.qml
+  - owner: stock
+    consumers: [edge, app]     # add the client: let the browser reach the database
 ```
 
 Run the check:
@@ -104,8 +101,8 @@ synqt check
 It fails:
 
 ```
-error: client 'client' consumes 'inventory', owned by 'stock', which is not a web_edge
-entity (the browser can only reach a web edge)
+error: client 'app' consumes 'stock', owned by 'stock', which is not a web_edge entity
+(the browser can only reach a web edge)
 ```
 
 The check states a fact of the deployment. A browser can only physically

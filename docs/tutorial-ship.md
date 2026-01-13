@@ -49,9 +49,8 @@ flowchart LR
 - How to ask the production question before you have a production: what
   `synqt check --release` adds to the check you already run, and why a profile file is
   the way to keep one topology instead of two copies of it.
-- What belongs in a pipeline and what deliberately does not. Your CI builds the system
-  and never holds the key that lets entities trust each other, and that is a decision
-  rather than an omission.
+- What belongs in a pipeline and what does not. Your CI builds the system and never
+  holds the key that lets entities trust each other.
 - The two kinds of certificate a SynQt system uses, who issues each, and which one your
   users' browsers have ever heard of.
 - Where every file goes on a host, and why a SynQt deployment is a project directory
@@ -101,7 +100,7 @@ orchestrator you know what it is doing for you.
    upgrade, roll back and rotate without taking the auction down.
 
 > [!NOTE]
-> This tutorial is the friendly front door. The reference behind it is
+> This tutorial introduces each idea as you use it. The reference behind it is
 > [deploying a SynQt system](deploying.md) for the ordered checklist,
 > [build system and CLI](build-system-and-cli.md) for every command and flag,
 > [security](security.md) for the trust model the deployment is arranging, and

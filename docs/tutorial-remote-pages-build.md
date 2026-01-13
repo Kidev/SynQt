@@ -103,18 +103,18 @@ Item {
 }
 ```
 
-Two things are worth naming. The root is an `Item`, not a window: a delivered page is loaded
-into the client's `Loader` on `Router.pageComponent`, so it is a page fragment, not a window
-of its own. And it imports only `QtQuick` and `QtQuick.Layouts`, the two modules the palette
-admits.
+Two things matter here. The root is an `Item` rather than a window, because a delivered
+page is loaded into the client's `Loader` on `Router.pageComponent`, so it is a page fragment
+rather than a window of its own. And it imports only `QtQuick` and `QtQuick.Layouts`, the
+two modules the palette admits.
 
-The page reads `Router.pageSeed.headline`. That comes from the seed, which we write next.
+The page reads `Router.pageSeed.headline`. That comes from the seed, which is next.
 
 ## Step 4: Seed the first frame
 
 One `Campaign.qml` serves `/c/summer-sale`, `/c/black-friday`, and every other slug. Left
 alone it would flash empty for the first frame, before `Server.offers` has pushed
-anything. The page seed fixes that: it runs on the edge, per request, and hands the page the
+anything. The page seed fixes that. It runs on the edge, per request, and hands the page the
 data it paints with immediately. Create `web/edge/campaign-seed.qml`:
 
 ```qml
@@ -147,10 +147,8 @@ Step 1.
 > call could never match it, so the page is delivered with no seed and paints empty. The
 > edge catches this when it loads the hook and names the cause in its log: `page seed hook
 > ... declares seedFor with typed parameters ... leave seedFor's parameters untyped`. Nothing
-> surfaces in the browser, so watch the edge log. The return may be annotated `: var`, which
-> does
-> match, because a seed is a plain object. This is the single most likely mistake to make
-> here; the in-file comment in
+> surfaces in the browser, so watch the edge log. The return may be annotated `: var`,
+> which does match, because a seed is a plain object. The in-file comment in
 > [`web/edge/campaign-seed.qml`](https://github.com/Kidev/SynQt/blob/main/examples/stall/web/edge/campaign-seed.qml)
 > spells it out.
 
@@ -204,30 +202,30 @@ with no markup, no content hash, and no seed. The file is never sent, so its sou
 reaches a machine that is not entitled to it. Signed in as a `user`, the same fetch
 succeeds and the page renders.
 
-The lesson is the same one the auction taught: the barrier is on the owner. Here the owner
+The barrier is on the owner, as in the auction. Here the owner
 is the edge, and the check is on the edge, before delivery. A route guard on the client
-would only steer navigation; it is the edge's refusal that keeps the page's markup off an
+would only steer navigation. The edge's refusal is what keeps the page's markup off an
 under-scoped visitor's machine.
 
 </details>
 
 > [!IMPORTANT]
-> A `scope:` on a remote page protects the page's markup, not the data the page later reads.
+> A `scope:` on a remote page protects the page's markup rather than the data the page later reads.
 > `Members.qml` is kept off an anonymous visitor's machine, which is real, but the moment
 > any delivered page acquires a connect point and reads it, that read is governed by the
 > owner-side scope check on the connect point, exactly as it is for a compiled-in view.
-> Never reach for a page's `scope:` as a way to hide data; hide data with the connect
+> Never reach for a page's `scope:` as a way to hide data. Hide data with the connect
 > point's scope. See [security](security.md#remote-pages-edge-delivered-qml).
 
 ## What you learned
 
-- A route is compiled in (`view:`) or edge-delivered (`remote:`); the key decides, and the
+- A route is compiled in (`view:`) or edge-delivered (`remote:`). The key decides, and the
   two are mutually exclusive.
 - A delivered page lives under `<edge>/pages/`, never enters the bundle, and is editable on
   the edge without a client rebuild.
-- `router.palette` is the trust boundary: the whole set of modules a delivered page may
+- `router.palette` is the trust boundary, the whole set of modules a delivered page may
   import.
 - The page seed runs on the edge per request and paints the first frame, so a delivered
   page shows real content before its connect points arrive. Leave its parameters untyped.
-- A delivered page's `scope:` protects its markup, not its data. Data confidentiality is
+- A delivered page's `scope:` protects its markup rather than its data. Data confidentiality is
   the owner-side check on the connect point, as always.
