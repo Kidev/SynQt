@@ -6,10 +6,10 @@
 @tableofcontents
 
 Most of this runtime exists to put six names into QML. An application never constructs
-the C++ classes below; it writes `Server.chat.send(text)` or `Caller.hasScope("admin")`
+the C++ classes below. It writes `Server.send(text)` or `Caller.hasScope("admin")`
 and the runtime binds the object behind the name. The name and the class are not the
 same thing, and searching this reference for `Server` finds a class that is not called
-`Server`, so each accessor gets a page of its own here: every member it puts into QML,
+`Server`, so each accessor gets a page of its own here, with every member it puts into QML,
 the class that implements each one, and which side of the trust boundary it links into.
 
 The narrative version, written for the QML that calls these rather than for the C++ that
@@ -42,9 +42,9 @@ application finds out and decides when to reload.
 
 Handling `updateReady` takes ownership of the timing. Handling nothing reloads the client
 the moment an update lands, on the grounds that an update nobody applies is worse than an
-interruption. That default is a mechanism rather than a convention:
-SynQt::ClientUpdate::notifyUpdateReady counts the receivers connected to the signal and
-reloads through SynQt::ClientUpdate::reloadPage when there are none.
+interruption. SynQt::ClientUpdate::notifyUpdateReady implements that by counting the
+receivers connected to the signal and reloading through SynQt::ClientUpdate::reloadPage
+when there are none.
 
 It needs `build.client_cache: service_worker`, which is the default. Under `http` the
 signal never fires, because there is no cache to have fetched the new build ahead of
@@ -66,25 +66,29 @@ desktop build.
 
 @page qmlserver Server
 
-`Server` is the client's view of the connect points its edge owns. `Server.chat` is the
-Replica for the connect point named `chat` in `synqt.yaml`. The client can only ever see
-connect points its own entity declares as consumed, and only those the session's scope
-allows, so the object is an authorization boundary as much as it is an accessor.
+`Server` is the client's view of the one connect point its edge owns, so its members are
+that contract's members. `Server.send(text)` calls the `send` slot the edge exported. The
+client can only ever see connect points its own entity declares as consumed, and only
+those the session's scope allows, so the object is an authorization boundary as much as it
+is an accessor.
 
 @section qmlserver_members Members
 
 | Member | Type | Description |
 |--------|------|-------------|
-| `Server.<name>` | Replica | The live Replica of the connect point named `<name>`. Its properties and models are read-only mirrors of the owner's Source; its slots are callable, and every call is a request the owner may refuse. |
+| `Server.<member>` | per the contract | Each `prop`, `model`, `signal` and `slot` the owner's `export:` block declares. Properties and models are read-only mirrors of the owner's Source; slots are callable, and every call is a request the owner may refuse. |
+| `Server.ready` | bool | SynQt::ConsumerBase::ready: true once the bound Replica has completed its QtRO handshake. |
 
 There is no fixed member list beyond that, which is the point of the class:
-SynQt::ServerAccessor is a `QQmlPropertyMap`, so a connect point appears on it under its
-own name at the moment its Replica is acquired, and QML bindings that named it before then
-hold their defaults until it arrives.
+SynQt::ServerAccessor is a `QQmlPropertyMap` holding one consumer facade per owner this
+client reaches, keyed by that owner's name, and `Server` is the entry belonging to the
+edge.
 
-A connect point whose `scope` the session does not hold is never acquired at all, so
-`Server.<name>` stays absent rather than arriving empty. Bindings to it hold their
-defaults and resume on reconnect.
+The facade is built at construction rather than when a link first comes up, because a
+binding written against `Server` is evaluated on the first frame and a name that resolves
+to nothing until the handshake finishes is a binding that never runs again. A connect
+point whose `scope` the session does not hold is never acquired at all, so its members
+hold their defaults and `Server.ready` stays false. Both resume on reconnect.
 
 @section qmlserver_implementation Behind the name
 
@@ -95,17 +99,17 @@ The replicas come from the typed factory registry (SynQt::acquireReplica) rather
 `QRemoteObjectNode::acquireDynamic`, because a dynamic Replica does not propagate property
 changes in the WebAssembly client.
 
-`Server` is a client-side name, and a well-known alias: whatever the edge entity is
-actually called, the client addresses it as `Server`. The service-side equivalent, one
-entity's view of another's connect points, is the owner's entity name capitalized, so an
-entity called `database` appears to its consumers as `Database`. Those are set up by
-SynQt::EntityRuntime, not by this class.
+`Server` is a client-side name, and a well-known alias. Whatever the edge entity is
+called, the client addresses it as `Server`. The service-side equivalent, one
+entity's view of another's connect point, is the owner's entity name capitalized, so an
+entity called `database` appears to its consumers as `Database`. SynQt::EntityRuntime
+sets those up rather than this class.
 
 Links into the client only (SynQtClient).
 
 @page qmlsession Session
 
-`Session` is the signed-in state of the browser: read only from QML apart from the two
+`Session` is the signed-in state of the browser, read only from QML apart from the two
 verbs that change it. It holds no token. The browser's whole credential is the session
 cookie, and every value here is state the edge pushed down after it authorized the
 connection, which is why nothing on this object can be forged into an authorization. The
@@ -144,8 +148,7 @@ the edge actually keeps, is SynQt::SessionManager.
 @section qmlsession_warning Client-side scope checks are for the interface only
 
 Hiding a control with `Session.hasScope(...)` is a convenience, never the boundary. Every
-privileged action is checked again on the owner, inside the slot, against \qmlCaller. The
-duplication is deliberate.
+privileged action is checked again on the owner, inside the slot, against \qmlCaller.
 
 @page qmlrouter Router
 
@@ -198,14 +201,14 @@ resume into an open redirect.
 
 SynQt::Router::resolveRemote is a virtual returning false here, the hook for a page this
 class cannot build itself. A remote page, one the web edge delivers at run time rather than
-compiling into the bundle, is resolved through it: SynQt::RemotePageLoader fetches the page
+compiling into the bundle, is resolved through it. SynQt::RemotePageLoader fetches the page
 over the client's link, caches it by content hash, and hands SynQt::Router the component,
 while SynQt::QmlPalette enforces `router.palette`, the set of QML modules a delivered page
 may import. Both sit behind `Router`; an application sees only the resolved
 `pageComponent` and the `pageSeed` the edge sent with it.
 
-A route guard is a redirect rule, not a secrecy mechanism. The client is one compiled
-bundle, so every view's QML ships to every visitor; guards decide which view is shown and
+A route guard redirects and keeps nothing secret. The client is one compiled
+bundle, so every view's QML ships to every visitor. Guards decide which view is shown and
 nothing more. The data behind a privileged view arrives only through scope-gated connect
 points, so a user who edits their way past a guard finds the view empty rather than
 finding data they should not have.

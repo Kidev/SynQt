@@ -3,10 +3,10 @@
 
 # The test suites
 
-Each milestone in [CLAUDE.md](../CLAUDE.md) has an acceptance fixture here, plus the unit
-cases from its test plan. Every suite is a standalone CMake project with its own
-`run-*.sh`, because a milestone has to be independently testable and one suite on its own
-is how a failure gets bisected. They also all build together.
+Each milestone of the framework has an acceptance fixture here, plus the unit cases that
+go with it. Every suite is a standalone CMake project with its own `run-*.sh`, because a
+milestone has to be independently testable and one suite on its own is how a failure gets
+bisected. They also all build together.
 
 ## Running them
 
@@ -76,11 +76,11 @@ Built and run by the tree, in milestone order:
 | [m5-webedge](m5-webedge) | The edge: bundle and headers, the upgrade pipeline, and the resource limits on it |
 | [m6-client](m6-client) | The client runtime natively (`SynClient`, `Server`, `Session`, `Router`), then the WASM client in every browser engine that installs. The browser phases need a kit this tree does not install; `run-m6.sh` runs them and says so when it cannot, and [wasm-proofs.yml](../.github/workflows/wasm-proofs.yml) installs the kit in CI |
 | [m6-clientupdate](m6-clientupdate) | The client update decision behind the QML `App` accessor |
-| [consumer-facade](consumer-facade) | `Contract.on<Signal>` attached handlers and the promise a returning slot gives back |
+| [consumer-facade](consumer-facade) | `<Owner>.on<Signal>` attached handlers and the promise a returning slot gives back |
 | [m7-caller](m7-caller) | Sessions and `Caller`: expiry, rotation, scope gating, per-peer authorization, and the three-entity todo matrix |
 | [m8-auth](m8-auth) | Edge login: PKCE, browser-bound state, JWKS verification, scope mapping, the cookie |
 | [m9-providers](m9-providers) | The family interfaces and the bundled providers. The live engine proofs skip cleanly unless `SYNQT_TEST_*` names a reachable server |
-| [prov4-runtime](prov4-runtime) | `EntityRuntime` injecting a blueprint's `Db`/`Cache`/`Http`/`Jobs` helper with no manual wiring |
+| [prov4-runtime](prov4-runtime) | `EntityRuntime` injecting a typed entity's `Db`/`Cache`/`Http`/`Jobs` helper with no manual wiring |
 | [fix1-auction](fix1-auction) | The auction tutorial as an acceptance fixture, over [examples/gavel](../examples/gavel) |
 | [fix2-arena](fix2-arena) | The multiplayer tutorial likewise, over [examples/arena](../examples/arena) |
 | [fix3-stall](fix3-stall) | Edge-delivered pages end to end, seeded by the production per-connection `Caller` |

@@ -338,7 +338,7 @@ That builds a second, instrumented tree (`-DSYNQT_COVERAGE=ON`, and `Debug` so a
 to the code that is on it rather than to whatever the optimizer made of it), runs the
 suites against it, and reports both halves of the framework:
 
-- C++, the five runtime libraries under `src/`. `--coverage` puts a counter file beside
+- C++, the runtime libraries under `src/`. `--coverage` puts a counter file beside
   every object file, and
   [`tools/coverage/report.py`](https://github.com/Kidev/SynQt/blob/main/tools/coverage/report.py)
   reads them back through `gcov -t -j`. Only `src/` is instrumented: counting the suites

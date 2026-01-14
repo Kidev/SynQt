@@ -3,12 +3,13 @@
 
 # M1: Contract generator
 
-Turns `shared/*.syn` contracts into the QtRemoteObjects layer: a `.rep` (driven
-through repc), the owner-side Source helper, and the consumer-side Replica QML
-registration. The `.syn` surface keeps QtRO's safe defaults obvious so a mistake
-cannot silently become a security hole.
+Turns this suite's `shared/*.syn` contracts, the form a connect point's `export:` block
+is compiled to, into the QtRemoteObjects layer, a `.rep` (driven through repc), the
+owner-side Source helper, and the consumer-side Replica QML registration. The `.syn`
+surface keeps QtRO's safe defaults obvious so a mistake cannot silently become a
+security hole.
 
-The generator itself lives at [`tools/synqtc/`](../../tools/synqtc); the CMake glue is
+The generator itself lives at [`tools/synqtc/`](../../tools/synqtc), and the CMake glue is
 [`cmake/SynQtContracts.cmake`](../../cmake/SynQtContracts.cmake). This directory is the
 acceptance test.
 

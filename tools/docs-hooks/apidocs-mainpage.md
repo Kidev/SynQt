@@ -22,18 +22,30 @@ The libraries
 The runtime is split by trust boundary, one library per boundary, so that a client target
 cannot link a service only module:
 
-- SynQtTransport: SynQt::WebSocketTransport, the `QIODevice` over a `QWebSocket` that
-  carries QtRemoteObjects. Shared by the client and the web edge.
-- SynQtClient: SynQt::SynClient, SynQt::ServerAccessor, SynQt::Session,
-  SynQt::Router, and the typed replica factory registry (SynQt::acquireReplica). Links
+- SynQtTransport holds SynQt::WebSocketTransport, the `QIODevice` over a `QWebSocket` that
+  carries QtRemoteObjects. The client and the web edge share it.
+- SynQtClient holds SynQt::SynClient, SynQt::ServerAccessor, SynQt::Session,
+  SynQt::Router, and the typed replica factory registry (SynQt::acquireReplica). It links
   into both the WebAssembly and the native desktop client.
-- SynQtConsumer: the connect point resolver and the attached handler types behind the
-  `Contract.on<Signal>` and returning slot `.then()` QML sugar.
-- SynQtService: SynQt::EntityRuntime, SynQt::ConnectPointHost, SynQt::MeshServer,
-  SynQt::MeshClient, SynQt::WebEdge, SynQt::SessionManager, SynQt::Caller,
-  SynQt::IdentityProvider.
-- SynQtProviders: SynQt::IPersistenceProvider, SynQt::IDocumentProvider,
+- SynQtConsumer holds the connect point resolver and the attached handler types behind the
+  `<Owner>.on<Signal>` and returning slot `.then()` QML sugar.
+- SynQtService holds SynQt::EntityRuntime, SynQt::ConnectPointHost, SynQt::MeshServer,
+  SynQt::MeshClient, SynQt::SessionManager, SynQt::Caller. Every module it links is
+  LGPLv3, which is what keeps a plain service entity LGPLv3.
+- SynQtIdentity holds SynQt::OAuthBackend, SynQt::JwksVerifier, SynQt::IdentityService. Qt
+  Network Authorization is GPLv3-only, so it is a library of its own.
+- SynQtEdge holds SynQt::WebEdge, SynQt::IdentityProvider, SynQt::PagesService. Qt HTTP
+  Server is GPLv3-only, so only a `type: web_edge` entity links it.
+- SynQtGateway holds SynQt::ApiServer and the `Api` helper an entity's `network.inbound`
+  opens.
+- SynQtProviders holds SynQt::IPersistenceProvider, SynQt::IDocumentProvider,
   SynQt::ICacheProvider, SynQt::ProviderRegistry, and the bundled implementations.
+- SynQtMonitor holds SynQt::MonitorService, SynQt::EventStore and the two exporters. It is
+  SynQtEdge plus a history, so it is GPLv3 like the edge.
+- SynQtContract holds SynQt::SourceModel, the model a generated Source publishes its rows
+  through, which a consumer cannot write into.
+- SynQtTesting holds SynQt::EntityTest, the harness behind `synqt test`. A production
+  entity never links it.
 
 What is listed
 --------------

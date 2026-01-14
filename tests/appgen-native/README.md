@@ -14,19 +14,13 @@ appgen over the real three-entity gavel topology (client + web edge + persistenc
 connect points, a scope-gated point, identity, and a provider) and then compiling every entity is the
 only check that exercises the whole service/edge/provider main path as a compiler sees it.
 
-It earned its place: the first time it ran it found three defects the string tests had missed;
-
-1. the generated root `CMakeLists.txt` added `SynQtProviders` a second time, colliding on the
-   binary directory (`SynQtService` already `PUBLIC`-links it), so configuration failed for any
-   project with a blueprint/provider entity;
-2. the service `main.cpp` built a `QJsonObject` from the topology with only `<QJsonDocument>`
-   included (which forward-declares `QJsonObject`), so no service entity compiled;
-3. the edge `main.cpp` upcast the `QQmlPropertyMap*` from `EntityRuntime::accessor()` to
-   `QObject*` for `WebEdge::setContextObject` without including `<QQmlPropertyMap>`, so no
-   mesh-consuming edge compiled.
-
-All three are fixed in the generator (`cmakegen.py` for the first, `maingen.py` for the other
-two) and pinned by new assertions in `test_tool.py`
+The kind of defect it catches, and the string tests cannot, is a root `CMakeLists.txt` that
+adds `SynQtProviders` a second time and collides on the binary directory (`SynQtService`
+already `PUBLIC`-links it), a service `main.cpp` that builds a `QJsonObject` with only
+`<QJsonDocument>` included (which forward-declares `QJsonObject`), or an edge `main.cpp`
+that upcasts the `QQmlPropertyMap*` from `EntityRuntime::accessor()` to `QObject*` for
+`WebEdge::setContextObject` without including `<QQmlPropertyMap>`. Each of those is pinned
+by an assertion in `test_tool.py`
 (`test_service_main_includes_qjsonobject_for_the_topology`,
 `test_root_cmake_guards_the_providers_subdirectory`, and the `<QQmlPropertyMap>` check in
 `test_edge_main_composes_entity_runtime_for_its_mesh_side`). This fixture is the end-to-end
@@ -107,11 +101,11 @@ tests/appgen-native/run-appgen-native.sh
 ```
 
 Needs the pinned host kit (`/opt/Qt/6.11.1/gcc_64`). It writes everything under
-`build/appgen-native/` (git-ignored) and prints `APPGEN-NATIVE GATE: GO` when every generated
-entity; the `web` edge, the `database` service, and the `client` (built here as a native desktop
-app); compiles and links, the routed client above resolves every one of its routes, and the
+`build/appgen-native/` (git-ignored) and prints `APPGEN-NATIVE GATE: GO` once every generated
+entity compiles and links (the `web` edge, the `database` service, and the `client`, built here
+as a native desktop app), the routed client above resolves every one of its routes, and the
 promoted pair signs in from the auth entity with an edge that holds no secret.
 
-The client's WebAssembly build and the browser bring-up of a generated app are covered separately
-by `synqt dev` (proven in headless Chromium; see the M10/TOOL-1 work); this fixture is the native
-half, where the service and edge mains (which never compile in a WASM build) are exercised.
+The client's WebAssembly build and the browser bring-up of a generated app are covered
+separately by `synqt dev`, proven in headless Chromium. This fixture is the native half, where
+the service and edge mains (which never compile in a WASM build) are exercised.

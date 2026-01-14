@@ -4,12 +4,12 @@
 # M4: Entity runtime and topology
 
 The entry point for a service entity, in the `SynQtService` library
-([`src/service/`](../../src/service)). From the resolved topology `EntityRuntime`
+([`src/service/`](../../src/service)). From the resolved topology, `EntityRuntime`
 derives this entity's owned and consumed connect points, brings up an owner
 (`ConnectPointHost`) for each owned connect point, opens a consumer link for each
-consumed one (and only those), and exposes consumed connect points by capitalized
-owner name. This is where the contract layer (M1), the mesh transport (M3), and the
-topology finally wire together.
+consumed one and for no others, and exposes consumed connect points by capitalized owner
+name. This is where the contract layer, the mesh transport and the topology wire
+together.
 
 ## Verdict
 
@@ -26,28 +26,28 @@ topology finally wire together.
 
 ## How it works
 
-- `ConnectPointHost` (owner side of one connect point) loads the authoritative
+- `ConnectPointHost` (the owner side of one connect point) loads the authoritative
   Source from the entity's QML (`a/Thing.qml`, an `import SynQt; ThingSource { value:
   42 }`), calls `enableRemoting()` on a host node, and listens over the mesh
-  (`MeshServer`, mutual TLS by default). On each verified peer it enforces deny by
-  default. The connection is added to the host only if the calling entity is on this
-  connect point's consumer allowlist, and any other peer is refused (the socket is
-  aborted, never added).
-- `EntityRuntime` resolves owned vs consumed connect points from the topology,
-  starts a `ConnectPointHost` per owned one, and opens a `MeshClient` per consumed one,
-  and only those, so an entity never even opens a link to an owner it does not
-  consume from. Each acquired replica is exposed through a per-owner `QQmlPropertyMap`
-  keyed by capitalized owner name (`Database.items` in QML).
-- Consumers acquire with `acquireDynamic` (a generic runtime has no compile-time
-  replica types), and owners host QML Sources via the dynamic `enableRemoting(QObject*,
-  name)`. The test verifies both interoperate.
+  (`MeshServer`, mutual TLS by default). It enforces deny by default on each verified
+  peer. It adds the connection to the host only when the calling entity is on this
+  connect point's consumer allowlist, and it refuses any other peer by aborting the
+  socket instead of adding it.
+- `EntityRuntime` resolves owned against consumed connect points from the topology,
+  starts a `ConnectPointHost` per owned one, and opens a `MeshClient` per consumed one
+  and for no others. So an entity never opens a link to an owner it does not consume
+  from. It exposes each acquired replica through a per-owner `QQmlPropertyMap` keyed by
+  capitalized owner name (`Database.items` in QML).
+- Consumers acquire with `acquireDynamic`, since a generic runtime has no compile-time
+  replica types, and owners host QML Sources through the dynamic
+  `enableRemoting(QObject*, name)`. The test verifies that both interoperate.
 
 ## Deny by default, two ways
 
 1. Structural, on the consumer side. `EntityRuntime` opens links only for the connect
    points this entity consumes. It cannot reach an owner it does not consume from.
-2. Enforced, on the owner side. Even though C presents a valid, CA-signed certificate
-   (so the transport accepts it), the `ConnectPointHost` refuses it because `c` is not
+2. Enforced, on the owner side. C presents a valid, CA-signed certificate, so the
+   transport accepts it, and the `ConnectPointHost` still refuses it because `c` is not
    on `thing`'s consumer list. Authorization sits above authentication.
 
 ## How to run
@@ -56,18 +56,18 @@ topology finally wire together.
 tests/m4-topology/run-m4.sh
 ```
 
-Builds `SynQtService` and the test, generating throwaway mesh certificates at
-configure time (project CA + `a`/`b`/`c` entity certs) into `build/m4-topology/certs/`
-; never committed.
+It builds `SynQtService` and the test, and generates throwaway mesh certificates at
+configure time (a project CA plus `a`, `b` and `c` entity certs) into
+`build/m4-topology/certs/`. None of them is committed.
 
 ## Notes / scope
 
-- Config is read as a resolved `Topology` (the machine form; `topologyFromJson` parses
-  the JSON the CLI will emit from `synqt.yaml` in M10). The test constructs it directly.
-- One `ConnectPointHost` (own mesh endpoint) per connect point gives per-connect-point
-  access control for free; a peer connects to a specific connect point's endpoint, and
-  that endpoint enforces exactly its consumers.
-- `instance: caller` and `instance: link` are implemented; the Source instances are
-  structured in the topology but come with the caller/session machinery in M7.
-- The generator now includes `<QStandardItemModel>` (QtGui) only when a contract has a
+- Config is read as a resolved `Topology` (the machine form, which `topologyFromJson`
+  parses from the JSON the CLI emits from `synqt.yaml`). The test constructs it directly.
+- One `ConnectPointHost`, with its own mesh endpoint, per connect point gives
+  per-connect-point access control. A peer connects to a specific connect point's
+  endpoint, and that endpoint enforces exactly its consumers.
+- `instance: caller` and `instance: link` are implemented. The topology structures the
+  Source instances, and the caller and session machinery arrives with `Caller`.
+- The generator includes `<QStandardItemModel>` (QtGui) only when a contract has a
   model, so a model-less service entity does not pull in QtGui.

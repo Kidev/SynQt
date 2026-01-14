@@ -45,19 +45,22 @@ Button  { onClicked: Server.add(input.text) } // a slot call (a request)
 
 | Member | Type | Description |
 |--------|------|-------------|
-| `Server.<name>` | Replica | the live Replica of the connect point named `<name>` in `synqt.yaml`. Properties and models are read-only mirrors of the owner's Source; slots are callable and are always requests the owner may refuse. |
+| `Server.<member>` | per the contract | each `prop`, `model`, `signal` and `slot` the edge's `export:` block declares. Properties and models are read-only mirrors of the owner's Source; slots are callable and are always requests the owner may refuse. |
+| `Server.ready` | bool | the framework's own: true once the edge is hosting this connect point for this browser. It goes false on a disconnect and true again on the reconnect. |
 
 Notes:
 
 - `Server` is the well-known alias for "the web edge this client talks to,"
   whatever that edge entity is actually named. It is the client-side counterpart
-  of addressing a service by its entity name (`Store.items`) elsewhere in the
-  mesh.
-- A connect point appears on `Server` only once its Replica has been acquired.
-  A connect point with a `scope` the session does not hold is never acquired, so
-  `Server.<name>` is not live for an under-scoped user (see
-  [Availability and lifecycle](#availability-and-lifecycle) below). Bindings to it
-  simply hold their default until it becomes ready, and resume on reconnect.
+  of addressing a service by its entity name (`Store.find(id)`) elsewhere in the
+  mesh. An entity has one connect point, so the accessor is two levels and not
+  three.
+- The accessor exists from the first frame, before any link is up: a binding
+  written against it is evaluated immediately and holds the member's default until
+  the Replica arrives, then re-evaluates. A connect point with a `scope` the
+  session does not hold is never acquired at all, so its members stay at their
+  defaults for an under-scoped user and `Server.ready` stays false (see
+  [Availability and lifecycle](#availability-and-lifecycle) below).
 - A slot with a return type resolves asynchronously (the work happens on the
   owner); a slot with no return type is fire-and-forget. This is a property of the
   contract, not of `Server`.
@@ -701,8 +704,8 @@ A jobs entity is internal only: nothing on it is ever reachable from a browser.
 
 The framework owns each accessor's lifecycle:
 
-- A scope-gated `Server.<name>` is acquired only when the session meets the
-  connect point's `scope`. Below that scope the Replica is never handed over, so
+- A scope-gated connect point is acquired only when the session meets its
+  `scope`. Below that scope the Replica is never handed over, so
   its slots cannot be called at all; the gate is enforced at acquisition, not by
   hiding buttons. On a scope upgrade (`Caller.setScope` after login) the newly
   permitted connect points are acquired; on logout they are released.

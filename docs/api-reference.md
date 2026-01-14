@@ -14,7 +14,7 @@ its reference is [runtime API](runtime-api.md).
 
 ## What is in it
 
-Doxygen indexes the five runtime libraries. [Developer guide](development.md#the-runtime-libraries-src)
+Doxygen indexes the runtime libraries. [Developer guide](development.md#the-runtime-libraries-src)
 explains what each is responsible for and why they are split the way they are.
 
 | Library | Where to start in the reference |
@@ -25,6 +25,7 @@ explains what each is responsible for and why they are split the way they are.
 | `SynQtService` | `SynQt::EntityRuntime`, `SynQt::ConnectPointHost`, `SynQt::MeshServer`, `SynQt::MeshClient`, `SynQt::SessionManager`, `SynQt::Caller`. |
 | `SynQtIdentity` | `SynQt::OAuthBackend`, `SynQt::JwksVerifier`, `SynQt::IdentityService`. |
 | `SynQtEdge` | `SynQt::WebEdge`, `SynQt::IdentityProvider`, `SynQt::PagesService`, `SynQt::PageStore`. |
+| `SynQtGateway` | `SynQt::ApiServer` and the `Api` helper an entity's `network.inbound` opens. |
 | `SynQtProviders` | `SynQt::IPersistenceProvider`, `SynQt::IDocumentProvider`, `SynQt::ICacheProvider`, `SynQt::ProviderRegistry`, and the bundled provider implementations. |
 
 Every class and member is listed, whether or not it carries a comment, so the reference

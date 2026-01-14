@@ -20,13 +20,12 @@ To accept it, open your pull request as normal. On your first one a bot comments
 a link to the CLA and the sentence to reply with, and records your reply against the
 commit you agreed at. Later pull requests do not ask again. The record lives on the
 `cla-signatures` branch of this repository rather than in a third-party service, so it
-can be audited. Contributions cannot be merged without acceptance.
+can be audited. Nothing is merged before you accept the CLA.
 
 ## Every source file needs an SPDX header
 
 Add these two lines at the top of every source file you create, in the file's
-comment syntax. This is the modern, machine-readable way to mark licensing and it
-keeps license scanners happy.
+comment syntax. SPDX is machine-readable, so license scanners can read it directly.
 
 C++, QML, JavaScript, and other `//` comment files:
 
@@ -103,10 +102,11 @@ Read it before your first change.
 
 ## Before you open a pull request
 
-- Run `synqt check` (config and topology validation, contract and QML linting).
-- Run the formatters yourself (clang-format, qmlformat). `synqt check` does not format.
-- Run `synqt test`, including the transport spike test if you touched the transport
-  (the QtRO over WebSockets path is the highest risk area).
+- Run the formatters yourself (clang-format, qmlformat).
+- Run the suites your change touches: `make test` for the CLI and the contract compiler,
+  `make test-cpp QT_HOST=<kit>` for the runtime. If you touched the transport, also run
+  the browser proof in [tests/m0-transport](tests/m0-transport/README.md) (the QtRO over
+  WebSockets path is the highest risk area).
 - Describe what changed and why. Link the issue if there is one.
 
 The CLA text and the licensing analysis are not legal advice. If you contribute on

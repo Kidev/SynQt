@@ -20,19 +20,19 @@ A desktop client is still a client entity. Everything the
 [programming model](programming-model.md) and the [runtime API](runtime-api.md)
 describe applies without change:
 
-- It is a connector: it reaches exactly one web edge over a WebSocket it opens
+- It is a connector. It reaches exactly one web edge over a WebSocket it opens
   itself, and never listens for mesh traffic. It holds no mesh certificate and is
-  never a consumer of a service's connect point directly; it reaches services only
+  never a consumer of a service's connect point directly. It reaches services only
   through the edge, exactly as the browser does.
-- It consumes connect points through `Server.<name>`, reacts to `<Owner>.on<Signal>`,
+- It consumes its edge's connect point through `Server`, reacts to `<Owner>.on<Signal>`,
   and is gated by `scope` at acquisition. An under-scoped desktop user is refused
   the Replica just as a browser user is.
-- It authenticates with a user session, not a certificate. The two identity
+- It authenticates with a user session rather than a certificate. The two identity
   systems ([`Caller.isUser` versus `Caller.isEntity`](runtime-api.md#service-caller))
-  are unchanged; a desktop user is still a user.
+  are unchanged. A desktop user is still a user.
 - The edge, the mesh, every service entity, and the whole authorization model are
   untouched. Adding a desktop target changes how the client is packaged and how it
-  reaches the edge, nothing on the server side.
+  reaches the edge, and nothing on the server side.
 
 Because the constraints are identical, there is no "desktop version" of the app to
 maintain. There is one client, built for two or more targets.

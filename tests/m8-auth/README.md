@@ -86,47 +86,46 @@ route, for a fresh session of the ordinary length. See
 [desktop](../../docs/desktop.md#storing-the-session).
 
 `tst_device.cpp` is the edge half, driven over real HTTP against a `DeviceRegistry` on a
-throwaway SQLite store: enrolment issues a credential and not a session, a device secret
+throwaway SQLite store. Enrolment issues a credential rather than a session, a device secret
 presented at the WebSocket upgrade is refused, every redemption rotates, a retired generation
 inside the overlap window costs nothing and past it revokes the family and its sessions,
 scope is re-derived through the mapping hook, both expiry clocks are enforced, an `Origin`
 header is refused, logout ends the family, and an unknown secret is refused without signing
 its owner out. The far side of a window measured in days is reached by moving a row's
-timestamps with SQL, not by adding millisecond knobs to the config.
+timestamps with SQL rather than by adding millisecond knobs to the config.
 
-`tst_devicestore.cpp` is the client half. The test that matters most is the one that would
-still pass if the feature were broken: with no store available, nothing is written anywhere,
-asserted against the real config, data and cache directories, because there is no file
-fallback and never will be. It also covers the round trip, that erasing what is not there
+`tst_devicestore.cpp` is the client half. The case that matters most asserts a negative.
+With no store available, nothing is written anywhere, checked against the real config,
+data and cache directories, because there is no file fallback. It also covers the round trip, that erasing what is not there
 succeeds, that a failed write leaves nothing behind (otherwise a keyring that cannot write
 would stage a theft the edge acts on), that the 2 s deadline holds, and end to end that a
 second launch is still signed in and a logout stops the third.
 
 On Linux ctest runs it through `tests/lib/keyring-session.sh`, which gives it a private
-session bus and a private keyring rather than the developer's own; where those tools are
+session bus and a private keyring rather than the user's own. Where those tools are
 missing the store tests skip, which is what a visitor on such a machine gets. CI sets
 `SYNQT_REQUIRE_SECURE_STORE` on the column that provides a store, so a skip there fails.
 
 ## The promoted auth entity (`identity.provider_entity`)
 
 `providerEntityCentralizedLogin` and `providerEntityDistributedSessions` cover the shape
-where identity is not on the edge: an auth entity owns an `identity` and a `sessions`
+where identity is not on the edge. An auth entity owns an `identity` and a `sessions`
 connect point (one Source per calling edge on both, both over mutual TLS), each edge consumes them, and the
-edge holds no OAuth backend, no secret and no token; it only issues the session cookie.
+edge holds no OAuth backend, no secret and no token. It only issues the session cookie.
 
-Those two connect points are framework contracts, not app contracts. They live in
+Those two connect points are framework contracts rather than app contracts. They live in
 `src/identity/contracts/{Identity,SessionStore}.syn` and compile into `SynQtIdentity`, which is
-what lets `identity.provider_entity: auth` be a single line in a project's `synqt.yaml`:
-the generated auth `main.cpp` registers the Sources out of the runtime library, and no app
+what lets `identity.provider_entity: auth` be a single line in a project's `synqt.yaml`.
+The generated auth `main.cpp` registers the Sources out of the runtime library, and no app
 writes an `export:` for either. This suite hosts them exactly as that generated main does.
 
 `auth/Identity.qml` and `auth/Session.qml` are the generator's own output, checked in here
 as the fixture. `tools/synqt/synqt/authentity.py` emits them and
 `tools/synqt/tests/test_provider_entity.py` compares the two, so the bridge that is proven
-over a real mesh link and the bridge a project gets cannot drift apart. Edit the generator,
-not these files.
+over a real mesh link and the bridge a project gets cannot drift apart. Edit the generator
+rather than these files.
 
-`synqt add auth` is tested in `tools/synqt/tests/test_addauth.py`: the scaffolded config is
+`synqt add auth` is tested in `tools/synqt/tests/test_addauth.py`. The scaffolded config is
 secure with no manual hardening (Authorization Code, the secret as an `env:` reference and a
 `.env.example` entry, the httpOnly/SameSite session cookie, the mapping hook), and it prints
 only the manual steps.

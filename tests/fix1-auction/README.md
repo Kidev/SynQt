@@ -21,5 +21,5 @@ localhost edge cert generated at configure time, then `ctest`).
   books entity, and it records only for the edge (`Caller.entity === "edge"`),
   refusing a listed-but-non-edge consumer.
 
-The third hands-on check (client-as-consumer of the database `ledger` fails `synqt check`) is
-in `tools/synqt/tests/test_examples.py`.
+The third hands-on check (client-as-consumer of the books entity's connect point fails
+`synqt check`) is in `tools/synqt/tests/test_examples.py`.

@@ -48,7 +48,7 @@ not extrapolate this figure to a claim about SynQt in general.
 ## Reproduce
 
 Needs the Qt for WebAssembly kit (`wasm_singlethread`) and the pinned Emscripten (4.0.7), so
-it belongs on a workstation with that toolchain, not the build sandbox. From the repo root:
+it belongs on a workstation carrying that toolchain. From the repo root:
 
     benchmarks/remote-pages/run.sh --out benchmarks/results/remote-pages-$(hostname).json
 

@@ -620,8 +620,8 @@ does not crash the edge.
 - You declare what may cross in a contract. The defaults make the safe choice.
 - You name each connect point, give it an owner and a consumer allowlist, and (for
   browser consumers) a scope. The framework wires the links and authenticates them.
-- Consumer code reads `Server.<name>` (browser) or `<Entity>.<name>` (services) and
-  calls slots, treating every call as a request.
+- Consumer code reads `Server.<member>` (browser) or `<Entity>.<member>` (services)
+  and calls slots, treating every call as a request.
 - Owner code implements the slots, checks `Caller` (a user session or a calling
   entity) for authorization, and is the only writer of authoritative state.
 - The framework moves the bytes, reconnects, authenticates every link, and keeps

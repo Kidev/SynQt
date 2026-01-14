@@ -11,7 +11,7 @@ somebody choosing a framework is actually comparing it to.
 
 One publisher changes a value at a fixed rate. N subscribers must each see every change.
 
-That is the whole of it, and it is deliberately the thing SynQt exists for rather than the
+That is the whole of it, and it is the thing SynQt exists for rather than the
 thing that is easiest to measure. A framework comparison that led with request throughput
 would be comparing SynQt on somebody else's ground; the HTTP table below is here as
 supporting evidence, not as the headline.
@@ -36,7 +36,7 @@ protocol, because that is what a deployment would be running.
 | `node-socketio` | Socket.IO, websocket transport pinned, compression off, binary frames | What a Node team would actually deploy |
 
 Both Node columns exist because either alone is arguable. Bare builtins are a number
-nobody ships. Socket.IO is a number that flatters us. Printed side by side, the spread
+nobody ships. Socket.IO is the easier comparison. Printed side by side, the spread
 between them is itself part of the answer.
 
 Socket.IO is given its best case rather than its default: the transport is pinned so no run
@@ -156,8 +156,8 @@ one process narrowing to under 1% on eight. SynQt scales better (9.56x against 7
 holds the lower tail latency once there are eight processes, which is the same fact twice:
 what SynQt gives up is per-process efficiency, not the ability to use the machine.
 
-That is the result, and it belongs here in the same size type as everything else: a stack
-that only publishes the benchmarks it wins is not publishing benchmarks. The gap is
+That is the result, printed at the same size as everything else: a stack that only
+publishes the benchmarks it wins is not publishing benchmarks. The gap is
 attributed rather than left as a mystery in
 [what the gap is made of](#what-the-gap-against-node-is-made-of) below.
 
@@ -218,9 +218,9 @@ Arch Linux, x86_64, Qt 6.11.1 against Node 22.22, **100** subscribers, 6 second 
 | 8 | 175,050 msg/s | yes | 1,023,340 | 861,700 |
 
 Read down the first column, not across the row. Threading is worth 1.76x from one core to
-two and nothing after it, and it costs a little by eight; it is not a way to buy throughput
-without limit. What it is, is the only column here whose every row still delivers one value
-to all 100 subscribers, which is the case `replicas:` and `cluster` cannot serve at all.
+two and nothing after it, and it costs a little by eight. Its distinction is that every
+row still delivers one value to all 100 subscribers, which is the case `replicas:` and
+`cluster` cannot serve at all.
 
 Two cautions before quoting any of this. These runs used 100 subscribers and 6 second
 windows, and [the sweep table above](#reading-the-result-honestly) used 200 and 10, so the
@@ -263,15 +263,15 @@ somewhere between fifty and a hundred onwards and pulls further ahead after that
 An earlier version of this section measured one subscriber count, 40, which is almost
 exactly where the two curves cross, and concluded from it that Qt's socket stack was 8%
 ahead of Node's. That is true at 40 and false at 250. One point cannot tell a fixed cost
-from a marginal one, and a sweep is not decoration.
+from a marginal one.
 
 Two separable things follow, and they want different work:
 
 **QtRemoteObjects costs a steady 20% or so on top of Qt's own socket path**: 2.3
 microseconds per subscriber, 1.11x to 1.24x on latency and 1.19x to 1.29x on CPU, at every
-size measured. That is a real cost for a real thing. The Node column carries an opaque
-buffer to a callback and the receiver casts it; the QtRO column carries a typed property
-change against a schema, resolves it on a replica that stays in sync, coalesces pushes that
+size measured. That cost buys something concrete: the Node column carries an opaque
+buffer to a callback and the receiver casts it, while the QtRO column carries a typed
+property change against a schema, resolves it on a replica that stays in sync, coalesces pushes that
 overtake each other, and lands in a slot where `Caller` is already known.
 
 **Qt's own per-subscriber cost is 3.6 microseconds above Node's**, which is the larger half
@@ -305,13 +305,14 @@ the path rather than measured.
    worth predicting.
 4. **Neither runtime uses more than one core per process, but only one of them could.**
    Node reaches other cores with `cluster`, which gives every worker its own copy of the
-   value and needs a hop between processes to keep them agreeing; the sweep above
-   deliberately gives Node its best case by letting each worker publish independently, with
-   nothing shared. SynQt is C++ and could serialize a change once and write it from a pool
-   of I/O threads inside one process, with no hop at all. This does not lower the marginal
-   cost, it buys more cores to pay it with, and it is the item that would change the answer
-   on a machine with cores to spare. Not built; `replicas:` today is the same
-   shared-nothing answer Node gives.
+   value and needs a hop between processes to keep them agreeing; the sweep above gives
+   Node its best case by letting each worker publish independently, with nothing shared.
+   SynQt is C++ and can write a change from a pool of IO threads inside one process, with
+   no hop at all. This does not lower the marginal cost, it buys more cores to pay it
+   with. Shipped as
+   [`threads: N`](../../docs/deploying.md#running-one-edge-on-more-than-one-core);
+   [the table above](#threads-the-core-that-is-not-a-process) is what it actually buys,
+   which is two cores' worth and not more.
 
 Already done, and worth about 3% of saturating throughput: the adapter asks each socket to
 put its buffered bytes on the wire just before the event loop blocks, rather than waiting a
@@ -338,9 +339,9 @@ the generator is not a variable between stacks.
 
 ## Where it runs
 
-The build sandbox terminates sustained parallel load, so the committed numeric baselines
-come from a run on a normal host. The harness itself is exercised in-env: all three live
-columns run to completion at small sizes, and all six HTTP routes are verified correct on
-both Node servers (including the 1..500 clamp on `queries` and the HTML escaping of the
-seeded `<script>` fortune) before anything is timed. A benchmark of a wrong endpoint is
-worse than no benchmark.
+A sandbox that terminates sustained parallel load cannot produce these numbers, so the
+committed baselines come from a run on an unrestricted host. The harness itself runs
+anywhere: all three live columns complete at small sizes, and all six HTTP routes are
+verified correct on both Node servers (including the 1..500 clamp on `queries` and the
+HTML escaping of the seeded `<script>` fortune) before anything is timed. A benchmark of
+a wrong endpoint is worse than no benchmark.
