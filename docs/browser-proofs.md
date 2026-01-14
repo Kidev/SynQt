@@ -74,11 +74,13 @@ tests/m0-transport/verify/run-m0.sh    # the WebKit cases now run too
 ## In continuous integration
 
 [`browser-matrix.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/browser-matrix.yml) runs the transport harness across Chromium, Firefox, and WebKit,
-weekly and on dispatch, on Ubuntu and on macOS. Weekly, because this is the only harness
-whose result depends on software that is not in this repository: the spike it drives is
+on dispatch and on a change to the spike, on Ubuntu and on macOS. This is the only harness
+whose result depends on software that is not in this repository. The spike it drives is
 stable, and the browser engines are not. The harness floats Playwright, so each run
 resolves the engine builds that are current that day and prints their versions in its log,
-which is what makes a green run comparable to the next one.
+which is what makes a green run comparable to the next one, and what makes an old green run
+a statement about the engines of that day rather than today's. Dispatch it before leaning
+on the result.
 
 [`wasm-proofs.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/wasm-proofs.yml) runs the proofs that need a WebAssembly kit no other workflow
 installs: the multi threaded SharedArrayBuffer proof and the client runtime, each in every

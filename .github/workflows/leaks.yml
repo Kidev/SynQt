@@ -24,17 +24,13 @@
 # workflow holds no copy of the rules; see docs/development.md.
 #
 # It is not on every push because the sanitize pass rebuilds the whole tree instrumented and
-# then runs every suite two to three times slower. Weekly, on demand, and whenever the
-# runtime libraries or the harness itself change.
+# then runs every suite two to three times slower. On demand, and whenever the runtime
+# libraries or the harness itself change.
 
 name: "[TEST] Look for what the suites leak"
 
 on:
   workflow_dispatch:
-  schedule:
-    # Sunday 05:00 UTC, an hour after the benchmark run so the two do not contend for
-    # whatever capacity a shared runner has.
-    - cron: "0 5 * * 0"
   push:
     paths:
       - "src/**"

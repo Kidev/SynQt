@@ -511,9 +511,9 @@ for the published CLI and its installer, and `[CONTRIB]` for the contributor boo
 - [`browser-matrix.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/browser-matrix.yml) closes the WebKit and Safari column of the transport proof,
   building QtRemoteObjects into the WebAssembly kit from source and driving Chromium,
   Firefox, and WebKit through every QtRemoteObjects over WebSockets direction and a
-  reconnect, on Ubuntu and on macOS. It runs weekly, not only on demand, because the
-  engines it drives move on their own schedule while the spike it drives does not, and it
-  records the engine versions each run drove.
+  reconnect, on Ubuntu and on macOS. It runs on dispatch and when the spike changes, and it
+  records the engine versions each run drove, because the engines it drives move on their
+  own schedule while the spike does not: dispatch it before leaning on its result.
 - [`wasm-proofs.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/wasm-proofs.yml) runs what needs a WebAssembly kit the other workflows do not install:
   the multi threaded client actually receiving SharedArrayBuffer under cross origin
   isolation (and provably losing it without the headers), Qt Quick 3D Physics building and
@@ -528,15 +528,15 @@ for the published CLI and its installer, and `[CONTRIB]` for the contributor boo
   of that story is not here: `tests/memory` is an ordinary ctest suite and runs on every
   push, and it is the gate that matters, because it measures the leak class this framework
   actually has (memory still reachable at exit, which a leak checker never reports).
-- [`benchmarks.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/benchmarks.yml) runs the performance harnesses weekly and holds their output to
-  the ratios and orderings [`benchmarks/README.md`](https://github.com/Kidev/SynQt/blob/main/benchmarks/README.md) claims, never to absolute numbers
+- [`benchmarks.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/benchmarks.yml) runs the performance harnesses on dispatch and on a change under
+  `benchmarks/`, and holds their output to the ratios and orderings [`benchmarks/README.md`](https://github.com/Kidev/SynQt/blob/main/benchmarks/README.md) claims, never to absolute numbers
   measured on another machine.
 - [`docs.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/docs.yml) builds and publishes this documentation site on a push to `main`.
 
 Neither WebAssembly workflow runs on every push: each builds a Qt module from source, which
-is too slow for that. Both run on dispatch and when what they cover changes, and the browser
-matrix also runs weekly, because a browser engine can break it without anything here
-changing.
+is too slow for that. Both run on dispatch and when what they cover changes. Keep in mind
+for the browser matrix that a browser engine can break it without anything here changing,
+so its last green run is only evidence about the day it ran.
 
 The suites run locally exactly as CI runs them, through each test's `run-*.sh` with
 `QT_HOST` pointing at your host kit (see the [developer guide](development.md)).

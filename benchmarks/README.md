@@ -50,9 +50,10 @@ harness carries a single ~40 ms first-sample outlier, and halving the sample cou
 
 Two workflows split the work. [`tests.yml`](../.github/workflows/tests.yml) checks the
 committed baselines on every push; it measures nothing, so it costs nothing.
-[`benchmarks.yml`](../.github/workflows/benchmarks.yml) builds and runs the harnesses
-weekly and holds the fresh output to the same claims, and will compare against a committed
-baseline automatically if one exists for the runner it is on.
+[`benchmarks.yml`](../.github/workflows/benchmarks.yml) builds and runs the harnesses on
+dispatch and on a change under `benchmarks/`, holds the fresh output to the same claims,
+and will compare against a committed baseline automatically if one exists for the runner it
+is on.
 
 ## transport: the client-to-edge path (BENCH-1, the first and most important baseline)
 

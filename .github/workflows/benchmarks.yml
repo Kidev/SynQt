@@ -33,7 +33,7 @@
 #
 # The cheap half of the gate is elsewhere: tests.yml checks the committed baselines
 # themselves on every push (pure Python, measures nothing). This workflow is the half
-# that needs a Qt kit and several minutes, so it runs weekly and on demand.
+# that needs a Qt kit and several minutes, so it runs on demand and when benchmarks/ changes.
 #
 # Four harnesses stay out. capstone and edge sustain load for tens of seconds and would
 # measure the runner's neighbours as much as SynQt; client needs a display and both WASM
@@ -44,10 +44,6 @@ name: "[BENCH] Run the benchmark harnesses"
 
 on:
   workflow_dispatch:
-  schedule:
-    # Sunday 04:00 UTC. Weekly, not per-push: this builds five harnesses against the full
-    # framework, and what it guards changes on the scale of a refactor, not a commit.
-    - cron: "0 4 * * 0"
   push:
     paths:
       - "benchmarks/**"

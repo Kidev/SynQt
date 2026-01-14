@@ -462,8 +462,8 @@ removed from. A leak checker reports what is unreachable and would have called a
 clean.
 
 The second way runs on demand, and in CI through
-[`leaks.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/leaks.yml): weekly,
-on dispatch, and on any push that touches `src/` or the harness. It is not on every push
+[`leaks.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/leaks.yml): on
+dispatch, and on any push that touches `src/` or the harness. It is not on every push
 because the sanitizer pass rebuilds the whole tree instrumented and then runs every suite
 several times slower.
 
@@ -564,10 +564,11 @@ Every workflow name carries a tag so the checks list groups by purpose: `[TEST]`
 Neither [`browser-matrix.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/browser-matrix.yml) nor [`wasm-proofs.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/wasm-proofs.yml) runs on every push: each builds a Qt
 module from source for the WebAssembly kit (which ships no QtRemoteObjects, see
 [`tests/m0-transport/README.md`](https://github.com/Kidev/SynQt/blob/main/tests/m0-transport/README.md)), which is too slow for that. They run on dispatch and on
-changes to what they cover, and [`browser-matrix.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/browser-matrix.yml) also runs weekly on a schedule.
-The schedule is there because what its result depends on is not in this repository: the
-browser engines it drives keep moving while the spike it drives does not, so a path trigger
-alone would leave the Chromium, Firefox, and WebKit claim resting on a run from months ago.
+changes to what they cover. Note that [`browser-matrix.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/browser-matrix.yml) is the one workflow
+whose result depends on software that is not in this repository: the browser engines it
+drives keep moving while the spike it drives does not, so its path triggers can leave the
+Chromium, Firefox, and WebKit claim resting on a run from months ago. Dispatch it when you
+need the claim to be current.
 Each run prints the engine versions it drove. Both workflows depend on aqtinstall resolving
 the right module names for the runner image, which is the first thing to check when one of
 them fails on a fresh runner.
