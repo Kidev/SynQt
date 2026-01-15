@@ -10,7 +10,7 @@ project(synqt_m1_contract LANGUAGES CXX)
 
 include("${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/SynQtBuildFlags.cmake")
 
-find_package(Qt6 6.11 REQUIRED COMPONENTS Core Gui Qml RemoteObjects Test)
+find_package(Qt6 6.11 REQUIRED COMPONENTS Core Gui Qml Quick RemoteObjects Test)
 qt_standard_project_setup()
 
 include("${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/SynQtContracts.cmake")
@@ -61,6 +61,29 @@ target_link_libraries(tst_modelwrite PRIVATE
 )
 
 add_test(NAME m1-modelwrite COMMAND tst_modelwrite)
+
+# The QML type-resolution rules `synqt build` is written against: a root object named after
+# its own file, with and without a type of that name in scope, and `import SynQt` carrying
+# QtQuick. Decisions taken in Python (synqt/qmlrewrite.py) about how a QML engine behaves,
+# checked here against a real one, because Python cannot check them.
+if(NOT TARGET SynQtConsumer)
+    add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../../src/consumer"
+                     "${CMAKE_BINARY_DIR}/SynQtConsumer")
+endif()
+
+qt_add_executable(tst_qmlrules tst_qmlrules.cpp)
+
+target_link_libraries(tst_qmlrules PRIVATE
+    SynQtConsumer
+    Qt6::Core
+    Qt6::Qml
+    Qt6::Quick
+    Qt6::Test
+)
+
+# offscreen: the Item and Timer it loads are never shown, and a test target that needed a
+# display would not run in CI.
+add_test(NAME m1-qmlrules COMMAND tst_qmlrules -platform offscreen)
 
 # Owner (ROLE source): gets the Source helpers only. Proves a service entity builds
 # with no Replica code.

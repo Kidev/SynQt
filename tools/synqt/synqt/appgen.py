@@ -18,6 +18,8 @@ four kinds of output share almost nothing but the topology they read:
   ``index.html``, ``synqt-boot.js``, the shell cache worker, and the dev reload hook.
 - :mod:`synqt.authentity` renders the Source QML the auth entity needs when
   ``identity.provider_entity`` promotes identity out of the edge.
+- :mod:`synqt.qmlrewrite` mirrors each entity's own QML into ``generated/``, which is the
+  tree the engines actually load, so a file rooted at its own name resolves.
 
 Nothing is re-exported here: a caller that wants one renderer names the module that
 owns it, so the split stays load bearing rather than a layer behind one facade. A
@@ -34,7 +36,7 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from . import (appmodel, authentity, cmakegen, contractgen, graphics as graphicsmod,
-               maingen, writer)
+               maingen, qmlrewrite, writer)
 
 
 def generate(project_dir: os.PathLike[str] | str, config: Dict[str, Any], *,
@@ -126,5 +128,10 @@ def generate(project_dir: os.PathLike[str] | str, config: Dict[str, Any], *,
             source_qml = authentity.render_source_qml(connect_point.get("contract", ""))
             writer.write_if_changed(root / relative, source_qml)
             written.append(relative)
+
+    # Last, because it mirrors what is in the entity folders and the loop above just wrote
+    # the auth entity's Sources into one of them. This is the tree every engine loads from,
+    # so a file that arrives after it would be a file nothing runs.
+    written += qmlrewrite.write_entity_qml(root, config)
 
     return written

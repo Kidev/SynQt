@@ -178,11 +178,13 @@ def dev_command(root: Path, entity: Dict[str, Any], config: Dict[str, Any],
     binary = str(resolved) if resolved else str(root / "build" / "host" / name)
     if appmodel.is_edge(entity):
         return [binary, "--bundle", str(root / "build" / "client"),
-                "--qml-dir", str(root), "--port", str(port), "--dev"]
+                "--qml-dir", str(root / appmodel.GENERATED_DIR),
+                "--port", str(port), "--dev"]
     command = [binary, "--topology", str(root / "build" / name / "topology.json")]
-    # A service that declares pragma-Singleton QML resolves it against the project root.
+    # A service that declares pragma-Singleton QML resolves it against the mirror under
+    # generated/, which is where the loadable copy of every entity's QML lives.
     if appmodel.discover_singletons(root / appmodel.entity_dir(entity)):
-        command += ["--qml-dir", str(root)]
+        command += ["--qml-dir", str(root / appmodel.GENERATED_DIR)]
     # The auth entity holds the identity engine, so it carries the dev-stub gate the edge
     # carries in-process. `synqt serve` passes no arguments at all, which is what keeps the
     # stub out of anything that ships.

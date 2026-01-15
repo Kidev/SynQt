@@ -99,6 +99,8 @@ def entity_qml(entity_type: str, name: str) -> str:
             "// caller to authorize. Authorization lives in the Source of each connect\n"
             "// point, which is where a caller actually arrives.\n"
             "QtObject {\n"
+            "    id: root\n"
+            "\n"
             "    function insert(row) {\n"
             "        Db.exec(\"INSERT INTO items(text, author) VALUES(?, ?)\", "
             "[row.text, row.author]);\n"
@@ -109,6 +111,8 @@ def entity_qml(entity_type: str, name: str) -> str:
             f"// The '{name}' entity itself. It calls the `Cache` helper only, so the\n"
             "// entity works the same on the embedded store and on an external engine.\n"
             "QtObject {\n"
+            "    id: root\n"
+            "\n"
             "    function put(key, value) {\n"
             "        Cache.set(key, value, 300);\n"
             "    }\n"
@@ -127,6 +131,8 @@ def entity_qml(entity_type: str, name: str) -> str:
             "// No `Caller` here: this file is the entity, not a connect point, so there is\n"
             "// no caller to authorize. That check belongs in each connect point's Source.\n"
             "QtObject {\n"
+            "    id: root\n"
+            "\n"
             "    function add(doc) {\n"
             "        Docs.insert(\"items\", doc);\n"
             "    }\n"
@@ -150,6 +156,8 @@ def entity_qml(entity_type: str, name: str) -> str:
             "// browser origins, the limits) and checked before a handler runs, so a\n"
             "// handler is about the answer and not about the caller.\n"
             "QtObject {\n"
+            "    id: root\n"
+            "\n"
             "    // Uncomment network.inbound in synqt.yaml and these start serving.\n"
             "    Component.onCompleted: {\n"
             "        if (typeof Api === \"undefined\") {\n"
@@ -189,15 +197,18 @@ def entity_qml(entity_type: str, name: str) -> str:
             f"// The '{name}' entity itself. Scheduling and the bounded work queue belong\n"
             "// to the `Jobs` helper, so there is no timer here to manage and nothing to deploy.\n"
             "QtObject {\n"
+            "    id: root\n"
+            "\n"
             "    // The rollup this entity exists to run, every minute, off the request path.\n"
             "    Component.onCompleted: Jobs.every(60000, function () {\n"
             "        console.log(\"rollup\");\n"
             "    })\n"
             "}\n")
-    # An empty object on one line, which is what qmlformat writes for one: the scaffold
-    # promises a project that passes its own `synqt check` with nothing to reformat, and a
-    # plain service is the one type with nothing to put in the braces.
-    return header + "QtObject {}\n"
+    # A plain service is the one type with nothing to put in the braces, so all it carries
+    # is the id every SynQt root object carries. Written the way qmlformat writes it, since
+    # the scaffold promises a project that passes its own `synqt check` with nothing to
+    # reformat first.
+    return header + "QtObject {\n    id: root\n}\n"
 
 
 def entity_block(name: str, entity_type: str, provider: Optional[str]) -> Dict[str, Any]:

@@ -78,7 +78,7 @@ def test_a_view_in_a_subdirectory_keeps_its_subdirectory():
     assert "qrc:/qt/qml/Shop/views/Home.qml" in source
 
     cmake = _client_cmake([{"path": "/", "view": "views/Home.qml"}])
-    assert '"${SYNQT_APP_ROOT}/client/app/views/Home.qml"' in cmake
+    assert '"${SYNQT_GENERATED}/client/app/views/Home.qml"' in cmake
     assert "PROPERTIES QT_RESOURCE_ALIAS views/Home.qml)" in cmake
 
 
@@ -160,7 +160,7 @@ def test_a_views_helper_components_are_compiled_in_too():
                             routes=[{"path": "/", "view": "Home.qml"}])
     assert "PROPERTIES QT_RESOURCE_ALIAS Card.qml)" in cmake
     assert "PROPERTIES QT_RESOURCE_ALIAS parts/Badge.qml)" in cmake
-    assert '"${SYNQT_APP_ROOT}/client/app/parts/Badge.qml"' in cmake
+    assert '"${SYNQT_GENERATED}/client/app/parts/Badge.qml"' in cmake
 
 
 def test_a_singleton_is_marked_as_one():
@@ -200,8 +200,8 @@ def test_every_route_view_is_in_the_clients_qml_module():
     # route table carries resolves to nothing and the router reports Error.
     cmake = _client_cmake([{"path": "/", "view": "Home.qml"},
                            {"path": "/cart", "view": "Cart.qml"}])
-    assert '"${SYNQT_APP_ROOT}/client/app/Home.qml"' in cmake
-    assert '"${SYNQT_APP_ROOT}/client/app/Cart.qml"' in cmake
+    assert '"${SYNQT_GENERATED}/client/app/Home.qml"' in cmake
+    assert '"${SYNQT_GENERATED}/client/app/Cart.qml"' in cmake
     # Each file is listed by absolute path, so each needs the alias that puts it at the
     # module root: that is the half of the URL qrc:/qt/qml/Shop/Home.qml the route needs.
     assert "PROPERTIES QT_RESOURCE_ALIAS Home.qml)" in cmake
@@ -210,13 +210,13 @@ def test_every_route_view_is_in_the_clients_qml_module():
 
 def test_a_view_named_without_its_extension_is_listed_as_a_file():
     cmake = _client_cmake([{"path": "/", "view": "Home"}])
-    assert '"${SYNQT_APP_ROOT}/client/app/Home.qml"' in cmake
+    assert '"${SYNQT_GENERATED}/client/app/Home.qml"' in cmake
 
 
 def test_a_view_is_listed_once_however_many_routes_name_it():
     cmake = _client_cmake([{"path": "/", "view": "Home.qml"},
                            {"path": "/home", "view": "Home"}])
-    assert cmake.count('"${SYNQT_APP_ROOT}/client/app/Home.qml"') == 2  # file + alias
+    assert cmake.count('"${SYNQT_GENERATED}/client/app/Home.qml"') == 2  # file + alias
     assert cmake.count("PROPERTIES QT_RESOURCE_ALIAS Home.qml)") == 1
 
 

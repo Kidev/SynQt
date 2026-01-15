@@ -29,7 +29,7 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List
 
-from . import appmodel, writer
+from . import appmodel, qmlrewrite, writer
 
 # Mesh links start here and count up by sorted connect-point position. Well clear of the
 # edge's public/dev ports (8080/8443) and the usual engine ports (5432/3306/6379).
@@ -156,11 +156,17 @@ def _path(path: Path) -> str:
 def _server_file(root: Path, connect_point: Dict[str, Any],
                  owners: Dict[str, Dict[str, Any]]) -> str:
     """The absolute path to the owner-side Source QML (the runtime loads it only for a
-    connect point this entity owns; harmless in a consumer's slice)."""
+    connect point this entity owns. Harmless in a consumer's slice).
+
+    The mirror under ``generated/`` rather than the author's file: that is the copy whose
+    root object the engine can instantiate, and it is the whole folder, so the Source still
+    finds its siblings beside it (:mod:`synqt.qmlrewrite`)."""
     owner = owners.get(str(connect_point.get("owner") or ""))
     if owner is None:
-        return _path(root / connect_point["server"]) if connect_point.get("server") else ""
-    return _path(root / appmodel.authored_source_path(owner, connect_point))
+        declared = connect_point.get("server")
+        return _path(root / qmlrewrite.mirrored_path(declared)) if declared else ""
+    return _path(root / qmlrewrite.mirrored_path(
+        appmodel.authored_source_path(owner, connect_point)))
 
 
 def entity_topology(config: Dict[str, Any], entity: Dict[str, Any], project_dir: Path,

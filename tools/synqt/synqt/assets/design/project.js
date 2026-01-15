@@ -247,7 +247,7 @@ import QtQuick
 import QtQuick.Controls
 
 ApplicationWindow {
-    id: window
+    id: root
 
     visible: true
     width: 360

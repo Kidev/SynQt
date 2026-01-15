@@ -27,6 +27,8 @@ qt_add_library(SynQtConsumer STATIC
     consumerfactory.h
     deletesoon.cpp
     deletesoon.h
+    moduleimports.cpp
+    moduleimports.h
     promise.cpp
     promise.h
     readonlymodel.cpp

@@ -253,7 +253,12 @@ def _client_cmake(config: Dict[str, Any], client: Dict[str, Any], uri: str,
     # the route table carries nor a view's own `Card {}` would resolve to anything.
     views = appmodel.client_qml_files(config, client_dir)
     folder = appmodel.entity_dir(client)
-    qml_files = ['"${SYNQT_APP_ROOT}/%s/%s"' % (folder, view) for view in views]
+    # From the mirror under generated/, not from the entity folder: that is the copy whose
+    # root objects are loadable (synqt.qmlrewrite). It changes nothing about where a view
+    # ends up in the resource system, because every file below is given an explicit
+    # QT_RESOURCE_ALIAS of its bare name, which is what the route table and
+    # loadFromModule() address it by.
+    qml_files = ['"${SYNQT_GENERATED}/%s/%s"' % (folder, view) for view in views]
     lines = ["# The client (browser WASM and native desktop, from one QML)",
              'add_subdirectory("${SYNQT_ROOT}/src/client" "${CMAKE_BINARY_DIR}/SynQtClient")']
     # Each file is listed by absolute path, and each has to land where it sits in the
