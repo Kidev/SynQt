@@ -35,6 +35,9 @@
   --bar-height: 3.5rem;
   --rail-width: 14rem;
   --inspector-width: 22rem;
+  /* What the panel folds to on a narrow window: a strip wide enough to hold the handle that
+     brings it back, and no wider. */
+  --inspector-strip: 1.75rem;
   --dock-height: 40vh;
   --mono: ui-monospace, "Roboto Mono", "SFMono-Regular", Menlo, Consolas, monospace;
   --text: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
@@ -245,22 +248,102 @@ h2 {
   min-height: 0;
 }
 
-/* Narrower than the two side columns and anything worth drawing between them: the panel
-   folds away and takes its grip with it, and the dock's grip runs to the edge it now has.
-   What is selected is still selected; the canvas is simply the whole of the window. */
+/* Narrower than the two side columns and anything worth drawing between them.
+   The panel does not go away here, because everything that edits a selection is in it: on a
+   small screen it used to disappear entirely, which left the canvas selectable and nothing
+   on the page able to change what had been selected. Instead it folds to a strip with a
+   handle, and opening it lays it over the canvas rather than squeezing the drawing into
+   what is left. Its grip goes, because a panel that is either shut or the width of the
+   overlay has no width to drag. */
 @media (max-width: 62rem) {
   .work {
-    grid-template-columns: var(--rail-width) minmax(0, 1fr);
+    grid-template-columns: var(--rail-width) minmax(0, 1fr) var(--inspector-strip);
   }
 
-  .inspector,
   .grip--inspector {
     display: none;
   }
 
-  .grip--dock {
-    right: 0;
+  .inspector {
+    padding: 0;
+    overflow: visible;
   }
+
+  /* Shut: the strip and its handle, and nothing of the panel's contents. */
+  .inspector__body {
+    display: none;
+  }
+
+  /* Qualified, because the rule that hides it by default is written after this block and
+     would otherwise win on source order at equal specificity. */
+  .work .inspector__handle {
+    display: flex;
+  }
+
+  /* Open: over the canvas, from under the bar to the top of the dock, and wide enough to be
+     the same panel it is on a wide window rather than a narrower version of it. */
+  .inspector.is-open {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: min(var(--inspector-width), calc(100vw - var(--rail-width)));
+    z-index: 6;
+    padding: 1rem;
+    overflow: auto;
+    background: var(--panel);
+    border-left: 1px solid var(--line);
+    box-shadow: -8px 0 24px rgb(0 0 0 / .14);
+  }
+
+  .inspector.is-open .inspector__body {
+    display: block;
+  }
+
+  .grip--dock {
+    right: var(--inspector-strip);
+  }
+}
+
+/* The handle on the folded panel: present in the markup always, shown only where the panel
+   folds. It carries the same chevron the dock's toggle does, turned to point at the edge it
+   would come out of. */
+.inspector__handle {
+  display: none;
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: var(--inspector-strip);
+  height: 100%;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: .75rem;
+  background: var(--panel);
+  border: none;
+  border-left: 1px solid var(--line);
+  color: var(--ink-dim);
+  cursor: pointer;
+}
+
+.inspector__handle:hover {
+  color: var(--ink);
+}
+
+/* Pointing left, at the edge the panel comes out of, and right again once it is out. */
+.inspector__handle .glyph {
+  width: 1rem;
+  height: 1rem;
+  transform: rotate(90deg);
+  transition: transform 140ms ease-out;
+}
+
+.inspector.is-open .inspector__handle .glyph {
+  transform: rotate(-90deg);
+}
+
+.inspector.is-open .inspector__handle {
+  right: 100%;
+  border-left: 1px solid var(--line);
 }
 
 /* The seams. Each is a hair wide to look at and several pixels wide to hit, which is the
@@ -1246,6 +1329,10 @@ select:focus {
   min-height: 0;
   background: var(--panel);
   border-top: 1px solid var(--line);
+  /* How wide the tree is. Named once here because the bar and the pane are both laid out
+     from it. The bar is split where the pane is split, so each half of it is the heading of
+     the half beneath it rather than a row of controls that happens to sit on top. */
+  --tree-width: 17rem;
 }
 
 /* Hidden means collapsed to its own bar along the bottom, not gone. The pane is where the
@@ -1262,11 +1349,36 @@ select:focus {
 }
 
 .dock__bar {
+  display: grid;
+  grid-template-columns: var(--tree-width) minmax(0, 1fr);
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+}
+
+/* The right half: what is open, and what to press. Its own left padding rather than the
+   bar's, so the Edit button starts exactly where the file below it starts and the rule
+   between the two halves runs through the bar and the pane as one line. */
+.dock__file {
   display: flex;
   align-items: center;
   gap: .5rem;
+  min-width: 0;
   padding: .35rem .75rem;
-  border-bottom: 1px solid var(--line);
+  border-left: 1px solid var(--line);
+}
+
+.dock__title {
+  padding: .35rem .75rem;
+}
+
+/* Collapsed, the pane is gone and there is no tree for the left half to be the heading of,
+   so the bar stops pretending to be split and reads as one strip again. */
+.dock.is-collapsed .dock__bar {
+  grid-template-columns: auto minmax(0, 1fr);
+}
+
+.dock.is-collapsed .dock__file {
+  border-left: none;
 }
 
 .dock.is-collapsed .dock__bar {
@@ -1312,7 +1424,7 @@ select:focus {
   min-height: 0;
   overflow: hidden;
   display: grid;
-  grid-template-columns: 17rem 1fr;
+  grid-template-columns: var(--tree-width) minmax(0, 1fr);
 }
 
 /* Sunk a shade below the file it opens, so the pane reads as a sidebar and a document

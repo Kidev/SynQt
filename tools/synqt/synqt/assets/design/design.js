@@ -121,6 +121,8 @@ const page = {
     palette: document.getElementById("palette"),
     findings: document.getElementById("findings"),
     inspector: document.getElementById("inspector"),
+    inspectorBody: document.getElementById("inspector-body"),
+    inspectorHandle: document.getElementById("inspector-handle"),
     project: document.getElementById("project"),
     hint: document.getElementById("hint"),
     restart: document.getElementById("restart"),
@@ -1349,6 +1351,18 @@ function renameInPlace(kind, name, what, at) {
 // It is not `renameInPlace`: that one floats a box at a canvas coordinate, because the name
 // it edits is drawn into an SVG that has no input to put there. This name is already HTML in
 // a bar that lays itself out, so swapping the element keeps it where the layout had it.
+// Open the panel where it folds, and put the drawing back where it does not.
+//
+// Only the narrow layout has anything to open: on a wide window the panel is a column of the
+// grid and `is-open` means nothing, so this is safe to call from anywhere that wants the
+// panel looked at (the right-click menu's Edit, and the handle itself).
+function showInspector(open = true) {
+    page.inspector.classList.toggle("is-open", open);
+    page.inspectorHandle.setAttribute("aria-expanded", String(open));
+    page.inspectorHandle.setAttribute("aria-label", open ? "Hide the panel"
+                                                         : "Show the panel");
+}
+
 function renameProject() {
     const was = state.design.project || "";
     const field = document.createElement("input");
@@ -1440,7 +1454,7 @@ function onContextMenu(event) {
         const entity = entityNamed(under.name);
         select({kind: "entity", name: entity.name});
         openMenu(at, entity.name, [
-            {label: "Edit", act: () => page.inspector.scrollIntoView({block: "nearest"})},
+            {label: "Edit", act: () => showInspector()},
             {label: "Rename", act: () => renameInPlace("entity", entity.name, "entity", at)},
             {label: "Delete", act: () => removeEntity(entity), danger: true},
         ]);
@@ -1454,7 +1468,7 @@ function onContextMenu(event) {
         // is what moves it, and that is on the node.
         openMenu(at, `${found.owner}'s connect point`, [
             {label: "What crosses it", act: () => openPicker(found, at)},
-            {label: "Edit", act: () => page.inspector.scrollIntoView({block: "nearest"})},
+            {label: "Edit", act: () => showInspector()},
             ...((found.consumers || []).length
                 ? [{label: "Disconnect the consumer", act: () => disconnectLink(found)}]
                 : []),
@@ -1469,7 +1483,7 @@ function onContextMenu(event) {
 }
 
 function renderInspector() {
-    inspect(page.inspector, state.design, state.selected, {
+    inspect(page.inspectorBody, state.design, state.selected, {
         changed: () => {
             touched();
             redraw();
@@ -2401,6 +2415,9 @@ function wire() {
     page.canvas.addEventListener("drop", onDrop);
     page.revert.addEventListener("click", () => revertToLastGood());
     page.project.addEventListener("dblclick", () => renameProject());
+    page.inspectorHandle.addEventListener("click", () => {
+        showInspector(!page.inspector.classList.contains("is-open"));
+    });
     page.infer.addEventListener("click", () => inferContracts());
     page.review.addEventListener("click", () => review());
     page.apply.addEventListener("click", () => applyPlan());
@@ -2488,6 +2505,8 @@ function wire() {
 buildPalette();
 wire();
 page.dockToggle.replaceChildren(chevron());
+// The same arrow on the folded panel's handle, turned to point at the edge it opens from.
+page.inspectorHandle.replaceChildren(chevron());
 for (const grip of GRIPS) {
     holdGrip(grip);
 }

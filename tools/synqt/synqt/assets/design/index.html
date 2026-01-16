@@ -80,18 +80,25 @@
                away. Nothing explains itself here: the button says what pressing it does and
                carries the longer version as its own tooltip, which is one line of prose
                fewer between the file name and the thing that opens the file. -->
+          <!-- Split where the pane below it is split, so each half of the bar is the
+               heading of the half under it: "Files" sits over the tree, and the file's own
+               name sits over the file. The button that unlocks it comes first, before the
+               name, because it is what this half of the bar is for -- the name is what is
+               open, and the button is the thing to press. -->
           <header class="dock__bar" id="dock-bar">
             <span class="dock__title">Files</span>
-            <span class="dock__name" id="source-name"></span>
-            <!-- Read-only until somebody says otherwise. The pane holds the entity's own
-                 code, and a stray keystroke over a file you were reading is not an edit
-                 anybody asked to make. -->
-            <button type="button" class="button button--lock" id="source-lock"
-                    aria-pressed="false"></button>
-            <span class="bar__gap"></span>
-            <button type="button" class="button button--chevron" id="dock-toggle"
-                    aria-expanded="true" aria-controls="dock-pane"
-                    aria-label="Collapse the files"></button>
+            <span class="dock__file">
+              <!-- Read-only until somebody says otherwise. The pane holds the entity's own
+                   code, and a stray keystroke over a file you were reading is not an edit
+                   anybody asked to make. -->
+              <button type="button" class="button button--lock" id="source-lock"
+                      aria-pressed="false"></button>
+              <span class="dock__name" id="source-name"></span>
+              <span class="bar__gap"></span>
+              <button type="button" class="button button--chevron" id="dock-toggle"
+                      aria-expanded="true" aria-controls="dock-pane"
+                      aria-label="Collapse the files"></button>
+            </span>
           </header>
           <div class="dock__pane" id="dock-pane">
             <ul class="tree" id="tree"></ul>
@@ -109,7 +116,18 @@
         </section>
       </section>
 
-      <aside class="inspector" id="inspector"></aside>
+      <!-- The panel for whatever is selected. On a narrow window it folds to the strip its
+           handle sits on and opens over the canvas, rather than being dropped from the
+           layout: everything that edits a selection is in here, so a page that can select a
+           thing and not edit it is a page missing half of itself. The handle is always in
+           the markup and shown only where the panel folds, so nothing has to be built at
+           the moment the window is resized. -->
+      <aside class="inspector" id="inspector">
+        <button type="button" class="inspector__handle" id="inspector-handle"
+                aria-expanded="false" aria-controls="inspector-body"
+                aria-label="Show the panel"></button>
+        <div class="inspector__body" id="inspector-body"></div>
+      </aside>
 
       <!-- Where two panes meet, drawn as nothing and wider than it looks so the edge does not
            have to be hit exactly. Each one drags the width or height its pane is laid out
