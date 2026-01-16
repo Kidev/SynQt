@@ -126,30 +126,44 @@ h2 {
 
 /* Empty until there is a project to name. `synqt design` always has one; the copy on the
    site starts on a blank canvas, where a placeholder name is something to correct rather
-   than something to read. */
+   than something to read.
+
+   It is edited where it is written rather than in a field somewhere else, which is the
+   gesture the canvas already uses for an entity's name. The hover state is the only hint
+   that it can be. A name that looked like an input would read as one more thing to fill
+   in, and this one is usually already right. */
 .bar__project {
   font-family: var(--mono);
+  padding: .1rem .35rem;
+  border: 1px solid transparent;
+  border-radius: .2rem;
+  cursor: text;
+}
+
+.bar__project:hover {
+  border-color: var(--line);
 }
 
 .bar__project[hidden] {
   display: none;
 }
 
+/* Open for editing. A real box, because now it is one. `field-sizing` keeps it the width of
+   the name in browsers that have it, and the explicit minimum is what the rest get. */
+.bar__project-input {
+  font-family: var(--mono);
+  font-size: inherit;
+  color: var(--ink);
+  background: var(--panel-high);
+  padding: .1rem .35rem;
+  border: 1px solid var(--accent);
+  border-radius: .2rem;
+  min-width: 6rem;
+  field-sizing: content;
+}
+
 .bar__gap {
   flex: 1;
-}
-
-.bar__verdict {
-  font-size: 12px;
-  color: var(--ink-dim);
-}
-
-.bar__verdict--error {
-  color: var(--error);
-}
-
-.bar__verdict--warn {
-  color: var(--warn);
 }
 
 .button {
@@ -720,6 +734,30 @@ h2 {
   cursor: crosshair;
 }
 
+/* The seat under the pointer, which is the one a drag would leave from. It is coloured
+   rather than merely enlarged because on a front this is the *only* place a link can be
+   started: the wedge draws no rim slots, so without a lit seat there is nothing to say
+   where the drawing will accept a line. The rules below reach forward through the two
+   siblings the seat is drawn as, which is why the grab circle is written first. */
+.node__seat-grab:hover + .node__seat {
+  fill: var(--accent);
+  stroke: var(--accent);
+  r: 4.5;
+}
+
+.node__seat-grab:hover + .node__seat + .node__seat-name {
+  fill: var(--accent);
+  font-weight: 600;
+}
+
+/* A wired seat gives its name up to the link that landed on it. The name stays in the
+   drawing so nothing has to be rebuilt to bring it back; it is just not painted, and the
+   hover rule above out-specifies this one, so pointing at a wired seat says which scope is
+   about to move. */
+.node__seat-name.is-taken {
+  fill: transparent;
+}
+
 .node.is-selected .node__disc {
   stroke-width: 2.5;
 }
@@ -768,13 +806,22 @@ h2 {
   pointer-events: stroke;
 }
 
-.link__lock,
-/* The contract, on the slot its link was pulled from. It sits on the canvas colour rather
-   than on nothing, so the line it starts leaves the badge instead of running through it. */
-.link__doc {
+.link__lock {
   stroke: var(--ink-dim);
   fill: none;
   pointer-events: none;
+}
+
+/* The contract, drawn once on the slot its point sits on, with every line to every consumer
+   leaving from underneath it. It sits on the canvas colour rather than on nothing, so those
+   lines leave the badge instead of running through it.
+   Unlike the lock it answers the pointer: this icon *is* the connect point, so clicking it
+   opens what crosses the point, and every line out of it lights up to say which consumers
+   that means. */
+.link__doc {
+  stroke: var(--ink-dim);
+  fill: none;
+  cursor: pointer;
 }
 
 .link__doc-box {
@@ -795,6 +842,61 @@ h2 {
 
 .link__doc.is-warn {
   stroke: var(--warn);
+}
+
+/* The point is open in the panel. The badge is drawn a size up as well as in the accent, so
+   which contract is being edited is legible without following the lines out of it. */
+.link__doc.is-selected {
+  stroke: var(--accent);
+}
+
+.link__doc.is-selected .link__doc-box {
+  stroke-width: 1.8;
+}
+
+.link__doc:hover .link__doc-box {
+  stroke-width: 1.8;
+}
+
+/* What a link carries, written along it: the member names alone, under the accessor. Quiet
+   enough that a canvas full of links still reads as a diagram, because these are a reminder
+   of what crosses and not the contract itself (the panel and the tooltip are). */
+.link__member {
+  fill: var(--ink-dim);
+  font-family: var(--mono);
+  font-size: 8px;
+  pointer-events: none;
+}
+
+/* A member held above the point's own scope. Marked rather than spelled out, and the mark
+   answers the pointer so hovering it says which scope: naming every scope on the canvas
+   would give the exception the weight of the ordinary case. */
+.link__member.is-scoped {
+  fill: var(--warn);
+  pointer-events: auto;
+  cursor: help;
+}
+
+.link__member--more {
+  font-style: italic;
+}
+
+.link.is-selected .link__member {
+  fill: var(--accent);
+}
+
+/* The scope a line answers for, written at the end that lands on a front's seat. Set smaller
+   than the accessor name above the line: the accessor is what a consumer writes in QML, and
+   this is a note about routing. */
+.link__scope {
+  fill: var(--ink-dim);
+  font-family: var(--mono);
+  font-size: 8px;
+  pointer-events: none;
+}
+
+.link.is-selected .link__scope {
+  fill: var(--accent);
 }
 
 .link__lock-body {

@@ -137,6 +137,29 @@ def test_generate_writes_the_mirror_so_the_engine_has_a_tree_to_load(tmp_path):
     assert (root / "generated/service/ledger/Ledger.qml").is_file()
 
 
+def test_the_mirror_is_not_linted_as_if_somebody_had_written_it(tmp_path):
+    """`synqt check` walks the project's QML, and the mirror is a copy of every file it
+    already read. Linting it reports each finding twice and reports the second one against a
+    path whose author is `synqt build`, so a reader is told to fix a file the next build
+    overwrites. Revert the `generated` entry in `check.project_qml_files` and this goes red
+    with two errors about generated/."""
+    root = _project(tmp_path)
+    # A `Caller` outside a connect point's Source, which is a rule check_project enforces.
+    (root / "service/ledger/Ledger.qml").write_text(
+        _SOURCE.replace("return 0;", "return Caller.hasScope('admin') ? 1 : 0;"))
+    config = yaml.safe_load((root / "synqt.yaml").read_text())
+    appgen.generate(root, config)
+
+    from synqt import check as checkmod
+    named = [path.as_posix() for path in checkmod.project_qml_files(root)]
+    assert not any("generated/" in path for path in named), named
+
+    _, findings = checkmod.check_project(root)
+    assert not any("generated/" in message for message in findings), findings
+    # The authored file is still reported, once. Skipping the mirror must not skip the rule.
+    assert sum("Ledger.qml" in message for message in findings) == 1, findings
+
+
 def test_a_clients_window_is_copied_as_written_rather_than_quietly_fixed(tmp_path):
     """Retyping `Main { }` to a QtObject would turn a start-up failure that names the file
     into a client that loads, logs nothing and paints a blank page, which is the defect

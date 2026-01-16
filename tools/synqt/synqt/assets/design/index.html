@@ -25,8 +25,14 @@
     <header class="bar">
       <img class="bar__mark" src="synqt.svg" alt="SynQt" width="284" height="150">
       <span class="bar__wordmark">Designer</span>
-      <span class="bar__project" id="project" hidden></span>
-      <span class="bar__verdict" id="verdict"></span>
+      <!-- The project's own name, and the one thing in this bar that is not a button: a
+           double click opens it for editing where it is written, the way an entity's name
+           on the canvas does. No verdict sits here. What the rules say is a list with a
+           line per finding, and the rail holds it under Review where each line can be
+           clicked back to the thing it is about. A count in the bar was the same news with
+           nowhere to go. -->
+      <span class="bar__project" id="project" hidden
+            title="Double click to rename the project"></span>
       <span class="bar__gap"></span>
       <button type="button" class="button button--danger" id="restart" hidden>Clear</button>
       <!-- The way back out of an edit to synqt.yaml, offered while that file is unlocked:

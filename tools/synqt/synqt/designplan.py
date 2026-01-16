@@ -166,9 +166,27 @@ def _mirror(root: Path, work: Path) -> None:
 def _apply(work: Path, current: Dict[str, Any], wanted: Dict[str, Any],
            reasons: Dict[str, List[str]], base: Dict[str, Any]) -> Set[str]:
     """Make the working copy look like `wanted`. Returns the directories taken out whole."""
+    _apply_project(work, current, wanted, reasons)
     removed = _apply_entities(work, current, wanted, reasons)
     _apply_links(work, current, wanted, reasons, base)
     return removed
+
+
+def _apply_project(work: Path, current: Dict[str, Any], wanted: Dict[str, Any],
+                   reasons: Dict[str, List[str]]) -> None:
+    """Carry a renamed project into `project.name`.
+
+    The editor writes the name where it is displayed, so this is the one field of the
+    document that is not about an entity or a link. An empty name is not a rename: it is
+    what a field looks like halfway through being retyped, and writing it would leave the
+    project with no name at all.
+    """
+    was = str(current.get("project") or "")
+    now = str(wanted.get("project") or "").strip()
+    if not now or now == was:
+        return
+    _edit_config(work, lambda text: yamledit.set_scalar(text, "project.name", now))
+    _note(reasons, "synqt.yaml", f"the project is called '{now}' now")
 
 
 def _by_name(items: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:

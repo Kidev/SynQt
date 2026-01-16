@@ -253,20 +253,28 @@ async function editorOverAProject() {
         check(await inspector.locator("input[type=text]").count() === 0,
               "and the panel offers no name for it, because there is none to give");
 
-        await inspector.getByText("Add member", { exact: true }).click();
-        const member = inspector.locator(".member").first();
-        await member.locator(".member__row select").first().selectOption("slot");
-        // A member arrives as a prop, and a prop's type has a place to go on a slot: it
-        // becomes the return type. This one answers with nothing, so say so.
-        await member.locator(".member__row select").nth(1).selectOption("");
-        await member.locator(".member__row input[type=text]").first().fill("logWinner");
-        await member.getByText("Add parameter", { exact: true }).click();
-        const parameter = member.locator(".member__part").first();
-        await parameter.locator("select").selectOption("string");
-        await parameter.locator("input[type=text]").fill("winner");
+        // A member is declared on the entity, in the entity's own file, and it crosses a
+        // connect point because somebody ticked it there. Those are two gestures on two
+        // different things, and the panel only ever offers the one that belongs to what is
+        // selected. The line into a point offers neither.
+        await page.locator('[data-entity="service"]').click();
+        // Annotated, which is the form the guide asks for and the form that carries a type
+        // onto the contract. An unannotated parameter is `var`, because the file
+        // does not say what it is.
+        await typeIntoRootBlock(page, "function logWinner(winner: string) {}");
+
+        // The contract icon is the point. Clicking it is what opens what crosses, and the
+        // list it opens is ticked out of what the owner declares and nothing else.
+        await page.locator('[data-contract="service"]').click();
+        const ticks = inspector.locator(".ticks");
+        check(await ticks.getByText("function logWinner(winner: string)", { exact: true })
+                         .count() === 1,
+              "the contract offers what the owner declares, to tick");
+        await ticks.locator("label.check", { hasText: "logWinner" })
+                   .locator("input[type=checkbox]").check();
 
         // Nothing is written until a change set has been read, and Apply names the one that
-        // was shown: it is refused until Review has been through the server.
+        // was shown. It is refused until Review has been through the server.
         check(await page.locator("#apply").isDisabled(),
               "Apply is refused until the change set has been reviewed");
         await page.locator("#review").click();
@@ -475,9 +483,14 @@ async function theCopyOnTheSite() {
         // It is still an editor: the palette works and the rules paint.
         await dropEntity(page, "Client", { x: 300, y: 200 });
         await page.waitForSelector('[data-entity="client"]');
-        const verdict = await page.locator("#verdict").textContent();
-        check(/problem/.test(verdict),
-              "a client with no web edge is a problem the page paints for itself");
+        // Under Review in the rail, which is the only place a finding is said: the bar
+        // carries the project's name and no verdict, because a count there was the same news
+        // with nowhere to click through to.
+        const findings = await page.locator("#findings").textContent();
+        check(/web edge/.test(findings),
+              `a client with no web edge is a problem the page paints for itself: ${findings}`);
+        check(await page.locator("#verdict").count() === 0,
+              "and the bar carries no verdict of its own");
 
         check(offOrigin.length === 0,
               `nothing is fetched from another origin (${offOrigin.join(", ") || "none"})`);
@@ -512,8 +525,12 @@ async function theProjectALinkHandsYou() {
             () => document.querySelectorAll("#nodes [data-entity]").length === 4);
         check(await page.locator("#project").textContent() === "my-app",
               "the fragment named a project and the page opened it");
-        check(await page.locator("#links > *").count() === 3,
+        check(await page.locator("#links [data-link]").count() === 3,
               "with the connect points it declares");
+        // One icon per point, whatever its consumer list holds: the icon is the point, and
+        // every line into it leaves from underneath that one mark.
+        check(await page.locator("#links [data-contract]").count() === 3,
+              "each drawn with a single contract icon, not one per consumer");
         check(await page.locator(".palette__glyph svg").count() === 8,
               "every palette row carries the glyph the canvas draws that entity with");
         // In the page's own tooltip, not the browser's `title`: it opens at once and can

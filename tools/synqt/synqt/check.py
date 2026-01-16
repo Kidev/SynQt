@@ -2516,12 +2516,20 @@ def lint_caller_use(config: Dict[str, Any],
 
 
 def project_qml_files(project_dir: os.PathLike[str] | str) -> List[Path]:
-    """The project's own QML: not build output, not vendored dependencies."""
+    """The project's own QML: not build output, not generated, not vendored dependencies.
+
+    `generated/` holds a mirror of every entity's QML, which is what the engines
+    load (:mod:`synqt.qmlrewrite`). Every file in it is a copy of one this scan has already
+    read, so linting it says everything twice, and says the second copy against a path whose
+    author is `synqt build`: a reader told to fix `generated/web/edge/Edge.qml` would edit a
+    file the next build overwrites.
+    """
     root = Path(project_dir)
-    # Relative to the project: a directory named `build` inside it is output, and one the
+    # Relative to the project. A directory named `build` inside it is output, and one the
     # project itself happens to sit under is not this scan's business.
+    skipped = {"build", "node_modules", appmodel.GENERATED_DIR}
     return [qml for qml in sorted(root.rglob("*.qml"))
-            if not ({"build", "node_modules"} & set(qml.relative_to(root).parts))]
+            if not (skipped & set(qml.relative_to(root).parts))]
 
 
 def wants_qml_format_check(config: Dict[str, Any]) -> bool:

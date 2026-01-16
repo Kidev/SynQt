@@ -38,11 +38,16 @@ VERSION = 1
 
 # Canvas places for a node nobody has dragged yet: three columns in the order a request
 # travels, so a topology reads left to right before anyone has moved anything.
-_CLIENT_X = 40
-_EDGE_X = 360
-_SERVICE_X = 680
-_FIRST_Y = 40
-_ROW_HEIGHT = 160
+#
+# Every one of these is a multiple of the 64 the editor snaps a dragged entity to (design.js
+# GRID_SNAP), so a project that has never been opened is already on the grid. Off it, the
+# first entity anybody nudged would jump into line while the ones beside it stayed where they
+# were, which reads as the drawing having been disturbed rather than tidied.
+_CLIENT_X = 64
+_EDGE_X = 384
+_SERVICE_X = 704
+_FIRST_Y = 64
+_ROW_HEIGHT = 192
 
 LICENCE_HEADER = ("// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux\n"
                   "// SPDX-License-Identifier: Apache-2.0\n")

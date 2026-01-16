@@ -35,11 +35,30 @@ import { zipBytes } from "./zip.js";
 // The three columns a topology reads in, the same ones designdoc.py lays a project out in:
 // the browser on the left, the edge it reaches in the middle, and everything it must not
 // reach on the right.
-const COLUMNS = {client: 40, edge: 360, service: 680};
-const FIRST_Y = 40;
-const ROW_HEIGHT = 160;
+// Every one of these is a multiple of GRID_SNAP below, so an entity the page places itself
+// lands where a dragged one would settle. designdoc.py holds the same three columns for a
+// project read off disk. The node checker asserts the two agree.
+const COLUMNS = {client: 64, edge: 384, service: 704};
+const FIRST_Y = 64;
+const ROW_HEIGHT = 192;
 
 const ZOOM_RANGE = [0.35, 2.4];
+
+// The coarse grid the paper is ruled at (design.css `--grid-coarse`), and the step an entity
+// settles onto: a fifth of it. Kept in step with the CSS by hand, because the two are read by
+// different things and neither can ask the other; the node checker asserts they agree.
+//
+// A fifth rather than a free position, so a drawing somebody dragged together lines up
+// without anybody nudging it, and rather than the full 320 because that is coarse enough to
+// throw an entity halfway across its own zone when it was moved a little. 64 is also twice
+// the fine pitch the dots are drawn at, so every place an entity can land is a dot somebody
+// can see before they let go.
+const GRID_COARSE = 320;
+const GRID_SNAP = GRID_COARSE / 5;
+
+function snapped(value) {
+    return Math.round(value / GRID_SNAP) * GRID_SNAP;
+}
 
 // Far enough that a click with a shaking hand is still a click and not a drag.
 const DRAG_SLOP = 3;
@@ -103,7 +122,6 @@ const page = {
     findings: document.getElementById("findings"),
     inspector: document.getElementById("inspector"),
     project: document.getElementById("project"),
-    verdict: document.getElementById("verdict"),
     hint: document.getElementById("hint"),
     restart: document.getElementById("restart"),
     infer: document.getElementById("infer"),
@@ -250,21 +268,6 @@ function renderFindings() {
     }
 }
 
-function renderVerdict() {
-    const errors = state.found.filter((item) => item.level === "error").length;
-    const warnings = state.found.length - errors;
-    const parts = [];
-    if (errors) {
-        parts.push(`${errors} ${errors === 1 ? "problem" : "problems"}`);
-    }
-    if (warnings) {
-        parts.push(`${warnings} to look at`);
-    }
-    page.verdict.textContent = parts.join(", ");
-    page.verdict.className = "bar__verdict"
-        + (errors ? " bar__verdict--error" : (warnings ? " bar__verdict--warn" : ""));
-}
-
 // Drawing
 
 function applyView() {
@@ -300,7 +303,6 @@ function redraw() {
          {problems: state.problems, selected: state.selected,
           filesOf: (entity) => entityFiles(state.design, entity)});
     renderFindings();
-    renderVerdict();
     if (state.files) {
         renderProject();
     }
@@ -396,7 +398,9 @@ function fileOf(what, files) {
     if (!what) {
         return "";
     }
-    const found = what.kind === "link"
+    // A contract and a line into it open the same file: the point's Source is where both of
+    // them are implemented, whichever of the two was clicked.
+    const found = (what.kind === "link" || what.kind === "contract")
         ? files.find((file) => file.link === what.name)
         : files.find((file) => file.owner === what.name && !file.link)
           || files.find((file) => file.owner === what.name);
@@ -833,12 +837,24 @@ function onSourceInput() {
     // disk a moment ago. Without it, a file somebody changed in their own editor since this
     // page loaded would be written back to what it said then, and the design would have
     // quietly reverted work nobody asked it to touch.
-    const held = open.link
-        ? (state.design.links || []).find((one) => one.name === open.link)
-        : entityOf(open.name);
-    if (held) {
-        held.qml = whole;
-        held.qmlEdited = true;
+    // Both of them, when the file is both. An entity and the connect point it exports are one
+    // file now, so the pane's text is the entity's own QML *and* the point's Source. The
+    // panels read the entity's copy (that is where declaring writes) and the server reads
+    // whichever of the two is marked as typed. Writing only the link's copy, which is what
+    // this did, left a member typed into the file invisible to the list that ticks it onto a
+    // contract. The file said one thing and the panel offered another.
+    const touchedItems = [];
+    if (open.link) {
+        touchedItems.push((state.design.links || []).find((one) => one.name === open.link));
+    }
+    if (open.owner) {
+        touchedItems.push(entityOf(open.name));
+    }
+    for (const held of touchedItems) {
+        if (held) {
+            held.qml = whole;
+            held.qmlEdited = true;
+        }
     }
     const said = absorb({...open, text: whole}, text);
     touched();
@@ -942,6 +958,19 @@ function memberText(member) {
 
 function tipFor(what) {
     const box = document.createElement("div");
+    // The scope holding one member back, asked for by pointing at the mark on its name.
+    if (what.kind === "member-scope") {
+        const head = document.createElement("div");
+        head.className = "tip__head tip__head--link";
+        const title = document.createElement("span");
+        title.textContent = what.name;
+        head.append(title);
+        box.append(head);
+        box.append(tipRow("reaches", `Callers holding '${what.scope}', and nobody else`));
+        box.append(tipHelp("Raised above the point's own scope, so this member alone is "
+                           + "held back from callers the rest of the point reaches."));
+        return box;
+    }
     // A row in the rail is the entity it would add, so it says what the node on the canvas
     // says, in the same box. A `title` attribute said the same words in the browser's own
     // tooltip, which arrives a second late and looks like it belongs to a different program.
@@ -1071,8 +1100,16 @@ function whatIsUnder(target) {
     if (entity) {
         return {kind: "entity", name: entity.dataset.entity};
     }
+    // The contract icon before the lines, because it is drawn over them and is the whole
+    // point rather than one consumer of it.
+    const contract = target.closest ? target.closest("[data-contract]") : null;
+    if (contract) {
+        return {kind: "contract", name: contract.dataset.contract};
+    }
     const link = target.closest ? target.closest("[data-link]") : null;
-    return link ? {kind: "link", name: link.dataset.link} : null;
+    return link
+        ? {kind: "link", name: link.dataset.link, consumer: link.dataset.consumer || ""}
+        : null;
 }
 
 // What a right click opens
@@ -1305,6 +1342,59 @@ function renameInPlace(kind, name, what, at) {
     field.addEventListener("blur", () => settle(true));
 }
 
+// The project's name, edited where it is written. The span becomes an input over the same
+// words and goes back to being a span when it settles, so nothing on the bar moves and there
+// is no second place to look for the field.
+//
+// It is not `renameInPlace`: that one floats a box at a canvas coordinate, because the name
+// it edits is drawn into an SVG that has no input to put there. This name is already HTML in
+// a bar that lays itself out, so swapping the element keeps it where the layout had it.
+function renameProject() {
+    const was = state.design.project || "";
+    const field = document.createElement("input");
+    field.type = "text";
+    field.className = "bar__project-input";
+    field.value = was;
+    field.setAttribute("aria-label", "Rename this project");
+    page.project.replaceWith(field);
+    field.focus();
+    field.select();
+
+    let settled = false;
+    const settle = (keep) => {
+        if (settled) {
+            return;   // already settled. This is the blur that putting the span back caused
+        }
+        settled = true;
+        const wanted = field.value.trim();
+        field.replaceWith(page.project);
+        if (!keep || !wanted || wanted === was) {
+            if (keep && !wanted) {
+                say("A project needs a name.", "error");
+            }
+            return;
+        }
+        state.design.project = wanted;
+        page.project.textContent = wanted;
+        document.title = `SynQt - ${wanted}`;
+        touched();
+        say(`The project is called '${wanted}' now. Review the change to write it into `
+            + "synqt.yaml.");
+    };
+    field.addEventListener("keydown", (event) => {
+        event.stopPropagation();
+        if (event.key === "Enter") {
+            event.preventDefault();
+            settle(true);
+        } else if (event.key === "Escape") {
+            event.preventDefault();
+            settle(false);
+        }
+    });
+    // Clicking away keeps what was typed, the way every other field on this page does.
+    field.addEventListener("blur", () => settle(true));
+}
+
 function renameTo(kind, name, wanted, what) {
     if (wanted === null || wanted === name) {
         return;
@@ -1397,6 +1487,14 @@ function renderInspector() {
         removeEntity: (entity) => removeEntity(entity),
         removeLink: (link) => removeLink(link),
         declare: (entity, member) => declareOn(entity, member),
+        // The same call the popup picker makes, so ticking a member in the panel and ticking
+        // it on the canvas are one gesture with one implementation.
+        tick: (link, member, on) => {
+            tickMember(link, member, on);
+            renderInspector();
+        },
+        // From a line to the point it is one consumer of.
+        openContract: (link) => select({kind: "contract", name: link.name}),
     });
 }
 
@@ -1753,6 +1851,7 @@ function onDown(event) {
     const seat = event.target.closest("[data-seat]");
     const rim = event.target.closest("[data-rim]");
     const held = event.target.closest("[data-entity]");
+    const contract = event.target.closest("[data-contract]");
     const link = event.target.closest("[data-link]");
     const zone = event.target.closest("[data-zone]");
     page.canvas.setPointerCapture(event.pointerId);
@@ -1798,11 +1897,18 @@ function onDown(event) {
         };
         return;
     }
-    if (link) {
-        drag = {mode: "link-click", name: link.dataset.link, moved: false};
+    // The contract icon, before the lines under it. It is the point itself, so pressing it
+    // opens the point and lights every line out of it.
+    if (contract) {
+        drag = {mode: "contract-click", name: contract.dataset.contract, moved: false};
         return;
     }
-    // The block the browser is, or the one facing the internet: pressing inside it takes the
+    if (link) {
+        drag = {mode: "link-click", name: link.dataset.link,
+                consumer: link.dataset.consumer || "", moved: false};
+        return;
+    }
+    // The block the browser is, or the one facing the internet. Pressing inside it takes the
     // whole box and everything drawn in it. Last of the four, so a node or a link inside the
     // box still answers for itself. Only the space around them belongs to the box.
     if (zone) {
@@ -1849,6 +1955,15 @@ function clearSlotsNear() {
 function onMove(event) {
     if (!drag) {
         showSlotsNear(pointAt(event));
+        // The mark on a scoped member name, which is the one thing on a link that says less
+        // than it knows: the name is on the canvas, and which scope holds it back is here.
+        const scoped = event.target.closest
+            ? event.target.closest("[data-scope][data-member]") : null;
+        if (scoped) {
+            showTip({kind: "member-scope", name: scoped.dataset.member,
+                     scope: scoped.dataset.scope}, {x: event.clientX, y: event.clientY});
+            return;
+        }
         const under = whatIsUnder(event.target);
         if (under) {
             showTip(under, {x: event.clientX, y: event.clientY});
@@ -1865,8 +1980,8 @@ function onMove(event) {
     }
     if (drag.mode === "entity") {
         drag.moved = true;
-        drag.entity.x = Math.round(at.local.x - drag.offset.x);
-        drag.entity.y = Math.round(at.local.y - drag.offset.y);
+        drag.entity.x = snapped(at.local.x - drag.offset.x);
+        drag.entity.y = snapped(at.local.y - drag.offset.y);
         touched();
         redraw();
         return;
@@ -1937,7 +2052,7 @@ function onUp(event) {
         // A line dropped on empty canvas is somebody reaching for an entity that is not there
         // yet, which is a thing to offer rather than a mistake to report. Whichever they pick
         // is created where they let go and consumes the point in the same gesture.
-        offerEntity(finished.from, {x: Math.round(at.local.x), y: Math.round(at.local.y)},
+        offerEntity(finished.from, {x: snapped(at.local.x), y: snapped(at.local.y)},
                     {x: event.clientX, y: event.clientY});
         return;
     }
@@ -1951,9 +2066,16 @@ function onUp(event) {
         select(what);
         return;
     }
+    // The icon is the point. Opening it opens what crosses it, for every consumer at once.
+    if (finished.mode === "contract-click") {
+        select({kind: "contract", name: finished.name});
+        return;
+    }
     if (finished.mode === "link-click") {
         // A second click renames a node; a connect point has no name of its own to rename.
-        select({kind: "link", name: finished.name});
+        // The consumer travels with the selection, because one line is one consumer of a
+        // contract they all share, and the panel says less about a line than about the point.
+        select({kind: "link", name: finished.name, consumer: finished.consumer || ""});
         return;
     }
     // A press on a box that went nowhere is a press on empty canvas: the box is a drawing of
@@ -2190,7 +2312,7 @@ function onDrop(event) {
     }
     event.preventDefault();
     const at = pointAt(event);
-    addEntity(item, {x: Math.round(at.local.x), y: Math.round(at.local.y)});
+    addEntity(item, {x: snapped(at.local.x), y: snapped(at.local.y)});
 }
 
 async function goOffline(reason) {
@@ -2278,6 +2400,7 @@ function wire() {
     });
     page.canvas.addEventListener("drop", onDrop);
     page.revert.addEventListener("click", () => revertToLastGood());
+    page.project.addEventListener("dblclick", () => renameProject());
     page.infer.addEventListener("click", () => inferContracts());
     page.review.addEventListener("click", () => review());
     page.apply.addEventListener("click", () => applyPlan());

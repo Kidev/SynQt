@@ -345,16 +345,22 @@ const BADGE_REACH = 9;
 // and one flat side facing the mesh, with a named seat on it for each scope. Read left to
 // right it says what the entity does: everyone arrives at the tip, and which of the entities
 // off the back they are handed to is decided by the scope they hold.
+// The flat side is taller than the disc a plain entity is drawn as, because it has to hold a
+// named seat per scope and each of those names is read: at the disc's own height four scopes
+// sat about a line apart, which is legible only until two of them are wired and their labels
+// have somewhere to be.
 const FRONT_TIP = -(NODE_RADIUS * 1.18);
 const FRONT_BACK = NODE_RADIUS * 0.68;
-const FRONT_HALF = NODE_RADIUS * 1.04;
+const FRONT_HALF = NODE_RADIUS * 1.35;
 
-// Where the seat for the scope at `index` of `count` sits on the flat side.
+// Where the seat for the scope at `index` of `count` sits on the flat side. Spread across
+// most of that side rather than all of it, so the outermost seat is on the wedge and not on
+// the corner where its two edges meet.
 function seatPoint(index, count) {
     if (count < 2) {
         return {x: FRONT_BACK, y: 0};
     }
-    const room = FRONT_HALF * 1.42;
+    const room = FRONT_HALF * 1.6;
     return {x: FRONT_BACK, y: -(room / 2) + ((room / (count - 1)) * index)};
 }
 
@@ -383,6 +389,14 @@ export function seatFor(front, entityName) {
     return seat ? seat.at : null;
 }
 
+// The scope a front hands to `entityName`, or "". This is what the line into that seat is
+// labelled with, and it is why a wired seat stops naming itself on the node: the routing is
+// one fact, so it is written once, on the thing that carries it.
+export function seatScopeFor(front, entityName) {
+    const seat = seatsOfFront(front).find((one) => one.tier === entityName);
+    return seat ? seat.scope : "";
+}
+
 // The two lines under any node: what the entity is called, and the file somebody opens next.
 function nameNode(group, entity, files) {
     const name = element("text", {class: "node__name", y: NODE_RADIUS + 16,
@@ -399,11 +413,14 @@ function nameNode(group, entity, files) {
 
 // The flat side of a wedge: one seat per declared scope, named, and filled where a link has
 // been drawn from it to the entity that serves that scope's callers.
+// The grab circle is first and the two marks follow it, because that order is what lets the
+// stylesheet colour a seat the pointer is over: an SVG element cannot reach backwards to a
+// sibling, so the thing that catches the pointer has to come before the things that react.
 function frontSeats(entity, front) {
     const group = element("g", {class: "node__seats"});
     for (const seat of seatsOfFront(front)) {
         const grab = element("circle", {class: "node__seat-grab", cx: seat.at.x,
-                                        cy: seat.at.y, r: 7});
+                                        cy: seat.at.y, r: 8});
         grab.dataset.seat = entity.name;
         grab.dataset.scope = seat.scope;
         group.append(grab);
@@ -411,8 +428,18 @@ function frontSeats(entity, front) {
             class: `node__seat${seat.tier ? " is-taken" : ""}`,
             cx: seat.at.x, cy: seat.at.y, r: 3,
         }));
-        const label = element("text", {class: "node__seat-name", x: seat.at.x + 7,
-                                       y: seat.at.y + 3});
+        // A seat shows its scope only while nothing is wired to it. Once a link lands there
+        // the name moves onto that link, where it says the same thing about a line somebody
+        // can follow to the entity serving it; leaving it on both wrote the routing twice and
+        // put the second copy where it explained least.
+        //
+        // The name stays in the drawing either way and the stylesheet is what hides it, so
+        // hovering a wired seat brings it back: re-aiming a scope is exactly when you need to
+        // be told which one you have hold of.
+        const label = element("text", {
+            class: `node__seat-name${seat.tier ? " is-taken" : ""}`,
+            x: seat.at.x + 8, y: seat.at.y + 3,
+        });
         label.textContent = seat.scope;
         group.append(label);
     }
@@ -614,9 +641,11 @@ function lock(link, at) {
 // drawing. `level` is the verdict on the contract alone, which is not the verdict on the
 // link: a contract with nothing in it is not the same complaint as a consumer that cannot
 // reach its owner, and the two are drawn separately so both are legible at once.
-function contractBadge(link, at, level) {
-    const group = element("g", {class: `link__doc${level ? ` is-${level}` : ""}`,
-                                transform: `translate(${at.x},${at.y})`});
+function contractBadge(link, at, level, selected) {
+    const group = element("g", {
+        class: `link__doc${level ? ` is-${level}` : ""}${selected ? " is-selected" : ""}`,
+        transform: `translate(${at.x},${at.y})`,
+    });
     group.dataset.contract = link.name;
     group.append(element("rect", {class: "link__doc-box", x: -5, y: -6.5, width: 10,
                                   height: 13, rx: 2}));
@@ -625,17 +654,79 @@ function contractBadge(link, at, level) {
     return group;
 }
 
+// Where a connect point's contract sits on its owner, and therefore where every line out of
+// it starts. A front owns one point and it is the browser's, so it leaves from the tip rather
+// than from a seat on a ring the wedge does not have.
+//
+// One point, one place. This is read once per connect point to draw the icon, and again for
+// each consumer to start that consumer's line, so every line demonstrably leaves the icon.
+export function contractPoint(owner, slot, fromFront) {
+    const seat = fromFront
+        ? {x: FRONT_TIP - BADGE_REACH, y: 0}
+        : slotPoint(slot || 0, NODE_RADIUS + BADGE_REACH);
+    return {x: (owner.x || 0) + seat.x, y: (owner.y || 0) + seat.y};
+}
+
+// How many member names a line carries before it starts counting instead. A line is a line,
+// not a list: past this the names stop being readable at a glance, which is the only thing
+// having them on the canvas was for.
+const NAMES_SHOWN = 5;
+
+// The line spacing for those names, and how far the first one sits from the accessor above.
+const NAME_STEP = 10;
+const NAME_FIRST = 9;
+
+// What this link actually carries, written along it.
+//
+// The names alone, never the types: the tooltip and the panel both spell a member out in
+// full, and what a line is for is saying at a glance which of an owner's surface reaches this
+// consumer. A member that is gated above the point's own scope is marked, and hovering that
+// mark is what says which scope, because a scope on every name would put the exception's
+// weight on the ordinary case.
+function memberNames(link, middle, across) {
+    const group = element("g", {class: "link__members"});
+    const members = link.members || [];
+    const shown = members.slice(0, NAMES_SHOWN);
+    shown.forEach((member, index) => {
+        const y = middle.y + (across.y * -12) + NAME_FIRST + (index * NAME_STEP);
+        const x = middle.x + (across.x * -12);
+        const text = element("text", {
+            class: `link__member${member.scope ? " is-scoped" : ""}`,
+            x, y, "text-anchor": "middle",
+        });
+        // The mark rides on the name rather than beside it, so a scoped member is one thing
+        // to point at and the line does not grow a second column of dots.
+        text.textContent = member.scope ? `${member.name}*` : member.name;
+        if (member.scope) {
+            text.dataset.scope = member.scope;
+            text.dataset.member = member.name;
+        }
+        group.append(text);
+    });
+    if (members.length > shown.length) {
+        const more = element("text", {
+            class: "link__member link__member--more",
+            x: middle.x + (across.x * -12),
+            y: middle.y + (across.y * -12) + NAME_FIRST + (shown.length * NAME_STEP),
+            "text-anchor": "middle",
+        });
+        more.textContent = `+${members.length - shown.length} more`;
+        group.append(more);
+    }
+    return group;
+}
+
 function line(link, from, to, options) {
     const group = element("g", {class: classes("link", options)});
     group.dataset.link = link.name;
+    // Which of the point's consumers this particular line runs to. Selecting a line is
+    // selecting one consumer of a shared contract, which is a narrower thing than selecting
+    // the point, and the panel needs to be able to tell the two apart.
+    if (options.consumer) {
+        group.dataset.consumer = options.consumer;
+    }
 
-    // Where the contract sits on the owner, and therefore where the line starts. A front
-    // owns one point and it is the browser's, so it leaves from the tip rather than from a
-    // seat on a ring the wedge does not have.
-    const seat = options.fromFront
-        ? {x: FRONT_TIP - BADGE_REACH, y: 0}
-        : slotPoint(options.slot || 0, NODE_RADIUS + BADGE_REACH);
-    const badgeAt = {x: (from.x || 0) + seat.x, y: (from.y || 0) + seat.y};
+    const badgeAt = contractPoint(from, options.slot, options.fromFront);
     const edge = ends(from, to, options.offset || 0, badgeAt, options.arrives);
     const path = curve(edge);
     group.append(element("path", {class: "link__line", d: path}));
@@ -670,8 +761,24 @@ function line(link, from, to, options) {
     });
     label.textContent = accessorName(link.owner);
     group.append(label);
+    group.append(memberNames(link, middle, across));
+
+    // The scope this line answers for, written at the end that lands on the seat. It is here
+    // rather than on the seat because it is a fact about this line: the front hands *these*
+    // callers to *this* entity, and the line is the only thing on the canvas that holds both
+    // halves of that sentence at once.
+    if (options.arrivesScope) {
+        const scope = element("text", {
+            class: "link__scope",
+            x: edge.x2 - (edge.ux * 14) + (across.x * 11),
+            y: edge.y2 - (edge.uy * 14) + (across.y * 11) + 3,
+            "text-anchor": "middle",
+        });
+        scope.textContent = options.arrivesScope;
+        group.append(scope);
+    }
+
     group.append(lock(link, middle));
-    group.append(contractBadge(link, badgeAt, options.contractLevel || ""));
     return group;
 }
 
@@ -732,8 +839,15 @@ export function draw(layers, design, {problems, selected, filesOf}) {
         // nothing to say to them yet. This is the drawing saying the point is unfinished, the
         // same way a link with no consumer is drawn as a stub.
         const carries = (link.members || []).length;
+        // Selecting the contract selects the point, and a point is every line out of it: the
+        // icon is the one thing all of them share, so picking it lights all of them. Selecting
+        // a single line is narrower and is settled per consumer below.
+        const wholePoint = Boolean(selected && selected.name === link.name
+                                   && (selected.kind === "contract"
+                                       || (selected.kind === "link" && !selected.consumer)));
         const options = {
-            selected: selected && selected.kind === "link" && selected.name === link.name,
+            selected: wholePoint,
+            wholePoint,
             level: levelWithin(found, "link"),
             contractLevel: levelWithin(found, "contract") || (carries ? "" : "warn"),
             slot: slots.get(link.name) || 0,
@@ -751,9 +865,11 @@ export function draw(layers, design, {problems, selected, filesOf}) {
         }
         for (const target of targets) {
             // A link into a front arrives on the seat of the scope its owner serves, so the
-            // line lands on the name of the scope it answers for.
-            const arrives = seatFor(fronts.get(target.name), owner.name);
-            wanted.push({link, owner, options, target, arrives});
+            // line lands on the name of the scope it answers for, and carries that name.
+            const front = fronts.get(target.name);
+            wanted.push({link, owner, options, target,
+                         arrives: seatFor(front, owner.name),
+                         arrivesScope: seatScopeFor(front, owner.name)});
         }
     }
 
@@ -772,12 +888,37 @@ export function draw(layers, design, {problems, selected, filesOf}) {
             .sort((one, other) => one.side - other.side);
         spread.forEach(({item}, index) => {
             const offset = (index - ((spread.length - 1) / 2)) * LANE_GAP;
+            const consumer = item.target ? item.target.name : "";
             const options = {...item.options, offset, arrives: item.arrives,
+                             arrivesScope: item.arrivesScope, consumer,
+                             selected: item.options.wholePoint
+                                 || Boolean(selected && selected.kind === "link"
+                                            && selected.name === item.link.name
+                                            && selected.consumer === consumer),
                              fromFront: fronts.has(item.owner.name)};
             layers.links.append(item.target
                 ? line(item.link, item.owner, item.target, options)
                 : stub(item.link, item.owner, options));
         });
+    }
+
+    // One icon per connect point, drawn after every line and on the spot they all leave from.
+    // Drawn inside each line, it would put one copy per consumer at the same
+    // coordinate. That looks like a single icon and behaves like a stack of them, so clicking
+    // it picks whichever consumer happens to be on top. One point has one contract, and
+    // it has one thing to click.
+    for (const link of design.links || []) {
+        const owner = byName.get(link.owner);
+        if (!owner) {
+            continue;
+        }
+        const found = problems.links.get(link.name) || [];
+        const carries = (link.members || []).length;
+        layers.links.append(contractBadge(
+            link,
+            contractPoint(owner, slots.get(link.name) || 0, fronts.has(owner.name)),
+            levelWithin(found, "contract") || (carries ? "" : "warn"),
+            selected && selected.kind === "contract" && selected.name === link.name));
     }
 
     for (const entity of entities) {

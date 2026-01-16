@@ -349,25 +349,71 @@ function memberPanel(link, member, index, actions) {
     return box;
 }
 
-function membersPanel(link, actions) {
+// The contract as a list to tick, out of what the owner entity already declares.
+//
+// This is the reading half of the same fact the entity panel writes: a member is declared on
+// the entity, in the entity's own file, and it crosses a connect point because somebody
+// ticked it here. Nothing is offered that the owner has not got, so a member cannot reach a
+// contract without the file that implements it gaining the line first.
+//
+// One list, not one per consumer. The point has a single contract and every consumer gets the
+// same one, which is what the drawing says too: every line leaves the one icon.
+function ticksPanel(design, link, actions) {
     const box = tag("div", {class: "members"});
-    box.append(tag("h2", {class: "members__title"}, "What crosses this link"));
-    link.members = link.members || [];
-    if (!link.members.length) {
-        box.append(note("Nothing yet. A prop is owner state the consumer watches, a model "
-                        + "is rows of it, a signal is one-way, and a slot is a call the "
-                        + "owner answers with a Caller in hand.", true));
+    box.append(tag("h2", {class: "members__title"}, "What crosses this connect point"));
+    const owner = (design.entities || []).find((one) => one.name === link.owner);
+    if (!owner) {
+        box.append(note("No owner yet, so there is nothing to carry.", true));
+        return box;
     }
-    link.members.forEach((member, index) => {
-        box.append(memberPanel(link, member, index, actions));
-    });
-    box.append(adder("Add member", () => {
-        link.members.push({kind: "prop", name: "", type: "int", params: [], roles: []});
+
+    const offered = declarations(owner.qml || "");
+    const ticked = new Set((link.members || []).map((member) => member.name));
+    if (!offered.length) {
+        box.append(note(`'${link.owner}' declares nothing yet, so this contract is not `
+                        + "finished. Add a property, a signal or a function on the entity "
+                        + "and it will be here to tick.", true));
+    }
+
+    const list = tag("div", {class: "ticks"});
+    for (const member of offered) {
+        const row = tag("div", {class: "tick"});
+        row.append(check(declaredText(member), ticked.has(member.name), (on) => {
+            actions.tick(link, member, on);
+        }));
+        // The scope is the one thing about a ticked member that is not in the owner's file,
+        // so it is the one thing this list sets. Offered only once the member is on the
+        // contract: a scope on something that does not cross is a setting with no effect.
+        const carried = (link.members || []).find((one) => one.name === member.name);
+        if (carried) {
+            row.append(choice(["", ...SCOPES], carried.scope || "", (value) => {
+                carried.scope = value;
+                actions.changed();
+            }, "the point's scope"));
+        }
+        list.append(row);
+    }
+    box.append(list);
+
+    // Models keep the full editor, because a model is the one kind that cannot be ticked out
+    // of the file: QML has no declaration form for one, so there is nothing in the owner's
+    // source for the list above to have offered.
+    for (const model of (link.members || []).filter((one) => one.kind === "model")) {
+        box.append(memberPanel(link, model, (link.members || []).indexOf(model), actions));
+    }
+    box.append(adder("Add a model", () => {
+        link.members = link.members || [];
+        link.members.push({kind: "model", name: "", type: "", params: [], roles: []});
         actions.rebuild();
     }));
-    box.append(note("Typing a property, a signal or a function into the owner's Source in "
-                    + "the Files pane adds it here too. A model is the one kind only this "
-                    + "panel can add: QML has no declaration form for one.", true));
+
+    const consumers = link.consumers || [];
+    box.append(note(consumers.length
+        ? `Ticked members are what '${link.owner}' says to '${consumers.join("', '")}'. `
+          + "Nothing else ever crosses, and every consumer of this point gets the same "
+          + "contract."
+        : "Nothing consumes this point yet, so none of it reaches anywhere. Drag from the "
+          + "contract icon to an entity.", true));
     return box;
 }
 
@@ -413,7 +459,10 @@ function frontPanel(design, link, actions) {
     return box;
 }
 
-function linkPanel(design, link, actions) {
+// The connect point itself, opened by clicking its icon on the canvas. Everything that is
+// true of the point rather than of one line into it lives here: who owns it, who may consume
+// it, the scope it is gated behind, how it is carried, and what crosses it.
+function contractPanel(design, link, actions) {
     const panel = document.createDocumentFragment();
     panel.append(tag("h2", {class: "inspector__title"},
                      link.owner ? `${link.owner}'s connect point` : "this connect point"));
@@ -476,7 +525,7 @@ function linkPanel(design, link, actions) {
                           + "present any entity name. Same host only."));
     }
 
-    panel.append(membersPanel(link, actions));
+    panel.append(ticksPanel(design, link, actions));
 
     const actionsRow = tag("div", {class: "inspector__actions"});
     const remove = tag("button", {type: "button", class: "button button--danger"},
@@ -487,6 +536,45 @@ function linkPanel(design, link, actions) {
     return panel;
 }
 
+// One line into a connect point: this consumer, and nothing else.
+//
+// Deliberately almost empty. A line is not a thing with settings of its own; it is one
+// entity's name on a point's consumer list, and everything a reader might come here to change
+// -- what crosses, the scope, the transport -- belongs to the point and is edited on the
+// point. Offering those here would be offering to edit one shared contract from N places and
+// letting somebody believe they had changed it for this consumer alone.
+function linePanel(design, link, consumer, actions) {
+    const panel = document.createDocumentFragment();
+    panel.append(tag("h2", {class: "inspector__title"},
+                     `${link.owner} to ${consumer}`));
+    panel.append(tag("p", {class: "inspector__help"},
+                     `'${consumer}' consumes ${link.owner ? capitalised(link.owner) : ""}, `
+                     + `so it acquires a replica of everything that point carries. What that `
+                     + `is belongs to the point, not to this line.`));
+
+    const open = tag("div", {class: "inspector__actions"});
+    const button = tag("button", {type: "button", class: "button"},
+                       "Open the connect point");
+    button.addEventListener("click", () => actions.openContract(link));
+    open.append(button);
+    panel.append(open);
+    panel.append(note("Or click the contract icon on the canvas, which every line out of "
+                      + "this point leaves from.", true));
+
+    const actionsRow = tag("div", {class: "inspector__actions"});
+    const remove = tag("button", {type: "button", class: "button button--danger"},
+                       `Stop '${consumer}' consuming it`);
+    remove.addEventListener("click", () => {
+        link.consumers = (link.consumers || []).filter((name) => name !== consumer);
+        actions.rebuild();
+    });
+    actionsRow.append(remove);
+    panel.append(actionsRow);
+    panel.append(note("Taking the last consumer off leaves the point where it is, drawn as "
+                      + "a stub: a connect point exists before anything consumes it.", true));
+    return panel;
+}
+
 // Fill `host` with the panel for whatever is selected. `actions` is how the panel reports
 // back: `changed` redraws, `rebuild` redraws and builds this panel again, `rename` carries a
 // new name to the selection, and the two removers take the selection with them.
@@ -494,9 +582,9 @@ export function inspect(host, design, selected, actions) {
     host.replaceChildren();
     if (!selected) {
         host.append(tag("p", {class: "inspector__empty"},
-                        "Pick an entity or a link to edit it. Drag from the handle on an "
-                        + "entity's edge to another entity to draw a connect point between "
-                        + "them, from the owner to the consumer."));
+                        "Pick an entity, a contract or a line to edit it. Drag from the "
+                        + "handle on an entity's edge to another entity to draw a connect "
+                        + "point between them, from the owner to the consumer."));
         return;
     }
     if (selected.kind === "entity") {
@@ -507,9 +595,17 @@ export function inspect(host, design, selected, actions) {
         return;
     }
     const link = (design.links || []).find((one) => one.name === selected.name);
-    if (link) {
-        host.append(linkPanel(design, link, actions));
+    if (!link) {
+        return;
     }
+    // A line into the point, or the point itself. Clicking one line says "this consumer";
+    // clicking the icon every line leaves from says "this contract", and only the second one
+    // is allowed to change what crosses.
+    if (selected.kind === "link" && selected.consumer) {
+        host.append(linePanel(design, link, selected.consumer, actions));
+        return;
+    }
+    host.append(contractPanel(design, link, actions));
 }
 
 export { TYPES, PROVIDER_FAMILIES };
