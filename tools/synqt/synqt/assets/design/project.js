@@ -26,6 +26,7 @@
 // Pure functions over the document, no DOM: the suite renders a project with node and hands
 // it to `synqt check`, which is what stops this drifting from what `synqt new` writes.
 
+import { withoutCommentary } from "./commentary.js";
 import { declarationsFor } from "./source.js";
 import { entityType } from "./rules.js";
 
@@ -221,7 +222,7 @@ export function sourcePath(owner, contract) {
 
 export function sourceQml(contract, point, members) {
     const declared = declarationsFor(members);
-    return `${CONTRACT_HEADER}
+    return withoutCommentary(`${CONTRACT_HEADER}
 import QtQuick
 import SynQt
 
@@ -233,7 +234,7 @@ import SynQt
 ${contract} {
     id: root
 ${declared ? "\n" + declared + "\n" : ""}}
-`;
+`);
 }
 
 // The client's one entry point. The generated client main.cpp does
@@ -242,7 +243,7 @@ ${declared ? "\n" + declared + "\n" : ""}}
 // nothing and renders a blank page. It is the same file `synqt new` writes, and the suite
 // asserts the two are byte for byte the same.
 export function clientMain() {
-    return `${CONTRACT_HEADER}
+    return withoutCommentary(`${CONTRACT_HEADER}
 import QtQuick
 import QtQuick.Controls
 
@@ -270,7 +271,7 @@ ApplicationWindow {
         text: Session.state === "connected" ? "Connected" : "Connecting..."
     }
 }
-`;
+`);
 }
 
 // Where each entity's own QML lives, in the order the tree reads: its own file first, then one
@@ -324,7 +325,7 @@ function capitalised(name) {
 // module, so `${Name}.something` resolves inside every Source this entity owns.
 export function entitySingleton(name) {
     const type = capitalised(name);
-    return `${CONTRACT_HEADER}
+    return withoutCommentary(`${CONTRACT_HEADER}
 pragma Singleton
 
 import QtQuick
@@ -337,7 +338,7 @@ import QtQuick
 QtObject {
     id: root
 }
-`;
+`);
 }
 
 // Every file the download holds, each under a directory named after the project: the

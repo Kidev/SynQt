@@ -28,11 +28,18 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from . import addcontract, addentity, appmodel, check as checkmod, config as configmod
-from . import designdoc, newproject, yamledit
+from . import designdoc, newproject, qmlcomments, yamledit
 
 # Copied into the working tree and compared afterwards: everything else is build output, a
 # repository, or the editor's own layout file, and none of it is the project's source.
-_IGNORED = ("build", ".git", ".synqt", "__pycache__", "node_modules", ".venv")
+#
+# `generated/` is on this list because the scaffolders regenerate it (`synqt add entity` ends
+# in appgen.generate, and so does the plan that runs it), so every change set that added an
+# entity carried the whole generated tree along with it: the mains, the contracts, and now the
+# QML mirror too. None of that is a change anybody reviews. It is written from synqt.yaml by
+# the next build whatever this plan does, and a diff that asks somebody to approve it is
+# asking them to read machine output to find the two lines that were theirs.
+_IGNORED = ("build", "generated", ".git", ".synqt", "__pycache__", "node_modules", ".venv")
 
 # The entity fields the document models. Anything else in an entity block (TLS files,
 # provider settings, an env file) is the author's and is left where it is.
@@ -238,8 +245,9 @@ def _scaffold_entity(work: Path, entity: Dict[str, Any]) -> None:
                                entity.get("provider") or None)
         except addentity.AddEntityError as error:
             raise DesignPlanError(f"'{entity['name']}': {error}") from error
+        _uncomment(work, appmodel.entity_dir(entity))
     else:
-        # A client or a web edge: one of each per project, so there is nothing to scaffold
+        # A client or a web edge. One of each per project, so there is nothing to scaffold
         # beyond the block and the entity file written below. The client's is the one file
         # it cannot start without. Without it the entity is on the canvas, is in
         # synqt.yaml, and has an empty directory, and the browser shows nothing.
@@ -248,7 +256,9 @@ def _scaffold_entity(work: Path, entity: Dict[str, Any]) -> None:
     # Every entity gets its own file, whichever of the three ways it arrived. `synqt add
     # entity` writes one too, so an entity drawn here and one added from the command line are
     # the same entity.
-    newproject.write_entity_qml(work, entity)
+    written = newproject.write_entity_qml(work, entity)
+    if written:
+        _uncomment_file(work / written)
     fields = {key: _entity_field(entity, key) for key in _ENTITY_FIELDS
               if _entity_field(entity, key) is not None}
     fields.pop("type", None)
@@ -341,6 +351,7 @@ def _write_source(work: Path, link: Dict[str, Any], points: Dict[str, Dict[str, 
           else f"'{link['name']}' had no Source on {owner}, so this one is empty")
     addcontract.write_source(work, owning, contract, point=link["name"], path=relative,
                              members=members)
+    _uncomment_file(target)
 
 
 def _edited_qml(item: Dict[str, Any]) -> Optional[str]:
@@ -366,9 +377,11 @@ def _write_entity_qml(work: Path, entity: Dict[str, Any],
     target = work / relative
     edited = _edited_qml(entity)
     if edited is None:
-        # Not an edit but a gap: an entity that predates the file having existed at all, or
+        # Not an edit but a gap. An entity that predates the file having existed at all, or
         # one whose directory somebody emptied. Written fresh rather than left missing.
-        if newproject.write_entity_qml(work, entity):
+        written = newproject.write_entity_qml(work, entity)
+        if written:
+            _uncomment_file(work / written)
             _note(reasons, relative, f"'{entity['name']}' had no file of its own")
         return
     if target.exists() and edited == _text_of(target):
@@ -425,6 +438,34 @@ def _link_field(link: Dict[str, Any], key: str) -> Any:
     if key == "export":
         return designdoc.render_export(link.get("members") or []) or None
     return str(value) if value else None
+
+
+def _uncomment_file(target: Path) -> None:
+    """Take the commentary out of one file this plan scaffolded.
+
+    Only ever called on text a scaffolder produced a moment ago, never on a file somebody
+    wrote: what an author put in their own file is theirs, comments included.
+    """
+    if not target.is_file():
+        return
+    text = target.read_text(encoding="utf-8")
+    trimmed = qmlcomments.without_commentary(text)
+    if trimmed != text:
+        target.write_text(trimmed, encoding="utf-8")
+
+
+def _uncomment(work: Path, folder: str) -> None:
+    """The same, for every QML file a blueprint scaffolder wrote into an entity's folder.
+
+    A blueprint writes more than one file and writes them itself, so this reaches for the
+    result rather than for the templates. The command line's copies keep their comments,
+    which are the only explanation a terminal gets.
+    """
+    directory = work / folder
+    if not directory.is_dir():
+        return
+    for path in sorted(directory.rglob("*.qml")):
+        _uncomment_file(path)
 
 
 def _edit_config(work: Path, edit: Any) -> None:

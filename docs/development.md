@@ -12,6 +12,38 @@ covered by [architecture](architecture.md), [security](security.md), and
 is, not why. For the generated class and member reference, see the
 [C++ API reference](api-reference.md).
 
+## The Makefile
+
+Everything below has a target in the repository's `Makefile`, and `make` on its own lists
+them. It is the developer's side of the desk rather than the build: `synqt build` builds an
+application and CMake builds the framework, while this installs the CLI you are editing,
+runs the suites, builds the site, and clears out the copies of SynQt that go stale.
+
+That last one is worth knowing about before it costs you a day. Three things on a developer's
+machine answer in place of the checkout, and none of them says so:
+
+- an installed `synqt` on `PATH`. A release binary there runs whatever it was built from,
+  which is why `synqt design` can serve an editor months older than the tree you are in.
+  `make cli` replaces it with an editable install of this checkout.
+- `tools/synqt/synqt/framework/`, the copy of `src/` and `cmake/` that a wheel build vendors.
+  A stale one shadows `synqtc` in any interpreter that imports it, and the whole Python suite
+  starts failing on contracts it parsed yesterday, each of which still passes when run alone.
+  `make framework` refreshes it.
+- `site/`, the MkDocs output. `site/designer/` is a copy of the visual editor, and opening it
+  instead of running `synqt design` shows the editor as of whenever it was last built.
+
+`make doctor` reports all three and changes nothing; `make clean-stale` clears them.
+
+```sh
+make doctor                              # what answers, and what is stale
+make cli                                 # install this checkout's CLI over whatever is there
+make test                                # the CLI and generator suites
+make test-designer                       # the editor, in a real browser
+make test-cpp QT_HOST=/opt/Qt/6.11.1/gcc_64   # the framework and its C++ suites
+make lint                                # the editor's rule parity, and every mermaid fence
+make docs-serve                          # build the site and serve it locally
+```
+
 ## Repository layout
 
 | Directory | What is in it |

@@ -130,6 +130,54 @@ def test_adding_an_entity_creates_what_add_entity_creates(tmp_path):
     assert "type: cache" in config.after
 
 
+def _stray_comments(text):
+    return [line for line in (text or "").split("\n")
+            if line.lstrip().startswith("//") and "SPDX" not in line]
+
+
+def test_an_entity_dragged_onto_the_canvas_gets_a_file_with_no_commentary(tmp_path):
+    """The command line's scaffolds explain themselves in comments because a terminal has
+    nowhere else to say it. The editor is a drawing with a panel that already says what each
+    kind of entity is, so the same paragraphs would arrive a second time beside the picture
+    that made the point first. The licence header is not commentary and stays."""
+    project = _copy(tmp_path, "gavel")
+    document = designdoc.read(project)
+    document["entities"].append({"id": "new", "name": "entries", "type": "cache",
+                                 "provider": "memory", "x": 400, "y": 40})
+    plan = designplan.compute(project, document)
+    written = next(c for c in plan.changes if c.path == "cache/entries/Entries.qml")
+    assert written.after.startswith("// SPDX-FileCopyrightText")
+    assert "QtObject {" in written.after and "id: root" in written.after
+    assert not _stray_comments(written.after), written.after
+
+
+def test_a_source_the_plan_scaffolds_carries_no_commentary_either(tmp_path):
+    """The other file a drawing brings into being: the Source of a point that has none."""
+    project = _copy(tmp_path, "gavel")
+    document = designdoc.read(project)
+    document["entities"].append(_feeds())
+    document["links"].append({"id": "feeds", "name": "feeds", "owner": "feeds",
+                              "consumers": ["edge"], "members": []})
+    plan = designplan.compute(project, document)
+    source = next(c for c in plan.changes if c.path.endswith("feeds/Feeds.qml"))
+    assert not _stray_comments(source.after), source.after
+
+
+def test_the_change_set_holds_nothing_out_of_generated(tmp_path):
+    """`synqt add entity` ends in appgen.generate, and so does the plan that runs it, so
+    a change set that added an entity would carry the whole generated tree, the mains,
+    the contracts, and the QML mirror. None of it is a change anybody reviews, and a diff
+    that asks for it is asking somebody to read machine output to find their own two lines.
+    """
+    project = _copy(tmp_path, "gavel")
+    document = designdoc.read(project)
+    document["entities"].append({"id": "new", "name": "entries", "type": "cache",
+                                 "provider": "memory", "x": 400, "y": 40})
+    plan = designplan.compute(project, document)
+    assert not [c.path for c in plan.changes if c.path.startswith("generated/")], \
+        [c.path for c in plan.changes]
+
+
 def test_adding_a_link_writes_what_crosses_it_onto_the_point(tmp_path):
     project = _copy(tmp_path, "gavel")
     document = designdoc.read(project)

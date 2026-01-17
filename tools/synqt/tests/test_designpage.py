@@ -31,7 +31,7 @@ import pytest
 import yaml
 
 from synqt import check as checkmod
-from synqt import addcontract, appmodel, designdoc, newproject, toolchain
+from synqt import addcontract, appmodel, designdoc, newproject, qmlcomments, toolchain
 
 DESIGN = Path(checkmod.__file__).parent / "assets" / "design"
 
@@ -213,7 +213,11 @@ def test_the_downloaded_source_is_the_one_the_cli_would_have_written(rendered):
         relative = appmodel.source_path(owner, contract)
         written = next(file["text"] for file in rendered["files"]
                        if file["name"] == f"gavel/{relative}")
-        assert written == addcontract.source_stub(contract, link["owner"], link["members"])
+        # The CLI's file with its commentary taken off, which is the one difference between
+        # the two writers and an intended one. The editor already says what a connect point
+        # is, in the panel beside the drawing (synqt.qmlcomments).
+        assert written == qmlcomments.without_commentary(
+            addcontract.source_stub(contract, link["owner"], link["members"]))
 
 
 def test_a_source_declares_the_members_the_contract_carries(rendered):
@@ -233,12 +237,15 @@ def test_a_source_declares_the_members_the_contract_carries(rendered):
 
 def test_a_client_gets_the_one_file_it_cannot_start_without(rendered):
     """`engine.loadFromModule(uri, "Main")` is what the generated client main.cpp does, so a
-    client with no Main.qml builds, loads, logs nothing and renders a blank page. The page
-    used to write no file at all for a client, which is also why one never appeared in the
-    files pane."""
+    client with no Main.qml builds, loads, logs nothing and renders a blank page. A page
+    that writes no file at all for a client produces that, and shows nothing in the
+    files pane either."""
     written = next(file["text"] for file in rendered["files"]
                    if file["name"] == "gavel/client/app/Main.qml")
-    assert written == newproject._MAIN_QML
+    # The same file the command line writes, with its commentary taken off: a window drawn
+    # in the editor arrives beside a panel that has already said what a client is, so the
+    # paragraphs the terminal needs would be a second telling (synqt.qmlcomments).
+    assert written == qmlcomments.without_commentary(newproject._MAIN_QML)
 
 
 def test_every_entity_has_its_own_file_before_it_owns_anything(rendered):
