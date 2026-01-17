@@ -540,7 +540,7 @@ function contractPanel(design, link, actions) {
 //
 // Deliberately almost empty. A line is not a thing with settings of its own; it is one
 // entity's name on a point's consumer list, and everything a reader might come here to change
-// -- what crosses, the scope, the transport -- belongs to the point and is edited on the
+// (what crosses, the scope, the transport...) belongs to the point and is edited on the
 // point. Offering those here would be offering to edit one shared contract from N places and
 // letting somebody believe they had changed it for this consumer alone.
 function linePanel(design, link, consumer, actions) {

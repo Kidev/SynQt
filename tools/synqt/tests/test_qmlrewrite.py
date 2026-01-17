@@ -160,6 +160,52 @@ def test_the_mirror_is_not_linted_as_if_somebody_had_written_it(tmp_path):
     assert sum("Ledger.qml" in message for message in findings) == 1, findings
 
 
+def test_dev_points_every_entity_at_the_mirror_and_the_mirror_has_what_it_names(tmp_path):
+    """The one link that makes the whole mirror work, asserted end to end.
+
+    `synqt dev` tells each entity where the entity folders are, and everything the runtime
+    then loads is that directory joined with a project-relative path. The Source of a point,
+    an entity's singletons, the identity hook, the edge's delivered pages. Point it at the
+    project root instead and the engines load the author's files, where a self-named root
+    object is a start-up failure. Nothing else in the tree would catch that: the build still
+    succeeds and the mirror is still written. The entity never comes up.
+    """
+    root = _project(tmp_path)
+    config = yaml.safe_load((root / "synqt.yaml").read_text())
+    appgen.generate(root, config)
+
+    from synqt import appmodel, run
+    edge = next(e for e in config["entities"] if e["name"] == "edge")
+    command = run.dev_command(root, edge, config, 8080)
+    named = Path(command[command.index("--qml-dir") + 1])
+    assert named == root / "generated", command
+
+    # And what the edge will join onto it is there.
+    source = appmodel.authored_source_path(edge, config["connect_points"][0])
+    assert (named / source).is_file(), sorted(p.name for p in (named / "web/edge").iterdir())
+
+
+def test_an_edited_page_reaches_the_mirror_the_edge_is_watching(tmp_path):
+    """Hot reload goes the long way round now. `synqt dev` sees the authored page change and
+    rebuilds, the build rewrites the mirror, and the edge's own watcher is looking at the
+    mirror. The middle step is this one, and it only works because the mirror is the whole
+    folder rather than the files that needed retyping."""
+    root = _project(tmp_path)
+    pages = root / "web/edge/pages"
+    pages.mkdir(parents=True)
+    (pages / "Offers.qml").write_text("import QtQuick\nItem {\n    id: root\n}\n")
+    config = yaml.safe_load((root / "synqt.yaml").read_text())
+    appgen.generate(root, config)
+
+    mirrored = root / "generated/web/edge/pages/Offers.qml"
+    assert mirrored.is_file(), "a delivered page has to be in the tree the edge loads from"
+
+    (pages / "Offers.qml").write_text(
+        "import QtQuick\nItem {\n    id: root\n\n    property int price: 12\n}\n")
+    appgen.generate(root, config)
+    assert "property int price: 12" in mirrored.read_text()
+
+
 def test_a_clients_window_is_copied_as_written_rather_than_quietly_fixed(tmp_path):
     """Retyping `Main { }` to a QtObject would turn a start-up failure that names the file
     into a client that loads, logs nothing and paints a blank page, which is the defect
