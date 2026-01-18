@@ -289,6 +289,53 @@ class SourceQmlBridges(unittest.TestCase):
                                  (fixtures / file_name).read_text())
 
 
+class BridgesLandWhereTheTopologyLooks(unittest.TestCase):
+    """The two generated bridges are only worth anything at the path the auth entity opens.
+
+    Nobody authors these files, so `auth_connect_points` names a `server:` under
+    ``generated/`` outright. The QML mirror then prefixes the same directory onto every
+    Source path it writes into the topology, and a path already under ``generated/`` came
+    back as ``generated/generated/service/auth/Identity.qml``. Everything compiled: the
+    entity came up, found no file to instantiate, hosted no Source, and every login the
+    promoted edge answered went out as a 500.
+    """
+
+    def promoted(self, tmp):
+        from pathlib import Path
+
+        from synqt import appgen, topologywriter
+
+        root = Path(tmp)
+        (root / "client").mkdir()
+        (root / "web").mkdir()
+        config = promoted_config()
+        appgen.generate(root, config)
+        topologywriter.write(root, config)
+        import json
+        return root, json.loads((root / "build/auth/topology.json").read_text())
+
+    def test_the_auth_topology_names_a_source_that_is_really_there(self):
+        import tempfile
+        from pathlib import Path
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root, topology = self.promoted(tmp)
+            named = [point["server"] for point in topology["connect_points"]]
+            self.assertEqual(len(named), 2, topology)
+            for server in named:
+                with self.subTest(server=server):
+                    self.assertTrue(Path(server).is_file(),
+                                    f"{server} is in the topology and not on disk")
+
+    def test_a_generated_source_is_not_mirrored_a_second_time(self):
+        from synqt import qmlrewrite
+
+        already = "generated/service/auth/Identity.qml"
+        self.assertEqual(qmlrewrite.mirrored_path(already), already)
+        self.assertEqual(qmlrewrite.mirrored_path("web/edge/Edge.qml"),
+                         "generated/web/edge/Edge.qml")
+
+
 class ProviderEntityValidation(unittest.TestCase):
     """What `synqt check` says about a promotion that cannot work."""
 

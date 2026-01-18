@@ -222,8 +222,11 @@ export QT_QPA_PLATFORM=offscreen
 auth_pid=$!
 sleep 2
 # --dev only for the plaintext loopback listener: the fixture's TLS certificate names a
-# deployed host, exactly as a real project's does.
-(cd "$PROMOTED" && exec ./out/edge --bundle build/client --qml-dir . \
+# deployed host, exactly as a real project's does. The QML directory is the mirror under
+# generated/, which is what `synqt dev` passes and what the edge defaults to: the author's
+# tree happens to work for this fixture's own Edge.qml and would not for an entity whose
+# root object had to be retyped, so pointing at it here would prove the wrong thing.
+(cd "$PROMOTED" && exec ./out/edge --bundle build/client --qml-dir generated \
     --port 18443 --dev >"$WORK/promoted-web.log" 2>&1) &
 edge_pid=$!
 

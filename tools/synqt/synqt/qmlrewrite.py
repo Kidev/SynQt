@@ -140,8 +140,19 @@ def entity_qml_files(project_dir: os.PathLike[str] | str,
 
 
 def mirrored_path(relative: str) -> str:
-    """Where a project-relative QML file is mirrored to under ``generated/``."""
-    return f"{appmodel.GENERATED_DIR}/{relative}"
+    """Where a project-relative QML file is mirrored to under ``generated/``.
+
+    A file that is already generated is already there, so it is its own mirror. The
+    framework's own connect points name a `server:` under ``generated/`` outright
+    (:func:`synqt.appmodel.auth_connect_points` writes the auth entity's two Sources
+    there, because nobody authors them), and prefixing that a second time produced
+    ``generated/generated/service/auth/Identity.qml``: a path the topology carried, no
+    engine could load, and every login the promoted edge answered with a 500.
+    """
+    prefix = f"{appmodel.GENERATED_DIR}/"
+    if relative == appmodel.GENERATED_DIR or relative.startswith(prefix):
+        return relative
+    return f"{prefix}{relative}"
 
 
 def write_entity_qml(project_dir: os.PathLike[str] | str,
