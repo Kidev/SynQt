@@ -255,6 +255,12 @@ private slots:
     //
     // Read back through socketOption(), which is a getsockopt on the live socket rather than
     // an echo of what was asked for, so this fails if the option never reached the kernel.
+    //
+    // What comes back is "set", not the number 1. Linux reports the boolean it stored, but
+    // the BSD stack macOS is built on reports the socket's own flag word masked to that
+    // option, so a NODELAY socket answers 4 there (TF_NODELAY). Both are the kernel saying
+    // yes. Only one of them is 1, and this asserted the value rather than the answer until
+    // the macOS column ran it.
     void bothEndsOfAMeshLinkSendWithoutWaiting()
     {
         const QSslCertificate ca{loadCert(QStringLiteral("ca"))};
@@ -282,8 +288,10 @@ private slots:
         QAbstractSocket *answered{qobject_cast<QAbstractSocket *>(accepted)};
         QVERIFY(dialled != nullptr);
         QVERIFY(answered != nullptr);
-        QCOMPARE(dialled->socketOption(QAbstractSocket::LowDelayOption).toInt(), 1);
-        QCOMPARE(answered->socketOption(QAbstractSocket::LowDelayOption).toInt(), 1);
+        QVERIFY2(dialled->socketOption(QAbstractSocket::LowDelayOption).toInt() != 0,
+                 "the socket a mesh consumer dialled out on is still waiting on Nagle");
+        QVERIFY2(answered->socketOption(QAbstractSocket::LowDelayOption).toInt() != 0,
+                 "the socket a mesh owner accepted is still waiting on Nagle");
     }
 
     // Clause 2: a consumer presenting no certificate is rejected at the handshake.
