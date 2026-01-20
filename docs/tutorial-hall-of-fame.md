@@ -51,7 +51,6 @@ connect_points:
 Create `db/relational/books/Books.qml`:
 
 ```qml
-import QtQuick
 import SynQt
 
 Books {

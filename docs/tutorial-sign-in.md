@@ -198,7 +198,6 @@ Make yourself the auctioneer by mapping your identity to the admin scope. Open
 your own account:
 
 ```qml
-import QtQuick
 import SynQt
 
 IdentityMapping {

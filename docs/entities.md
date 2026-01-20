@@ -124,7 +124,6 @@ connect_points:
 
 ```qml
 // db/relational/store/Store.qml (owner of the "items" connect point)
-import QtQuick
 import SynQt
 
 Store {

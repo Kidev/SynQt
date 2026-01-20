@@ -5,7 +5,6 @@
 // campaign slug into the headline the page paints on its first frame, so the page never
 // flashes empty while the catalog replica arrives, and every campaign gets its own seed
 // even though one Campaign.qml serves them all. Whatever this returns is public output.
-import QtQuick
 import SynQt
 
 PageSeed {

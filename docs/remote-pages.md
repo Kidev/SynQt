@@ -117,7 +117,6 @@ The hook itself, from
 [`examples/stall/web/edge/campaign-seed.qml`](https://github.com/Kidev/SynQt/blob/main/examples/stall/web/edge/campaign-seed.qml):
 
 ```qml
-import QtQuick
 import SynQt
 
 PageSeed {

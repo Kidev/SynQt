@@ -479,7 +479,6 @@ run still reads like one to everybody reviewing it.
 delegating persistence to the database entity:
 
 ```qml
-import QtQuick
 import SynQt
 
 Edge {
@@ -506,7 +505,6 @@ Edge {
 It authorizes nobody, because its consumer list has one name in it.
 
 ```qml
-import QtQuick
 import SynQt
 
 Store {

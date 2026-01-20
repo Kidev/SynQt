@@ -115,7 +115,6 @@ def identity_section(provider: str, required: bool, provider_entity: str) -> Dic
 MAP_HOOK = """// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 // SPDX-License-Identifier: Apache-2.0
 
-import QtQuick
 import SynQt
 
 // Turn a normalized identity into a SynQt scope, on the edge, after a successful login.

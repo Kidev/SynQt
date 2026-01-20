@@ -51,7 +51,6 @@ lot under the hammer however many people are watching, and one file that holds i
 new` already wrote `web/edge/Edge.qml`, the edge itself. Open it and give it the auction.
 
 ```qml
-import QtQuick
 import SynQt
 
 Edge {
@@ -88,7 +87,6 @@ bid too low.
 Open `client/app/Main.qml` and replace its contents:
 
 ```qml
-import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import SynQt

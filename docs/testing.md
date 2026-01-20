@@ -22,7 +22,6 @@ Given this edge Source:
 
 ```qml
 // web/edge/Edge.qml
-import QtQuick
 import SynQt
 
 Edge {

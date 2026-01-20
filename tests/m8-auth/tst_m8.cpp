@@ -14,6 +14,7 @@
 #include "identityservice.h"
 #include "jwksverifier.h"
 #include "meshclient.h"
+#include "moduleimports.h"
 #include "oauthbackend.h"
 #include "sessionmanager.h"
 #include "stubidentityserver.h"
@@ -475,6 +476,12 @@ private slots:
     {
         synqtRegisterSessionStoreSources();
         synqtRegisterIdentitySources();
+        // The two Source files below are the ones `synqt build` generates for a promoted
+        // auth entity, byte for byte (test_provider_entity asserts it), and they are loaded
+        // here by the same engine the generated auth main would load them with. That main
+        // registers this, so `import SynQt` means the same thing in both places. Without it
+        // a file that writes one import line rather than two fails to load here alone.
+        SynQt::registerModuleImports();
 
         // A browser keeps cookies across requests, so the login-state cookie set on the
         // login redirect rides back to the callback.

@@ -88,7 +88,7 @@ def entity_qml(entity_type: str, name: str) -> str:
     """
     header = ("// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux\n"
               "// SPDX-License-Identifier: Apache-2.0\n\n"
-              "pragma Singleton\n\nimport QtQuick\nimport SynQt\n\n")
+              "pragma Singleton\n\nimport SynQt\n\n")
     if entity_type == "relational":
         return header + (
             f"// The '{name}' entity itself. It reaches its engine through the `Db`\n"

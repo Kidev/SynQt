@@ -20,7 +20,6 @@ two `nearby` queries. Replace the file with it:
 
 ```qml
 pragma Singleton                      // one shared instance for the whole edge
-import QtQuick
 import SynQt
 
 Item {
@@ -176,7 +175,6 @@ Now replace `web/edge/Edge.qml`. It still forwards `steer` and `ping` into the s
 that stay global (the leaderboard and the Hall of Fame).
 
 ```qml
-import QtQuick
 import SynQt
 
 // One instance per player session (see the config change below). It never simulates;

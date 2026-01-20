@@ -32,7 +32,6 @@ connect_points:
 Implement the database side in `db/relational/records/Records.qml`:
 
 ```qml
-import QtQuick
 import SynQt
 
 Records {

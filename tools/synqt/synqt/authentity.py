@@ -27,7 +27,6 @@ _HEADER_QML = ("// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux\n"
 
 
 IDENTITY_SOURCE_QML = _HEADER_QML + """
-import QtQuick
 import SynQt
 
 // The authoritative identity Source on the auth entity (one instance per consuming
@@ -78,7 +77,6 @@ Identity {
 
 
 SESSION_SOURCE_QML = _HEADER_QML + """
-import QtQuick
 import SynQt
 
 // The authoritative session Source on the auth entity (one instance per consuming

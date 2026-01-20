@@ -30,7 +30,6 @@ signal changed()                  // the owner notifies consumers
 _SOURCE_TEMPLATE = """// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 // SPDX-License-Identifier: Apache-2.0
 
-import QtQuick
 import SynQt
 
 // The connect point the "{point}" entity exports. What crosses it is the `export:` block
@@ -123,23 +122,41 @@ def owner_entity(project_dir: os.PathLike[str] | str, owner: str) -> Dict[str, A
     raise AddContractError(f"unknown entity '{owner}'")
 
 
+def _base_type(written: str) -> str:
+    """A contract type without its bracketed size. `string[120]` is a string here.
+
+    The size is a fact about the boundary and not about the value: the generated owner-side
+    code refuses anything longer, and QML has no such type to declare. Writing the brackets
+    into the file produced `property string[120] message`, which is not a property with a
+    limit on it, it is a syntax error, and the engine refuses the whole document over it.
+    """
+    return str(written or "").split("[")[0].strip()
+
+
 def _declaration(member: Dict[str, Any]) -> str:
     """One contract member as the QML line that declares it.
 
     The annotated spelling for parameters and return types (`amount: int`), which is what the
     QML coding conventions ask for and what the editor's own reader expects to find when it
     reads the file back.
+
+    An empty body is written on the signature's own line (`function fetch(): var {}`). It is
+    a signature waiting to be filled in, and two lines for a body that is not there yet put a
+    blank line's worth of nothing between one declaration and the next. Note that qmlformat
+    expands `{}` back to a brace on its own line and has no setting that stops it, so a
+    project with `check.qml_format` on reports these as reformattable until the bodies are
+    written.
     """
     kind = member.get("kind")
     name = member.get("name") or ""
-    params = ", ".join(f"{p.get('name')}: {p.get('type')}"
+    params = ", ".join(f"{p.get('name')}: {_base_type(p.get('type'))}"
                        for p in member.get("params") or [])
     if kind == "prop":
-        return f"    property {member.get('type') or 'var'} {name}"
+        return f"    property {_base_type(member.get('type')) or 'var'} {name}"
     if kind == "signal":
         return f"    signal {name}({params})"
-    returns = f": {member['type']}" if member.get("type") else ""
-    return f"    function {name}({params}){returns} {{\n    }}"
+    returns = f": {_base_type(member['type'])}" if member.get("type") else ""
+    return f"    function {name}({params}){returns} {{}}"
 
 
 def declarations_for(members: Optional[List[Dict[str, Any]]]) -> str:

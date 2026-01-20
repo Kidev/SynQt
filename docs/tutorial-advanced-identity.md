@@ -87,7 +87,6 @@ where most real customization lives.
 `web/edge/identity/map.qml`:
 
 ```qml
-import QtQuick
 import SynQt
 
 IdentityMapping {
@@ -186,7 +185,6 @@ its consumer list:
 The edge's Source is where the session is actually issued:
 
 ```qml
-import QtQuick
 import SynQt
 
 Edge {

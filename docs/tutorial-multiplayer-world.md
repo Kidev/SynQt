@@ -67,7 +67,6 @@ Open the identity mapping hook `synqt add auth` scaffolded, `web/edge/identity/m
 and grant the `player` scope only to GitHub usernames you approve:
 
 ```qml
-import QtQuick
 import SynQt
 
 IdentityMapping {
@@ -109,7 +108,6 @@ about who may do what; it is handed a player and told to act.
 ```qml
 pragma Singleton                      // one instance for the whole edge
 
-import QtQuick
 import SynQt
 
 Item {
@@ -279,7 +277,6 @@ comes from `Caller.identity`, never from an argument. Then it publishes what the
 holds.
 
 ```qml
-import QtQuick
 import SynQt
 
 Edge {

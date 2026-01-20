@@ -223,7 +223,6 @@ export function sourcePath(owner, contract) {
 export function sourceQml(contract, point, members) {
     const declared = declarationsFor(members);
     return withoutCommentary(`${CONTRACT_HEADER}
-import QtQuick
 import SynQt
 
 // The connect point the "${point}" entity exports. What crosses it is the \`export:\` block

@@ -143,7 +143,6 @@ the edge it now consumes. As always, another entity's connect point is reached u
 entity's name, capitalized, and an entity has one point, so `Edge` is the whole address:
 
 ```qml
-import QtQuick
 import SynQt
 
 Item {

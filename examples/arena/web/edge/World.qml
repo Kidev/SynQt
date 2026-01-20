@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 pragma Singleton                      // one shared instance for the whole edge
-import QtQuick
 import SynQt
 
 // The authoritative arena, simulated once (docs/tutorial-multiplayer-run.md). It owns the

@@ -1,17 +1,16 @@
 // SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 // SPDX-License-Identifier: Apache-2.0
 
-import QtQuick
 import SynQt
 
-// What the web edge exports to the browser: one instance per player session
+// What the web edge exports to the browser. One instance per player session
 // (docs/tutorial-multiplayer-run.md). It never simulates. It reads the shared World
 // singleton and publishes only what THIS player can see, plus the two global lists (the
-// leaderboard and the Hall of Fame). Interest management: the edge sends each player only
+// leaderboard and the Hall of Fame). Interest management. The edge sends each player only
 // their slice, so the payload stops growing with the whole arena.
 //
 // The point is `scope: player`, so an account nobody has approved never acquires it and
-// there is nothing here to check: every caller that reaches these functions is a player.
+// there is nothing here to check. Every caller that reaches these functions is a player.
 Edge {
     id: arena
     property string mySub: ""

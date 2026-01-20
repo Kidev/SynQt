@@ -1,16 +1,16 @@
 // SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 // SPDX-License-Identifier: Apache-2.0
 
-// FIX-3 acceptance. The stall storefront's edge-delivered pages and its real page seed,
-// proven end to end. The web edge serves the framework's Pages connect point from the
-// example's own web/pages and web/campaign-seed.qml. A native SynClient acts as the
-// browser and fetches pages over the same authenticated wss link.
+// The stall storefront's edge-delivered pages and its real page seed, proven end to end.
+// The web edge serves the framework's Pages connect point from the example's own web/pages
+// and web/campaign-seed.qml. A native SynClient acts as the browser and fetches pages over
+// the same authenticated wss link.
 //
-// The non-negotiable of assertion 5 is that the seed rides the PRODUCTION per-connection
-// path: the client makes a real connection, so WebEdge::hostConnection() mints a
-// PagesEdgeSource carrying that connection's own Caller (Caller::forUser with the
-// configured scope order), and fetchPage() reaches PagesService::fetchPageFor() through
-// it. Nothing here builds a Caller by hand (no edgeCaller()). Every fetch is a real round
+// The seed of assertion 5 must ride the PRODUCTION per-connection path: the client makes a
+// real connection, so WebEdge::hostConnection() mints a PagesEdgeSource carrying that
+// connection's own Caller (Caller::forUser with the configured scope order), and
+// fetchPage() reaches PagesService::fetchPageFor() through it. Nothing here builds a Caller
+// by hand; every fetch is a real round trip a browser would make.
 // trip an actual browser would make.
 //
 //   1. synqt check passes on examples/stall            -> tools/synqt/tests/test_examples.py
@@ -19,6 +19,7 @@
 //   4. a route the client never compiled in is reachable through the edge's pushed table
 //   5. the seed is real and fresh per parameter, across a notModified reply
 
+#include "moduleimports.h"
 #include "sessionmanager.h"
 #include "webedge.h"
 #include "webedgeconfig.h"
@@ -113,6 +114,11 @@ private slots:
     void initTestCase()
     {
         QVERIFY2(QSslSocket::supportsSsl(), "TLS backend unavailable");
+        // The example entities this suite loads are the shipped ones, and a shipped
+        // entity writes one import line rather than two. `import SynQt` brings QtQuick
+        // with it. The generated main registers that. So does this, because the engine
+        // below is standing in for that main.
+        SynQt::registerModuleImports();
 
         WebEdgeConfig config;
         config.bundleDir = QStringLiteral(FIX3_SRCDIR "/bundle");
@@ -224,11 +230,10 @@ private slots:
     }
 
     // Assertion 5: the seed is real and fresh per parameter, across a notModified reply,
-    // driven through the production per-connection Caller (this is a real connection, so
-    // the Source and Caller are the ones WebEdge::hostConnection() minted). One file serves
-    // every slug, so the second fetch, carrying the first page's hash, comes back
-    // notModified with NO markup but WITH the second parameter's own seed, never the
-    // first's. This is the staleness fix and the per-connection wiring in one round trip.
+    // driven through the production per-connection Caller (a real connection, so the Source
+    // and Caller are the ones WebEdge::hostConnection() minted). One file serves every
+    // slug, so the second fetch, carrying the first page's hash, comes back notModified
+    // with NO markup but WITH the second parameter's own seed, never the first's.
     void seedIsRealAndFreshPerParameterAcrossNotModified()
     {
         const QByteArray token{m_edge->sessionManager()->createSession()};

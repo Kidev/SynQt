@@ -1,19 +1,20 @@
 // SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 // SPDX-License-Identifier: Apache-2.0
 
-// FIX-1 acceptance. The auction tutorial's hands-on checks, proven end to end on the real
-// gavel system (examples/gavel). The web edge owns the live auction (a Source per caller, so Caller
-// is the bidding user) and is the single authority. The database owns the durable ledger
-// and authorizes the calling entity. Verifies the tutorial's "try it, then think" checks:
+// The auction tutorial's hands-on checks, proven end to end on the real gavel system
+// (examples/gavel). The web edge owns the live auction (a Source per caller, so Caller is
+// the bidding user) and is the single authority. The database owns the durable ledger and
+// authorizes the calling entity. Verifies the tutorial's "try it, then think" checks:
 //   1. a bid that does not beat the standing one is refused BY THE EDGE (not the UI);
 //   2. placeBid while signed out (as from the browser console) is refused by the edge;
-// plus the segmentation the Hall of Fame stage teaches. The database records a winner only
+// plus the segmentation the Hall of Fame stage teaches: the database records a winner only
 // for the edge (Caller.entity === "edge") and refuses any other calling entity, even a
 // listed consumer. The third hands-on check (client-as-consumer-of-ledger fails
 // `synqt check`) is proven in tools/synqt/tests/test_examples.py.
 
 #include "entityruntime.h"
 #include "meshclient.h"
+#include "moduleimports.h"
 #include "sessionmanager.h"
 #include "topology.h"
 #include "webedge.h"
@@ -160,9 +161,14 @@ private slots:
     void initTestCase()
     {
         QVERIFY2(QSslSocket::supportsSsl(), "TLS backend unavailable");
+        // The example entities this suite loads are the shipped ones, and a shipped
+        // entity writes one import line rather than two. `import SynQt` brings QtQuick
+        // with it. The generated main registers that. So does this, because the engine
+        // below is standing in for that main.
+        SynQt::registerModuleImports();
         synqtRegisterEdgeSources();
         // The edge reaches the books entity through the generated consumer facade, which is
-        // what fills in the session it is acting for; a raw dynamic Replica would not.
+        // what fills in the session it is acting for. A raw dynamic Replica would not.
         //
         // Only the factory, not synqtRegisterBooksConsumers(): that registers the QML name
         // `Books`, and this process is the edge, where that name is the accessor the edge's
