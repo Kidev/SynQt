@@ -156,11 +156,33 @@ function synRuns(text) {
     return out;
 }
 
-// The configuration. Keys, the scalars beside them, and the comments: enough that the shape
-// of the file is visible, and no more, because nothing here has to understand YAML.
+// The `export: |` block, whose lines are a contract and not YAML. Everything a connect point
+// carries is written in there, in the same grammar a `.syn` file is written in, so it is
+// coloured by the same reader. `prop`, `model`, `signal` and `slot` are keywords here and a
+// type is a type, which is what makes an export block scannable at the size it is set in.
+// Left as one flat scalar it was the one part of the configuration that mattered most and
+// read as a wall.
+const BLOCK_KEY = /^(\s*)export\s*:\s*[|>][-+]?\s*$/;
+
+// The configuration. Keys, the scalars beside them, the comments, and the contract inside an
+// export block. Enough that the shape of the file is visible, and no more, because nothing
+// here has to understand YAML.
 function yamlRuns(text) {
     const out = [];
+    // The indent of the `export:` key while one is open, or null. A block scalar runs until a
+    // line comes back to that indent or further out, which is the whole rule needed
+    // here. What is inside is never YAML, so nothing in it has to be read as YAML.
+    let block = null;
     for (const line of String(text || "").split("\n")) {
+        if (block !== null) {
+            const indent = (line.match(/^\s*/) || [""])[0];
+            if (!line.trim() || indent.length > block) {
+                out.push(...synRuns(line), {text: "\n", kind: ""});
+                continue;
+            }
+            block = null;
+        }
+        const opens = line.match(BLOCK_KEY);
         const comment = line.indexOf("#");
         const code = comment >= 0 ? line.slice(0, comment) : line;
         const key = code.match(/^(\s*(?:-\s+)?)([A-Za-z_][\w.-]*)(\s*:)/);
@@ -176,6 +198,9 @@ function yamlRuns(text) {
             out.push({text: line.slice(comment), kind: "comment"});
         }
         out.push({text: "\n", kind: ""});
+        if (opens) {
+            block = opens[1].length;
+        }
     }
     out.pop();                               // the split added one newline that was not there
     return out;
@@ -302,19 +327,104 @@ export function references(text) {
 
 // Writing back
 
+// A contract type without its bracketed size. `string[120]` is a string here.
+//
+// The size is a fact about the boundary and not about the value: the generated owner-side
+// code refuses anything longer, and QML has no such type to declare. Writing the brackets
+// into the file produced `property string[120] message`, which is not a property with a
+// limit on it, it is a syntax error, and the engine refuses the whole document over it.
+export function baseType(type) {
+    return String(type || "").split("[")[0].trim();
+}
+
 export function declarationLine(member) {
     if (member.kind === "prop") {
-        return `    property ${member.type || UNKNOWN} ${member.name}`;
-    }
-    if (member.kind === "signal") {
-        const params = (member.params || [])
-            .map((param) => `${param.name}: ${param.type}`).join(", ");
-        return `    signal ${member.name}(${params})`;
+        return `    property ${baseType(member.type) || UNKNOWN} ${member.name}`;
     }
     const params = (member.params || [])
-        .map((param) => `${param.name}: ${param.type}`).join(", ");
-    const returns = member.type ? `: ${member.type}` : "";
-    return `    function ${member.name}(${params})${returns} {\n    }`;
+        .map((param) => `${param.name}: ${baseType(param.type)}`).join(", ");
+    if (member.kind === "signal") {
+        return `    signal ${member.name}(${params})`;
+    }
+    const returns = member.type ? `: ${baseType(member.type)}` : "";
+    // The empty body stays on the signature's line: it is a signature waiting to be filled
+    // in, and a brace on a line of its own puts a blank line's worth of nothing between one
+    // declaration and the next. addcontract._declaration writes the same thing.
+    return `    function ${member.name}(${params})${returns} {}`;
+}
+
+// `text` with comments and strings blanked, so a brace counted in it is a brace in the code.
+// Every offset is unchanged, because each run is replaced by as many spaces as it held.
+function masked(text) {
+    return runs(text)
+        .map((run) => ((run.kind === "comment" || run.kind === "string")
+            ? run.text.replace(/[^\n]/g, " ") : run.text))
+        .join("");
+}
+
+// The lines one declaration occupies, as `[first, last]` inclusive.
+//
+// A property and a signal are the line they are written on. A function is that line and
+// whatever body follows it, however long, so this counts braces from the first one to the
+// one that closes it. Comments and strings are blanked first: a `}` inside either is not a
+// brace, and counting it would take half of somebody's function away with the other half.
+export function declarationSpan(text, line) {
+    const lines = masked(text).split("\n");
+    if (line < 0 || line >= lines.length) {
+        return null;
+    }
+    let depth = 0;
+    let opened = false;
+    for (let at = line; at < lines.length; at += 1) {
+        for (const character of lines[at]) {
+            if (character === "{") {
+                depth += 1;
+                opened = true;
+            } else if (character === "}") {
+                depth -= 1;
+            }
+        }
+        if (opened && depth <= 0) {
+            return [line, at];
+        }
+        if (!opened && at === line) {
+            return [line, line];       // nothing was opened, so it is the one line
+        }
+    }
+    return [line, lines.length - 1];
+}
+
+// `text` with the declaration on `line` rewritten as `member` now says it.
+//
+// The signature only. Whatever the author wrote after the opening brace of a function is
+// theirs and comes back untouched, and so does the indentation the line was written at,
+// which is what keeps this safe to run on a file somebody is in the middle of editing.
+export function rewritten(text, line, member) {
+    const lines = String(text || "").split("\n");
+    if (line < 0 || line >= lines.length) {
+        return String(text || "");
+    }
+    const indent = (lines[line].match(/^[ \t]*/) || [""])[0];
+    const written = declarationLine(member).replace(/^[ \t]*/, indent);
+    if (member.kind === "slot") {
+        const brace = lines[line].indexOf("{");
+        const head = written.slice(0, written.lastIndexOf("{"));
+        lines[line] = brace < 0 ? written : head + lines[line].slice(brace);
+    } else {
+        lines[line] = written;
+    }
+    return lines.join("\n");
+}
+
+// `text` with the declaration on `line` taken out, body and all.
+export function withoutDeclaration(text, line) {
+    const span = declarationSpan(text, line);
+    if (!span) {
+        return String(text || "");
+    }
+    const lines = String(text || "").split("\n");
+    lines.splice(span[0], (span[1] - span[0]) + 1);
+    return lines.join("\n");
 }
 
 // The declarations a contract's members would be written as, in the order they are declared.

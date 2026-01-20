@@ -789,15 +789,35 @@ async function typingIntoTheProject() {
         // line into the file: the panel offered a free-text prompt on a *link* and nothing at
         // all on an entity.
         await page.locator("#nodes [data-entity='store']").click();
-        await page.getByText("Add a property", { exact: true }).click();
-        await page.waitForSelector(".declares__line");
-        const declared = await page.locator(".declares__line").allTextContents();
-        check(declared.some((line) => line.startsWith("property int ")),
-              `the panel declares on the entity itself (${declared.join(" | ")})`);
-        await openAndWaitFor(page, "db/relational/store/Store.qml", "property int");
-        check(true, "and the declaration is in the entity's own file, where it lives");
+        const declares = page.locator(".members").filter(
+            { hasText: "What this entity declares" });
+        await declares.getByRole("button", { name: "property", exact: true }).click();
+        await page.waitForSelector(".member__kind");
+        const kinds = await declares.locator(".member__kind").allTextContents();
+        check(kinds.includes("property"),
+              `the panel declares on the entity itself (${kinds.join(" | ")})`);
+        // A model, which has no QML declaration form and is written onto the point instead.
+        // It is declared here all the same. It is one of the four things an entity declares,
+        // and being the odd one out of the four is not a reason to keep it somewhere else.
+        await declares.getByRole("button", { name: "model", exact: true }).click();
+        await page.waitForFunction(
+            () => document.querySelectorAll(".member__kind").length > 1);
+        const withModel = await declares.locator(".member__kind").allTextContents();
+        check(withModel.includes("model"),
+              `a model is declared on the entity too (${withModel.join(" | ")})`);
 
-        // Typing into synqt.yaml. The canvas follows what parses; what does not parse leaves
+        // Every part of a declaration that comes out of a fixed list is chosen from that
+        // list: the type is a drop-down over the contract vocabulary, not a word to be typed
+        // into the file afterwards. The name is the one part that has to be typed, because
+        // nothing could offer it. Both edits go back into the line they were read from.
+        const row = declares.locator(".member").first();
+        await row.locator("input[type=text]").fill("shelfCount");
+        await row.locator("select").selectOption("string");
+        await openAndWaitFor(page, "db/relational/store/Store.qml",
+                             "property string shelfCount");
+        check(true, "and the declaration is in the entity's own file, name and type together");
+
+        // Typing into synqt.yaml. The canvas follows what parses. What does not parse leaves
         // the canvas alone and says which line stopped it, because half-typed text is the
         // ordinary state of a file being edited and not an error to undo.
         await fileRow(page, "synqt.yaml").click();

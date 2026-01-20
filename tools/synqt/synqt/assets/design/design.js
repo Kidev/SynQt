@@ -19,16 +19,16 @@
 // Run with no server behind it (the copy on synqt.org) the page still edits, and Apply
 // becomes a download of the project it would have written.
 
-import { entityType, findings as ruleFindings } from "./rules.js";
+import { entityType, findings as ruleFindings, frontsOf } from "./rules.js";
 import { NODE_RADIUS, ROLE_HELP, describe, draw, element, entityAt, extent, glyphSvg,
-         nearestFreeSlot, roleOf, slotIndex, turnsToward } from "./canvas.js";
+         nearestFreeSlot, roleOf, seatsOfFront, slotIndex, turnsToward } from "./canvas.js";
 import { inspect } from "./inspector.js";
 import { forgetDesign, keepDesign, keepPane, keptDesign,
          readPanes } from "./keep.js";
 import { contractOf, entityDir, entityFiles, entityQml, entityQmlPath, projectFiles }
     from "./project.js";
-import { declarationLine, declarations, references, runsFor,
-         withoutNotice } from "./source.js";
+import { declarationLine, declarations, references, rewritten, runsFor,
+         withoutDeclaration, withoutNotice } from "./source.js";
 import { YamlError, parseDesign } from "./yamlin.js";
 import { zipBytes } from "./zip.js";
 
@@ -45,16 +45,17 @@ const ROW_HEIGHT = 192;
 const ZOOM_RANGE = [0.35, 2.4];
 
 // The coarse grid the paper is ruled at (design.css `--grid-coarse`), and the step an entity
-// settles onto: a fifth of it. Kept in step with the CSS by hand, because the two are read by
-// different things and neither can ask the other; the node checker asserts they agree.
+// settles onto. A twentieth of it. Kept in step with the CSS by hand, because the two are read
+// by different things and neither can ask the other. The node checker asserts they agree.
 //
-// A fifth rather than a free position, so a drawing somebody dragged together lines up
-// without anybody nudging it, and rather than the full 320 because that is coarse enough to
-// throw an entity halfway across its own zone when it was moved a little. 64 is also twice
-// the fine pitch the dots are drawn at, so every place an entity can land is a dot somebody
-// can see before they let go.
+// A twentieth rather than a free position, so a drawing somebody dragged together lines up
+// without anybody nudging it. It was a fifth (64), which is coarse enough that nudging an
+// entity a little threw it a quarter of the way across its own zone. The step was doing the
+// arranging instead of the person. 16 is half the fine pitch the dots are drawn at, so an
+// entity settles either on a dot or exactly between two, and it still divides the three
+// columns and the row height below.
 const GRID_COARSE = 320;
-const GRID_SNAP = GRID_COARSE / 5;
+const GRID_SNAP = GRID_COARSE / 20;
 
 function snapped(value) {
     return Math.round(value / GRID_SNAP) * GRID_SNAP;
@@ -123,6 +124,7 @@ const page = {
     inspector: document.getElementById("inspector"),
     inspectorBody: document.getElementById("inspector-body"),
     inspectorHandle: document.getElementById("inspector-handle"),
+    home: document.getElementById("home"),
     project: document.getElementById("project"),
     hint: document.getElementById("hint"),
     restart: document.getElementById("restart"),
@@ -973,6 +975,19 @@ function tipFor(what) {
                            + "held back from callers the rest of the point reaches."));
         return box;
     }
+    // A box around a group of entities. Its name is on the canvas and what it means is here,
+    // because the meaning is the same three sentences on every glance and the arrangement is
+    // what somebody is looking at.
+    if (what.kind === "zone") {
+        const head = document.createElement("div");
+        head.className = "tip__head tip__head--link";
+        const title = document.createElement("span");
+        title.textContent = what.name;
+        head.append(title);
+        box.append(head);
+        box.append(tipHelp(what.note));
+        return box;
+    }
     // A row in the rail is the entity it would add, so it says what the node on the canvas
     // says, in the same box. A `title` attribute said the same words in the browser's own
     // tooltip, which arrives a second late and looks like it belongs to a different program.
@@ -1109,8 +1124,15 @@ function whatIsUnder(target) {
         return {kind: "contract", name: contract.dataset.contract};
     }
     const link = target.closest ? target.closest("[data-link]") : null;
-    return link
-        ? {kind: "link", name: link.dataset.link, consumer: link.dataset.consumer || ""}
+    if (link) {
+        return {kind: "link", name: link.dataset.link, consumer: link.dataset.consumer || ""};
+    }
+    // A box's name, last, because everything drawn inside a box answers for itself first.
+    // What the box means is written on the name rather than under it, so this is where it is
+    // read from.
+    const zone = target.closest ? target.closest("[data-zone-title]") : null;
+    return zone
+        ? {kind: "zone", name: zone.textContent, note: zone.dataset.note || ""}
         : null;
 }
 
@@ -1262,6 +1284,48 @@ function declareOn(entity, member) {
 // pressed rather than after a name has been typed somewhere else.
 function nameFor(member) {
     return {prop: "value", signal: "changed", slot: "act"}[member.kind] || "value";
+}
+
+// Rewrite the declaration `member` was read from, as `wanted` now says it.
+//
+// The signature only. Whatever the author wrote after the opening brace of a function comes
+// back untouched (source.rewritten), so editing a return type does not cost somebody their
+// body. `was` is the name the line carried before, and a rename is carried onto every
+// connect point already exporting it, because a contract naming a member the owner no
+// longer declares is an error the build reports and nobody asked for.
+function redeclareOn(entity, member, wanted, was) {
+    if (!entity || !Number.isInteger(member.line)) {
+        return;
+    }
+    entity.qml = rewritten(String(entity.qml || ""), member.line, wanted);
+    if (wanted.name && was && wanted.name !== was) {
+        for (const link of state.design.links || []) {
+            for (const carried of link.members || []) {
+                if (carried.name === was) {
+                    carried.name = wanted.name;
+                }
+            }
+        }
+    }
+    touched();
+    redraw();
+    renderInspector();
+}
+
+// Take a declaration out of the entity's file, and off every contract that exported it.
+// Leaving it on one would name a member nothing implements, which is the error the build
+// reports and never the thing somebody meant by pressing this.
+function undeclareOn(entity, member) {
+    if (!entity || !Number.isInteger(member.line)) {
+        return;
+    }
+    entity.qml = withoutDeclaration(String(entity.qml || ""), member.line);
+    for (const link of state.design.links || []) {
+        link.members = (link.members || []).filter((one) => one.name !== member.name);
+    }
+    touched();
+    redraw();
+    renderInspector();
 }
 
 function tickMember(link, member, wanted) {
@@ -1460,11 +1524,14 @@ function onContextMenu(event) {
         ]);
         return;
     }
-    if (under) {
-        const found = (state.design.links || [])
-            .find((one) => one.name === under.name);
+    // A box has no menu of its own. It is a drawing of what is in it, so a right click on one
+    // is a right click on the canvas and gets the canvas menu below.
+    const found = under && under.kind !== "zone"
+        ? (state.design.links || []).find((one) => one.name === under.name)
+        : null;
+    if (found) {
         select({kind: "link", name: found.name});
-        // No Rename: a connect point is not named, its owner names it. Renaming the owner
+        // No Rename, because a connect point has no name of its own and its owner names it. Renaming the owner
         // is what moves it, and that is on the node.
         openMenu(at, `${found.owner}'s connect point`, [
             {label: "What crosses it", act: () => openPicker(found, at)},
@@ -1501,6 +1568,11 @@ function renderInspector() {
         removeEntity: (entity) => removeEntity(entity),
         removeLink: (link) => removeLink(link),
         declare: (entity, member) => declareOn(entity, member),
+        // The two halves of editing one that is already there. Both rewrite the entity's own
+        // file, which is where a declaration lives. The panel never keeps a second copy.
+        redeclare: (entity, member, wanted, was) =>
+            redeclareOn(entity, member, wanted, was),
+        undeclare: (entity, member) => undeclareOn(entity, member),
         // The same call the popup picker makes, so ticking a member in the panel and ticking
         // it on the canvas are one gesture with one implementation.
         tick: (link, member, on) => {
@@ -1751,6 +1823,44 @@ function sendScopeBehind(front, scope, target) {
     touched();
     say(`Callers holding '${scope}' are handed to '${target.name}'. It answers them with `
         + `Caller in hand and never asks about scope: nobody else reaches it.`);
+}
+
+// A line dropped on a front, which is a question rather than an answer: which scope's callers
+// does this entity serve?
+//
+// Answered here and not by where the line landed. A seat is a dot on a wedge and there are as
+// many of them as there are scopes, so aiming at one is a matter of a few pixels at the zoom
+// somebody is usually at. Dragging the other way round has never had the problem, because a
+// seat is grabbed rather than aimed at, and that gesture is left exactly as it is.
+//
+// Returns whether it took the drop. Everything that is not a line arriving at a front from
+// something that can sit behind one is somebody else's to handle.
+function offerSeat(from, target, at) {
+    const front = frontsOf(state.design).get(target.name);
+    if (!front || entityType(from) === "client") {
+        return false;
+    }
+    const seats = seatsOfFront(front);
+    const taken = seats.find((seat) => seat.tier === from.name);
+    openMenu(at, `'${from.name}' behind '${target.name}'`, [
+        ...seats.map((seat) => ({
+            // A seat that is already this entity's says so, and a seat that is somebody
+            // else's says whose: picking it is how one is moved, and moving one silently is
+            // how a scope ends up served by an entity nobody meant to point it at.
+            label: seat.tier === from.name ? `${seat.scope} (already)`
+                 : (seat.tier ? `${seat.scope} (now '${seat.tier}')` : seat.scope),
+            act: () => sendScopeBehind(target, seat.scope, from),
+        })),
+        // The drop still has its plain meaning available: a front owns a connect point like
+        // any other entity, and consuming one is not the same thing as sitting behind it.
+        {label: `Just consume ${contractOf({owner: target.name})}`,
+         act: () => addLink(from, target, null, at)},
+        ...(taken
+            ? [{label: `Stop serving '${taken.scope}'`,
+                act: () => sendScopeBehind(target, taken.scope, null), danger: true}]
+            : []),
+    ]);
+    return true;
 }
 
 // What a link dropped on empty canvas opens: the palette again, at the point it was let go,
@@ -2012,10 +2122,15 @@ function onMove(event) {
     }
     if (drag.mode === "zone") {
         // Everything in the box moves by the same amount, from where each one started rather
-        // than by a step per event: adding up steps drifts, and the box is redrawn around its
+        // than by a step per event. Adding up steps drifts, and the box is redrawn around its
         // contents every frame, so a drift here is a box that slowly leaves the pointer.
-        const dx = Math.round(at.local.x - drag.at.local.x);
-        const dy = Math.round(at.local.y - drag.at.local.y);
+        //
+        // The amount is snapped, not the destinations. Every entity in the box is already on
+        // the grid, so moving them all by a multiple of the step keeps them on it and keeps
+        // the arrangement inside the box exactly as it was. Snapping each one separately
+        // would tidy the block into a single column the first time it was picked up.
+        const dx = snapped(at.local.x - drag.at.local.x);
+        const dy = snapped(at.local.y - drag.at.local.y);
         drag.moved = drag.moved || Boolean(dx || dy);
         for (const one of drag.inside) {
             one.entity.x = one.x + dx;
@@ -2053,6 +2168,13 @@ function onUp(event) {
         const at = pointAt(event);
         const target = entityAt(state.design, at.local);
         if (target && target !== finished.from) {
+            // A front is a wedge with a seat per scope on its flat side, and the seats sit a
+            // few pixels apart: dropping a line on the one you meant is not something a hand
+            // can do. Dragging the other way works because a seat is grabbed rather than
+            // aimed at, so this way round asks instead.
+            if (offerSeat(finished.from, target, {x: event.clientX, y: event.clientY})) {
+                return;
+            }
             addLink(finished.from, target, at.local,
                     {x: event.clientX, y: event.clientY});
             return;
@@ -2089,7 +2211,15 @@ function onUp(event) {
         // A second click renames a node; a connect point has no name of its own to rename.
         // The consumer travels with the selection, because one line is one consumer of a
         // contract they all share, and the panel says less about a line than about the point.
-        select({kind: "link", name: finished.name, consumer: finished.consumer || ""});
+        //
+        // Unless it is the only line. Then the line and the point are the same selection to
+        // anybody who drew them, and stopping at "this consumer" put a panel with one button
+        // on it between somebody and the thing they clicked the line to edit.
+        const point = (state.design.links || []).find((one) => one.name === finished.name);
+        const alone = point && (point.consumers || []).length < 2;
+        select(alone
+            ? {kind: "contract", name: finished.name}
+            : {kind: "link", name: finished.name, consumer: finished.consumer || ""});
         return;
     }
     // A press on a box that went nowhere is a press on empty canvas: the box is a drawing of
@@ -2384,6 +2514,16 @@ async function load() {
     }
 }
 
+// Whether to go, asked once. An empty canvas has nothing to lose, so it goes without a
+// question: a page somebody opened, looked at and closed should not argue with them.
+function leaving() {
+    if (!(state.design.entities || []).length) {
+        return true;
+    }
+    return window.confirm("Leave the editor? This design lives in this tab, so anything not "
+                          + "applied or downloaded goes with it.");
+}
+
 function wire() {
     // Only ever on the drawing board, where it is the way out of a design this browser is
     // holding. It clears the stored copy first, so a reload does not bring it straight back.
@@ -2397,6 +2537,26 @@ function wire() {
         page.restart.hidden = true;
         fit();
         say("Cleared. Drag an entity out of the rail to begin.");
+    });
+    // The mark in the corner goes home, and asks first. Anything drawn here lives in this
+    // tab (the copy on the site has no disk behind it, and `synqt design` has written
+    // nothing until Apply), so leaving is a decision rather than a click.
+    page.home.addEventListener("click", (event) => {
+        if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) {
+            return;                 // opening it elsewhere leaves this tab where it is
+        }
+        if (!leaving()) {
+            event.preventDefault();
+        }
+    });
+    // And the same question for every other way out: a reload, the back button, the tab
+    // being closed. The browser writes the words here, not us; what it takes from this is
+    // whether to ask at all.
+    window.addEventListener("beforeunload", (event) => {
+        if ((state.design.entities || []).length) {
+            event.preventDefault();
+            event.returnValue = "";
+        }
     });
     page.canvas.addEventListener("pointerdown", onDown);
     page.canvas.addEventListener("pointermove", onMove);

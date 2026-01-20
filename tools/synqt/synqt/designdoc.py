@@ -36,10 +36,10 @@ from . import newproject
 
 VERSION = 1
 
-# Canvas places for a node nobody has dragged yet: three columns in the order a request
+# Canvas places for a node nobody has dragged yet. Three columns in the order a request
 # travels, so a topology reads left to right before anyone has moved anything.
 #
-# Every one of these is a multiple of the 64 the editor snaps a dragged entity to (design.js
+# Every one of these is a multiple of the 16 the editor snaps a dragged entity to (design.js
 # GRID_SNAP), so a project that has never been opened is already on the grid. Off it, the
 # first entity anybody nudged would jump into line while the ones beside it stayed where they
 # were, which reads as the drawing having been disturbed rather than tidied.

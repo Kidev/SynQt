@@ -140,7 +140,12 @@ def test_the_page_loads_nothing_from_anywhere_else():
 
 def test_nothing_the_page_asks_for_is_missing():
     page = _text("index.html")
-    named = set(re.findall(r'(?:src|href)="([^"]+)"', page))
+    # Relative names only. A root-relative one is a link into the rest of the site rather
+    # than an asset the editor ships. The mark in the corner goes to `/`, which is the front
+    # page and is not a file in this directory. Anything absolute is refused outright by the
+    # test above, so what is left here is either a shipped asset or a link off the page.
+    named = {name for name in re.findall(r'(?:src|href)="([^"]+)"', page)
+             if not name.startswith(("/", "#"))}
     asked = set()
     for path in sorted(DESIGN.glob("*.js")):
         body = _text(path.name)

@@ -23,8 +23,14 @@
   </head>
   <body>
     <header class="bar">
-      <img class="bar__mark" src="synqt.svg" alt="SynQt" width="284" height="150">
-      <span class="bar__wordmark">Designer</span>
+      <!-- The way out, where a logo in the corner of a page always goes. It asks before it
+           goes anywhere: a design lives in this tab, and leaving by mistake is how an
+           afternoon is lost. design.js attaches that question; the href is what makes it a
+           link a browser can open in a new tab, and what it falls back to. -->
+      <a class="bar__home" id="home" href="/" title="Back to synqt.org">
+        <img class="bar__mark" src="synqt.svg" alt="SynQt" width="284" height="150">
+        <span class="bar__wordmark">Designer</span>
+      </a>
       <!-- The project's own name, and the one thing in this bar that is not a button: a
            double click opens it for editing where it is written, the way an entity's name
            on the canvas does. No verdict sits here. What the rules say is a list with a

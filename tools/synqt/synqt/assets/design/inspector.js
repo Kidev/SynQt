@@ -11,14 +11,27 @@
 // not there.
 
 import { SCOPES, behindOf, entityType } from "./rules.js";
-import { ROLE_HELP, glyphSvg, roleOf } from "./canvas.js";
-import { declarations } from "./source.js";
+import { ROLE_HELP, accessorName, glyphSvg, roleOf } from "./canvas.js";
+import { baseType, declarations } from "./source.js";
 
-// The .syn type vocabulary, from synqtc/types.py. `var` is in it because a model role may
-// carry anything, and the roles are where that comes up.
-const TYPES = ["int", "string", "bool", "real", "float", "double", "var"];
+// The contract type vocabulary, from synqtc/types.py: QML's own built-in value types, and
+// nothing invented beside them. A value crossing a connect point is read from QML on the
+// owner side and handed to QML on the consumer side, so a type neither side can spell has
+// nowhere to go. `float` is not one of them. The contract
+// compiler refuses it, so offering it here would make this list a way to draw a project that will not build.
+const TYPES = ["bool", "date", "double", "int", "list", "real", "string", "url", "var"];
+
+// The four that take a bracketed size, and what one of that size is (synqtc.types
+// SIZED_TYPES). Only the open-ended ones. A number says how wide it is by being a number,
+// and what needs a limit is the value a caller can keep making bigger.
+const SIZED = {string: "characters", url: "characters", list: "elements", var: "bytes"};
 
 const KINDS = ["prop", "model", "signal", "slot"];
+
+// What each kind is called where somebody is choosing one, and the QML word for it where
+// there is one. A slot is written `function` in the file it lands in, so that is what the
+// button that adds one says.
+const KIND_WORDS = {prop: "property", model: "model", signal: "signal", slot: "function"};
 
 // The three entity types that take a data provider (addentity.TYPES). An api and a
 // jobs entity have no engine behind them, so neither is offered one.
@@ -42,11 +55,6 @@ const KIND_LABELS = {
 
 const TARGETS = ["wasm", "desktop"];
 
-function capitalised(name) {
-    return name ? name[0].toUpperCase() + name.slice(1) : name;
-}
-
-
 function tag(name, attributes, text) {
     const node = document.createElement(name);
     for (const [key, value] of Object.entries(attributes || {})) {
@@ -58,9 +66,26 @@ function tag(name, attributes, text) {
     return node;
 }
 
+// A label and the one control it names. A real `<label>`, so clicking the words puts the
+// caret in the box.
 function field(label, control) {
     const wrap = tag("label", {class: "field"});
     wrap.append(tag("span", {class: "field__label"}, label), control);
+    return wrap;
+}
+
+// A label over a group of controls: several checkboxes, a row of buttons, or a line of text
+// that is stated rather than edited.
+//
+// Not a `<label>`, which is the whole reason this exists. A button and a checkbox are both
+// labelable, so a `<label>` wrapped round several of them gives every one of them the same
+// accessible name, taken from the whole group: four buttons reading property, model, signal
+// and function all announced themselves as "Add property model signal function", which is
+// what a screen reader says and what a test looking for the button named "property" fails
+// to find.
+function group(label, controls) {
+    const wrap = tag("div", {class: "field"});
+    wrap.append(tag("span", {class: "field__label"}, label), controls);
     return wrap;
 }
 
@@ -95,6 +120,37 @@ function check(label, checked, onChange) {
     box.checked = checked;
     box.addEventListener("change", () => onChange(box.checked));
     wrap.append(box, document.createTextNode(label));
+    return wrap;
+}
+
+// A type, and the size that goes with it where the type takes one. Two controls, because
+// they are two decisions. `string` is the type and `[120]` is what the owner-side boundary
+// refuses anything longer than. The box only appears for a type that can be given a limit,
+// and leaving it empty is the ordinary case (no limit at all).
+//
+// `allowed` is the vocabulary to offer, so a slot's return can add the empty option for a
+// slot that answers nothing without the size control losing track of which type is chosen.
+function typeAndSize(current, onChange, {allowed, emptyLabel} = {}) {
+    const wrap = tag("span", {class: "typed"});
+    const base = baseType(current);
+    const written = String(current || "");
+    const found = written.match(/\[(\d+)\]/);
+    const size = found ? found[1] : "";
+
+    const settle = (nextBase, nextSize) => {
+        onChange(nextBase && nextSize && SIZED[nextBase]
+            ? `${nextBase}[${nextSize}]` : nextBase);
+    };
+    wrap.append(choice(allowed || TYPES, base, (value) => settle(value, size), emptyLabel));
+    if (SIZED[base]) {
+        const box = tag("input", {type: "number", min: "1", class: "typed__size",
+                                  placeholder: "no limit",
+                                  title: `At most this many ${SIZED[base]}`});
+        box.value = size;
+        box.addEventListener("input", () => settle(base, box.value.trim()));
+        wrap.append(box);
+        wrap.append(tag("span", {class: "typed__unit"}, SIZED[base]));
+    }
     return wrap;
 }
 
@@ -143,7 +199,7 @@ function entityPanel(design, entity, actions) {
 
     // Stated, not offered. What an entity is was decided when it was dragged off the
     // palette, and everything drawn since means what it means because of that.
-    panel.append(field("Kind", tag("p", {class: "field__fixed"}, KIND_LABELS[role])));
+    panel.append(group("Kind", tag("p", {class: "field__fixed"}, KIND_LABELS[role])));
 
     if (entityType(entity) === "client") {
         const targets = tag("div");
@@ -160,7 +216,7 @@ function entityPanel(design, entity, actions) {
                 actions.changed();
             }));
         }
-        panel.append(field("Targets", targets));
+        panel.append(group("Targets", targets));
         panel.append(note("The browser bundle, a native desktop app from the same QML, or "
                           + "both. Either way it holds no secret and no mesh certificate."));
     } else if (role === "edge") {
@@ -192,7 +248,7 @@ function entityPanel(design, entity, actions) {
             : "Every caller gets a Source of their own, holding only what is theirs."));
     }
 
-    panel.append(declaresPanel(entity, actions));
+    panel.append(declaresPanel(design, entity, actions));
 
     const actionsRow = tag("div", {class: "inspector__actions"});
     const remove = tag("button", {type: "button", class: "button button--danger"},
@@ -203,64 +259,159 @@ function entityPanel(design, entity, actions) {
     return panel;
 }
 
-// What the entity's own file declares, and the way to add one without typing it.
+// What the entity's own file declares, edited where it is declared.
 //
 // This is the same gesture as writing the line into the file in the Files pane, and it is
-// the pool every connect point this entity owns ticks its contract from: a member reaches a
+// the pool every connect point this entity owns ticks its contract from. A member reaches a
 // consumer because somebody ticked it there, and it is offered there because it was declared
 // here. Reading is by the same parser the pane uses, so what is listed is exactly what the
-// file says and never a second record of it kept alongside.
-function declaresPanel(entity, actions) {
+// file says and never a second record of it kept alongside. Every control writes the line
+// back, so the file stays the one record of it.
+//
+// Every part of a declaration that comes out of a fixed list is chosen from that list. Three
+// buttons that each append a line with a placeholder name and a
+// guessed type would leave the spelling of everything else to be typed into the file, a type
+// list the contract compiler is the authority on, and a bracketed size whose grammar is not
+// written anywhere near where somebody would be typing it.
+//
+// A model is here too. It has no QML declaration form, so it is not read out of the file. It
+// is written straight onto the connect point this entity owns, which is the only place a
+// model can live. It belongs on the entity all the same. It is one of the four things an
+// entity can declare, and being the odd one out of the four is not a reason to make somebody
+// look for it somewhere else.
+function declaresPanel(design, entity, actions) {
     const box = tag("div", {class: "members"});
     box.append(tag("h2", {class: "members__title"}, "What this entity declares"));
     const found = declarations(entity.qml || "");
-    if (!found.length) {
-        box.append(note("Nothing yet. A property is state, a signal is something that "
-                        + "happened, and a function is something callers can ask for.", true));
+    const point = ownPointOf(design, entity);
+    const models = ((point || {}).members || []).filter((one) => one.kind === "model");
+    if (!found.length && !models.length) {
+        box.append(note("Nothing yet. A property is state, a model is a list of rows, a "
+                        + "signal is something that happened, and a function is something "
+                        + "callers can ask for.", true));
     }
-    const list = tag("div", {class: "declares"});
     for (const member of found) {
-        list.append(tag("code", {class: "declares__line"}, declaredText(member)));
+        box.append(declaredPanel(design, entity, member, actions));
     }
-    box.append(list);
-    for (const [label, member] of [
-        ["Add a property", {kind: "prop", name: "", type: "int"}],
-        ["Add a signal", {kind: "signal", name: "", params: []}],
-        ["Add a function", {kind: "slot", name: "", type: "", params: []}],
-    ]) {
-        box.append(adder(label, () => actions.declare(entity, member)));
+    for (const model of models) {
+        box.append(modelPanel(point, model, actions));
     }
-    box.append(note("Each one is written into this entity's own file, which is where a "
-                    + "connect point it owns finds it to put on a contract.", true));
+
+    const adders = tag("div", {class: "members__add"});
+    for (const kind of KINDS) {
+        adders.append(adder(KIND_WORDS[kind], () => {
+            if (kind === "model") {
+                addModelTo(point, actions);
+                return;
+            }
+            actions.declare(entity, {kind, name: "", type: kind === "prop" ? "int" : "",
+                                     params: [], roles: []});
+        }));
+    }
+    box.append(group("Add", adders));
+    box.append(note(point || !models.length
+        ? "A property, a signal and a function are written into this entity's own file, "
+          + "which is where a connect point it owns finds them to put on a contract. A model "
+          + "has no QML form, so it is written straight onto the point."
+        : "Draw a connect point off this entity before adding a model: a model has no QML "
+          + "form, so the point is the only place one can be written.", true));
     return box;
 }
 
-// One declaration, as the QML it is. The panel shows the file's own words rather than a
-// prettier restatement of them, so what is listed can be found by searching the file.
-function declaredText(member) {
+// The connect point this entity owns, or null. An entity owns one, which is why the owner
+// names it and why this can answer with a single thing.
+function ownPointOf(design, entity) {
+    return (design.links || []).find((one) => one.owner === entity.name) || null;
+}
+
+function addModelTo(point, actions) {
+    if (!point) {
+        return;
+    }
+    point.members = point.members || [];
+    point.members.push({kind: "model", name: "rows", type: "", params: [], roles: []});
+    actions.rebuild();
+}
+
+// One declaration the file holds, as controls over the line it is written on.
+//
+// The kind is stated rather than offered: a property is not a function with a different word
+// in front of it, and turning one into the other would rewrite a line whose body, bindings
+// and call sites all belong to what it was. Delete it and add the one you wanted.
+function declaredPanel(design, entity, member, actions) {
+    const box = tag("div", {class: "member"});
+    const row = tag("div", {class: "member__row"});
+
+    row.append(tag("span", {class: "member__kind"}, KIND_WORDS[member.kind]));
+    row.append(text(member.name, (value) => {
+        actions.redeclare(entity, member, {...member, name: value}, member.name);
+    }, "name"));
+
+    // No size here, and no size on the parameters below: a declaration is kept as the line
+    // in the file, and QML has no type with a limit in it. Where a size is a real thing is
+    // on the connect point, beside the scope, and that is where the box for it is.
     if (member.kind === "prop") {
-        return `property ${member.type || "var"} ${member.name}`;
+        row.append(choice(TYPES, baseType(member.type) || "var", (value) => {
+            actions.redeclare(entity, member, {...member, type: value}, member.name);
+        }));
     }
-    const params = (member.params || [])
-        .map((param) => `${param.name}: ${param.type}`).join(", ");
-    if (member.kind === "signal") {
-        return `signal ${member.name}(${params})`;
+    if (member.kind === "slot") {
+        row.append(choice(["", ...TYPES], baseType(member.type), (value) => {
+            actions.redeclare(entity, member, {...member, type: value}, member.name);
+        }, "returns nothing"));
     }
-    return `function ${member.name}(${params})${member.type ? `: ${member.type}` : ""}`;
+    row.append(remover(`Remove ${member.name || "this declaration"}`,
+                       () => actions.undeclare(entity, member)));
+    box.append(row);
+
+    if (member.kind === "signal" || member.kind === "slot") {
+        const write = () => actions.redeclare(entity, member, member, member.name);
+        box.append(partsPanel(member, "params", "Parameters",
+                              {changed: write, rebuild: write}, false));
+    }
+    return box;
+}
+
+// A model, which lives on the point rather than in the file. Its roles are what crosses,
+// and only its roles: a row's other fields are dropped at the boundary.
+function modelPanel(point, model, actions) {
+    const box = tag("div", {class: "member"});
+    const row = tag("div", {class: "member__row"});
+    row.append(tag("span", {class: "member__kind"}, "model"));
+    row.append(text(model.name, (value) => {
+        model.name = value;
+        actions.changed();
+    }, "name"));
+    row.append(remover(`Remove ${model.name || "this model"}`, () => {
+        point.members = (point.members || []).filter((one) => one !== model);
+        actions.rebuild();
+    }));
+    box.append(row);
+    box.append(partsPanel(model, "roles", "Roles", actions, true));
+    return box;
 }
 
 // The connect point panel
 
-function partsPanel(member, key, label, actions) {
+// The parameters of a signal or a function, or the roles of a model.
+//
+// `sized` says whether a size can be set here, and it is not a matter of taste: a size is
+// part of the contract and is kept in the connect point's `export:` block, so it survives
+// only where these parts are the point's. A parameter read back out of the owner's QML has
+// nowhere to keep one (`function add(text: string[200])` is a syntax error, not a limit), so
+// offering the box there would be offering a setting that is gone on the next read.
+function partsPanel(member, key, label, actions, sized) {
     const box = tag("div", {class: "member__parts"});
     box.append(tag("div", {class: "member__parts-title"}, label));
     const parts = member[key] || [];
     parts.forEach((part, index) => {
         const row = tag("div", {class: "member__part"});
-        row.append(choice(TYPES, part.type || "string", (value) => {
+        const onType = (value) => {
             part.type = value;
             actions.changed();
-        }));
+        };
+        row.append(sized ? typeAndSize(part.type || "string", onType)
+                         : choice(TYPES, baseType(part.type) || "string", onType));
         row.append(text(part.name, (value) => {
             part.name = value;
             actions.changed();
@@ -279,74 +430,19 @@ function partsPanel(member, key, label, actions) {
     return box;
 }
 
-// What a member carries depends on what it is, so changing its kind drops what the new kind
-// has no place for rather than keeping a hidden list that would come back later.
-function settle(member) {
+// One declaration, as the QML it is. The list shows the file's own words rather than a
+// prettier restatement of them, so what is listed can be found by searching the file.
+function declaredText(member) {
     if (member.kind === "prop") {
-        member.type = member.type || "int";
-        member.params = [];
-        member.roles = [];
-        return;
+        return `property ${baseType(member.type) || "var"} ${member.name}`;
     }
-    if (member.kind === "model") {
-        member.type = "";
-        member.params = [];
-        member.roles = member.roles || [];
-        return;
-    }
-    member.params = member.params || [];
-    member.roles = [];
+    const params = (member.params || [])
+        .map((param) => `${param.name}: ${baseType(param.type)}`).join(", ");
     if (member.kind === "signal") {
-        member.type = "";
+        return `signal ${member.name}(${params})`;
     }
-}
-
-function memberPanel(link, member, index, actions) {
-    const box = tag("div", {class: "member"});
-    const row = tag("div", {class: "member__row"});
-
-    row.append(choice(KINDS, member.kind || "prop", (value) => {
-        member.kind = value;
-        settle(member);
-        actions.rebuild();
-    }));
-    row.append(text(member.name, (value) => {
-        member.name = value;
-        actions.changed();
-    }, "name"));
-
-    if (member.kind === "prop") {
-        row.append(choice(TYPES, member.type || "int", (value) => {
-            member.type = value;
-            actions.changed();
-        }));
-    }
-    if (member.kind === "slot") {
-        row.append(choice(["", ...TYPES], member.type, (value) => {
-            member.type = value;
-            actions.changed();
-        }, "returns nothing"));
-    }
-    // Who reaches this member. Empty is whatever the point requires, which is the common
-    // case; naming one here raises the bar for this member alone, and nothing about it
-    // then crosses to a caller without that scope.
-    row.append(choice(["", ...SCOPES], member.scope || "", (value) => {
-        member.scope = value;
-        actions.changed();
-    }, "the point's scope"));
-    row.append(remover(`Remove ${member.name || "this member"}`, () => {
-        link.members.splice(index, 1);
-        actions.rebuild();
-    }));
-    box.append(row);
-
-    if (member.kind === "model") {
-        box.append(partsPanel(member, "roles", "Roles", actions));
-    }
-    if (member.kind === "signal" || member.kind === "slot") {
-        box.append(partsPanel(member, "params", "Parameters", actions));
-    }
-    return box;
+    return `function ${member.name}(${params})`
+           + `${member.type ? `: ${baseType(member.type)}` : ""}`;
 }
 
 // The contract as a list to tick, out of what the owner entity already declares.
@@ -381,10 +477,21 @@ function ticksPanel(design, link, actions) {
         row.append(check(declaredText(member), ticked.has(member.name), (on) => {
             actions.tick(link, member, on);
         }));
-        // The scope is the one thing about a ticked member that is not in the owner's file,
-        // so it is the one thing this list sets. Offered only once the member is on the
-        // contract: a scope on something that does not cross is a setting with no effect.
+        // The two things about a ticked member that are not in the owner's file, so the two
+        // things this list sets. Offered only once the member is on the contract: either one
+        // on something that does not cross is a setting with no effect.
+        //
+        // The scope raises the bar for this member alone, so nothing about it crosses to a
+        // caller the rest of the point reaches. The size is what the owner-side boundary
+        // refuses anything longer than, and it is here because it is part of the contract:
+        // QML has no type with a limit in it, so the declaration cannot hold one.
         const carried = (link.members || []).find((one) => one.name === member.name);
+        if (carried && carried.kind === "prop" && SIZED[baseType(carried.type)]) {
+            row.append(typeAndSize(carried.type, (value) => {
+                carried.type = value;
+                actions.changed();
+            }));
+        }
         if (carried) {
             row.append(choice(["", ...SCOPES], carried.scope || "", (value) => {
                 carried.scope = value;
@@ -395,17 +502,19 @@ function ticksPanel(design, link, actions) {
     }
     box.append(list);
 
-    // Models keep the full editor, because a model is the one kind that cannot be ticked out
-    // of the file: QML has no declaration form for one, so there is nothing in the owner's
-    // source for the list above to have offered.
-    for (const model of (link.members || []).filter((one) => one.kind === "model")) {
-        box.append(memberPanel(link, model, (link.members || []).indexOf(model), actions));
+    // The models this point carries, stated rather than edited. A model has no QML
+    // declaration form, so it is written onto the point itself, but it is one of the four
+    // things an entity declares and it is declared with the other three, on the entity.
+    const models = (link.members || []).filter((one) => one.kind === "model");
+    for (const model of models) {
+        list.append(tag("code", {class: "declares__line"},
+                        `model ${model.name}(${(model.roles || [])
+                            .map((role) => `${role.type} ${role.name}`).join(", ")})`));
     }
-    box.append(adder("Add a model", () => {
-        link.members = link.members || [];
-        link.members.push({kind: "model", name: "", type: "", params: [], roles: []});
-        actions.rebuild();
-    }));
+    if (models.length) {
+        box.append(note(`Edited on '${link.owner}', with everything else that entity `
+                        + "declares.", true));
+    }
 
     const consumers = link.consumers || [];
     box.append(note(consumers.length
@@ -482,9 +591,9 @@ function contractPanel(design, link, actions) {
         actions.rebuild();
     }, "nobody yet")));
     panel.append(note("The owner is the name: consumers reach this as "
-                      + `${link.owner ? capitalised(link.owner) : "<Owner>"}, and it `
+                      + `${link.owner ? accessorName(link.owner) : "<Owner>"}, and it `
                       + "carries the "
-                      + `${link.owner ? capitalised(link.owner) : "<Owner>"} type. `
+                      + `${link.owner ? accessorName(link.owner) : "<Owner>"} type. `
                       + "An entity that already exports one is not offered here."));
 
     const consumers = tag("div");
@@ -500,7 +609,7 @@ function contractPanel(design, link, actions) {
             actions.changed();
         }));
     }
-    panel.append(field("Consumers", consumers));
+    panel.append(group("Consumers", consumers));
     panel.append(note("This list is the authorization. An entity that is not on it is "
                       + "refused the replica, and nothing it does can talk its way on."));
 
@@ -536,30 +645,35 @@ function contractPanel(design, link, actions) {
     return panel;
 }
 
-// One line into a connect point: this consumer, and nothing else.
+// One line into a connect point. This consumer, and nothing else.
 //
-// Deliberately almost empty. A line is not a thing with settings of its own; it is one
-// entity's name on a point's consumer list, and everything a reader might come here to change
-// (what crosses, the scope, the transport...) belongs to the point and is edited on the
-// point. Offering those here would be offering to edit one shared contract from N places and
-// letting somebody believe they had changed it for this consumer alone.
+// Almost empty. A line is an entity name on a point consumer list (not something
+// with its own settings), and everything a reader might come here to change (what crosses,
+// the scope, the transport) belongs to the point and is edited on the point. Offering those
+// here would be offering to edit one shared contract from N places and letting somebody
+// believe they had changed it for this consumer alone.
+//
+// It only ever opens for a point with several consumers. One line and one point are the same
+// selection to anybody who drew them, so clicking the only line opens the point itself.
 function linePanel(design, link, consumer, actions) {
     const panel = document.createDocumentFragment();
     panel.append(tag("h2", {class: "inspector__title"},
                      `${link.owner} to ${consumer}`));
     panel.append(tag("p", {class: "inspector__help"},
-                     `'${consumer}' consumes ${link.owner ? capitalised(link.owner) : ""}, `
+                     `'${consumer}' consumes ${link.owner ? accessorName(link.owner) : ""}, `
                      + `so it acquires a replica of everything that point carries. What that `
                      + `is belongs to the point, not to this line.`));
 
-    const open = tag("div", {class: "inspector__actions"});
+    // The point this line is one of, named as a consumer names it. The label says who
+    // decides and the button goes there, which is the one thing this panel is for.
     const button = tag("button", {type: "button", class: "button"},
-                       "Open the connect point");
+                       accessorName(link.owner) || "the connect point");
     button.addEventListener("click", () => actions.openContract(link));
-    open.append(button);
-    panel.append(open);
-    panel.append(note("Or click the contract icon on the canvas, which every line out of "
-                      + "this point leaves from.", true));
+    panel.append(group("Owned by", button));
+    panel.append(note(`Every consumer of ${accessorName(link.owner) || "this point"} gets the `
+                      + "same contract, so it is edited in one place. The contract icon on "
+                      + "the canvas, which every line out of the point leaves from, opens the "
+                      + "same panel."));
 
     const actionsRow = tag("div", {class: "inspector__actions"});
     const remove = tag("button", {type: "button", class: "button button--danger"},

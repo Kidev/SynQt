@@ -2,7 +2,7 @@
    SPDX-License-Identifier: Apache-2.0
 
    The editor's look, which is the front page's mesh drawing made editable: entities are
-   discs with a glyph, links are dashed lines carrying a lock and the contract they share,
+   discs with a glyph, links are lines carrying the contract they share and what crosses it,
    and the browser sits to the left of the edge it reaches with everything it must not reach
    to the right of that. Same palette as synqt.org (docs/stylesheets/home.css), so a reader
    arriving from the guide recognises what they are looking at.
@@ -108,6 +108,17 @@ h2 {
   border-bottom: 1px solid var(--line);
 }
 
+/* The mark and the word beside it are one link, back to where the rest of the site is. It
+   carries no underline and no visited colour. It is the logo in the corner of a page, and
+   every reader already knows what that does. */
+.bar__home {
+  display: flex;
+  align-items: center;
+  gap: .4rem;
+  color: inherit;
+  text-decoration: none;
+}
+
 /* The mark is the site's own logo file, shipped beside this page rather than fetched: the
    policy allows an image from this origin and nothing else, and the hosted copy has no
    policy at all, which is the stronger reason to keep every byte local. Sized from the bar
@@ -124,10 +135,9 @@ h2 {
   font-size: 1rem;
   font-weight: 600;
   letter-spacing: 0.01em;
-  margin-left: -0.35rem;
 }
 
-/* Empty until there is a project to name. `synqt design` always has one; the copy on the
+/* Empty until there is a project to name. `synqt design` always has one. The copy on the
    site starts on a blank canvas, where a placeholder name is something to correct rather
    than something to read.
 
@@ -656,24 +666,21 @@ h2 {
   pointer-events: none;
 }
 
+/* The name answers the pointer, whichever box it belongs to, because hovering it is what
+   says what the box means. The sentence explaining each box is a
+   tooltip rather than a line printed under every title. On the two held boxes a press still starts the drag, because the group
+   around this carries the data the press reads. */
 .zone__title {
   fill: var(--ink-dim);
   font-family: var(--mono);
   font-size: 11px;
   letter-spacing: .06em;
   text-transform: uppercase;
-  pointer-events: none;
+  pointer-events: all;
+  cursor: help;
 }
 
-.zone__note {
-  fill: var(--ink-dim);
-  font-family: var(--text);
-  font-size: 10px;
-  opacity: .8;
-  pointer-events: none;
-}
-
-/* The one box that is a boundary rather than a grouping: everything inside it is reachable
+/* The one box that is a boundary rather than a grouping. Everything inside it is reachable
    from outside the system, and nothing in the other two is. */
 .zone--internet .zone__box {
   stroke: var(--edge);
@@ -697,8 +704,7 @@ h2 {
    of the canvas, where a press has to stay a pan. The nodes and links are drawn over this and
    answer first, so dragging one entity out of its block still works. */
 .zone--held .zone__box,
-.zone--held .zone__title,
-.zone--held .zone__note {
+.zone--held .zone__title {
   pointer-events: all;
   cursor: grab;
 }
@@ -859,10 +865,12 @@ h2 {
   cursor: pointer;
 }
 
+/* Solid. A dash pattern is a difference, and every link is the same thing. A consumer on a
+   point's list, carried over mutual TLS. Drawing them all dashed spent the one distinction a
+   line has on saying nothing, and left the local-socket link below with nothing to be. */
 .link__line {
   stroke: var(--line);
   stroke-width: 1.5;
-  stroke-dasharray: 3 5;
   fill: none;
 }
 
@@ -889,18 +897,11 @@ h2 {
   pointer-events: stroke;
 }
 
-.link__lock {
-  stroke: var(--ink-dim);
-  fill: none;
-  pointer-events: none;
-}
-
 /* The contract, drawn once on the slot its point sits on, with every line to every consumer
    leaving from underneath it. It sits on the canvas colour rather than on nothing, so those
-   lines leave the badge instead of running through it.
-   Unlike the lock it answers the pointer: this icon *is* the connect point, so clicking it
-   opens what crosses the point, and every line out of it lights up to say which consumers
-   that means. */
+   lines leave the badge instead of running through it. It answers the pointer, because this
+   icon *is* the connect point. Clicking it opens what crosses the point, and every line out
+   of it lights up to say which consumers that means. */
 .link__doc {
   stroke: var(--ink-dim);
   fill: none;
@@ -982,29 +983,12 @@ h2 {
   fill: var(--accent);
 }
 
-.link__lock-body {
-  fill: var(--ink-dim);
-  stroke: none;
-}
-
-.link__name {
-  fill: var(--ink-dim);
-  font-family: var(--mono);
-  font-size: 11px;
-  pointer-events: none;
-}
-
 .link.is-selected .link__line {
   stroke: var(--accent);
-  stroke-dasharray: none;
 }
 
 .link.is-selected .link__head,
 .link.is-selected .link__owns {
-  fill: var(--accent);
-}
-
-.link.is-selected .link__name {
   fill: var(--accent);
 }
 
@@ -1017,26 +1001,12 @@ h2 {
   fill: var(--error);
 }
 
-.link.is-error .link__name {
-  fill: var(--error);
-}
-
-/* A local socket is not a mistake and is not drawn as one. It is drawn as what it is: a
-   link whose caller is trusted by colocation rather than by certificate, so its lock is
-   open and its line is not the same line as the others. */
+/* A local socket is not a mistake and is not drawn as one. It is drawn as what it is: a link
+   whose caller is trusted by colocation rather than by certificate, so it is the one line on
+   the canvas that is not solid, and the only thing a dash pattern here means. */
 .link.is-warn .link__line {
   stroke: var(--warn);
   stroke-dasharray: 1 4;
-}
-
-.link.is-warn .link__lock,
-.link.is-warn .link__name {
-  stroke: var(--warn);
-  fill: var(--warn);
-}
-
-.link.is-warn .link__lock-body {
-  fill: var(--warn);
 }
 
 .ghost {
@@ -1164,8 +1134,29 @@ select:focus {
   font-size: 13px;
 }
 
-/* What the entity's file already declares, as the QML it is. Read-only here: the file is
-   where it is edited, and the pane below is the file. */
+/* One member of the contract, ticked out of what its owner declares, with the two things
+   about it that are not in the owner's file: the size the boundary holds it to, and the
+   scope it is held behind. */
+.ticks {
+  display: flex;
+  flex-direction: column;
+  gap: .25rem;
+  margin: .5rem 0 .6rem;
+}
+
+.tick {
+  display: flex;
+  gap: .3rem;
+  align-items: center;
+}
+
+.tick .check {
+  flex: 1;
+  min-width: 0;
+}
+
+/* What the point carries that is not edited here: a model, which is declared on its owner
+   with everything else that owner declares, and shown here as the line it is. */
 .declares {
   display: flex;
   flex-direction: column;
@@ -1206,6 +1197,42 @@ select:focus {
 .member__row input[type="text"] {
   flex: 1;
   min-width: 0;
+}
+
+/* What a declaration is, stated rather than chosen from a drop-down. A property is not a
+   function with a different word in front of it, so the word is not a choice. */
+.member__kind {
+  flex: none;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: .02em;
+  color: var(--ink-dim);
+}
+
+/* A type and, where the type takes one, the limit the owner-side boundary refuses anything
+   longer than. Two controls, because they are two decisions. */
+.typed {
+  display: inline-flex;
+  flex: none;
+  gap: .25rem;
+  align-items: center;
+}
+
+.typed__size {
+  width: 4.5rem;
+  flex: none;
+}
+
+.typed__unit {
+  font-size: 10px;
+  color: var(--ink-dim);
+}
+
+/* The row of things this entity can be given, one button per kind. */
+.members__add {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .3rem;
 }
 
 .member__parts {
