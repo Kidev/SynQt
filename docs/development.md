@@ -29,10 +29,10 @@ machine answer in place of the checkout, and none of them says so:
   A stale one shadows `synqtc` in any interpreter that imports it, and the whole Python suite
   starts failing on contracts it parsed yesterday, each of which still passes when run alone.
   `make framework` refreshes it.
-- `site/`, the MkDocs output. `site/designer/` is a copy of the visual editor, and opening it
+- `site/`, the MkDocs output. `site/designer/` is a copy of the designer, and opening it
   instead of running `synqt design` shows the editor as of whenever it was last built.
 
-`make doctor` reports all three and changes nothing; `make clean-stale` clears them.
+`make doctor` reports all three and changes nothing. `make clean-stale` clears them.
 
 ```sh
 make doctor                              # what answers, and what is stale
@@ -155,12 +155,12 @@ directories at all, so those modules need not even be installed.
   `export:` block would otherwise be read.
 - The edge's browser-facing policy (the `security` block, `project.origin_model`, the
   starting scope, the public bind and TLS, the `identity` block, and each connect point's
-  `scope`) is read by `appmodel` and emitted by `maingen` as one assignment per key the
-  project actually declared. Nothing declared gets a line, so the defaults stay where they
+  `scope`) is read by `appmodel`, and `maingen` emits it as one assignment per key the
+  project declared. Nothing declared gets a line, so the defaults stay where they
   belong, in `WebEdgeConfig` and `IdentityConfig`, rather than being copied into Python
   where they could drift out of step with the structs they fill.
-- The [visual editor](visual-editor.md) and the inference behind it are the same project read
-  two ways, and they share one shape. `designdoc` is that shape: a project as entities,
+- The [designer](visual-editor.md) and the inference behind it are the same project read
+  two ways, and they share one shape. `designdoc` is that shape, a project as entities,
   links and members, all of it read from `synqt.yaml` and written back to it.
   `design` serves the page and answers it, `designplan` turns an edited document into the
   change set Apply is allowed to write (and refuses one the real `synqt check` fails, or a
@@ -171,8 +171,8 @@ directories at all, so those modules need not even be installed.
   `infer` unions the two ends of each link into the contract they imply. The page itself is
   under [`assets/design/`](https://github.com/Kidev/SynQt/tree/main/tools/synqt/synqt/assets/design)
   and is plain modules a browser loads directly, with no build step and no reference to
-  anything off-origin: it is served by `synqt design` and copied onto this site by a docs
-  hook, out of that same directory. See [adding a rule](#adding-a-rule-to-the-visual-editor)
+  anything off-origin. `synqt design` serves it, and a docs hook copies it onto this site
+  out of that same directory. See [adding a rule](#adding-a-rule-to-the-designer)
   below before touching `rules.js`.
 - [`tools/pygments-synqt`](https://github.com/Kidev/SynQt/tree/main/tools/pygments-synqt) is the Pygments lexer that colours SynQt flavoured QML in the
   documentation site, so an `<Owner>.onSignal` attached handler highlights the same way in
@@ -255,7 +255,7 @@ five commits without ever running.
 | [`graphics`](https://github.com/Kidev/SynQt/tree/main/tests/graphics)               | The fallback for a browser with no WebGL: what the runtime net recognises, that it chains to the handler already installed, the notice, and the route guard. Its `tst_softwarebackend` renders each candidate type on the raster adaptation and counts pixels, which is what decides whether a type needs the accelerated pipeline rather than a reading of Qt's source. |
 | [`memory`](https://github.com/Kidev/SynQt/tree/main/tests/memory)                 | What a repeated workload leaves behind: browser connections, page loads, sessions, sign outs and mesh reconnects, each run many times over one long lived object, with the heap required to come back to where it started. The sign out case is measured as a difference against the same visit ending in a closed tab, because what it owns is the sign out path and not the cost of a visitor. Its `run-leakcheck.sh` runs the rest of the tree and the benchmarks under LeakSanitizer. |
 | [`wasm-quick3dphysics`](https://github.com/Kidev/SynQt/tree/main/tests/wasm-quick3dphysics)    | Qt Quick 3D Physics builds and loads on the WebAssembly kit. |
-| [`designer`](https://github.com/Kidev/SynQt/tree/main/tests/designer)               | The [visual editor](visual-editor.md) in a browser, which is the only place most of it exists: drawing a connect point, the diff behind Review, and Apply writing what the diff said. The second case serves the page with nothing behind it, under the site's own content policy, and is what proves the hosted copy still works and still asks for nothing off-origin. No Qt, only Chromium; run by [`tests.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/tests.yml). |
+| [`designer`](https://github.com/Kidev/SynQt/tree/main/tests/designer)               | The [designer](visual-editor.md) in a browser, which is the only place most of it exists: drawing a connect point, the diff behind Review, and Apply writing what the diff said. The second case serves the page with nothing behind it, under the site's own content policy, and is what proves the hosted copy still works and still asks for nothing off-origin. No Qt, only Chromium; run by [`tests.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/tests.yml). |
 | [`split-origin`](https://github.com/Kidev/SynQt/tree/main/tests/split-origin)           | What a third party session cookie survives in each engine, which is what makes `split_origin` a measurement rather than folklore. No Qt at all: two real sites and a browser. Run by [`browser-matrix.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/browser-matrix.yml). |
 
 One directory there is not a suite.
@@ -334,10 +334,10 @@ the literal reader where node is not there and names in its last line which back
 answered. The rest of what needs node here is the browser suites, the mermaid check, and
 the editor's rule fixture, none of which the CLI itself depends on.
 
-### Adding a rule to the visual editor
+### Adding a rule to the designer
 
 The [editor](visual-editor.md) paints a subset of the `synqt check` rules in the page, live, as
-you draw. Being a subset is the claim the fixtures hold it to: the canvas must never reach
+you draw. Being a subset is the claim the fixtures hold it to. The canvas must never reach
 a verdict the command line would not. So a rule lives in two places, and it moves in two
 places.
 

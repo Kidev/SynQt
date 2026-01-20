@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-"""``synqt design``: the visual editor, served to a browser on this machine only.
+"""``synqt design``: the designer, served to a browser on this machine only.
 
 The editor is a page in a browser, and what it drives is a directory on the developer's
 disk. Every other page in that browser can reach a localhost port too, so the whole of this

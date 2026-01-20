@@ -240,7 +240,7 @@ nav:
   # than written as a page. It must stay a URL nothing here builds to: the hook refuses a
   # site where a page claims it, because a page there would be overwritten and its entry in
   # sitemap.xml would make instant navigation swap the editor into this shell.
-  - Draw your app: /designer/
+  - Designer: /designer/
   - Download: https://get.synqt.org/
 
 # The guide to the editor. Not in the nav because the tab above goes to the editor itself,

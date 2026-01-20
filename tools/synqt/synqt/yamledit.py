@@ -3,20 +3,11 @@
 
 """Change one thing in synqt.yaml and leave the rest of the file exactly as it was.
 
-Loading a file with `yaml.safe_load`, editing the object and dumping it back is the
-obvious way to do this and the wrong one: the dump is a new document. Comments are gone,
-the key order is whatever the dumper felt like, blank lines that grouped related entries
-have closed up, and a hand-written `consumers: [client]` has become two lines. The author
-wrote that file; a scaffold command, and later the visual editor, have no business
-reformatting it to make one edit.
-
-So every function here works on the text. It locates the lines the edit belongs to, splices
-new lines in, and returns the rest byte for byte. What it cannot locate textually it
-refuses, loudly, rather than falling back to a whole-document rewrite. A flow-style list is
-legal YAML and not a shape this project writes, so meeting one means the file is not what
-the caller thinks it is.
-
-Nothing here touches the disk. Every function takes the file text and returns new text.
+A load and dump would drop comments, reorder keys, remove blank lines and reflow flow lists.
+Every function here edits the text instead: it locates the lines the edit belongs to,
+splices new lines in, and returns the rest byte for byte. What it cannot locate it refuses,
+without falling back to a rewrite. A flow-style list is refused. Nothing here touches the
+disk.
 """
 
 from __future__ import annotations
@@ -26,8 +17,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import yaml
 
-#: Wide enough that safe_dump never wraps a value onto a second line. A wrapped value is
-#: still valid YAML and still a formatting change nobody asked for.
+#: Wide enough that safe_dump never wraps a value.
 _WIDE = 1 << 20
 
 _KEY = re.compile(r"^(?P<indent> *)(?P<key>[A-Za-z_][A-Za-z0-9_.-]*) *:(?P<rest>.*)$")
@@ -38,10 +28,8 @@ class YamlEditError(Exception):
 
 
 class _Block:
-    """A mapping key and the lines beneath it.
-
-    `start`/`end` bound the child lines, `indent` is the column the children sit at (-1
-    when there are none yet), and `inline` is whatever followed the colon on the key line.
+    """A mapping key and the lines beneath it. `start`/`end` bound the child lines, `indent` is
+    their column (-1 when there are none), `inline` is what followed the colon.
     """
 
     def __init__(self, key_line: int, key_indent: int, inline: str,
@@ -61,10 +49,8 @@ class _Block:
 
 def append_item(text: str, list_path: str, item: Dict[str, Any], *,
                 comment: str = "") -> str:
-    """`text` with `item` added to the block list at `list_path`, everything else intact.
-
-    The list is created when the file does not have it yet. `comment` is written on its own
-    line above the item, so a generated entry can say where it came from.
+    """`text` with `item` added to the block list at `list_path`. The list is created if
+    missing. `comment` goes on its own line above the item.
     """
     lines = _split(text)
     parent, key, key_line = _locate(lines, list_path)
@@ -91,10 +77,7 @@ def append_item(text: str, list_path: str, item: Dict[str, Any], *,
 
 
 def patch_item(text: str, list_path: str, name: str, fields: Dict[str, Any]) -> str:
-    """`text` with `fields` set on the item named `name`, and nothing else touched.
-
-    A field the item does not have yet is added after the ones it does.
-    """
+    """`text` with `fields` set on the item named `name`. New fields go after the existing ones."""
     lines = _split(text)
     _, items = _list_of(lines, list_path)
     item = _item_named(items, name, list_path)
@@ -107,12 +90,8 @@ def patch_item(text: str, list_path: str, name: str, fields: Dict[str, Any]) -> 
 
 
 def remove_field(text: str, list_path: str, name: str, field: str) -> str:
-    """`text` with `field` gone from the item named `name`, and nothing else touched.
-
-    The counterpart of `patch_item`, and not the same as setting the field to nothing:
-    writing `capability: null` where the author had written no line at all leaves behind a
-    line nobody meant to put there, and a reader has to work out whether it means anything.
-    A field the item does not have is already gone, so that is not an error.
+    """`text` with `field` removed from the item named `name`. Removing a missing field is not
+    an error.
     """
     lines = _split(text)
     _, items = _list_of(lines, list_path)
@@ -123,8 +102,7 @@ def remove_field(text: str, list_path: str, name: str, field: str) -> str:
     if key_line is None:
         return text
     if key_line == 0:
-        # The first key shares its line with the dash that opens the item. Taking it out
-        # would take the item's own opening with it.
+        # The first key shares its line with the item's dash.
         raise YamlEditError(
             f"'{list_path}': '{field}' opens the item '{name}' and cannot be removed alone")
     existing = _block_at(fragment, key_line)
@@ -134,10 +112,8 @@ def remove_field(text: str, list_path: str, name: str, field: str) -> str:
 
 
 def remove_item(text: str, list_path: str, name: str) -> str:
-    """`text` with the item named `name` gone, along with the comment written above it.
-
-    Emptying the list writes `[]` rather than leaving the key bare, because a bare key
-    reads back as null and every caller here expects a list.
+    """`text` with the item named `name` removed, with the comment above it. An emptied list
+    becomes `[]`.
     """
     lines = _split(text)
     block, items = _list_of(lines, list_path)
@@ -151,9 +127,7 @@ def remove_item(text: str, list_path: str, name: str) -> str:
         end += 1
 
     lines = lines[:start] + lines[end:]
-    # Taking out the last item of a list leaves the blank line above it against the blank
-    # line below, and the gap grows with every removal. One blank is what the rest of the
-    # file uses between sections, so the seam is closed back to one.
+    # Collapse the doubled blank line a removal leaves.
     while start > 0 and start < len(lines) and not lines[start - 1].strip() \
             and not lines[start].strip():
         del lines[start]
@@ -164,10 +138,8 @@ def remove_item(text: str, list_path: str, name: str) -> str:
 
 
 def set_scalar(text: str, path: str, value: Any) -> str:
-    """`text` with `path` set to `value`, adding the key when the parent does not have it.
-
-    `value` is anything YAML can write. A mapping arrives as an indented block, which is
-    how a whole section (`identity`) gets written in one call.
+    """`text` with `path` set to `value`, adding the key when missing. A mapping is written as
+    an indented block.
     """
     lines = _split(text)
     parent, key, _ = _locate(lines, path)
@@ -202,11 +174,8 @@ def _is_empty_flow(inline: str) -> bool:
 
 
 def _end_of_block(lines: List[str], start: int, parent_indent: int) -> int:
-    """One past the last line belonging to the key at `parent_indent`.
-
-    Deeper lines belong to it, and so does a sequence entry written at the key's own
-    indent: YAML allows a list to sit level with the key that names it, and PyYAML's
-    dumper writes it that way, so the files this project generates are full of it.
+    """One past the last line belonging to the key at `parent_indent`: deeper lines, and
+    sequence entries at the key's own indent (as PyYAML writes them).
     """
     index = start
     while index < len(lines):
@@ -330,8 +299,7 @@ def _list_items(lines: List[str], block: _Block, list_path: str) -> List[_Item]:
     return items
 
 
-#: The key that identifies one item of a list, per list. Everything in synqt.yaml is named
-#: except a connect point, which is not. An entity has one, so its owner is what says which.
+#: The key that names one item, per list. A connect point is identified by its owner.
 _ITEM_KEY = {"connect_points": "owner"}
 
 
@@ -375,27 +343,18 @@ def _is_scalar(value: Any) -> bool:
 
 
 def _scalar_text(value: Any) -> str:
-    """One scalar written the way YAML needs it, quoting and all.
-
-    Dumped as the value of a throwaway key rather than on its own, because a bare scalar
-    document picks up an explicit "..." end marker that would have to be stripped back off.
-    """
+    """One scalar as YAML writes it, dumped under a throwaway key to avoid the "..." end marker."""
     text = yaml.safe_dump({"v": value}, default_flow_style=False, width=_WIDE,
                           allow_unicode=True)
     return text.rstrip("\n")[len("v: "):]
 
 
 def _render_field(key: str, value: Any) -> List[str]:
-    """`key: value` as YAML lines at column zero, in the style the project writes.
-
-    Written here rather than handed to `safe_dump` for two reasons. A list of plain values
-    keeps the flow form, because `consumers: [client]` is how it is written by hand, and a
-    list of mappings is indented under its key, which safe_dump declines to do.
+    """`key: value` as YAML lines at column zero. A list of plain values stays in flow form
+    (`consumers: [client]`); a list of mappings is indented under its key.
     """
     if isinstance(value, str) and "\n" in value.strip("\n"):
-        # A block scalar, because the value is lines and a reader has to read them. The
-        # quoted form safe_dump would pick is correct YAML and unreadable prose, and this
-        # is how a connect point's `export:` is written by hand.
+        # A block scalar, as an `export:` is written by hand.
         body = [line.rstrip() for line in value.strip("\n").splitlines()]
         return [f"{key}: |"] + [f"  {line}" if line else "" for line in body]
     if _is_scalar(value):

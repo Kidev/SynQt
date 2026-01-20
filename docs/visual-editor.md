@@ -1,9 +1,9 @@
 <!-- SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
-# The visual editor
+# The designer
 
-A SynQt system is a handful of entities and the connect points between them. The editor
+A SynQt system is a handful of entities and the connect points between them. The designer
 draws it live: entities as nodes, connect points as the lines between them, and a panel
 for what each one carries.
 
@@ -45,9 +45,12 @@ per caller and still needs something shared between them writes a `pragma Single
 beside it, under a name it chooses.
 
 The boxes behind the nodes are the three sides of a system, and they are drawn from what each
-entity is rather than from where it sits: the browser, the one entity facing the internet,
-and the mesh, which nothing outside can reach. Under each node is the file to open next:
-`client/app/Main`, `web/edge/Edge`, `db/relational/store/Store`.
+entity is rather than from where it sits: CLIENTS, FACES THE INTERNET, and MESH. Hovering a
+box's name says what it means. Under each node is the file to open next: `client/app/Main`,
+`web/edge/Edge`, `db/relational/store/Store`.
+
+Entities settle onto a grid as you drag them, so a drawing lines up without anyone nudging
+it, and a box picked up by its own background carries everything in it by the same step.
 
 Hovering anything says the rest. An entity's card gives what it is, what can reach it, the
 connect points it owns and consumes, and its files; a connect point's gives its owner, its
@@ -66,13 +69,34 @@ adds a consumer to the one point it already exports rather than making another.
 Drop the line on empty canvas instead and the palette opens there: pick a kind and that entity
 is made where you let go, consuming the point in the same gesture.
 
+Along each line are the members that cross it, written the way the contract writes them:
+`prop int highest`, `slot placeBid(int): bool`. That is the whole of what a line says, and it
+is what a reader following one came for. A member held above the point's own scope carries a
+mark; hovering it says which scope.
+
 Where two lines run in opposite directions between the same pair of entities, they bow
-apart into separate curves so each keeps its own lock and its own click.
+apart into separate curves so each keeps its own members and its own click.
+
+Dropping a line on a [front](programming-model.md) asks which scope's callers the entity
+serves, because a front's seats are a few pixels apart and choosing one by aim is not
+something a hand can do. Dragging out of a seat has never had that problem and is unchanged.
 
 Selecting a node or a line opens the panel on the right, which is where the rest lives: an
 entity's provider, a connect point's consumer list, and what crosses it. The consumer list
 is the authorization: an entity that is not on it is refused the replica.
 [Security](security.md) is where that is spelled out.
+
+Clicking a point's only line opens the point, because with one consumer the line and the
+point are the same thing. Where a point has several, clicking one opens that consumer, and
+the panel names the point it belongs to with a button that goes there.
+
+An entity's panel is where its members are declared, and every part of one that comes out of
+a fixed list is chosen from that list: the kind, the type, a parameter's type, a model's
+roles. Only names are typed. What you declare there is written into the entity's own file,
+which is the same thing as typing the line into the file below; editing it rewrites that
+line and leaves the body of a function alone. A model is declared there too, with the other
+three, and it is the one kind written onto the point rather than into the file: QML has no
+declaration form for one.
 
 What an entity **is** the panel states and does not offer. A database is a database because
 that is the row it was dragged from, and everything drawn against it since means what it
@@ -111,8 +135,7 @@ Edge {
 
     property bool loaded
     signal denied(reason: string)
-    function load(id: int): bool {
-    }
+    function load(id: int): bool {}
 }
 ```
 
@@ -132,8 +155,12 @@ back `var` for you to name.
 
 Reading is additive. A declaration adds or corrects a member; a member with no declaration is
 left alone, because half-typed text is not an instruction to delete a contract. Removing a
-member is the panel's `x`. A model is the one kind only the panel can add: QML has no
-declaration form for one.
+member is the panel's `x`.
+
+A size (`string[120]`) is not part of a declaration and cannot be: QML has no type with a
+limit in it, and `property string[120] message` is a syntax error rather than a property with
+a limit. It is part of the contract, so it is set on the connect point, beside the scope, and
+it is what the owner-side boundary refuses anything longer than.
 
 Putting the caret on a line points the canvas at what that line is about, so a file you are
 reading and the drawing stay on the same subject.
@@ -188,10 +215,11 @@ worth nothing once you press Ctrl-C. A page from anywhere else is refused, by na
 origin, and the editor answers no request that arrives without the token.
 
 The copy on this site has none of that to do. It talks to no server, so it holds nothing:
-close the tab and the drawing is gone. Download it first.
+close the tab and the drawing is gone. Download it first. Leaving asks before it goes, and
+the mark in the corner is the way back to the rest of the site.
 
 See [build system and CLI](build-system-and-cli.md#the-synqt-command-line-tool) for the
 command, [project layout and config](project-layout-and-config.md) for what the file it
 writes means, and [getting started](getting-started.md) for the shortest path from an empty
-directory to something running. The [developer guide](development.md#adding-a-rule-to-the-visual-editor)
+directory to something running. The [developer guide](development.md#adding-a-rule-to-the-designer)
 covers the editor from the other side, including what moves when a rule is added to it.
