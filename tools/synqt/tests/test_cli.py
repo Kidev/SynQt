@@ -154,6 +154,31 @@ class QmlFormatCheckTest(unittest.TestCase):
                                         ("rollups", "jobs"), ("billing", "service")])
         self.assertEqual(check.check_qml_format(root), [])
 
+    def test_a_source_drawn_with_its_members_is_format_clean(self):
+        """A Source the designer wrote, which is mostly bodies nobody has filled in yet.
+
+        `function fetch(): var {}` read better than three lines and was reformatted by
+        qmlformat on sight, with no setting to stop it, so every project drawn in the editor
+        opened by reporting its own starting files. Every declaration form the writer has is
+        in here, including the two qmlformat has an opinion about: an unwritten body and a
+        signal with no parameters.
+        """
+        members = [
+            {"kind": "prop", "name": "highest", "type": "int"},
+            {"kind": "prop", "name": "title", "type": "string[120]"},
+            {"kind": "model", "name": "bids",
+             "roles": [{"name": "who", "type": "string"}]},
+            {"kind": "signal", "name": "outbid",
+             "params": [{"name": "who", "type": "string"}]},
+            {"kind": "signal", "name": "closed", "params": []},
+            {"kind": "slot", "name": "placeBid", "type": "bool",
+             "params": [{"name": "amount", "type": "int"}]},
+            {"kind": "slot", "name": "withdraw", "params": []},
+        ]
+        (self.root / "web" / "edge" / "Edge.qml").write_text(
+            addcontract.source_stub("Edge", "edge", members))
+        self.assertEqual(check.check_qml_format(self.root), [])
+
     def test_the_scaffold_opts_in_and_ships_the_settings(self):
         config = yaml.safe_load((self.root / "synqt.yaml").read_text())
         self.assertTrue(check.wants_qml_format_check(config))

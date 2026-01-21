@@ -27,7 +27,9 @@ Edge {
     // A browser asks to add an item to its cart. In version 1 the cart is client-side, so
     // this is where a real deployment would reserve stock; the slot exists to show the
     // consumer-to-owner direction and is a courtesy no-op here.
-    function addToCart(sku: string) {}
+    function addToCart(sku: string) {
+        return;
+    }
 
     function stockItem(sku: string, title: string, price: int) {
         catalog.offers = catalog.offers.concat([{

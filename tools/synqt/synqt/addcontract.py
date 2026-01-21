@@ -140,12 +140,15 @@ def _declaration(member: Dict[str, Any]) -> str:
     QML coding conventions ask for and what the editor's own reader expects to find when it
     reads the file back.
 
-    An empty body is written on the signature's own line (`function fetch(): var {}`). It is
-    a signature waiting to be filled in, and two lines for a body that is not there yet put a
-    blank line's worth of nothing between one declaration and the next. Note that qmlformat
-    expands `{}` back to a brace on its own line and has no setting that stops it, so a
-    project with `check.qml_format` on reports these as reformattable until the bodies are
-    written.
+    A body nobody has written yet is a `return;`, which is what a function that answers
+    nothing does. The empty body it replaces (`function fetch(): var {}`) was shorter to read
+    and cost a warning on every scaffold: qmlformat expands `{}` to a brace on a line of its
+    own, none of the settings a project ships govern that, and so a new project reported its
+    own starting files as reformattable on its first `synqt check`. The written-out form is
+    what qmlformat leaves alone, measured against the scaffold's own `.qmlformat.ini`.
+
+    A signal with no parameters loses them for the same reason: qmlformat writes
+    `signal closed()` back as `signal closed`.
     """
     kind = member.get("kind")
     name = member.get("name") or ""
@@ -154,20 +157,34 @@ def _declaration(member: Dict[str, Any]) -> str:
     if kind == "prop":
         return f"    property {_base_type(member.get('type')) or 'var'} {name}"
     if kind == "signal":
-        return f"    signal {name}({params})"
+        return f"    signal {name}({params})" if params else f"    signal {name}"
     returns = f": {_base_type(member['type'])}" if member.get("type") else ""
-    return f"    function {name}({params}){returns} {{}}"
+    return f"    function {name}({params}){returns} {{\n        return;\n    }}"
 
 
 def declarations_for(members: Optional[List[Dict[str, Any]]]) -> str:
     """The declarations a contract's members are written as inside the owner's Source.
 
-    A model is skipped, and can only be skipped: `model rows(int id, string title)` has no QML
+    Properties first, then signals, then the functions, one blank line between the groups and
+    between one function and the next. That is the order the QML coding conventions ask for,
+    and a body is three lines now, so a run of them with nothing between reads as one block
+    of text. The order is this writer's, not the formatter's: a project ships
+    `NormalizeOrder=false`, so qmlformat keeps whatever order it is handed.
+
+    A model is skipped, and can only be skipped. `model rows(int id, string title)` has no QML
     declaration form, so putting a line there for one would put something in the file that QML
     would refuse to load. It reaches consumers through the generated Source helper either way.
     """
-    return "\n".join(_declaration(member) for member in members or []
-                     if member.get("kind") != "model" and member.get("name"))
+    kept = [member for member in members or []
+            if member.get("kind") != "model" and member.get("name")]
+    groups: List[str] = []
+    for kind in ("prop", "signal"):
+        written = [_declaration(member) for member in kept if member.get("kind") == kind]
+        if written:
+            groups.append("\n".join(written))
+    groups.extend(_declaration(member) for member in kept
+                  if member.get("kind") not in ("prop", "signal"))
+    return "\n\n".join(groups)
 
 
 def source_stub(contract: str, point: str,

@@ -135,7 +135,9 @@ Edge {
 
     property bool loaded
     signal denied(reason: string)
-    function load(id: int): bool {}
+    function load(id: int): bool {
+        return;
+    }
 }
 ```
 

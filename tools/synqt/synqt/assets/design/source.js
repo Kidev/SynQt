@@ -49,7 +49,10 @@ const NOT_AN_ENTITY = new Set([
 // The declaration forms. All three are one line, which is the whole reason this can run on
 // every keystroke: what follows a `function` line is a body, and nothing here reads it.
 const PROPERTY = /^[ \t]*(?:(?:readonly|required|default)[ \t]+)*property[ \t]+([A-Za-z_][\w.]*)[ \t]+([A-Za-z_]\w*)/;
-const SIGNAL = /^[ \t]*signal[ \t]+([A-Za-z_]\w*)[ \t]*\(([^)]*)\)/;
+// The parentheses are optional because QML makes them optional and qmlformat takes them off:
+// `signal closed()` is written back as `signal closed`, and a reader that wanted them would
+// have lost the member the first time somebody formatted the file.
+const SIGNAL = /^[ \t]*signal[ \t]+([A-Za-z_]\w*)[ \t]*(?:\(([^)]*)\))?/;
 const FUNCTION = /^[ \t]*function[ \t]+([A-Za-z_]\w*)[ \t]*\(([^)]*)\)[ \t]*(?::[ \t]*([A-Za-z_]\w*))?/;
 
 // `Owner.member`, which is how an entity reaches something another entity owns: the
@@ -344,13 +347,14 @@ export function declarationLine(member) {
     const params = (member.params || [])
         .map((param) => `${param.name}: ${baseType(param.type)}`).join(", ");
     if (member.kind === "signal") {
-        return `    signal ${member.name}(${params})`;
+        return params ? `    signal ${member.name}(${params})` : `    signal ${member.name}`;
     }
     const returns = member.type ? `: ${baseType(member.type)}` : "";
-    // The empty body stays on the signature's line: it is a signature waiting to be filled
-    // in, and a brace on a line of its own puts a blank line's worth of nothing between one
-    // declaration and the next. addcontract._declaration writes the same thing.
-    return `    function ${member.name}(${params})${returns} {}`;
+    // A body nobody has written yet is a `return;`, which is what a function that answers
+    // nothing does. Written out rather than `{}`, because qmlformat expands `{}` to a brace
+    // on a line of its own and a project with check.qml_format on reported its own starting
+    // files over it. addcontract._declaration writes the same thing.
+    return `    function ${member.name}(${params})${returns} {\n        return;\n    }`;
 }
 
 // `text` with comments and strings blanked, so a brace counted in it is a brace in the code.
@@ -427,10 +431,21 @@ export function withoutDeclaration(text, line) {
     return lines.join("\n");
 }
 
-// The declarations a contract's members would be written as, in the order they are declared.
-// A model is skipped: it has no QML form, and inventing one would be putting a line in
-// somebody's file that QML would refuse to load.
+// The declarations a contract's members would be written as: properties, then signals, then
+// the functions, which is the order the QML coding conventions ask for and, now that a body
+// is three lines, the only one that reads. A model is skipped. It has no QML form, and
+// inventing one would be putting a line in somebody's file that QML would refuse to load.
+// addcontract.declarations_for writes the same thing, and a test compares the two.
 export function declarationsFor(members) {
-    return (members || []).filter((member) => member.kind !== "model" && member.name)
-        .map(declarationLine).join("\n");
+    const kept = (members || []).filter((member) => member.kind !== "model" && member.name);
+    const groups = [];
+    for (const kind of ["prop", "signal"]) {
+        const written = kept.filter((member) => member.kind === kind).map(declarationLine);
+        if (written.length) {
+            groups.push(written.join("\n"));
+        }
+    }
+    groups.push(...kept.filter((member) => member.kind !== "prop" && member.kind !== "signal")
+        .map(declarationLine));
+    return groups.join("\n\n");
 }

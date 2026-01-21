@@ -314,6 +314,22 @@ def test_a_source_reads_back_as_the_contract_it_was_written_from(rendered):
     assert [one["params"] for one in read] == [one["params"] for one in drawn]
 
 
+def test_a_signal_that_carries_nothing_is_read_with_or_without_its_parentheses():
+    """Both spellings are QML and the file will hold both, because qmlformat picks one.
+
+    `signal closed()` is written back as `signal closed` the first time somebody formats the
+    file, and a reader that insisted on the parentheses would have quietly lost the member at
+    that point. Gone from the panel, gone from the contract the pane writes. `synqt infer`
+    reads both, and this pane reads the same files.
+    """
+    read = _read("""
+        const text = ["signal closed", "signal opened()"].join("\\n");
+        process.stdout.write(JSON.stringify(declarations(text)));
+    """)
+    assert [(one["kind"], one["name"], one["params"]) for one in read] == \
+        [("signal", "closed", []), ("signal", "opened", [])]
+
+
 def test_the_client_window_declares_nothing_and_is_not_read_as_if_it_did():
     """`synqt new` writes a window with a property in it, and that property belongs to the
     window rather than to any contract. Only a connect point's Source is read for members;
