@@ -1401,10 +1401,24 @@ def discover_singletons(entity_dir: os.PathLike[str] | str) -> List[str]:
             if declares_singleton(qml_file)]
 
 
-def declares_singleton(qml_file: os.PathLike[str] | str) -> bool:
-    """Whether a QML file opens with `pragma Singleton`.
+#: What SynQt writes, and teaches, on a QML file there is one of. QML's own word for it is
+#: `Singleton`, which names a pattern; `Shared` names what the file is for, the way an
+#: entity's file is named after the entity. `synqt build` writes `pragma Singleton` into
+#: the copy under `generated/` that the engine loads
+#: (:func:`synqt.qmlrewrite.with_engine_pragmas`), so the word an author reads and the word
+#: the engine knows are each the right one in their own place.
+SHARED_PRAGMA = "Shared"
 
-    The one place that answer is spelled out: discover_singletons registers an entity's
+#: Both spellings a file may open with. `Singleton` is still read, because it is what QML
+#: itself says and a file carrying it means exactly the same thing. Nothing has to be
+#: rewritten for a project that already had one.
+SINGLETON_PRAGMA = re.compile(r"^[ \t]*pragma[ \t]+(?:Singleton|Shared)\b", re.MULTILINE)
+
+
+def declares_singleton(qml_file: os.PathLike[str] | str) -> bool:
+    """Whether a QML file opens with `pragma Shared` (or QML's own `pragma Singleton`).
+
+    The one place that answer is spelled out. `discover_singletons` registers an entity's
     singletons by path, and the client's QML module marks them QT_QML_SINGLETON_TYPE, and
     the two must never disagree about what a singleton is.
     """
@@ -1412,7 +1426,7 @@ def declares_singleton(qml_file: os.PathLike[str] | str) -> bool:
     if not path.is_file():
         return False
     text = path.read_text(encoding="utf-8", errors="ignore")
-    return re.search(r"^\s*pragma\s+Singleton\b", text, re.MULTILINE) is not None
+    return SINGLETON_PRAGMA.search(text) is not None
 
 
 # Directories under the client entity that are build output, generated, or vendored;

@@ -134,8 +134,26 @@ def test_the_page_loads_nothing_from_anywhere_else():
         # in it exactly where a binary blob could carry a URL.
         body = path.read_text(encoding="utf-8", errors="replace") \
                    .replace("http://www.w3.org/2000/svg", "")
+        if path.name == "examples.json":
+            body = _without_example_sources(body)
         assert not re.search(r"""["'(]https?://""", body), \
             f"{path.name} names an outside URL, which the page's policy refuses to fetch"
+
+
+def _without_example_sources(body):
+    """The examples with the entities' own files taken out.
+
+    An example carries the QML each of its entities is, and one of the feed project's is a
+    gateway calling `Http.get("https://data.example/feed")`. That is a line in somebody's
+    project, shown as text and never fetched by anything; every other string in the file
+    is still held to the rule.
+    """
+    document = json.loads(body)
+    for example in document.get("examples", {}).values():
+        for entity in example.get("entities", []):
+            entity.pop("qml", None)
+            entity.pop("schema", None)
+    return json.dumps(document)
 
 
 def test_nothing_the_page_asks_for_is_missing():
@@ -281,7 +299,12 @@ def test_the_download_is_a_zip_holding_the_configuration_and_every_file(rendered
     assert archive.namelist() == ["gavel/synqt.yaml",
                                   "gavel/client/app/Main.qml",
                                   "gavel/web/edge/Edge.qml",
-                                  "gavel/db/relational/books/Books.qml"]
+                                  "gavel/db/relational/books/Books.qml",
+                                  # The table its own QML queries. `synqt add entity` writes
+                                  # one beside every relational entity, and a download
+                                  # without it is a project whose first Db.query finds
+                                  # nothing to read.
+                                  "gavel/db/relational/books/schema.sql"]
     for file in rendered["files"]:
         assert archive.read(file["name"]).decode("utf-8") == file["text"]
 
@@ -453,6 +476,59 @@ def test_the_home_pages_project_is_the_one_the_home_page_reads():
         # And what crosses it, which the page now shows on the point rather than in a
         # contract file of its own.
         assert designdoc.parse_export(appmodel.contract_of(point), point) == link["members"]
+
+
+def test_the_example_carries_the_home_pages_own_files():
+    """The button opens the project the page reads out, so it opens that project's files.
+
+    Without these the editor rendered a stub per entity. Four empty objects arranged the
+    same way, with none of the code the reader had been shown and, for an entity
+    whose connect point was then deleted, not even a root of its own. An example is an
+    ordinary design document, and a design document carries the QML its entities are.
+    """
+    home = Path(__file__).resolve().parents[3] / "docs" / "index.md"
+    if not home.is_file():                       # the tests, without the repository
+        pytest.skip("the documentation is not beside these tests")
+    shown = {found.group(1): found.group(2) for found in re.finditer(
+        r'<div class="synqt-file" data-file="([a-z]+)" markdown>.*?```[a-z]*\n(.*?)```',
+        home.read_text(encoding="utf-8"), re.S)}
+    feed = json.loads(_text("examples.json"))["examples"]["feed"]
+    files = {entity["name"]: entity for entity in feed["entities"]}
+    notice = ("// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux\n"
+              "// SPDX-License-Identifier: Apache-2.0\n\n")
+    for name, block in {"app": "client", "edge": "web",
+                        "store": "database", "feeds": "api"}.items():
+        assert files[name]["qml"] == notice + shown[block], name
+    assert files["store"]["schema"] == shown["schema"]
+
+
+def test_every_example_downloads_as_a_project_the_real_check_passes(tmp_path):
+    """The whole of `synqt check` over the files a download actually holds.
+
+    The rule above reads the configuration alone, which is what the page could always
+    write. This one writes every file the page would and asks the command line the
+    question a reader asks after unzipping it. The QML that consumes a point against the
+    contract it consumes, the Source of each point against what it exports, and a client
+    whose root has to be a window. An example that fails here is a first afternoon spent
+    on somebody else's mistake.
+    """
+    for name, document in json.loads(_text("examples.json"))["examples"].items():
+        rendered = _node(f"""
+            import {{ projectFiles }} from {_module('project.js')};
+            process.stdout.write(JSON.stringify(projectFiles({json.dumps(document)})));
+        """)
+        root = tmp_path / name
+        for file in rendered:
+            target = root / file["name"]
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(file["text"], encoding="utf-8")
+        project = next(root.iterdir())
+        ok, messages = checkmod.check_project(project)
+        # The warnings a project has before it is ever run are not the page's to answer:
+        # a mesh certificate is issued by `synqt dev`, and `.qmlformat.ini` is written by
+        # `synqt new`, which a download is not.
+        assert not [one for one in messages if one.startswith("error:")], \
+            f"example '{name}': {messages}"
 
 
 if __name__ == "__main__":

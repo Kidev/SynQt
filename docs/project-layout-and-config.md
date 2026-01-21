@@ -223,17 +223,20 @@ created and rooted at the type the entity exports. It is the entity and the surf
 it exports at once: the connect point's `server` file defaults to it, and on a shared
 entity (the default) there is one of it for the whole process.
 
-State that has to outlive any one caller goes in a `pragma Singleton` file beside it,
+State that has to outlive any one caller goes in a `pragma Shared` file beside it,
 named whatever suits it (the arena's `World.qml`). This matters on an entity with
 `shared: false`, where `<Name>.qml` is minted per caller and anything the callers
-share cannot live there. A singleton is discovered by the `pragma Singleton` line
-itself, so adding one needs no declaration anywhere; it is also created when the
-entity starts rather than when its first caller arrives, so an entity that subscribes
-to a mesh signal or starts a loop there misses nothing.
+share cannot live there. `pragma Shared` is SynQt's word for QML's own `pragma
+Singleton`, and `synqt build` writes the line back to `pragma Singleton` in the copy
+under `generated/` the engine loads, in the same pass that makes a self-named root
+loadable. A shared file is discovered by that line itself, so adding one needs no
+declaration anywhere. It is also created when the entity starts rather than when its
+first caller arrives, so an entity that subscribes to a mesh signal or starts a loop
+there misses nothing.
 
-A singleton is the entity, not a caller, so `Caller` is not in scope in it and `synqt
-check` says so: an authorization line there would read like a rule and run as a
-ReferenceError. Those belong in the Source, where a caller actually arrives.
+A shared file is the entity rather than a caller, so `Caller` is not in scope in it and
+`synqt check` says so. An authorization line there would read like a rule and run as a
+ReferenceError. Those belong in the Source, where a caller arrives.
 
 A client entity:
 
@@ -905,24 +908,24 @@ routes:
 | `mode` | `history` | The only mode. The router drives the browser's History API, so every route is a real URL a visitor can bookmark, share, and refresh, and the web edge [serves the application shell](security.md#deep-links-and-the-login-resume) for any path it does not answer itself. |
 | `fallback` | `/` | Where a navigation goes when the path matches no route, or matches a route whose `scope` the session lacks. It must itself be a declared route. |
 | `base` | `/` | The path prefix the app is served under. An app deployed at `/shop` sets `base: /shop`, and everything else in the table stays in application paths: a route is still `/c/:campaign`, `Router.path` still reads `/c/summer-sale`, and only the address bar carries the prefix. A trailing slash is ignored. |
-| `palette` | (none) | The list of QML modules a [remote page](remote-pages.md) may import, and the whole of what one may import. Required, and non-empty, once any route declares a `remote:`; ignored when none does. It is a trust boundary: a delivered page that imports a module the palette does not list is refused rather than rendered. Example: `palette: [QtQuick, QtQuick.Layouts]`. |
+| `palette` | (none) | The list of QML modules a [remote page](remote-pages.md) may import, and the whole of what one may import. Required, and non-empty, once any route declares a `remote:`, and ignored when none does. It is a trust boundary. A delivered page that imports a module the palette does not list is refused rather than rendered. Example: `palette: [QtQuick, QtQuick.Layouts]`. |
 
 `routes` keys, per entry:
 
 | Key | Required | Meaning |
 |-----|----------|---------|
 | `path` | yes | The route's path, absolute. Each segment is either a literal or a `:name` parameter that captures whatever is in that position. A parameter name starts with a letter or an underscore and continues with letters, digits, or underscores, and no name repeats within one path. Captured values are percent-decoded and arrive as `Router.params`. |
-| `view` | one of `view`/`remote` | The QML file compiled into the client bundle. Write it relative to the client entity's directory (`Home.qml`, not `client/app/Home.qml`, and `views/Home.qml` for one in a subdirectory), with or without the `.qml` extension. `synqt build` compiles it into the client's QML module at that same relative path and the router loads it from there, so a view needs nothing beyond the file being there. Mutually exclusive with `remote`. |
+| `view` | one of `view`/`remote` | The QML file compiled into the client bundle. Write it relative to the client entity's directory (`Home.qml` rather than `client/app/Home.qml`, and `views/Home.qml` for one in a subdirectory), with or without the `.qml` extension. `synqt build` compiles it into the client's QML module at that same relative path and the router loads it from there, so a view needs nothing beyond the file being there. Mutually exclusive with `remote`. |
 | `remote` | one of `view`/`remote` | The QML file the web edge delivers on demand, instead of compiling it in. Write it relative to the edge entity's `pages/` directory (`Campaign.qml` names `<edge>/pages/Campaign.qml`). The edge sends it over the same authenticated `wss` link at navigation time, so it never enters the bundle and changes without a client rebuild. Mutually exclusive with `view`. See [remote pages](remote-pages.md). |
-| `seed` | no | The [page seed](remote-pages.md#the-page-seed-painting-the-first-frame) hook the edge runs, after this route's scope check, to build the data a delivered page paints with on its first frame. Written project-root-relative (like `identity.mapping`), because a hook is edge code, not a delivered page: `seed: web/edge/campaign-seed.qml`. Applies only to a `remote:` route; a `seed:` on a compiled-in route is refused, because it would never run. |
+| `seed` | no | The [page seed](remote-pages.md#the-page-seed-painting-the-first-frame) hook the edge runs, after this route's scope check, to build the data a delivered page paints with on its first frame. Written project-root-relative (like `identity.mapping`), because a hook is edge code rather than a delivered page, as in `seed: web/edge/campaign-seed.qml`. Applies only to a `remote:` route. A `seed:` on a compiled-in route is refused, because it would never run. |
 | `scope` | no | The scope a session must hold to reach this route. Omitted, the route is open to everyone, anonymous sessions included. On a `remote:` route the edge enforces it before delivery, so an under-scoped fetch is refused with no markup, no hash, and no seed. |
 | `graphics` | no | `accelerated` or `software`. Whether this route needs a GPU-backed scene graph. Omitted, `synqt build` reads the route's QML and decides; write it to overrule that. See below. |
 
 Every QML file under the client entity's directory is put into the client's QML
 module for you: `Main.qml`, the views the routes name, and everything those views
 reach. A `Home.qml` that instantiates a sibling `Card.qml`, or reads a `Theme.qml`
-that declares `pragma Singleton`, needs no declaration anywhere; a singleton is
-registered as one because the file says so. Build output and vendored trees under
+that declares `pragma Shared`, needs no declaration anywhere. A shared file is
+registered as a singleton because the file says so. Build output and vendored trees under
 the entity are left out: `build/`, `generated/`, `CMakeFiles/`, `node_modules/`,
 and anything whose name starts with a dot, file or directory.
 

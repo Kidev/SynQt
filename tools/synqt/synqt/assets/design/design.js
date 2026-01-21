@@ -20,8 +20,9 @@
 // becomes a download of the project it would have written.
 
 import { entityType, findings as ruleFindings, frontsOf } from "./rules.js";
-import { NODE_RADIUS, ROLE_HELP, describe, draw, element, entityAt, extent, glyphSvg,
-         nearestFreeSlot, roleOf, seatsOfFront, slotIndex, turnsToward } from "./canvas.js";
+import { MEMBER_KINDS, NODE_RADIUS, ROLE_HELP, describe, draw, element, entityAt, extent,
+         glyphSvg, nearestFreeSlot, roleOf, seatAt, seatsOfFront, slotIndex,
+         turnsToward } from "./canvas.js";
 import { inspect } from "./inspector.js";
 import { forgetDesign, keepDesign, keepPane, keptDesign,
          readPanes } from "./keep.js";
@@ -347,12 +348,13 @@ function inProject(name) {
     return String(name).split("/").slice(1).join("/");
 }
 
-// Whether this file is one the pane lets somebody type into. QML is: it is the entity's own
-// code, and what it declares is what the contract holds. The configuration and the contracts
-// are not, because both are written from the document and typing into either would be typing
-// into a rendering of something else.
+// Whether this file is one the pane lets somebody type into. QML is. It is the entity's own
+// code, and what it declares is what the contract holds. So is a schema, which is a table
+// nothing but the author decides. The configuration is too, because typing into it moves the
+// canvas. A contract is not, because it is written from the document and typing into it would
+// be typing into a rendering of something else.
 function editable(file) {
-    return file.name.endsWith(".qml") || isConfig(file);
+    return file.name.endsWith(".qml") || file.name.endsWith(".sql") || isConfig(file);
 }
 
 // The project's own configuration. Typing into it moves the canvas, the same way typing into
@@ -395,9 +397,9 @@ function holderOf(file) {
     return null;
 }
 
-// The other direction: the file that *is* whatever is selected on the canvas. Selecting an
-// entity opens its own file rather than one of its Sources, because that is the entity itself;
-// selecting a connect point opens the Source that implements it.
+// The other direction. The file that *is* whatever is selected on the canvas. Selecting an
+// entity opens its own file, which is the entity itself and, where it exports one, the Source
+// of its connect point too. Selecting a connect point opens that same file.
 function fileOf(what, files) {
     if (!what) {
         return "";
@@ -406,7 +408,7 @@ function fileOf(what, files) {
     // them are implemented, whichever of the two was clicked.
     const found = (what.kind === "link" || what.kind === "contract")
         ? files.find((file) => file.link === what.name)
-        : files.find((file) => file.owner === what.name && !file.link)
+        : files.find((file) => file.owner === what.name && file.own)
           || files.find((file) => file.owner === what.name);
     return found ? found.name : "";
 }
@@ -734,15 +736,30 @@ function absorbReferences(consumer, found) {
             said.push(`'${consumer.name}' is now a consumer of '${link.name}'.`);
         }
         if (!(link.members || []).some((member) => member.name === one.member)) {
-            link.members = [...(link.members || []),
-                            one.call ? {kind: "slot", name: one.member, type: "",
-                                        params: [], roles: []}
-                                     : {kind: "prop", name: one.member, type: "var",
-                                        params: [], roles: []}];
-            said.push(`'${one.member}' was added to '${link.name}'; say what type it is.`);
+            // What the call site says it is: a name listened to is a signal, a name called is
+            // a slot, and a name read is a prop. Only the third leaves a type to be said,
+            // because the other two carry theirs in their parameters.
+            link.members = [...(link.members || []), reachedMember(one)];
+            said.push(one.handler
+                ? `'${one.member}' was added to '${link.name}' as a signal; say what it `
+                  + `carries.`
+                : `'${one.member}' was added to '${link.name}'; say what type it is.`);
         }
     }
     return said;
+}
+
+// The member a call site names, as the document holds one. A handler is the signal it
+// listens for, a call is a slot, and a plain read is a prop; the parameters are unknown
+// either way, because a call site says what it passes and not what the owner declared.
+function reachedMember(reached) {
+    if (reached.handler) {
+        return {kind: "signal", name: reached.member, type: "", params: [], roles: []};
+    }
+    if (reached.call) {
+        return {kind: "slot", name: reached.member, type: "", params: [], roles: []};
+    }
+    return {kind: "prop", name: reached.member, type: "var", params: [], roles: []};
 }
 
 // Where the caret is, as a thing on the canvas. A declaration line points at the member it
@@ -830,6 +847,16 @@ function onSourceInput() {
     }
     if (isConfig(open)) {
         absorbConfig(page.sourceInput.value);
+        return;
+    }
+    // A schema is SQL: it belongs to its entity and nothing on the canvas is read out of it,
+    // so it is stored and left alone.
+    if (open.name.endsWith(".sql")) {
+        const entity = entityOf(open.name);
+        if (entity) {
+            entity.schema = page.sourceInput.value;
+            touched();
+        }
         return;
     }
     const text = page.sourceInput.value;
@@ -962,6 +989,21 @@ function memberText(member) {
 
 function tipFor(what) {
     const box = document.createElement("div");
+    // Which of the four a mark on a line stands for. The word is off the canvas so five rows
+    // read as five names; it is here, with the one sentence that says which way that kind
+    // travels and who is allowed to decide.
+    if (what.kind === "member-kind") {
+        const head = document.createElement("div");
+        head.className = "tip__head tip__head--link";
+        const title = document.createElement("span");
+        title.textContent = what.name;
+        head.append(title);
+        box.append(head);
+        const said = MEMBER_KINDS[what.of] || MEMBER_KINDS.prop;
+        box.append(tipRow("is a", said.name));
+        box.append(tipHelp(said.says));
+        return box;
+    }
     // The scope holding one member back, asked for by pointing at the mark on its name.
     if (what.kind === "member-scope") {
         const head = document.createElement("div");
@@ -1552,10 +1594,12 @@ function onContextMenu(event) {
 function renderInspector() {
     inspect(page.inspectorBody, state.design, state.selected, {
         changed: () => {
+            pruneBehind();
             touched();
             redraw();
         },
         rebuild: () => {
+            pruneBehind();
             touched();
             redraw();
             renderInspector();
@@ -1804,6 +1848,11 @@ function sendScopeBehind(front, scope, target) {
         delete tiers[scope];
         point.behind = tiers;
         touched();
+        // The seat this scope sat on is free again and has its own name back, which is a
+        // thing to draw. Nothing here redrew, so wiring a scope to an entity the front
+        // already consumed changed the document and left the picture saying otherwise.
+        redraw();
+        renderInspector();
         say(`'${scope}' is not handed to anybody now. Callers holding it fall to the `
             + `highest scope below it that is, and to nowhere at all if there is none.`);
         return;
@@ -1821,17 +1870,34 @@ function sendScopeBehind(front, scope, target) {
         addLink(target, front, null, null);
     }
     touched();
+    redraw();
+    renderInspector();
     say(`Callers holding '${scope}' are handed to '${target.name}'. It answers them with `
         + `Caller in hand and never asks about scope: nobody else reaches it.`);
 }
 
-// A line dropped on a front, which is a question rather than an answer: which scope's callers
-// does this entity serve?
+// A line let go on one of a front's seats. That scope, handed to the entity the line came
+// from, with nothing to confirm. Returns whether the drop was one.
+function droppedOnSeat(from, target, local) {
+    const front = frontsOf(state.design).get(target.name);
+    if (!front || entityType(from) === "client") {
+        return false;
+    }
+    const seat = seatAt(front, {x: local.x - (target.x || 0), y: local.y - (target.y || 0)});
+    if (!seat) {
+        return false;
+    }
+    sendScopeBehind(target, seat.scope, from);
+    return true;
+}
+
+// A line dropped on the body of a front, which is a question rather than an answer: which
+// scope's callers does this entity serve?
 //
-// Answered here and not by where the line landed. A seat is a dot on a wedge and there are as
-// many of them as there are scopes, so aiming at one is a matter of a few pixels at the zoom
-// somebody is usually at. Dragging the other way round has never had the problem, because a
-// seat is grabbed rather than aimed at, and that gesture is left exactly as it is.
+// Only the body. A line let go on one of the seats along the back has already said which
+// scope it meant (droppedOnSeat above), and the seats are named and a dozen pixels apart, so
+// that is the gesture to reach for. This is what answers the rest of the wedge, where the
+// drop names the entity and nothing else.
 //
 // Returns whether it took the drop. Everything that is not a line arriving at a front from
 // something that can sit behind one is somebody else's to handle.
@@ -1898,6 +1964,7 @@ function removeEntity(entity) {
         }
         return !emptied;
     });
+    pruneBehind();
     touched();
     select(null);
     const lost = owned.length + dangling.length;
@@ -1906,12 +1973,40 @@ function removeEntity(entity) {
         : `Removed '${name}'.`);
 }
 
+// Every scope a front hands to somewhere it can no longer reach, taken off it.
+//
+// `behind:` names an entity, and the front reaches that entity by consuming the connect point
+// it owns. The two are one declaration, which is why drawing the routing draws the link.
+// Taking the link away has to take the routing with it. It did not, and the seat kept its
+// filled dot and went on hiding its own name, so the drawing showed a scope wired to
+// something with no line to it and no way to say which scope it was.
+//
+// Run after any edit that can break the pair, never while the configuration is being typed:
+// a half-written `behind:` block is somebody mid-sentence, not a routing to delete.
+function pruneBehind() {
+    const links = state.design.links || [];
+    const known = new Set((state.design.entities || []).map((entity) => entity.name));
+    for (const point of links) {
+        if (!point.behind) {
+            continue;
+        }
+        for (const [scope, name] of Object.entries(point.behind)) {
+            const reachable = known.has(name) && links.some(
+                (one) => one.owner === name && (one.consumers || []).includes(point.owner));
+            if (!reachable) {
+                delete point.behind[scope];
+            }
+        }
+    }
+}
+
 // Take the line away and leave the connect point. What the owner has agreed to say outlives
 // whoever was listening to it, so the contract stays on the slot it was drawn on, as the stub
 // a connect point with no consumers has always been drawn as. Freeing that slot takes
 // deleting the connect point itself, below.
 function disconnectLink(link) {
     link.consumers = [];
+    pruneBehind();
     touched();
     select({kind: "link", name: link.name});
     say(`'${link.name}' is still there and still ${link.owner}'s; nothing consumes it now. `
@@ -1920,6 +2015,7 @@ function disconnectLink(link) {
 
 function removeLink(link) {
     state.design.links = state.design.links.filter((one) => one !== link);
+    pruneBehind();
     touched();
     select(null);
     say(`Removed '${link.name}', and its slot on '${link.owner}' is free again. The contract `
@@ -2070,6 +2166,35 @@ function showSlotsNear(at) {
     }
 }
 
+// The seat a line would be let go on, lit while the line is over it. The pointer is captured
+// by the canvas for the whole drag, so `:hover` never reaches a seat and the stylesheet alone
+// cannot say this. Without it the one gesture that hands a scope to an entity gives no sign
+// it is about to work.
+function lightSeatUnder(local) {
+    const fronts = frontsOf(state.design);
+    let wanted = null;
+    for (const entity of state.design.entities || []) {
+        const front = fronts.get(entity.name);
+        if (!front) {
+            continue;
+        }
+        const seat = seatAt(front, {x: local.x - (entity.x || 0), y: local.y - (entity.y || 0)});
+        if (seat) {
+            wanted = `${entity.name}\n${seat.scope}`;
+        }
+    }
+    for (const grab of page.nodes.querySelectorAll("[data-seat]")) {
+        const it = `${grab.dataset.seat}\n${grab.dataset.scope}`;
+        grab.classList.toggle("is-aimed", it === wanted);
+    }
+}
+
+function clearSeatAim() {
+    for (const grab of page.nodes.querySelectorAll(".is-aimed")) {
+        grab.classList.remove("is-aimed");
+    }
+}
+
 function clearSlotsNear() {
     for (const group of page.nodes.querySelectorAll(".is-near")) {
         group.classList.remove("is-near");
@@ -2086,6 +2211,15 @@ function onMove(event) {
         if (scoped) {
             showTip({kind: "member-scope", name: scoped.dataset.member,
                      scope: scoped.dataset.scope}, {x: event.clientX, y: event.clientY});
+            return;
+        }
+        // The mark at the start of a member row, which is what the word in front of the name
+        // used to be.
+        const marked = event.target.closest
+            ? event.target.closest("[data-kind][data-member]") : null;
+        if (marked) {
+            showTip({kind: "member-kind", name: marked.dataset.member,
+                     of: marked.dataset.kind}, {x: event.clientX, y: event.clientY});
             return;
         }
         const under = whatIsUnder(event.target);
@@ -2118,6 +2252,9 @@ function onMove(event) {
             x2: at.local.x,
             y2: at.local.y,
         }));
+        if (drag.mode === "link") {
+            lightSeatUnder(at.local);
+        }
         return;
     }
     if (drag.mode === "zone") {
@@ -2154,6 +2291,7 @@ function onUp(event) {
     const finished = drag;
     drag = null;
     page.ghost.replaceChildren();
+    clearSeatAim();
     page.canvas.classList.remove("is-panning", "is-moving-zone");
     if (page.canvas.hasPointerCapture(event.pointerId)) {
         page.canvas.releasePointerCapture(event.pointerId);
@@ -2168,10 +2306,13 @@ function onUp(event) {
         const at = pointAt(event);
         const target = entityAt(state.design, at.local);
         if (target && target !== finished.from) {
-            // A front is a wedge with a seat per scope on its flat side, and the seats sit a
-            // few pixels apart: dropping a line on the one you meant is not something a hand
-            // can do. Dragging the other way works because a seat is grabbed rather than
-            // aimed at, so this way round asks instead.
+            // A line let go on one of a front's scope seats is that scope handed to this
+            // entity, said the way anybody would say it: point at the word. Anywhere else on
+            // the front is the entity without a scope named, which is a question, so that
+            // one opens the menu.
+            if (droppedOnSeat(finished.from, target, at.local)) {
+                return;
+            }
             if (offerSeat(finished.from, target, {x: event.clientX, y: event.clientY})) {
                 return;
             }

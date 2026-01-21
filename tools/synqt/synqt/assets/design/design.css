@@ -839,12 +839,19 @@ h2 {
   font-weight: 600;
 }
 
-/* A wired seat gives its name up to the link that landed on it. The name stays in the
-   drawing so nothing has to be rebuilt to bring it back; it is just not painted, and the
-   hover rule above out-specifies this one, so pointing at a wired seat says which scope is
-   about to move. */
-.node__seat-name.is-taken {
-  fill: transparent;
+/* A seat is also where a line is let go to hand that scope to an entity, and the pointer is
+   captured by the canvas for the whole of that drag, so `:hover` never reaches it. design.js
+   marks the seat a line is over instead, and it lights exactly as if it were hovered: what a
+   drop is about to do has to be visible before the button comes up. */
+.node__seat-grab.is-aimed + .node__seat {
+  fill: var(--accent);
+  stroke: var(--accent);
+  r: 5;
+}
+
+.node__seat-grab.is-aimed + .node__seat + .node__seat-name {
+  fill: var(--accent);
+  font-weight: 600;
 }
 
 .node.is-selected .node__disc {
@@ -952,6 +959,61 @@ h2 {
   pointer-events: none;
 }
 
+/* The block's own ground. These rows land wherever the line happens to cross, and a name read
+   together with a zone behind it or another line through it is not a name. Held just short of
+   opaque so what is underneath is still visibly underneath, and left out of the pointer's way
+   entirely: the band along the line is what answers a click here. */
+.link__members-box {
+  fill: var(--page);
+  fill-opacity: 0.86;
+  stroke: none;
+  pointer-events: none;
+}
+
+/* The mark at the start of a row, which is the whole of what used to be the word `slot` or
+   `signal` in front of every name. It answers the pointer, because a shape is only a shape
+   until something says what it stands for. */
+.link__mark {
+  fill: var(--ink-dim);
+  stroke: none;
+  pointer-events: auto;
+  cursor: help;
+}
+
+/* The square the pointer lands on, painted with nothing. `transparent` and not
+   `none`: a shape filled with none is not there as far as hit testing is concerned, which is
+   the whole reason this exists. */
+.link__mark-grab {
+  fill: transparent;
+  stroke: none;
+}
+
+/* The call going back into the owner, drawn hollow against the signal's filled head so the
+   pair differ by more than which way they point. */
+.link__mark--slot {
+  fill: none;
+  stroke: var(--ink-dim);
+  stroke-width: 1;
+  stroke-linejoin: round;
+}
+
+.link__mark--model {
+  fill: none;
+  stroke: var(--ink-dim);
+  stroke-width: 1;
+  stroke-linecap: round;
+}
+
+.link.is-selected .link__mark {
+  fill: var(--accent);
+}
+
+.link.is-selected .link__mark--slot,
+.link.is-selected .link__mark--model {
+  fill: none;
+  stroke: var(--accent);
+}
+
 /* A member held above the point's own scope. Marked rather than spelled out, and the mark
    answers the pointer so hovering it says which scope: naming every scope on the canvas
    would give the exception the weight of the ordinary case. */
@@ -1044,6 +1106,7 @@ h2 {
   margin: 0 0 .75rem;
   font-family: var(--mono);
   font-size: 15px;
+  overflow-wrap: anywhere;
 }
 
 .inspector__head .inspector__title {
@@ -1082,6 +1145,40 @@ h2 {
   color: var(--ink-dim);
 }
 
+/* What the contract adds to a member, under the member it is added to. Small, and quiet
+   until it says something. These are two settings most members never need, and printed at
+   the size of the member itself four of them turned a contract of four lines into a column
+   of drop-downs with the contract hidden between them.
+
+   Each one is a label and its control on one line, so a member with nothing set costs a
+   single short line under it rather than a block. */
+.tick__extras {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .1rem .75rem;
+  margin: .1rem 0 .1rem 1.45rem;
+}
+
+.tick__extras .field {
+  display: flex;
+  align-items: center;
+  gap: .35rem;
+  margin: 0;
+}
+
+.tick__extras .field__label {
+  margin: 0;
+  font-size: 10px;
+}
+
+.tick__extras select,
+.tick__extras input[type="number"] {
+  width: auto;
+  max-width: 11rem;
+  padding: .1rem .2rem;
+  font-size: 11px;
+}
+
 /* The same line, under a heading or a button rather than under a field. The tight form pulls
    itself up into the control above it, which under a heading reads as one line printed over
    another. */
@@ -1090,11 +1187,14 @@ h2 {
 }
 
 /* A fact about the entity rather than a control over it. Deliberately not styled as a
-   disabled input: a greyed-out drop-down reads as something that will become editable. */
+   disabled input: a greyed-out drop-down reads as something that will become editable.
+   It is a sentence, so it is set as one and wraps: in the code face at a fixed size it ran
+   off the side of the panel, and what it ran off with was the half that said what the
+   entity is. */
 .field__fixed {
   margin: 0;
-  font-family: var(--mono);
-  font-size: 12px;
+  font-size: 12.5px;
+  line-height: 1.45;
   color: var(--ink);
 }
 
@@ -1116,17 +1216,45 @@ select:focus {
   border-color: var(--accent);
 }
 
+/* A switch and its line. Aligned to the top rather than the middle, so a label that wraps
+   keeps its box beside its first line instead of floating to the middle of the paragraph. */
 .check {
   display: flex;
-  align-items: center;
-  gap: .4rem;
-  margin-bottom: .25rem;
-  font-family: var(--mono);
+  align-items: flex-start;
+  gap: .45rem;
+  margin-bottom: .3rem;
   font-size: 13px;
+  line-height: 1.35;
 }
 
+.check input[type="checkbox"] {
+  flex: none;
+  margin: 0;
+  width: 1rem;
+  height: 1rem;
+  translate: 0 1px;
+  accent-color: var(--accent);
+}
+
+.check__label {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* A label that is a name out of the project: an entity, or a member as its own file declares
+   it. Those are code and are set as code. A sentence about the entity is not. */
+.check--code .check__label {
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+/* A block of the panel, ruled off from the one above it. The panel is a column of settings
+   with a paragraph under most of them, and without a rule the heading of the next block was
+   one more line of text in the same flow as the last block's explanation. */
 .members {
   margin-top: 1.25rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--line);
 }
 
 .members__title {
@@ -1140,22 +1268,30 @@ select:focus {
 .ticks {
   display: flex;
   flex-direction: column;
-  gap: .25rem;
+  gap: .1rem;
   margin: .5rem 0 .6rem;
 }
 
+/* One member: the declaration it is, and under it whatever this contract adds to it. A
+   column, because those are two different things and the second one only appears once the
+   first is ticked. */
 .tick {
   display: flex;
-  gap: .3rem;
-  align-items: center;
+  flex-direction: column;
+  padding: .2rem 0;
 }
 
 .tick .check {
-  flex: 1;
-  min-width: 0;
+  margin-bottom: 0;
 }
 
-/* What the point carries that is not edited here: a model, which is declared on its owner
+/* Everything the point adds sits under a member that is on it, so the ones that are on it
+   are the ones that stand out. */
+.tick:has(.tick__extras) {
+  padding-bottom: .4rem;
+}
+
+/* What the point carries that is not edited here. A model, which is declared on its owner
    with everything else that owner declares, and shown here as the line it is. */
 .declares {
   display: flex;
@@ -1183,8 +1319,12 @@ select:focus {
   background: var(--page);
 }
 
+/* One declaration's controls. They wrap rather than squeeze: the panel is draggable down to
+   a width where a name, a type, a size and a remover cannot all sit on one line, and three
+   of them clipped is worse than two rows. */
 .member__row {
   display: flex;
+  flex-wrap: wrap;
   gap: .3rem;
   align-items: center;
 }
@@ -1211,6 +1351,10 @@ select:focus {
 
 /* A type and, where the type takes one, the limit the owner-side boundary refuses anything
    longer than. Two controls, because they are two decisions. */
+/* A type and, where the type takes one, its size. Two controls that only mean anything
+   together, so they are never separated and never squeezed. Everything on the row that can
+   give up width does. This cannot, because a size box narrowed to nothing is a limit nobody
+   can see they have set. */
 .typed {
   display: inline-flex;
   flex: none;
@@ -1219,7 +1363,7 @@ select:focus {
 }
 
 .typed__size {
-  width: 4.5rem;
+  width: 4rem;
   flex: none;
 }
 
@@ -1251,6 +1395,7 @@ select:focus {
 
 .member__part {
   display: flex;
+  flex-wrap: wrap;
   gap: .3rem;
   align-items: center;
   margin-bottom: .25rem;
@@ -1259,6 +1404,14 @@ select:focus {
 .member__part select {
   width: 7rem;
   flex: none;
+}
+
+/* The name gives up the width, and wraps onto its own line before it disappears. As
+   the greedy one on the row it pushes the size box off the end. */
+.member__part input[type="text"] {
+  flex: 1 1 5rem;
+  width: auto;
+  min-width: 0;
 }
 
 .icon-button {
@@ -1280,8 +1433,12 @@ select:focus {
   border-color: var(--error);
 }
 
+/* What deleting the selection is, kept away from the settings above it: the last control in
+   a column of controls should not be the destructive one by accident of scrolling. */
 .inspector__actions {
-  margin-top: 1rem;
+  margin-top: 1.25rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--line);
   display: flex;
   gap: .5rem;
 }

@@ -9,7 +9,10 @@
     "`feed` is the project the home page of synqt.org reads out file by file, so the",
     "diagram there and the canvas here are the same system. Keep them in step: the",
     "suite asserts the entities, the links and the contract members match the",
-    "synqt.yaml and the .syn sources that page shows."
+    "synqt.yaml the page shows, and that every `qml` and `schema` below is that page's",
+    "own file with the licence notice on the front. That is what the button under the",
+    "tree opens: the project as it is written, not four empty entities arranged the",
+    "same way."
   ],
   "examples": {
     "feed": {
@@ -23,26 +26,31 @@
             "wasm"
           ],
           "x": 64,
-          "y": 64
+          "y": 64,
+          "qml": "// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux\n// SPDX-License-Identifier: Apache-2.0\n\nimport QtQuick.Controls\nimport SynQt\n\nApplicationWindow {\n    id: window\n\n    property string notice: \"Loading...\"\n    readonly property bool feedReady: Server.ready\n\n    visible: true\n    title: \"My app\"\n\n    Edge.onDenied: reason => window.notice = reason\n    onFeedReadyChanged: {\n        if (window.feedReady) {\n            Server.load();\n        }\n    }\n\n    Label {\n        id: banner\n        text: Server.loaded ? \"\" : window.notice\n    }\n\n    ListView {\n        anchors.fill: parent\n        anchors.topMargin: banner.height\n        model: Server.rows\n        delegate: Text {\n            required property var model\n            text: model.title\n        }\n    }\n}\n"
         },
         {
           "name": "edge",
           "type": "web_edge",
           "x": 384,
-          "y": 64
+          "y": 64,
+          "qml": "// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux\n// SPDX-License-Identifier: Apache-2.0\n\nimport SynQt\n\nEdge {\n    id: feed\n\n    loaded: false\n\n    function load() {\n        if (!Caller.hasScope(\"user\")) {\n            Caller.emitDenied(\"Please sign in.\");\n            return;\n        }\n        Store.allows(Caller.identity.sub).then(ok => {\n            if (!ok) {\n                Caller.emitDenied(\"Not allowed.\");\n                return;\n            }\n            Feeds.fetch().then(rows => {\n                feed.setRows(rows);\n                feed.loaded = true;\n            });\n        });\n    }\n}\n"
         },
         {
           "name": "store",
           "type": "relational",
           "provider": "sqlite",
           "x": 704,
-          "y": 64
+          "y": 64,
+          "qml": "// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux\n// SPDX-License-Identifier: Apache-2.0\n\nimport SynQt\n\nStore {\n    id: access\n\n    // Nothing here asks who is calling: this point lists one consumer, so nothing\n    // else can acquire it.\n    function allows(sub) {\n        const rows = Db.query(\n            \"SELECT 1 FROM grants WHERE sub = ?\", [sub]);\n        return rows.length > 0;\n    }\n}\n",
+          "schema": "CREATE TABLE IF NOT EXISTS grants (\n    sub        TEXT PRIMARY KEY,\n    granted_at TEXT NOT NULL\n);\n\nCREATE INDEX IF NOT EXISTS grants_by_date\n    ON grants (granted_at);\n"
         },
         {
           "name": "feeds",
           "type": "api",
           "x": 704,
-          "y": 256
+          "y": 256,
+          "qml": "// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux\n// SPDX-License-Identifier: Apache-2.0\n\nimport SynQt\n\nFeeds {\n    id: upstream\n\n    property var cached: []\n\n    function fetch() {\n        return upstream.cached;\n    }\n\n    Timer {\n        interval: 30000\n        running: true\n        repeat: true\n        triggeredOnStart: true\n        onTriggered: Http.get(\"https://data.example/feed\")\n            .then(res => upstream.cached = res.body.rows)\n    }\n}\n"
         }
       ],
       "links": [

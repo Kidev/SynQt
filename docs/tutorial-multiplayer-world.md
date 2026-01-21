@@ -96,17 +96,17 @@ It goes in two files, and which one is which matters. The edge here says `shared
 so each browser session gets its own Source, which is what gives its slots a `Caller` to
 check and lets each player be sent only their own slice. There is still exactly one arena
 however many people are playing, and something that outlives any one session has to live
-somewhere none of them owns: a `pragma Singleton` of the edge's own, `World.qml`. Each
+somewhere none of them owns, a `pragma Shared` file of the edge's own, `World.qml`. Each
 Source is then a thin layer over the one arena.
 
 ### The arena itself, `web/edge/World.qml`
 
-One of it, for as long as the edge runs. `pragma Singleton` is what says so, and every
+One of it, for as long as the edge runs. `pragma Shared` is what says so, and every
 Source the edge owns reaches it as `World`. It has no `Caller`, so it decides nothing
 about who may do what; it is handed a player and told to act.
 
 ```qml
-pragma Singleton                      // one instance for the whole edge
+pragma Shared                         // one instance for the whole edge
 
 import SynQt
 

@@ -368,6 +368,22 @@ async function dragSeat(page, front, scope, toEntity) {
     await page.mouse.up();
 }
 
+// The other direction. A line pulled off an entity and let go on the word naming a scope on
+// the front's back. Aimed at the label rather than the dot beside it, because that is the
+// part of a seat somebody can see and hit.
+async function dropOnSeat(page, fromEntity, front, scope) {
+    const rim = await page.locator(`[data-rim="${fromEntity}"]`).nth(0).boundingBox();
+    const label = await page.locator(`[data-entity="${front}"] .node__seat-name`)
+                            .filter({ hasText: scope }).first().boundingBox();
+    const start = { x: rim.x + (rim.width / 2), y: rim.y + (rim.height / 2) };
+    const target = { x: label.x + (label.width / 2), y: label.y + (label.height / 2) };
+    await page.mouse.move(start.x, start.y);
+    await page.mouse.down();
+    await page.mouse.move((start.x + target.x) / 2, (start.y + target.y) / 2, { steps: 8 });
+    await page.mouse.move(target.x, target.y, { steps: 8 });
+    await page.mouse.up();
+}
+
 // A browser owns nothing, and a front is a web edge that hands its callers on. Both are drawn
 // rather than configured, so both are checked the way somebody would do them.
 async function theFrontThatSplitsCallers() {
@@ -410,12 +426,11 @@ async function theFrontThatSplitsCallers() {
         const canvasBox = await page.locator("#canvas").boundingBox();
         await page.mouse.click(canvasBox.x + 660, canvasBox.y + 30);
 
-        // Turned into a front from the panel, wired on the canvas. Selected by opening the
-        // Source that answers it, the same way the panes and the canvas agree elsewhere: an
-        // SVG hit band has no box a click can be aimed at.
-        await fileRow(page, "web/web/Web.qml").click();
-        await page.waitForSelector('[data-link="web"].is-selected');
-        await page.locator(".check", { hasText: "Hand callers to entities behind it" })
+        // Turned into a front on the edge's own panel, which is where what an edge does is
+        // asked about, and wired on the canvas.
+        await page.locator('[data-entity="web"]').click();
+        await page.waitForSelector('[data-entity="web"].is-selected');
+        await page.locator(".check", { hasText: "Hands callers to the entities behind it" })
                   .locator("input").check();
         await page.waitForSelector('[data-entity="web"] .node__wedge');
         check(await page.locator('[data-seat="web"]').count() === 4,
@@ -429,6 +444,12 @@ async function theFrontThatSplitsCallers() {
               "dragging from the admin seat fills it in");
         await page.waitForSelector('[data-link="service"]');
         check(true, "with the connect point the front consumes drawn at the same time");
+        // The seat keeps its own name whether or not anything is wired to it. Giving
+        // the name up to the line that lands on it puts it a dozen pixels from the
+        // neighbouring seat's name and leaves the two unreadable together.
+        check(await page.locator('[data-entity="web"] .node__seat-name')
+                        .filter({ hasText: "admin" }).count() === 1,
+              "and the seat still says which scope it is");
 
         // And it is in the file, which is the only place any of it means anything.
         await fileRow(page, "synqt.yaml").click();
@@ -437,6 +458,29 @@ async function theFrontThatSplitsCallers() {
         const written = await page.locator("#source-paint").textContent();
         check(/behind:\s*\n\s*admin: service/.test(written),
               "and written as 'behind: admin: service' in synqt.yaml");
+
+        // The other way round, which is the way anybody reaches for it: a line pulled off the
+        // entity and let go on the word naming the scope. It used to land on nothing, because
+        // the drop test was a circle around the middle of a node and the seats and their
+        // names are along its back.
+        await dropOnSeat(page, "service", "web", "user");
+        await page.waitForFunction(() => document.getElementById("hint").textContent
+            .includes("Callers holding 'user'"));
+        check(await page.locator('[data-entity="web"] .node__seat.is-taken').count() === 2,
+              "a line let go on a scope hands that scope to the entity it came from");
+
+        // And taking the link away takes the routing with it. The two are one declaration,
+        // and a seat left filled with no line to it is a drawing of something that is not
+        // there. The seat's name is still there, since the seat keeps it either way.
+        await page.locator('[data-contract="service"]').click();
+        await page.locator("button", { hasText: "Delete connect point" }).click();
+        await page.waitForFunction(() => document.querySelectorAll(
+            '[data-entity="web"] .node__seat.is-taken').length === 0);
+        check(true, "and deleting that link frees every seat it was wired to");
+        await fileRow(page, "synqt.yaml").click();
+        await page.waitForFunction(
+            () => !document.getElementById("source-paint").textContent.includes("behind:"));
+        check(true, "with the routing gone from synqt.yaml too");
 
         check(refused.length === 0,
               `the policy refuses nothing on the page (${refused.join(" | ") || "no errors"})`);
@@ -553,6 +597,30 @@ async function theProjectALinkHandsYou() {
         // several points another consumes, are lines somebody can tell apart.
         check(await page.locator("#links path.link__line").count() === 3,
               "the links are curves, not lines laid over each other");
+
+        // What a line carries, as a block rather than as a stack of centred strings: one
+        // left edge for the marks, one for the names, and a ground under both so a row
+        // landing on a zone edge is still a row.
+        const block = page.locator("#links .link__members")
+            .filter({ has: page.locator("[data-member='loaded']") });
+        const columns = await block.locator(".link__member").evaluateAll(
+            (rows) => rows.map((row) => Math.round(row.getAttribute("x") * 100)));
+        check(columns.length === 4 && new Set(columns).size === 1,
+              `every member of a link starts in one column (${columns.join(" ")})`);
+        const marks = await block.locator(".link__mark").evaluateAll(
+            (rows) => rows.map((row) => row.dataset.kind));
+        check(marks.join(" ") === "prop model slot signal",
+              `each with the mark for what it is, and the word gone (${marks.join(" ")})`);
+        check(!(await block.locator(".link__member").first().textContent()).includes("prop"),
+              "so the row is the member and nothing else");
+        check(await block.locator("rect.link__members-box").count() === 1,
+              "over one ground the whole block sits on");
+        // The word is off the canvas, so pointing at the shape is what has to say it.
+        await block.locator("[data-member='denied'].link__mark").hover();
+        await page.waitForSelector("#tip:not([hidden])");
+        const said = await page.locator("#tip").textContent();
+        check(said.includes("denied") && said.includes("signal"),
+              `and hovering a mark says which of the four it is (${said.slice(0, 60)})`);
 
         // The pane is open with the page: the files are what is being designed, not a second
         // opinion about it that has to be asked for.
@@ -807,10 +875,13 @@ async function typingIntoTheProject() {
               `a model is declared on the entity too (${withModel.join(" | ")})`);
 
         // Every part of a declaration that comes out of a fixed list is chosen from that
-        // list: the type is a drop-down over the contract vocabulary, not a word to be typed
+        // list. The type is a drop-down over the contract vocabulary, not a word to be typed
         // into the file afterwards. The name is the one part that has to be typed, because
         // nothing could offer it. Both edits go back into the line they were read from.
-        const row = declares.locator(".member").first();
+        // The property that was added, picked out by its kind. The entity's own file
+        // already declares a function, so "the first one" is whatever the file happens to
+        // open with rather than the row this is about.
+        const row = declares.locator(".member").filter({ hasText: "property" }).first();
         await row.locator("input[type=text]").fill("shelfCount");
         await row.locator("select").selectOption("string");
         await openAndWaitFor(page, "db/relational/store/Store.qml",

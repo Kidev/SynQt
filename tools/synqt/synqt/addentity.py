@@ -77,7 +77,9 @@ class AddEntityError(Exception):
 def entity_qml(entity_type: str, name: str) -> str:
     """An entity's own file, showing the helper its type gives it.
 
-    An entity that exports nothing is a singleton: one of it, for as long as it runs.
+    An entity that exports nothing is one of it, for as long as it runs, which is what
+    ``pragma Shared`` says (``synqt build`` writes it as QML's own ``pragma Singleton`` into
+    the copy the engine loads).
     Exporting a connect point turns this same file into that point's Source, rooted at the
     entity's name, which is what `synqt add connect-point <name>` rewrites it into while it
     is still untouched. One entity, one file, whichever of the two it currently is.
@@ -88,7 +90,7 @@ def entity_qml(entity_type: str, name: str) -> str:
     """
     header = ("// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux\n"
               "// SPDX-License-Identifier: Apache-2.0\n\n"
-              "pragma Singleton\n\nimport SynQt\n\n")
+              f"pragma {appmodel.SHARED_PRAGMA}\n\nimport SynQt\n\n")
     if entity_type == "relational":
         return header + (
             f"// The '{name}' entity itself. It reaches its engine through the `Db`\n"

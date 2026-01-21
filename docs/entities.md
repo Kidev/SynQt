@@ -266,7 +266,7 @@ points, and shape an answer.
 
 ```qml
 // api/gateway/Gateway.qml
-pragma Singleton
+pragma Shared
 
 import QtQuick
 

@@ -22,8 +22,9 @@ thing later.
 
 A link can hand you a system rather than an empty canvas: the button under
 ["what it looks like"](index.md) on the front page opens
-[that project](/designer/#example=feed) in the editor, laid out and ready to be pulled
-apart.
+[that project](/designer/#example=feed) in the designer, laid out and ready to be pulled
+apart. It opens with that project's own files, the ones the page reads out underneath it,
+not with an empty entity per node.
 
 ## What you can draw
 
@@ -41,8 +42,8 @@ room.
 Every entity arrives with its own file, before it owns or consumes anything. A client's is its
 window, `client/app/Main.qml`; every other entity's is named after it, `web/edge/Edge.qml`. That
 one file is the entity: what it exports and the state behind it. An entity that mints a Source
-per caller and still needs something shared between them writes a `pragma Singleton` of its own
-beside it, under a name it chooses.
+per caller and still needs something shared between them writes a `pragma Shared` file of its
+own beside it, under a name it chooses.
 
 The boxes behind the nodes are the three sides of a system, and they are drawn from what each
 entity is rather than from where it sits: CLIENTS, FACES THE INTERNET, and MESH. Hovering a
@@ -69,17 +70,25 @@ adds a consumer to the one point it already exports rather than making another.
 Drop the line on empty canvas instead and the palette opens there: pick a kind and that entity
 is made where you let go, consuming the point in the same gesture.
 
-Along each line are the members that cross it, written the way the contract writes them:
-`prop int highest`, `slot placeBid(int): bool`. That is the whole of what a line says, and it
-is what a reader following one came for. A member held above the point's own scope carries a
-mark; hovering it says which scope.
+Along each line are the members that cross it, one to a row and all starting in the same
+column, over a ground so a row landing on a zone edge is still readable. Each row is the
+member and nothing else: `int highest`, `placeBid(int): bool`. Which of the four kinds it is
+is the small mark at the start of the row, and hovering that mark says the word and which way
+that kind travels. A member held above the point's own scope carries a second mark; hovering
+it says which scope.
 
 Where two lines run in opposite directions between the same pair of entities, they bow
 apart into separate curves so each keeps its own members and its own click.
 
-Dropping a line on a [front](programming-model.md) asks which scope's callers the entity
-serves, because a front's seats are a few pixels apart and choosing one by aim is not
-something a hand can do. Dragging out of a seat has never had that problem and is unchanged.
+A web edge that hands its callers on is a [front](programming-model.md), and the switch for
+it is on the edge's own panel, with the rest of what an edge does. A front is drawn as a
+wedge rather than a disc: everyone arrives at the nose facing the browser, and along its
+back is a seat per scope, named. Drag between a seat and an entity, either way round, to say
+which entity serves that scope's callers; the seat lights up as the line comes over it, and
+the connect point the front needs to reach that entity is drawn at the same time. Let a line
+go anywhere else on the wedge and it asks which scope you meant. Dragging a seat onto empty
+canvas takes that scope off, and so does deleting the link it was wired along: the routing
+and the link are one declaration, so they go together.
 
 Selecting a node or a line opens the panel on the right, which is where the rest lives: an
 entity's provider, a connect point's consumer list, and what crosses it. The consumer list
@@ -112,8 +121,8 @@ the one it exports, and deleting one takes that point with it.
 ## The same project as text
 
 The pane under the canvas is the project this drawing is, open from the start: `synqt.yaml`,
-which carries what crosses every connect point, and the QML of every entity under its own
-directory. It is rebuilt from the drawing on every edit, so it can never be showing an older
+which carries what crosses every connect point, the QML of every entity under its own
+directory, and a `schema.sql` beside every relational entity. It is rebuilt from the drawing on every edit, so it can never be showing an older
 design than the canvas above it. **Hide** collapses it to the strip along the bottom, which is
 also what opens it again.
 

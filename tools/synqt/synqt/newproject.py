@@ -86,8 +86,8 @@ SortImports=false
 _MAIN_QML = """// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 // SPDX-License-Identifier: Apache-2.0
 
-import QtQuick
 import QtQuick.Controls
+import SynQt
 
 ApplicationWindow {
     id: root
@@ -136,14 +136,16 @@ def write_client_main(project_dir: os.PathLike[str] | str,
 
 
 def entity_singleton(name: str) -> str:
-    """An entity's own QML, while the entity exports nothing: one object, alive as long as
+    """An entity's own QML, while the entity exports nothing. One object, alive as long as
     the entity is.
 
-    A singleton because there is one of this entity. ``appmodel.discover_singletons`` finds
-    it by its ``pragma Singleton`` and the generated main registers it under the entity's own
-    QML module, so anything the entity owns reaches it by name. Exporting a connect point
-    turns this same file into that point's Source (:func:`synqt.addcontract.write_source`),
-    because an entity and the surface it exports are one file.
+    Shared because there is one of this entity. ``appmodel.discover_singletons`` finds it by
+    its ``pragma Shared`` and the generated main registers it under the entity's own QML
+    module, so anything the entity owns reaches it by name. ``synqt build`` writes the line
+    as the ``pragma Singleton`` QML knows into the copy under ``generated/``
+    (:mod:`synqt.qmlrewrite`). Exporting a connect point turns this same file into that
+    point's Source (:func:`synqt.addcontract.write_source`), because an entity and the
+    surface it exports are one file.
 
     Written the way ``qmlformat`` would write it, so a scaffolded project passes its own
     ``synqt check`` with nothing to reformat first.
@@ -152,7 +154,7 @@ def entity_singleton(name: str) -> str:
     return ("// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux\n"
             "// SPDX-License-Identifier: Apache-2.0\n"
             "\n"
-            "pragma Singleton\n"
+            f"pragma {appmodel.SHARED_PRAGMA}\n"
             "\n"
             "import QtQuick\n"
             "\n"

@@ -179,10 +179,10 @@ bidder a Source of their own instead of a mirror of one:
 
 That one line changes where the lot has to live. `Edge.qml` is now minted per caller, so
 the auction itself would become one lot per bidder. Move the shared part into a
-`pragma Singleton` beside it, `web/edge/Lot.qml`:
+`pragma Shared` file beside it, `web/edge/Lot.qml`:
 
 ```qml
-pragma Singleton
+pragma Shared
 
 import QtQuick
 

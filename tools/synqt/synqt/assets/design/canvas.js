@@ -344,33 +344,97 @@ const SLOT_DOT = {8: 2.6, 16: 2.2, 32: 1.8, 64: 1.4};
 // How far past the rim a contract's badge sits, measured to its middle.
 const BADGE_REACH = 9;
 
-// A front is drawn as a wedge rather than a disc, and the shape is the explanation: one
-// point facing the browser, because a browser reaches one accessor whatever is behind it,
-// and one flat side facing the mesh, with a named seat on it for each scope. Read left to
-// right it says what the entity does: everyone arrives at the tip, and which of the entities
-// off the back they are handed to is decided by the scope they hold.
-// The flat side is taller than the disc a plain entity is drawn as, because it has to hold a
-// named seat per scope and each of those names is read: at the disc's own height four scopes
-// sat about a line apart, which is legible only until two of them are wired and their labels
-// have somewhere to be.
-const FRONT_TIP = -(NODE_RADIUS * 1.18);
-const FRONT_BACK = NODE_RADIUS * 0.68;
-const FRONT_HALF = NODE_RADIUS * 1.35;
+// A front is drawn as a wedge rather than a disc, and the shape is the explanation: a nose
+// facing the browser, because a browser reaches one accessor whatever is behind it, and one
+// flat side facing the mesh, with a named seat on it for each scope. Read left to right it
+// says what the entity does: everyone arrives at the nose, and which of the entities off the
+// back they are handed to is decided by the scope they hold.
+//
+// Every corner is rounded, and the nose most of all. Drawn as a bare triangle the three
+// points were the loudest thing on the canvas: a spike aimed at the client and two hard
+// corners at the back, all of them sharper than anything else in the drawing, on the one node
+// that is otherwise a disc like its neighbours. Its lower corner also came down to within a
+// few pixels of the entity's own name. It is shorter now and rounded, so it reads as a disc
+// drawn out towards the browser rather than as an arrow, and the two lines under the node
+// have the room they have everywhere else.
+const FRONT_TIP = -(NODE_RADIUS * 1.3);
+const FRONT_BACK = NODE_RADIUS * 0.72;
+const FRONT_HALF = NODE_RADIUS * 1.2;
+
+// How far the corners are rounded off. The nose more than the back, because it is the corner
+// a reader looks at and the one whose angle is sharpest; both are well under half the edge
+// they sit on, which is what keeps the rounding from eating the shape.
+const FRONT_NOSE_ROUND = 9;
+const FRONT_BACK_ROUND = 6;
+
+// How much lower than a plain disc's the two lines under a front sit. The wedge is taller
+// than the disc, so without this the name is printed against the shape's own outline.
+const FRONT_DROP = 5;
 
 // Where the seat for the scope at `index` of `count` sits on the flat side. Spread across
-// most of that side rather than all of it, so the outermost seat is on the wedge and not on
-// the corner where its two edges meet.
+// most of that side rather than all of it, so the outermost seat is clear of the corner where
+// the back edge turns into the rounding.
 function seatPoint(index, count) {
     if (count < 2) {
         return {x: FRONT_BACK, y: 0};
     }
-    const room = FRONT_HALF * 1.6;
+    // Kept inside the straight part of the back edge, short of where the rounding starts,
+    // so every seat sits on the flat and none of them hangs off a corner.
+    const room = FRONT_HALF * 1.24;
     return {x: FRONT_BACK, y: -(room / 2) + ((room / (count - 1)) * index)};
+}
+
+// A closed path through `points`, with each corner rounded by the radius beside it.
+//
+// One arc per corner rather than a quadratic through it: an arc is the corner a reader
+// expects, is the same curve however sharp the angle, and never bulges past the straight
+// lines it joins. The setback along each edge is r / tan(half the interior angle), which is
+// what makes a sharper corner give up more of its edges for the same radius.
+function roundedPath(points) {
+    const at = (index) => points[(index + points.length) % points.length];
+    const parts = [];
+    for (let index = 0; index < points.length; index += 1) {
+        const here = at(index);
+        const before = at(index - 1);
+        const after = at(index + 1);
+        const into = unit(before.x - here.x, before.y - here.y);
+        const away = unit(after.x - here.x, after.y - here.y);
+        const half = Math.acos(Math.min(1, Math.max(-1, (into.x * away.x) + (into.y * away.y))))
+            / 2;
+        const back = here.r / Math.tan(half);
+        const start = {x: here.x + (into.x * back), y: here.y + (into.y * back)};
+        const end = {x: here.x + (away.x * back), y: here.y + (away.y * back)};
+        // Which way the outline turns here, so the arc bends with the shape instead of
+        // cutting a bite out of it.
+        const turn = (into.x * away.y) - (into.y * away.x) > 0 ? 0 : 1;
+        parts.push(`${index ? "L" : "M"} ${round(start.x)},${round(start.y)}`);
+        parts.push(`A ${here.r},${here.r} 0 0 ${turn} ${round(end.x)},${round(end.y)}`);
+    }
+    parts.push("Z");
+    return parts.join(" ");
+}
+
+function unit(x, y) {
+    const length = Math.hypot(x, y) || 1;
+    return {x: x / length, y: y / length};
+}
+
+function round(value) {
+    return Math.round(value * 100) / 100;
+}
+
+// The outline of a front, as one path.
+function frontOutline() {
+    return roundedPath([
+        {x: FRONT_TIP, y: 0, r: FRONT_NOSE_ROUND},
+        {x: FRONT_BACK, y: -FRONT_HALF, r: FRONT_BACK_ROUND},
+        {x: FRONT_BACK, y: FRONT_HALF, r: FRONT_BACK_ROUND},
+    ]);
 }
 
 // The seats a front shows, lowest authority at the top, each with the entity it hands that
 // scope's callers to (empty until one is drawn). Every declared scope gets one whether or not
-// it has been wired: a seat nobody has connected is the question the drawing is asking, and
+// it has been wired. A seat nobody has connected is the question the drawing is asking, and
 // hiding it would make the wiring something a reader has to know to look for.
 export function seatsOfFront(front) {
     const tiers = (front && front.tiers) || {};
@@ -387,7 +451,30 @@ export function accessorName(owner) {
     return owner ? owner[0].toUpperCase() + owner.slice(1) : "";
 }
 
-// Where a link into a front arrives: the seat of whichever scope it serves, or the middle of
+// The seat a point on the canvas is on, or null. `local` is relative to the front's own
+// middle, the way seatPoint answers.
+//
+// The seats and their names sit on and behind the back edge, so that strip is where a drop
+// says which scope it meant; the body of the wedge in front of it says only "this entity",
+// and dropping there is what opens the question instead. Inside the strip the nearest seat
+// wins outright rather than needing to be hit: they tile it between them, so there is no gap
+// to land in and be told nothing happened.
+export function seatAt(front, local) {
+    const seats = seatsOfFront(front);
+    if (!seats.length || local.x < FRONT_BACK - 4
+            || local.y < -(FRONT_HALF + 4) || local.y > FRONT_HALF + 4) {
+        return null;
+    }
+    let closest = seats[0];
+    for (const seat of seats) {
+        if (Math.abs(seat.at.y - local.y) < Math.abs(closest.at.y - local.y)) {
+            closest = seat;
+        }
+    }
+    return closest;
+}
+
+// Where a link into a front arrives. The seat of whichever scope it serves, or the middle of
 // the flat side when it serves none. What arrives at a seat is the entity behind it, so the
 // line lands on the name of the scope it answers for and the routing needs no second drawing.
 export function seatFor(front, entityName) {
@@ -395,22 +482,17 @@ export function seatFor(front, entityName) {
     return seat ? seat.at : null;
 }
 
-// The scope a front hands to `entityName`, or "". This is what the line into that seat is
-// labelled with, and it is why a wired seat stops naming itself on the node: the routing is
-// one fact, so it is written once, on the thing that carries it.
-export function seatScopeFor(front, entityName) {
-    const seat = seatsOfFront(front).find((one) => one.tier === entityName);
-    return seat ? seat.scope : "";
-}
-
 // The two lines under any node: what the entity is called, and the file somebody opens next.
-function nameNode(group, entity, files) {
-    const name = element("text", {class: "node__name", y: NODE_RADIUS + 16,
+// A front is drawn taller than a disc, so its lines start lower and the shape above them
+// keeps its own outline to itself.
+function nameNode(group, entity, files, front) {
+    const drop = front ? FRONT_DROP : 0;
+    const name = element("text", {class: "node__name", y: NODE_RADIUS + 16 + drop,
                                   "text-anchor": "middle"});
     name.textContent = entity.name;
     group.append(name);
 
-    const file = element("text", {class: "node__file", y: NODE_RADIUS + 29,
+    const file = element("text", {class: "node__file", y: NODE_RADIUS + 29 + drop,
                                   "text-anchor": "middle"});
     file.textContent = caption(files);
     group.append(file);
@@ -434,16 +516,14 @@ function frontSeats(entity, front) {
             class: `node__seat${seat.tier ? " is-taken" : ""}`,
             cx: seat.at.x, cy: seat.at.y, r: 3,
         }));
-        // A seat shows its scope only while nothing is wired to it. Once a link lands there
-        // the name moves onto that link, where it says the same thing about a line somebody
-        // can follow to the entity serving it; leaving it on both wrote the routing twice and
-        // put the second copy where it explained least.
-        //
-        // The name stays in the drawing either way and the stylesheet is what hides it, so
-        // hovering a wired seat brings it back: re-aiming a scope is exactly when you need to
-        // be told which one you have hold of.
+        // A seat always says which scope it is, wired or not. Giving the name up to
+        // the link that lands on it reads well with one seat wired and badly with two.
+        // The labels beside a line and the labels on the seats above and below it are a dozen
+        // pixels apart, and a reader cannot tell which word belongs to which. The scope
+        // is a fact about the seat, so it is written on the seat, and a filled dot is what
+        // says something is wired to it.
         const label = element("text", {
-            class: `node__seat-name${seat.tier ? " is-taken" : ""}`,
+            class: "node__seat-name",
             x: seat.at.x + 8, y: seat.at.y + 3,
         });
         label.textContent = seat.scope;
@@ -463,16 +543,12 @@ function node(entity, {selected, level, files, taken, front}) {
     });
     group.dataset.entity = entity.name;
     if (front) {
-        group.append(element("path", {
-            class: "node__disc node__wedge",
-            d: `M ${FRONT_TIP},0 L ${FRONT_BACK},${-FRONT_HALF} `
-               + `L ${FRONT_BACK},${FRONT_HALF} Z`,
-        }));
+        group.append(element("path", {class: "node__disc node__wedge", d: frontOutline()}));
     } else {
         group.append(element("circle", {class: "node__disc", r: NODE_RADIUS}));
     }
     group.append(glyph(entity));
-    nameNode(group, entity, files);
+    nameNode(group, entity, files, front);
     if (front) {
         // A wedge has no ring to seat contracts on: its two sides are its two jobs. The
         // point faces the browser and the point it owns leaves from there; the flat side
@@ -672,7 +748,41 @@ const MEMBERS_SHOWN = 5;
 const MEMBER_STEP = 10;
 const MEMBER_FIRST = 4;
 
-// One member as the line writes it: what kind it is, what it is called, and what it carries.
+// The column the kind marks sit in, and the gap between that column and the names. Every row
+// starts at the same two offsets, which is what makes the block a list rather than five
+// centred strings of different lengths.
+const MEMBER_MARK = 7;
+const MEMBER_GAP = 3;
+
+// What one character of the block costs. The rows are set in the monospace stack at a fixed
+// size, so a character count is the width. Measuring would mean laying the group out in the
+// document and reading it back, twice per line, for a number that does not vary. The padding
+// on the background absorbs the difference between the faces in the stack.
+const MEMBER_CHAR = 4.95;
+
+// The background's own room. Enough that a descender and the mark both clear its edge.
+const MEMBER_PAD_X = 4;
+const MEMBER_PAD_Y = 2.5;
+const MEMBER_ASCENT = 6.4;
+const MEMBER_DESCENT = 2.4;
+
+// What each kind is called, and what it means for the two ends of the line. The mark on the
+// canvas says which of the four this is; hovering it is what says this.
+export const MEMBER_KINDS = {
+    prop: {name: "property",
+           says: "The owner sets it. Every consumer sees the new value, with nothing to ask."},
+    model: {name: "model",
+            says: "The owner publishes the rows. Consumers read them and cannot write back."},
+    signal: {name: "signal",
+             says: "The owner emits it. Consumers handle it; there is no answer to give."},
+    slot: {name: "slot",
+           says: "A consumer calls it. The owner runs it, and the owner decides."},
+};
+
+// One member as the line writes it: what it is called, and what it carries.
+//
+// The kind is not written. Four words repeated down a block are four times the same news, and
+// they pushed the names out of one column; the mark at the start of the row carries it now.
 //
 // Parameter and role types without their names, which is the length a line can afford. The
 // name of a parameter is for whoever writes the body; what a reader following a line wants
@@ -681,20 +791,57 @@ const MEMBER_FIRST = 4;
 export function memberLabel(member) {
     const kind = member.kind || "prop";
     if (kind === "prop") {
-        return `prop ${member.type || "var"} ${member.name}`;
+        return `${member.type || "var"} ${member.name}`;
     }
     if (kind === "model") {
         const roles = (member.roles || []).map((role) => role.name).join(", ");
-        return `model ${member.name}(${roles})`;
+        return `${member.name}(${roles})`;
     }
     const params = (member.params || []).map((param) => param.type).join(", ");
     if (kind === "signal") {
-        return `signal ${member.name}(${params})`;
+        return `${member.name}(${params})`;
     }
-    return `slot ${member.name}(${params})${member.type ? `: ${member.type}` : ""}`;
+    return `${member.name}(${params})${member.type ? `: ${member.type}` : ""}`;
+}
+
+// The mark for one kind, drawn in a 7 by 7 box whose own centre is the origin.
+//
+// Four shapes rather than four colours: the block is already carrying a colour for scoped and
+// another for selected, and a mark that changed with either would stop being the kind. A disc
+// for the one value, stacked rows for the many, and a filled head pointing out of the owner
+// against a hollow one pointing back into it for the two calls, which is the direction each
+// of them travels.
+function memberMark(kind) {
+    const mark = element("g", {class: `link__mark link__mark--${kind}`});
+    // Something square to point at. Two of the four shapes are drawn hollow, and a hollow
+    // shape answers the pointer only on the stroke, which for three 1px rules is a target
+    // nobody could hit on purpose. The box is the mark as far as the pointer is concerned.
+    mark.append(element("rect", {class: "link__mark-grab",
+                                 x: -3.5, y: -3.5, width: 7, height: 7}));
+    if (kind === "model") {
+        for (const y of [-2.2, 0, 2.2]) {
+            mark.append(element("line", {x1: -2.6, y1: y, x2: 2.6, y2: y}));
+        }
+        return mark;
+    }
+    if (kind === "signal") {
+        mark.append(element("path", {d: "M -2.4,-2.8 L 2.8,0 L -2.4,2.8 Z"}));
+        return mark;
+    }
+    if (kind === "slot") {
+        mark.append(element("path", {d: "M 2.4,-2.8 L -2.8,0 L 2.4,2.8 Z"}));
+        return mark;
+    }
+    mark.append(element("circle", {cx: 0, cy: 0, r: 2.3}));
+    return mark;
 }
 
 // What this link actually carries, written along it.
+//
+// Left aligned in one column over a background of the canvas colour, because these rows land
+// on whatever the line is crossing: without the background a name over a zone or over another
+// line was the two of them read together, and centred rows of different lengths never gave
+// the eye a left edge to come back to.
 //
 // A member that is gated above the point's own scope is marked, and hovering that mark is
 // what says which scope, because a scope on every line would put the exception's weight on
@@ -703,17 +850,46 @@ function memberNames(link, middle, across) {
     const group = element("g", {class: "link__members"});
     const members = link.members || [];
     const shown = members.slice(0, MEMBERS_SHOWN);
+    if (!shown.length) {
+        return group;
+    }
+    const written = shown.map((member) => (member.scope ? `${memberLabel(member)} *`
+                                                        : memberLabel(member)));
+    const rows = shown.length + (members.length > shown.length ? 1 : 0);
+    if (members.length > shown.length) {
+        written.push(`+${members.length - shown.length} more`);
+    }
+    const widest = written.reduce((most, one) => Math.max(most, one.length), 0);
+    const width = MEMBER_MARK + MEMBER_GAP + (widest * MEMBER_CHAR);
+    const base = middle.y + (across.y * -12) + MEMBER_FIRST;
+    const left = middle.x + (across.x * -12) - (width / 2);
+    const textAt = left + MEMBER_MARK + MEMBER_GAP;
+
+    group.append(element("rect", {
+        class: "link__members-box",
+        x: left - MEMBER_PAD_X,
+        y: base - MEMBER_ASCENT - MEMBER_PAD_Y,
+        width: width + (MEMBER_PAD_X * 2),
+        height: ((rows - 1) * MEMBER_STEP) + MEMBER_ASCENT + MEMBER_DESCENT + (MEMBER_PAD_Y * 2),
+        rx: 3,
+    }));
+
     shown.forEach((member, index) => {
-        const y = middle.y + (across.y * -12) + MEMBER_FIRST + (index * MEMBER_STEP);
-        const x = middle.x + (across.x * -12);
+        const y = base + (index * MEMBER_STEP);
+        const kind = member.kind || "prop";
+        const mark = memberMark(kind);
+        mark.setAttribute("transform", `translate(${left + (MEMBER_MARK / 2)},${y - 2.6})`);
+        mark.dataset.kind = kind;
+        mark.dataset.member = member.name;
+        group.append(mark);
+
         const text = element("text", {
             class: `link__member${member.scope ? " is-scoped" : ""}`,
-            x, y, "text-anchor": "middle",
+            x: textAt, y, "text-anchor": "start",
         });
         // The mark rides on the member rather than beside it, so a scoped one is one thing
         // to point at and the line does not grow a second column of dots.
-        const written = memberLabel(member);
-        text.textContent = member.scope ? `${written} *` : written;
+        text.textContent = written[index];
         if (member.scope) {
             text.dataset.scope = member.scope;
             text.dataset.member = member.name;
@@ -723,11 +899,11 @@ function memberNames(link, middle, across) {
     if (members.length > shown.length) {
         const more = element("text", {
             class: "link__member link__member--more",
-            x: middle.x + (across.x * -12),
-            y: middle.y + (across.y * -12) + MEMBER_FIRST + (shown.length * MEMBER_STEP),
-            "text-anchor": "middle",
+            x: textAt,
+            y: base + (shown.length * MEMBER_STEP),
+            "text-anchor": "start",
         });
-        more.textContent = `+${members.length - shown.length} more`;
+        more.textContent = written[written.length - 1];
         group.append(more);
     }
     return group;
@@ -776,20 +952,11 @@ function line(link, from, to, options) {
     const across = {x: -edge.uy, y: edge.ux};
     group.append(memberNames(link, middle, across));
 
-    // The scope this line answers for, written at the end that lands on the seat. It is here
-    // rather than on the seat because it is a fact about this line: the front hands *these*
-    // callers to *this* entity, and the line is the only thing on the canvas that holds both
-    // halves of that sentence at once.
-    if (options.arrivesScope) {
-        const scope = element("text", {
-            class: "link__scope",
-            x: edge.x2 - (edge.ux * 14) + (across.x * 11),
-            y: edge.y2 - (edge.uy * 14) + (across.y * 11) + 3,
-            "text-anchor": "middle",
-        });
-        scope.textContent = options.arrivesScope;
-        group.append(scope);
-    }
+    // Nothing is written at the arrival end. The scope is on the seat the line lands on,
+    // where it stays whether or not anything is wired to it, and writing it a second time
+    // beside the line put it a dozen pixels from the neighbouring seat's name, which is what
+    // the two of them read as. One name per scope, on the thing that is that scope, and the
+    // line says the rest by arriving there.
 
     return group;
 }
@@ -877,11 +1044,9 @@ export function draw(layers, design, {problems, selected, filesOf}) {
         }
         for (const target of targets) {
             // A link into a front arrives on the seat of the scope its owner serves, so the
-            // line lands on the name of the scope it answers for, and carries that name.
-            const front = fronts.get(target.name);
+            // line lands on the name of the scope it answers for.
             wanted.push({link, owner, options, target,
-                         arrives: seatFor(front, owner.name),
-                         arrivesScope: seatScopeFor(front, owner.name)});
+                         arrives: seatFor(fronts.get(target.name), owner.name)});
         }
     }
 
@@ -901,8 +1066,7 @@ export function draw(layers, design, {problems, selected, filesOf}) {
         spread.forEach(({item}, index) => {
             const offset = (index - ((spread.length - 1) / 2)) * LANE_GAP;
             const consumer = item.target ? item.target.name : "";
-            const options = {...item.options, offset, arrives: item.arrives,
-                             arrivesScope: item.arrivesScope, consumer,
+            const options = {...item.options, offset, arrives: item.arrives, consumer,
                              selected: item.options.wholePoint
                                  || Boolean(selected && selected.kind === "link"
                                             && selected.name === item.link.name
@@ -985,17 +1149,47 @@ export function slotIndex(design) {
     return found;
 }
 
+// How far past the back of a front a drop still lands on it: the seats sit on that edge and
+// each one is labelled with its scope, so the words are part of the target. Aiming at the
+// word rather than at the dot beside it is the obvious way to hand a scope to an entity, and
+// it used to drop the line on empty canvas and offer to make a new entity there.
+const SEAT_REACH = 52;
+
 // The entity under a point on the canvas, or null. Used when a link is dropped, where what
-// matters is which disc the pointer is over rather than which element answered the event.
+// matters is which node the pointer is over rather than which element answered the event.
+//
+// By the node's own shape, because they are not all discs. A front is a wedge with its scope
+// seats and their names along the back, and a circle around the middle of it covers neither.
 export function entityAt(design, point) {
+    const fronts = frontsOf(design);
     let closest = null;
-    let best = NODE_RADIUS + DROP_SLACK;
+    let best = Infinity;
     for (const entity of design.entities || []) {
-        const span = Math.hypot((entity.x || 0) - point.x, (entity.y || 0) - point.y);
-        if (span <= best) {
-            best = span;
+        const local = {x: point.x - (entity.x || 0), y: point.y - (entity.y || 0)};
+        const reach = fronts.has(entity.name) ? frontReach(local) : discReach(local);
+        if (reach !== null && reach < best) {
+            best = reach;
             closest = entity;
         }
     }
     return closest;
+}
+
+// How far into a plain node's disc the point is, or null when it is outside it. Smaller is
+// nearer, so two overlapping targets resolve to the one the pointer is deepest in.
+function discReach(local) {
+    const span = Math.hypot(local.x, local.y);
+    return span <= NODE_RADIUS + DROP_SLACK ? span : null;
+}
+
+// The same for a front. The box its wedge and its labelled seats occupy. A box rather than
+// the outline itself, because what is being aimed at out here is a word, and a word is a box.
+function frontReach(local) {
+    const left = FRONT_TIP - DROP_SLACK;
+    const right = FRONT_BACK + SEAT_REACH;
+    const half = FRONT_HALF + DROP_SLACK;
+    if (local.x < left || local.x > right || local.y < -half || local.y > half) {
+        return null;
+    }
+    return Math.hypot(local.x, local.y);
 }

@@ -29,6 +29,7 @@ documentation shell and a page that only came right after a reload, while a dire
 looked fine and every test passed. The guard is in on_files, before any of that happens.
 """
 
+import json
 import logging
 import re
 import shutil
@@ -47,6 +48,14 @@ _SVG_NAMESPACE = "http://www.w3.org/2000/svg"
 
 _OFF_ORIGIN = re.compile(r"https?://")
 
+# The one asset that holds somebody else's source rather than the editor's own, and the
+# fields of it that do. An example is a project the editor can open cold, so it carries the
+# QML each of its entities is. One of the feed project's is a gateway whose whole point is
+# `Http.get("https://data.example/feed")`. That is a line printed in a pane for a reader to
+# look at, never a URL this page resolves, and the rest of the file is still held to the rule.
+_EXAMPLES = "examples.json"
+_SOURCE_FIELDS = ("qml", "schema")
+
 try:
     from mkdocs.exceptions import PluginError as _Refused
 except ImportError:                          # imported by the test suite, which has no MkDocs
@@ -57,8 +66,24 @@ except ImportError:                          # imported by the test suite, which
 def _off_origin(path):
     """The first host `path` names that is not this origin, or None."""
     text = path.read_text(encoding="utf-8", errors="replace").replace(_SVG_NAMESPACE, "")
+    if path.name == _EXAMPLES:
+        text = _without_example_sources(text)
     found = _OFF_ORIGIN.search(text)
     return text[found.start():found.start() + 60].split()[0] if found else None
+
+
+def _without_example_sources(text):
+    """The examples with each entity's own files taken out, so what is scanned is the page's
+    own wiring and not the projects it can open."""
+    try:
+        document = json.loads(text)
+    except ValueError:
+        return text                          # not readable: scan it whole and say so
+    for example in document.get("examples", {}).values():
+        for entity in example.get("entities", []):
+            for field in _SOURCE_FIELDS:
+                entity.pop(field, None)
+    return json.dumps(document)
 
 
 def on_files(files, config, **kwargs):

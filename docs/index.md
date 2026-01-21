@@ -173,7 +173,7 @@ page covering it, whether that is a page of this guide or the class in the C++
 reference.
 
 The button under the tree opens this same system in the
-[online editor](visual-editor.md), which runs in the browser with nothing
+[online designer](visual-editor.md), which runs in the browser with nothing
 installed. Pull the mesh apart there, add an entity, and download the result as a
 project.
 
@@ -464,7 +464,7 @@ ApplicationWindow {
     visible: true
     title: "My app"
 
-    Feed.onDenied: reason => window.notice = reason
+    Edge.onDenied: reason => window.notice = reason
     onFeedReadyChanged: {
         if (window.feedReady) {
             Server.load();
@@ -491,7 +491,7 @@ ApplicationWindow {
 <ul class="synqt-flow__glossary" hidden>
 <li data-code="import SynQt" data-href="runtime-api/">Brings in the runtime accessors: Server, Session, Router, and the contracts this entity consumes.</li>
 <li data-code="ApplicationWindow" data-href="project-layout-and-config/">The client's Main.qml is the window. A root that is not a window builds fine and renders nothing.</li>
-<li data-code="Feed.onDenied" data-href="api/?p=classSynQt_1_1ConsumerBase.html">The contract's signal, handled where it arrives. No Connections block, no target to wire up.</li>
+<li data-code="Edge.onDenied" data-href="api/?p=classSynQt_1_1ConsumerBase.html">The contract's signal, handled where it arrives. The edge names its own point, so `Edge` is what the handler attaches to. No Connections block, no target to wire up.</li>
 <li data-code="onFeedReadyChanged" data-href="api/?p=classSynQt_1_1ServerAccessor.html">The feed arrives when this browser connects, and arrives again after a reconnect. Asking here covers both, and nothing asks before there is anything to ask.</li>
 <li data-code="Server.ready" data-href="api/?p=classSynQt_1_1ConsumerBase.html">The framework's own: true once the edge is hosting this connect point for this browser. It goes false on a disconnect and true again on the reconnect.</li>
 <li data-code="Server.loaded" data-href="programming-model/">The contract's property, pushed by the edge. Read-only here: a consumer can never write owner state.</li>
@@ -522,7 +522,7 @@ Edge {
                 Caller.emitDenied("Not allowed.");
                 return;
             }
-            Api.upstream.fetch().then(rows => {
+            Feeds.fetch().then(rows => {
                 feed.setRows(rows);
                 feed.loaded = true;
             });
@@ -532,11 +532,11 @@ Edge {
 ```
 
 <ul class="synqt-flow__glossary" hidden>
-<li data-code="Feed" data-href="programming-model/">The contract itself. In the owner's binary it is the owner's side; in a consumer's it is the consumer's. They never meet, because an entity may not consume a point it owns. Owning one means writing its Source, and nothing else.</li>
+<li data-code="Edge {" data-href="programming-model/">The contract itself. In the owner's binary it is the owner's side; in a consumer's it is the consumer's. They never meet, because an entity may not consume a point it owns. Owning one means writing its Source, and nothing else.</li>
 <li data-code="Caller.hasScope" data-href="api/?p=classSynQt_1_1Caller.html">Who is calling, established by the session the edge issued. A caller cannot claim a scope it lacks.</li>
 <li data-code="Caller.emitDenied" data-href="api/?p=classSynQt_1_1Caller.html">Answers this one caller, not everyone watching. The signal is the contract's, so the client already handles it.</li>
 <li data-code="Store.allows" data-href="api/?p=classSynQt_1_1EntityRuntime.html">A mesh call, shaped like a local one, over mutual TLS. The subject is the identity the edge holds, not a browser value.</li>
-<li data-code="Api.upstream.fetch" data-href="entities/">The gateway holds the third-party credentials and the outbound connection; the edge just asks.</li>
+<li data-code="Feeds.fetch" data-href="entities/">The gateway holds the third-party credentials and the outbound connection; the edge just asks.</li>
 <li data-code="feed.setRows" data-href="programming-model/">Replaces the model. Only the declared roles cross the wire; anything else on a row is dropped here.</li>
 </ul>
 
@@ -562,7 +562,7 @@ Store {
 ```
 
 <ul class="synqt-flow__glossary" hidden>
-<li data-code="Access" data-href="entities/">The database owns this connect point, so it owns the rules for it too.</li>
+<li data-code="Store {" data-href="entities/">The database owns this connect point, so it owns the rules for it too.</li>
 <li data-code="Nothing here asks who is calling" data-href="security/">The consumer list is the rule. Only the edge is on it, so nothing else opens a link and nothing else acquires this. `Caller.entity` is for an owner with two consumers where one of them may do less.</li>
 <li data-code="Db.query" data-href="api/?p=classSynQt_1_1Db.html">Parameterized, always. The value goes in as a parameter, so it can never become SQL. The grants table itself comes from db/relational/store/schema.sql, the next file.</li>
 </ul>
@@ -617,7 +617,7 @@ Feeds {
 ```
 
 <ul class="synqt-flow__glossary" hidden>
-<li data-code="Upstream" data-href="entities/">A gateway is an ordinary entity. What makes it a gateway is that it is the only one calling out.</li>
+<li data-code="Feeds {" data-href="entities/">A gateway is an ordinary entity. What makes it a gateway is that it is the only one calling out.</li>
 <li data-code="return upstream.cached" data-href="providers/">A browser request never waits on a third party: it gets whatever the last poll brought back.</li>
 <li data-code="Timer" data-href="entities/">The poll. Plain QML, running in the entity, with nothing to schedule and nothing to deploy.</li>
 <li data-code="Http.get" data-href="api/?p=classSynQt_1_1Http.html">Verifies TLS and refuses plaintext in a release build, so gateway code never touches a socket.</li>
@@ -655,7 +655,7 @@ Feeds {
 </div>
 
 <div class="synqt-actions">
-<a class="cta cta--quiet" href="/designer/#example=feed" markdown="0"><span class="span">Open this project in the online editor</span></a>
+<a class="cta cta--quiet" href="/designer/#example=feed" markdown="0"><span class="span">Open this project in the online designer</span></a>
 </div>
 
 </div>

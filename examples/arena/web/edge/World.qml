@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 // SPDX-License-Identifier: Apache-2.0
 
-pragma Singleton                      // one shared instance for the whole edge
+pragma Shared                         // one shared instance for the whole edge
 import SynQt
 
 // The authoritative arena, simulated once (docs/tutorial-multiplayer-run.md). It owns the

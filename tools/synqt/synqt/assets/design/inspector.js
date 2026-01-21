@@ -114,12 +114,16 @@ function choice(values, current, onChange, emptyLabel) {
     return node;
 }
 
-function check(label, checked, onChange) {
-    const wrap = tag("label", {class: "check"});
+// A switch and what it says. `code` is for a label that is a name out of the project (an
+// entity, a declaration): those are set in the code face, and a sentence about the entity is
+// not. Everything wore the code face, which made a plain English switch read like something
+// quoted out of a file and cost it a line of wrapping at this width.
+function check(label, checked, onChange, {code} = {}) {
+    const wrap = tag("label", {class: code ? "check check--code" : "check"});
     const box = tag("input", {type: "checkbox"});
     box.checked = checked;
     box.addEventListener("change", () => onChange(box.checked));
-    wrap.append(box, document.createTextNode(label));
+    wrap.append(box, tag("span", {class: "check__label"}, label));
     return wrap;
 }
 
@@ -173,10 +177,23 @@ function renameEntity(design, entity, wanted) {
     entity.name = wanted;
     for (const link of design.links || []) {
         if (link.owner === before) {
+            // A connect point has no name of its own. The owner is the name, so all three
+            // move together. Leaving `name` behind left the point keyed under an entity that
+            // no longer existed, and every selection, every finding and every file in the
+            // pane looked it up by that key.
             link.owner = wanted;
+            link.name = wanted;
+            link.id = wanted;
         }
         link.consumers = (link.consumers || [])
             .map((consumer) => (consumer === before ? wanted : consumer));
+        // A front hands each scope to an entity by name, so a rename has to be carried in
+        // here too or the routing points at somebody who is gone.
+        for (const [scope, name] of Object.entries(link.behind || {})) {
+            if (name === before) {
+                link.behind[scope] = wanted;
+            }
+        }
     }
 }
 
@@ -214,7 +231,7 @@ function entityPanel(design, entity, actions) {
                 }
                 entity.targets = TARGETS.filter((name) => kept.has(name));
                 actions.changed();
-            }));
+            }, {code: true}));
         }
         panel.append(group("Targets", targets));
         panel.append(note("The browser bundle, a native desktop app from the same QML, or "
@@ -226,6 +243,7 @@ function entityPanel(design, entity, actions) {
         }));
         panel.append(note("The one entity the browser can reach. Everything else is "
                           + "behind it, on the mesh."));
+        panel.append(frontPanel(design, entity, actions));
     } else if (PROVIDER_FAMILIES.has(entityType(entity))) {
         panel.append(field("Provider", text(entity.provider, (value) => {
             entity.provider = value;
@@ -445,6 +463,30 @@ function declaredText(member) {
            + `${member.type ? `: ${baseType(member.type)}` : ""}`;
 }
 
+// One member as the panel says it: the line the owner's file declares it on where there is
+// one, and the line the contract carries it on where there is not. Both are code, and both
+// name the same thing, so they are set the same way and read down one column.
+function memberText(member) {
+    if (member.kind === "model") {
+        return `model ${member.name}(${roleList(member.roles)})`;
+    }
+    if (member.line === undefined) {
+        if (member.kind === "prop") {
+            return `prop ${member.type || "var"} ${member.name}`;
+        }
+        if (member.kind === "signal") {
+            return `signal ${member.name}(${roleList(member.params)})`;
+        }
+        return `slot ${member.type ? `${member.type} ` : ""}${member.name}`
+               + `(${roleList(member.params)})`;
+    }
+    return declaredText(member);
+}
+
+function roleList(parts) {
+    return (parts || []).map((part) => `${part.type} ${part.name}`).join(", ");
+}
+
 // The contract as a list to tick, out of what the owner entity already declares.
 //
 // This is the reading half of the same fact the entity panel writes: a member is declared on
@@ -463,7 +505,17 @@ function ticksPanel(design, link, actions) {
         return box;
     }
 
-    const offered = declarations(owner.qml || "");
+    // Everything the owner declares, and everything the point already carries. The two are
+    // nearly the same list and neither one alone is it. A model has no QML declaration form
+    // and would never be offered, and a member an owner writes in a form this reader does not
+    // follow (a property set from a binding, a signal raised through `Caller`) is on the
+    // contract and was missing from the panel, with no way to see it or take it off.
+    // `synqt check` reads all of those and holds the owner to them. Until this listed them
+    // the panel showed a contract with members it had quietly left out.
+    const declared = declarations(owner.qml || "");
+    const carriedOnly = (link.members || [])
+        .filter((one) => !declared.some((member) => member.name === one.name));
+    const offered = [...declared, ...carriedOnly];
     const ticked = new Set((link.members || []).map((member) => member.name));
     if (!offered.length) {
         box.append(note(`'${link.owner}' declares nothing yet, so this contract is not `
@@ -474,46 +526,49 @@ function ticksPanel(design, link, actions) {
     const list = tag("div", {class: "ticks"});
     for (const member of offered) {
         const row = tag("div", {class: "tick"});
-        row.append(check(declaredText(member), ticked.has(member.name), (on) => {
+        row.append(check(memberText(member), ticked.has(member.name), (on) => {
             actions.tick(link, member, on);
-        }));
+        }, {code: true}));
         // The two things about a ticked member that are not in the owner's file, so the two
         // things this list sets. Offered only once the member is on the contract: either one
         // on something that does not cross is a setting with no effect.
         //
-        // The scope raises the bar for this member alone, so nothing about it crosses to a
-        // caller the rest of the point reaches. The size is what the owner-side boundary
-        // refuses anything longer than, and it is here because it is part of the contract:
-        // QML has no type with a limit in it, so the declaration cannot hold one.
+        // Under the member rather than beside it, each behind a label of its own. Beside it
+        // they were two unlabelled controls competing with the member's own name for one
+        // panel's width, and the drop-down, being a full-width control in a flex row, won:
+        // the row showed a scope selector and no sign of which member it was on.
         const carried = (link.members || []).find((one) => one.name === member.name);
-        if (carried && carried.kind === "prop" && SIZED[baseType(carried.type)]) {
-            row.append(typeAndSize(carried.type, (value) => {
+        if (!carried) {
+            list.append(row);
+            continue;
+        }
+        const extras = tag("div", {class: "tick__extras"});
+        // The size is what the owner-side boundary refuses anything longer than, and it is
+        // here because it is part of the contract: QML has no type with a limit in it, so the
+        // declaration in the file cannot hold one.
+        if (carried.kind === "prop" && SIZED[baseType(carried.type)]) {
+            extras.append(field("At most", typeAndSize(carried.type, (value) => {
                 carried.type = value;
                 actions.changed();
-            }));
+            })));
         }
-        if (carried) {
-            row.append(choice(["", ...SCOPES], carried.scope || "", (value) => {
-                carried.scope = value;
-                actions.changed();
-            }, "the point's scope"));
-        }
+        // The scope raises the bar for this member alone, so nothing about it crosses to a
+        // caller the rest of the point reaches.
+        extras.append(field("Scope", choice(["", ...SCOPES], carried.scope || "", (value) => {
+            carried.scope = value;
+            actions.changed();
+        }, "the point's scope")));
+        row.append(extras);
         list.append(row);
     }
     box.append(list);
-
-    // The models this point carries, stated rather than edited. A model has no QML
-    // declaration form, so it is written onto the point itself, but it is one of the four
-    // things an entity declares and it is declared with the other three, on the entity.
-    const models = (link.members || []).filter((one) => one.kind === "model");
-    for (const model of models) {
-        list.append(tag("code", {class: "declares__line"},
-                        `model ${model.name}(${(model.roles || [])
-                            .map((role) => `${role.type} ${role.name}`).join(", ")})`));
-    }
-    if (models.length) {
-        box.append(note(`Edited on '${link.owner}', with everything else that entity `
-                        + "declares.", true));
+    if (carriedOnly.length) {
+        box.append(note(`${carriedOnly.length === 1 ? "One member is" : "These are"} `
+                        + `written in '${link.owner}' in a form this panel reads on the `
+                        + `entity rather than here: a model is written on the point itself, `
+                        + `and a property set from a binding or a signal raised through `
+                        + `Caller is code rather than a declaration. Untick one to take it `
+                        + `off the contract.`, true));
     }
 
     const consumers = link.consumers || [];
@@ -526,26 +581,31 @@ function ticksPanel(design, link, actions) {
     return box;
 }
 
-// Whether this point is a front, and where each scope currently goes.
+// Whether this edge hands its callers on, and where each scope currently goes.
 //
-// The switch is here because becoming a front is a decision about the point; the wiring is
-// not, and there is no control for it here on purpose. A front is drawn as a wedge with a
-// seat per scope on its flat side, and a scope is handed to an entity by dragging from its
-// seat onto that entity. That way the routing is read off the picture instead of out of a
-// list of drop-downs, which is the whole reason to draw a system rather than write it.
-function frontPanel(design, link, actions) {
+// On the edge, with the rest of what an edge is: it sits beside "runs the sign-in flow"
+// because it is the same kind of fact about the same entity, and an edge is where a reader
+// goes to ask what the edge does. It was on the connect point, which is where the flag is
+// written in synqt.yaml but not where anybody looks for it: the point's panel is about what
+// crosses the link, and an entity's whole job was one panel further away than the smallest
+// thing about it.
+//
+// Only the switch. A front is drawn as a wedge with a seat per scope along its back, and a
+// scope is handed to an entity by dragging between the two. The routing is read off the
+// picture rather than out of a list of drop-downs, which is the whole reason to draw a
+// system instead of writing it.
+function frontPanel(design, entity, actions) {
     const box = document.createDocumentFragment();
-    const entities = design.entities || [];
-    const owner = entities.find((entity) => entity.name === link.owner);
-    const clients = new Set(entities.filter((entity) => entityType(entity) === "client")
-                                    .map((entity) => entity.name));
-    if (!owner || entityType(owner) !== "web_edge"
-        || !(link.consumers || []).some((consumer) => clients.has(consumer))) {
-        return box;   // only a browser-facing web edge has callers to split
+    const clients = new Set((design.entities || [])
+        .filter((one) => entityType(one) === "client").map((one) => one.name));
+    const link = (design.links || []).find((one) => one.owner === entity.name);
+    if (!link || !(link.consumers || []).some((consumer) => clients.has(consumer))) {
+        // Nothing to split yet: an edge no browser consumes has no callers to hand on.
+        return box;
     }
     const tiers = behindOf(link);
     const isFront = Boolean(link.behind);
-    box.append(check("Hand callers to entities behind it", isFront, (on) => {
+    box.append(check("Hands callers to the entities behind it", isFront, (on) => {
         link.behind = on ? {...tiers} : undefined;
         if (!on) {
             delete link.behind;
@@ -553,18 +613,18 @@ function frontPanel(design, link, actions) {
         actions.rebuild();
     }));
     if (!isFront) {
-        box.append(note("The edge answers this point itself. Turn this on to make it a "
+        box.append(note("The edge answers its own connect point. Turn this on to make it a "
                         + "front: it keeps the session and the sign-in, and hands each "
-                        + "caller to the entity that serves people of their scope.", true));
+                        + "caller to the entity that serves people of their scope."));
         return box;
     }
     const wired = SCOPES.filter((scope) => tiers[scope]);
     box.append(note(wired.length
         ? `Drawn on the canvas: ${wired.map((scope) => `${scope} to ${tiers[scope]}`)
-            .join(", ")}. Drag from a seat on the flat side to change one, or onto empty `
-            + `canvas to take it off.`
-        : "Now drag from a seat on the wedge's flat side onto the entity that serves that "
-          + "scope. Until one is wired the front hands nobody anywhere.", true));
+            .join(", ")}. Drag between a scope on the edge's back and an entity to change `
+            + `one, either way round, or onto empty canvas to take it off.`
+        : "Now drag between a scope on the edge's back and the entity that serves it, either "
+          + "way round. Until one is wired the front hands nobody anywhere."));
     return box;
 }
 
@@ -607,7 +667,7 @@ function contractPanel(design, link, actions) {
             }
             link.consumers = names.filter((entity) => kept.has(entity));
             actions.changed();
-        }));
+        }, {code: true}));
     }
     panel.append(group("Consumers", consumers));
     panel.append(note("This list is the authorization. An entity that is not on it is "
@@ -621,8 +681,6 @@ function contractPanel(design, link, actions) {
                       + "slots cannot be called and none of its state arrives. It is also "
                       + "the default for every member below: raise one of them on its own "
                       + "to keep an admin surface off a public page."));
-
-    panel.append(frontPanel(design, link, actions));
 
     panel.append(field("Transport", choice(["", "local"], link.transport, (value) => {
         link.transport = value;

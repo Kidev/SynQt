@@ -66,8 +66,19 @@ const REFERENCE = /\b([A-Z][A-Za-z0-9_]*)\.([A-Za-z_]\w*)[ \t]*(\()?/g;
 // of module names nobody could ever call an entity is not one anybody can finish writing.
 const IMPORT_LINE = /^[ \t]*(?:import|pragma)\b.*$/gm;
 
+// An attached signal handler, `Edge.onDenied: reason => ...`, which is how a consumer
+// listens for something the owner announces. The member it names is the signal with the
+// `on` taken off and the next letter lowered, so this is a reference to `denied` and never
+// to a member called `onDenied`. The capital is what keeps `Server.online` out of it.
+const HANDLER = /^on([A-Z]\w*)$/;
+
+// What the framework puts on every consumer facade, which is nothing the owner declared.
+// `ready` is ConsumerBase's own (true once the replica has finished its handshake), so a
+// file reading it is not a file naming a member of the contract.
+const FACADE_MEMBERS = new Set(["ready"]);
+
 // The one type a reference gives away nothing about. A member read out of a call site is
-// known by name and by whether it was called; what it carries is for somebody to say.
+// known by name and by whether it was called. What it carries is for somebody to say.
 const UNKNOWN = "var";
 
 // Painting
@@ -291,7 +302,8 @@ export function declarations(text) {
 
 // Every `Owner.member` this file reaches for. An entity has one connect point, so the
 // accessor is the whole address and what follows it is a member. `call` is true where it was
-// called rather than read, which is the difference between a slot and a prop.
+// called rather than read, which is the difference between a slot and a prop, and `handler`
+// is true where it was listened to, which says the member is a signal.
 export function references(text) {
     const source = String(text || "");
     const lines = [];
@@ -316,12 +328,16 @@ export function references(text) {
     REFERENCE.lastIndex = 0;
     let match = REFERENCE.exec(scanned);
     while (match !== null) {
-        const [, accessor, member, call] = match;
+        const [, accessor, written, call] = match;
+        const handled = written.match(HANDLER);
+        const member = handled
+            ? handled[1][0].toLowerCase() + handled[1].slice(1)
+            : written;
         const key = `${accessor}.${member}`;
-        if (!NOT_AN_ENTITY.has(accessor) && !seen.has(key)) {
+        if (!NOT_AN_ENTITY.has(accessor) && !FACADE_MEMBERS.has(member) && !seen.has(key)) {
             seen.add(key);
-            found.push({accessor, member, call: Boolean(call),
-                        line: lineAt(match.index)});
+            found.push({accessor, member, call: Boolean(call) && !handled,
+                        handler: Boolean(handled), line: lineAt(match.index)});
         }
         match = REFERENCE.exec(scanned);
     }
@@ -417,6 +433,79 @@ export function rewritten(text, line, member) {
     } else {
         lines[line] = written;
     }
+    return lines.join("\n");
+}
+
+// Where the root object's type name sits in `text`, as `[start, end]`, or null.
+//
+// The counterpart of the reader above, for the one edit a change on the canvas makes to a
+// file somebody wrote. A connect point drawn off an entity turns that entity's file into
+// the point's Source, and taking the point away turns it back. Only the name moves. The
+// id, the body, the comments and the layout are the author's and come back untouched.
+// `synqt/qmlrewrite.py` finds the same span in Python.
+export function rootTypeSpan(text) {
+    const source = String(text || "");
+    // Comments and strings blanked first, so a brace inside either is not the root's.
+    const brace = masked(source).indexOf("{");
+    if (brace < 0) {
+        return null;
+    }
+    let end = brace;
+    while (end > 0 && /\s/.test(source[end - 1])) {
+        end -= 1;
+    }
+    let start = end;
+    while (start > 0 && /[A-Za-z0-9_.]/.test(source[start - 1])) {
+        start -= 1;
+    }
+    return start < end ? [start, end] : null;
+}
+
+// `text` with its root object's type replaced by `type`.
+export function reroot(text, type) {
+    const span = rootTypeSpan(text);
+    if (!span) {
+        return String(text || "");
+    }
+    return String(text).slice(0, span[0]) + type + String(text).slice(span[1]);
+}
+
+// SynQt's word for a file there is one of. QML's own is `Singleton`; `synqt build` writes
+// this line back to `pragma Singleton` in the copy the engine loads (synqt/qmlrewrite.py),
+// the same pass that makes a self-named root loadable. Both spellings are read here,
+// because a file carrying QML's own means exactly the same thing.
+export const SHARED_PRAGMA = "Shared";
+
+const PRAGMA_LINE = /^[ \t]*pragma[ \t]+(?:Shared|Singleton)[ \t]*;?[ \t]*(?:\/\/.*)?$/m;
+
+export function isShared(text) {
+    return PRAGMA_LINE.test(String(text || ""));
+}
+
+// `text` with the pragma on it, put where a pragma goes. After the licence notice and
+// before the first import, which is the only place QML accepts one.
+export function withShared(text) {
+    const source = String(text || "");
+    if (isShared(source)) {
+        return source;
+    }
+    const lines = source.split("\n");
+    let at = 0;
+    while (at < lines.length && (/^\s*\/\//.test(lines[at]) || !lines[at].trim())) {
+        at += 1;
+    }
+    lines.splice(at, 0, `pragma ${SHARED_PRAGMA}`, "");
+    return lines.join("\n");
+}
+
+// `text` with the pragma taken off, and the blank line it stood above with it.
+export function withoutShared(text) {
+    const lines = String(text || "").split("\n");
+    const at = lines.findIndex((line) => PRAGMA_LINE.test(line));
+    if (at < 0) {
+        return String(text || "");
+    }
+    lines.splice(at, (at + 1 < lines.length && !lines[at + 1].trim()) ? 2 : 1);
     return lines.join("\n");
 }
 

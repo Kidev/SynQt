@@ -19,7 +19,7 @@ Here is `web/edge/World.qml` again, now with the round timer, the Hall of Fame, 
 two `nearby` queries. Replace the file with it:
 
 ```qml
-pragma Singleton                      // one shared instance for the whole edge
+pragma Shared                         // one shared instance for the whole edge
 import SynQt
 
 Item {
@@ -163,22 +163,22 @@ Item {
 }
 ```
 
-The simulation and the liveness sweep are the ones you already wrote; what is added is
+The simulation and the liveness sweep are the ones you already wrote. What is added is
 the round timer, the Hall of Fame, and the two `nearby` queries that compute one player's
-view. The `pragma Singleton` line is what makes `web/edge/World.qml` one instance for the
-whole edge; every Source reaches it just by name.
+view. The `pragma Shared` line is what makes `web/edge/World.qml` one instance for the
+whole edge, and every Source reaches it by name.
 
 ## One private view per player
 
 Now replace `web/edge/Edge.qml`. It still forwards `steer` and `ping` into the shared
-`World`; what is new is that it publishes only this player's slice, plus the two lists
+`World`. What is new is that it publishes only this player's slice, plus the two lists
 that stay global (the leaderboard and the Hall of Fame).
 
 ```qml
 import SynQt
 
-// One instance per player session (see the config change below). It never simulates;
-// it reads the shared World and publishes only what THIS player can see.
+// One instance per player session (see the config change below). It never simulates.
+// It reads the shared World and publishes only what this player can see.
 Edge {
     id: arena
     property string mySub: ""

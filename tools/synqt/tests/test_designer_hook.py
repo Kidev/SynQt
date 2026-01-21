@@ -26,6 +26,7 @@ copy at all. The guard is therefore where it can run, in the build.
 from __future__ import annotations
 
 import importlib.util
+import json
 import shutil
 from pathlib import Path
 
@@ -121,14 +122,37 @@ def test_this_site_has_no_page_under_the_editors_url():
     assert not (ROOT / "docs" / "designer.md").exists()
 
 
+def test_an_examples_own_source_is_read_past_and_the_rest_is_not(tmp_path):
+    """An example carries the QML each of its entities is, and one of them is a gateway
+    calling out over https. That is a line printed in a pane, not a URL the page resolves.
+    Everything else in the file is still an address the published copy would fetch, so the
+    exception is exactly one shape and the guard has to still catch the others."""
+    hook = _hook()
+    inside = tmp_path / "examples.json"
+    inside.write_text(json.dumps({"examples": {"feed": {"entities": [
+        {"name": "api", "qml": 'Http.get("https://data.example/feed")'},
+        {"name": "db", "schema": "-- see https://sqlite.org/lang.html"},
+    ]}}}), encoding="utf-8")
+    assert hook._off_origin(inside) is None
+
+    outside = tmp_path / "examples.json"
+    outside.write_text(json.dumps({"examples": {"feed": {
+        "project": "https://elsewhere.example/steal",
+        "entities": [{"name": "api", "qml": "Item {}"}],
+    }}}), encoding="utf-8")
+    assert (hook._off_origin(outside) or "").startswith("https://elsewhere.example/steal")
+
+
 def test_no_asset_references_an_external_host():
+    hook = _hook()
     for path in sorted(ASSETS.iterdir()):
         if not path.is_file():
             continue
         # Read the way the hook reads: not every asset is text (the favicon is an .ico), and
-        # a check that only looks at the ones that decode is a check with a hole in it.
-        text = path.read_text(encoding="utf-8", errors="replace").replace(SVG_NAMESPACE, "")
-        assert "http://" not in text and "https://" not in text, \
+        # a check that only looks at the ones that decode is a check with a hole in it. The
+        # one thing it reads past is an example's own QML, which is a project shown as text
+        # in a pane rather than anything this page resolves.
+        assert hook._off_origin(path) is None, \
             f"{path.name} names a host outside the origin the editor is served from"
 
 

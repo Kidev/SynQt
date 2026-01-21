@@ -17,9 +17,9 @@
 // edits it.
 //
 // Every entity in the document has a directory here, and every directory has its own file
-// from the moment the entity exists: a client's is `Main.qml`, because the generated client
+// from the moment the entity exists. A client's is `Main.qml`, because the generated client
 // main.cpp loads the QML module's `Main` and nothing else, and every other entity's is a
-// `pragma Singleton` named after it. A Source per owned connect point follows. An entity with
+// `pragma Shared` file named after it. A Source per owned connect point follows. An entity with
 // no files would be an entity that is on the canvas, is in synqt.yaml, and cannot be found
 // anywhere in the project it belongs to.
 //
@@ -27,7 +27,8 @@
 // it to `synqt check`, which is what stops this drifting from what `synqt new` writes.
 
 import { withoutCommentary } from "./commentary.js";
-import { declarationsFor } from "./source.js";
+import { declarationsFor, reroot, rootTypeSpan, withShared, withoutShared }
+    from "./source.js";
 import { entityType } from "./rules.js";
 
 // The Qt this project pins, matching synqt/toolchain.py. The suite asserts the two agree,
@@ -243,8 +244,8 @@ ${declared ? "\n" + declared + "\n" : ""}}
 // asserts the two are byte for byte the same.
 export function clientMain() {
     return withoutCommentary(`${CONTRACT_HEADER}
-import QtQuick
 import QtQuick.Controls
+import SynQt
 
 ApplicationWindow {
     id: root
@@ -273,32 +274,85 @@ ApplicationWindow {
 `);
 }
 
-// Where each entity's own QML lives, in the order the tree reads: its own file first, then one
-// Source per connect point it owns. A `qml` written on the entity or the link wins over the
-// generated one, because that is what the editor stores when somebody types into the pane; the
+// Where each entity's own QML lives, in the order the tree reads: its own file first, then
+// whatever else its type gives it. A `qml` written on the entity or the link wins over the
+// generated one, because that is what the editor stores when somebody types into the pane. The
 // download then holds what they wrote rather than the stub it started from.
 //
 // Every entity has its own file from the moment it exists, before it owns or consumes
 // anything. An entity that is on the canvas and in synqt.yaml with an empty directory beside it
-// is an entity nobody can open, and it is the state every new one used to start in.
+// is an entity nobody can open.
 export function entityFiles(design, entity) {
-    const own = entityQmlPath(entity);
     const link = (design.links || []).find(
         (one) => one.owner === entity.name && contractOf(one));
+    const files = [];
     if (!link) {
-        return [{name: own, text: entity.qml || entityQml(entity), owner: entity.name}];
+        files.push({name: entityQmlPath(entity), own: true, owner: entity.name,
+                    text: withoutAPoint(entity, entity.qml)});
+    } else {
+        // One file: the entity is what it exports. The text somebody declared into on the
+        // entity is the same text the link's Source shows, so it is written once, at the one
+        // path, and the entity's copy wins because that is where the panel writes.
+        const relative = link.server || sourcePath(entity, contractOf(link));
+        const written = entity.qml || link.qml;
+        files.push({name: relative, own: true, owner: entity.name, link: link.owner,
+                    text: written
+                        ? withAPoint(written, contractOf(link))
+                        : sourceQml(contractOf(link), link.owner, link.members)});
     }
-    // One file: the entity is what it exports. The text somebody declared into on the entity
-    // is the same text the link's Source shows, so it is written once, at the one path, and
-    // the entity's copy wins because that is where the panel writes.
-    const relative = link.server || sourcePath(entity, contractOf(link));
-    const text = entity.qml || link.qml
-        || sourceQml(contractOf(link), link.owner, link.members);
-    return [{name: relative, text, owner: entity.name, link: link.owner}];
+    if (entityType(entity) === "relational") {
+        // The table the entity's own QML queries. `synqt add entity` writes one beside every
+        // relational entity, and a project downloaded without it is a project whose first
+        // `Db.query` finds no table.
+        files.push({name: `${entityDir(entity)}/schema.sql`, owner: entity.name,
+                    text: entity.schema || schemaSql()});
+    }
+    return files;
+}
+
+// An entity's own file once it exports nothing: what its author already wrote, kept.
+//
+// Only two things change, and neither is theirs. `pragma Shared` goes on, because there is
+// one of an entity and this file is now the entity rather than a caller's surface. The root
+// keeps the entity's own name: `synqt build` retypes a self-named root that resolves to
+// nothing (synqt/qmlrewrite.py), so `Store { }` loads either way and the file goes on
+// reading as the thing it is.
+//
+// Handing back the stub would throw away every property, function and signal in
+// the file and leave an entity that no longer even imports SynQt. Deleting a line on the
+// canvas is not permission to empty a file.
+function withoutAPoint(entity, written) {
+    if (!written) {
+        return entityQml(entity);
+    }
+    if (entityType(entity) === "client") {
+        return written;                      // a window is not one of anything
+    }
+    return withShared(written);
+}
+
+// The same file once it exports a connect point. The Source of that point.
+//
+// The pragma comes off, because the file is now the point's Source and the entity's own
+// state moves to a shared file beside it. A root left at the scaffold's `QtObject` is
+// retyped to the contract, which is the one root a Source can have. A root the author wrote
+// themselves is left exactly as it is, and `synqt check` is what has an opinion about it.
+function withAPoint(written, contract) {
+    const span = rootTypeSpan(written);
+    const root = span ? written.slice(span[0], span[1]) : "";
+    const text = withoutShared(written);
+    return root === "QtObject" ? reroot(text, contract) : text;
+}
+
+// The table a relational entity starts with, the same one `synqt add entity` writes.
+export function schemaSql() {
+    return "-- forward-only migrations, one statement per step\n"
+        + "CREATE TABLE items (id INTEGER PRIMARY KEY AUTOINCREMENT,\n"
+        + "                    text TEXT NOT NULL, author TEXT NOT NULL);\n";
 }
 
 // The file an entity *is*, as opposed to the connect points it exposes. A client's is the
-// window; every other entity's is a `pragma Singleton` named after it, which is where state
+// window. Every other entity's is a `pragma Shared` file named after it, which is where state
 // that belongs to the whole entity goes and what its Sources reach for it by name.
 export function entityQmlPath(entity) {
     if (entityType(entity) === "client") {
@@ -318,14 +372,15 @@ function capitalised(name) {
     return name ? name[0].toUpperCase() + name.slice(1) : name;
 }
 
-// An entity's own QML. A singleton because there is one of this entity: its Sources may be
+// An entity's own QML. Shared because there is one of this entity. Its Sources may be
 // created per session or per peer, and anything they share has to outlive any one of them.
-// `synqt build` finds it by its `pragma Singleton` and registers it under the entity's own QML
-// module, so `${Name}.something` resolves inside every Source this entity owns.
+// `synqt build` finds it by its `pragma Shared` and registers it under the entity's own QML
+// module, so `${Name}.something` resolves inside every Source this entity owns. The copy the
+// engine loads gets QML's own `pragma Singleton` written into it (synqt/qmlrewrite.py).
 export function entitySingleton(name) {
     const type = capitalised(name);
     return withoutCommentary(`${CONTRACT_HEADER}
-pragma Singleton
+pragma Shared
 
 import QtQuick
 
@@ -350,7 +405,7 @@ export function projectFiles(design) {
     for (const entity of design.entities || []) {
         for (const file of entityFiles(design, entity)) {
             files.push({name: `${root}/${file.name}`, text: file.text,
-                        owner: file.owner, link: file.link});
+                        owner: file.owner, link: file.link, own: file.own});
         }
     }
     return files;

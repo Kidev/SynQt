@@ -34,11 +34,18 @@ the author could have written by hand. A view that wanted ``Item`` has to say ``
 guessing a visual base from a file name would be inventing a parent, and the one place it
 would matter most (a client's ``Main.qml``, which has to be a window) is already an error
 that :func:`synqt.check.lint_client_root` reports in those words.
+
+The same pass carries the one pragma SynQt spells its own way. A file there is one of opens
+with ``pragma Shared`` (:data:`synqt.appmodel.SHARED_PRAGMA`), which says what the file is
+for; QML's word is ``Singleton``, which names a pattern. The mirror gets the word the engine
+knows. A file that already says ``pragma Singleton`` is left as it is. It means the same
+thing and the engine reads it directly.
 """
 
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -46,6 +53,12 @@ from synqt import appmodel, qmlscan, writer
 
 #: What a self-named root becomes when nothing of that name exists to be rooted at.
 FALLBACK_ROOT = "QtObject"
+
+#: An author's ``pragma Shared`` line, exactly as written. Anchored to the start of a line,
+#: because that is the only place a pragma may sit, so the word inside a string or a comment
+#: further down the file is not one of these.
+_SHARED_PRAGMA = re.compile(rf"^([ \t]*)pragma([ \t]+){appmodel.SHARED_PRAGMA}\b",
+                            re.MULTILINE)
 
 #: The files an entity folder contributes to the engine. Everything else in there is
 #: addressed through its own configuration key and resolved against the project root
@@ -112,11 +125,31 @@ def needs_retyping(relative: str, source: str, contracts: set[str]) -> bool:
     return found == stem and stem not in contracts
 
 
-def transformed(relative: str, source: str, contracts: set[str]) -> str:
-    """What `relative` looks like in ``generated/``: itself, or itself with a real root."""
-    if not needs_retyping(relative, source, contracts):
+def with_engine_pragmas(source: str) -> str:
+    """`source` with ``pragma Shared`` written as the ``pragma Singleton`` QML knows.
+
+    The whitespace on the line comes back as it was, so a file's own layout survives and
+    :func:`synqt.writer.write_if_changed` sees no change in one that had nothing to rewrite.
+    An unknown pragma is a hard load error naming the file and the line, which is the right
+    way for this to fail if a file ever reaches the engine without passing through here.
+    """
+    return _SHARED_PRAGMA.sub(r"\1pragma\2Singleton", source)
+
+
+def transformed(relative: str, source: str, contracts: set[str], *,
+                retype: bool = True) -> str:
+    """What `relative` looks like in ``generated/``: the engine's pragmas, and a real root.
+
+    `retype` is off for the one file whose root must never be quietly fixed, a client's
+    window. The pragma pass still runs on it, because that half is a spelling and not a
+    guess about what the author meant.
+    """
+    if not relative.endswith(".qml"):
         return source
-    return retyped(source, FALLBACK_ROOT)
+    text = with_engine_pragmas(source)
+    if not retype or not needs_retyping(relative, text, contracts):
+        return text
+    return retyped(text, FALLBACK_ROOT)
 
 
 def entity_qml_files(project_dir: os.PathLike[str] | str,
@@ -178,7 +211,8 @@ def write_entity_qml(project_dir: os.PathLike[str] | str,
         for relative in entity_qml_files(root, entity):
             source = (root / relative).read_text(encoding="utf-8", errors="replace")
             target = mirrored_path(relative)
-            text = source if relative == window else transformed(relative, source, contracts)
+            text = transformed(relative, source, contracts,
+                               retype=relative != window)
             writer.write_if_changed(root / target, text)
             written.append(target)
     return written

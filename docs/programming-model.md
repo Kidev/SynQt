@@ -336,7 +336,7 @@ entity to write `shared:` on instead.
 
 Two things follow from that:
 
-- **The entity's own `pragma Singleton` file is one either way.** It is the entity itself,
+- **The entity's own `pragma Shared` file is one either way.** It is the entity itself,
   not a caller's view of it, so it is where state that everybody shares lives when the
   entity is not shared. A not-shared edge with a public feed keeps the feed there and each
   session's Source publishes it.

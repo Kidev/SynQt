@@ -16,7 +16,7 @@ from pathlib import Path
 
 import yaml
 
-from synqt import appgen, qmlrewrite
+from synqt import appgen, appmodel, qmlrewrite
 
 _SOURCE = """// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 // SPDX-License-Identifier: Apache-2.0
@@ -204,6 +204,73 @@ def test_an_edited_page_reaches_the_mirror_the_edge_is_watching(tmp_path):
         "import QtQuick\nItem {\n    id: root\n\n    property int price: 12\n}\n")
     appgen.generate(root, config)
     assert "property int price: 12" in mirrored.read_text()
+
+
+# `pragma Shared`, which is the word SynQt writes and QML does not know
+
+
+_SHARED = """// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+// SPDX-License-Identifier: Apache-2.0
+
+pragma Shared
+
+import QtQuick
+
+QtObject {
+    id: root
+}
+"""
+
+
+def test_the_shared_pragma_is_written_as_the_one_qml_knows():
+    """An author writes `pragma Shared`, which says what the file is for; QML's own word is
+    `Singleton`, which names a pattern. The engine only ever sees the second, and it says so
+    loudly if it ever sees the first. `Unknown pragma 'Shared'`, naming the file and the
+    line, is a hard load failure rather than something that limps."""
+    out = qmlrewrite.transformed("db/relational/ledger/Ledger.qml", _SHARED, set())
+    assert "pragma Singleton" in out
+    assert "pragma Shared" not in out
+    assert out.replace("Singleton", "Shared") == _SHARED, "nothing else moved"
+
+
+def test_qmls_own_word_is_left_exactly_as_it_is():
+    """A file that already says `pragma Singleton` means the same thing and the engine reads
+    it directly, so a project written before this word existed needs no rewriting."""
+    written = _SHARED.replace("pragma Shared", "pragma Singleton")
+    assert qmlrewrite.transformed("x/y/Y.qml", written, set()) == written
+
+
+def test_the_pragma_is_rewritten_on_a_clients_window_too():
+    """The window is the one file whose root must never be quietly retyped, and that
+    exemption is about guessing what the author meant. A pragma is a spelling, so it is
+    carried across on every file."""
+    out = qmlrewrite.transformed("client/app/Main.qml", _SHARED.replace("QtObject", "Main"),
+                                 set(), retype=False)
+    assert "pragma Singleton" in out
+    assert "Main {" in out, "the root is still the author's"
+
+
+def test_the_word_only_counts_where_a_pragma_can_be():
+    """Anchored to the start of a line, because that is the only place QML accepts one. The
+    same two words inside a string or a comment are somebody writing about the pragma."""
+    written = ("import QtQuick\n"
+               "QtObject {\n"
+               '    property string note: "pragma Shared"\n'
+               "    // see pragma Shared\n"
+               "}\n")
+    assert qmlrewrite.transformed("x/y/Y.qml", written, set()) == written
+
+
+def test_a_shared_file_is_found_by_either_word(tmp_path):
+    """`discover_singletons` is what puts a shared file in the generated main's registration
+    list, so a word it does not read is a file nothing registers and a Source that reaches
+    it by name gets a ReferenceError at run time."""
+    folder = tmp_path / "web" / "edge"
+    folder.mkdir(parents=True)
+    (folder / "World.qml").write_text(_SHARED)
+    (folder / "Board.qml").write_text(_SHARED.replace("pragma Shared", "pragma Singleton"))
+    (folder / "Plain.qml").write_text("import QtQuick\nQtObject {\n}\n")
+    assert appmodel.discover_singletons(folder) == ["Board", "World"]
 
 
 def test_a_clients_window_is_copied_as_written_rather_than_quietly_fixed(tmp_path):
