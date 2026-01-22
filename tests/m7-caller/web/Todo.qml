@@ -1,10 +1,9 @@
 // SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 // SPDX-License-Identifier: Apache-2.0
 
-import QtQuick
 import SynQt
 
-// The authoritative Source on the edge (one instance per caller: one per signed-in user, so
+// The authoritative Source on the edge (one instance per caller, one per signed-in user, so
 // Caller is that user). It authorizes the USER, keeps an owner id per row for that
 // authorization, and publishes to the browser a model with no ownerSub role. The shared
 // item list lives in the database. Every session's instance mirrors it from the database

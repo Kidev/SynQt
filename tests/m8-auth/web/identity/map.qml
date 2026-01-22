@@ -1,7 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 // SPDX-License-Identifier: Apache-2.0
 
-import QtQuick
 import SynQt
 
 // Turns a normalized identity into a SynQt scope, on the edge, after a successful login.

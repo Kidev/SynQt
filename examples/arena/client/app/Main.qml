@@ -1,15 +1,15 @@
 // SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 // SPDX-License-Identifier: Apache-2.0
 
+import SynQt
 import QtQuick.Controls
 import QtQuick.Layouts
-import SynQt
 
-// The client: a camera onto the arena the edge owns (docs/tutorial-multiplayer.md through
+// The client. A camera onto the arena the edge owns (docs/tutorial-multiplayer.md through
 // -rounds.md). It does client-side prediction (your own blob tracks your cursor with no
 // waiting, and the camera follows it) and entity interpolation (everyone else is drawn a
 // fraction of a second in the past, smoothly between snapshots). The edge stays the sole
-// authority: the client sends only an aim point, never a position.
+// authority. The client sends only an aim point, never a position.
 ApplicationWindow {
     id: root
 
@@ -174,7 +174,7 @@ ApplicationWindow {
             delegate: Rectangle {
                 id: pellet
 
-                // The row, not its roles. A delegate is an Item, and Item already declares
+                // The whole row as one property. A delegate is an Item, and Item already declares
                 // x and y as FINAL, so a `required property real x` for the role could
                 // never resolve against it.
                 required property var model
@@ -193,7 +193,7 @@ ApplicationWindow {
             delegate: Item {
                 id: blob
 
-                // The row, not its roles. See the pellet delegate above.
+                // The whole row as one property. See the pellet delegate above.
                 required property var model
 
                 readonly property bool mine: Session.identity

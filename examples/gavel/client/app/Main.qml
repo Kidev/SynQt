@@ -1,9 +1,9 @@
 // SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 // SPDX-License-Identifier: Apache-2.0
 
+import SynQt
 import QtQuick.Controls
 import QtQuick.Layouts
-import SynQt
 
 // The browser view of the auction (docs/tutorial-base-auction.md, -sign-in.md,
 // -hall-of-fame.md). `Server` reaches the edge's connect points; `Session` is the read-only

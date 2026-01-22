@@ -202,8 +202,14 @@ export function roleOf(entity) {
     return GLYPHS[type] ? type : "service";
 }
 
-function glyph(entity) {
-    const group = element("g", {class: "node__glyph", transform: "scale(1.45)"});
+function glyph(entity, front) {
+    // A front's glyph rides in its nose at a smaller size: the scope column holds the rest of
+    // the shape, and at a disc's size the glyph reached out through the sloped edges.
+    const group = element("g", {
+        class: "node__glyph",
+        transform: front ? `translate(${FRONT_GLYPH.at},0) scale(${FRONT_GLYPH.scale})`
+                         : "scale(1.45)",
+    });
     for (const shape of GLYPHS[roleOf(entity)]) {
         const {tag, ...attributes} = shape;
         group.append(element(tag, attributes));
@@ -346,47 +352,115 @@ const BADGE_REACH = 9;
 
 // A front is drawn as a wedge rather than a disc, and the shape is the explanation: a nose
 // facing the browser, because a browser reaches one accessor whatever is behind it, and one
-// flat side facing the mesh, with a named seat on it for each scope. Read left to right it
-// says what the entity does: everyone arrives at the nose, and which of the entities off the
+// flat side facing the mesh, carrying a named seat for each scope. Read left to right it
+// says what the entity does. Everyone arrives at the nose, and which of the entities off the
 // back they are handed to is decided by the scope they hold.
 //
-// Every corner is rounded, and the nose most of all. Drawn as a bare triangle the three
-// points were the loudest thing on the canvas: a spike aimed at the client and two hard
-// corners at the back, all of them sharper than anything else in the drawing, on the one node
-// that is otherwise a disc like its neighbours. Its lower corner also came down to within a
-// few pixels of the entity's own name. It is shorter now and rounded, so it reads as a disc
-// drawn out towards the browser rather than as an arrow, and the two lines under the node
-// have the room they have everywhere else.
-const FRONT_TIP = -(NODE_RADIUS * 1.3);
-const FRONT_BACK = NODE_RADIUS * 0.72;
-const FRONT_HALF = NODE_RADIUS * 1.2;
+// The scope names are inside the outline, which is what the shape is sized for. Written
+// outside it they were four words hanging off the back of the node, competing with whatever
+// the canvas held to the right of it and with the labels on the lines arriving there. The
+// routing a front exists for read as clutter around the node rather than as part of it. So
+// the wedge is longer and taller than a disc. Long enough that the column of names clears the
+// sloped edges at the rows furthest from the middle, which is the one measurement that sets
+// its length. `test_designcanvas.py` holds it to that.
+//
+// Every corner is rounded, the nose most of all. Drawn as a bare triangle the three points
+// were the loudest thing on the canvas. A spike aimed at the client and two hard corners at
+// the back, all sharper than anything else in the drawing, on the one node that is otherwise
+// a disc like its neighbours.
+const FRONT_TIP = -(NODE_RADIUS * 2.1);
+const FRONT_BACK = NODE_RADIUS * 1.55;
+const FRONT_HALF = NODE_RADIUS * 1.7;
 
 // How far the corners are rounded off. The nose more than the back, because it is the corner
-// a reader looks at and the one whose angle is sharpest; both are well under half the edge
+// a reader looks at and the one whose angle is sharpest. Both are well under half the edge
 // they sit on, which is what keeps the rounding from eating the shape.
-const FRONT_NOSE_ROUND = 9;
-const FRONT_BACK_ROUND = 6;
+const FRONT_NOSE_ROUND = 8;
+const FRONT_BACK_ROUND = 7;
 
 // How much lower than a plain disc's the two lines under a front sit. The wedge is taller
 // than the disc, so without this the name is printed against the shape's own outline.
-const FRONT_DROP = 5;
+const FRONT_DROP = FRONT_HALF - NODE_RADIUS + 3;
 
-// Where the seat for the scope at `index` of `count` sits on the flat side. Spread across
-// most of that side rather than all of it, so the outermost seat is clear of the corner where
-// the back edge turns into the rounding.
+// The glyph on a front, drawn smaller than a disc's and moved into the nose, which is the
+// half of the shape the names leave free. At full size it reached past the sloped edges.
+const FRONT_GLYPH = {at: -(NODE_RADIUS * 0.77), scale: 1.25};
+
+// One row of the scope column. The step between two of them, what a character of the name
+// costs at the size .node__seat-name is set in, and how far the right end of a name sits in
+// from the back edge. The width is counted rather than measured for the same reason the
+// member rows on a link are. The face is monospace at a fixed size, and measuring means
+// laying the text out in the document and reading it back on every redraw.
+const SEAT_STEP = 9.5;
+const SEAT_CHAR = 4.3;
+const SEAT_ASCENT = 5.4;
+const SEAT_DESCENT = 2;
+const SEAT_INSET = 7;
+
+// How far below the seat's own middle the name's baseline sits, which is what centres the
+// word on the dot beside it.
+const SEAT_BASE = 2.5;
+
+// The widest scope there is, which is what the shape has to be long enough to hold.
+const SEAT_WIDEST = Math.max(...SCOPES.map((scope) => scope.length));
+
+// Where the seat for the scope at `index` of `count` sits. On the back edge, in a column
+// centred on the shape's own middle, one row per scope.
 function seatPoint(index, count) {
     if (count < 2) {
         return {x: FRONT_BACK, y: 0};
     }
-    // Kept inside the straight part of the back edge, short of where the rounding starts,
-    // so every seat sits on the flat and none of them hangs off a corner.
-    const room = FRONT_HALF * 1.24;
-    return {x: FRONT_BACK, y: -(room / 2) + ((room / (count - 1)) * index)};
+    return {x: FRONT_BACK, y: (index - ((count - 1) / 2)) * SEAT_STEP};
 }
+
+// The x of the sloped edge at height `y`: the wedge as a bare triangle, before its corners
+// are rounded off. This is what the column of scope names has to stay clear of, and it is
+// exported so the test that says the column fits is the measurement rather than a screenshot
+// somebody once looked at.
+export function frontEdgeAt(y) {
+    const across = Math.min(1, Math.abs(y) / FRONT_HALF);
+    return FRONT_TIP + ((FRONT_BACK - FRONT_TIP) * across);
+}
+
+// The box one scope's name occupies, right-aligned in from the back edge.
+export function seatLabelBox(scope, index, count) {
+    const at = seatPoint(index, count);
+    const right = at.x - SEAT_INSET;
+    return {
+        left: right - (String(scope).length * SEAT_CHAR),
+        right,
+        top: at.y + SEAT_BASE - SEAT_ASCENT,
+        bottom: at.y + SEAT_BASE + SEAT_DESCENT,
+    };
+}
+
+// The strip a front's scopes occupy. The column of names, and the edge their dots sit on.
+// This is what a drop lands in to mean "this scope" and what one row's handle spans, so both
+// are one measurement. In front of it is the nose, which says only "this entity".
+export function seatStrip() {
+    return {
+        left: FRONT_BACK - SEAT_INSET - (SEAT_WIDEST * SEAT_CHAR) - 2,
+        right: FRONT_BACK + 6,
+    };
+}
+
+// How far in from the construction point the rounded nose reaches. The arc inscribed
+// in a corner never touches it, and the sharper the corner the further short it stops: at a
+// front's nose that is over ten units, which would leave a gap between the shape and the
+// contract icon on its point. Worked out rather than guessed, so the icon
+// sits against the nose whatever the wedge's proportions are.
+export function frontNoseX() {
+    const half = Math.atan2(FRONT_HALF, FRONT_BACK - FRONT_TIP);
+    return FRONT_TIP + (FRONT_NOSE_ROUND / Math.sin(half)) - FRONT_NOSE_ROUND;
+}
+
+// How far outside that nose the contract icon's middle sits. Its own half-width and a little
+// air, so it reads as hanging off the point rather than floating away from it.
+const FRONT_BADGE_GAP = 7;
 
 // A closed path through `points`, with each corner rounded by the radius beside it.
 //
-// One arc per corner rather than a quadratic through it: an arc is the corner a reader
+// One arc per corner rather than a quadratic through it. An arc is the corner a reader
 // expects, is the same curve however sharp the angle, and never bulges past the straight
 // lines it joins. The setback along each edge is r / tan(half the interior angle), which is
 // what makes a sharper corner give up more of its edges for the same radius.
@@ -454,14 +528,16 @@ export function accessorName(owner) {
 // The seat a point on the canvas is on, or null. `local` is relative to the front's own
 // middle, the way seatPoint answers.
 //
-// The seats and their names sit on and behind the back edge, so that strip is where a drop
-// says which scope it meant; the body of the wedge in front of it says only "this entity",
-// and dropping there is what opens the question instead. Inside the strip the nearest seat
-// wins outright rather than needing to be hit: they tile it between them, so there is no gap
-// to land in and be told nothing happened.
+// The scope names and the dots beside them are the strip where a drop says which scope it
+// meant. The nose in front of them says only "this entity", and dropping there is what opens
+// the question instead. Inside the strip the nearest seat wins outright rather than needing
+// to be hit. They tile it between them, so there is no gap to land in and be told nothing
+// happened. Aiming at the word rather than at the dot is the obvious way to hand a scope to
+// an entity, which is why the word is part of the target and not decoration beside it.
 export function seatAt(front, local) {
     const seats = seatsOfFront(front);
-    if (!seats.length || local.x < FRONT_BACK - 4
+    const strip = seatStrip();
+    if (!seats.length || local.x < strip.left || local.x > strip.right
             || local.y < -(FRONT_HALF + 4) || local.y > FRONT_HALF + 4) {
         return null;
     }
@@ -499,18 +575,30 @@ function nameNode(group, entity, files, front) {
 }
 
 
-// The flat side of a wedge: one seat per declared scope, named, and filled where a link has
-// been drawn from it to the entity that serves that scope's callers.
-// The grab circle is first and the two marks follow it, because that order is what lets the
-// stylesheet colour a seat the pointer is over: an SVG element cannot reach backwards to a
-// sibling, so the thing that catches the pointer has to come before the things that react.
+// The flat side of a wedge: one seat per declared scope, named inside the shape, and filled
+// where a link has been drawn from it to the entity that serves that scope's callers.
+//
+// The handle is the whole row, name included, and it comes first. An SVG element cannot reach
+// backwards to a sibling, so the thing that catches the pointer has to be written before the
+// things the stylesheet colours when it is hovered.
 function frontSeats(entity, front) {
     const group = element("g", {class: "node__seats"});
+    const strip = seatStrip();
     for (const seat of seatsOfFront(front)) {
-        const grab = element("circle", {class: "node__seat-grab", cx: seat.at.x,
-                                        cy: seat.at.y, r: 8});
+        const grab = element("rect", {
+            class: "node__seat-grab",
+            x: strip.left,
+            y: seat.at.y - (SEAT_STEP / 2),
+            width: strip.right - strip.left,
+            height: SEAT_STEP,
+        });
         grab.dataset.seat = entity.name;
         grab.dataset.scope = seat.scope;
+        // Where a line pulled off this row leaves from, which is the dot rather than wherever
+        // in the row the press landed. Read off the element, because the drag is set up from
+        // the element the press hit and nothing else there knows the geometry.
+        grab.dataset.x = String(seat.at.x);
+        grab.dataset.y = String(seat.at.y);
         group.append(grab);
         group.append(element("circle", {
             class: `node__seat${seat.tier ? " is-taken" : ""}`,
@@ -524,7 +612,8 @@ function frontSeats(entity, front) {
         // says something is wired to it.
         const label = element("text", {
             class: "node__seat-name",
-            x: seat.at.x + 8, y: seat.at.y + 3,
+            x: seat.at.x - SEAT_INSET, y: seat.at.y + SEAT_BASE,
+            "text-anchor": "end",
         });
         label.textContent = seat.scope;
         group.append(label);
@@ -547,7 +636,7 @@ function node(entity, {selected, level, files, taken, front}) {
     } else {
         group.append(element("circle", {class: "node__disc", r: NODE_RADIUS}));
     }
-    group.append(glyph(entity));
+    group.append(glyph(entity, front));
     nameNode(group, entity, files, front);
     if (front) {
         // A wedge has no ring to seat contracts on: its two sides are its two jobs. The
@@ -578,8 +667,14 @@ function node(entity, {selected, level, files, taken, front}) {
                                       x2: outer.x, y2: outer.y});
         grab.dataset.rim = entity.name;
         grab.dataset.slot = String(slot);
-        group.append(grab);
+        // Where a line pulled off this slot leaves from. On the element, because the drag is
+        // set up from whatever the press hit. Read off `cx`, a
+        // line has none and every link is drawn from the middle of the disc instead of from
+        // the handle that was grabbed.
         const on = slotPoint(slot, NODE_RADIUS);
+        grab.dataset.x = String(on.x);
+        grab.dataset.y = String(on.y);
+        group.append(grab);
         group.append(element("circle", {class: "node__slot", cx: on.x, cy: on.y,
                                         r: SLOT_DOT[size] || SLOT_DOT[64]}));
     }
@@ -734,7 +829,7 @@ function contractBadge(link, at, level, selected) {
 // each consumer to start that consumer's line, so every line demonstrably leaves the icon.
 export function contractPoint(owner, slot, fromFront) {
     const seat = fromFront
-        ? {x: FRONT_TIP - BADGE_REACH, y: 0}
+        ? {x: frontNoseX() - FRONT_BADGE_GAP, y: 0}
         : slotPoint(slot || 0, NODE_RADIUS + BADGE_REACH);
     return {x: (owner.x || 0) + seat.x, y: (owner.y || 0) + seat.y};
 }
@@ -767,41 +862,100 @@ const MEMBER_ASCENT = 6.4;
 const MEMBER_DESCENT = 2.4;
 
 // What each kind is called, and what it means for the two ends of the line. The mark on the
-// canvas says which of the four this is; hovering it is what says this.
+// canvas says which of the four this is. Hovering it, or the name beside it, is what says
+// this.
+//
+// `says` takes the two ends because it can. The drawing knows which entity owns the point and
+// which consume it, and "the owner sets it" is a sentence about connect points in general
+// where "edge sets it, and app sees the new value" is a sentence about the one under the
+// pointer. A tooltip that could name the thing and does not is asking its reader to do the
+// substitution themselves.
 export const MEMBER_KINDS = {
-    prop: {name: "property",
-           says: "The owner sets it. Every consumer sees the new value, with nothing to ask."},
-    model: {name: "model",
-            says: "The owner publishes the rows. Consumers read them and cannot write back."},
-    signal: {name: "signal",
-             says: "The owner emits it. Consumers handle it; there is no answer to give."},
-    slot: {name: "slot",
-           says: "A consumer calls it. The owner runs it, and the owner decides."},
+    prop: {
+        name: "property",
+        says: (owner, consumers) =>
+            `${owner} sets it, and the new value arrives at ${consumers}. There is nothing to `
+            + "ask for.",
+    },
+    model: {
+        name: "model",
+        says: (owner, consumers) =>
+            `${owner} publishes the rows, and they arrive at ${consumers} read-only: a `
+            + "consumer can never write back to an owner.",
+    },
+    signal: {
+        name: "signal",
+        says: (owner, consumers) =>
+            `${owner} emits it, and it arrives at ${consumers}. There is no answer to give.`,
+    },
+    slot: {
+        name: "slot",
+        says: (owner, consumers) =>
+            `A call from ${consumers} arrives at ${owner}, which runs it and decides whether `
+            + "to.",
+    },
 };
 
-// One member as the line writes it: what it is called, and what it carries.
+// The two ends of a link as the sentences above want them. A name where there is one, and the
+// word that stands in for it where there is not. A point can have several consumers, so every
+// sentence above is written to read the same whether this comes back as one name or three,
+// which is why they all say what arrives where rather than who does what.
+export function endsOfPoint(link) {
+    const consumers = (link && link.consumers) || [];
+    return {
+        owner: link && link.owner ? `'${link.owner}'` : "the owner",
+        consumers: consumers.length ? consumers.map((name) => `'${name}'`).join(" and ")
+                                    : "a consumer",
+    };
+}
+
+// One member as the line writes it. What it is called, and what it carries, in the runs the
+// row is coloured by.
 //
 // The kind is not written. Four words repeated down a block are four times the same news, and
-// they pushed the names out of one column; the mark at the start of the row carries it now.
+// they pushed the names out of one column. The mark at the start of the row carries it now.
 //
 // Parameter and role types without their names, which is the length a line can afford. The
-// name of a parameter is for whoever writes the body; what a reader following a line wants
+// name of a parameter is for whoever writes the body. What a reader following a line wants
 // is whether `placeBid` takes an int and answers a bool. The tooltip and the panel both
 // spell the member out in full.
-export function memberLabel(member) {
+//
+// Coloured the way the file it comes from is, one step back. A type is a type and a name is a
+// name here as much as in the pane, and a reader who has both open should not have to learn
+// two colour schemes for one contract. Held back because these rows are set at 8px over
+// whatever the line happens to cross, where the pane's contrast reads as shouting.
+export function memberParts(member) {
     const kind = member.kind || "prop";
+    const name = {text: member.name || "", kind: "name"};
     if (kind === "prop") {
-        return `${member.type || "var"} ${member.name}`;
+        return [{text: member.type || "var", kind: "type"}, {text: " ", kind: "punct"}, name];
     }
     if (kind === "model") {
-        const roles = (member.roles || []).map((role) => role.name).join(", ");
-        return `${member.name}(${roles})`;
+        // The roles by name, because a model's roles are what a consumer's delegate reads;
+        // the types are in the tooltip and in the panel.
+        return [name, {text: "(", kind: "punct"},
+                ...between((member.roles || []).map((role) => ({text: role.name || "",
+                                                               kind: "name"}))),
+                {text: ")", kind: "punct"}];
     }
-    const params = (member.params || []).map((param) => param.type).join(", ");
-    if (kind === "signal") {
-        return `${member.name}(${params})`;
-    }
-    return `${member.name}(${params})${member.type ? `: ${member.type}` : ""}`;
+    const params = between((member.params || [])
+        .map((param) => ({text: param.type || "var", kind: "type"})));
+    const answer = kind === "slot" && member.type
+        ? [{text: ": ", kind: "punct"}, {text: member.type, kind: "type"}]
+        : [];
+    return [name, {text: "(", kind: "punct"}, ...params, {text: ")", kind: "punct"}, ...answer];
+}
+
+// The same runs with a comma between each pair, which is the only separator any of these has.
+function between(parts) {
+    return parts.flatMap((part, index) => (index ? [{text: ", ", kind: "punct"}, part]
+                                                : [part]));
+}
+
+// The whole of a member on one line, which is what the row is measured by: the rows are set in
+// a monospace face at a fixed size, so a character count is the width.
+export function memberLabel(member) {
+    return memberParts(member).map((part) => part.text).join("");
 }
 
 // The mark for one kind, drawn in a 7 by 7 box whose own centre is the origin.
@@ -881,18 +1035,37 @@ function memberNames(link, middle, across) {
         mark.setAttribute("transform", `translate(${left + (MEMBER_MARK / 2)},${y - 2.6})`);
         mark.dataset.kind = kind;
         mark.dataset.member = member.name;
+        if (member.scope) {
+            mark.dataset.scope = member.scope;
+        }
         group.append(mark);
 
         const text = element("text", {
             class: `link__member${member.scope ? " is-scoped" : ""}`,
             x: textAt, y, "text-anchor": "start",
         });
-        // The mark rides on the member rather than beside it, so a scoped one is one thing
-        // to point at and the line does not grow a second column of dots.
-        text.textContent = written[index];
+        // One span per run, so a type reads as a type. The runs cover the whole row and are
+        // written in order, which is what keeps a monospace count of the string equal to the
+        // width of the spans that replaced it.
+        for (const part of memberParts(member)) {
+            const run = element("tspan", {class: `link__tok link__tok--${part.kind}`});
+            run.textContent = part.text;
+            text.append(run);
+        }
+        // The mark on a scoped member rides on the member rather than beside it, so it is one
+        // thing to point at and the line does not grow a second column of dots.
+        if (member.scope) {
+            const gate = element("tspan", {class: "link__tok link__tok--scope"});
+            gate.textContent = " *";
+            text.append(gate);
+        }
+        // Answered by the whole row, not only by the mark at the start of it: pointing at
+        // `placeBid` is the obvious way to ask what `placeBid` is, and for as long as only the
+        // 7px square beside it answered, the obvious way did nothing.
+        text.dataset.kind = kind;
+        text.dataset.member = member.name;
         if (member.scope) {
             text.dataset.scope = member.scope;
-            text.dataset.member = member.name;
         }
         group.append(text);
     });
@@ -1149,11 +1322,11 @@ export function slotIndex(design) {
     return found;
 }
 
-// How far past the back of a front a drop still lands on it: the seats sit on that edge and
-// each one is labelled with its scope, so the words are part of the target. Aiming at the
-// word rather than at the dot beside it is the obvious way to hand a scope to an entity, and
-// it used to drop the line on empty canvas and offer to make a new entity there.
-const SEAT_REACH = 52;
+// How far past the back of a front a drop still lands on it. The scope names are inside the
+// outline now, so this is slack around the dots on the edge rather than room for a column of
+// words hanging off the node. At 52 it was a strip of empty canvas half a node wide that
+// still counted as the edge.
+const SEAT_REACH = 8;
 
 // The entity under a point on the canvas, or null. Used when a link is dropped, where what
 // matters is which node the pointer is over rather than which element answered the event.

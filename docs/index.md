@@ -452,8 +452,8 @@ connect_points:
 <span class="synqt-file__name"><strong>browser</strong><span class="synqt-flow__path">client/app/Main.qml</span></span>
 
 ```qml
-import QtQuick.Controls
 import SynQt
+import QtQuick.Controls
 
 ApplicationWindow {
     id: window

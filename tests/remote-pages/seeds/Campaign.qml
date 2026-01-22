@@ -1,7 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 // SPDX-License-Identifier: Apache-2.0
 
-import QtQuick
 import SynQt
 
 // The page seed hook for "/c/:campaign": it runs on the edge, after the route's scope

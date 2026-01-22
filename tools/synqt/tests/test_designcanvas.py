@@ -83,3 +83,99 @@ def test_every_slot_is_an_index_into_the_one_canonical_ring():
         slots = _geometry(f"slotsOf({size})")
         assert all(0 <= slot < 64 for slot in slots)
         assert len(set(slots)) == size
+
+
+def _front(expression):
+    """The same, against the geometry of a front. The wedge a web edge that routes is drawn
+    as, and the column of scope names it has to be big enough to hold."""
+    return _node(f"""
+        import {{ frontEdgeAt, seatLabelBox, seatStrip, frontNoseX, contractPoint }}
+            from {_module('canvas.js')};
+        import {{ SCOPES }} from {_module('rules.js')};
+        process.stdout.write(JSON.stringify({expression}));
+    """)
+
+
+def test_every_scope_name_fits_inside_the_wedge():
+    """The one measurement the shape's length and height exist for. Written outside the
+    outline the names were four words hanging off the back of the node. Inside, the row
+    furthest from the middle is the one the sloped edge cuts into first, so that row is what
+    the wedge is sized by and nothing here may be eyeballed.
+    """
+    boxes = _front("SCOPES.map((scope, index) => "
+                   "[scope, seatLabelBox(scope, index, SCOPES.length), "
+                   "frontEdgeAt(seatLabelBox(scope, index, SCOPES.length).top), "
+                   "frontEdgeAt(seatLabelBox(scope, index, SCOPES.length).bottom)])")
+    for scope, box, above, below in boxes:
+        assert box["left"] > max(above, below) + 2, \
+            f"'{scope}' reaches through the wedge's own edge"
+
+
+def test_the_strip_a_drop_lands_in_holds_every_name():
+    """A drop on a scope's name has to mean that scope, so the strip the drop test uses and
+    the room the names are drawn in are one measurement."""
+    strip = _front("seatStrip()")
+    widest = _front("SCOPES.map((scope, index) => "
+                    "seatLabelBox(scope, index, SCOPES.length).left)")
+    assert strip["left"] <= min(widest)
+    assert strip["right"] > 0
+
+
+def test_the_contract_icon_sits_against_the_nose_the_shape_actually_has():
+    """An arc inscribed in a corner never touches it, and at a nose this sharp it stops over
+    ten units short. Measured from the construction point the icon floated in open canvas."""
+    nose = _front("frontNoseX()")
+    at = _front("contractPoint({x: 0, y: 0}, 0, true)")
+    assert -12 < at["x"] - nose < 0, (at, nose)
+
+
+def _members(expression):
+    """The runs a member's row on a link is written in, which is what colours it."""
+    return _node(f"""
+        import {{ memberParts, memberLabel }} from {_module('canvas.js')};
+        process.stdout.write(JSON.stringify({expression}));
+    """)
+
+
+_PROP = '{kind: "prop", name: "loaded", type: "bool", params: [], roles: []}'
+_MODEL = ('{kind: "model", name: "rows", type: "", params: [], '
+          'roles: [{type: "int", name: "id"}, {type: "string[120]", name: "title"}]}')
+_SLOT = ('{kind: "slot", name: "allows", type: "bool", roles: [], '
+         'params: [{type: "string[64]", name: "sub"}]}')
+_SIGNAL = ('{kind: "signal", name: "denied", type: "", roles: [], '
+           'params: [{type: "string[120]", name: "reason"}]}')
+
+
+def test_the_runs_a_row_is_written_in_spell_the_row_and_nothing_else():
+    """One span per run, in order, covering every character. The block's width is still counted
+    from the string, so a run that added or dropped a character would draw a row wider or
+    narrower than the ground behind it."""
+    for member in (_PROP, _MODEL, _SLOT, _SIGNAL):
+        parts = _members(f"memberParts({member})")
+        assert "".join(part["text"] for part in parts) == _members(f"memberLabel({member})")
+
+
+def test_a_type_is_a_type_and_a_name_is_a_name():
+    """The point of colouring them. A reader with the file pane open should not have to learn
+    two colour schemes for one contract."""
+    assert _members(f"memberParts({_PROP})") == [
+        {"text": "bool", "kind": "type"},
+        {"text": " ", "kind": "punct"},
+        {"text": "loaded", "kind": "name"},
+    ]
+    slot = _members(f"memberParts({_SLOT})")
+    assert [part["kind"] for part in slot] == ["name", "punct", "type", "punct", "punct", "type"]
+    assert [part["text"] for part in slot if part["kind"] == "type"] == ["string[64]", "bool"]
+
+
+def test_a_model_names_its_roles_and_a_call_names_its_types():
+    """A row's roles are what a consumer's delegate reads by name. A call's parameters are what
+    a reader wants the shape of, and their names are for whoever writes the body."""
+    assert _members(f"memberLabel({_MODEL})") == "rows(id, title)"
+    assert _members(f"memberLabel({_SIGNAL})") == "denied(string[120])"
+    assert _members(f"memberLabel({_SLOT})") == "allows(string[64]): bool"
+
+
+def test_a_slot_with_nothing_to_answer_writes_no_answer():
+    empty = '{kind: "slot", name: "load", type: "", params: [], roles: []}'
+    assert _members(f"memberLabel({empty})") == "load()"

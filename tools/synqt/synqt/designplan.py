@@ -44,7 +44,7 @@ _IGNORED = ("build", "generated", ".git", ".synqt", "__pycache__", "node_modules
 # The entity fields the document models. Anything else in an entity block (TLS files,
 # provider settings, an env file) is the author's and is left where it is.
 _ENTITY_FIELDS = ("type", "provider", "targets", "identity", "shared")
-_LINK_FIELDS = ("owner", "consumers", "transport", "export")
+_LINK_FIELDS = ("owner", "consumers", "transport", "scope", "behind", "export")
 
 
 class DesignPlanError(Exception):
@@ -216,6 +216,7 @@ def _apply_entities(work: Path, current: Dict[str, Any], wanted: Dict[str, Any],
         _patch(work, "entities", name, was[name], entity, _ENTITY_FIELDS,
                _entity_field, reasons)
         _write_entity_qml(work, entity, reasons)
+        _write_entity_schema(work, entity, reasons)
 
     for name in was:
         if name in now:
@@ -391,6 +392,29 @@ def _write_entity_qml(work: Path, entity: Dict[str, Any],
     target.write_text(edited, encoding="utf-8")
 
 
+def _write_entity_schema(work: Path, entity: Dict[str, Any],
+                         reasons: Dict[str, List[str]]) -> None:
+    """The table a relational entity queries, when somebody typed into it.
+
+    Held to the same rule the QML is. The document carries a copy so the pane can show the
+    file that is there, and only text the page marked as typed is text to write. Nothing is
+    created here, because `synqt add entity` writes the schema with the entity and a project
+    without one is not a project this can guess a table for.
+    """
+    if appmodel.entity_type(entity) != "relational" or not entity.get("schemaEdited"):
+        return
+    text = entity.get("schema")
+    if not isinstance(text, str) or not text:
+        return
+    relative = f"{appmodel.entity_dir(entity)}/schema.sql"
+    target = work / relative
+    if target.exists() and text == _text_of(target):
+        return
+    _note(reasons, relative, f"the schema for '{entity['name']}' was edited")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(text, encoding="utf-8")
+
+
 def _patch(work: Path, list_path: str, name: str, was: Dict[str, Any],
            now: Dict[str, Any], keys: Tuple[str, ...], field: Any,
            reasons: Dict[str, List[str]]) -> None:
@@ -426,6 +450,14 @@ def _entity_field(entity: Dict[str, Any], key: str) -> Any:
         return list(value) if value else None
     if key == "type":
         return appmodel.entity_type(entity)
+    if key == "shared":
+        # The one field whose interesting value is false, and so the one the truthiness test
+        # below dropped. An entity marked per-caller in the panel reached no file at all.
+        # Written only when it is not what the entity resolves to on its own, the same rule
+        # designdoc applies, so a drawing that says nothing about sharing leaves the file
+        # saying nothing about it either.
+        default = appmodel.is_shared({"type": appmodel.entity_type(entity)})
+        return value if isinstance(value, bool) and value is not default else None
     return str(value) if value else None
 
 
@@ -433,8 +465,15 @@ def _link_field(link: Dict[str, Any], key: str) -> Any:
     value = link.get(key)
     if key == "consumers":
         return list(value or [])
+    # Which entity serves each scope on a front. A mapping rather than a scalar, and empty
+    # means the edge answers its own point, so an edge that stops being a front loses the
+    # block rather than keeping an empty one.
+    if key == "behind":
+        wired = {str(scope): str(name)
+                 for scope, name in (value or {}).items() if scope and name}
+        return wired or None
     # What crosses the link, written on the link. The document carries it as members, which
-    # is what the panel edits; the file carries it as the lines they render to.
+    # is what the panel edits. The file carries it as the lines they render to.
     if key == "export":
         return designdoc.render_export(link.get("members") or []) or None
     return str(value) if value else None

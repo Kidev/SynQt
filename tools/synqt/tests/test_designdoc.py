@@ -7,6 +7,7 @@ inference share."""
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 
 import pytest
@@ -210,3 +211,25 @@ def test_a_document_is_json_and_says_which_version_it_is():
     assert document["version"] == designdoc.VERSION
     assert document["project"] == "gavel"
     assert json.loads(json.dumps(document)) == document
+
+
+def test_an_ordinary_point_does_not_read_back_as_a_front(tmp_path):
+    """The editor reads the *presence* of `behind` as "this point is answered by entities
+    behind it", the way `network:` works: an empty block is a switch somebody has turned
+    on with nothing wired yet. So handing every ordinary point an empty one made every point in
+    the project a front, and `synqt check` refused the whole design on the next Review.
+    """
+    project = tmp_path / "gavel"
+    shutil.copytree(EXAMPLES / "gavel", project,
+                    ignore=shutil.ignore_patterns("build", "generated", ".synqt"))
+    for link in designdoc.read(project)["links"]:
+        assert "behind" not in link, link["name"]
+
+
+def test_a_front_does_read_back_as_one(tmp_path):
+    project = tmp_path / "fronted"
+    shutil.copytree(Path(__file__).resolve().parents[3] / "tests" / "appgen-native" / "fronted",
+                    project)
+    gate = next(link for link in designdoc.read(project)["links"]
+                if link["owner"] == "gate")
+    assert gate["behind"] == {"anonymous": "lobby", "admin": "backoffice"}

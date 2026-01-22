@@ -21,6 +21,9 @@
   --panel-high: #241848;
   --line: #6a5b99;
   --accent: #00a6ed;
+  /* Where the pointer is, which is never the same question as what the panel has open. In one
+     colour the drawing lost track of the selection every time somebody moved across it. */
+  --hover: #c39bff;
   --client: #46f477;
   --service: #8890c0;
   --edge: #e5e7ff;
@@ -31,6 +34,13 @@
   --zone: rgba(106, 91, 153, .1);
   --grid-dot: rgba(106, 91, 153, .3);
   --grid-rule: rgba(106, 91, 153, .14);
+
+  /* Syntax on the canvas: the same three hues the file pane paints with, held back a step.
+     A link's rows are set at 8px over whatever the line is crossing, and the pane's contrast
+     at that size reads as a row of shouting rather than as a reminder of what crosses. */
+  --code-type: #6cbf8b;
+  --code-name: #c3c4e6;
+  --code-punct: #8079ad;
 
   --bar-height: 3.5rem;
   --rail-width: 14rem;
@@ -54,6 +64,7 @@
     --panel-high: #eceaf6;
     --line: #b0a8d0;
     --accent: #0077b6;
+    --hover: #7a3fd0;
     --client: #12a150;
     --service: #5f689c;
     --edge: #3a2a5c;
@@ -64,6 +75,10 @@
     --zone: rgba(176, 168, 208, .18);
     --grid-dot: rgba(176, 168, 208, .45);
     --grid-rule: rgba(176, 168, 208, .3);
+
+    --code-type: #16794a;
+    --code-name: #33265c;
+    --code-punct: #6d6693;
   }
 }
 
@@ -713,6 +728,16 @@ h2 {
   cursor: grabbing;
 }
 
+/* The box whose name is under the pointer. The name is the only part of a box that answers for
+   itself, and lighting the whole outline is what says which box that name belongs to. */
+.zone.is-hover .zone__box {
+  stroke: var(--hover);
+}
+
+.zone.is-hover .zone__title {
+  fill: var(--hover);
+}
+
 /* Nodes. The glyph inside each takes its colour from the group, so one class per role
    colours the disc, its rim and its icon together. */
 
@@ -811,13 +836,19 @@ h2 {
   fill: currentColor;
 }
 
+/* Inside the outline, right-aligned against the back edge, which is what the wedge is sized
+   to hold. Set in the same monospace the rest of the drawing is, at the size canvas.js counts
+   SEAT_CHAR at. Change one and the other has to move with it, or the column stops fitting. */
 .node__seat-name {
   fill: var(--ink-dim);
   font-family: var(--mono);
-  font-size: 8px;
+  font-size: 7px;
   pointer-events: none;
 }
 
+/* The whole row, name included: aiming at the word is the obvious way to hand a scope to an
+   entity. Painted with nothing, and `transparent` rather than `none`, because a shape filled
+   with none is not there as far as hit testing is concerned. */
 .node__seat-grab {
   fill: transparent;
   cursor: crosshair;
@@ -839,6 +870,20 @@ h2 {
   font-weight: 600;
 }
 
+/* Lit because something the seat is about is under the pointer. The line that lands on it, or
+   the contract that line carries. The scope name is half of what that line says, and having to
+   find it by eye among four is the tracing this is here to save. */
+.node__seat-grab.is-hovered + .node__seat {
+  fill: var(--hover);
+  stroke: var(--hover);
+  r: 4.5;
+}
+
+.node__seat-grab.is-hovered + .node__seat + .node__seat-name {
+  fill: var(--hover);
+  font-weight: 600;
+}
+
 /* A seat is also where a line is let go to hand that scope to an entity, and the pointer is
    captured by the canvas for the whole of that drag, so `:hover` never reaches it. design.js
    marks the seat a line is over instead, and it lights exactly as if it were hovered: what a
@@ -856,6 +901,18 @@ h2 {
 
 .node.is-selected .node__disc {
   stroke-width: 2.5;
+}
+
+/* Under the pointer. The disc keeps its role's colour and takes the hover colour on its rim
+   alone: a node recoloured outright stopped saying what kind of entity it was, which is the
+   one thing its colour is for. */
+.node.is-hover .node__disc {
+  stroke: var(--hover);
+  stroke-width: 2.2;
+}
+
+.node.is-hover .node__name {
+  fill: var(--hover);
 }
 
 .node.is-error .node__disc {
@@ -949,28 +1006,56 @@ h2 {
   stroke-width: 1.8;
 }
 
-/* What a link carries, written along it: the member names alone, under the accessor. Quiet
-   enough that a canvas full of links still reads as a diagram, because these are a reminder
-   of what crosses and not the contract itself (the panel and the tooltip are). */
+/* What a link carries, written along it. The member names alone. Quiet enough that a canvas
+   full of links still reads as a diagram, because these are a reminder of what crosses and not
+   the contract itself (the panel and the tooltip are). All of it answers the pointer: pointing
+   at `placeBid` is the obvious way to ask what `placeBid` is, and while only the 7px mark at
+   the start of the row answered, the obvious way did nothing. */
 .link__member {
   fill: var(--ink-dim);
   font-family: var(--mono);
   font-size: 8px;
-  pointer-events: none;
+  pointer-events: auto;
+  cursor: help;
 }
 
-/* The block's own ground. These rows land wherever the line happens to cross, and a name read
-   together with a zone behind it or another line through it is not a name. Held just short of
-   opaque so what is underneath is still visibly underneath, and left out of the pointer's way
-   entirely: the band along the line is what answers a click here. */
+/* The block's own ground, and its own outline. These rows land wherever the line happens to
+   cross, and a name read together with a zone behind it or another line through it is not a
+   name. The ground separates them and the outline says where the block ends, which a fill
+   held short of opaque could not. Held short of opaque all the same, so what is underneath is
+   still visibly underneath. Left out of the pointer's way. The rows inside answer for
+   themselves, and the band along the line answers for the rest. */
 .link__members-box {
   fill: var(--page);
   fill-opacity: 0.86;
-  stroke: none;
+  stroke: var(--line);
+  stroke-width: 0.7;
+  stroke-opacity: 0.55;
   pointer-events: none;
 }
 
-/* The mark at the start of a row, which is the whole of what used to be the word `slot` or
+/* The runs one row is written in. A type reads as a type here as much as in the file pane, so
+   a reader with both open learns one colour scheme rather than two. Muted through the
+   --code-* tokens rather than by opacity, which would have taken the ground with it. */
+.link__tok--type {
+  fill: var(--code-type);
+}
+
+.link__tok--name {
+  fill: var(--code-name);
+}
+
+.link__tok--punct {
+  fill: var(--code-punct);
+}
+
+/* The mark on a member held above the point's own scope. The one run that is a warning rather
+   than syntax, so it keeps the warning colour whatever the row is doing. */
+.link__tok--scope {
+  fill: var(--warn);
+}
+
+/* The mark at the start of a row, which stands in for the word `slot` or
    `signal` in front of every name. It answers the pointer, because a shape is only a shape
    until something says what it stands for. */
 .link__mark {
@@ -1004,45 +1089,76 @@ h2 {
   stroke-linecap: round;
 }
 
-.link.is-selected .link__mark {
-  fill: var(--accent);
-}
-
-.link.is-selected .link__mark--slot,
-.link.is-selected .link__mark--model {
-  fill: none;
+/* Selecting or hovering a link says so on the line, its two ends and the outline of the block
+   beside it, and leaves the rows alone. Recolouring the rows was what the block looked like
+   before they were syntax coloured, and it threw that away in exactly the two states somebody
+   is most likely to be reading them in. The one they are working on, and the one under the
+   pointer. The mark and the name of a single row still light when that row is the thing
+   hovered, which is a statement about one member rather than about the whole contract. */
+.link.is-selected .link__members-box {
   stroke: var(--accent);
+  stroke-opacity: 0.9;
 }
 
-/* A member held above the point's own scope. Marked rather than spelled out, and the mark
-   answers the pointer so hovering it says which scope: naming every scope on the canvas
-   would give the exception the weight of the ordinary case. */
-.link__member.is-scoped {
+/* A member held above the point's own scope. Marked rather than spelled out, because naming
+   every scope on the canvas would give the exception the weight of the ordinary case; hovering
+   the row is what says which scope. The mark and the member's own name carry the warning and
+   the types keep their syntax colour, so the row is still a prototype and not a highlight. */
+.link__member.is-scoped .link__tok--name {
   fill: var(--warn);
-  pointer-events: auto;
-  cursor: help;
 }
 
 .link__member--more {
   font-style: italic;
 }
 
-.link.is-selected .link__member {
-  fill: var(--accent);
+.link.is-hover .link__line {
+  stroke: var(--hover);
+  stroke-width: 2.2;
 }
 
-/* The scope a line answers for, written at the end that lands on a front's seat. Set smaller
-   than the accessor name above the line: the accessor is what a consumer writes in QML, and
-   this is a note about routing. */
-.link__scope {
-  fill: var(--ink-dim);
-  font-family: var(--mono);
-  font-size: 8px;
-  pointer-events: none;
+.link.is-hover .link__head,
+.link.is-hover .link__owns {
+  fill: var(--hover);
 }
 
-.link.is-selected .link__scope {
-  fill: var(--accent);
+/* The one row under the pointer, marked on its name and its weight so the types beside it keep
+   saying what they are. After the scoped rule above, so a gated member the pointer is on reads
+   as the row in hand rather than as the warning it also is. The tooltip on it says both. */
+.link__member.is-hover {
+  font-weight: 600;
+}
+
+.link__member.is-hover .link__tok--name {
+  fill: var(--hover);
+}
+
+.link.is-hover .link__members-box {
+  stroke: var(--hover);
+  stroke-opacity: 0.9;
+}
+
+/* The kind mark of the one row under the pointer. Two of the four shapes are drawn hollow, and
+   giving those a fill would fill in the shape that being hollow is the whole point of. */
+.link__mark.is-hover {
+  fill: var(--hover);
+}
+
+.link__mark--slot.is-hover,
+.link__mark--model.is-hover {
+  fill: none;
+  stroke: var(--hover);
+}
+
+/* The contract icon, when the pointer is on it or on any line out of it. Both, because the
+   icon is the point and a line is one consumer of that point. Pointing at either is asking
+   about the same contract. */
+.link__doc.is-hover {
+  stroke: var(--hover);
+}
+
+.link__doc.is-hover .link__doc-box {
+  stroke-width: 1.8;
 }
 
 .link.is-selected .link__line {

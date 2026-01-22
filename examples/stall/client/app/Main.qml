@@ -1,8 +1,8 @@
 // SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 // SPDX-License-Identifier: Apache-2.0
 
-import QtQuick.Controls
 import SynQt
+import QtQuick.Controls
 
 // The client window. Its whole body is one Loader bound to `Router.pageComponent`: the
 // router resolves the current path to a component (a compiled-in view like Home.qml, or a

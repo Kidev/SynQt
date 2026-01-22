@@ -286,7 +286,17 @@ def _link(point: Dict[str, Any], root: Path, seats: Dict[str, Dict[str, Any]],
                           if owning is not None and contract else "")
     seat = seats.get(name)
     slot = seat.get("slot") if isinstance(seat, dict) else None
-    return {
+    # Which entity serves each scope, when this point is a front. Carried for the same reason
+    # the scope is. A project whose edge is already a front has to arrive at the canvas as the
+    # wedge it is, and without this it arrived as a plain disc and the first change applied took
+    # the routing off the project.
+    #
+    # Present only when there is one. The editor reads the *presence* of the key as "this is a
+    # front" -- an empty block is a switch somebody has just turned on with nothing wired yet --
+    # so handing every ordinary point an empty one made every point in the project a front, and
+    # `synqt check` refused the lot.
+    behind = appmodel.behind(point)
+    record = {
         "id": name,
         "name": name,
         # No slot means the drawing has not placed this one yet, and the canvas puts it on
@@ -305,6 +315,9 @@ def _link(point: Dict[str, Any], root: Path, seats: Dict[str, Dict[str, Any]],
         "server": server,
         "qml": _read_text(root / relative) if relative else "",
     }
+    if behind:
+        record["behind"] = behind
+    return record
 
 
 def entities_of(config: Dict[str, Any], *,
@@ -339,9 +352,15 @@ def read(project_dir: os.PathLike[str] | str, *,
         # The entity's own file, for the same reason a connect point's Source is carried: it
         # is the file that entity is, and the pane has to show the one on disk rather than a
         # stub rendered from the topology. For an entity that exports something the two are
-        # one file, and both carry it: the panel declares on the entity, and the picker ticks
+        # one file, and both carry it. The panel declares on the entity, and the picker ticks
         # what crosses out of those declarations.
         entity["qml"] = _read_text(root / appmodel.entity_file_path(entity))
+        # And the table it queries, for exactly the same reason. The pane renders a
+        # relational entity's schema.sql from the document, so an entity whose schema was not
+        # carried was shown the scaffold's table however far the project's own had moved on,
+        # and typing into it wrote nowhere.
+        if appmodel.entity_type(entity) == "relational":
+            entity["schema"] = _read_text(root / appmodel.entity_dir(entity) / "schema.sql")
     return {
         "version": VERSION,
         "project": name,
@@ -445,6 +464,12 @@ def _link_config(link: Dict[str, Any], base: Dict[str, Any]) -> Dict[str, Any]:
         written["scope"] = link["scope"]
     else:
         written.pop("scope", None)
+    behind = {str(scope): str(name)
+              for scope, name in (link.get("behind") or {}).items() if scope and name}
+    if behind:
+        written["behind"] = behind
+    else:
+        written.pop("behind", None)
     return written
 
 

@@ -495,3 +495,155 @@ def test_a_type_the_scaffolder_refuses_comes_back_as_a_plan_error(tmp_path):
                                  "x": 400, "y": 40})
     with pytest.raises(designplan.DesignPlanError):
         designplan.compute(project, document)
+
+
+# Every setting the panel offers has to reach the file it is written in. A control that moves
+# and changes nothing is worse than a missing one: it says the project was changed.
+
+
+def test_taking_the_sharing_off_an_entity_writes_it(tmp_path):
+    """`shared: false` is the only half of the field a file carries, so it was the half that
+    never arrived. The writer asked whether the value was truthy, and `False` is not."""
+    project = _copy(tmp_path, "gavel")
+    document = designdoc.read(project)
+    next(e for e in document["entities"] if e["name"] == "edge")["shared"] = False
+    plan = designplan.compute(project, document)
+    assert [c.path for c in plan.changes] == ["synqt.yaml"]
+    edge = next(e for e in yaml.safe_load(plan.changes[0].after)["entities"]
+                if e["name"] == "edge")
+    assert edge["shared"] is False
+
+
+def test_putting_the_sharing_back_takes_the_line_off_again(tmp_path):
+    """Shared is the default, so the file says nothing about it. A project that read back
+    `shared: true` would carry a line stating what its absence already states."""
+    project = _copy(tmp_path, "gavel")
+    document = designdoc.read(project)
+    next(e for e in document["entities"] if e["name"] == "edge")["shared"] = False
+    designplan.execute(project, designplan.compute(project, document))
+    back = designdoc.read(project)
+    assert next(e for e in back["entities"] if e["name"] == "edge")["shared"] is False
+    next(e for e in back["entities"] if e["name"] == "edge")["shared"] = True
+    plan = designplan.compute(project, back)
+    assert [c.path for c in plan.changes] == ["synqt.yaml"]
+    assert "shared" not in next(e for e in yaml.safe_load(plan.changes[0].after)["entities"]
+                                if e["name"] == "edge")
+
+
+def test_gating_a_point_behind_a_scope_writes_it(tmp_path):
+    """The scope a browser needs before it acquires the point at all. The panel offered it,
+    the drawing board wrote it, and the plan left it out of the fields it patches."""
+    project = _copy(tmp_path, "gavel")
+    document = designdoc.read(project)
+    next(l for l in document["links"] if l["owner"] == "books")["scope"] = "moderator"
+    plan = designplan.compute(project, document)
+    assert [c.path for c in plan.changes] == ["synqt.yaml"]
+    point = next(p for p in yaml.safe_load(plan.changes[0].after)["connect_points"]
+                 if p["owner"] == "books")
+    assert point["scope"] == "moderator"
+
+
+def test_a_point_with_no_scope_carries_none(tmp_path):
+    project = _copy(tmp_path, "gavel")
+    document = designdoc.read(project)
+    next(l for l in document["links"] if l["owner"] == "books")["scope"] = "moderator"
+    designplan.execute(project, designplan.compute(project, document))
+    back = designdoc.read(project)
+    next(l for l in back["links"] if l["owner"] == "books")["scope"] = ""
+    plan = designplan.compute(project, back)
+    point = next(p for p in yaml.safe_load(plan.changes[0].after)["connect_points"]
+                 if p["owner"] == "books")
+    assert "scope" not in point
+
+
+def test_the_routing_drawn_on_a_front_is_written(tmp_path):
+    """Dragging from a scope on an edge's back to the entity that serves it is the one
+    gesture the wedge exists for, and it reached no file at all. `behind` was neither read
+    out of the project nor patched into it."""
+    project = _copy(tmp_path, "gavel")
+    document = designdoc.read(project)
+    document["entities"].append(_feeds())
+    document["links"].append({"id": "feeds", "name": "feeds", "owner": "feeds",
+                              "consumers": ["edge"], "members": []})
+    next(l for l in document["links"] if l["owner"] == "edge")["behind"] = {"user": "feeds"}
+    plan = designplan.compute(project, document)
+    config = next(c for c in plan.changes if c.path == "synqt.yaml")
+    point = next(p for p in yaml.safe_load(config.after)["connect_points"]
+                 if p["owner"] == "edge")
+    assert point["behind"] == {"user": "feeds"}
+
+
+def test_a_front_the_project_already_has_is_read_back_as_one(tmp_path):
+    """The other half. A project whose edge is already a front has to arrive at the canvas
+    as one, or opening it draws a plain disc and applying anything at all takes the routing
+    off the project."""
+    project = tmp_path / "fronted"
+    shutil.copytree(Path(__file__).resolve().parents[3] / "tests" / "appgen-native"
+                    / "fronted", project)
+    document = designdoc.read(project)
+    gate = next(l for l in document["links"] if l["owner"] == "gate")
+    assert gate["behind"] == {"anonymous": "lobby", "admin": "backoffice"}
+    # Nothing to say about the configuration. What was read is what is wanted. (A front
+    # implements nothing, so this fixture has no file of its own for the edge, and the plan
+    # offering to write one is a separate matter from the routing.)
+    assert not [c for c in designplan.compute(project, document).changes
+                if c.path == "synqt.yaml"]
+
+
+def test_taking_a_scope_off_a_front_takes_it_off_the_point(tmp_path):
+    project = tmp_path / "fronted"
+    shutil.copytree(Path(__file__).resolve().parents[3] / "tests" / "appgen-native"
+                    / "fronted", project)
+    document = designdoc.read(project)
+    next(l for l in document["links"] if l["owner"] == "gate")["behind"] = {"admin": "backoffice"}
+    plan = designplan.compute(project, document)
+    point = next(p for p in yaml.safe_load(plan.changes[0].after)["connect_points"]
+                 if p["owner"] == "gate")
+    assert point["behind"] == {"admin": "backoffice"}
+
+
+def test_an_edge_that_stops_being_a_front_loses_the_block(tmp_path):
+    project = tmp_path / "fronted"
+    shutil.copytree(Path(__file__).resolve().parents[3] / "tests" / "appgen-native"
+                    / "fronted", project)
+    document = designdoc.read(project)
+    next(l for l in document["links"] if l["owner"] == "gate")["behind"] = {}
+    plan = designplan.compute(project, document)
+    point = next(p for p in yaml.safe_load(plan.changes[0].after)["connect_points"]
+                 if p["owner"] == "gate")
+    assert "behind" not in point
+
+
+def test_the_document_carries_the_table_that_is_actually_on_disk(tmp_path):
+    """The pane renders a relational entity's schema.sql from the document, so an entity
+    whose schema was not carried showed the scaffold's table however far the project's own
+    had moved on."""
+    project = _copy(tmp_path, "gavel")
+    schema = project / "db" / "relational" / "books" / "schema.sql"
+    assert designdoc.read(project)
+    document = designdoc.read(project)
+    books = next(e for e in document["entities"] if e["name"] == "books")
+    assert books["schema"] == schema.read_text(encoding="utf-8")
+
+
+def test_a_table_typed_into_the_editor_is_written(tmp_path):
+    project = _copy(tmp_path, "gavel")
+    document = designdoc.read(project)
+    books = next(e for e in document["entities"] if e["name"] == "books")
+    books["schema"] = books["schema"] + "\nCREATE INDEX bids_by_lot ON bids (lot);\n"
+    books["schemaEdited"] = True
+    plan = designplan.compute(project, document)
+    written = next(c for c in plan.changes
+                   if c.path == "db/relational/books/schema.sql")
+    assert "bids_by_lot" in written.after
+    assert "was edited" in written.reason
+
+
+def test_a_table_the_editor_only_read_is_not_written_back(tmp_path):
+    """The same hazard the QML has. Somebody edits schema.sql in their own editor while this
+    page is open, and applying anything at all reverts it to what the page read."""
+    project = _copy(tmp_path, "gavel")
+    document = designdoc.read(project)
+    schema = project / "db" / "relational" / "books" / "schema.sql"
+    schema.write_text(schema.read_text(encoding="utf-8") + "\n-- theirs\n", encoding="utf-8")
+    assert designplan.compute(project, document).changes == ()

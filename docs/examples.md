@@ -83,8 +83,8 @@ replicas. No broadcast code is needed.
 ### Client, `client/app/Main.qml`
 
 ```qml
-import QtQuick.Controls
 import SynQt
+import QtQuick.Controls
 
 ApplicationWindow {
     visible: true
@@ -268,9 +268,9 @@ Edge {
 ### Client, `client/app/Main.qml`
 
 ```qml
+import SynQt
 import QtQuick.Controls
 import QtQuick.Layouts
-import SynQt
 
 ApplicationWindow {
     visible: true

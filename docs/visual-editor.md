@@ -26,6 +26,10 @@ A link can hand you a system rather than an empty canvas: the button under
 apart. It opens with that project's own files, the ones the page reads out underneath it,
 not with an empty entity per node.
 
+It is a starting point, not a page: once it is open it is an ordinary project. Move things,
+add things, edit the files, and what you left is what comes back the next time you follow the
+same link. Download takes it with you and Clear starts over.
+
 ## What you can draw
 
 The rail on the left is the entity palette, and it is the list from
@@ -59,8 +63,8 @@ consumers, how it is carried, and every member that crosses it. Anything the rul
 against it is on the same card.
 
 A connect point is drawn from the entity that **owns** it to the one that **consumes** it.
-Every node has a handle on each of its four sides; drag any of them and drop the line on the
-consumer. That direction is the whole meaning of the line, so it is the thing the canvas asks
+Bring the pointer near a node and its rim fills with handles; drag any of them and drop the
+line on the consumer, so a point reaching left leaves from the left. That direction is the whole meaning of the line, so it is the thing the canvas asks
 you to say first, it is drawn as a filled cap on the owner and an arrowhead on the consumer,
 and the owner names it: dropping a line from `edge` onto `app` gives you the connect point
 `edge` exports, carrying the `Edge` type and implemented in
@@ -71,11 +75,19 @@ Drop the line on empty canvas instead and the palette opens there: pick a kind a
 is made where you let go, consuming the point in the same gesture.
 
 Along each line are the members that cross it, one to a row and all starting in the same
-column, over a ground so a row landing on a zone edge is still readable. Each row is the
-member and nothing else: `int highest`, `placeBid(int): bool`. Which of the four kinds it is
-is the small mark at the start of the row, and hovering that mark says the word and which way
-that kind travels. A member held above the point's own scope carries a second mark; hovering
-it says which scope.
+column, inside an outlined box so a row landing on a zone edge or on another line is still
+readable. Each row is the member and nothing else: `int highest`, `placeBid(int): bool`,
+coloured the way the same contract is coloured in the file pane below, a shade back. Which of
+the four kinds it is is the small mark at the start of the row. Hover anywhere on a row, the
+mark or the prototype, and it says the rest: the kind, the full declaration with the parameter
+names the row has no room for, what a model's rows carry, what a call answers with, and which
+callers reach it. A member held above the point's own scope carries a second mark, and the same
+tooltip says which scope and what it is held back from.
+
+Hovering anything on the canvas lights it, in a colour of its own rather than the one selection
+uses, so moving the pointer across a busy drawing never costs sight of what you are working on.
+A line lights with the contract it carries and, where it lands on a front, the scope it answers
+for: what crosses and who serves it, without tracing either by eye.
 
 Where two lines run in opposite directions between the same pair of entities, they bow
 apart into separate curves so each keeps its own members and its own click.
@@ -83,7 +95,8 @@ apart into separate curves so each keeps its own members and its own click.
 A web edge that hands its callers on is a [front](programming-model.md), and the switch for
 it is on the edge's own panel, with the rest of what an edge does. A front is drawn as a
 wedge rather than a disc: everyone arrives at the nose facing the browser, and along its
-back is a seat per scope, named. Drag between a seat and an entity, either way round, to say
+back is a seat per scope, each named inside the shape. Drag between a seat and an entity, or
+between the name of one and an entity, either way round, to say
 which entity serves that scope's callers; the seat lights up as the line comes over it, and
 the connect point the front needs to reach that entity is drawn at the same time. Let a line
 go anywhere else on the wedge and it asks which scope you meant. Dragging a seat onto empty

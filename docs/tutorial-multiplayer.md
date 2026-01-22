@@ -113,9 +113,8 @@ Replace `client/app/Main.qml` with this starting scene:
 
 ```qml
 // client/app/Main.qml
-import QtQuick
-import QtQuick.Controls
 import SynQt                       // the new import: Server, Session, and contracts
+import QtQuick.Controls
 
 ApplicationWindow {
     id: root

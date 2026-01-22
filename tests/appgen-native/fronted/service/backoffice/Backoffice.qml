@@ -1,10 +1,9 @@
 // SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 // SPDX-License-Identifier: Apache-2.0
 
-import QtQuick
 import SynQt
 
-// What admins are handed to: the same surface, plus what only they reach. The front's gate
+// What admins are handed to. The same surface, plus what only they reach. The front's gate
 // has already refused anyone without the scope, so nothing here checks for it again.
 Backoffice {
     id: root

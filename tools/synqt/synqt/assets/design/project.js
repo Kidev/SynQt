@@ -244,8 +244,8 @@ ${declared ? "\n" + declared + "\n" : ""}}
 // asserts the two are byte for byte the same.
 export function clientMain() {
     return withoutCommentary(`${CONTRACT_HEADER}
-import QtQuick.Controls
 import SynQt
+import QtQuick.Controls
 
 ApplicationWindow {
     id: root
@@ -382,7 +382,7 @@ export function entitySingleton(name) {
     return withoutCommentary(`${CONTRACT_HEADER}
 pragma Shared
 
-import QtQuick
+import SynQt
 
 // The '${name}' entity itself: one of it, for as long as the entity runs, and one
 // whatever the entity answers to \`shared:\`. State that belongs to the whole

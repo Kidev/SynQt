@@ -1,12 +1,12 @@
 // SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 // SPDX-License-Identifier: Apache-2.0
 
+import SynQt
 import QtQuick.Controls
 import QtQuick.Layouts
-import SynQt
 
 // The storefront home: the product grid, bound to the edge's live `catalog` offers, and a
-// button that opens a campaign page. The grid is compiled into the client bundle; the
+// button that opens a campaign page. The grid is compiled into the client bundle. The
 // campaign page it links to is delivered by the edge (see web/edge/pages/Campaign.qml).
 Page {
     id: home

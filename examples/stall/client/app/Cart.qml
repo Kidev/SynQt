@@ -1,14 +1,14 @@
 // SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 // SPDX-License-Identifier: Apache-2.0
 
+import SynQt
 import QtQuick.Controls
 import QtQuick.Layouts
-import SynQt
 
 // The cart, a compiled-in view. It watches the same live offers the home grid does and
-// offers a way back to the storefront. The cart contents are the client's own state in
-// version 1; the point of this view is to show a second compiled-in route alongside the
-// edge-delivered campaign pages.
+// offers a way back to the storefront. The cart contents are the client's own state; the
+// point of this view is to show a second compiled-in route alongside the edge-delivered
+// campaign pages.
 Page {
     id: cart
 

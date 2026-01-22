@@ -1,7 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 // SPDX-License-Identifier: Apache-2.0
 
-import QtQuick
 import SynQt
 
 // One instance per player session (the runnable rendering of

@@ -87,9 +87,9 @@ bid too low.
 Open `client/app/Main.qml` and replace its contents:
 
 ```qml
+import SynQt
 import QtQuick.Controls
 import QtQuick.Layouts
-import SynQt
 
 ApplicationWindow {
     visible: true

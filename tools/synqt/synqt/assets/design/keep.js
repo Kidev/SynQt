@@ -1,33 +1,28 @@
 // SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 // SPDX-License-Identifier: Apache-2.0
 
-// What this browser remembers between visits, and the two very different reasons it does.
+// What this browser remembers between visits: the pane sizes, and the document.
 //
-// The pane sizes belong to the person and their screen. They are three numbers, they are read
-// before the first paint, and they must never end up in the project. A colleague pulling the
-// repository should not inherit somebody else's idea of how wide a sidebar is. They are kept
-// as *fractions* of the window rather than pixels, so a layout arranged on one monitor is
-// still the same layout on another, and clamped on the way back in so a stored value from a
-// very large screen cannot leave a pane unusable on a small one. localStorage, because three
-// numbers read synchronously at start-up is exactly what it is for.
+// The pane sizes belong to the person and their screen and never go into the project. They
+// are kept as fractions of the window, so a layout carries over to another monitor, and
+// clamped when read back, so a value from a large screen cannot leave a pane unusable on a
+// small one. They live in localStorage, which is read synchronously before the first paint.
 //
-// The document belongs to the work. On synqt.org there is no SynQt behind the page, so a
-// design lives only in the tab it was drawn in, and closing that tab has been enough to lose
-// an afternoon. It is a whole project, QML text and all, so it goes in IndexedDB: room to
-// grow, and asynchronous, so restoring it never blocks the first frame.
+// The document matters on synqt.org, where no SynQt is behind the page and closing the tab
+// would lose the design. It is a whole project, QML text included, so it goes in IndexedDB,
+// which has room for it and restores without blocking the first frame.
 //
-// The one thing neither of them may ever do is show somebody a project that is not the
-// project. When `synqt design` is serving this page, the disk is the truth and nothing stored
-// here is restored over it.
+// When `synqt design` serves this page, the disk is the truth and nothing stored here is
+// restored over it.
 
 const PANES = "synqt.design.panes";
 const DATABASE = "synqt-design";
 const STORE = "documents";
 const ONLY = "current";
 
-// Each seam. The property it sets, the window measure it is a fraction of, and the range it
-// is allowed to occupy on any screen. The bounds are in pixels, because what makes
-// a rail unusable is how few characters fit in it, not what share of the window it holds.
+// Each seam: the property it sets, the window measure it is a fraction of, and the range it
+// may occupy on any screen. The bounds are in pixels, because a rail becomes unusable when
+// too few characters fit in it, whatever share of the window it holds.
 export const PANES_KEPT = [
     {property: "--rail-width", of: "width", least: 150, most: 460, fallback: 224},
     {property: "--inspector-width", of: "width", least: 220, most: 640, fallback: 352},
@@ -109,14 +104,17 @@ function inStore(mode, work) {
     }));
 }
 
-// Storing is best-effort on purpose. A browser in private mode, or one whose quota is full,
-// refuses, and the right answer to that is to carry on drawing rather than to interrupt
-// somebody mid-thought with a storage error they cannot act on.
-export async function keepDesign(design) {
+// Storing is best effort. A browser in private mode, or one whose quota is full, refuses,
+// and the editor carries on without reporting a storage error nobody can act on.
+export async function keepDesign(design, seed) {
     try {
         await inStore("readwrite", (store) => store.put({
             version: 1,
             design,
+            // The example this design started from, if any. Someone who opens an example,
+            // changes it and reloads expects their changes, not the example the address bar
+            // still names.
+            seed: seed || "",
         }, ONLY));
     } catch (error) {
         return false;
@@ -124,10 +122,12 @@ export async function keepDesign(design) {
     return true;
 }
 
+// What this browser holds: the design and the example it started from, or null on a first
+// visit.
 export async function keptDesign() {
     try {
         const held = await inStore("readonly", (store) => store.get(ONLY));
-        return held && held.design ? held.design : null;
+        return held && held.design ? {design: held.design, seed: held.seed || ""} : null;
     } catch (error) {
         return null;
     }

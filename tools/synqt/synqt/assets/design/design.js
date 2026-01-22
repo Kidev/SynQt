@@ -20,14 +20,14 @@
 // becomes a download of the project it would have written.
 
 import { entityType, findings as ruleFindings, frontsOf } from "./rules.js";
-import { MEMBER_KINDS, NODE_RADIUS, ROLE_HELP, describe, draw, element, entityAt, extent,
-         glyphSvg, nearestFreeSlot, roleOf, seatAt, seatsOfFront, slotIndex,
-         turnsToward } from "./canvas.js";
+import { MEMBER_KINDS, NODE_RADIUS, ROLE_HELP, accessorName, describe, draw, element,
+         endsOfPoint, entityAt, extent, glyphSvg, nearestFreeSlot, roleOf, seatAt,
+         seatsOfFront, slotIndex, turnsToward } from "./canvas.js";
 import { inspect } from "./inspector.js";
 import { forgetDesign, keepDesign, keepPane, keptDesign,
          readPanes } from "./keep.js";
-import { contractOf, entityDir, entityFiles, entityQml, entityQmlPath, projectFiles }
-    from "./project.js";
+import { contractOf, entityDir, entityFiles, entityQml, entityQmlPath, isShared,
+         projectFiles } from "./project.js";
 import { declarationLine, declarations, references, rewritten, runsFor,
          withoutDeclaration, withoutNotice } from "./source.js";
 import { YamlError, parseDesign } from "./yamlin.js";
@@ -108,6 +108,12 @@ const state = {
     // half-finished line under the caret; the second is what the way back returns to.
     configText: "",
     lastGood: "",
+    // The example this drawing started life as, where it started as one. Kept with the design
+    // so a reload of the same link resumes the work rather than reseeding it.
+    seed: "",
+    // What the pointer is over, as the key hoverKey builds. Held so a pointermove that has
+    // not left the thing it was already on does no work at all.
+    hover: "",
 };
 
 const view = {x: 0, y: 0, k: 1};
@@ -307,6 +313,10 @@ function redraw() {
     draw({zones: page.zones, links: page.links, nodes: page.nodes}, state.design,
          {problems: state.problems, selected: state.selected,
           filesOf: (entity) => entityFiles(state.design, entity)});
+    // Everything the drawing held is gone, the marks on it included, so the record of what was
+    // lit has to go with them: left behind, the next pointermove over the same thing would
+    // find its key unchanged and light nothing.
+    state.hover = "";
     renderFindings();
     if (state.files) {
         renderProject();
@@ -855,6 +865,10 @@ function onSourceInput() {
         const entity = entityOf(open.name);
         if (entity) {
             entity.schema = page.sourceInput.value;
+            // The same mark the QML carries, and for the same reason: the document holds a
+            // copy of every file so the pane can show the project as it is, and only text
+            // somebody typed here is text the server writes back.
+            entity.schemaEdited = true;
             touched();
         }
         return;
@@ -987,34 +1001,97 @@ function memberText(member) {
     return `slot ${member.type ? member.type + " " : ""}${member.name}(${parts})`;
 }
 
+// What one member carries, written out in full: the canvas has room for the types alone, so
+// this is where the names that go with them live. A row's roles are what a consumer's delegate
+// reads by name, and a call's parameters are what somebody writing the call has to supply, so
+// neither is decoration.
+function partsRow(member) {
+    if (member.kind === "prop") {
+        return tipRow("holds", `One ${member.type || "var"}`);
+    }
+    if (member.kind === "model") {
+        return (member.roles || []).length
+            ? tipRow("rows carry", (member.roles || [])
+                .map((role) => `${role.type} ${role.name}`).join(", "))
+            : tipRow("rows carry", "No roles yet, so no part of a row crosses");
+    }
+    const params = member.params || [];
+    return tipRow("takes", params.length
+        ? params.map((part) => `${part.type} ${part.name}`).join(", ")
+        : "Nothing");
+}
+
 function tipFor(what) {
     const box = document.createElement("div");
-    // Which of the four a mark on a line stands for. The word is off the canvas so five rows
-    // read as five names; it is here, with the one sentence that says which way that kind
-    // travels and who is allowed to decide.
-    if (what.kind === "member-kind") {
+    // One member of one contract, asked for by pointing anywhere on its row: the mark that
+    // says which of the four kinds it is, or the name and prototype beside it. Both, because
+    // pointing at `placeBid` is the obvious way to ask what `placeBid` is, and for as long as
+    // only the mark answered, the obvious way did nothing.
+    //
+    // The canvas writes the row short: types without their names, and no word for the kind.
+    // Everything it left out is here, said about the two entities actually at the ends of
+    // this link rather than about owners and consumers in general.
+    if (what.kind === "member") {
+        const link = (state.design.links || []).find((one) => one.name === what.link);
+        const member = ((link || {}).members || [])
+            .find((one) => one.name === what.name);
+        if (!member) {
+            return null;
+        }
+        const said = MEMBER_KINDS[member.kind] || MEMBER_KINDS.prop;
+        const ends = endsOfPoint(link);
         const head = document.createElement("div");
         head.className = "tip__head tip__head--link";
         const title = document.createElement("span");
-        title.textContent = what.name;
+        title.textContent = memberText(member);
         head.append(title);
         box.append(head);
-        const said = MEMBER_KINDS[what.of] || MEMBER_KINDS.prop;
-        box.append(tipRow("is a", said.name));
-        box.append(tipHelp(said.says));
+        box.append(tipRow("is a", `${said.name} of ${accessorName(link.owner)}, `
+                                  + `${link.owner}'s connect point`));
+        box.append(partsRow(member));
+        if (member.kind === "slot") {
+            box.append(tipRow("answers", member.type
+                ? `${member.type}, so the call resolves with a value`
+                : "Nothing, so the call is made and not waited on"));
+        }
+        box.append(tipRow("reaches", member.scope
+            ? `Callers holding '${member.scope}', and nobody else`
+            : (link.scope ? `Callers holding '${link.scope}', which is the whole point's gate`
+                          : "Every caller that reaches the point")));
+        box.append(tipHelp(said.says(ends.owner, ends.consumers)));
+        if (member.scope) {
+            box.append(tipHelp(`Raised above ${link.scope ? `the point's '${link.scope}'`
+                                                          : "the point's own scope"}, so this `
+                               + "member alone is held back from callers the rest of the "
+                               + "point reaches."));
+        }
         return box;
     }
-    // The scope holding one member back, asked for by pointing at the mark on its name.
-    if (what.kind === "member-scope") {
+    // One scope on a front's back: who answers callers holding it, and what reaching them
+    // costs a browser. The seat is the whole of the routing on the canvas, so the one thing it
+    // cannot say in a word -- what happens to a caller of this scope -- is said here.
+    if (what.kind === "seat") {
+        const front = frontsOf(state.design).get(what.name);
+        const seat = (seatsOfFront(front) || []).find((one) => one.scope === what.scope);
+        if (!seat) {
+            return null;
+        }
         const head = document.createElement("div");
-        head.className = "tip__head tip__head--link";
+        head.className = "tip__head tip__head--edge";
         const title = document.createElement("span");
-        title.textContent = what.name;
+        title.textContent = what.scope;
         head.append(title);
         box.append(head);
-        box.append(tipRow("reaches", `Callers holding '${what.scope}', and nobody else`));
-        box.append(tipHelp("Raised above the point's own scope, so this member alone is "
-                           + "held back from callers the rest of the point reaches."));
+        box.append(tipRow("on", `'${what.name}', which fronts for the entities behind it`));
+        box.append(tipRow("answered by", seat.tier
+            ? `'${seat.tier}', over the mesh`
+            : "Nobody yet, so a caller of this scope is handed nowhere"));
+        box.append(tipHelp(seat.tier
+            ? `A browser holding '${what.scope}' reaches '${what.name}' and is served by `
+              + `'${seat.tier}'. It never learns that '${seat.tier}' exists: the accessor it `
+              + `writes is ${accessorName(what.name)}, whoever is behind it.`
+            : `Drag from here to the entity that serves callers holding '${what.scope}', or `
+              + "from that entity to here. Either way round draws the same routing."));
         return box;
     }
     // A box around a group of entities. Its name is on the canvas and what it means is here,
@@ -1067,14 +1144,39 @@ function tipFor(what) {
                           : (role === "edge" ? "The internet, and only over TLS"
                                              : "The entities on its consumer lists, and "
                                                + "nothing else")));
+        // How many of it there are, which is the entity's own answer and decides whether a
+        // Source holds one caller's state or everybody's. It is a setting on this node, so it
+        // is a fact about this node.
+        if (role !== "client") {
+            box.append(tipRow("how many", isShared(entity)
+                ? "One, for everybody, and every caller still arrives with a Caller of "
+                  + "their own"
+                : "One per caller, holding only what is theirs"));
+        }
+        // What each connect point is called where somebody writes it, because that is the
+        // word a reader is about to type. The name of the point is the owner's, so listing the
+        // owner's own name back at them said nothing they were not already looking at.
         const owns = (state.design.links || [])
             .filter((link) => link.owner === entity.name);
         box.append(tipRow("owns", owns.length
-            ? owns.map((link) => link.name).join(", ") : "No connect point yet"));
+            ? owns.map((link) => `${contractOf(link)}, reached by `
+                                 + `${(link.consumers || []).length
+                                     ? `'${(link.consumers || []).join("', '")}'`
+                                     : "nobody yet"}`).join("; ")
+            : "No connect point yet"));
         const uses = (state.design.links || [])
             .filter((link) => (link.consumers || []).includes(entity.name));
         box.append(tipRow("consumes", uses.length
-            ? uses.map((link) => `${link.name} (${link.owner})`).join(", ") : "Nothing"));
+            ? uses.map((link) => `${accessorName(link.owner)}, which is '${link.owner}'`)
+                .join("; ")
+            : "Nothing"));
+        const front = frontsOf(state.design).get(entity.name);
+        if (front) {
+            const wired = seatsOfFront(front).filter((seat) => seat.tier);
+            box.append(tipRow("hands on", wired.length
+                ? wired.map((seat) => `${seat.scope} to '${seat.tier}'`).join(", ")
+                : "Nothing yet, so it hands nobody anywhere"));
+        }
         const files = entityFiles(state.design, entity);
         box.append(tipRow("files", files.length
             ? files.map((file) => file.name).join(", ") : "None yet"));
@@ -1089,15 +1191,37 @@ function tipFor(what) {
     const head = document.createElement("div");
     head.className = "tip__head tip__head--link";
     const title = document.createElement("span");
-    title.textContent = `${link.name}: ${contractOf(link)}`;
+    title.textContent = contractOf(link) || "this connect point";
     head.append(title);
     box.append(head);
-    box.append(tipRow("owned by", `${link.owner || "Nobody"}, which decides`));
-    box.append(tipRow("consumed by", (link.consumers || []).join(", ")
-        || "Nobody yet, so nothing can acquire it"));
+    box.append(tipRow("owned by", link.owner
+        ? `'${link.owner}', which decides what crosses and who may ask`
+        : "Nobody, so there is nothing here to acquire"));
+    // Which of the point's consumers this particular line runs to, when it is a line that was
+    // hovered rather than the icon: one line is one consumer of a contract they all share.
+    if (what.consumer) {
+        box.append(tipRow("this line", `'${what.consumer}', one of `
+                                       + `${(link.consumers || []).length} consuming it`));
+    }
+    box.append(tipRow("consumed by", (link.consumers || []).length
+        ? `'${(link.consumers || []).join("', '")}', and nothing else: the list is the `
+          + "authorization"
+        : "Nobody yet, so nothing can acquire it"));
+    box.append(tipRow("written as", link.owner
+        ? `${accessorName(link.owner)}, in the QML of every consumer`
+        : "Nothing yet: the owner is the name"));
     box.append(tipRow("carried over", link.transport === "local"
         ? "A local socket: the caller is trusted by colocation, not authenticated"
         : "Mutual TLS, verified against the project CA"));
+    box.append(tipRow("gated behind", link.scope
+        ? `'${link.scope}', so a browser below it never acquires the point at all`
+        : "No scope, so any session reaches it, anonymous included"));
+    const behind = seatsOfFront(frontsOf(state.design).get(link.owner))
+        .filter((seat) => seat.tier);
+    if (behind.length) {
+        box.append(tipRow("handed on to",
+                          behind.map((seat) => `${seat.scope} to '${seat.tier}'`).join(", ")));
+    }
     const members = link.members || [];
     if (members.length) {
         const list = document.createElement("div");
@@ -1110,7 +1234,10 @@ function tipFor(what) {
         }
         box.append(list);
     } else {
-        box.append(tipHelp("Nothing crosses it yet. Nothing undeclared ever will."));
+        box.append(tipHelp(link.owner
+            ? `Nothing crosses it yet. Tick what '${link.owner}' declares onto the contract, `
+              + "and nothing undeclared will ever cross whatever anyone writes."
+            : "Nothing crosses it yet. Nothing undeclared ever will."));
     }
     box.append(...tipFindings(state.problems.links.get(link.name) || []));
     return box;
@@ -1154,25 +1281,188 @@ function hideTip() {
     page.tip.replaceChildren();
 }
 
+// Highlighting what the pointer is over
+//
+// Two states, two colours, on purpose. Selection is what the panel has open: it stays where it
+// was put and is what a reader is working on. Hover is where the pointer is this instant. In
+// one colour the drawing lost track of the first every time somebody moved the mouse across
+// it, which on a canvas of a dozen links is exactly when knowing which line you are working on
+// matters most.
+//
+// A thing hovered lights everything that is the same fact as itself: a line lights the
+// contract it carries, because that is what crosses it, and the scope seat it lands on,
+// because that is who answers it. Pointing at a line and being shown only the line leaves the
+// two ends of the question -- what crosses, and who serves it -- for the reader to trace by
+// eye across whatever else the canvas holds.
+//
+// Nothing here redraws. `redraw()` from a pointermove path is how the double-click bug comes
+// back; this only puts a class on and takes it off elements already in the document.
+
+// Which scope seats a link arrives at: on a front, the seat of the scope whose callers this
+// link's owner serves. `entity\nscope`, the same key the seat elements are found by.
+function seatsOfLink(link) {
+    const fronts = frontsOf(state.design);
+    const found = [];
+    for (const consumer of link.consumers || []) {
+        const front = fronts.get(consumer);
+        if (!front) {
+            continue;
+        }
+        for (const seat of seatsOfFront(front)) {
+            if (seat.tier === link.owner) {
+                found.push(`${consumer}\n${seat.scope}`);
+            }
+        }
+    }
+    return found;
+}
+
+// Everything one hovered thing lights, as the keys the drawing's elements are found by.
+function hoverSet(what) {
+    const empty = {points: new Set(), lines: new Set(), seats: new Set(),
+                   entities: new Set(), zones: new Set(), members: new Set()};
+    if (!what) {
+        return empty;
+    }
+    const named = (name) => (state.design.links || []).find((one) => one.name === name);
+    if (what.kind === "entity") {
+        empty.entities.add(what.name);
+        return empty;
+    }
+    if (what.kind === "zone") {
+        empty.zones.add(what.name);
+        return empty;
+    }
+    // A seat, and the link that lands on it: the entity behind a scope reaches the front
+    // through the point it owns, so that point is the other half of what the seat says.
+    if (what.kind === "seat") {
+        empty.seats.add(`${what.name}\n${what.scope}`);
+        const front = frontsOf(state.design).get(what.name);
+        const seat = (seatsOfFront(front) || []).find((one) => one.scope === what.scope);
+        const behind = seat && seat.tier ? named(seat.tier) : null;
+        if (behind) {
+            empty.points.add(behind.name);
+            empty.lines.add(`${behind.name}\n${what.name}`);
+        }
+        return empty;
+    }
+    const link = named(what.kind === "member" ? what.link : what.name);
+    if (!link) {
+        return empty;
+    }
+    empty.points.add(link.name);
+    for (const key of seatsOfLink(link)) {
+        empty.seats.add(key);
+    }
+    if (what.kind === "member") {
+        empty.members.add(`${link.name}\n${what.name}`);
+    }
+    // A contract is the whole point, so every line out of it lights; one line is one consumer
+    // of it, so only that line does.
+    if (what.kind === "contract") {
+        for (const consumer of link.consumers || []) {
+            empty.lines.add(`${link.name}\n${consumer}`);
+        }
+        empty.lines.add(`${link.name}\n`);
+    } else {
+        empty.lines.add(`${link.name}\n${what.consumer || ""}`);
+    }
+    return empty;
+}
+
+function hoverKey(what) {
+    if (!what) {
+        return "";
+    }
+    return [what.kind, what.name, what.consumer || "", what.link || "",
+            what.scope || ""].join("\n");
+}
+
+function highlight(what) {
+    const key = hoverKey(what);
+    if (key === state.hover) {
+        return;                     // the same thing under the pointer as a moment ago
+    }
+    state.hover = key;
+    const wanted = hoverSet(what);
+    for (const group of page.links.querySelectorAll("[data-link]")) {
+        const line = `${group.dataset.link}\n${group.dataset.consumer || ""}`;
+        group.classList.toggle("is-hover", wanted.lines.has(line));
+    }
+    for (const badge of page.links.querySelectorAll("[data-contract]")) {
+        badge.classList.toggle("is-hover", wanted.points.has(badge.dataset.contract));
+    }
+    for (const row of page.links.querySelectorAll("[data-member]")) {
+        const holder = row.closest("[data-link]");
+        row.classList.toggle("is-hover", wanted.members.has(
+            `${holder ? holder.dataset.link : ""}\n${row.dataset.member}`));
+    }
+    for (const grab of page.nodes.querySelectorAll("[data-seat]")) {
+        grab.classList.toggle("is-hovered",
+                              wanted.seats.has(`${grab.dataset.seat}\n${grab.dataset.scope}`));
+    }
+    for (const node of page.nodes.querySelectorAll("[data-entity]")) {
+        node.classList.toggle("is-hover", wanted.entities.has(node.dataset.entity));
+    }
+    for (const box of page.zones.querySelectorAll("[data-zone-title]")) {
+        const zone = box.closest(".zone");
+        if (zone) {
+            zone.classList.toggle("is-hover", wanted.zones.has(box.dataset.zoneTitle));
+        }
+    }
+}
+
+// Whatever was lit, unlit. Called when the pointer leaves the canvas and before a redraw, so
+// nothing is left glowing under a pointer that has gone.
+function clearHighlight() {
+    state.hover = "";
+    for (const marked of page.canvas.querySelectorAll(".is-hover, .is-hovered")) {
+        marked.classList.remove("is-hover");
+        marked.classList.remove("is-hovered");
+    }
+}
+
 function whatIsUnder(target) {
-    const entity = target.closest ? target.closest("[data-entity]") : null;
+    if (!target || !target.closest) {
+        return null;
+    }
+    // One member of a contract, before the link it is written beside: the row is the smaller
+    // thing under the pointer, and it is answered by anywhere on it -- the mark that says
+    // which of the four kinds it is, or the name and prototype next to it.
+    const member = target.closest("[data-member]");
+    if (member) {
+        const holder = member.closest("[data-link]");
+        // Which line the row is written beside, as well as which point it belongs to: the
+        // block is drawn once per consumer, and lighting the point without the line left the
+        // one line the pointer was actually on unlit.
+        return {kind: "member", name: member.dataset.member,
+                link: holder ? holder.dataset.link : "",
+                consumer: holder ? (holder.dataset.consumer || "") : ""};
+    }
+    // A scope on a front's back, before the node it is drawn in: it is the seat, and what it
+    // says is where callers of that scope go.
+    const seat = target.closest("[data-seat]");
+    if (seat) {
+        return {kind: "seat", name: seat.dataset.seat, scope: seat.dataset.scope};
+    }
+    const entity = target.closest("[data-entity]");
     if (entity) {
         return {kind: "entity", name: entity.dataset.entity};
     }
     // The contract icon before the lines, because it is drawn over them and is the whole
     // point rather than one consumer of it.
-    const contract = target.closest ? target.closest("[data-contract]") : null;
+    const contract = target.closest("[data-contract]");
     if (contract) {
         return {kind: "contract", name: contract.dataset.contract};
     }
-    const link = target.closest ? target.closest("[data-link]") : null;
+    const link = target.closest("[data-link]");
     if (link) {
         return {kind: "link", name: link.dataset.link, consumer: link.dataset.consumer || ""};
     }
     // A box's name, last, because everything drawn inside a box answers for itself first.
     // What the box means is written on the name rather than under it, so this is where it is
     // read from.
-    const zone = target.closest ? target.closest("[data-zone-title]") : null;
+    const zone = target.closest("[data-zone-title]");
     return zone
         ? {kind: "zone", name: zone.textContent, note: zone.dataset.note || ""}
         : null;
@@ -1550,8 +1840,26 @@ function renameTo(kind, name, wanted, what) {
     select({kind, name: trimmed});
 }
 
+// What a right click is on, which is a coarser question than what the pointer is over: a
+// member row belongs to its link and a scope seat to its entity, and neither has a menu of its
+// own. Without this, right-clicking a seat opened the menu of the point named after the entity
+// the seat is drawn on, which is a different thing that happens to share a name.
+function underForMenu(target) {
+    const under = whatIsUnder(target);
+    if (!under) {
+        return null;
+    }
+    if (under.kind === "member") {
+        return {kind: "link", name: under.link};
+    }
+    if (under.kind === "seat") {
+        return {kind: "entity", name: under.name};
+    }
+    return under;
+}
+
 function onContextMenu(event) {
-    const under = whatIsUnder(event.target);
+    const under = underForMenu(event.target);
     const at = {x: event.clientX, y: event.clientY};
     event.preventDefault();
     hideTip();
@@ -1638,7 +1946,7 @@ function touched() {
     // an afternoon's work. With `synqt design` serving the page the project on the disk is
     // the truth and this would only be a second, staler copy of it.
     if (!state.backend) {
-        keepDesign(state.design);
+        keepDesign(state.design, state.seed);
         // The way out of a design this browser is holding, offered once there is one to be
         // out of. On a blank canvas there is nothing to start over from.
         page.restart.hidden = !(state.design.entities || []).length;
@@ -2087,8 +2395,11 @@ function onDown(event) {
             scope: seat.dataset.scope,
             at,
             moved: false,
-            start: {x: (from.x || 0) + Number(seat.getAttribute("cx")),
-                    y: (from.y || 0) + Number(seat.getAttribute("cy"))},
+            // The dot on the back edge, not wherever in the row the press landed: the
+            // handle is the whole row so the name is part of the target, and a line has to
+            // leave the seat it belongs to.
+            start: {x: (from.x || 0) + Number(seat.dataset.x),
+                    y: (from.y || 0) + Number(seat.dataset.y)},
         };
         return;
     }
@@ -2102,8 +2413,8 @@ function onDown(event) {
             from,
             at,
             moved: false,
-            start: {x: (from.x || 0) + Number(rim.getAttribute("cx")),
-                    y: (from.y || 0) + Number(rim.getAttribute("cy"))},
+            start: {x: (from.x || 0) + Number(rim.dataset.x),
+                    y: (from.y || 0) + Number(rim.dataset.y)},
         };
         return;
     }
@@ -2204,25 +2515,8 @@ function clearSlotsNear() {
 function onMove(event) {
     if (!drag) {
         showSlotsNear(pointAt(event));
-        // The mark on a scoped member name, which is the one thing on a link that says less
-        // than it knows: the name is on the canvas, and which scope holds it back is here.
-        const scoped = event.target.closest
-            ? event.target.closest("[data-scope][data-member]") : null;
-        if (scoped) {
-            showTip({kind: "member-scope", name: scoped.dataset.member,
-                     scope: scoped.dataset.scope}, {x: event.clientX, y: event.clientY});
-            return;
-        }
-        // The mark at the start of a member row, which is what the word in front of the name
-        // used to be.
-        const marked = event.target.closest
-            ? event.target.closest("[data-kind][data-member]") : null;
-        if (marked) {
-            showTip({kind: "member-kind", name: marked.dataset.member,
-                     of: marked.dataset.kind}, {x: event.clientX, y: event.clientY});
-            return;
-        }
         const under = whatIsUnder(event.target);
+        highlight(under);
         if (under) {
             showTip(under, {x: event.clientX, y: event.clientY});
         } else {
@@ -2608,23 +2902,36 @@ async function goOffline(reason) {
     page.review.hidden = true;
     page.apply.textContent = "Download";
     page.apply.disabled = false;
-    // What was being drawn last time comes back first, unless this visit asked for a
-    // particular example by name, which is somebody saying what they want to look at.
-    const kept = fromHash("example") ? null : await keptDesign();
-    if (kept && (kept.entities || []).length) {
-        adopt(kept);
+    // What was being drawn last time comes back first. An example named in the address is a
+    // *preset*: it is where a drawing starts, not a page that replaces one. So a design already
+    // in this browser wins even then, as long as it grew out of the same example -- somebody
+    // who opened one, moved things around and reloaded is looking for what they left, and the
+    // link in the address bar used to hand them the pristine example back every time. A link
+    // to a *different* example is a request to look at that one, and seeds afresh.
+    const wanted = fromHash("example");
+    const kept = await keptDesign();
+    if (kept && (kept.design.entities || []).length
+            && (!wanted || kept.seed === wanted)) {
+        state.seed = kept.seed;
+        adopt(kept.design);
         fit();
-        say("Picked up where you left off. This is kept in this browser and nowhere else; "
-            + "press Download to take it with you, or Start over to clear it.");
+        say(kept.seed
+            ? `Picked up where you left off with the ${kept.seed} example. It is an ordinary `
+              + "project now: this copy is kept in this browser and nowhere else, so press "
+              + "Download to take it with you, or Clear to start over."
+            : "Picked up where you left off. This is kept in this browser and nowhere else; "
+              + "press Download to take it with you, or Clear to start over.");
         page.restart.hidden = false;
         return;
     }
-    const example = await exampleNamed(fromHash("example"));
+    const example = await exampleNamed(wanted);
+    state.seed = example ? wanted : "";
     adopt(example || {version: 1, project: "", entities: [], links: []});
     if (example) {
         fit();
-        say("This is the project the home page reads. Move anything, add anything, and "
-            + "press Download when it is yours.");
+        say("This is the project the home page reads, and it is yours to edit: move anything, "
+            + "add anything, and it is still here when you come back. Press Download to take "
+            + "it with you, or Clear to start over.");
         return;
     }
     say(reason);
@@ -2674,6 +2981,7 @@ function wire() {
             return;
         }
         await forgetDesign();
+        state.seed = "";
         adopt({version: 1, project: "", entities: [], links: []});
         page.restart.hidden = true;
         fit();
@@ -2706,6 +3014,7 @@ function wire() {
     page.canvas.addEventListener("pointerleave", () => {
         hideTip();
         clearSlotsNear();
+        clearHighlight();
     });
     page.canvas.addEventListener("wheel", onWheel, {passive: false});
     page.canvas.addEventListener("contextmenu", onContextMenu);

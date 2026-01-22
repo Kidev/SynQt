@@ -86,8 +86,8 @@ SortImports=false
 _MAIN_QML = """// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 // SPDX-License-Identifier: Apache-2.0
 
-import QtQuick.Controls
 import SynQt
+import QtQuick.Controls
 
 ApplicationWindow {
     id: root
@@ -156,7 +156,7 @@ def entity_singleton(name: str) -> str:
             "\n"
             f"pragma {appmodel.SHARED_PRAGMA}\n"
             "\n"
-            "import QtQuick\n"
+            "import SynQt\n"
             "\n"
             f"// The '{name}' entity itself: one of it, for as long as the entity runs, and one\n"
             "// whatever the entity answers to `shared:`. State that belongs to the whole\n"
