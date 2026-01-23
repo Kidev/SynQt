@@ -150,6 +150,19 @@ class SourceHelperTest(unittest.TestCase):
         # the bare name is free in every binary that has this helper in it.
         self.assertIn('qmlRegisterType<TodoSourceHelper>("SynQt", 1, 0, "Todo")', source)
 
+    def test_registering_sources_installs_the_qtquick_re_export(self):
+        # `import SynQt` brings QtQuick with it only once someone has said so, and the one
+        # thing every host of a Source does is register the contract. A host that had to know
+        # to make a second call got "Timer is not a type" (tests/m1-contract/tst_qmlimport.cpp
+        # is the same claim against a real engine).
+        syn = parse_text(TODO, stem="Todo")
+        source = emit_source_helper_source(syn, "todo")
+        self.assertIn("#if __has_include(<moduleimports.h>)", source)
+        self.assertIn("SynQt::registerModuleImports();", source)
+        # Inside the registration, not at file scope where nothing would run it.
+        registration = source.split("void synqtRegisterTodoSources()", 1)[1]
+        self.assertIn("SynQt::registerModuleImports();", registration)
+
     def test_slots_are_concrete_overrides(self):
         syn = parse_text(TODO, stem="Todo")
         header = emit_source_helper_header(syn, "todo")
@@ -226,9 +239,13 @@ class ConsumerFacadeTest(unittest.TestCase):
                       source)
         self.assertIn('qmlRegisterType<TodoConsumer>("SynQt", 1, 0, "Todo");', source)
         self.assertIn('SynQt::registerConsumerFactory(QStringLiteral("Todo")', source)
+        # Same reason as the Source side. A consumer's view is a window, so registering the
+        # contract has to be enough for `import SynQt` to carry QtQuick.
+        registration = source.split("void synqtRegisterTodoConsumers()", 1)[1]
+        self.assertIn("SynQt::registerModuleImports();", registration)
 
     def test_everything_is_guarded_on_the_runtime_header(self):
-        # A Replica-only target (no consumer runtime) compiles the file away to just the
+        # A Replica-only target (no consumer runtime) compiles the file away to the
         # registration stub, so it still links.
         header = self.header()
         source = self.source()

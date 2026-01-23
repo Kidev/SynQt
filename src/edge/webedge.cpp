@@ -1472,6 +1472,13 @@ void WebEdge::hostConnection(QWebSocket *socket)
         QString error;
         QObject *source{sourceForConnection(connectPoint, sessionId, connection, &error)};
         if (!source) {
+            // Said out loud as well as on the signal. Every other rejection here is the
+            // policy working and belongs to the connection that earned it, but a Source that
+            // will not load is a defect in the entity, the same one on every connection, and
+            // the browser's only symptom is a connect point that never arrives. Left to the
+            // signal alone it went unreported through three operating systems of CI.
+            qWarning("SynQt: connect point %s is not served on this connection: %s",
+                     qUtf8Printable(connectPoint.name), qUtf8Printable(error));
             emit upgradeRejected(error);
             continue;
         }
@@ -1479,6 +1486,8 @@ void WebEdge::hostConnection(QWebSocket *socket)
         // per tab, which QtRO allows: each host gets its own view of the same object, and
         // every replica tracks it.
         if (!node->enableRemoting(source, connectPoint.name)) {
+            qWarning("SynQt: connect point %s loaded but could not be remoted",
+                     qUtf8Printable(connectPoint.name));
             emit upgradeRejected(
                 QStringLiteral("enableRemoting failed for %1").arg(connectPoint.name));
         }

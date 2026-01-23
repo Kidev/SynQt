@@ -85,6 +85,29 @@ target_link_libraries(tst_qmlrules PRIVATE
 # display would not run in CI.
 add_test(NAME m1-qmlrules COMMAND tst_qmlrules -platform offscreen)
 
+# What the rule above is worth to a host that never heard of it: registering a contract's
+# Sources, and nothing else, has to be enough for `import SynQt` to carry QtQuick. Its own
+# target because qmlRegisterModuleImport writes to a process-wide registry, so sharing a
+# process with tst_qmlrules (which installs the re-export by hand) would answer the question
+# for it.
+qt_add_executable(tst_qmlimport tst_qmlimport.cpp)
+
+synqt_add_contract(tst_qmlimport ROLE source SYN
+    "${CMAKE_CURRENT_SOURCE_DIR}/shared/Todo.syn"
+)
+
+target_link_libraries(tst_qmlimport PRIVATE
+    SynQtConsumer
+    Qt6::Core
+    Qt6::Gui
+    Qt6::Qml
+    Qt6::Quick
+    Qt6::RemoteObjects
+    Qt6::Test
+)
+
+add_test(NAME m1-qmlimport COMMAND tst_qmlimport -platform offscreen)
+
 # Owner (ROLE source): gets the Source helpers only. Proves a service entity builds
 # with no Replica code.
 qt_add_executable(m1_owner owner_main.cpp)

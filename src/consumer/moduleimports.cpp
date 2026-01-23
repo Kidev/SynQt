@@ -9,10 +9,18 @@ namespace SynQt {
 
 void registerModuleImports()
 {
-    // QQmlModuleImportLatest for the version, which is what omitting the version in a
-    // qmldir `import` line means. The alternative spelling, QQmlModuleImportAuto, asks
-    // for QtQuick at the version SynQt itself was imported at; SynQt is 1.0 and QtQuick
-    // has no 1.0, so that spelling fails the import rather than resolving it.
+    // Runs once per process, however often it is called: the entity main and every
+    // generated contract registration call it, and a repeated import would leave duplicate
+    // entries for every `import SynQt`.
+    static bool registered{false};
+    if (registered) {
+        return;
+    }
+    registered = true;
+
+    // QQmlModuleImportLatest, what a versionless qmldir `import` means.
+    // QQmlModuleImportAuto would ask for QtQuick at SynQt's own version (1.0), which
+    // QtQuick does not have.
     qmlRegisterModuleImport("SynQt", 1, "QtQuick",
                             QQmlModuleImportLatest, QQmlModuleImportLatest);
 }

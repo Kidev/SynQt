@@ -30,9 +30,15 @@ namespace SynQt {
 /// declares a type of its own keeps its own: an explicit import in the document
 /// wins over one the module brought along.
 ///
-/// Call this before an engine loads anything, once per process. Registration is
-/// global to the QML type system rather than per engine, and repeating it is
-/// harmless.
+/// Call this before an engine loads anything. Registration is global to the QML
+/// type system rather than per engine, and the call is idempotent, so repeating
+/// it costs nothing.
+///
+/// You rarely have to. Every generated contract registration makes this call
+/// first, so registering a contract's Sources or consumers is already enough for
+/// the QML that uses them. What remains for a caller is the case with no
+/// contract to register at all. A client with no consumed connect points yet,
+/// whose Main.qml is still a window and still needs QtQuick.
 void registerModuleImports();
 
 } // namespace SynQt

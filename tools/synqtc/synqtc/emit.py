@@ -157,6 +157,26 @@ def _bounds_a_var(syn: SynFile) -> bool:
                for written in _written_types(syn))
 
 
+# `import SynQt` re-exports QtQuick, so an entity's QML writes one import line and leans on
+# Item, Timer and Component.onCompleted without naming QtQuick. The re-export is a call. If
+# only the generated entity main made it, any other host of the same QML (a test harness,
+# an embedder, a tool loading one Source) would register the contract, load the file, and
+# get "Timer is not a type". Registering the contract is the one thing every such
+# host does, so the re-export rides along with it. Idempotent, so an entity with several
+# contracts still installs it once.
+MODULE_IMPORTS_INCLUDE = """// Present whenever a runtime is linked, absent for a contract-only target, which has no
+// engine to make the re-export mean anything. The call below is guarded the same way.
+#if __has_include(<moduleimports.h>)
+#  include <moduleimports.h>
+#  define SYNQT_HAS_MODULE_IMPORTS 1
+#endif"""
+
+MODULE_IMPORTS_CALL = """#ifdef SYNQT_HAS_MODULE_IMPORTS
+    // Registering a contract is what makes `import SynQt` enough. It brings QtQuick with it,
+    // so the QML registered below can hold a Timer without a second import line.
+    SynQt::registerModuleImports();
+#endif"""
+
 ACTING_FOR_SHIM = """// A slot names the Caller it is answering for as long as it runs, so that a call the
 // owner's implementation makes on to another entity carries the same person. That lives in
 // the consumer runtime, which a contract-only target does not link and has nothing to call
@@ -662,6 +682,7 @@ def emit_source_helper_source(syn: SynFile, lstem: str) -> str:
     out += ["#if __has_include(<sourcefactory.h>)",
             "#  include <sourcefactory.h>",
             "#endif", ""]
+    out += [MODULE_IMPORTS_INCLUDE, ""]
     if any(contract.slots for contract in syn.contracts):
         out += [ACTING_FOR_SHIM, ""]
     if _bounds_a_var(syn):
@@ -695,6 +716,7 @@ def emit_source_helper_source(syn: SynFile, lstem: str) -> str:
 
     out.append(f"void synqtRegister{_cap(syn.stem)}Sources()")
     out.append("{")
+    out.append(MODULE_IMPORTS_CALL)
     for contract in syn.contracts:
         out.append(
             f'    qmlRegisterType<{contract.name}SourceHelper>("SynQt", 1, 0, "{contract.name}");'
@@ -1472,9 +1494,12 @@ QMetaObject::Connection synqtRelay(QObject *from, const QByteArray &fromSignal,
 
 def emit_consumer_source(syn: SynFile, lstem: str) -> str:
     out: List[str] = [SPDX_CPP, f'#include "{lstem}_consumer.h"', "", "#if __has_include(<consumerbase.h>)"]
+    # moduleimports.h ships in the same library as consumerbase.h, so inside this guard it
+    # is there. No second guard of its own.
     out += ['#  include "actingfor.h"',
             '#  include "connectpointresolver.h"',
-            '#  include "consumerfactory.h"', "",
+            '#  include "consumerfactory.h"',
+            '#  include "moduleimports.h"', "",
             "#  include <QJSEngine>",
             "#  include <QMetaMethod>",
             "#  include <QMetaObject>",
@@ -1489,6 +1514,10 @@ def emit_consumer_source(syn: SynFile, lstem: str) -> str:
         out.append("")
     out.append(f"void synqtRegister{_cap(syn.stem)}Consumers()")
     out.append("{")
+    out.append("    // Registering a contract is what makes `import SynQt` enough: it brings")
+    out.append("    // QtQuick with it, so a view that consumes this one is a window without a")
+    out.append("    // second import line.")
+    out.append("    SynQt::registerModuleImports();")
     for contract in syn.contracts:
         out.append(
             f'    SynQt::registerConsumerFactory(QStringLiteral("{contract.name}"),')
