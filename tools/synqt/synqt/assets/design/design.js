@@ -1047,7 +1047,7 @@ function tipFor(what) {
         head.append(title);
         box.append(head);
         box.append(tipRow("is a", `${said.name} of ${accessorName(link.owner)}, `
-                                  + `${link.owner}'s connect point`));
+                                  + `the connect point '${link.owner}' exports`));
         box.append(partsRow(member));
         if (member.kind === "slot") {
             box.append(tipRow("answers", member.type
@@ -1056,14 +1056,15 @@ function tipFor(what) {
         }
         box.append(tipRow("reaches", member.scope
             ? `Callers holding '${member.scope}', and nobody else`
-            : (link.scope ? `Callers holding '${link.scope}', which is the whole point's gate`
-                          : "Every caller that reaches the point")));
+            : (link.scope
+                ? `Callers holding '${link.scope}', the gate on the connect point as a whole`
+                : "Any caller, anonymous included")));
         box.append(tipHelp(said.says(ends.owner, ends.consumers)));
         if (member.scope) {
-            box.append(tipHelp(`Raised above ${link.scope ? `the point's '${link.scope}'`
-                                                          : "the point's own scope"}, so this `
-                               + "member alone is held back from callers the rest of the "
-                               + "point reaches."));
+            box.append(tipHelp(`Raised above ${link.scope ? `'${link.scope}'`
+                                                          : "the connect point's own scope"}, `
+                               + "so this member alone is held back from callers the rest of "
+                               + `${accessorName(link.owner)} answers.`));
         }
         return box;
     }
@@ -1214,7 +1215,8 @@ function tipFor(what) {
         ? "A local socket: the caller is trusted by colocation, not authenticated"
         : "Mutual TLS, verified against the project CA"));
     box.append(tipRow("gated behind", link.scope
-        ? `'${link.scope}', so a browser below it never acquires the point at all`
+        ? `'${link.scope}', so a browser below it never acquires `
+          + `${accessorName(link.owner) || "this"} at all`
         : "No scope, so any session reaches it, anonymous included"));
     const behind = seatsOfFront(frontsOf(state.design).get(link.owner))
         .filter((seat) => seat.tier);
@@ -2100,9 +2102,9 @@ function addLink(from, to, headed, at) {
             touched();
         }
         select({kind: "link", name});
-        say(`'${consumer.name}' now consumes '${owner.name}'. An entity has one connect `
-            + `point, so this is the one '${owner.name}' already exports, and both `
-            + `consumers see the same members.`);
+        say(`'${consumer.name}' now consumes '${owner.name}'. An entity exports one connect `
+            + `point, so this is the one '${owner.name}' already had, and both consumers see `
+            + `the same members.`);
         if (at) {
             openPicker(already, at);
         }
@@ -2131,8 +2133,8 @@ function addLink(from, to, headed, at) {
         + (drawnFromAClient
             ? `, drawn the other way round because a browser cannot host a Source. `
             : `. `)
-        + `What crosses it is written on the point, and ${entityDir(owner)}/`
-        + `${contractOf(link)}.qml answers it. Say what crosses it.`);
+        + `What crosses is written on the connect point, and ${entityDir(owner)}/`
+        + `${contractOf(link)}.qml answers it. Say what crosses.`);
     // Straight into the one question a new link asks. It opens on the link rather than
     // waiting to be found in the panel, because a connect point that carries nothing is a
     // connect point nobody finished.

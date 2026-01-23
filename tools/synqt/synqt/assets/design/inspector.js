@@ -330,9 +330,9 @@ function declaresPanel(design, entity, actions) {
     box.append(note(point || !models.length
         ? "A property, a signal and a function are written into this entity's own file, "
           + "which is where a connect point it owns finds them to put on a contract. A model "
-          + "has no QML form, so it is written straight onto the point."
+          + "has no QML form, so it is written straight onto the connect point."
         : "Draw a connect point off this entity before adding a model: a model has no QML "
-          + "form, so the point is the only place one can be written.", true));
+          + "form, so the connect point is the only place one can be written.", true));
     return box;
 }
 
@@ -557,7 +557,7 @@ function ticksPanel(design, link, actions) {
         extras.append(field("Scope", choice(["", ...SCOPES], carried.scope || "", (value) => {
             carried.scope = value;
             actions.changed();
-        }, "the point's scope")));
+        }, "the connect point's scope")));
         row.append(extras);
         list.append(row);
     }
@@ -565,7 +565,8 @@ function ticksPanel(design, link, actions) {
     if (carriedOnly.length) {
         box.append(note(`${carriedOnly.length === 1 ? "One member is" : "These are"} `
                         + `written in '${link.owner}' in a form this panel reads on the `
-                        + `entity rather than here: a model is written on the point itself, `
+                        + `entity rather than here: a model is written on the connect point `
+                        + `itself, `
                         + `and a property set from a binding or a signal raised through `
                         + `Caller is code rather than a declaration. Untick one to take it `
                         + `off the contract.`, true));
@@ -574,10 +575,10 @@ function ticksPanel(design, link, actions) {
     const consumers = link.consumers || [];
     box.append(note(consumers.length
         ? `Ticked members are what '${link.owner}' says to '${consumers.join("', '")}'. `
-          + "Nothing else ever crosses, and every consumer of this point gets the same "
-          + "contract."
-        : "Nothing consumes this point yet, so none of it reaches anywhere. Drag from the "
-          + "contract icon to an entity.", true));
+          + "Nothing else ever crosses, and every consumer of this connect point gets the "
+          + "same contract."
+        : "Nothing consumes this connect point yet, so none of it reaches anywhere. Drag "
+          + "from the contract icon to an entity.", true));
     return box;
 }
 
@@ -677,7 +678,8 @@ function contractPanel(design, link, actions) {
         link.scope = value;
         actions.changed();
     }, "any session, anonymous included")));
-    panel.append(note("A browser below this scope never acquires the point at all, so its "
+    panel.append(note("A browser below this scope never acquires the connect point at all, "
+                      + "so its "
                       + "slots cannot be called and none of its state arrives. It is also "
                       + "the default for every member below: raise one of them on its own "
                       + "to keep an admin surface off a public page."));
@@ -719,8 +721,8 @@ function linePanel(design, link, consumer, actions) {
                      `${link.owner} to ${consumer}`));
     panel.append(tag("p", {class: "inspector__help"},
                      `'${consumer}' consumes ${link.owner ? accessorName(link.owner) : ""}, `
-                     + `so it acquires a replica of everything that point carries. What that `
-                     + `is belongs to the point, not to this line.`));
+                     + `so it acquires a replica of everything the connect point carries. `
+                     + `What that is belongs to the connect point, not to this line.`));
 
     // The point this line is one of, named as a consumer names it. The label says who
     // decides and the button goes there, which is the one thing this panel is for.
@@ -728,10 +730,10 @@ function linePanel(design, link, consumer, actions) {
                        accessorName(link.owner) || "the connect point");
     button.addEventListener("click", () => actions.openContract(link));
     panel.append(group("Owned by", button));
-    panel.append(note(`Every consumer of ${accessorName(link.owner) || "this point"} gets the `
-                      + "same contract, so it is edited in one place. The contract icon on "
-                      + "the canvas, which every line out of the point leaves from, opens the "
-                      + "same panel."));
+    panel.append(note(`Every consumer of ${accessorName(link.owner) || "this connect point"} `
+                      + "gets the same contract, so it is edited in one place. The contract "
+                      + "icon on the canvas, which every line leaves from, opens the same "
+                      + "panel."));
 
     const actionsRow = tag("div", {class: "inspector__actions"});
     const remove = tag("button", {type: "button", class: "button button--danger"},
@@ -742,8 +744,9 @@ function linePanel(design, link, consumer, actions) {
     });
     actionsRow.append(remove);
     panel.append(actionsRow);
-    panel.append(note("Taking the last consumer off leaves the point where it is, drawn as "
-                      + "a stub: a connect point exists before anything consumes it.", true));
+    panel.append(note("Taking the last consumer off leaves the connect point where it is, "
+                      + "drawn as a stub: a connect point exists before anything consumes "
+                      + "it.", true));
     return panel;
 }
 
