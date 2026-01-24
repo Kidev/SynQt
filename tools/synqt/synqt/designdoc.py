@@ -315,7 +315,10 @@ def _link(point: Dict[str, Any], root: Path, seats: Dict[str, Dict[str, Any]],
         "server": server,
         "qml": _read_text(root / relative) if relative else "",
     }
-    if behind:
+    # The key, not what is under it: `behind: {}` is a front somebody turned on and has not
+    # wired yet, and it has to arrive at the canvas as one. Kept on the presence test alone,
+    # so the drawing and the file agree about the switch even before the first line is drawn.
+    if appmodel.is_front(point):
         record["behind"] = behind
     return record
 
@@ -464,10 +467,14 @@ def _link_config(link: Dict[str, Any], base: Dict[str, Any]) -> Dict[str, Any]:
         written["scope"] = link["scope"]
     else:
         written.pop("scope", None)
-    behind = {str(scope): str(name)
-              for scope, name in (link.get("behind") or {}).items() if scope and name}
-    if behind:
-        written["behind"] = behind
+    # Written whenever the document holds the key, empty included: the key is what says this
+    # point is answered by entities behind it. Dropped when it was empty, applying a design
+    # whose front had nothing wired yet wrote a file that was not a front at all, and the
+    # canvas and synqt.yaml disagreed about a switch the reader had thrown.
+    declared = link.get("behind")
+    if isinstance(declared, dict):
+        written["behind"] = {str(scope): str(name)
+                             for scope, name in declared.items() if scope and name}
     else:
         written.pop("behind", None)
     return written

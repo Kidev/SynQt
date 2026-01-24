@@ -1,25 +1,13 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-"""A `behind:` block, held to the thing it claims to be.
+"""A `behind:` block, held to what a front is.
 
-A front is a web edge that owns a connect point it does not implement: it terminates the
-browser link, holds the session, runs the sign-in, and then hands each caller to whichever
-entity serves people of their scope. What makes that safe is that a caller only ever reaches
-the one entity their scope names, so the entity behind the front authorizes on `Caller` alone
-and never asks about scope at all.
-
-That property is not something the runtime can check for itself. It holds only while the
-front and the entities behind it agree about what crosses, and every way of disagreeing looks
-like ordinary configuration until somebody is on the wrong side of it. A member the front
-offers and nobody behind it answers is a call into nothing, and a member an entity carries
-that the front offers to nobody is reachable by no caller, which is either dead or a
-mistake about who was supposed to reach it. These are the tests for both directions, and for
-each way of naming an entity that cannot be behind a front at all.
-
-The scope-gate tests at the end are the neighbouring rule. A `<scope>` written on a member
-is checked against a caller's session, which only a browser caller has, and against the scope
-the point itself already requires.
+A front is a web edge that owns a connect point it does not implement and hands each caller
+to the entity for its scope, which then authorizes on `Caller` alone. That holds only while
+the front and the entities behind it agree on what crosses: a member offered and not
+answered is refused, and so is a member carried that no caller can reach. The tests at the
+end cover the `<scope>` gate rules.
 """
 
 import copy
@@ -30,11 +18,8 @@ from synqt import check
 
 
 def base_config():
-    """A front that is entirely in order. Two tiers, each carrying exactly its own slice.
-
-    `lobby` answers anonymous and (by falling to the highest tier at or below it) user
-    callers, so it carries the ungated property and not the admin-gated slot. `backoffice`
-    answers admins, who reach both.
+    """A front in order: `lobby` answers anonymous and (as the highest tier at or below) user
+    callers and carries the ungated prop; `backoffice` answers admins and carries both.
     """
     return {
         "project": {"name": "app"},
@@ -73,8 +58,7 @@ def front(config):
 
 
 def test_a_front_whose_tiers_agree_with_it_says_nothing():
-    # The baseline every other test here is a single edit away from. If this ever starts
-    # reporting something, the tests below stop meaning what their names say.
+    # The baseline every test here edits once; it must report nothing.
     assert findings() == []
 
 
@@ -86,8 +70,7 @@ def test_a_front_must_be_owned_by_a_web_edge():
 
 
 def test_a_front_no_client_consumes_is_refused():
-    # Splitting callers by scope only means something where there are sessions to split,
-    # and between entities there are none.
+    # Only browser callers have sessions to split.
     def entities_only(config):
         front(config)["consumers"] = ["lobby"]
 
@@ -95,8 +78,7 @@ def test_a_front_no_client_consumes_is_refused():
 
 
 def test_a_front_cannot_carry_a_returning_slot():
-    # The answer would have to come back from the entity behind it, over the mesh, after
-    # the slot has already returned. Refused rather than resolved with a default.
+    # A returning slot is refused: the answer would come back after the slot returned.
     def returns_something(config):
         front(config)["export"] = "slot int total()\n"
 
@@ -109,7 +91,7 @@ def test_a_front_with_nothing_behind_it_is_a_warning():
         front(config)["behind"] = {}
 
     reported = findings(nobody_home)
-    assert any(message.startswith("warning:") and "hands nobody anywhere" in message
+    assert any(message.startswith("warn:") and "hands nobody anywhere" in message
                for message in reported)
 
 
@@ -126,8 +108,7 @@ def test_a_scope_sent_somewhere_it_cannot_go_is_refused(tier, expected):
 
 
 def test_a_scope_sent_to_an_entity_that_owns_no_point_is_refused():
-    # It is in the project and it is not a client, and there is still nothing there to
-    # answer a call.
+    # An entity that is not a client still has nothing to answer a call.
     def sends_to_an_idler(config):
         config["entities"].append({"name": "idle", "path": "idle"})
         front(config)["behind"]["user"] = "idle"
@@ -154,8 +135,7 @@ def test_a_member_the_front_carries_and_a_tier_does_not_is_refused():
 
 
 def test_a_member_a_tier_carries_and_no_caller_reaches_is_refused():
-    # The other direction, and the one that is easy to write by accident: the entity
-    # answers something, and the front offers it to nobody who lands there.
+    # An entity carrying a member the front offers to nobody who lands there.
     def tier_carries_extra(config):
         config["connect_points"][1]["export"] = "prop string headline\nslot secret()\n"
 
@@ -164,10 +144,7 @@ def test_a_member_a_tier_carries_and_no_caller_reaches_is_refused():
 
 
 def test_a_scope_with_no_line_of_its_own_is_held_to_the_tier_it_falls_to():
-    # `user` has no line, so a user lands on the highest tier at or below them, which is
-    # the anonymous one. The message names both scopes, because that entity has to answer
-    # what either of them can reach. This is the rule that makes an under-carried tier a
-    # real refusal rather than a scope nobody thought about.
+    # `user` falls to the anonymous tier, so the message names both scopes.
     def tier_falls_short(config):
         config["connect_points"][1]["export"] = ""
 
@@ -176,9 +153,7 @@ def test_a_scope_with_no_line_of_its_own_is_held_to_the_tier_it_falls_to():
 
 
 def test_set_based_scopes_hand_an_unnamed_scope_nowhere():
-    # With no ordering there is nothing to fall back to, so `user` is handed nowhere and
-    # the two entities that are named answer exactly their own callers. Fail-closed, and
-    # silent. There is nothing wrong with this topology.
+    # With set-based scopes an unnamed scope goes nowhere; nothing is reported.
     def set_based(config):
         config["scopes"]["hierarchical"] = False
 
@@ -186,8 +161,7 @@ def test_set_based_scopes_hand_an_unnamed_scope_nowhere():
 
 
 def test_a_tier_whose_export_will_not_read_is_left_to_the_check_that_says_so():
-    # lint_contracts and the build both report an unparseable block in their own words.
-    # Repeating it here as a surface mismatch would bury the one message that helps.
+    # An unparseable block is reported by lint_contracts and the build, not here.
     def unreadable(config):
         config["connect_points"][1]["export"] = "prop ??? nonsense\n"
 
@@ -195,8 +169,7 @@ def test_a_tier_whose_export_will_not_read_is_left_to_the_check_that_says_so():
 
 
 def test_a_point_with_no_behind_block_is_not_a_front():
-    # `behind:` being written is what makes a front, the way `network:` works. A point
-    # without one is never held to any of the rules above.
+    # Without `behind:` a point is not a front.
     def plain_point(config):
         front(config).pop("behind")
         config["connect_points"][1]["export"] = "slot int anything()\n"
@@ -230,17 +203,14 @@ def gate_findings(mutate=None):
 
 
 def test_a_gate_every_caller_already_satisfies_is_a_warning():
-    # Reaching the point at all required `user`, so gating a member on `anonymous` refuses
-    # nobody. A warning rather than an error: it is dead, not dangerous, and somebody may
-    # be mid-way through raising the point's own scope.
+    # A gate at or below the point scope refuses nobody: a warning.
     reported = gate_findings()
-    assert any(message.startswith("warning:") and "the gate refuses nobody" in message
+    assert any(message.startswith("warn:") and "the gate refuses nobody" in message
                for message in reported)
 
 
 def test_under_set_based_scopes_that_same_gate_is_an_error():
-    # A caller holds exactly one scope with no ordering to rank it, so a member gated on
-    # `anonymous` behind a point requiring `user` is reachable by nobody at all.
+    # With set-based scopes such a gate is reachable by nobody.
     def set_based(config):
         config["scopes"]["hierarchical"] = False
 
@@ -257,8 +227,7 @@ def test_a_gate_outside_the_vocabulary_is_refused():
 
 
 def test_a_gate_on_a_point_no_client_consumes_is_refused():
-    # A scope is a property of a user's session and a calling entity has none, so the gate
-    # would refuse every caller rather than some of them.
+    # A calling entity has no session, so a gate would refuse every caller.
     def entity_only_point(config):
         config["connect_points"][1]["export"] = "<user> slot wipe()\n"
 

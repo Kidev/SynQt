@@ -29,7 +29,7 @@
 import { withoutCommentary } from "./commentary.js";
 import { declarationsFor, reroot, rootTypeSpan, withShared, withoutShared }
     from "./source.js";
-import { entityType } from "./rules.js";
+import { entityType, isFront } from "./rules.js";
 
 // The Qt this project pins, matching synqt/toolchain.py. The suite asserts the two agree,
 // because a browser with no CLI behind it has nothing to ask.
@@ -102,12 +102,18 @@ function linkLines(design, link) {
         lines.push(`    scope: ${scalar(link.scope)}`);
     }
     // A front hands each scope's callers to the entity that serves them. Written before the
-    // export block so the two are not separated by it: this is who answers, and that is what
+    // export block so the two are not separated by it. This is who answers, and that is what
     // they answer with.
-    const tiers = link.behind || {};
-    const scopes = Object.keys(tiers).filter((scope) => tiers[scope]);
-    if (scopes.length) {
-        lines.push("    behind:");
+    // The key being written is what says this point is answered by entities behind it, and
+    // what is under it says which. So the key goes on whenever the switch is on, empty
+    // included: an empty block is a front nobody has wired yet, which `synqt check` warns
+    // about. Written only when something was under it, the editor drew a wedge with scope
+    // seats and handed over a file that said plain edge, and the first thing the reader did
+    // after the download was undo the switch they had thrown.
+    if (isFront(link)) {
+        const tiers = link.behind || {};
+        const scopes = Object.keys(tiers).filter((scope) => tiers[scope]);
+        lines.push(scopes.length ? "    behind:" : "    behind: {}");
         for (const scope of scopes) {
             lines.push(`      ${scope}: ${scalar(tiers[scope])}`);
         }

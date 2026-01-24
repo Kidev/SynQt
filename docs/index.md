@@ -397,7 +397,7 @@ project.
 
 ```yaml
 project:
-  name: my-app
+  name: demo
   qt_version: 6.11.1
 
 scopes: { order: [anonymous, user, admin], default: anonymous }
@@ -462,7 +462,7 @@ ApplicationWindow {
     readonly property bool feedReady: Server.ready
 
     visible: true
-    title: "My app"
+    title: "Feed"
 
     Edge.onDenied: reason => window.notice = reason
     onFeedReadyChanged: {

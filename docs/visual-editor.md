@@ -112,21 +112,23 @@ Clicking a point's only line opens the point, because with one consumer the line
 point are the same thing. Where a point has several, clicking one opens that consumer, and
 the panel names the point it belongs to with a button that goes there.
 
-An entity's panel is where its members are declared, and every part of one that comes out of
-a fixed list is chosen from that list: the kind, the type, a parameter's type, a model's
-roles. Only names are typed. What you declare there is written into the entity's own file,
-which is the same thing as typing the line into the file below; editing it rewrites that
-line and leaves the body of a function alone. A model is declared there too, with the other
-three, and it is the one kind written onto the point rather than into the file: QML has no
-declaration form for one.
+An entity's panel is where its members are declared, listed as the lines they are,
+`property int highBid` or `function placeBid(amount: var)`. Clicking one opens the controls
+over that line, and every part of it that comes out of a fixed list is chosen from that
+list, the kind, the type, a parameter's type, a model's roles. Only names are typed. What
+you declare there is written into the entity's own file, which is the same thing as typing
+the line into the file below. Editing it rewrites that line and leaves the body of a
+function alone. A model is declared there too, with the other three, and it is the one
+kind written onto the point rather than into the file, because QML has no declaration form
+for one.
 
-What an entity **is** the panel states and does not offer. A database is a database because
+What an entity is the panel states and does not offer. A database is a database because
 that is the row it was dragged from, and everything drawn against it since means what it
-means because of that; turning one into a client in a drop-down would keep the name, the
+means because of that. Turning one into a client in a drop-down would keep the name, the
 place and the connect points while changing the thing underneath them. Delete it and drag
 the one you wanted.
 
-Right-clicking a node or a line opens the same things over it: edit, rename, delete.
+Right-clicking a node or a line opens the same things over it, edit, rename, delete.
 Double-clicking a node renames it and <kbd>Delete</kbd> removes what is selected. Renaming an
 entity carries the new name into every connect point that referred to the old one, including
 the one it exports, and deleting one takes that point with it.
@@ -192,33 +194,37 @@ reading and the drawing stay on the same subject.
 ## The rules are live
 
 The findings under the palette are a subset of `synqt check`, run in the page on every edit,
-and the canvas paints them: a connect point the deployment would refuse goes red while you
+and the canvas paints them. A connect point the deployment would refuse goes red while you
 are still drawing it rather than in a build four steps later. A client consuming a point
 that is not owned by a web edge, a point owned by an entity that is not there, an owner
-listed as its own consumer, two entities with one name, and a link put on a local socket
-are all in that subset.
+listed as its own consumer, two entities with one name, a link put on a local socket, and an
+edge switched to hand its callers on with nothing behind it are all in that subset.
+
+Each one is marked where it is, and not only in the list. The entity or the connect point it is
+about carries a small mark, and hovering that mark says what the finding is and what to do
+about it. Clicking the line in the list picks the same thing out on the canvas.
 
 The page's copy of the rules is never a second opinion. Every rule it paints is checked
 against the command line's verdict for the same topology, case by case, by the test suite.
-Where the two could ever disagree, the one that decides is the server's: Apply runs the
+Where the two could ever disagree, the one that decides is the server's. Apply runs the
 real `synqt check`, and a design it refuses cannot be applied.
 
 ## Nothing is written until you have read it
 
-Drawing writes nothing. When the design says what you mean, press Review: the editor asks
+Drawing writes nothing. When the design says what you mean, press Review. The editor asks
 what applying it would do and shows the whole change set as a diff, file by file. Apply then
 names that change set by its digest, and the server refuses anything else. If you edit after
 reviewing, the plan is void and Review comes back.
 
 This is why a project that does not pass `synqt check` still opens. A broken topology is
-what you came to fix, so opening is not gated; the verdict arrives with the project,
+what you came to fix, so opening is not gated. The verdict arrives with the project,
 painted on the canvas, and Apply is what refuses it.
 
 ## Reading the contracts back
 
 "Infer from the sources" is [`synqt infer`](build-system-and-cli.md#the-synqt-command-line-tool)
 on the canvas. It reads the project's own QML, both ends of every link, and fills each
-connect point with the members the code already uses: the props the owner's Source assigns,
+connect point with the members the code already uses, the props the owner's Source assigns,
 the models it pushes, the signals it emits, and the slots the consumers call. A contract
 you have never written arrives drawn instead of typed out.
 

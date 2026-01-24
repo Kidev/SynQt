@@ -364,10 +364,14 @@ function linkFrom(item, entities) {
     // Which entity serves each scope, on a point that is a front. Read as a mapping of its
     // own rather than folded into the link's fields, because the keys are scope names and
     // any of them could collide with a field name here.
+    //
+    // The key alone is a front with nothing wired yet, so `behind: {}` has to come back as an
+    // empty block and not as no block. Read as no block, typing the configuration and reading
+    // it back took the switch off a front somebody had turned on.
     const behind = fields.get("behind");
-    if (behind && Array.isArray(behind.body) && behind.body.length) {
+    if (behind) {
         const tiers = {};
-        for (const [name, held] of mapping(behind.body)) {
+        for (const [name, held] of mapping(behind.body || [])) {
             if (held && held.value) {
                 tiers[name] = scalar(held.value, held.line);
             }

@@ -17,7 +17,7 @@
   "examples": {
     "feed": {
       "version": 1,
-      "project": "my-app",
+      "project": "demo",
       "entities": [
         {
           "name": "app",
@@ -27,7 +27,7 @@
           ],
           "x": 64,
           "y": 64,
-          "qml": "// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux\n// SPDX-License-Identifier: Apache-2.0\n\nimport SynQt\nimport QtQuick.Controls\n\nApplicationWindow {\n    id: window\n\n    property string notice: \"Loading...\"\n    readonly property bool feedReady: Server.ready\n\n    visible: true\n    title: \"My app\"\n\n    Edge.onDenied: reason => window.notice = reason\n    onFeedReadyChanged: {\n        if (window.feedReady) {\n            Server.load();\n        }\n    }\n\n    Label {\n        id: banner\n        text: Server.loaded ? \"\" : window.notice\n    }\n\n    ListView {\n        anchors.fill: parent\n        anchors.topMargin: banner.height\n        model: Server.rows\n        delegate: Text {\n            required property var model\n            text: model.title\n        }\n    }\n}\n"
+          "qml": "// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux\n// SPDX-License-Identifier: Apache-2.0\n\nimport SynQt\nimport QtQuick.Controls\n\nApplicationWindow {\n    id: window\n\n    property string notice: \"Loading...\"\n    readonly property bool feedReady: Server.ready\n\n    visible: true\n    title: \"Feed\"\n\n    Edge.onDenied: reason => window.notice = reason\n    onFeedReadyChanged: {\n        if (window.feedReady) {\n            Server.load();\n        }\n    }\n\n    Label {\n        id: banner\n        text: Server.loaded ? \"\" : window.notice\n    }\n\n    ListView {\n        anchors.fill: parent\n        anchors.topMargin: banner.height\n        model: Server.rows\n        delegate: Text {\n            required property var model\n            text: model.title\n        }\n    }\n}\n"
         },
         {
           "name": "edge",

@@ -220,6 +220,66 @@ function yamlRuns(text) {
     return out;
 }
 
+// The schema beside a relational entity. Every project with a database in it holds one, and
+// it was the one file in the pane shown as a single grey run. The reader who has been
+// told the entity queries this table opens it and finds the least readable file in the
+// project. Small vocabulary, because the file is a list of forward-only statements and
+// nothing here has to understand SQL.
+const SQL_KEYWORDS = new Set([
+    "add", "all", "alter", "and", "as", "asc", "autoincrement", "begin", "between", "by",
+    "cascade", "case", "check", "collate", "column", "commit", "conflict", "constraint",
+    "create", "cross", "default", "delete", "desc", "distinct", "drop", "else", "end",
+    "exists", "foreign", "from", "full", "group", "having", "if", "in", "index", "inner",
+    "insert", "into", "is", "join", "key", "left", "like", "limit", "not", "null", "offset",
+    "on", "or", "order", "outer", "primary", "references", "rename", "replace", "returning",
+    "right", "rollback", "select", "set", "table", "then", "to", "transaction", "trigger",
+    "union", "unique", "update", "using", "values", "view", "when", "where", "with",
+]);
+
+// The column types SQLite and PostgreSQL spell, which is what a schema in a SynQt project
+// is written in. A type reads as a type here for the same reason it does in a contract: it is
+// the half of a column declaration that says what the value is.
+const SQL_TYPES = new Set([
+    "bigint", "blob", "boolean", "bytea", "char", "date", "datetime", "decimal", "double",
+    "float", "int", "int2", "int4", "int8", "integer", "json", "jsonb", "numeric", "real",
+    "serial", "smallint", "text", "time", "timestamp", "timestamptz", "uuid", "varchar",
+]);
+
+function sqlRuns(text) {
+    const out = [];
+    // `--` to the end of the line and `/* */` across lines are both comments. A string is
+    // single-quoted and doubles its own quote to escape it. An identifier in double quotes is
+    // a name and not a string, so it is left plain.
+    const scan = /(--[^\n]*|\/\*[\s\S]*?\*\/)|('(?:[^']|'')*')|(\b\d+(?:\.\d+)?\b)|([A-Za-z_]\w*)|([\s\S])/g;
+    let found = scan.exec(String(text || ""));
+    while (found !== null) {
+        const [whole, comment, string, number, word] = found;
+        let kind = "";
+        if (comment !== undefined) {
+            kind = "comment";
+        } else if (string !== undefined) {
+            kind = "string";
+        } else if (number !== undefined) {
+            kind = "number";
+        } else if (word !== undefined) {
+            const lower = word.toLowerCase();
+            if (SQL_KEYWORDS.has(lower)) {
+                kind = "keyword";
+            } else if (SQL_TYPES.has(lower)) {
+                kind = "type";
+            }
+        }
+        const last = out.at(-1);
+        if (last && last.kind === kind) {
+            last.text += whole;
+        } else {
+            out.push({text: whole, kind});
+        }
+        found = scan.exec(String(text || ""));
+    }
+    return out;
+}
+
 // The runs for whatever kind of file `name` is. An extension nobody colours comes back as one
 // plain run, which is the file shown exactly as it is rather than shown wrong.
 export function runsFor(name, text) {
@@ -228,6 +288,9 @@ export function runsFor(name, text) {
     }
     if (String(name).endsWith(".syn")) {
         return synRuns(text);
+    }
+    if (String(name).endsWith(".sql")) {
+        return sqlRuns(text);
     }
     if (/\.ya?ml$/.test(String(name))) {
         return yamlRuns(text);

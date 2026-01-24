@@ -161,10 +161,11 @@ function fileRow(page, name) {
     if (parts.length === 1) {
         return page.locator(`.tree > li > .tree__file`, { hasText: leaf });
     }
+    // Directories nest in the tree, and a chain with no fork in it is drawn folded onto one
+    // row, so a row is found by the whole path it stands for rather than by the words in it.
     const folder = parts.slice(0, -1).join("/");
-    return page.locator("li.tree__folder")
-               .filter({ hasText: new RegExp(`^${folder}/`) })
-               .locator(".tree__file", { hasText: leaf });
+    return page.locator(`li.tree__folder[data-folder="${folder}"] > .tree__leaves`)
+               .locator("> li > .tree__file", { hasText: leaf });
 }
 
 // Open a file in the pane and wait for it to hold `wanted`, saying what it held instead when
@@ -265,9 +266,14 @@ async function editorOverAProject() {
 
         // The contract icon is the point. Clicking it is what opens what crosses, and the
         // list it opens is ticked out of what the owner declares and nothing else.
+        //
+        // Said in the contract's own vocabulary, not the QML the owner writes it in: this list
+        // is the `export:` block, where a function is a `slot`. It used to say `function` for a
+        // member read out of the owner's file and `slot` for one that only exists on the
+        // point, so a single list carried two words for the same thing.
         await page.locator('[data-contract="service"]').click();
         const ticks = inspector.locator(".ticks");
-        check(await ticks.getByText("function logWinner(winner: string)", { exact: true })
+        check(await ticks.getByText("slot logWinner(string winner)", { exact: true })
                          .count() === 1,
               "the contract offers what the owner declares, to tick");
         await ticks.locator("label.check", { hasText: "logWinner" })
@@ -478,9 +484,16 @@ async function theFrontThatSplitsCallers() {
             '[data-entity="web"] .node__seat.is-taken').length === 0);
         check(true, "and deleting that link frees every seat it was wired to");
         await fileRow(page, "synqt.yaml").click();
+        // The routing is gone and the switch is not. The edge is still a front, now with
+        // nothing behind it, and that is what `behind: {}` says. Written as no key at all, the
+        // canvas drew a wedge with four seats and handed over a file describing a plain edge,
+        // and `synqt check` had nothing to warn about because there was no front in the file
+        // to warn about.
         await page.waitForFunction(
-            () => !document.getElementById("source-paint").textContent.includes("behind:"));
-        check(true, "with the routing gone from synqt.yaml too");
+            () => document.getElementById("source-paint").textContent.includes("behind: {}"));
+        check(!/behind:\s*\n\s*\w+:/.test(
+                  await page.locator("#source-paint").textContent()),
+              "with the routing gone from synqt.yaml and the front still declared");
 
         check(refused.length === 0,
               `the policy refuses nothing on the page (${refused.join(" | ") || "no errors"})`);
@@ -567,7 +580,7 @@ async function theProjectALinkHandsYou() {
         await page.goto(`${origin}/index.html#example=feed`);
         await page.waitForFunction(
             () => document.querySelectorAll("#nodes [data-entity]").length === 4);
-        check(await page.locator("#project").textContent() === "my-app",
+        check(await page.locator("#project").textContent() === "demo",
               "the fragment named a project and the page opened it");
         check(await page.locator("#links [data-link]").count() === 3,
               "with the connect points it declares");
@@ -628,14 +641,12 @@ async function theProjectALinkHandsYou() {
         check(!(await page.locator("#dock").evaluate(
                   (dock) => dock.classList.contains("is-collapsed"))),
               "the files pane is open without being asked for");
-        // The row's own words, not everything under it: the heading also holds the entity's
-        // glyph and, nested inside it, the list of that folder's files.
+        // The whole path each row stands for, which is what the row carries: directories nest,
+        // and a chain with no fork in it is drawn folded onto one row.
         const folders = await page.locator(".tree__folder").evaluateAll(
-            (rows) => rows.map((row) => Array.from(row.childNodes)
-                .filter((node) => node.nodeType === Node.TEXT_NODE)
-                .map((node) => node.textContent).join("").trim()));
+            (rows) => rows.map((row) => row.dataset.folder));
         // Each entity's own folder, whole: the folder its type puts it in and then its name.
-        check(["client/app/", "web/edge/", "db/relational/store/", "api/feeds/"]
+        check(["client/app", "web/edge", "db/relational/store", "api/feeds"]
                   .every((name) => folders.includes(name)),
               `the tree is entity directories, not one flat list (${folders.join(" ")})`);
         const named = await page.locator(".tree__file").allTextContents();

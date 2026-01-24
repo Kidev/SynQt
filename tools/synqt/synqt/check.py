@@ -1960,7 +1960,7 @@ def lint_member_scopes(config: Dict[str, Any]) -> List[str]:
                 scope = named[0]
                 if _rank(order, scope) >= 0 and _rank(order, scope) < _rank(order, point_scope):
                     messages.append(
-                        f"warning: {where}: '{member}' is gated on '{scope}', which every "
+                        f"warn: {where}: '{member}' is gated on '{scope}', which every "
                         f"caller that reached this point already holds (the point requires "
                         f"'{point_scope}'); the gate refuses nobody")
             elif point_scope not in named:
@@ -2022,7 +2022,7 @@ def lint_fronts(config: Dict[str, Any]) -> List[str]:
                     "nothing and send the answer back with Caller.emit<Signal>")
         if not tiers:
             messages.append(
-                f"warning: {where} is a front with nothing under its 'behind:', so it hands "
+                f"warn: {where} is a front with nothing under its 'behind:', so it hands "
                 "nobody anywhere and every caller is refused. Say which entity serves each "
                 "scope, or take the block off and answer the point here")
         messages += _tier_messages(config, point, where, tiers, order, entities, clients,

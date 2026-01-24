@@ -27,6 +27,13 @@
   --client: #46f477;
   --service: #8890c0;
   --edge: #e5e7ff;
+  /* The two halves of every link, and the one pair of colours on this page that means a role
+     rather than a state. An owner decides what crosses and who may ask. A consumer acquires
+     a replica and can only read it. Which of the two an entity is, is the first thing anybody
+     wants off a line, and the drawing said it only in the direction of an arrowhead. Warm
+     against cool, and far enough apart to survive being colour-blind. */
+  --owner: #ff9d5c;
+  --consumer: #62d0ff;
   --error: #ff6b6b;
   --warn: #ffb347;
   --ok: #46f477;
@@ -68,6 +75,8 @@
     --client: #12a150;
     --service: #5f689c;
     --edge: #3a2a5c;
+    --owner: #b8520a;
+    --consumer: #0b6fb8;
     --error: #c62828;
     --warn: #a35c00;
     --ok: #1a7f37;
@@ -194,7 +203,14 @@ h2 {
   flex: 1;
 }
 
+/* Every button hovers the same way, in its own colour. `--tone` is the one thing a variant
+   changes, so a red button lights red and a blue one blue; the treatment underneath is one
+   rule. It used to be `border-color: var(--accent)` for all of them, which turned a delete
+   button blue on the way to being pressed and did nothing at all to a button whose border
+   was already the accent, so the two loudest controls on the bar were the two with no hover
+   at all. */
 .button {
+  --tone: var(--accent);
   padding: .35rem .8rem;
   border: 1px solid var(--line);
   border-radius: .25rem;
@@ -203,10 +219,21 @@ h2 {
   font: inherit;
   font-size: 13px;
   cursor: pointer;
+  transition: background-color 120ms ease-out, border-color 120ms ease-out;
 }
 
 .button:hover:not(:disabled) {
-  border-color: var(--accent);
+  border-color: var(--tone);
+  background: color-mix(in srgb, var(--tone) 16%, var(--panel-high));
+}
+
+.button:active:not(:disabled) {
+  background: color-mix(in srgb, var(--tone) 28%, var(--panel-high));
+}
+
+.button:focus-visible {
+  outline: 2px solid var(--tone);
+  outline-offset: 1px;
 }
 
 .button:disabled {
@@ -215,11 +242,13 @@ h2 {
 }
 
 .button--go {
+  --tone: var(--accent);
   border-color: var(--accent);
   color: var(--accent);
 }
 
 .button--danger {
+  --tone: var(--error);
   border-color: var(--error);
   color: var(--error);
 }
@@ -653,19 +682,48 @@ h2 {
   cursor: grabbing;
 }
 
+/* What happened, and then gone. A pill over the canvas rather than a line ruled along the
+   bottom of it, because a line that is always there is furniture whether or not it says anything, and
+   ends up saying the same sentence for the rest of the session.
+
+   What a reader needs to know about the drawing is not here. It is on the drawing, at the
+   entity or connect point it is about, under a mark that can be pointed at. */
 .stage__hint {
   position: absolute;
   left: 1rem;
   bottom: 1rem;
-  right: 1rem;
+  max-width: min(46rem, calc(100% - 2rem));
   margin: 0;
+  padding: .45rem .7rem;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  border-radius: .3rem;
+  background: var(--panel);
+  box-shadow: 0 4px 14px var(--shadow);
   font-size: 12px;
-  color: var(--ink-dim);
+  line-height: 1.45;
+  color: var(--ink);
   pointer-events: none;
+  opacity: 0;
+  transform: translateY(.4rem);
+  transition: opacity 220ms ease-out, transform 220ms ease-out;
+}
+
+.stage__hint.is-showing {
+  opacity: 1;
+  transform: none;
 }
 
 .stage__hint--error {
+  border-left-color: var(--error);
   color: var(--error);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stage__hint {
+    transition: none;
+    transform: none;
+  }
 }
 
 /* The boxes. Which side of the wire an entity is on is the thing that decides what can reach
@@ -884,6 +942,21 @@ h2 {
   font-weight: 600;
 }
 
+/* While a line is being pulled, every seat on every front is somewhere it can be let go, so
+   every one of them says so. The dots come forward and the names brighten. Dragging from a
+   seat to an entity was the only half of this gesture anybody found, because the reverse
+   worked and the canvas showed nothing until the pointer was already on top of the word. */
+.canvas.is-linking .node__seat {
+  fill: var(--accent);
+  fill-opacity: .25;
+  stroke: var(--accent);
+  r: 4;
+}
+
+.canvas.is-linking .node__seat-name {
+  fill: var(--accent);
+}
+
 /* A seat is also where a line is let go to hand that scope to an entity, and the pointer is
    captured by the canvas for the whole of that drag, so `:hover` never reaches it. design.js
    marks the seat a line is over instead, and it lights exactly as if it were hovered: what a
@@ -915,6 +988,87 @@ h2 {
   fill: var(--hover);
 }
 
+/* Which end of a hovered link this node is. Two colours and two words, because the drawing
+   said it only in the direction of an arrowhead, and an arrowhead is a small thing to have to
+   find at the far end of a line crossing a canvas of a dozen others.
+
+   The word is always in the markup and shown by this rule alone. The highlight is a class put
+   on elements already drawn, never a redraw, because redrawing from a pointer move is how a
+   double click stops arriving. */
+.node__role {
+  fill: currentColor;
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.node.is-owner .node__role--owner,
+.node.is-consumer .node__role--consumer {
+  opacity: 1;
+}
+
+.node.is-owner {
+  color: var(--owner);
+}
+
+.node.is-consumer {
+  color: var(--consumer);
+}
+
+/* The rim takes the role colour and the name with it. The disc keeps its own fill, so the
+   entity still says what kind of thing it is while it says which end of the link it is. */
+.node.is-owner .node__disc,
+.node.is-consumer .node__disc {
+  stroke: currentColor;
+  stroke-width: 2.4;
+}
+
+.node.is-owner .node__name,
+.node.is-consumer .node__name {
+  fill: currentColor;
+}
+
+/* Hover wins over both. It is where the pointer is this instant, and the two role colours are
+   about a line that may run right across the canvas. */
+.node.is-hover.is-owner .node__disc,
+.node.is-hover.is-consumer .node__disc {
+  stroke: var(--hover);
+}
+
+/* The mark on a node the rules have caught, and on a contract badge. A thing to point at,
+   because what was there before was a rim one shade warmer than the rim beside it, which
+   nobody scans a canvas for. Hovering it opens the card that writes the finding out. The card
+   was always there and nothing on the drawing asked to be hovered for it.
+
+   It takes the pointer, so it works as its own target, and it sits inside the node's own group
+   so the card it opens is that node's. */
+.alert {
+  pointer-events: auto;
+  cursor: help;
+}
+
+.alert__disc {
+  fill: var(--warn);
+  stroke: var(--page);
+  stroke-width: 1.5;
+}
+
+.alert__bang {
+  stroke: var(--page);
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  fill: none;
+}
+
+.node.is-error .alert__disc,
+.link__doc.is-error .alert__disc {
+  fill: var(--error);
+}
+
 .node.is-error .node__disc {
   stroke: var(--error);
 }
@@ -940,6 +1094,37 @@ h2 {
 
 .link__head {
   fill: var(--line);
+}
+
+/* Which way round the link is, said along the whole of it rather than by an arrowhead at one
+   end. Painted with nothing until the link is hovered, then a dash that travels from the owner
+   towards the consumer, in the consumer's own colour: the direction is what arrives, and what
+   arrives is the replica. */
+.link__flow {
+  fill: none;
+  stroke: none;
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  stroke-dasharray: 3 11;
+  pointer-events: none;
+}
+
+.link.is-hover .link__flow {
+  stroke: var(--consumer);
+  animation: link-flow 900ms linear infinite;
+}
+
+@keyframes link-flow {
+  from { stroke-dashoffset: 14; }
+  to { stroke-dashoffset: 0; }
+}
+
+/* Somebody who asked their system for less motion gets the dash standing still: it still says
+   which way round the link is by sitting between the cap and the head, and nothing moves. */
+@media (prefers-reduced-motion: reduce) {
+  .link.is-hover .link__flow {
+    animation: none;
+  }
 }
 
 /* The owner's end. A cap here and an arrowhead there is the whole of "who decides", and it
@@ -1133,9 +1318,15 @@ h2 {
   fill: var(--hover);
 }
 
+/* The block a hovered link carries comes forward: fully opaque over whatever the line is
+   crossing, and outlined. Left at the resting 86% it sat half-through a zone box or another
+   link's rows, which is exactly when somebody is reading it -- a reader hovers a line to find
+   out what crosses it. */
 .link.is-hover .link__members-box {
+  fill-opacity: 1;
   stroke: var(--hover);
   stroke-opacity: 0.9;
+  stroke-width: 1;
 }
 
 /* The kind mark of the one row under the pointer. Two of the four shapes are drawn hollow, and
@@ -1202,6 +1393,32 @@ h2 {
   line-height: 1.5;
 }
 
+/* The two gestures, as things to do. A paragraph saying the same words read as something to
+   skip, and this panel is the only place with room to say them at all. */
+.inspector__how {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.inspector__how li {
+  position: relative;
+  margin-bottom: .5rem;
+  padding-left: 1rem;
+  font-size: 12.5px;
+}
+
+.inspector__how li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: .55em;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
 /* The entity's own glyph beside its name: the same mark the canvas draws it with, so the
    panel and the drawing are recognisably about the same thing. */
 .inspector__head {
@@ -1252,6 +1469,19 @@ h2 {
   letter-spacing: .04em;
   text-transform: uppercase;
   color: var(--ink-dim);
+}
+
+/* The two labels on a connect point, in the two colours the drawing and the tip use for the
+   same two words. A reader who has hovered one line already knows which half of this panel is
+   which without reading either heading. */
+.field__label--owner {
+  color: var(--owner);
+  font-weight: 700;
+}
+
+.field__label--consumer {
+  color: var(--consumer);
+  font-weight: 700;
 }
 
 .field__note {
@@ -1366,15 +1596,21 @@ select:focus {
 
 /* A block of the panel, ruled off from the one above it. The panel is a column of settings
    with a paragraph under most of them, and without a rule the heading of the next block was
-   one more line of text in the same flow as the last block's explanation. */
-.members {
-  margin-top: 1.25rem;
-  padding-top: 1rem;
+   one more line of text in the same flow as the last block's explanation: eleven controls,
+   no edges, and nothing to scan for. */
+.block {
+  margin-top: 1.1rem;
+  padding-top: .85rem;
   border-top: 1px solid var(--line);
 }
 
-.members__title {
-  margin: 0 0 .1rem;
+.block__title {
+  margin: 0 0 .5rem;
+  font-size: 11px;
+}
+
+.members .block__title {
+  margin-bottom: .1rem;
   font-size: 13px;
 }
 
@@ -1399,6 +1635,44 @@ select:focus {
 
 .tick .check {
   margin-bottom: 0;
+}
+
+/* What the point adds to a ticked member, in a line, until somebody presses it. A value that
+   is set is coloured and a default is not, so what the eye finds down the column is the
+   exception: most members are gated on the point's own scope and have no limit, and saying
+   that eight times in a drop-down is eight ways to miss the ninth. */
+.tick__summary {
+  display: flex;
+  align-items: baseline;
+  gap: .35rem;
+  margin-left: 1.45rem;
+  padding: .05rem .3rem;
+  border: none;
+  border-radius: .2rem;
+  background: none;
+  font-family: var(--mono);
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.tick__summary:hover {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.tick__summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.tick__set {
+  color: var(--warn);
+  font-weight: 600;
+}
+
+.tick__default,
+.tick__dot {
+  color: var(--ink-dim);
 }
 
 /* Everything the point adds sits under a member that is on it, so the ones that are on it
@@ -1427,22 +1701,128 @@ select:focus {
   white-space: pre;
 }
 
+/* One declaration. Closed, it is the line of code it is. Open, it is the controls over that
+   line. A finished member and a member being typed drawn the same way make a panel
+   of eight of them a wall of drop-downs with no way to tell which decision is still
+   being made. */
 .member {
-  margin-top: .5rem;
-  padding: .5rem;
+  margin-top: .35rem;
   border: 1px solid var(--line);
   border-radius: .25rem;
   background: var(--page);
 }
 
-/* One declaration's controls. They wrap rather than squeeze: the panel is draggable down to
+.member.is-open {
+  border-color: var(--accent);
+  background: var(--panel-high);
+}
+
+.member__head {
+  display: flex;
+  align-items: center;
+  gap: .25rem;
+  padding: .1rem .3rem .1rem 0;
+}
+
+/* The whole line is what opens it. A row of code with one small control at the end asks a
+   reader to aim at the control. The thing they want to change is the line. */
+.member__summary {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: .4rem;
+  padding: .35rem .45rem;
+  overflow: hidden;
+  border: none;
+  border-radius: .2rem;
+  background: none;
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.member__summary:hover {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.member__summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+/* The same four shapes the canvas draws a contract's rows with. A disc for the one value,
+   stacked rules for the many, a filled head leaving the owner and a hollow one coming back
+   into it. One drawing, so a reader learns them once. */
+.member__summary .mark {
+  flex: none;
+  width: .7rem;
+  height: .7rem;
+  align-self: center;
+  fill: var(--ink-dim);
+  stroke: none;
+}
+
+.member__summary .mark--slot,
+.member__summary .mark--model {
+  fill: none;
+  stroke: var(--ink-dim);
+  stroke-width: 1;
+}
+
+/* The name never breaks. `recordWinner` split over three lines as "recor dWinn er" is not a
+   name anybody can read back against the file. What gives up the width is the signature
+   beside it, which ellipsises. */
+.member__name {
+  flex: none;
+  color: var(--code-name);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* A member added a second ago and not yet named. Said in words rather than left blank, so an
+   unfinished row reads as unfinished instead of as a line with a hole in it. */
+.member__name--empty {
+  color: var(--warn);
+  font-style: italic;
+  font-weight: 400;
+}
+
+/* Everything after the name. What it holds, what it takes, what it answers. Quieter, because
+   two members of one kind are told apart by their names. */
+.member__signature {
+  min-width: 0;
+  color: var(--code-punct);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.member__edit {
+  padding: .1rem .5rem .5rem;
+  border-top: 1px solid var(--line);
+  margin-top: .1rem;
+}
+
+.member__edit > .field:first-child {
+  margin-top: .5rem;
+}
+
+/* One declaration's controls. They wrap rather than squeeze. The panel is draggable down to
    a width where a name, a type, a size and a remover cannot all sit on one line, and three
    of them clipped is worse than two rows. */
 .member__row {
   display: flex;
   flex-wrap: wrap;
-  gap: .3rem;
-  align-items: center;
+  gap: .5rem;
+  align-items: flex-end;
+}
+
+.member__row > .field {
+  flex: 1 1 6rem;
+  margin-bottom: 0;
 }
 
 .member__row select {
@@ -1462,6 +1842,7 @@ select:focus {
   font-family: var(--mono);
   font-size: 11px;
   letter-spacing: .02em;
+  white-space: nowrap;
   color: var(--ink-dim);
 }
 
@@ -1547,9 +1928,15 @@ select:focus {
 .icon-button:hover {
   color: var(--error);
   border-color: var(--error);
+  background: color-mix(in srgb, var(--error) 16%, var(--panel-high));
 }
 
-/* What deleting the selection is, kept away from the settings above it: the last control in
+.icon-button:focus-visible {
+  outline: 2px solid var(--error);
+  outline-offset: 1px;
+}
+
+/* What deleting the selection is, kept away from the settings above it. The last control in
    a column of controls should not be the destructive one by accident of scrolling. */
 .inspector__actions {
   margin-top: 1.25rem;
@@ -1740,22 +2127,29 @@ select:focus {
   font-size: 12px;
 }
 
-/* A directory heading and the files under it, rather than one flat list of whole paths: a
-   project is entity directories plus `shared/`, and that shape is the first thing worth
-   knowing about it. The path is still what the file is called; it is the heading that says
-   the first segment now, once, instead of every row repeating it.
+/* Directories nest, the way the project's own folders do. An entity lives under its type, so
+   two web edges are two rows inside one `web/` rather than two unrelated headings that happen
+   to start with the same word. A chain with no fork in it is drawn joined (`db/relational/books`
+   on one row), because a directory holding only one directory offers nothing to choose.
 
-   The heading carries the entity's own glyph, in the entity's own colour, because a
-   directory in a SynQt project IS an entity: the tree and the drawing above it are then two
-   views of one thing rather than a picture and a list of paths to read against each other. */
+   The row carries the entity's own glyph, in the entity's own colour, where the directory IS
+   an entity. The tree and the drawing above it are then two views of one thing rather than a
+   picture and a list of paths to read against each other. A directory holding several entities
+   is a type, and takes a plain folder mark.
+
+   `--depth` is how far in the row sits, set per row by design.js and read by the padding below,
+   so an indent never depends on how the markup happens to nest. */
 .tree__folder {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: .4rem;
-  padding: .6rem 1rem .15rem;
+  --depth: 0;
   color: var(--ink-dim);
   font-weight: 600;
+}
+
+.tree__folder-name {
+  display: flex;
+  align-items: center;
+  gap: .4rem;
+  padding: .5rem 1rem .15rem calc(1rem + (var(--depth) * .85rem));
 }
 
 .tree__folder .glyph {
@@ -1763,6 +2157,10 @@ select:focus {
   width: 13px;
   height: 13px;
   color: var(--service);
+}
+
+.tree__folder--plain .glyph {
+  color: var(--line);
 }
 
 .tree__folder--client .glyph {
@@ -1773,13 +2171,15 @@ select:focus {
   color: var(--edge);
 }
 
-/* The heading is a flex row, and the list of files under it is a child of that row rather
-   than a sibling, so it has to be taken back out of the flow the glyph put it in. */
-.tree__folder .tree__leaves {
-  flex: 1 0 100%;
+/* A type folder holding entities is a grouping and not a heading of its own, so it sits
+   tighter above what is in it than an entity's own row does. */
+.tree__folder--plain > .tree__folder-name {
+  padding-top: .35rem;
+  font-weight: 500;
+  letter-spacing: .02em;
 }
 
-.tree__folder:first-child {
+.tree > .tree__folder:first-child > .tree__folder-name {
   padding-top: 0;
 }
 
@@ -1790,9 +2190,10 @@ select:focus {
 }
 
 .tree__file {
+  --depth: 0;
   display: block;
   width: 100%;
-  padding: .2rem 1rem .2rem 1.9rem;
+  padding: .2rem 1rem .2rem calc(1.9rem + (var(--depth) * .85rem));
   border: none;
   background: none;
   color: var(--ink);
@@ -1995,6 +2396,39 @@ select:focus {
   color: var(--accent);
 }
 
+/* What kind of thing the card is about, on the same line as its name. Right-aligned and quiet:
+   it is the caption on the title, not a fact of its own. */
+.tip__kind {
+  margin-left: auto;
+  flex: none;
+  font-family: var(--text);
+  font-size: 10px;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+}
+
+/* A rule across the card with a word on it. Without one, ten label-and-value rows in one grey
+   face are a paragraph with the punctuation taken out. Nothing says where the two ends of the
+   link stop and how it is carried begins. */
+.tip__section {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  margin: .5rem 0 .3rem;
+  font-size: 10px;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+}
+
+.tip__section::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--line);
+}
+
 .tip__row {
   display: grid;
   grid-template-columns: 6.5rem 1fr;
@@ -2018,16 +2452,124 @@ select:focus {
   overflow-wrap: anywhere;
 }
 
-.tip__members {
-  margin-top: .45rem;
-  padding-top: .35rem;
-  border-top: 1px solid var(--line);
+/* One end of a link. The label takes the role's own colour, which is the colour the drawing
+   has put on that entity out on the canvas, so the word and the disc are one statement
+   rather than two things to match up by name. */
+.tip__party {
+  display: grid;
+  grid-template-columns: 6.5rem 1fr;
+  gap: .5rem;
+  align-items: baseline;
+  margin-bottom: .2rem;
 }
 
-.tip__member {
+.tip__party--owner .tip__label {
+  color: var(--owner);
+  font-weight: 700;
+}
+
+.tip__party--consumer .tip__label {
+  color: var(--consumer);
+  font-weight: 700;
+}
+
+.tip__names {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .25rem .4rem;
+}
+
+/* The entity itself, with the glyph the canvas draws it with. Named in the code face, because
+   it is a name out of the project and not a word about it. */
+.tip__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: .25rem;
   font-family: var(--mono);
   font-size: 11px;
   color: var(--ink);
+}
+
+.tip__chip svg {
+  width: .8rem;
+  height: .8rem;
+  flex: none;
+  color: var(--service);
+}
+
+.tip__chip--client svg {
+  color: var(--client);
+}
+
+.tip__chip--edge svg {
+  color: var(--edge);
+}
+
+.tip__chip--none {
+  color: var(--ink-dim);
+  font-style: italic;
+}
+
+.tip__members {
+  display: flex;
+  flex-direction: column;
+  gap: .1rem;
+}
+
+/* One member, painted the way the canvas paints it beside the line. The mark for its kind and
+   then the declaration in the file pane's own three colours. A list of these was one grey
+   block, which is the part of a link tip somebody followed the line to read. */
+.tip__member {
+  display: flex;
+  align-items: baseline;
+  gap: .4rem;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink);
+}
+
+.tip__member .mark {
+  flex: none;
+  width: .6rem;
+  height: .6rem;
+  align-self: center;
+  fill: var(--ink-dim);
+  stroke: none;
+}
+
+.tip__member .mark--slot,
+.tip__member .mark--model {
+  fill: none;
+  stroke: var(--ink-dim);
+  stroke-width: 1;
+}
+
+.tip__code {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.tip__tok--type {
+  color: var(--code-type);
+}
+
+.tip__tok--name {
+  color: var(--code-name);
+  font-weight: 600;
+}
+
+.tip__tok--punct {
+  color: var(--code-punct);
+}
+
+/* A member held above the point's own scope, in the warning colour on the canvas and here. */
+.tip__tok--scope {
+  color: var(--warn);
+}
+
+.tip__member.is-scoped .mark {
+  fill: var(--warn);
+  stroke: var(--warn);
 }
 
 .tip__help {

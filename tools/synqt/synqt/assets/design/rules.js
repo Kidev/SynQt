@@ -273,6 +273,115 @@ function orphanEntities(design) {
         }));
 }
 
+// What turning an edge into a front does to everything already drawn.
+//
+// The switch is one click and it changes what the point means: the edge stops answering its
+// own connect point, and each caller is served by whichever entity sits behind their scope
+// instead. Everything below is a consequence of that click, painted the moment it happens
+// rather than waiting for `synqt check` to say it after the project is downloaded. Each one
+// mirrors a rule in synqt/check.py (`lint_fronts`), so the canvas and the command line
+// never disagree about what a front is.
+//
+// Every one of them is marked on the connect point (`scope: "contract"`) and on the entity,
+// not on the lines out of the point. A front that hands nobody anywhere is a fact about the
+// point, and painting each consumer's line red said the lines were wrong when they are the
+// only part of the picture that is right.
+function frontFindings(design) {
+    const found = [];
+    const entities = entitiesOf(design);
+    const known = new Map(entities.map((entity) => [nameOf(entity), entity]));
+    const clients = new Set(entities.filter(
+        (entity) => entityType(entity) === "client").map(nameOf));
+    const owners = new Set(linksOf(design).map((link) => String(link.owner || "")));
+    for (const [name, front] of frontsOf(design)) {
+        const link = front.link;
+        const owner = known.get(name);
+        const wired = Object.entries(front.tiers).filter(([, tier]) => tier);
+        if (owner && !isWebEdge(owner)) {
+            found.push({
+                rule: "front-is-not-an-edge",
+                level: "error",
+                entity: name,
+                link: String(link.owner || ""),
+                scope: "contract",
+                message: `'${name}' hands its callers on and is not a web edge. A front `
+                    + `terminates the browser link, holds the session and runs the sign-in `
+                    + `before it hands anyone anywhere, and only a web edge does those.`,
+            });
+        }
+        if (!consumersOf(link).some((consumer) => clients.has(consumer))) {
+            found.push({
+                rule: "front-without-a-browser",
+                level: "error",
+                entity: name,
+                link: String(link.owner || ""),
+                scope: "contract",
+                message: `'${name}' hands its callers on and no client consumes it. A front `
+                    + `splits browser callers by scope, and between entities there is no `
+                    + `session to split on.`,
+            });
+        }
+        // The one that catches an existing contract the moment the switch goes on: a slot
+        // that answers a value resolves on the caller when the owner's slot returns, and a
+        // front has no answer then. What it handed the call to is reached over the mesh and
+        // replies later.
+        for (const member of (link.members || [])) {
+            if (member && member.kind === "slot" && member.type) {
+                found.push({
+                    rule: "front-cannot-answer",
+                    level: "error",
+                    link: String(link.owner || ""),
+                    scope: "contract",
+                    message: `'${member.name}' returns ${member.type}, and '${name}' hands `
+                        + `its callers on, so it has no answer to give: what the call goes `
+                        + `to is reached over the mesh and replies after the slot has `
+                        + `returned. Make it return nothing and send the answer back with `
+                        + `Caller.emit<Signal>.`,
+                });
+            }
+        }
+        for (const [scope, tier] of wired) {
+            if (!known.has(tier)) {
+                found.push({
+                    rule: "front-tier-unknown",
+                    level: "error",
+                    entity: name,
+                    link: String(link.owner || ""),
+                    scope: "contract",
+                    message: `'${name}' hands '${scope}' to '${tier}', which is not an `
+                        + `entity in this project.`,
+                });
+            } else if (!owners.has(tier)) {
+                found.push({
+                    rule: "front-tier-owns-nothing",
+                    level: "error",
+                    entity: tier,
+                    link: String(link.owner || ""),
+                    scope: "contract",
+                    message: `'${name}' hands '${scope}' to '${tier}', which owns no `
+                        + `connect point, so there is nothing there to answer the calls.`,
+                });
+            }
+        }
+        // A warning and not an error. It is the state a front is in between the switch and
+        // the first line drawn, the same way an entity is an orphan until it is wired.
+        if (!wired.length) {
+            found.push({
+                rule: "front-hands-nobody",
+                level: "warn",
+                entity: name,
+                link: String(link.owner || ""),
+                scope: "contract",
+                message: `'${name}' hands its callers to the entities behind it and nothing `
+                    + `is behind it yet, so every caller is refused. Drag from a scope on `
+                    + `its back to the entity that serves it, or turn the switch off and `
+                    + `answer the point here.`,
+            });
+        }
+    }
+    return found;
+}
+
 // A client is one browser. There is nobody for it to be shared with, so the word says
 // nothing there, and reading it in a project would teach the wrong thing about what it is
 // for.
@@ -298,6 +407,7 @@ export function findings(design) {
         ...duplicateLinks(design),
         ...clientWithoutEdge(design),
         ...sharedOnAClient(design),
+        ...frontFindings(design),
         ...orphanEntities(design),
     ];
     for (const link of linksOf(design)) {

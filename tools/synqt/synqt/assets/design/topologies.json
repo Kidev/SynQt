@@ -393,6 +393,278 @@
           }
         ]
       }
+    },
+    {
+      "id": "a-front-with-nothing-behind-it",
+      "rule": "front-hands-nobody",
+      "level": "warn",
+      "why": "A front stops answering its own connect point, so until a scope is wired to an entity behind it every caller reaches it and is handed nowhere.",
+      "document": {
+        "version": 1,
+        "project": "rules",
+        "entities": [
+          {
+            "name": "client",
+            "type": "client"
+          },
+          {
+            "name": "web",
+            "type": "web_edge"
+          },
+          {
+            "name": "database",
+            "type": "relational"
+          }
+        ],
+        "links": [
+          {
+            "name": "web",
+            "owner": "web",
+            "consumers": [
+              "client"
+            ],
+            "behind": {}
+          },
+          {
+            "name": "database",
+            "owner": "database",
+            "consumers": [
+              "web"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "a-front-carrying-a-returning-slot",
+      "rule": "front-cannot-answer",
+      "level": "error",
+      "why": "A returning slot resolves on the caller when the owner's slot returns, and a front has no answer then: what it handed the call to is reached over the mesh and replies later.",
+      "document": {
+        "version": 1,
+        "project": "rules",
+        "entities": [
+          {
+            "name": "client",
+            "type": "client"
+          },
+          {
+            "name": "web",
+            "type": "web_edge"
+          },
+          {
+            "name": "database",
+            "type": "relational"
+          }
+        ],
+        "links": [
+          {
+            "name": "web",
+            "owner": "web",
+            "consumers": [
+              "client"
+            ],
+            "behind": {
+              "anonymous": "database"
+            },
+            "members": [
+              {
+                "kind": "slot",
+                "name": "count",
+                "type": "int",
+                "params": [],
+                "roles": []
+              }
+            ]
+          },
+          {
+            "name": "database",
+            "owner": "database",
+            "consumers": [
+              "web"
+            ],
+            "members": [
+              {
+                "kind": "slot",
+                "name": "count",
+                "type": "int",
+                "params": [],
+                "roles": []
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "a-front-no-browser-consumes",
+      "rule": "front-without-a-browser",
+      "level": "error",
+      "why": "A front splits browser callers by scope, and between entities there is no session to split on.",
+      "document": {
+        "version": 1,
+        "project": "rules",
+        "entities": [
+          {
+            "name": "web",
+            "type": "web_edge"
+          },
+          {
+            "name": "database",
+            "type": "relational"
+          }
+        ],
+        "links": [
+          {
+            "name": "web",
+            "owner": "web",
+            "consumers": [],
+            "behind": {
+              "anonymous": "database"
+            }
+          },
+          {
+            "name": "database",
+            "owner": "database",
+            "consumers": [
+              "web"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "a-front-that-is-not-an-edge",
+      "rule": "front-is-not-an-edge",
+      "level": "error",
+      "why": "A front terminates the browser link, holds the session and runs the sign-in before it hands anyone on, and only a web edge does those.",
+      "document": {
+        "version": 1,
+        "project": "rules",
+        "entities": [
+          {
+            "name": "client",
+            "type": "client"
+          },
+          {
+            "name": "web",
+            "type": "web_edge"
+          },
+          {
+            "name": "hub",
+            "type": "service"
+          },
+          {
+            "name": "database",
+            "type": "relational"
+          }
+        ],
+        "links": [
+          {
+            "name": "web",
+            "owner": "web",
+            "consumers": [
+              "client"
+            ]
+          },
+          {
+            "name": "hub",
+            "owner": "hub",
+            "consumers": [
+              "client"
+            ],
+            "behind": {
+              "anonymous": "database"
+            }
+          },
+          {
+            "name": "database",
+            "owner": "database",
+            "consumers": [
+              "hub"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "a-front-handing-a-scope-to-nobody",
+      "rule": "front-tier-unknown",
+      "level": "error",
+      "why": "A scope wired to a name no entity answers to sends its callers to something that is not in the project.",
+      "document": {
+        "version": 1,
+        "project": "rules",
+        "entities": [
+          {
+            "name": "client",
+            "type": "client"
+          },
+          {
+            "name": "web",
+            "type": "web_edge"
+          },
+          {
+            "name": "database",
+            "type": "relational"
+          }
+        ],
+        "links": [
+          {
+            "name": "web",
+            "owner": "web",
+            "consumers": [
+              "client"
+            ],
+            "behind": {
+              "anonymous": "ghost"
+            }
+          },
+          {
+            "name": "database",
+            "owner": "database",
+            "consumers": [
+              "web"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "a-front-handing-a-scope-to-an-entity-with-no-point",
+      "rule": "front-tier-owns-nothing",
+      "level": "error",
+      "why": "An entity behind a front answers the calls through a connect point of its own, so one that owns none has nothing there to answer them.",
+      "document": {
+        "version": 1,
+        "project": "rules",
+        "entities": [
+          {
+            "name": "client",
+            "type": "client"
+          },
+          {
+            "name": "web",
+            "type": "web_edge"
+          },
+          {
+            "name": "worker",
+            "type": "service"
+          }
+        ],
+        "links": [
+          {
+            "name": "web",
+            "owner": "web",
+            "consumers": [
+              "client"
+            ],
+            "behind": {
+              "anonymous": "worker"
+            }
+          }
+        ]
+      }
     }
   ]
 }

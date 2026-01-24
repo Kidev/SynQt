@@ -21,9 +21,10 @@
 
 import { entityType, findings as ruleFindings, frontsOf } from "./rules.js";
 import { MEMBER_KINDS, NODE_RADIUS, ROLE_HELP, accessorName, describe, draw, element,
-         endsOfPoint, entityAt, extent, glyphSvg, nearestFreeSlot, roleOf, seatAt,
-         seatsOfFront, slotIndex, turnsToward } from "./canvas.js";
-import { inspect } from "./inspector.js";
+         endsOfPoint, entityAt, extent, glyphSvg, memberMarkSvg, memberParts,
+         nearestFreeSlot, roleOf, seatAt, seatsOfFront, slotIndex,
+         turnsToward } from "./canvas.js";
+import { inspect, openWhenDrawn } from "./inspector.js";
 import { forgetDesign, keepDesign, keepPane, keptDesign,
          readPanes } from "./keep.js";
 import { contractOf, entityDir, entityFiles, entityQml, entityQmlPath, isShared,
@@ -226,9 +227,35 @@ async function exampleNamed(name) {
 
 // Saying things
 
+// How long a message stays before the canvas is clean again. An error is left up longer,
+// because it is the one somebody may not have been looking at the bottom of the canvas when
+// it arrived.
+const SAID_FOR = {"": 7000, error: 14000};
+
+let saying = 0;
+
+// What happened, over the canvas, and then gone.
+//
+// A line that sits there for the rest of the session says whatever was said last
+// an hour later. It is read for the first minute and furniture after that, and it
+// holds the one piece of screen where something worth reading could appear. A message about a
+// thing somebody did is worth exactly as long as the doing of it.
+//
+// A situation the drawing is in is not another line of prose either. It is marked on
+// the drawing, at the entity or the connect point it is about (canvas.js alertMark), and
+// hovering that mark says what it is and what to do. That is a hint attached to the thing it
+// is a hint about, which is where it can be acted on.
 function say(message, level) {
     page.hint.textContent = message;
     page.hint.classList.toggle("stage__hint--error", level === "error");
+    page.hint.classList.toggle("is-showing", Boolean(message));
+    window.clearTimeout(saying);
+    if (!message) {
+        return;
+    }
+    saying = window.setTimeout(() => {
+        page.hint.classList.remove("is-showing");
+    }, SAID_FOR[level === "error" ? "error" : ""]);
 }
 
 function fail(error) {
@@ -267,8 +294,8 @@ function renderFindings() {
     page.findings.className = `findings findings--verdict findings--${level}`;
     if (!state.found.length) {
         page.findings.append(quiet(state.design.entities.length
-            ? "All good. Every rule this editor checks is satisfied."
-            : "An empty project. Drag an entity onto the canvas to start."));
+            ? "All good."
+            : "Nothing drawn yet. Drag an entity onto the canvas."));
         return;
     }
     for (const item of state.found) {
@@ -423,34 +450,51 @@ function fileOf(what, files) {
     return found ? found.name : "";
 }
 
-// Every file grouped under the directory it is in, in the order projectFiles lists them.
+// The files as the directory tree they are, in the order projectFiles lists them.
 //
-// The whole directory, not its first segment. An entity's folder is the folder its type puts
-// it in and then its own name (`db/relational/store`), and grouping by the first segment alone
-// put every database in the project under one `db/` heading with no way to tell whose file was
-// whose. The heading is the entity's own folder, which is the whole of a SynQt project's shape.
-function foldersOf(files) {
-    const folders = [];
-    const byName = new Map();
+// A tree and not a flat list of whole directories, because a project's folders nest: an
+// entity lives under its type, so `web/edge` and `web/edge2` are two entities in one `web/`
+// rather than two unrelated headings that happen to start with the same word.
+// The shape of a SynQt project is types holding entities, and this is that shape.
+function treeOf(files) {
+    const root = {name: "", dirs: new Map(), files: []};
     for (const file of files) {
         const parts = inProject(file.name).split("/");
-        const folder = parts.slice(0, -1).join("/");
-        if (!byName.has(folder)) {
-            byName.set(folder, {name: folder, files: []});
-            folders.push(byName.get(folder));
+        let at = root;
+        for (const part of parts.slice(0, -1)) {
+            if (!at.dirs.has(part)) {
+                at.dirs.set(part, {name: part, dirs: new Map(), files: []});
+            }
+            at = at.dirs.get(part);
         }
-        byName.get(folder).files.push({...file, leaf: parts[parts.length - 1]});
+        at.files.push({...file, leaf: parts[parts.length - 1]});
     }
-    return folders;
+    return folded(root);
 }
 
-function treeRow(file, current) {
+// A directory that holds nothing but one directory is drawn joined to it: `db/relational/books`
+// on one row rather than three rows to walk down, since not one of the three says anything the
+// next one does not. Only a fork gets its own row, which is exactly where a reader has a choice
+// to make. The same folding every file explorer does, for the same reason.
+function folded(dir) {
+    let name = dir.name;
+    let at = dir;
+    while (at.dirs.size === 1 && !at.files.length) {
+        const only = [...at.dirs.values()][0];
+        name = name ? `${name}/${only.name}` : only.name;
+        at = only;
+    }
+    return {name, dirs: [...at.dirs.values()].map(folded), files: at.files};
+}
+
+function treeRow(file, current, depth) {
     const row = document.createElement("li");
     const button = document.createElement("button");
     button.type = "button";
     button.className = "tree__file"
         + (file.name === state.reading ? " is-open" : "")
         + (current ? " is-current" : "");
+    button.style.setProperty("--depth", String(depth || 0));
     button.textContent = file.leaf;
     // Opening a file selects what it is out on the canvas, and does not drag the pane off the
     // file that was just asked for: `follow` is what stops the two views chasing each other.
@@ -462,6 +506,50 @@ function treeRow(file, current) {
     });
     row.append(button);
     return row;
+}
+
+// One level of the tree into `list`: this directory's files, then the directories under it,
+// each one level further in. `depth` is what the indent is drawn from, so a row's distance
+// from the left says how deep it is without a rule having to be drawn down the pane.
+function fillTree(list, dir, current, depth, under = "") {
+    for (const file of dir.files) {
+        list.append(treeRow(file, file.name === current, depth));
+    }
+    for (const child of dir.dirs) {
+        const row = document.createElement("li");
+        // The whole path this row stands for, folding included. It is what the row is, and it
+        // is the one stable thing to find a row by from outside.
+        const path = under ? `${under}/${child.name}` : child.name;
+        row.dataset.folder = path;
+        // The glyph, in the entity's own colour, on the directory that IS the entity: the one
+        // holding its files. A directory above that is the entity's type and holds several, so
+        // it takes the plain folder mark and says only how they are grouped.
+        const entity = entityOf((child.files[0] || {}).name || "");
+        row.className = "tree__folder"
+            + (entity ? ` tree__folder--${roleOf(entity)}` : " tree__folder--plain");
+        row.style.setProperty("--depth", String(depth));
+        const head = document.createElement("span");
+        head.className = "tree__folder-name";
+        head.append(entity ? glyphSvg(roleOf(entity)) : folderGlyph());
+        head.append(document.createTextNode(child.name));
+        row.append(head);
+        const leaves = document.createElement("ul");
+        leaves.className = "tree__leaves";
+        fillTree(leaves, child, current, depth + 1, path);
+        row.append(leaves);
+        list.append(row);
+    }
+}
+
+// The mark on a directory that is not an entity. The type folder several entities share. Drawn
+// rather than written so it sits in the same column as the entity glyphs beside it.
+function folderGlyph() {
+    const svg = element("svg", {class: "glyph", viewBox: "0 0 16 16",
+                                "aria-hidden": "true", focusable: "false"});
+    svg.append(element("path", {d: "M 1.5,3.5 h 4 l 1.5,2 H 14.5 v 7 h -13 z",
+                                fill: "none", stroke: "currentColor",
+                                "stroke-width": 1.3, "stroke-linejoin": "round"}));
+    return svg;
 }
 
 // The files this design would be, as a tree of directories. Rendered from projectFiles, which
@@ -487,32 +575,7 @@ function renderProject() {
         state.unlocked = false;
     }
     const current = fileOf(state.selected, files);
-    for (const folder of foldersOf(files)) {
-        if (folder.name) {
-            const heading = document.createElement("li");
-            const entity = entityOf((folder.files[0] || {}).name || "");
-            // The same glyph, in the same colour, that this entity is drawn with above. A
-            // directory in a SynQt project is an entity, so the tree says which one by
-            // showing it rather than by leaving the path to be read back against the canvas.
-            heading.className = "tree__folder"
-                + (entity ? ` tree__folder--${roleOf(entity)}` : "");
-            if (entity) {
-                heading.append(glyphSvg(roleOf(entity)));
-            }
-            heading.append(document.createTextNode(`${folder.name}/`));
-            page.tree.append(heading);
-            const leaves = document.createElement("ul");
-            leaves.className = "tree__leaves";
-            for (const file of folder.files) {
-                leaves.append(treeRow(file, file.name === current));
-            }
-            heading.append(leaves);
-            continue;
-        }
-        for (const file of folder.files) {
-            page.tree.append(treeRow(file, file.name === current));
-        }
-    }
+    fillTree(page.tree, treeOf(files), current, 0);
     const open = files.find((file) => file.name === state.reading) || files[0];
     page.sourceName.textContent = inProject(open.name);
     // While the configuration is being typed into, the pane shows what was typed and not the
@@ -983,6 +1046,78 @@ function tipRow(label, value) {
     return row;
 }
 
+// A rule across the tip with a word on it, so the parts of a card are parts and not one column
+// of lines that happen to be in an order. What used to be here was ten rows in one grey face,
+// which is a paragraph with the punctuation taken out.
+function tipSection(label) {
+    const row = document.createElement("div");
+    row.className = "tip__section";
+    row.textContent = label;
+    return row;
+}
+
+// One end of a link, named and coloured as the role it plays. The same two colours the drawing
+// puts on the entities themselves at the same moment, so the word here and the disc out there
+// are one statement: this one owns it, that one consumes it.
+function tipParty(role, names) {
+    const row = document.createElement("div");
+    row.className = `tip__party tip__party--${role}`;
+    const label = document.createElement("span");
+    label.className = "tip__label";
+    label.textContent = role;
+    row.append(label);
+    const held = document.createElement("span");
+    held.className = "tip__names";
+    if (!names.length) {
+        held.append(quietName(role === "owner" ? "nobody" : "nobody yet"));
+    }
+    for (const name of names) {
+        const entity = entityNamed(name);
+        const chip = document.createElement("span");
+        chip.className = `tip__chip${entity ? ` tip__chip--${roleOf(entity)}` : ""}`;
+        if (entity) {
+            chip.append(glyphSvg(roleOf(entity)));
+        }
+        chip.append(document.createTextNode(name));
+        held.append(chip);
+    }
+    row.append(held);
+    return row;
+}
+
+function quietName(text) {
+    const said = document.createElement("span");
+    said.className = "tip__chip tip__chip--none";
+    said.textContent = text;
+    return said;
+}
+
+// One member of a contract, painted the way the canvas paints it: the mark that says which of
+// the four kinds it is, then the declaration in the same three syntax colours the file pane
+// uses. A list of these read as one grey block before, which is the one part of a link tip
+// somebody is following the line to find.
+function tipMember(member) {
+    const row = document.createElement("div");
+    row.className = `tip__member${member.scope ? " is-scoped" : ""}`;
+    row.append(memberMarkSvg(member.kind));
+    const code = document.createElement("span");
+    code.className = "tip__code";
+    for (const part of memberParts(member)) {
+        const run = document.createElement("span");
+        run.className = `tip__tok tip__tok--${part.kind}`;
+        run.textContent = part.text;
+        code.append(run);
+    }
+    if (member.scope) {
+        const gate = document.createElement("span");
+        gate.className = "tip__tok tip__tok--scope";
+        gate.textContent = ` ${member.scope}`;
+        code.append(gate);
+    }
+    row.append(code);
+    return row;
+}
+
 function memberText(member) {
     // Chosen by kind, not by which list happens to be there: an empty array is truthy, so
     // `member.params || member.roles` picks the empty params of a model every time and its
@@ -1042,12 +1177,20 @@ function tipFor(what) {
         const ends = endsOfPoint(link);
         const head = document.createElement("div");
         head.className = "tip__head tip__head--link";
+        head.append(memberMarkSvg(member.kind));
         const title = document.createElement("span");
         title.textContent = memberText(member);
         head.append(title);
+        const kind = document.createElement("span");
+        kind.className = "tip__kind";
+        kind.textContent = said.name;
+        head.append(kind);
         box.append(head);
-        box.append(tipRow("is a", `${said.name} of ${accessorName(link.owner)}, `
-                                  + `the connect point '${link.owner}' exports`));
+        // The two ends of this particular member's journey, in the same two colours the
+        // drawing puts on the entities while it is hovered.
+        box.append(tipParty("owner", link.owner ? [link.owner] : []));
+        box.append(tipParty("consumer", link.consumers || []));
+        box.append(tipSection("what it carries"));
         box.append(partsRow(member));
         if (member.kind === "slot") {
             box.append(tipRow("answers", member.type
@@ -1057,7 +1200,7 @@ function tipFor(what) {
         box.append(tipRow("reaches", member.scope
             ? `Callers holding '${member.scope}', and nobody else`
             : (link.scope
-                ? `Callers holding '${link.scope}', the gate on the connect point as a whole`
+                ? `Callers holding '${link.scope}', the connect point's own gate`
                 : "Any caller, anonymous included")));
         box.append(tipHelp(said.says(ends.owner, ends.consumers)));
         if (member.scope) {
@@ -1082,11 +1225,19 @@ function tipFor(what) {
         const title = document.createElement("span");
         title.textContent = what.scope;
         head.append(title);
+        const kind = document.createElement("span");
+        kind.className = "tip__kind";
+        kind.textContent = "scope";
+        head.append(kind);
         box.append(head);
         box.append(tipRow("on", `'${what.name}', which fronts for the entities behind it`));
-        box.append(tipRow("answered by", seat.tier
-            ? `'${seat.tier}', over the mesh`
-            : "Nobody yet, so a caller of this scope is handed nowhere"));
+        if (seat.tier) {
+            box.append(tipParty("owner", [seat.tier]));
+            box.append(tipParty("consumer", [what.name]));
+        } else {
+            box.append(tipRow("answered by",
+                              "Nobody yet, so a caller of this scope is handed nowhere"));
+        }
         box.append(tipHelp(seat.tier
             ? `A browser holding '${what.scope}' reaches '${what.name}' and is served by `
               + `'${seat.tier}'. It never learns that '${seat.tier}' exists: the accessor it `
@@ -1139,7 +1290,12 @@ function tipFor(what) {
         title.textContent = entity.name;
         head.append(title);
         box.append(head);
-        box.append(tipRow("is", describe(entity)));
+        const kind = document.createElement("span");
+        kind.className = "tip__kind";
+        // `web_edge` is what the configuration writes; `web edge` is what a card set in small
+        // capitals should read as.
+        kind.textContent = describe(entity).replace(/_/g, " ");
+        head.append(kind);
         box.append(tipRow("reachable from",
                           role === "client" ? "The person using it"
                           : (role === "edge" ? "The internet, and only over TLS"
@@ -1154,23 +1310,28 @@ function tipFor(what) {
                   + "their own"
                 : "One per caller, holding only what is theirs"));
         }
-        // What each connect point is called where somebody writes it, because that is the
-        // word a reader is about to type. The name of the point is the owner's, so listing the
-        // owner's own name back at them said nothing they were not already looking at.
+        // What this entity is at either end of, said in the same two role colours a hovered
+        // link paints its ends with. Two comma-joined sentences used to say it, and which end
+        // of a link an entity is on is the one question about it that a list answers and a
+        // sentence does not.
         const owns = (state.design.links || [])
             .filter((link) => link.owner === entity.name);
-        box.append(tipRow("owns", owns.length
-            ? owns.map((link) => `${contractOf(link)}, reached by `
-                                 + `${(link.consumers || []).length
-                                     ? `'${(link.consumers || []).join("', '")}'`
-                                     : "nobody yet"}`).join("; ")
-            : "No connect point yet"));
         const uses = (state.design.links || [])
             .filter((link) => (link.consumers || []).includes(entity.name));
-        box.append(tipRow("consumes", uses.length
-            ? uses.map((link) => `${accessorName(link.owner)}, which is '${link.owner}'`)
-                .join("; ")
-            : "Nothing"));
+        if (owns.length || uses.length) {
+            box.append(tipSection("on the mesh"));
+        }
+        for (const link of owns) {
+            box.append(tipParty("owner", [entity.name]));
+            box.append(tipParty("consumer", link.consumers || []));
+        }
+        if (uses.length) {
+            box.append(tipRow("consumes", uses
+                .map((link) => `${accessorName(link.owner)} ('${link.owner}')`).join(", ")));
+        }
+        if (!owns.length && !uses.length) {
+            box.append(tipRow("on the mesh", "Nothing reaches it and it reaches nothing"));
+        }
         const front = frontsOf(state.design).get(entity.name);
         if (front) {
             const wired = seatsOfFront(front).filter((seat) => seat.tier);
@@ -1194,45 +1355,50 @@ function tipFor(what) {
     const title = document.createElement("span");
     title.textContent = contractOf(link) || "this connect point";
     head.append(title);
+    const kind = document.createElement("span");
+    kind.className = "tip__kind";
+    kind.textContent = "connect point";
+    head.append(kind);
     box.append(head);
-    box.append(tipRow("owned by", link.owner
-        ? `'${link.owner}', which decides what crosses and who may ask`
-        : "Nobody, so there is nothing here to acquire"));
-    // Which of the point's consumers this particular line runs to, when it is a line that was
-    // hovered rather than the icon: one line is one consumer of a contract they all share.
-    if (what.consumer) {
-        box.append(tipRow("this line", `'${what.consumer}', one of `
-                                       + `${(link.consumers || []).length} consuming it`));
+
+    // The two ends first, in the two role colours, because which entity decides and which one
+    // only asks is what somebody follows a line to find out. It used to be two of eight grey
+    // rows, each carrying a clause of explanation that made the pair harder to pick out rather
+    // than easier.
+    box.append(tipParty("owner", link.owner ? [link.owner] : []));
+    // One line is one consumer of a contract they all share, so a hovered line names that one
+    // and says how many others there are; the icon names all of them.
+    const consumers = link.consumers || [];
+    box.append(tipParty("consumer", what.consumer ? [what.consumer] : consumers));
+    if (what.consumer && consumers.length > 1) {
+        box.append(tipHelp(`One of ${consumers.length} consuming it. Every one of them gets `
+                           + "the same contract."));
     }
-    box.append(tipRow("consumed by", (link.consumers || []).length
-        ? `'${(link.consumers || []).join("', '")}', and nothing else: the list is the `
-          + "authorization"
-        : "Nobody yet, so nothing can acquire it"));
+
+    box.append(tipSection("how"));
     box.append(tipRow("written as", link.owner
-        ? `${accessorName(link.owner)}, in the QML of every consumer`
+        ? `${accessorName(link.owner)}, in every consumer's QML`
         : "Nothing yet: the owner is the name"));
     box.append(tipRow("carried over", link.transport === "local"
-        ? "A local socket: the caller is trusted by colocation, not authenticated"
+        ? "A local socket, so the caller is trusted by colocation"
         : "Mutual TLS, verified against the project CA"));
     box.append(tipRow("gated behind", link.scope
-        ? `'${link.scope}', so a browser below it never acquires `
-          + `${accessorName(link.owner) || "this"} at all`
-        : "No scope, so any session reaches it, anonymous included"));
+        ? `'${link.scope}', and a browser below it never acquires it`
+        : "Nothing, so any session reaches it"));
     const behind = seatsOfFront(frontsOf(state.design).get(link.owner))
         .filter((seat) => seat.tier);
     if (behind.length) {
         box.append(tipRow("handed on to",
                           behind.map((seat) => `${seat.scope} to '${seat.tier}'`).join(", ")));
     }
+
     const members = link.members || [];
     if (members.length) {
+        box.append(tipSection(`crosses (${members.length})`));
         const list = document.createElement("div");
         list.className = "tip__members";
         for (const member of members) {
-            const row = document.createElement("div");
-            row.className = "tip__member";
-            row.textContent = memberText(member);
-            list.append(row);
+            list.append(tipMember(member));
         }
         box.append(list);
     } else {
@@ -1321,8 +1487,13 @@ function seatsOfLink(link) {
 
 // Everything one hovered thing lights, as the keys the drawing's elements are found by.
 function hoverSet(what) {
+    // `owners` and `consumers` are the two ends of whatever is hovered, kept apart on purpose:
+    // which of the two an entity is, is the first thing anybody wants off a line, and the
+    // drawing said it only in the direction of an arrowhead. Lit in the two role colours, the
+    // same two the tip uses for the words, so the picture and the words say it together.
     const empty = {points: new Set(), lines: new Set(), seats: new Set(),
-                   entities: new Set(), zones: new Set(), members: new Set()};
+                   entities: new Set(), zones: new Set(), members: new Set(),
+                   owners: new Set(), consumers: new Set()};
     if (!what) {
         return empty;
     }
@@ -1342,9 +1513,14 @@ function hoverSet(what) {
         const front = frontsOf(state.design).get(what.name);
         const seat = (seatsOfFront(front) || []).find((one) => one.scope === what.scope);
         const behind = seat && seat.tier ? named(seat.tier) : null;
+        // The pair only, and only when there is a pair. A seat nothing is wired to has no
+        // owner to be the other half of, and marking the front alone put the word CONSUMER
+        // over an entity with nothing on the far end of it.
         if (behind) {
             empty.points.add(behind.name);
             empty.lines.add(`${behind.name}\n${what.name}`);
+            empty.owners.add(behind.name);
+            empty.consumers.add(what.name);
         }
         return empty;
     }
@@ -1364,10 +1540,19 @@ function hoverSet(what) {
     if (what.kind === "contract") {
         for (const consumer of link.consumers || []) {
             empty.lines.add(`${link.name}\n${consumer}`);
+            empty.consumers.add(consumer);
         }
         empty.lines.add(`${link.name}\n`);
     } else {
         empty.lines.add(`${link.name}\n${what.consumer || ""}`);
+        // One line is one consumer, so only that one lights; the icon and a member row belong
+        // to the whole point, so all of them do.
+        for (const consumer of (what.consumer ? [what.consumer] : (link.consumers || []))) {
+            empty.consumers.add(consumer);
+        }
+    }
+    if (link.owner) {
+        empty.owners.add(link.owner);
     }
     return empty;
 }
@@ -1405,6 +1590,8 @@ function highlight(what) {
     }
     for (const node of page.nodes.querySelectorAll("[data-entity]")) {
         node.classList.toggle("is-hover", wanted.entities.has(node.dataset.entity));
+        node.classList.toggle("is-owner", wanted.owners.has(node.dataset.entity));
+        node.classList.toggle("is-consumer", wanted.consumers.has(node.dataset.entity));
     }
     for (const box of page.zones.querySelectorAll("[data-zone-title]")) {
         const zone = box.closest(".zone");
@@ -1418,9 +1605,12 @@ function highlight(what) {
 // nothing is left glowing under a pointer that has gone.
 function clearHighlight() {
     state.hover = "";
-    for (const marked of page.canvas.querySelectorAll(".is-hover, .is-hovered")) {
+    for (const marked of page.canvas.querySelectorAll(
+            ".is-hover, .is-hovered, .is-owner, .is-consumer")) {
         marked.classList.remove("is-hover");
         marked.classList.remove("is-hovered");
+        marked.classList.remove("is-owner");
+        marked.classList.remove("is-consumer");
     }
 }
 
@@ -1604,6 +1794,10 @@ function declareOn(entity, member) {
     const named = {...member, name: unique(nameFor(member), taken)};
     const written = `${text.slice(0, closes)}${declarationLine(named)}\n${text.slice(closes)}`;
     entity.qml = written;
+    // And open it in the panel, where the name and the type are typed. Pressing "property" is
+    // a request to declare one: a row that arrives closed answers it with a line of code and
+    // nowhere to fill it in.
+    openWhenDrawn(entity.name, named.name);
     // Open the file it was written into, on the line it went on: a declaration nobody can see
     // is the panel and the pane disagreeing about what just happened.
     state.reading = `${state.design.project || "app"}/${entityQmlPath(entity)}`;
@@ -1643,7 +1837,9 @@ function redeclareOn(entity, member, wanted, was) {
     }
     touched();
     redraw();
-    renderInspector();
+    // The panel is left standing. This runs on every keystroke of a rename, and
+    // rebuilding it replaces the box being typed into. The caret goes to the document body
+    // after the first character, and the rest of the name was typed at nothing.
 }
 
 // Take a declaration out of the entity's file, and off every contract that exported it.
@@ -2377,6 +2573,10 @@ function onDown(event) {
     hideTip();
     closePicker();
     closeRename();
+    // Whatever the pointer was over a moment ago stops being lit. Nothing re-lights during a
+    // drag, so an owner and a consumer left glowing from the last hover would sit there in
+    // their role colours through the whole of a drag that is about something else.
+    clearHighlight();
     const at = pointAt(event);
     const seat = event.target.closest("[data-seat]");
     const rim = event.target.closest("[data-rim]");
@@ -2407,6 +2607,11 @@ function onDown(event) {
     }
     if (rim) {
         const from = entityNamed(rim.dataset.rim);
+        // Every front's seats become visible drop targets for as long as this drag lasts. A
+        // line let go on one hands that scope to the entity it came from, and until the canvas
+        // said so, the only half of that gesture anybody found was the one that starts at the
+        // seat: the reverse worked and looked like nothing.
+        page.canvas.classList.add("is-linking");
         // Drawn from the handle that was grabbed rather than from the middle of the disc, so
         // a link pulled off the left of an entity leaves to the left. That is the whole point
         // of there being a handle on each side.
@@ -2588,7 +2793,7 @@ function onUp(event) {
     drag = null;
     page.ghost.replaceChildren();
     clearSeatAim();
-    page.canvas.classList.remove("is-panning", "is-moving-zone");
+    page.canvas.classList.remove("is-panning", "is-moving-zone", "is-linking");
     if (page.canvas.hasPointerCapture(event.pointerId)) {
         page.canvas.releasePointerCapture(event.pointerId);
     }
