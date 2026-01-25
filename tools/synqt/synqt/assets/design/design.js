@@ -1259,6 +1259,33 @@ function tipFor(what) {
         box.append(tipHelp(what.note));
         return box;
     }
+    // The break on a line that reaches a front nothing routes to: what has stopped being true
+    // about it, and the one gesture that puts it back.
+    if (what.kind === "break") {
+        const link = (state.design.links || []).find((one) => one.name === what.name);
+        if (!link) {
+            return null;
+        }
+        const head = document.createElement("div");
+        head.className = "tip__head tip__head--broken";
+        const title = document.createElement("span");
+        title.textContent = "broken";
+        head.append(title);
+        const kind = document.createElement("span");
+        kind.className = "tip__kind";
+        kind.textContent = "not routed";
+        head.append(kind);
+        box.append(head);
+        box.append(tipParty("owner", link.owner ? [link.owner] : []));
+        box.append(tipParty("consumer", what.consumer ? [what.consumer] : []));
+        box.append(tipHelp(`'${what.consumer}' hands its callers to the entities behind it, `
+                           + `and no scope is handed to '${link.owner}'. The link is still `
+                           + `there and nothing travels down it: nobody is ever routed to `
+                           + `this end of it.`));
+        box.append(tipHelp("Drag from this cross onto a scope on the front's back to say "
+                           + "whose callers it serves. Click it to open the connect point."));
+        return box;
+    }
     // A row in the rail is the entity it would add, so it says what the node on the canvas
     // says, in the same box. A `title` attribute said the same words in the browser's own
     // tooltip, which arrives a second late and looks like it belongs to a different program.
@@ -1524,6 +1551,22 @@ function hoverSet(what) {
         }
         return empty;
     }
+    // The break lights the line it is on and every seat it could be dropped on, because the
+    // seats are where the fix is and a reader looking at the break is looking for it.
+    if (what.kind === "break") {
+        const link = named(what.name);
+        if (!link) {
+            return empty;
+        }
+        empty.points.add(link.name);
+        empty.lines.add(`${link.name}\n${what.consumer || ""}`);
+        empty.owners.add(String(link.owner || ""));
+        const front = frontsOf(state.design).get(what.consumer);
+        for (const seat of seatsOfFront(front)) {
+            empty.seats.add(`${what.consumer}\n${seat.scope}`);
+        }
+        return empty;
+    }
     const link = named(what.kind === "member" ? what.link : what.name);
     if (!link) {
         return empty;
@@ -1630,6 +1673,14 @@ function whatIsUnder(target) {
         return {kind: "member", name: member.dataset.member,
                 link: holder ? holder.dataset.link : "",
                 consumer: holder ? (holder.dataset.consumer || "") : ""};
+    }
+    // The break on a line that reaches a front nothing routes to. Before the link it sits on,
+    // because it is the smaller thing under the pointer and it answers a different question:
+    // the line says what crosses, and this says why none of it arrives.
+    const broke = target.closest("[data-break]");
+    if (broke) {
+        return {kind: "break", name: broke.dataset.break,
+                consumer: broke.dataset.breakConsumer || ""};
     }
     // A scope on a front's back, before the node it is drawn in: it is the seat, and what it
     // says is where callers of that scope go.
@@ -2407,7 +2458,10 @@ function droppedOnSeat(from, target, local) {
 //
 // Returns whether it took the drop. Everything that is not a line arriving at a front from
 // something that can sit behind one is somebody else's to handle.
-function offerSeat(from, target, at) {
+// `consuming` says the line asking is one that already consumes the front's point, which is
+// every line with a break on it. Offering to make one again would be offering to draw what is
+// already drawn.
+function offerSeat(from, target, at, {consuming} = {}) {
     const front = frontsOf(state.design).get(target.name);
     if (!front || entityType(from) === "client") {
         return false;
@@ -2417,16 +2471,18 @@ function offerSeat(from, target, at) {
     openMenu(at, `'${from.name}' behind '${target.name}'`, [
         ...seats.map((seat) => ({
             // A seat that is already this entity's says so, and a seat that is somebody
-            // else's says whose: picking it is how one is moved, and moving one silently is
+            // else's says whose. Picking it is how one is moved, and moving one silently is
             // how a scope ends up served by an entity nobody meant to point it at.
             label: seat.tier === from.name ? `${seat.scope} (already)`
                  : (seat.tier ? `${seat.scope} (now '${seat.tier}')` : seat.scope),
             act: () => sendScopeBehind(target, seat.scope, from),
         })),
-        // The drop still has its plain meaning available: a front owns a connect point like
+        // The drop still has its plain meaning available. A front owns a connect point like
         // any other entity, and consuming one is not the same thing as sitting behind it.
-        {label: `Just consume ${contractOf({owner: target.name})}`,
-         act: () => addLink(from, target, null, at)},
+        ...(consuming
+            ? []
+            : [{label: `Just consume ${contractOf({owner: target.name})}`,
+                act: () => addLink(from, target, null, at)}]),
         ...(taken
             ? [{label: `Stop serving '${taken.scope}'`,
                 act: () => sendScopeBehind(target, taken.scope, null), danger: true}]
@@ -2579,6 +2635,7 @@ function onDown(event) {
     clearHighlight();
     const at = pointAt(event);
     const seat = event.target.closest("[data-seat]");
+    const broke = event.target.closest("[data-break]");
     const rim = event.target.closest("[data-rim]");
     const held = event.target.closest("[data-entity]");
     const contract = event.target.closest("[data-contract]");
@@ -2604,6 +2661,27 @@ function onDown(event) {
                     y: (from.y || 0) + Number(seat.dataset.y)},
         };
         return;
+    }
+    // The break on a line into a front. Pressing it is the connect point, and dragging off it
+    // is the routing it is missing: the fix for what the cross says is one drag from the cross
+    // to a scope, so the cross is the handle.
+    if (broke) {
+        const link = (state.design.links || []).find(
+            (one) => one.name === broke.dataset.break);
+        const front = entityNamed(broke.dataset.breakConsumer);
+        if (link && front) {
+            page.canvas.classList.add("is-linking");
+            drag = {
+                mode: "wire",
+                from: entityNamed(link.owner),
+                front,
+                link,
+                at,
+                moved: false,
+                start: {x: Number(broke.dataset.x), y: Number(broke.dataset.y)},
+            };
+            return;
+        }
     }
     if (rim) {
         const from = entityNamed(rim.dataset.rim);
@@ -2745,7 +2823,7 @@ function onMove(event) {
         redraw();
         return;
     }
-    if ((drag.mode === "link" || drag.mode === "behind") && drag.from) {
+    if ((drag.mode === "link" || drag.mode === "behind" || drag.mode === "wire") && drag.from) {
         page.ghost.replaceChildren(element("line", {
             class: "ghost",
             x1: drag.start.x,
@@ -2753,7 +2831,7 @@ function onMove(event) {
             x2: at.local.x,
             y2: at.local.y,
         }));
-        if (drag.mode === "link") {
+        if (drag.mode === "link" || drag.mode === "wire") {
             lightSeatUnder(at.local);
         }
         return;
@@ -2801,6 +2879,36 @@ function onUp(event) {
     if (finished.mode === "behind" && finished.from) {
         const target = entityAt(state.design, pointAt(event).local);
         sendScopeBehind(finished.from, finished.scope, target);
+        return;
+    }
+    // A line pulled off a break. It is already known which two entities are at the ends: the
+    // only thing missing is which scope's callers the owner serves, so a drop on a seat says
+    // it outright, a drop anywhere else on the front asks which, and a press that went nowhere
+    // opens the connect point.
+    if (finished.mode === "wire" && finished.from && finished.front) {
+        const at = pointAt(event);
+        if (!finished.moved) {
+            select({kind: "contract", name: finished.link.name});
+            return;
+        }
+        const local = {x: at.local.x - (finished.front.x || 0),
+                       y: at.local.y - (finished.front.y || 0)};
+        const seat = seatAt(frontsOf(state.design).get(finished.front.name), local);
+        if (seat) {
+            sendScopeBehind(finished.front, seat.scope, finished.from);
+            return;
+        }
+        // Anywhere else on the front is the same question without a scope named, so it is
+        // asked. Not the consuming option. This line is already one, which is why it has a
+        // break on it.
+        if (entityAt(state.design, at.local) === finished.front
+                && offerSeat(finished.from, finished.front,
+                             {x: event.clientX, y: event.clientY}, {consuming: true})) {
+            return;
+        }
+        say(`'${finished.from.name}' is behind '${finished.front.name}' and no scope is `
+            + `handed to it. Drop the line on one of the scopes along the front's back to `
+            + "say whose callers it serves.");
         return;
     }
     if (finished.mode === "link" && finished.from) {

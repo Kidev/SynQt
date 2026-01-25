@@ -103,6 +103,14 @@ go anywhere else on the wedge and it asks which scope you meant. Dragging a seat
 canvas takes that scope off, and so does deleting the link it was wired along: the routing
 and the link are one declaration, so they go together.
 
+Throwing the switch stops the edge answering its own connect point, so every link already
+running into it now carries nobody until a scope names the entity at the other end. Those
+links stay on the canvas and are drawn as what they have become: severed three quarters of
+the way along, under a red cross and the word **broken**. The cross is the fix as well as the
+diagnosis. Point at it and it says which two entities are at the ends and what is missing;
+drag from it onto a scope on the front's back and that scope is served by the entity the line
+came from; click it and the connect point opens, the same as clicking the line.
+
 Selecting a node or a line opens the panel on the right, which is where the rest lives: an
 entity's provider, a connect point's consumer list, and what crosses it. The consumer list
 is the authorization: an entity that is not on it is refused the replica.

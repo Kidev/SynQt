@@ -390,6 +390,35 @@ async function dropOnSeat(page, fromEntity, front, scope) {
     await page.mouse.up();
 }
 
+// A seat dragged onto empty canvas, which is how a scope is taken off the entity serving it.
+async function unwireSeat(page, front, scope, at) {
+    const seat = await page.locator(`[data-seat="${front}"][data-scope="${scope}"]`)
+                           .boundingBox();
+    const canvas = await page.locator("#canvas").boundingBox();
+    const start = { x: seat.x + (seat.width / 2), y: seat.y + (seat.height / 2) };
+    const target = { x: canvas.x + at.x, y: canvas.y + at.y };
+    await page.mouse.move(start.x, start.y);
+    await page.mouse.down();
+    await page.mouse.move((start.x + target.x) / 2, (start.y + target.y) / 2, { steps: 8 });
+    await page.mouse.move(target.x, target.y, { steps: 8 });
+    await page.mouse.up();
+}
+
+// The break on a line into a front, dragged onto the word naming a scope: the fix for what the
+// cross says, done from the cross itself.
+async function dragBreak(page, link, front, scope) {
+    const mark = await page.locator(`[data-break="${link}"]`).boundingBox();
+    const label = await page.locator(`[data-entity="${front}"] .node__seat-name`)
+                            .filter({ hasText: scope }).first().boundingBox();
+    const start = { x: mark.x + (mark.width / 2), y: mark.y + (mark.height / 2) };
+    const target = { x: label.x + (label.width / 2), y: label.y + (label.height / 2) };
+    await page.mouse.move(start.x, start.y);
+    await page.mouse.down();
+    await page.mouse.move((start.x + target.x) / 2, (start.y + target.y) / 2, { steps: 8 });
+    await page.mouse.move(target.x, target.y, { steps: 8 });
+    await page.mouse.up();
+}
+
 // A browser owns nothing, and a front is a web edge that hands its callers on. Both are drawn
 // rather than configured, so both are checked the way somebody would do them.
 async function theFrontThatSplitsCallers() {
@@ -465,9 +494,35 @@ async function theFrontThatSplitsCallers() {
         check(/behind:\s*\n\s*admin: service/.test(written),
               "and written as 'behind: admin: service' in synqt.yaml");
 
-        // The other way round, which is the way anybody reaches for it: a line pulled off the
-        // entity and let go on the word naming the scope. It used to land on nothing, because
-        // the drop test was a circle around the middle of a node and the seats and their
+        // A link into a front that no scope hands anyone to. The front stopped answering its
+        // own point the moment the switch went on, so a line arriving at it that nothing is
+        // routed to carries nobody, and the drawing says so rather than leaving it looking
+        // like an ordinary link. It is severed three quarters of the way along, under a cross
+        // and the word.
+        //
+        // The cross is also the handle. Dragging it onto a scope is the fix for exactly what
+        // it says, which is the whole reason it is a thing to point at rather than a colour.
+        await unwireSeat(page, "web", "admin", { x: 120, y: 420 });
+        await page.waitForSelector('[data-break="service"]');
+        check(await page.locator('[data-link="service"]').count() === 1,
+              "a link nothing routes to stays on the canvas");
+        check(await page.locator('[data-break="service"] .link__break-word')
+                        .first().textContent() === "broken",
+              "and says it is broken, on the line, at the end it fails to reach");
+        await dragBreak(page, "service", "web", "moderator");
+        await page.waitForFunction(
+            () => document.querySelectorAll("[data-break]").length === 0);
+        check(await page.locator('[data-entity="web"] .node__seat.is-taken').count() === 1,
+              "and dragging the break onto a scope is what mends it");
+        await unwireSeat(page, "web", "moderator", { x: 120, y: 420 });
+        await page.waitForSelector('[data-break="service"]');
+        await dragSeat(page, "web", "admin", "service");
+        await page.waitForFunction(
+            () => document.querySelectorAll("[data-break]").length === 0);
+
+        // The other way round, which is the way anybody reaches for it, a line pulled off the
+        // entity and let go on the word naming the scope. A drop test that is a circle around
+        // the middle of a node lands this on nothing, because the seats and their
         // names are along its back.
         await dropOnSeat(page, "service", "web", "user");
         await page.waitForFunction(() => document.getElementById("hint").textContent

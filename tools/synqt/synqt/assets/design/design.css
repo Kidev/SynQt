@@ -1096,9 +1096,69 @@ h2 {
   fill: var(--line);
 }
 
+/* The rest of a link that does not arrive. Dashed and faded, so the eye follows it out of its
+   owner and watches it stop: a line that carries nobody drawn exactly like one that does is
+   the picture saying the opposite of what is true. */
+.link__line--severed {
+  stroke-dasharray: 3 4;
+  stroke-opacity: .45;
+}
+
+/* The break itself: a red cross on the line, three quarters of the way to the end it fails to
+   reach, with the word under it. It is a target and a handle both -- pointing at it says what
+   is wrong, and dragging off it onto a scope on the front's back is the fix. */
+.link__break {
+  cursor: crosshair;
+}
+
+.link__break-grab {
+  fill: transparent;
+  stroke: none;
+  pointer-events: all;
+}
+
+.link__break-disc {
+  fill: var(--page);
+  stroke: var(--error);
+  stroke-width: 1.4;
+  pointer-events: none;
+}
+
+.link__break-cross {
+  stroke: var(--error);
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  fill: none;
+  pointer-events: none;
+}
+
+/* The word sits over whatever the line is crossing, so it carries its own ground: the halo is
+   painted first and the letters over it, which is what `paint-order` decides. */
+.link__break-word {
+  fill: var(--error);
+  stroke: var(--page);
+  stroke-width: 3;
+  paint-order: stroke fill;
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: .06em;
+  pointer-events: none;
+}
+
+.link__break:hover .link__break-disc,
+.link.is-hover .link__break-disc {
+  fill: var(--error);
+}
+
+.link__break:hover .link__break-cross,
+.link.is-hover .link__break-cross {
+  stroke: var(--page);
+}
+
 /* Which way round the link is, said along the whole of it rather than by an arrowhead at one
    end. Painted with nothing until the link is hovered, then a dash that travels from the owner
-   towards the consumer, in the consumer's own colour: the direction is what arrives, and what
+   towards the consumer, in the consumer's own colour. The direction is what arrives, and what
    arrives is the replica. */
 .link__flow {
   fill: none;
@@ -2394,6 +2454,10 @@ select:focus {
 
 .tip__head--link {
   color: var(--accent);
+}
+
+.tip__head--broken {
+  color: var(--error);
 }
 
 /* What kind of thing the card is about, on the same line as its name. Right-aligned and quiet:

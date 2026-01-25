@@ -846,6 +846,61 @@ function curve(edge) {
     return `M ${edge.x1},${edge.y1} Q ${edge.cx},${edge.cy} ${edge.x2},${edge.y2}`;
 }
 
+// How far along a broken line the break is drawn. Three quarters, so it sits near the end the
+// link fails to arrive at rather than in the middle, where every other mark on a line already
+// is. The break belongs to the arrival, not to the link as a whole.
+export const BREAK_AT = 0.75;
+
+// The point on the curve at `t`, and the two halves either side of it.
+//
+// De Casteljau on the quadratic rather than a straight cut. A line drawn solid to a point and
+// dashed after it has to break *on* the curve, and a chord between the two ends is not on the
+// curve anywhere except at them. The two halves are quadratics of their own, so what is drawn
+// is the same shape the whole line was.
+export function splitCurve(edge, at) {
+    const lerp = (a, b) => ({x: a.x + ((b.x - a.x) * at), y: a.y + ((b.y - a.y) * at)});
+    const start = {x: edge.x1, y: edge.y1};
+    const hold = {x: edge.cx, y: edge.cy};
+    const end = {x: edge.x2, y: edge.y2};
+    const first = lerp(start, hold);
+    const second = lerp(hold, end);
+    const on = lerp(first, second);
+    return {
+        on,
+        before: `M ${start.x},${start.y} Q ${first.x},${first.y} ${on.x},${on.y}`,
+        after: `M ${on.x},${on.y} Q ${second.x},${second.y} ${end.x},${end.y}`,
+    };
+}
+
+// The mark on a link that reaches a front no scope hands anyone to. Its owner is behind that
+// front and nothing is routed to it, so the line is drawn as what it is: a connection that
+// does not arrive.
+//
+// A cross rather than a colour, and a word rather than a legend: the line is one of several on
+// a canvas and a reader is not going to notice a hue two shades warmer at the far end of it.
+// It answers the pointer and it is a handle, because the fix is one drag away and the thing to
+// drag from is the break itself.
+function breakMark(link, consumer, at) {
+    const group = element("g", {class: "link__break",
+                                transform: `translate(${at.x},${at.y})`});
+    group.dataset.break = link.name;
+    group.dataset.breakConsumer = consumer || "";
+    // Where a line pulled off the break leaves from. On the element, because the drag is set
+    // up from whatever the press hit and nothing else there knows the geometry.
+    group.dataset.x = String(at.x);
+    group.dataset.y = String(at.y);
+    // Something square to catch the pointer, because two crossed 1px rules are not a target.
+    group.append(element("rect", {class: "link__break-grab", x: -9, y: -9,
+                                  width: 18, height: 18, rx: 3}));
+    group.append(element("circle", {class: "link__break-disc", r: 7}));
+    group.append(element("path", {class: "link__break-cross",
+                                  d: "M -3,-3 L 3,3 M 3,-3 L -3,3"}));
+    const word = element("text", {class: "link__break-word", y: -12, "text-anchor": "middle"});
+    word.textContent = "broken";
+    group.append(word);
+    return group;
+}
+
 // The contract, drawn on the slot its link was pulled from and never hidden: the free slots
 // come and go with the pointer, but what an entity has already agreed to say is part of the
 // drawing. `level` is the verdict on the contract alone, which is not the verdict on the
@@ -1151,7 +1206,17 @@ function line(link, from, to, options) {
     const badgeAt = contractPoint(from, options.slot, options.fromFront);
     const edge = ends(from, to, options.offset || 0, badgeAt, options.arrives);
     const path = curve(edge);
-    group.append(element("path", {class: "link__line", d: path}));
+    // A link into a front that no scope hands anyone to is drawn as the thing it is: solid out
+    // of its owner, and from the break onward a line that does not arrive. Left drawn whole it
+    // was an ordinary link into an entity that had stopped answering, which is the picture
+    // saying the opposite of what is true.
+    const cut = options.broken ? splitCurve(edge, BREAK_AT) : null;
+    if (cut) {
+        group.append(element("path", {class: "link__line", d: cut.before}));
+        group.append(element("path", {class: "link__line link__line--severed", d: cut.after}));
+    } else {
+        group.append(element("path", {class: "link__line", d: path}));
+    }
 
     // The same curve again as a dashed stroke that runs, shown only while the link is hovered.
     // Which way round a link is, is its whole meaning, and until now the drawing said it with
@@ -1193,6 +1258,13 @@ function line(link, from, to, options) {
     // beside the line put it a dozen pixels from the neighbouring seat's name, which is what
     // the two of them read as. One name per scope, on the thing that is that scope, and the
     // line says the rest by arriving there.
+
+    // Last of everything, so it sits over the block of members as well as over the line: a
+    // break behind what the link carries is a break nobody sees, and what the link carries is
+    // the half of the drawing that has stopped being true.
+    if (cut) {
+        group.append(breakMark(link, options.consumer, cut.on));
+    }
 
     return group;
 }
@@ -1282,7 +1354,8 @@ export function draw(layers, design, {problems, selected, filesOf}) {
             // A link into a front arrives on the seat of the scope its owner serves, so the
             // line lands on the name of the scope it answers for.
             wanted.push({link, owner, options, target,
-                         arrives: seatFor(fronts.get(target.name), owner.name)});
+                         arrives: seatFor(fronts.get(target.name), owner.name),
+                         broken: isBroken(fronts.get(target.name), owner.name)});
         }
     }
 
@@ -1303,6 +1376,7 @@ export function draw(layers, design, {problems, selected, filesOf}) {
             const offset = (index - ((spread.length - 1) / 2)) * LANE_GAP;
             const consumer = item.target ? item.target.name : "";
             const options = {...item.options, offset, arrives: item.arrives, consumer,
+                             broken: Boolean(item.broken),
                              selected: item.options.wholePoint
                                  || Boolean(selected && selected.kind === "link"
                                             && selected.name === item.link.name
@@ -1346,8 +1420,26 @@ export function draw(layers, design, {problems, selected, filesOf}) {
     }
 }
 
+// Is this link into a front one nothing is routed to?
+//
+// A front stops answering its own connect point. From the moment the switch goes on, a caller
+// reaches whichever entity their scope is wired to and nothing else. So a point the front
+// consumes whose owner sits behind no scope is a connection that carries nobody, and the
+// drawing says so rather than leaving it looking like an ordinary link.
+//
+// A state of the drawing and not a rule. `synqt check` has no opinion about it -- a front may
+// legitimately be part-way through being wired -- and the editor's rules are held to the
+// command line's verdict case by case, so this belongs here, on the line, where it can be
+// dragged onto a scope and fixed.
+export function isBroken(front, owner) {
+    if (!front) {
+        return false;
+    }
+    return !seatsOfFront(front).some((seat) => seat.tier === owner);
+}
+
 // Which side of its own line a link's slot sits on, as a signed distance across it. This is
-// what orders the lanes: a link leaving the top of its owner should stay above one leaving
+// what orders the lanes. A link leaving the top of its owner should stay above one leaving
 // the bottom, all the way to the other end.
 function sideOfSlot(item) {
     const to = item.target || {x: (item.owner.x || 0) + 1, y: item.owner.y || 0};
