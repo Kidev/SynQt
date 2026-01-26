@@ -294,16 +294,11 @@ function entityPanel(design, entity, actions) {
               + "Caller of their own. synqt.yaml says nothing, which is the default."
             : "Every caller gets a Source of their own, holding only what is theirs. "
               + "Written as `shared: false` on this entity."));
-        // Asked often enough to be answered here. The two look like one setting written two
-        // ways and they are not: this switch counts the Sources that answer callers, and
-        // `pragma Shared` marks a file as the entity's own single instance, of which there is
-        // one either way.
-        how.append(note("Not `pragma Shared`, which marks a file as the entity's own one "
-                        + "instance. There is one of that file whichever way this is set, "
-                        + "and it is where state every caller sees belongs.", true));
     }
 
     panel.append(section("How it runs", how));
+
+    panel.append(wiredPanel(design, entity, actions));
 
     panel.append(declaresPanel(design, entity, actions));
 
@@ -314,6 +309,78 @@ function entityPanel(design, entity, actions) {
     actionsRow.append(remove);
     panel.append(actionsRow);
     return panel;
+}
+
+// A name on this panel that is another entity, as something to press. The panel is where a
+// reader ends up after clicking one thing, and the next thing they want is usually at the
+// other end of a line: reading "consumers: edge" and then having to find `edge` on the canvas
+// is the panel naming a thing it will not take you to.
+function jump(name, onPick) {
+    const button = tag("button", {type: "button", class: "button button--chip"}, name);
+    button.addEventListener("click", () => onPick(name));
+    return button;
+}
+
+function jumps(names, onPick) {
+    const row = tag("div", {class: "chips"});
+    for (const name of names) {
+        row.append(jump(name, onPick));
+    }
+    return row;
+}
+
+// Who is at the other end of every line this entity is on. The entities that consume the
+// connect point it owns, and the owners of the points it consumes. The same two words
+// synqt.yaml uses, so the panel and the file are one vocabulary.
+//
+// One connect point per owner, so "the point this entity owns" is one thing however the
+// document is shaped. The consumers of it are the list. A point this entity consumes is
+// named by its owner, which is why the owner is the name on the button.
+function wiredPanel(design, entity, actions) {
+    const links = design.links || [];
+    const owned = links.filter((one) => one.owner === entity.name);
+    const consumers = [...new Set(owned.flatMap((one) => one.consumers || []))];
+    const owners = links.filter((one) => (one.consumers || []).includes(entity.name))
+                        .map((one) => one.owner)
+                        .filter(Boolean);
+    const open = (name) => actions.select({kind: "entity", name});
+
+    if (!owned.length && !owners.length) {
+        return section("Wired to",
+            note("Nothing yet. Drag from a handle on this entity's rim to another entity to "
+                 + "draw a connect point out of it, or from that entity to this one to "
+                 + "consume theirs.", true));
+    }
+
+    const box = tag("div");
+    if (owned.length) {
+        const point = owned[0];
+        box.append(group("Consumers", consumers.length
+            ? jumps(consumers, open)
+            : tag("p", {class: "field__fixed"}, "nobody yet")));
+        box.append(note(consumers.length
+            ? `These acquire a replica of the connect point '${entity.name}' owns, and can `
+              + "only ask it for what crosses. Nothing else on the mesh may reach it."
+            : `'${entity.name}' owns a connect point that nothing consumes yet. Drag a line `
+              + "from its rim to whatever should reach it."));
+        const contract = tag("button", {type: "button", class: "button"},
+                             `What crosses '${entity.name}'`);
+        contract.addEventListener("click", () => actions.openContract(point));
+        box.append(group("Contract", contract));
+    }
+    if (owners.length) {
+        box.append(group("Owner", jumps([...new Set(owners)], open)));
+        // A client says `Server` for the edge it reaches, which is the one accessor that is
+        // not the owner's own name: it is a browser's word for whatever is in front of it.
+        // Only ever one owner there, because the edge is the only thing a browser can reach.
+        const reaches = roleOf(entity) === "client" ? "Server" : accessorName(owners[0]);
+        box.append(note(owners.length === 1
+            ? `'${entity.name}' consumes the connect point '${owners[0]}' owns, and reaches `
+              + `it as \`${reaches}\` in its own QML.`
+            : `'${entity.name}' consumes a connect point from each of these, and reaches each `
+              + "one by that owner's own name."));
+    }
+    return section("Wired to", box);
 }
 
 // What the entity's own file declares, edited where it is declared.

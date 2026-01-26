@@ -203,11 +203,20 @@ h2 {
   flex: 1;
 }
 
+/* The two steps, as one pair. The gap between them is smaller than the bar's, because back
+   and forward over the same history is one control with two ends rather than two controls
+   that happen to sit together. */
+.bar__history {
+  display: flex;
+  align-items: center;
+  gap: .25rem;
+}
+
 /* Every button hovers the same way, in its own colour. `--tone` is the one thing a variant
-   changes, so a red button lights red and a blue one blue; the treatment underneath is one
-   rule. It used to be `border-color: var(--accent)` for all of them, which turned a delete
-   button blue on the way to being pressed and did nothing at all to a button whose border
-   was already the accent, so the two loudest controls on the bar were the two with no hover
+   changes, so a red button lights red and a blue one blue, and the treatment underneath is one
+   rule. A `border-color: var(--accent)` for all of them would turn a delete
+   button blue on the way to being pressed and do nothing at all to a button whose border
+   is already the accent, so the two loudest controls on the bar would be the two with no hover
    at all. */
 .button {
   --tone: var(--accent);
@@ -272,6 +281,27 @@ h2 {
 
 .dock.is-collapsed .button--chevron .glyph {
   transform: rotate(180deg);
+}
+
+/* Square, like the chevron and for the same reason. What is in it is an arrow. Quiet while
+   there is nothing to go back over, which is most of the time on a canvas nobody has touched
+   yet, and the ordinary button hover the moment there is. */
+.button--step {
+  padding: .25rem;
+  width: 1.7rem;
+  height: 1.7rem;
+  display: grid;
+  place-items: center;
+  color: var(--ink-dim);
+}
+
+.button--step:hover:not(:disabled) {
+  color: var(--ink);
+}
+
+.button--step .glyph {
+  width: 1rem;
+  height: 1rem;
 }
 
 /* The one control that changes what a keystroke over the pane means. It names the action it
@@ -1604,6 +1634,21 @@ h2 {
   color: var(--ink);
 }
 
+/* The entities at the other end of this one's lines, each one a way to get there. Set in the
+   code face, because every one of them is a name out of the project, and wrapping rather than
+   scrolling: a wide entity with six consumers is a list to read, not a row to drag. */
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .3rem;
+}
+
+.button--chip {
+  padding: .15rem .45rem;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
 input[type="text"],
 select {
   width: 100%;
@@ -2126,6 +2171,16 @@ select:focus {
 
 .dock.is-collapsed .dock__file {
   border-left: none;
+}
+
+/* Collapsed, the bar is a strip that says what is behind it and offers the one control that
+   brings it back. The file's name and the button that unlocks it go with the pane: a name
+   with no pane under it is a file nobody can see, and an Edit button over a pane that is not
+   there unlocks a file for a caret that has nowhere to go. The chevron does not move, because
+   it is the thing being reached for. */
+.dock.is-collapsed .dock__name,
+.dock.is-collapsed .button--lock {
+  display: none;
 }
 
 .dock.is-collapsed .dock__bar {

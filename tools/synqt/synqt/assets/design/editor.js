@@ -23,7 +23,108 @@ import { defaultKeymap, history, historyKeymap } from "./vendor/codemirror-comma
 import { bracketMatching } from "./vendor/codemirror-language.js";
 import { runsFor } from "./source.js";
 
-// The class a run of a given kind is painted with: the same names the stylesheet has used all
+// The pane, styled.
+//
+// A CodeMirror theme and not rules in editor.css, which is where this started and where it
+// did not work. The base theme the library ships with is two and three classes deep
+// (a generated class of its own, then `.cm-gutters`; a generated class, `.cm-lineNumbers` and
+// `.cm-gutterElement`), and a plain `.cm-gutters` in a stylesheet loses to every one of them. That was not a detail of the gutter. The pane had been wearing
+// CodeMirror's *light* base theme on a dark page, which is why the number of the line the
+// caret was on sat invisible on a pale blue block, and why the selection and the caret were
+// the library's colours rather than the page's. A theme is the mechanism the library provides
+// for this and it outranks the base theme by construction, so nothing here has to out-guess a
+// specificity.
+//
+// The values are the page's own custom properties. They cross into the shadow root and are
+// resolved where they are used, so this follows the reader's light or dark setting with no
+// rebuild -- which is the one thing a theme written in JavaScript would otherwise cost.
+const PANE_THEME = EditorView.theme({
+    "&": {
+        height: "100%",
+        backgroundColor: "var(--page)",
+        color: "var(--ink)",
+        fontFamily: "var(--mono)",
+        fontSize: "12px",
+    },
+    // No ring around the pane when the caret is in it. Which pane has the caret is said by
+    // the caret, and an outline the width of the files pane is a box drawn around the whole
+    // project.
+    "&.cm-focused": {outline: "none"},
+    ".cm-scroller": {fontFamily: "inherit", lineHeight: "1.45"},
+    ".cm-content": {padding: "0.75rem 0", caretColor: "var(--accent)"},
+
+    // The line numbers, which is half of what this pane gained by becoming an editor: a
+    // finding naming a line, a stack trace, and a colleague saying "look at line 40" all
+    // point at something now.
+    //
+    // An index and not the file, so they are set quiet, in figures of one width so a column
+    // of them is a column, and with no rule down the side. A border between the numbers and
+    // the code drew a second edge a few pixels from the one the tree already draws, and the
+    // gutter is not a pane.
+    ".cm-gutters": {
+        backgroundColor: "var(--page)",
+        color: "var(--ink-dim)",
+        border: "none",
+    },
+    ".cm-lineNumbers .cm-gutterElement": {
+        minWidth: "2.4em",
+        padding: "0 0.7rem 0 0.85rem",
+        fontVariantNumeric: "tabular-nums",
+        opacity: "0.55",
+    },
+    // The line the caret is on, said by its number rather than by a block behind it. The
+    // block is what the base theme does, and on this page it was a pale blue rectangle with
+    // the digit lost inside it.
+    ".cm-activeLineGutter": {backgroundColor: "transparent"},
+    ".cm-activeLineGutter .cm-gutterElement, &.cm-focused .cm-activeLineGutter": {
+        backgroundColor: "transparent",
+    },
+    "&.cm-focused .cm-lineNumbers .cm-activeLineGutter": {
+        color: "var(--accent)",
+        opacity: "1",
+        fontWeight: "600",
+    },
+
+    // The line the caret is on, marked rather than lit. A filled band across a pane this
+    // narrow reads as a selection, and the pane already has one of those.
+    ".cm-activeLine": {
+        backgroundColor: "color-mix(in srgb, var(--panel-high) 55%, transparent)",
+    },
+    // A file being read rather than typed into. The lock is said on the bar above in words;
+    // this is the pane agreeing with it, quietly enough that a locked file is still a file
+    // to read.
+    "&:not(.cm-focused) .cm-activeLine": {backgroundColor: "transparent"},
+
+    ".cm-cursor, .cm-dropCursor": {
+        borderLeftColor: "var(--accent)",
+        borderLeftWidth: "2px",
+    },
+    ".cm-selectionBackground": {
+        background: "color-mix(in srgb, var(--accent) 34%, transparent)",
+    },
+    "&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground": {
+        background: "color-mix(in srgb, var(--accent) 44%, transparent)",
+    },
+    ".cm-content ::selection, .cm-line::selection": {
+        background: "color-mix(in srgb, var(--accent) 44%, transparent)",
+    },
+
+    // The other half of what it gained. The brace at the far end of the block the caret is
+    // in. QML is nested objects, and the one question a reader has of a closing brace is
+    // which opening one it answers.
+    "&.cm-focused .cm-matchingBracket, .cm-matchingBracket": {
+        backgroundColor: "color-mix(in srgb, var(--accent) 22%, transparent)",
+        outline: "1px solid color-mix(in srgb, var(--accent) 55%, transparent)",
+        color: "inherit",
+    },
+    "&.cm-focused .cm-nonmatchingBracket, .cm-nonmatchingBracket": {
+        backgroundColor: "color-mix(in srgb, var(--error) 22%, transparent)",
+        color: "inherit",
+    },
+    ".cm-specialChar": {color: "var(--error)"},
+});
+
+// The class a run of a given kind is painted with. The same names the stylesheet has used all
 // along, so one set of rules colours the pane, the canvas and the cards.
 const MARKS = new Map();
 
@@ -80,6 +181,7 @@ function extensionsFor(named, editable, readOnly, watch) {
         history(),
         bracketMatching(),
         keymap.of([...defaultKeymap, ...historyKeymap]),
+        PANE_THEME,
         EditorState.allowMultipleSelections.of(true),
         // Four, which is what every SynQt file is written with and what qmlformat writes back.
         EditorState.tabSize.of(4),

@@ -444,7 +444,44 @@ async function hoverAlong(page, link, along) {
     return at;
 }
 
-// The break on a line into a front, dragged onto the word naming a scope: the fix for what the
+// Start a drag off a break, look at where the half-drawn line begins, and let go without
+// having wired anything. What is asserted is which end of the line the drag draws from.
+async function ghostLeavesTheOwner(page, link) {
+    const mark = await page.locator(`[data-break="${link}"] .link__break-disc`).boundingBox();
+    // The icon itself, not the group it is in. A connect point with a finding against it
+    // carries an alert mark off to one side, and the group's box is then the two of them.
+    const badge = await page.locator(`[data-contract="${link}"] .link__doc-box`).boundingBox();
+    const canvas = await page.locator("#canvas").boundingBox();
+    const start = { x: mark.x + (mark.width / 2), y: mark.y + (mark.height / 2) };
+    await page.mouse.move(start.x, start.y);
+    await page.mouse.down();
+    // Let go on empty canvas, well clear of every entity. What is being asserted is which end
+    // the line is drawn from, and a drop that landed on a scope would mend the link the next
+    // check is about to mend.
+    await page.mouse.move(canvas.x + 40, canvas.y + canvas.height - 40, { steps: 8 });
+    const from = await page.evaluate(() => {
+        const line = document.querySelector("#ghost line");
+        if (!line) {
+            return null;
+        }
+        const canvas = document.getElementById("canvas");
+        const point = canvas.createSVGPoint();
+        point.x = Number(line.getAttribute("x1"));
+        point.y = Number(line.getAttribute("y1"));
+        const on = point.matrixTransform(line.getScreenCTM());
+        return { x: on.x, y: on.y };
+    });
+    await page.mouse.up();
+    if (!from) {
+        return false;
+    }
+    // Within a couple of pixels of the middle of the icon, which is a different place from
+    // the cross by most of the width of the canvas.
+    return Math.hypot(from.x - (badge.x + (badge.width / 2)),
+                      from.y - (badge.y + (badge.height / 2))) < 3;
+}
+
+// The break on a line into a front, dragged onto the word naming a scope. The fix for what the
 // cross says, done from the cross itself.
 async function dragBreak(page, link, front, scope) {
     const mark = await page.locator(`[data-break="${link}"]`).boundingBox();
@@ -572,6 +609,12 @@ async function theFrontThatSplitsCallers() {
         await page.waitForSelector('[data-link="service"].is-selected');
         check(await page.locator("#ghost *").count() === 0,
               "and pressing it selects the line rather than starting one");
+        // And the line it does pull leaves the owner's own connect point, because the gesture
+        // is this link being wired the way it would have been wired in the first place. Drawn
+        // out of the cross, it read as the cross being a connect point of its own, halfway
+        // across the canvas from the entity that owns it.
+        check(await ghostLeavesTheOwner(page, "service"),
+              "and dragging it draws the line from the owner's connect point, not the cross");
         await dragBreak(page, "service", "web", "moderator");
         await page.waitForFunction(
             () => document.querySelectorAll("[data-break]").length === 0);
@@ -864,9 +907,25 @@ async function theProjectALinkHandsYou() {
         check(before && !(await sourceText(page)).includes("// undo me"),
               "and what was typed can be undone, the way any editor undoes");
 
+        // Backspace over a file being typed into is a character, never the entity whose file
+        // it is. The page's answer to who has focus stops at a shadow host, and the pane is
+        // an editor inside one, so what it answered with was the plain <div> the editor is
+        // built into -- not a field, so the canvas took the keystroke and deleted the entity
+        // that was selected. Typed at the end of the file, where there is something to erase.
+        const held = await page.locator("#nodes [data-entity]").count();
+        await clickIntoSource(page);
+        await page.keyboard.press("Control+End");
+        await page.keyboard.type("xy");
+        await page.keyboard.press("Backspace");
+        await page.keyboard.press("Backspace");
+        await page.waitForTimeout(150);
+        check(await page.locator("#nodes [data-entity]").count() === held
+              && !(await sourceText(page)).endsWith("xy"),
+              "and Backspace there erases a character, not the entity the file belongs to");
+
         // Reaching into another entity puts the member on the connect point it would cross.
         // This is what `synqt infer` does over a project, done here on one file while it is
-        // being typed: `Server` is the client's alias for the edge, so the edge's point is
+        // being typed. `Server` is the client's alias for the edge, so the edge's point is
         // what gains it.
         await fileRow(page, "client/app/Main.qml").click();
         await typeIntoRootBlock(page, "    property int seen: Server.tally\n");
@@ -932,7 +991,17 @@ async function theProjectALinkHandsYou() {
               "hiding the pane leaves the bar it opens again from");
         check(await page.locator("#dock-bar").isVisible()
               && await page.locator("#dock-pane").isHidden(),
-              "which still names the file that was open");
+              "with the pane itself gone");
+        // What is left on it is what a collapsed pane is for. The word that says what is
+        // behind the strip, and the one control that brings it back. The file's name and the
+        // button that unlocks it go with the pane, because a name with nothing under it is a
+        // file nobody can see and Edit over a pane that is not there unlocks a file for a
+        // caret with nowhere to go.
+        check(await page.locator(".dock__title").isVisible()
+              && await page.locator("#dock-toggle").isVisible()
+              && await page.locator("#source-name").isHidden()
+              && await page.locator("#source-lock").isHidden(),
+              "carrying only Files and the control that opens it again");
         await page.click("#dock-toggle");
         check(!(await page.locator("#dock").evaluate(
                    (dock) => dock.classList.contains("is-collapsed"))),
@@ -963,6 +1032,22 @@ async function theProjectALinkHandsYou() {
             () => !document.querySelector("#nodes [data-entity='cache']"));
         check(true, "Delete removes what is selected");
 
+        // And it can be taken back. Everything an edit changes is in the document, so a step
+        // back is the document as it was. The entity returns with the connect point it was a
+        // consumer of, which is the half of a delete that is easy to miss and impossible to
+        // put back by hand.
+        check(!(await page.locator("#undo").isDisabled()),
+              "with something to undo, the way back is offered");
+        await page.locator("#undo").click();
+        await page.waitForSelector("#nodes [data-entity='cache']");
+        check(await page.locator("[data-link='store']").count() === 2,
+              "and undo brings back what was deleted, lines and all");
+        await page.locator("#redo").click();
+        await page.waitForFunction(
+            () => !document.querySelector("#nodes [data-entity='cache']"));
+        check(await page.locator("#redo").isDisabled(),
+              "redo takes it away again, and then there is nothing ahead");
+
         // In place, over the entity, and not in a dialog: the field opens where the name was,
         // holding it, and Enter is what commits. A prompt would cover the drawing the new
         // name is being chosen against, which is the only thing anybody is looking at.
@@ -976,6 +1061,22 @@ async function theProjectALinkHandsYou() {
         check(await page.locator("#nodes [data-entity='feeds']").count() === 0
               && await page.locator(".rename").count() === 0,
               "and typing a new one there renames it");
+
+        // Who is at the other end of every line this entity is on, on the panel, as something
+        // to press. The panel is where a reader ends up after clicking one thing, and the
+        // next thing they want is usually at the other end of a line: reading "owner: store"
+        // and then having to find `store` on the canvas is the panel naming a thing it will
+        // not take you to.
+        await page.locator("#nodes [data-entity='store']").click();
+        await page.waitForSelector("[data-entity='store'].is-selected");
+        const wired = await page.locator(".inspector__body .chips .button--chip")
+                                .allTextContents();
+        check(wired.includes("edge"),
+              `the panel names the entities at the other end of its lines (${wired.join(", ")})`);
+        await page.locator(".inspector__body .chips .button--chip", { hasText: "edge" })
+                  .first().click();
+        await page.waitForSelector("[data-entity='edge'].is-selected");
+        check(true, "and pressing one of them is how you get there");
 
         // The tooltip is the page's own, so it can say what a native one cannot.
         await page.locator("#nodes [data-entity='store']").hover();
@@ -1104,6 +1205,20 @@ async function typingIntoTheProject() {
         await waitForHint(page, "Back to the last version");
         check(await page.locator("[data-link='store']").count() > before,
               "and the way back returns the last version that read, keeping the work");
+
+        // The project's own name is in that file too, and it is the one thing read out of it
+        // that is not on the canvas. It is in the bar and in the tab's title. If the only writer of
+        // them were the one that runs when a document arrives, both would go
+        // on saying what the project was called before the edit.
+        await clickIntoSource(page);
+        await page.keyboard.press("Control+Home");
+        await page.keyboard.press("ArrowDown");
+        await page.keyboard.press("End");
+        await page.keyboard.type("ing");
+        await page.waitForFunction(
+            () => document.getElementById("project").textContent === "demoing");
+        check((await page.title()) === "SynQt - demoing",
+              `and the tab it is open in says so too (${await page.title()})`);
 
         check(refused.length === 0,
               `the policy refuses nothing on the page (${refused.join(" | ") || "no errors"})`);

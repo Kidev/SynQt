@@ -109,6 +109,13 @@ const state = {
     // had to be cleared by hand everywhere the pane could change under it, and every place
     // that forgot -- the file list changing shape mid-keystroke was one -- re-locked the file
     // being typed into.
+    //
+    // Both are a file's path inside the project (`web/edge/Edge.qml`) and never the whole
+    // name it is listed under (`gavel/web/edge/Edge.qml`). The project's own directory is the
+    // first segment of every one of those and says nothing about which file a file is: keyed
+    // by the whole name, renaming the project in synqt.yaml renamed every name in the list at
+    // once, so the pane lost the file it was on and the unlock went with it, and the rename
+    // being typed stopped after its first letter.
     files: true,
     reading: "",
     unlockedFile: "",
@@ -151,6 +158,8 @@ const page = {
     project: document.getElementById("project"),
     hint: document.getElementById("hint"),
     restart: document.getElementById("restart"),
+    undo: document.getElementById("undo"),
+    redo: document.getElementById("redo"),
     infer: document.getElementById("infer"),
     revert: document.getElementById("revert"),
     review: document.getElementById("review"),
@@ -432,11 +441,11 @@ function isConfig(file) {
     return inProject(file.name) === "synqt.yaml";
 }
 
-// The file the pane has open. `state.reading` is the name it was asked for; this is the file
-// that name found, which is the one the lock and every edit are about.
+// The file the pane has open. `state.reading` is the path inside the project it was asked
+// for. This is the file that path found, which is the one the lock and every edit are about.
 function openFile() {
     const files = projectFiles(state.design);
-    return files.find((file) => file.name === state.reading) || files[0] || null;
+    return files.find((file) => inProject(file.name) === state.reading) || files[0] || null;
 }
 
 // What a file belongs to on the canvas, so that opening one selects it there.
@@ -469,7 +478,8 @@ function fileOf(what, files) {
         ? files.find((file) => file.link === what.name)
         : files.find((file) => file.owner === what.name && file.own)
           || files.find((file) => file.owner === what.name);
-    return found ? found.name : "";
+    // Answered as the path inside the project, which is what `state.reading` holds.
+    return found ? inProject(found.name) : "";
 }
 
 // The files as the directory tree they are, in the order projectFiles lists them.
@@ -514,14 +524,14 @@ function treeRow(file, current, depth) {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "tree__file"
-        + (file.name === state.reading ? " is-open" : "")
+        + (inProject(file.name) === state.reading ? " is-open" : "")
         + (current ? " is-current" : "");
     button.style.setProperty("--depth", String(depth || 0));
     button.textContent = file.leaf;
     // Opening a file selects what it is out on the canvas, and does not drag the pane off the
-    // file that was just asked for: `follow` is what stops the two views chasing each other.
+    // file that was asked for. `follow` is what stops the two views chasing each other.
     button.addEventListener("click", () => {
-        state.reading = file.name;
+        state.reading = inProject(file.name);
         select(holderOf(file), false);
         renderProject();
     });
@@ -534,7 +544,7 @@ function treeRow(file, current, depth) {
 // from the left says how deep it is without a rule having to be drawn down the pane.
 function fillTree(list, dir, current, depth, under = "") {
     for (const file of dir.files) {
-        list.append(treeRow(file, file.name === current, depth));
+        list.append(treeRow(file, inProject(file.name) === current, depth));
     }
     for (const child of dir.dirs) {
         const row = document.createElement("li");
@@ -589,21 +599,21 @@ function renderProject() {
         renderLock(null);
         return;
     }
-    if (!files.some((file) => file.name === state.reading)) {
-        state.reading = files[0].name;
+    if (!files.some((file) => inProject(file.name) === state.reading)) {
+        state.reading = inProject(files[0].name);
     }
     const current = fileOf(state.selected, files);
     fillTree(page.tree, treeOf(files), current, 0);
-    const open = files.find((file) => file.name === state.reading) || files[0];
+    const open = files.find((file) => inProject(file.name) === state.reading) || files[0];
     page.sourceName.textContent = inProject(open.name);
     // While the configuration is being typed into, the pane shows what was typed and not the
-    // configuration rewritten from the design it just became: they say the same thing, and
+    // configuration rewritten from the design it became. They say the same thing, and
     // rewriting one under the caret moves the caret.
     const reading = isConfig(open) && state.configText
         ? {...open, text: state.configText} : open;
     if (isConfig(open)) {
         // The way back is there before the first keystroke, not after the first one that
-        // happened to parse: a reader who cannot see it before they type is a reader who does
+        // happened to parse. A reader who cannot see it before they type is a reader who does
         // not type.
         if (!state.lastGood) {
             rememberGood();
@@ -611,11 +621,17 @@ function renderProject() {
     } else {
         state.configText = "";
     }
-    // The notice is on every file and nobody reads it twice; it comes off here and stays on
-    // everywhere the file is actually written. Read-only rather than not shown at all when it
-    // is locked: a file being read still has to be selectable and copyable.
-    editor.show(open.name, withoutNotice(reading.text),
-                !editable(open) || state.unlockedFile !== open.name);
+    // The notice is on every file and nobody reads it twice. It comes off here and stays on
+    // everywhere the file is written. Read-only rather than not shown at all when it
+    // is locked. A file being read still has to be selectable and copyable.
+    // Named by where it sits in the project, which is what the editor keys a file by: the
+    // pane keeps a caret, an undo history and a scroll position per file, and the project's
+    // own directory changing its name is not a different file. Given the whole name, renaming
+    // the project in synqt.yaml handed the editor a new file on every keystroke, so the caret
+    // went back to the top of it and the rename stopped after one letter.
+    const named = inProject(open.name);
+    editor.show(named, withoutNotice(reading.text),
+                !editable(open) || state.unlockedFile !== named);
     renderLock(open);
 }
 
@@ -623,7 +639,7 @@ function renderProject() {
 // "Read-only" beside a file leaves it to be guessed whether that is the state or the offer.
 function renderLock(open) {
     const canEdit = Boolean(open && editable(open));
-    const unlocked = canEdit && state.unlockedFile === open.name;
+    const unlocked = canEdit && state.unlockedFile === inProject(open.name);
     page.sourceLock.disabled = !canEdit;
     page.sourceLock.setAttribute("aria-pressed", String(unlocked));
     page.sourceLock.textContent = !canEdit ? "Written from the design"
@@ -704,6 +720,25 @@ function chevron() {
     svg.append(element("path", {d: "M -5,-2 L 0,3 L 5,-2", fill: "none",
                                 stroke: "currentColor", "stroke-width": 2,
                                 "stroke-linecap": "round", "stroke-linejoin": "round"}));
+    return svg;
+}
+
+// The arrow on the two step buttons: a hook turning back on itself, mirrored for the one
+// that goes forward. Drawn rather than written, because "Undo" and "Redo" beside a project's
+// name read as two more of the four buttons at the other end of the bar, and these two are
+// not that kind of control. The words are still there for anybody reading the page through a
+// screen reader, on the button's label.
+function stepArrow(forward) {
+    const svg = element("svg", {class: "glyph", viewBox: "-10 -10 20 20",
+                                "aria-hidden": "true", focusable: "false"});
+    const turn = element("g", forward ? {transform: "scale(-1,1)"} : {});
+    turn.append(element("path", {d: "M -6,-4 A 6,6 0 1 1 -6,5", fill: "none",
+                                 stroke: "currentColor", "stroke-width": 2,
+                                 "stroke-linecap": "round"}));
+    turn.append(element("path", {d: "M -9,-7 L -6,-4 L -9,-1", fill: "none",
+                                 stroke: "currentColor", "stroke-width": 2,
+                                 "stroke-linecap": "round", "stroke-linejoin": "round"}));
+    svg.append(turn);
     return svg;
 }
 
@@ -1035,6 +1070,16 @@ function focusFromCaret() {
 }
 
 function onSourceInput(typed) {
+    // Every keystroke into one file is one step to go back over, not one step per letter.
+    typingInto = state.reading;
+    try {
+        absorbTyped(typed);
+    } finally {
+        typingInto = "";
+    }
+}
+
+function absorbTyped(typed) {
     const open = openFile();
     if (!open || !editable(open)) {
         return;
@@ -1119,12 +1164,15 @@ function absorbConfig(text) {
             : String(error), "error");
         return;
     }
-    // Kept before the change, not after: what somebody wants back is the design they had
+    // Kept before the change, not after. What somebody wants back is the design they had
     // before the edit that lost it, and it is only worth keeping when it is a design at all.
     rememberGood();
     state.design = read;
     state.configText = text;
     page.revert.hidden = false;
+    // The name is one of the things that was read, and it is not on the canvas. It is in the
+    // bar and in the tab's title, so both are written from what the file now says.
+    renderProjectName();
     touched();
     redraw();
     renderInspector();
@@ -1145,6 +1193,7 @@ function revertToLastGood() {
     state.design = JSON.parse(state.lastGood);
     state.configText = "";
     page.revert.hidden = true;
+    renderProjectName();
     touched();
     redraw();
     renderProject();
@@ -1978,7 +2027,7 @@ function declareOn(entity, member) {
     openWhenDrawn(entity.name, named.name);
     // Open the file it was written into, on the line it went on: a declaration nobody can see
     // is the panel and the pane disagreeing about what just happened.
-    state.reading = `${state.design.project || "app"}/${entityQmlPath(entity)}`;
+    state.reading = entityQmlPath(entity);
     state.unlockedFile = state.reading;
     touched();
     redraw();
@@ -2161,8 +2210,7 @@ function renameProject() {
             return;
         }
         state.design.project = wanted;
-        page.project.textContent = wanted;
-        document.title = `SynQt - ${wanted}`;
+        renderProjectName();
         touched();
         say(`The project is called '${wanted}' now. Review the change to write it into `
             + "synqt.yaml.");
@@ -2309,15 +2357,25 @@ function renderInspector() {
         },
         // From a line to the point it is one consumer of.
         openContract: (link) => select({kind: "contract", name: link.name}),
+        // A name on the panel that is another entity, followed. The panel is where a reader
+        // ends up after clicking one thing, and the next thing they want is at the other end
+        // of a line.
+        select: (what) => select(what),
     });
 }
 
 // Any edit at all invalidates the change set that was last reviewed: Apply names a plan by
-// its digest, and a document that has moved since is no longer the one that was shown.
+// its digest, and a document that has moved since is no longer the one that was shown. It is
+// also a step to be able to go back over, so this is where the two happen.
 function touched() {
+    invalidate();
+    remember();
+}
+
+function invalidate() {
     state.plan = null;
     page.apply.disabled = state.backend;
-    // On the drawing board there is nowhere else for this to live: no SynQt behind the page
+    // On the drawing board there is nowhere else for this to live. No SynQt behind the page
     // means the design exists only in this tab, and closing the tab has been enough to lose
     // an afternoon's work. With `synqt design` serving the page the project on the disk is
     // the truth and this would only be a second, staler copy of it.
@@ -2327,6 +2385,111 @@ function touched() {
         // out of. On a blank canvas there is nothing to start over from.
         page.restart.hidden = !(state.design.entities || []).length;
     }
+}
+
+// Going back
+
+// Everything an edit can change is in the document, so a step back is the document as it was.
+// Kept as text rather than as a structure, for the two things that buys: a comparison that
+// says whether anything changed is one `===`, and what comes back out is a copy
+// nothing else on the page still holds a reference into.
+//
+// How many steps. A design is entities, connect points and the files they are made of, which
+// is a few kilobytes, so a hundred of them is an afternoon's work and about a megabyte.
+const HISTORY_DEPTH = 100;
+
+const history = {past: [], future: [], mark: "", step: ""};
+
+// While a file is being typed into, which file. Every keystroke into one file is one step to
+// go back over rather than one step per letter. Undo that walked back a character at a time
+// through a paragraph somebody typed is undo nobody uses.
+let typingInto = "";
+
+function snapshot() {
+    return JSON.stringify({design: state.design, selected: state.selected,
+                           reading: state.reading, configText: state.configText});
+}
+
+// What the change now being made is part of, when it is part of something longer than one
+// event. A drag is one move however many pointer events it took, and typing into a file is
+// one edit of that file. Everything else is a step of its own, which is what "" means.
+function stepNow() {
+    if (drag) {
+        return `drag:${drag.mode}`;
+    }
+    return typingInto ? `type:${typingInto}` : "";
+}
+
+function remember() {
+    const now = snapshot();
+    if (now === history.mark) {
+        return;                      // nothing this page keeps moved
+    }
+    const step = stepNow();
+    // A step that continues the one before it replaces its end rather than adding to the
+    // stack, so going back from a drag lands where the drag started.
+    if (!(step && step === history.step)) {
+        history.past.push(history.mark);
+        if (history.past.length > HISTORY_DEPTH) {
+            history.past.shift();
+        }
+    }
+    history.step = step;
+    // Anything done after going back is a new branch, and what was ahead is not on it.
+    history.future.length = 0;
+    history.mark = now;
+    renderHistory();
+}
+
+// A document arriving from somewhere other than an edit -- the project read off disk, an
+// example opened, a design restored from this browser -- is where the history starts. There
+// is nothing before it to go back to, and offering to would go back to a blank canvas.
+function forgetHistory() {
+    history.past.length = 0;
+    history.future.length = 0;
+    history.step = "";
+    history.mark = snapshot();
+    renderHistory();
+}
+
+function undo() {
+    if (!history.past.length) {
+        return;
+    }
+    history.future.push(history.mark);
+    restore(history.past.pop());
+    say("Undone.");
+}
+
+function redo() {
+    if (!history.future.length) {
+        return;
+    }
+    history.past.push(history.mark);
+    restore(history.future.pop());
+    say("Redone.");
+}
+
+function restore(kept) {
+    const held = JSON.parse(kept);
+    state.design = held.design;
+    state.selected = held.selected;
+    state.reading = held.reading;
+    state.configText = held.configText || "";
+    history.mark = kept;
+    // The step this lands on is finished, whatever it was. The next change starts its own,
+    // so a redo followed by a drag does not extend the drag that was undone.
+    history.step = "";
+    invalidate();
+    renderProjectName();
+    redraw();
+    renderInspector();
+    renderHistory();
+}
+
+function renderHistory() {
+    page.undo.disabled = !history.past.length;
+    page.redo.disabled = !history.future.length;
 }
 
 // `follow` opens the file of whatever was selected. On by default, because selecting something
@@ -2376,6 +2539,22 @@ function fit() {
 
 // The document
 
+// The project's name, wherever it changed. One writer, because there are three ways in
+// (a design adopted, a rename from the bar, and `project: name:` typed into synqt.yaml)
+// and with separate writers the third of them reaches only the canvas and the files pane, while the
+// name in the bar and the browser tab go on saying what the project was called before.
+//
+// No name, no label. `synqt design` always has a project to name. The copy on the site starts
+// on a blank canvas, and a stand-in name there is something to correct rather than something
+// to read.
+function renderProjectName() {
+    const named = state.design.project || "";
+    page.project.textContent = named;
+    page.project.hidden = !named;
+    // Brand first, the way every page of the site titles itself.
+    document.title = named ? `SynQt - ${named}` : "SynQt - Design editor";
+}
+
 function adopt(design) {
     state.design = {
         version: design.version || 1,
@@ -2392,15 +2571,11 @@ function adopt(design) {
             ({...link, id: link.owner, name: link.owner})),
     };
     state.selected = null;
-    // No name, no label. `synqt design` always has a project to name; the copy on the site
-    // starts on a blank canvas, and a stand-in name there is something to correct rather
-    // than something to read.
-    page.project.textContent = state.design.project;
-    page.project.hidden = !state.design.project;
-    // Brand first, the way every page of the site titles itself.
-    document.title = state.design.project ? `SynQt - ${state.design.project}`
-                                          : "SynQt - Design editor";
+    renderProjectName();
     touched();
+    // Where the history starts. A document that arrived rather than was edited has nothing
+    // before it, and offering to go back from it would go back to a blank canvas.
+    forgetHistory();
     redraw();
     renderInspector();
 }
@@ -2833,8 +3008,10 @@ function onDown(event) {
         return;
     }
     // The break on a line into a front. Pressing it is the connect point, and dragging off it
-    // is the routing it is missing: the fix for what the cross says is one drag from the cross
-    // to a scope, so the cross is the handle.
+    // is the routing it is missing. The fix for what the cross says is one drag to a scope, so
+    // the cross is the handle. The line it pulls leaves the owner's own connect point, because
+    // the gesture is this link being wired the way it would have been wired in the first
+    // place, and that is where a link is drawn from.
     if (broke) {
         const link = (state.design.links || []).find(
             (one) => one.name === broke.dataset.break);
@@ -3293,18 +3470,54 @@ function download() {
 // Dragging is the only way an entity reaches the canvas, so that where it lands is always
 // somewhere somebody chose. A click that dropped one into a column would put it wherever the
 // column had room, which is a different arrangement from the one being drawn.
-// Renaming from the canvas: the name is what everything else in the project refers to this by,
+// Renaming from the canvas. The name is what everything else in the project refers to this by,
 // so a double click on it is the shortest way to the one gesture that changes all of them at
 // once. The same rename the panel and the right-click menu run.
+
+// The two steps, on the keys every editor uses for them. Never while a file is being typed
+// into. There the pane has an undo of its own, over the text, and it is the one somebody
+// pressing this over a file means.
+function onStepKey(event) {
+    if (!(event.ctrlKey || event.metaKey) || event.altKey || isTyping()) {
+        return;
+    }
+    const key = event.key.toLowerCase();
+    // Ctrl-Y as well as Ctrl-Shift-Z, because half the editors in the world use each.
+    const forward = (key === "z" && event.shiftKey) || key === "y";
+    if (key !== "z" && key !== "y") {
+        return;
+    }
+    event.preventDefault();
+    if (forward) {
+        redo();
+    } else {
+        undo();
+    }
+}
+
+// Whether the keystroke belongs to something being typed into rather than to the canvas.
+//
+// `document.activeElement` stops at a shadow host, and the file pane is an editor inside one:
+// with the caret in a file, the page's answer to who has focus was the plain <div> the editor
+// is built into, which is not a field, so Backspace over a file being edited deleted the
+// entity whose file it was. Each root is asked in turn for its own, which is how a focus that
+// is nested answers with the thing holding the caret.
+function isTyping() {
+    let at = document.activeElement;
+    while (at && at.shadowRoot && at.shadowRoot.activeElement) {
+        at = at.shadowRoot.activeElement;
+    }
+    return Boolean(at && (at.isContentEditable
+                          || ["INPUT", "TEXTAREA", "SELECT"].includes(at.tagName)));
+}
+
 // Delete removes what is selected, which is what every other canvas does. Never while a field
-// or the files pane has the keystroke: there, Delete is a character.
+// or the files pane has the keystroke. There, Delete is a character.
 function onDeleteKey(event) {
     if (event.key !== "Delete" && event.key !== "Backspace") {
         return;
     }
-    const focused = document.activeElement;
-    if (focused && (focused.isContentEditable
-                    || ["INPUT", "TEXTAREA", "SELECT"].includes(focused.tagName))) {
+    if (isTyping()) {
         return;
     }
     if (!state.selected) {
@@ -3510,6 +3723,8 @@ function wire() {
     });
     page.canvas.addEventListener("drop", onDrop);
     page.revert.addEventListener("click", () => revertToLastGood());
+    page.undo.addEventListener("click", () => undo());
+    page.redo.addEventListener("click", () => redo());
     page.project.addEventListener("dblclick", () => renameProject());
     page.inspectorHandle.addEventListener("click", () => {
         showInspector(!page.inspector.classList.contains("is-open"));
@@ -3535,7 +3750,8 @@ function wire() {
         if (!open) {
             return;
         }
-        state.unlockedFile = state.unlockedFile === open.name ? "" : open.name;
+        const key = inProject(open.name);
+        state.unlockedFile = state.unlockedFile === key ? "" : key;
         renderProject();
         if (state.unlockedFile) {
             editor.focus();
@@ -3568,6 +3784,7 @@ function wire() {
             hideTip();
             return;
         }
+        onStepKey(event);
         onDeleteKey(event);
     });
     window.addEventListener("blur", () => {
@@ -3588,6 +3805,8 @@ function wire() {
 buildPalette();
 wire();
 page.dockToggle.replaceChildren(chevron());
+page.undo.replaceChildren(stepArrow(false));
+page.redo.replaceChildren(stepArrow(true));
 // The same arrow on the folded panel's handle, turned to point at the edge it opens from.
 page.inspectorHandle.replaceChildren(chevron());
 for (const grip of GRIPS) {

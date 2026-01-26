@@ -110,12 +110,19 @@ the way along, under a red cross and the word **broken**. Pointing anywhere alon
 says the same thing the cross does, and the dash that runs along a hovered link stops at the
 break, because past it nothing travels. The cross is the fix as well as the diagnosis: drag
 from it onto a scope on the front's back and that scope is served by the entity the line came
-from. Pressing it selects the line, the same as pressing the line itself.
+from. The line you pull leaves the owner's own connect point, because what the gesture does
+is wire this link the way it would have been wired in the first place. Pressing the cross
+instead of dragging it selects the line, the same as pressing the line itself.
 
 Selecting a node or a line opens the panel on the right, which is where the rest lives: an
 entity's provider, a connect point's consumer list, and what crosses it. The consumer list
 is the authorization: an entity that is not on it is refused the replica.
 [Security](security.md) is where that is spelled out.
+
+Under **Wired to**, an entity's panel names who is at the other end of every line it is on:
+the entities that consume the connect point it owns, and the owner of every point it consumes.
+Each of those names is a button that selects that entity, so following a line is a click
+rather than a hunt across the canvas.
 
 Clicking a point's only line opens the point, because with one consumer the line and the
 point are the same thing. Where a point has several, clicking one opens that consumer, and
@@ -142,16 +149,25 @@ Double-clicking a node renames it and <kbd>Delete</kbd> removes what is selected
 entity carries the new name into every connect point that referred to the old one, including
 the one it exports, and deleting one takes that point with it.
 
+The two arrows beside the project's name go back over what you have done and forward again,
+and so do <kbd>Ctrl</kbd>+<kbd>Z</kbd> and <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd>.
+Everything an edit changes is in the design, so a step back is the whole design as it was:
+undoing a delete brings the entity back with the lines that went with it. A drag is one step
+however many times the pointer moved, and typing into a file is one step for that file rather
+than one per letter. With the caret in the file pane those keys are the pane's own undo, over
+the text.
+
 ## The same project as text
 
 The pane under the canvas is the project this drawing is, open from the start: `synqt.yaml`,
 which carries what crosses every connect point, the QML of every entity under its own
 directory, and a `schema.sql` beside every relational entity. It is rebuilt from the drawing on every edit, so it can never be showing an older
-design than the canvas above it. **Hide** collapses it to the strip along the bottom, which is
-also what opens it again.
+design than the canvas above it. The chevron on its bar collapses it to a strip along the
+bottom, carrying the word Files and the control that brings it back, and the whole strip
+opens it again.
 
 It is a real editor, [CodeMirror](https://codemirror.net/), so it has the things a pane you
-type code into is expected to have: numbered lines, a matched brace, a visible selection, an
+type code into is expected to have, numbered lines, a matched brace, a visible selection, an
 undo of its own per file. The colours are the editor's own reader, the same one that paints
 the members written along a link on the canvas, so QML, `synqt.yaml`, a contract's `export:`
 block inside it, and a `schema.sql` are each read as what they are.

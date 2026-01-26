@@ -237,6 +237,27 @@ def test_the_vendored_library_is_somebody_elses_and_ships_its_licence():
             f"vendor/{path.name} does not say which package and version it is"
 
 
+def test_the_panes_styling_is_a_theme_and_not_a_stylesheet_that_loses():
+    """CodeMirror's own class names are styled through `EditorView.theme`, not editor.css.
+
+    The base theme the library ships with reaches its classes through selectors two and three
+    deep (a generated class, then `.cm-gutters`; a generated class, `.cm-lineNumbers` and
+    `.cm-gutterElement`), so a plain `.cm-gutters` in a stylesheet loses to it and nothing
+    says so. That is not a detail of the gutter. The pane spent its first weeks wearing
+    CodeMirror's *light* base theme on a dark page, with the number of the line the caret was
+    on invisible against a pale blue block, and every one of the rules meant to prevent that
+    was in the file and being ignored. A theme is the mechanism the library provides and it
+    outranks the base theme by construction, so this is what keeps the styling somewhere it
+ applies.
+    """
+    assert "EditorView.theme(" in _text("editor.js"), \
+        "the pane's styling is no longer a CodeMirror theme"
+    losing = re.findall(r"^\s*[^/\n{]*\.cm-[\w-]+[^\n{]*\{", _text("editor.css"),
+                        flags=re.MULTILINE)
+    assert not losing, \
+        f"editor.css styles CodeMirror's own classes, which the base theme outranks: {losing}"
+
+
 def test_the_page_reaches_the_vendored_library_only_through_vendor():
     """One copy of it, reached one way.
 

@@ -3,24 +3,10 @@
 
 """The editor the site publishes is the editor the CLI serves.
 
-There is one copy of the editor in this repository, and two ways to reach it: `synqt design`
-serves it from the installed package, and the documentation site publishes it at /designer/.
-The second is a copy, so the thing worth holding down is that it is a copy of the whole
-directory rather than a hand-written list of files that quietly falls behind the one the CLI
-serves.
-
-The other half is what the hosted copy may contain. It runs on a page nobody sets a header
-for, so an off-origin reference there is not refused by a policy the way it is under the CLI:
-it is fetched. The hook refuses to publish one, and this asserts it refuses.
-
-The third is that no page of the site may build to the URL the editor is published at. That
-one shipped. `docs/designer.md` built to /designer/, the hook overwrote it after, and the URL
-stayed in sitemap.xml, which is the list Material's instant navigation intercepts links
-against. A reader clicking through to the editor got its markup swapped into the
-documentation shell and a page that only came right after a reload. A direct load looked
-fine, so nothing caught it, including a browser test served from a local directory: instant
-navigation reads the sitemap from the site's absolute `site_url` and never engages on a local
-copy at all. The guard is therefore where it can run, in the build.
+The hook copies the whole directory, it refuses to publish a file referencing another host
+(a static site sends no CSP header), and no docs page may build to /designer/, which would
+stay in sitemap.xml and send Material's instant navigation into the editor. That last guard
+runs in the build, since instant navigation never engages on a local copy.
 """
 
 from __future__ import annotations
@@ -35,8 +21,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[3]
 ASSETS = ROOT / "tools" / "synqt" / "synqt" / "assets" / "design"
 
-# The one URL in these files that is not an address. It names the vocabulary the canvas is
-# drawn in, and nothing ever fetches it.
+# The one URL that is not an address: a vocabulary name, never fetched.
 SVG_NAMESPACE = "http://www.w3.org/2000/svg"
 
 
@@ -58,22 +43,17 @@ def test_the_hook_publishes_the_whole_directory(tmp_path):
     """Named file by file, the copy would drift the first time the editor gains a module."""
     _hook().on_post_build({"site_dir": str(tmp_path)})
     site = tmp_path / "designer"
-    published = {str(path.relative_to(site)) for path in site.rglob("*") if path.is_file()}
-    # Everything under it, not only the top of it: the file pane is a vendored CodeMirror in
-    # `vendor/`, and a copy that stopped at the top published a page importing ten modules it
-    # had not brought.
-    assert published == {str(path.relative_to(ASSETS)) for path in ASSETS.rglob("*")
+    # Compared as URL paths, with forward slashes on every host.
+    published = {path.relative_to(site).as_posix() for path in site.rglob("*")
+                 if path.is_file()}
+    # Everything under it, `vendor/` included.
+    assert published == {path.relative_to(ASSETS).as_posix() for path in ASSETS.rglob("*")
                          if path.is_file() and path.suffix != ".md"}
     assert any(name.startswith("vendor/") for name in published)
 
 
 def test_the_hook_publishes_no_markdown(tmp_path):
-    """The Markdown in the editor's directory is a note to whoever maintains this repository
-    about what is vendored under `vendor/` and how it was fetched.
-
-    No page loads it, and the links in it name other hosts, which is the one thing every
-    published file is held to. Not publishing it is why there is no file exempt from that
-    rule."""
+    """The Markdown beside the vendored library is not published."""
     _hook().on_post_build({"site_dir": str(tmp_path)})
     assert list((tmp_path / "designer").rglob("*.md")) == []
     assert (ASSETS / "vendor" / "README.md").is_file()
@@ -92,8 +72,7 @@ def test_publishing_twice_leaves_the_same_copy(tmp_path):
 
 
 def test_an_off_origin_reference_fails_the_build(tmp_path, monkeypatch):
-    """A page published with no header over it fetches whatever it names, so nothing may
-    name anywhere else. The build is where that is caught, because the browser will not."""
+    """An off-origin reference fails the build."""
     assets = tmp_path / "assets"
     shutil.copytree(ASSETS, assets)
     (assets / "design.js").write_text(
@@ -141,10 +120,7 @@ def test_this_site_has_no_page_under_the_editors_url():
 
 
 def test_an_examples_own_source_is_read_past_and_the_rest_is_not(tmp_path):
-    """An example carries the QML each of its entities is, and one of them is a gateway
-    calling out over https. That is a line printed in a pane, not a URL the page resolves.
-    Everything else in the file is still an address the published copy would fetch, so the
-    exception is exactly one shape and the guard has to still catch the others."""
+    """An example's own QML is skipped, and only that; everything else is still checked."""
     hook = _hook()
     inside = tmp_path / "examples.json"
     inside.write_text(json.dumps({"examples": {"feed": {"entities": [
@@ -166,10 +142,7 @@ def test_no_asset_references_an_external_host():
     for path in sorted(ASSETS.iterdir()):
         if not path.is_file():
             continue
-        # Read the way the hook reads: not every asset is text (the favicon is an .ico), and
-        # a check that only looks at the ones that decode is a check with a hole in it. The
-        # one thing it reads past is an example's own QML, which is a project shown as text
-        # in a pane rather than anything this page resolves.
+        # Read as bytes, as the hook reads; only an example's own QML is skipped.
         assert hook._off_origin(path) is None, \
             f"{path.name} names a host outside the origin the editor is served from"
 

@@ -888,19 +888,25 @@ export function splitCurve(edge, at) {
 // front and nothing is routed to it, so the line is drawn as what it is: a connection that
 // does not arrive.
 //
-// A cross rather than a colour, and a word rather than a legend: the line is one of several on
+// A cross rather than a colour, and a word rather than a legend. The line is one of several on
 // a canvas and a reader is not going to notice a hue two shades warmer at the far end of it.
 // It answers the pointer and it is a handle, because the fix is one drag away and the thing to
 // drag from is the break itself.
-function breakMark(link, consumer, at) {
+//
+// `from` is the connect point on the owner, which is where the line pulled off this cross
+// starts. Not the cross. A line leaving the cross drew the cross as a connect point of its
+// own, halfway across the canvas from the entity that owns it, and what the gesture
+// does is wire this link the way it would have been wired in the first place. So it is drawn
+// the way it would have been drawn in the first place, out of the owner's own point.
+function breakMark(link, consumer, at, from) {
     const group = element("g", {class: "link__break",
                                 transform: `translate(${at.x},${at.y})`});
     group.dataset.break = link.name;
     group.dataset.breakConsumer = consumer || "";
-    // Where a line pulled off the break leaves from. On the element, because the drag is set
-    // up from whatever the press hit and nothing else there knows the geometry.
-    group.dataset.x = String(at.x);
-    group.dataset.y = String(at.y);
+    // On the element, because the drag is set up from whatever the press hit and nothing else
+    // there knows the geometry.
+    group.dataset.x = String(from.x);
+    group.dataset.y = String(from.y);
     // Something square to catch the pointer, because two crossed 1px rules are not a target.
     group.append(element("rect", {class: "link__break-grab", x: -9, y: -9,
                                   width: 18, height: 18, rx: 3}));
@@ -1283,7 +1289,7 @@ function line(link, from, to, options) {
     // break behind what the link carries is a break nobody sees, and what the link carries is
     // the half of the drawing that has stopped being true.
     if (cut) {
-        group.append(breakMark(link, options.consumer, cut.on));
+        group.append(breakMark(link, options.consumer, cut.on, badgeAt));
     }
 
     return group;

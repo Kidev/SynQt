@@ -42,6 +42,16 @@
            nowhere to go. -->
       <span class="bar__project" id="project" hidden
             title="Double click to rename the project"></span>
+      <!-- The way back over what was just done, and forward again. Beside the project's name
+           rather than over with Review and Apply: those three are what happens to the project
+           on disk, and these two are what happens on the canvas. design.js draws the arrows
+           and enables each one only while there is a step that way to take. -->
+      <span class="bar__history">
+        <button type="button" class="button button--step" id="undo" disabled
+                aria-label="Undo" title="Undo the last change (Ctrl-Z)"></button>
+        <button type="button" class="button button--step" id="redo" disabled
+                aria-label="Redo" title="Redo the change undone (Ctrl-Shift-Z)"></button>
+      </span>
       <span class="bar__gap"></span>
       <button type="button" class="button button--danger" id="restart" hidden>Clear</button>
       <!-- The way back out of an edit to synqt.yaml, offered while that file is unlocked:
