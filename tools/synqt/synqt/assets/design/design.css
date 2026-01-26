@@ -2294,101 +2294,24 @@ select:focus {
   min-height: 0;
 }
 
-/* Two layers in one box. Every property that decides where a glyph lands is set on both, so
-   the caret in the transparent textarea sits exactly on the coloured word behind it; a font,
-   a size, a line height or a padding set on one of them alone is how these drift apart.
-
-   The textarea is the one that scrolls and the painted copy is dragged along by hand. The
-   obvious arrangement, one scrolling box holding both, does not work: an absolutely
-   positioned child of a scroll container scrolls away with the content while its `height:
-   100%` still resolves against the visible frame, so the two layers come apart the moment a
-   file is longer than the pane. */
+/* The box the editor is built into, and everything this stylesheet has to say about it: what
+   is inside is a shadow root, so the rest is editor.css, which that root adopts. It sizes
+   itself to this box, so this is the one that has to be told it may be shorter than its
+   content. Without the minimum a grid item is as tall as what is in it, and a long file
+   pushed the pane off the bottom of the window. */
 .source__view {
-  position: relative;
   min-height: 0;
   overflow: hidden;
   background: var(--page);
 }
 
-.source__paint,
-.source__input {
-  position: absolute;
-  inset: 0;
-  margin: 0;
-  padding: .75rem;
-  border: 0;
-  font-family: var(--mono);
-  font-size: 12px;
-  line-height: 1.45;
-  tab-size: 4;
-  white-space: pre;
-  overflow-wrap: normal;
-}
-
-.source__paint {
-  overflow: visible;
-  color: var(--ink);
-  pointer-events: none;
-  transform-origin: 0 0;
-  will-change: transform;
-}
-
-.source__input {
-  resize: none;
-  overflow: auto;
-  background: transparent;
-  color: transparent;
-  caret-color: var(--accent);
-}
-
-.source__input:focus {
-  outline: none;
-}
-
-.source__input[hidden] {
-  display: none;
-}
-
-/* The selection is the one thing the transparent layer still has to paint, since the layer
-   behind it cannot know what is selected. */
-.source__input::selection {
-  background: var(--accent);
-  color: var(--page);
-}
-
-.tok--comment {
-  color: var(--ink-dim);
-  font-style: italic;
-}
-
-.tok--keyword {
-  color: var(--accent);
-}
-
-.tok--type {
-  color: var(--client);
-}
-
-.tok--string {
-  color: var(--warn);
-}
-
-.tok--number {
-  color: var(--warn);
-}
-
-.tok--member {
-  color: var(--ink);
-  font-weight: 600;
-}
-
 /* What hovering the canvas opens
 
-   Its own thing rather than the browser's <title> tooltip, because what is worth saying about
-   an entity is a structure: what it is, what can reach it, what it owns, what it consumes and
+   Its own thing rather than the browser's <title> tooltip, because what there is to say about
+   an entity is a structure. What it is, what can reach it, what it owns, what it consumes and
    what the rules have against it. A native tooltip can only be a paragraph, it arrives after a
    delay nobody chose, and it cannot be coloured, so half of the above would have gone unread.
-   It never answers the pointer itself: this is something to read, not something to hit. */
+   It never answers the pointer itself. This is something to read, not something to hit. */
 
 /* Renaming, over the thing being renamed. Centred on where it was double-clicked and no
    wider than the name in it, so the drawing underneath stays readable while a name is being

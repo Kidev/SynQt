@@ -106,10 +106,11 @@ and the link are one declaration, so they go together.
 Throwing the switch stops the edge answering its own connect point, so every link already
 running into it now carries nobody until a scope names the entity at the other end. Those
 links stay on the canvas and are drawn as what they have become: severed three quarters of
-the way along, under a red cross and the word **broken**. The cross is the fix as well as the
-diagnosis. Point at it and it says which two entities are at the ends and what is missing;
-drag from it onto a scope on the front's back and that scope is served by the entity the line
-came from; click it and the connect point opens, the same as clicking the line.
+the way along, under a red cross and the word **broken**. Pointing anywhere along such a line
+says the same thing the cross does, and the dash that runs along a hovered link stops at the
+break, because past it nothing travels. The cross is the fix as well as the diagnosis: drag
+from it onto a scope on the front's back and that scope is served by the entity the line came
+from. Pressing it selects the line, the same as pressing the line itself.
 
 Selecting a node or a line opens the panel on the right, which is where the rest lives: an
 entity's provider, a connect point's consumer list, and what crosses it. The consumer list
@@ -149,17 +150,25 @@ directory, and a `schema.sql` beside every relational entity. It is rebuilt from
 design than the canvas above it. **Hide** collapses it to the strip along the bottom, which is
 also what opens it again.
 
+It is a real editor, [CodeMirror](https://codemirror.net/), so it has the things a pane you
+type code into is expected to have: numbered lines, a matched brace, a visible selection, an
+undo of its own per file. The colours are the editor's own reader, the same one that paints
+the members written along a link on the canvas, so QML, `synqt.yaml`, a contract's `export:`
+block inside it, and a `schema.sql` are each read as what they are.
+
 Selecting an entity or a connect point on the canvas opens its file, and opening a file selects
-what it is on the canvas, so the two views are never on different subjects.
+the entity it belongs to, so the two views are never on different subjects.
 
-The configuration and the contracts are written from the drawing, so they are read here and
-edited on the canvas. **The QML is the other way round: you type into it, and what you type
-is the design.** Every file opens read-only; the button beside its name unlocks the one you
-want to edit. There is no save: what you type is in the design as you type it, and the design
-still reaches the project only through the change set you review and apply.
+**Every file here is one you type into, and what you type is the design.** A property
+declared in an entity's QML is one that entity declares; an entity written into `synqt.yaml`
+is one on the canvas. Every file opens read-only, and the button beside its name unlocks the
+one you want to edit. The unlock belongs to that file: open another and it is locked, come
+back to this one and it is still open. There is no save: what you type is in the design as you
+type it, and the design still reaches the project only through the change set you review and
+apply.
 
-Declare a property, a signal or a function in a connect point's Source and it becomes a
-member of that contract, exactly as if you had added it in the panel:
+Declare a property, a signal or a function in an entity's file and the entity declares it,
+which is exactly what adding it in the panel does:
 
 ```qml
 Edge {
@@ -173,9 +182,13 @@ Edge {
 }
 ```
 
+Declaring is not exporting. A contract is the list of what an owner has agreed to say to
+somebody else, so what crosses a connect point is what is ticked on it, and a fresh point
+carries nothing. Tick the new member on the point and it crosses.
+
 Reach for something another entity owns, and the connect point that would have to carry it
 is drawn for you, with the entity that owns it, you on its consumer list, and the member you
-reached for:
+reached for -- because code that is already written is somebody having said so:
 
 ```qml
 // in client/app/Main.qml
@@ -187,11 +200,16 @@ is [`synqt infer`](#reading-the-contracts-back) as you type, and it works on the
 site too, where there is no CLI behind the page at all. A member nothing gave a type to comes
 back `var` for you to name.
 
-Reading is additive. A declaration adds or corrects a member; a member with no declaration is
-left alone, because half-typed text is not an instruction to delete a contract. Removing a
-member is the panel's `x`.
+For the same reason, drawing a link to an entity whose code already calls into the owner
+starts the contract with exactly what that code calls, and nothing else.
 
-A size (`string[120]`) is not part of a declaration and cannot be: QML has no type with a
+Reading is additive. A declaration corrects a member that crosses. A member with no
+declaration is left alone, because half-typed text is not an instruction to delete a
+contract. Removing a member is the panel's `x`. A name is typed one letter at a time, and
+the editor follows it. Renaming a member in the file renames it on every contract carrying
+it rather than leaving one member per letter behind.
+
+A size (`string[120]`) is not part of a declaration and cannot be, because QML has no type with a
 limit in it, and `property string[120] message` is a syntax error rather than a property with
 a limit. It is part of the contract, so it is set on the connect point, beside the scope, and
 it is what the owner-side boundary refuses anything longer than.

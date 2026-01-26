@@ -122,12 +122,15 @@ def test_the_page_holds_no_inline_script_style_or_handler():
 
 
 def test_the_page_loads_nothing_from_anywhere_else():
-    # Every file in the directory rather than a list of them: a list is what falls behind
+    # Every file under the directory rather than a list of them. A list is what falls behind
     # the first time the editor gains a module, and the file it missed is the one nobody
-    # looked at. The SVG namespace is the one URL here that is not an address: it names the
-    # vocabulary the canvas is drawn in and nothing ever fetches it.
-    for path in sorted(DESIGN.iterdir()):
-        if not path.is_file():
+    # looked at. Under, not in. The file pane is a vendored CodeMirror in `vendor/`, and it
+    # is served from here like everything else. The SVG namespace is the one URL here that
+    # is not an address. It names the vocabulary the canvas is drawn in and nothing ever
+    # fetches it. Markdown is the one thing skipped, because it is a note about the vendored
+    # library rather than part of the editor, and the publishing hook does not publish it.
+    for path in sorted(DESIGN.rglob("*")):
+        if not path.is_file() or path.suffix == ".md":
             continue
         # Read the way the publishing hook reads: not every asset is text (the favicon is an
         # .ico), and a check that only looks at the ones that decode is a check with a hole
@@ -137,7 +140,8 @@ def test_the_page_loads_nothing_from_anywhere_else():
         if path.name == "examples.json":
             body = _without_example_sources(body)
         assert not re.search(r"""["'(]https?://""", body), \
-            f"{path.name} names an outside URL, which the page's policy refuses to fetch"
+            f"{path.relative_to(DESIGN)} names an outside URL, which the page's policy " \
+            "refuses to fetch"
 
 
 def _without_example_sources(body):
@@ -166,7 +170,7 @@ def test_nothing_the_page_asks_for_is_missing():
              if not name.startswith(("/", "#"))}
     asked = set()
     for path in sorted(DESIGN.glob("*.js")):
-        body = _text(path.name)
+        body = path.read_text(encoding="utf-8")
         asked |= set(re.findall(r'from "\./([^"]+)"', body))
         # What the page fetches at run time, which is an asset it has to ship just as much
         # as one it imports.
@@ -174,6 +178,13 @@ def test_nothing_the_page_asks_for_is_missing():
     assert named and asked
     for name in named | asked:
         assert (DESIGN / name).is_file(), f"index.html or a module asks for {name}"
+    # The vendored library imports its own dependencies, and those were rewritten by hand
+    # from bare specifiers to these file names. One that was missed is a module the browser
+    # cannot resolve and a pane that never appears.
+    for path in sorted((DESIGN / "vendor").glob("*.js")):
+        for name in re.findall(r'from"\./([^"]+)"', path.read_text(encoding="utf-8")):
+            assert (DESIGN / "vendor" / name).is_file(), \
+                f"vendor/{path.name} imports {name}, which is not vendored"
 
 
 def test_every_control_the_script_reaches_for_is_in_the_page():
@@ -190,11 +201,58 @@ def test_every_control_the_script_reaches_for_is_in_the_page():
 def test_the_page_never_builds_code_out_of_text():
     """`eval` and `new Function` are refused by the policy, and would be worth refusing
     anyway: everything on this page is a document, and none of it is code to run."""
-    for path in sorted(DESIGN.glob("*.js")):
-        name = path.name
-        body = _text(name)
+    # The vendored library included: the policy is sent to the browser, not to the module,
+    # and a dependency that built code out of text would be refused in the same breath as
+    # anything here that did.
+    for path in sorted(DESIGN.rglob("*.js")):
+        name = str(path.relative_to(DESIGN))
+        body = path.read_text(encoding="utf-8")
         assert not re.search(r"\beval\s*\(", body), f"{name} calls eval"
         assert "new Function" not in body, f"{name} builds a function out of text"
+
+
+# The vendored editor
+
+
+def test_the_vendored_library_is_somebody_elses_and_ships_its_licence():
+    """`vendor/` is CodeMirror, under the MIT licence, and nothing here is SynQt's.
+
+    Two ways that goes wrong and neither one announces itself. A sweep that puts an SPDX
+    header on every source file in the repository puts one on somebody else's code and
+    claims it, and a copy that ships the code without the licence beside it is a
+    distribution the licence does not allow. Both are one line to fix and neither is
+    visible in a diff nobody reads.
+    """
+    vendor = DESIGN / "vendor"
+    files = sorted(vendor.glob("*.js"))
+    assert files, "no vendored library at all, which is not a passing state"
+    assert (vendor / "LICENSE").is_file(), "the vendored code ships without its licence"
+    assert "MIT License" in (vendor / "LICENSE").read_text(encoding="utf-8")
+    for path in files:
+        body = path.read_text(encoding="utf-8")
+        assert "SPDX-FileCopyrightText" not in body, \
+            f"vendor/{path.name} carries our copyright, and it is not ours"
+        # The comment esm.sh writes, which is the one record of which version this is.
+        assert body.lstrip().startswith("/* esm.sh - "), \
+            f"vendor/{path.name} does not say which package and version it is"
+
+
+def test_the_page_reaches_the_vendored_library_only_through_vendor():
+    """One copy of it, reached one way.
+
+    CodeMirror identifies its facets by object identity, so two copies of
+    `@codemirror/state` on one page do not agree about anything and the failure is a pane
+    that renders and then does nothing. One directory, imported by relative path, is what
+    makes a second copy impossible to introduce by accident.
+    """
+    ours = [path for path in sorted(DESIGN.glob("*.js"))]
+    reaching = [path for path in ours
+                if "codemirror" in path.read_text(encoding="utf-8")]
+    assert [path.name for path in reaching] == ["editor.js"], \
+        "the vendored editor is reached from more than one module"
+    for name in re.findall(r'from "([^"]+)"', _text("editor.js")):
+        assert name.startswith("./vendor/") or name in ("./source.js",), \
+            f"editor.js imports {name}, which is neither the vendored library nor ours"
 
 
 # The second writer

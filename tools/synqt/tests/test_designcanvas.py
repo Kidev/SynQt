@@ -15,6 +15,7 @@ because none of it touches the DOM.
 from __future__ import annotations
 
 import json
+import math
 
 from test_designpage import _module, _node
 
@@ -181,6 +182,36 @@ def test_a_model_names_its_roles_and_a_call_names_its_types():
 def test_a_slot_with_nothing_to_answer_writes_no_answer():
     empty = '{kind: "slot", name: "load", type: "", params: [], roles: []}'
     assert _members(f"memberLabel({empty})") == "load()"
+
+
+def _badge(expression):
+    """The same, against where a finding's mark goes on a contract badge."""
+    return _node(f"""
+        import {{ badgeAlertAt }} from {_module('canvas.js')};
+        process.stdout.write(JSON.stringify({expression}));
+    """)
+
+
+def test_the_mark_on_a_contract_sits_on_the_far_side_of_it_from_its_entity():
+    """A badge is pinned to its owner's rim, wherever on the ring the point was drawn, so a
+    fixed corner is the wrong corner half the time.
+
+    Pinned to the top right, a point drawn off the left of an entity put its mark in the gap
+    between the badge and the disc. The busiest few pixels on the canvas, and the one place a
+    reader is already looking at something else. Pushed along the line from the entity to the
+    badge it is over open space whichever side the point is on.
+    """
+    for away in ({"x": 1, "y": 0}, {"x": -1, "y": 0}, {"x": 0, "y": -1}, {"x": -3, "y": 4}):
+        mark = _badge(f"badgeAlertAt({json.dumps(away)})")
+        span = math.hypot(away["x"], away["y"])
+        reach = math.hypot(mark["x"], mark["y"])
+        # Along that direction and not against it. The mark is further from the entity than
+        # the badge it is on, which is the whole of what "away" means here.
+        assert (mark["x"] * away["x"]) + (mark["y"] * away["y"]) > 0
+        assert abs(mark["x"] - ((away["x"] / span) * reach)) < 1e-9
+        assert abs(mark["y"] - ((away["y"] / span) * reach)) < 1e-9
+        # Clear of the badge, which is 10 wide and 13 tall around the same middle.
+        assert reach > 6.5
 
 
 def _break(expression):

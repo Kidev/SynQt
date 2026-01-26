@@ -20,3 +20,10 @@ licensed under the MIT License, is vendored under tools/docs-hooks/doxygen-aweso
 with its LICENSE and VERSION files. It styles the generated C++ reference on the
 documentation site. It is a documentation build asset and is not linked into or
 distributed with any SynQt binary.
+
+CodeMirror (https://codemirror.net), by Marijn Haverbeke and others, licensed under
+the MIT License, is vendored under tools/synqt/synqt/assets/design/vendor/ with its
+LICENSE and a README naming each package and version. It is the file pane of the
+design editor, which `synqt design` serves on this machine and which the
+documentation site publishes at /designer/. It is a tool asset. No SynQt binary
+links it, and nothing it does reaches an application built with SynQt.

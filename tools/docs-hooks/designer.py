@@ -5,19 +5,21 @@
 
 The editor is one directory of static files that `synqt design` serves out of the installed
 package (tools/synqt/synqt/assets/design). It needs a server for the half that touches a
-project on disk, and it says so when there is none: reading `api/project` fails, the page
+project on disk, and it says so when there is none. Reading `api/project` fails, the page
 turns into a drawing board, and Apply becomes a download of the project it would have
 written. That is the copy published here, so the site can offer the editor to somebody who
 has not installed anything yet.
 
-The whole directory is copied rather than a list of files, because the list is what drifts:
-the editor gained two modules while it was being built, and a copy naming five files would
-have published a page that loads seven. `site/designer/` is emptied first for the same
-reason, so a file the editor no longer has is not left standing in a `mkdocs serve` tree.
+The whole directory is copied rather than a list of files, and everything under it rather
+than the top of it, because the list is what drifts. The editor gained two modules while it
+was being built, and a copy naming five files would have published a page that loads seven.
+The subdirectory that matters is `vendor/`, which is the CodeMirror the file pane is.
+`site/designer/` is emptied first for the same reason, so a file the editor no longer has is
+not left standing in a `mkdocs serve` tree.
 
 The one thing checked before copying is that nothing here names another host. Under the CLI
-that is held down by the policy the server sends with every response; nobody sends a header
-over a static site, so on this copy an off-origin reference is not refused, it is fetched.
+that is held down by the policy the server sends with every response. Nobody sends a header
+over a static site, so on this copy an off-origin reference is fetched rather than refused.
 The docs build is the last place that can still say no.
 
 The other thing checked is that no page of the site claims this URL, because that is not a
@@ -55,6 +57,13 @@ _OFF_ORIGIN = re.compile(r"https?://")
 # look at, never a URL this page resolves, and the rest of the file is still held to the rule.
 _EXAMPLES = "examples.json"
 _SOURCE_FIELDS = ("qml", "schema")
+
+# What is not part of the editor and is not published with it: the Markdown beside the
+# vendored library, which says what was vendored and how it was fetched. It is documentation
+# for whoever maintains this repository, no page ever loads it, and the links in it are the
+# very thing the scan below is for -- so rather than exempt a file from the rule, the file is
+# not published and there is nothing to exempt.
+_NOT_PUBLISHED = (".md",)
 
 try:
     from mkdocs.exceptions import PluginError as _Refused
@@ -104,18 +113,21 @@ def on_post_build(config, **kwargs):
     if not ASSETS.is_dir():
         log.warning("designer: no editor at %s, skipping /%s/", ASSETS, PUBLISHED_AT)
         return
-    assets = sorted(path for path in ASSETS.iterdir() if path.is_file())
+    assets = sorted(path for path in ASSETS.rglob("*")
+                    if path.is_file() and path.suffix not in _NOT_PUBLISHED)
     for asset in assets:
         named = _off_origin(asset)
         if named is not None:
+            where = asset.relative_to(ASSETS)
             raise _Refused(
-                f"the design editor's {asset.name} names {named}, and the copy published at "
+                f"the design editor's {where} names {named}, and the copy published at "
                 f"/{PUBLISHED_AT}/ has no server over it to refuse the fetch. Serve it from "
                 "the page's own origin, or drop it.")
     target = Path(config["site_dir"]) / PUBLISHED_AT
     if target.exists():
         shutil.rmtree(target)
-    target.mkdir(parents=True)
     for asset in assets:
-        shutil.copy2(asset, target / asset.name)
+        where = target / asset.relative_to(ASSETS)
+        where.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(asset, where)
     log.info("design editor published into %s (%d files)", target, len(assets))

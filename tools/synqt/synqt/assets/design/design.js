@@ -25,11 +25,12 @@ import { MEMBER_KINDS, NODE_RADIUS, ROLE_HELP, accessorName, describe, draw, ele
          nearestFreeSlot, roleOf, seatAt, seatsOfFront, slotIndex,
          turnsToward } from "./canvas.js";
 import { inspect, openWhenDrawn } from "./inspector.js";
+import { makeEditor } from "./editor.js";
 import { forgetDesign, keepDesign, keepPane, keptDesign,
          readPanes } from "./keep.js";
 import { contractOf, entityDir, entityFiles, entityQml, entityQmlPath, isShared,
-         projectFiles } from "./project.js";
-import { declarationLine, declarations, references, rewritten, runsFor,
+         linkTitle, projectFiles } from "./project.js";
+import { declarationLine, declarations, references, rewritten,
          withoutDeclaration, withoutNotice } from "./source.js";
 import { YamlError, parseDesign } from "./yamlin.js";
 import { zipBytes } from "./zip.js";
@@ -96,14 +97,21 @@ const state = {
     plan: null,
     backend: true,
     token: "",
-    // Whether the files pane is open, which file it is reading, and whether that file has
-    // been unlocked. The pane opens with the page, because the files are what is being
-    // designed rather than a second opinion about it; the lock starts on, because reading a
-    // file is the common gesture and a keystroke over one you were reading is not an edit
-    // anybody asked for. Unlocking is per file: it does not carry to the next one opened.
+    // Whether the files pane is open, which file it is reading, and which file has been
+    // unlocked. The pane opens with the page, because the files are what is being designed
+    // rather than a second opinion about it; the lock starts on, because reading a file is
+    // the common gesture and a keystroke over one you were reading is not an edit anybody
+    // asked for.
+    //
+    // The unlock is a file's name and not a flag. It is a thing somebody did to one file, so
+    // it belongs to that file: opening another shows it locked without anything having to
+    // remember to say so, and coming back finds the one you unlocked still open. As a flag it
+    // had to be cleared by hand everywhere the pane could change under it, and every place
+    // that forgot -- the file list changing shape mid-keystroke was one -- re-locked the file
+    // being typed into.
     files: true,
     reading: "",
-    unlocked: false,
+    unlockedFile: "",
     // The configuration exactly as it is being typed, while it is being typed, and the last
     // design that read cleanly out of it. The first keeps the pane from rewriting a
     // half-finished line under the caret; the second is what the way back returns to.
@@ -115,6 +123,13 @@ const state = {
     // What the pointer is over, as the key hoverKey builds. Held so a pointermove that has
     // not left the thing it was already on does no work at all.
     hover: "",
+    // Where the pointer last was on the canvas, so a redraw can put the rim handles back
+    // under it. Null while the pointer is somewhere else on the page.
+    pointer: null,
+    // Which member each line of each file last put on a contract, keyed by file and line. It
+    // is what lets a name being typed one letter at a time be one member with a name that
+    // keeps changing rather than one member per letter.
+    typed: new Map(),
 };
 
 const view = {x: 0, y: 0, k: 1};
@@ -146,8 +161,7 @@ const page = {
     tree: document.getElementById("tree"),
     sourceName: document.getElementById("source-name"),
     sourceLock: document.getElementById("source-lock"),
-    sourcePaint: document.getElementById("source-paint"),
-    sourceInput: document.getElementById("source-input"),
+    sourceView: document.getElementById("source-view"),
     work: document.querySelector(".work"),
     gripRail: document.getElementById("grip-rail"),
     gripInspector: document.getElementById("grip-inspector"),
@@ -162,6 +176,15 @@ const page = {
     sheetDiff: document.getElementById("sheet-diff"),
     sheetClose: document.getElementById("sheet-close"),
 };
+
+// The pane's editor, made once and given a file at a time. Both callbacks are somebody
+// typing. What they typed goes into the design, and where the caret went points the canvas at
+// what that line is about.
+const editor = makeEditor({
+    parent: page.sourceView,
+    onInput: (text) => onSourceInput(text),
+    onCaret: () => focusFromCaret(),
+});
 
 // Talking to the server
 
@@ -344,6 +367,15 @@ function redraw() {
     // lit has to go with them: left behind, the next pointermove over the same thing would
     // find its key unchanged and light nothing.
     state.hover = "";
+    // The handles a link is pulled from are the one exception, because they are not a mark on
+    // the drawing: they are the target. They appear on whichever entity the pointer is nearest
+    // and only answer the pointer while they do, so a redraw between the last move and the
+    // next press took them away under a stationary pointer -- and a press where a handle had
+    // just been landed on the canvas behind it and panned the view. Anything that redraws
+    // (selecting a node, typing into a file, the panel changing a setting) did it.
+    if (state.pointer && !drag) {
+        showSlotsNear(state.pointer);
+    }
     renderFindings();
     if (state.files) {
         renderProject();
@@ -400,36 +432,26 @@ function isConfig(file) {
     return inProject(file.name) === "synqt.yaml";
 }
 
-function paint(file) {
-    page.sourcePaint.replaceChildren();
-    // The notice is on every file and nobody reads it twice; it is taken off here and stays
-    // on everywhere the file is actually written.
-    const shown = withoutNotice(file.text);
-    for (const run of runsFor(file.name, shown)) {
-        if (!run.kind) {
-            page.sourcePaint.append(document.createTextNode(run.text));
-            continue;
-        }
-        const span = document.createElement("span");
-        span.className = `tok tok--${run.kind}`;
-        span.textContent = run.text;
-        page.sourcePaint.append(span);
-    }
-    // A trailing newline in a <pre> is not painted, so a caret on the last line of the
-    // textarea would sit past the end of what is behind it.
-    page.sourcePaint.append(document.createTextNode("\n"));
-    return shown;
+// The file the pane has open. `state.reading` is the name it was asked for; this is the file
+// that name found, which is the one the lock and every edit are about.
+function openFile() {
+    const files = projectFiles(state.design);
+    return files.find((file) => file.name === state.reading) || files[0] || null;
 }
 
-// What a file belongs to on the canvas, so that opening one selects it there. A Source belongs
-// to its connect point, an entity's own file to that entity, and a contract to whichever link
-// carries it; synqt.yaml belongs to the whole project and selects nothing.
+// What a file belongs to on the canvas, so that opening one selects it there.
+//
+// The entity, always. A file sits in an entity's folder and is that entity's own code, whether
+// or not the entity also exports a connect point out of it. Selecting the point instead put
+// the panel on the contract when what was opened was a file, and left the node the file
+// belongs to unlit on the canvas. The connect point is one click away on its own icon.
+// synqt.yaml belongs to the whole project and selects nothing.
 function holderOf(file) {
-    if (file.link) {
-        return {kind: "link", name: file.link};
-    }
     if (file.owner) {
         return {kind: "entity", name: file.owner};
+    }
+    if (file.link) {
+        return {kind: "link", name: file.link};
     }
     return null;
 }
@@ -500,7 +522,6 @@ function treeRow(file, current, depth) {
     // file that was just asked for: `follow` is what stops the two views chasing each other.
     button.addEventListener("click", () => {
         state.reading = file.name;
-        state.unlocked = false;
         select(holderOf(file), false);
         renderProject();
     });
@@ -564,15 +585,12 @@ function renderProject() {
         empty.textContent = "Nothing yet. Drag an entity onto the canvas.";
         page.tree.append(empty);
         page.sourceName.textContent = "";
-        page.sourcePaint.replaceChildren();
-        page.sourceInput.value = "";
-        page.sourceInput.readOnly = true;
+        editor.show("", "", true);
         renderLock(null);
         return;
     }
     if (!files.some((file) => file.name === state.reading)) {
         state.reading = files[0].name;
-        state.unlocked = false;
     }
     const current = fileOf(state.selected, files);
     fillTree(page.tree, treeOf(files), current, 0);
@@ -593,13 +611,11 @@ function renderProject() {
     } else {
         state.configText = "";
     }
-    const shown = paint(reading);
-    // The textarea is there for every file, locked or not: it is what makes a file selectable
-    // and copyable, and a read-only one still has to be readable that way.
-    page.sourceInput.readOnly = !editable(open) || !state.unlocked;
-    if (page.sourceInput.value !== shown) {
-        page.sourceInput.value = shown;
-    }
+    // The notice is on every file and nobody reads it twice; it comes off here and stays on
+    // everywhere the file is actually written. Read-only rather than not shown at all when it
+    // is locked: a file being read still has to be selectable and copyable.
+    editor.show(open.name, withoutNotice(reading.text),
+                !editable(open) || state.unlockedFile !== open.name);
     renderLock(open);
 }
 
@@ -607,17 +623,18 @@ function renderProject() {
 // "Read-only" beside a file leaves it to be guessed whether that is the state or the offer.
 function renderLock(open) {
     const canEdit = Boolean(open && editable(open));
+    const unlocked = canEdit && state.unlockedFile === open.name;
     page.sourceLock.disabled = !canEdit;
-    page.sourceLock.setAttribute("aria-pressed", String(canEdit && state.unlocked));
+    page.sourceLock.setAttribute("aria-pressed", String(unlocked));
     page.sourceLock.textContent = !canEdit ? "Written from the design"
-        : (state.unlocked ? "Lock" : "Edit");
+        : (unlocked ? "Lock" : "Edit");
     // The tooltip is where the longer answer lives, and what it says depends on the file:
     // typing into the configuration moves the canvas, and typing into a Source is how a
     // contract gets a member. That used to be a line of prose on the bar itself, between the
     // file's name and the button that opens it.
     page.sourceLock.title = !canEdit
         ? "This file is written from the design, so the design is where it is edited."
-        : (state.unlocked
+        : (unlocked
            ? "Lock it again. Changes are already in the design; nothing is written to the "
              + "project until you apply a change set."
            : (isConfig(open)
@@ -626,7 +643,7 @@ function renderLock(open) {
               : "Unlock it to type into it. A property, a signal or a function declared "
                 + "here is one a connect point can carry."));
     // Offered only while there is something to go back to and something to go back from.
-    page.revert.hidden = !(state.lastGood && open && isConfig(open) && state.unlocked);
+    page.revert.hidden = !(state.lastGood && open && isConfig(open) && unlocked);
 }
 
 // The three seams, each named by the custom property it drags and how far that property is
@@ -753,36 +770,88 @@ function absorb(file, text) {
     if (!entity) {
         return "";
     }
+    const declared = declarations(text);
     const said = [];
     if (file.link) {
         const link = (state.design.links || []).find((one) => one.name === file.link);
         if (link) {
-            said.push(...absorbMembers(link, declarations(text)));
+            said.push(...absorbMembers(link, declared));
         }
     }
+    said.push(...absorbDeclared(entity, declared));
     said.push(...absorbReferences(entity, references(text)));
     return said.join(" ");
 }
 
-function absorbMembers(link, declared) {
+// What typing a declaration into an entity's own file did, said out loud.
+//
+// It does not cross by itself, so without this the page answered a line of code with nothing
+// at all and the one thing to do next was not on screen anywhere. The panel's list of what
+// the entity declares grows as it is typed. This says what that means and where the tick is.
+//
+// A rename is carried onto whatever already crosses, the same way the panel's own rename is:
+// a contract naming a member the owner no longer declares is an error the build reports and
+// never the thing anybody meant by editing the line.
+function absorbDeclared(entity, declared) {
     const said = [];
+    // What a file already declared when somebody first typed into it is not news. Without
+    // this, the first keystroke in an entity's own file announced every property, signal and
+    // function already in it, in one sentence, as though they had all been written.
+    const known = `${entity.name}\ndeclares`;
+    const opening = !state.typed.has(known);
+    state.typed.set(known, {link: "", member: ""});
+    for (const one of declared) {
+        const key = `${entity.name}\ndeclares\n${one.line}`;
+        const before = state.typed.get(key);
+        state.typed.set(key, {link: "", member: one.name});
+        if (opening || (before && before.member === one.name)) {
+            continue;               // the line changed, the name on it did not
+        }
+        // One name being typed, not two names on one line. Carried onto whatever already
+        // crosses, so the contract does not go on naming a member the file has renamed.
+        const renamed = before
+            && (before.member.startsWith(one.name) || one.name.startsWith(before.member));
+        const moved = [];
+        if (renamed) {
+            for (const link of state.design.links || []) {
+                for (const carried of link.members || []) {
+                    if (carried.name === before.member) {
+                        carried.name = one.name;
+                        moved.push(link.name);
+                    }
+                }
+            }
+        }
+        said.push(`'${one.name}' is declared on '${entity.name}'.`
+            + (moved.length
+                ? ` Renamed on '${moved.join("', '")}' with it.`
+                : " Tick it on the connect point to let a consumer see it."));
+    }
+    return said;
+}
+
+// What the owner's own file says about the members already on its contract.
+//
+// It corrects, and it does not add. Declaring a property on an entity is writing that
+// entity's own code. It says nothing about who may see it, and a contract is exactly the list
+// of what an owner has agreed to say to somebody else. Adding here meant every line typed
+// into an owner's file walked straight out onto the wire, so a half-typed name went with it
+// and the contract collected `v`, `va`, `val` on the way to `value`.
+//
+// Two things put a member on a contract. Somebody ticks it, or a consumer's own code reaches
+// for it (absorbReferences). Both are somebody saying so.
+function absorbMembers(link, declared) {
     link.members = link.members || [];
     for (const one of declared) {
         const already = link.members.find((member) => member.name === one.name);
-        if (!already) {
-            link.members.push({kind: one.kind, name: one.name, type: one.type,
-                               params: one.params, roles: []});
-            said.push(`'${one.name}' now crosses '${link.name}'.`);
-            continue;
-        }
-        if (already.kind === "model") {
-            continue;               // no QML declares one, so no QML gets to redefine one
+        if (!already || already.kind === "model") {
+            continue;               // no QML declares a model, so no QML redefines one
         }
         already.kind = one.kind;
         already.type = one.type;
         already.params = one.params;
     }
-    return said;
+    return [];
 }
 
 function absorbReferences(consumer, found) {
@@ -808,22 +877,79 @@ function absorbReferences(consumer, found) {
             link.consumers = [...(link.consumers || []), consumer.name];
             said.push(`'${consumer.name}' is now a consumer of '${link.name}'.`);
         }
-        if (!(link.members || []).some((member) => member.name === one.member)) {
-            // What the call site says it is: a name listened to is a signal, a name called is
-            // a slot, and a name read is a prop. Only the third leaves a type to be said,
-            // because the other two carry theirs in their parameters.
-            link.members = [...(link.members || []), reachedMember(one)];
+        // The same line of the same file, a keystroke ago, named something else. A name is
+        // typed one letter at a time, so this line is a name being written and not five
+        // members being asked for. It is the one member, renamed as far as it has got.
+        const renamed = renameTyped(consumer, link, one);
+        if (renamed) {
+            said.push(`'${renamed}' on '${link.name}' is now '${one.member}'.`);
+        } else if (!(link.members || []).some((member) => member.name === one.member)) {
+            link.members = [...(link.members || []), crossingMember(owner, one)];
             said.push(one.handler
-                ? `'${one.member}' was added to '${link.name}' as a signal; say what it `
+                ? `'${one.member}' now crosses '${link.name}' as a signal; say what it `
                   + `carries.`
-                : `'${one.member}' was added to '${link.name}'; say what type it is.`);
+                : `'${one.member}' now crosses '${link.name}'.`);
         }
+        // Recorded either way, and after either one: this line now holds this member, and it
+        // is what the next keystroke on it is a rename of.
+        state.typed.set(typedKey(consumer, one.line), {link: link.name, member: one.member});
     }
     return said;
 }
 
+// Where a member a consumer's code asked for came from, so the next keystroke on the same
+// line can be recognised as the same member rather than as another one.
+function typedKey(consumer, line) {
+    return `${consumer.name}\n${line}`;
+}
+
+// The member this line put on the contract a moment ago, renamed to what the line says now,
+// and the old name so it can be reported. Nothing, when this is not that.
+//
+// Only where the two names are one name part-typed. `val` becoming `value`, or `value`
+// backspaced to `valu`. Two unrelated names on one line are two members and the second one is
+// an addition, which is what the caller does when this answers with nothing. So is a name
+// that is already on the contract, because renaming onto it would be two members becoming
+// one and losing whatever the other said.
+function renameTyped(consumer, link, one) {
+    const before = state.typed.get(typedKey(consumer, one.line));
+    if (!before || before.link !== link.name || before.member === one.member) {
+        return "";
+    }
+    if (!(before.member.startsWith(one.member) || one.member.startsWith(before.member))) {
+        return "";
+    }
+    const members = link.members || [];
+    if (members.some((member) => member.name === one.member)) {
+        return "";
+    }
+    const held = members.find((member) => member.name === before.member);
+    if (!held) {
+        return "";
+    }
+    held.name = one.member;
+    return before.member;
+}
+
+// The member a consumer's call site puts on a contract.
+//
+// What the owner declares, where it declares it. The call site says a name is read, called or
+// listened to, and the owner's own file says what type it is and what it takes. Guessing from
+// the call site alone gave every property `var` even where the owner said `int` two files
+// away, and left somebody correcting a type the project already knew.
+function crossingMember(owner, reached) {
+    const guess = reachedMember(reached);
+    const declared = declarations(String(owner.qml || entityQml(owner)))
+        .find((one) => one.name === reached.member);
+    if (!declared || declared.kind !== guess.kind) {
+        return guess;
+    }
+    return {kind: declared.kind, name: declared.name, type: declared.type,
+            params: declared.params, roles: []};
+}
+
 // The member a call site names, as the document holds one. A handler is the signal it
-// listens for, a call is a slot, and a plain read is a prop; the parameters are unknown
+// listens for, a call is a slot, and a plain read is a prop. The parameters are unknown
 // either way, because a call site says what it passes and not what the owner declared.
 function reachedMember(reached) {
     if (reached.handler) {
@@ -893,15 +1019,11 @@ function focusOf(file, line) {
 }
 
 function focusFromCaret() {
-    const files = projectFiles(state.design);
-    const open = files.find((file) => file.name === state.reading);
+    const open = openFile();
     if (!open) {
         return;
     }
-    const before = editable(open)
-        ? page.sourceInput.value.slice(0, page.sourceInput.selectionStart)
-        : "";
-    const found = focusOf(open, before.split("\n").length - 1);
+    const found = focusOf(open, editor.caretLine());
     if (!found) {
         return;
     }
@@ -912,14 +1034,13 @@ function focusFromCaret() {
     }
 }
 
-function onSourceInput() {
-    const files = projectFiles(state.design);
-    const open = files.find((file) => file.name === state.reading);
+function onSourceInput(typed) {
+    const open = openFile();
     if (!open || !editable(open)) {
         return;
     }
     if (isConfig(open)) {
-        absorbConfig(page.sourceInput.value);
+        absorbConfig(typed);
         return;
     }
     // A schema is SQL: it belongs to its entity and nothing on the canvas is read out of it,
@@ -927,8 +1048,8 @@ function onSourceInput() {
     if (open.name.endsWith(".sql")) {
         const entity = entityOf(open.name);
         if (entity) {
-            entity.schema = page.sourceInput.value;
-            // The same mark the QML carries, and for the same reason: the document holds a
+            entity.schema = typed;
+            // The same mark the QML carries, and for the same reason. The document holds a
             // copy of every file so the pane can show the project as it is, and only text
             // somebody typed here is text the server writes back.
             entity.schemaEdited = true;
@@ -936,8 +1057,8 @@ function onSourceInput() {
         }
         return;
     }
-    const text = page.sourceInput.value;
-    // Stored with the notice back on: what is on disk and what the download holds carries it,
+    const text = typed;
+    // Stored with the notice back on. What is on disk and what the download holds carries it,
     // and only the pane ever shows a file without one.
     const notice = open.text.slice(0, open.text.length - withoutNotice(open.text).length);
     const whole = notice + text;
@@ -1207,7 +1328,7 @@ function tipFor(what) {
             box.append(tipHelp(`Raised above ${link.scope ? `'${link.scope}'`
                                                           : "the connect point's own scope"}, `
                                + "so this member alone is held back from callers the rest of "
-                               + `${accessorName(link.owner)} answers.`));
+                               + `'${link.owner}' answers.`));
         }
         return box;
     }
@@ -1269,11 +1390,11 @@ function tipFor(what) {
         const head = document.createElement("div");
         head.className = "tip__head tip__head--broken";
         const title = document.createElement("span");
-        title.textContent = "broken";
+        title.textContent = linkTitle(link, what.consumer);
         head.append(title);
         const kind = document.createElement("span");
         kind.className = "tip__kind";
-        kind.textContent = "not routed";
+        kind.textContent = "broken";
         head.append(kind);
         box.append(head);
         box.append(tipParty("owner", link.owner ? [link.owner] : []));
@@ -1282,8 +1403,8 @@ function tipFor(what) {
                            + `and no scope is handed to '${link.owner}'. The link is still `
                            + `there and nothing travels down it: nobody is ever routed to `
                            + `this end of it.`));
-        box.append(tipHelp("Drag from this cross onto a scope on the front's back to say "
-                           + "whose callers it serves. Click it to open the connect point."));
+        box.append(tipHelp("Drag from the cross onto a scope on the front's back to say whose "
+                           + "callers it serves. Press it to select the line."));
         return box;
     }
     // A row in the rail is the entity it would add, so it says what the node on the canvas
@@ -1353,8 +1474,7 @@ function tipFor(what) {
             box.append(tipParty("consumer", link.consumers || []));
         }
         if (uses.length) {
-            box.append(tipRow("consumes", uses
-                .map((link) => `${accessorName(link.owner)} ('${link.owner}')`).join(", ")));
+            box.append(tipRow("consumes", uses.map((link) => link.owner).join(", ")));
         }
         if (!owns.length && !uses.length) {
             box.append(tipRow("on the mesh", "Nothing reaches it and it reaches nothing"));
@@ -1380,7 +1500,7 @@ function tipFor(what) {
     const head = document.createElement("div");
     head.className = "tip__head tip__head--link";
     const title = document.createElement("span");
-    title.textContent = contractOf(link) || "this connect point";
+    title.textContent = linkTitle(link, what.consumer);
     head.append(title);
     const kind = document.createElement("span");
     kind.className = "tip__kind";
@@ -1700,6 +1820,13 @@ function whatIsUnder(target) {
     }
     const link = target.closest("[data-link]");
     if (link) {
+        // A broken line is the break, wherever on it the pointer is. The cross is one mark
+        // near the far end and the line is what a reader's pointer finds first: answering the
+        // line with the ordinary card would have it describe a link as though it worked.
+        if (link.dataset.broken) {
+            return {kind: "break", name: link.dataset.link,
+                    consumer: link.dataset.consumer || ""};
+        }
         return {kind: "link", name: link.dataset.link, consumer: link.dataset.consumer || ""};
     }
     // A box's name, last, because everything drawn inside a box answers for itself first.
@@ -1852,7 +1979,7 @@ function declareOn(entity, member) {
     // Open the file it was written into, on the line it went on: a declaration nobody can see
     // is the panel and the pane disagreeing about what just happened.
     state.reading = `${state.design.project || "app"}/${entityQmlPath(entity)}`;
-    state.unlocked = true;
+    state.unlockedFile = state.reading;
     touched();
     redraw();
     renderInspector();
@@ -2209,12 +2336,10 @@ function touched() {
 function select(what, follow = true) {
     state.selected = what;
     if (follow) {
-        // Picking something out on the canvas puts the pane back to reading, whether or not
-        // it changed which file is open. Unlocking is a thing somebody did to one file they
-        // had in hand, and having gone off to select something else, they no longer do.
-        // `follow` is false when the selection came *from* the pane, which is the caret
-        // moving while they type: re-locking there would take the file away mid-word.
-        state.unlocked = false;
+        // The pane follows the selection to whatever file that thing is. Nothing is re-locked
+        // here. The unlock belongs to a file, so the file this moves to is locked because it
+        // is a different file, and the one that was unlocked is still unlocked when it is
+        // opened again.
         const wanted = fileOf(what, projectFiles(state.design));
         if (wanted && wanted !== state.reading) {
             state.reading = wanted;
@@ -2222,6 +2347,26 @@ function select(what, follow = true) {
     }
     redraw();
     renderInspector();
+}
+
+// One line, selected the way pressing it selects it.
+//
+// A second click renames a node. A connect point has no name of its own to rename. The
+// consumer travels with the selection, because one line is one consumer of a contract they
+// all share, and the panel says less about a line than about the point.
+//
+// Unless it is the only line. Then the line and the point are the same selection to anybody
+// who drew them, and stopping at "this consumer" put a panel with one button on it between
+// somebody and the thing they clicked the line to edit.
+//
+// Shared with the break, so that pressing the cross on a broken line and pressing the line it
+// is drawn on are one gesture with one result.
+function selectLine(name, consumer) {
+    const point = (state.design.links || []).find((one) => one.name === name);
+    const alone = point && (point.consumers || []).length < 2;
+    select(alone
+        ? {kind: "contract", name}
+        : {kind: "link", name, consumer: consumer || ""});
 }
 
 function fit() {
@@ -2346,6 +2491,7 @@ function addLink(from, to, headed, at) {
     if (already) {
         if (!already.consumers.includes(consumer.name)) {
             already.consumers.push(consumer.name);
+            crossWhatIsUsed(already, consumer);
             touched();
         }
         select({kind: "link", name});
@@ -2374,6 +2520,7 @@ function addLink(from, to, headed, at) {
         slot: nearestFreeSlot(held, turnsToward(owner, toward || consumer)),
     };
     state.design.links.push(link);
+    crossWhatIsUsed(link, consumer);
     touched();
     select({kind: "link", name});
     say(`'${owner.name}' now exports a connect point and '${consumer.name}' consumes it`
@@ -2387,6 +2534,29 @@ function addLink(from, to, headed, at) {
     // connect point nobody finished.
     if (at) {
         openPicker(link, at);
+    }
+}
+
+// Put onto a new link whatever the consumer's own code already reaches for, and nothing else.
+//
+// A contract starts empty, because it is the list of what an owner has agreed to say and
+// drawing a line is not that agreement. But code that is already written is: an entity whose
+// QML calls `Store.insert(...)` is one that needs `insert` to cross, and making somebody tick
+// a box for a call they have already written is asking them to say it twice. Everything else
+// the owner declares is offered in the picker this opens, unticked.
+function crossWhatIsUsed(link, consumer) {
+    const owner = entityNamed(link.owner);
+    if (!owner) {
+        return;
+    }
+    for (const reached of references(String(consumer.qml || entityQml(consumer)))) {
+        if (ownerNamed(reached.accessor, consumer) !== owner) {
+            continue;
+        }
+        if ((link.members || []).some((member) => member.name === reached.member)) {
+            continue;
+        }
+        link.members = [...(link.members || []), crossingMember(owner, reached)];
     }
 }
 
@@ -2481,7 +2651,7 @@ function offerSeat(from, target, at, {consuming} = {}) {
         // any other entity, and consuming one is not the same thing as sitting behind it.
         ...(consuming
             ? []
-            : [{label: `Just consume ${contractOf({owner: target.name})}`,
+            : [{label: `Just consume '${target.name}'`,
                 act: () => addLink(from, target, null, at)}]),
         ...(taken
             ? [{label: `Stop serving '${taken.scope}'`,
@@ -2676,6 +2846,7 @@ function onDown(event) {
                 from: entityNamed(link.owner),
                 front,
                 link,
+                consumer: broke.dataset.breakConsumer || "",
                 at,
                 moved: false,
                 start: {x: Number(broke.dataset.x), y: Number(broke.dataset.y)},
@@ -2798,8 +2969,10 @@ function clearSlotsNear() {
 }
 
 function onMove(event) {
+    // Kept so a redraw can put the handles back where the pointer still is. See redraw().
+    state.pointer = pointAt(event);
     if (!drag) {
-        showSlotsNear(pointAt(event));
+        showSlotsNear(state.pointer);
         const under = whatIsUnder(event.target);
         highlight(under);
         if (under) {
@@ -2824,6 +2997,12 @@ function onMove(event) {
         return;
     }
     if ((drag.mode === "link" || drag.mode === "behind" || drag.mode === "wire") && drag.from) {
+        // The break is a thing to press as well as a thing to pull, so its line waits until
+        // the press has travelled. A click that drew a line for the few milliseconds it
+        // lasted read as the cross being a connect point somebody had started wiring.
+        if (drag.mode === "wire" && !drag.moved) {
+            return;
+        }
         page.ghost.replaceChildren(element("line", {
             class: "ghost",
             x1: drag.start.x,
@@ -2888,7 +3067,7 @@ function onUp(event) {
     if (finished.mode === "wire" && finished.from && finished.front) {
         const at = pointAt(event);
         if (!finished.moved) {
-            select({kind: "contract", name: finished.link.name});
+            selectLine(finished.link.name, finished.consumer);
             return;
         }
         const local = {x: at.local.x - (finished.front.x || 0),
@@ -2958,21 +3137,10 @@ function onUp(event) {
         return;
     }
     if (finished.mode === "link-click") {
-        // A second click renames a node; a connect point has no name of its own to rename.
-        // The consumer travels with the selection, because one line is one consumer of a
-        // contract they all share, and the panel says less about a line than about the point.
-        //
-        // Unless it is the only line. Then the line and the point are the same selection to
-        // anybody who drew them, and stopping at "this consumer" put a panel with one button
-        // on it between somebody and the thing they clicked the line to edit.
-        const point = (state.design.links || []).find((one) => one.name === finished.name);
-        const alone = point && (point.consumers || []).length < 2;
-        select(alone
-            ? {kind: "contract", name: finished.name}
-            : {kind: "link", name: finished.name, consumer: finished.consumer || ""});
+        selectLine(finished.name, finished.consumer);
         return;
     }
-    // A press on a box that went nowhere is a press on empty canvas: the box is a drawing of
+    // A press on a box that went nowhere is a press on empty canvas. The box is a drawing of
     // what is in it, not a thing with a panel of its own to select.
     if ((finished.mode === "pan" || finished.mode === "zone") && !finished.moved) {
         select(null);
@@ -3327,6 +3495,9 @@ function wire() {
     page.canvas.addEventListener("pointerup", onUp);
     page.canvas.addEventListener("pointercancel", onUp);
     page.canvas.addEventListener("pointerleave", () => {
+        // The pointer has gone, so nothing is near anything any more and a redraw must not
+        // put the handles back.
+        state.pointer = null;
         hideTip();
         clearSlotsNear();
         clearHighlight();
@@ -3360,29 +3531,16 @@ function wire() {
         }
     });
     page.sourceLock.addEventListener("click", () => {
-        state.unlocked = !state.unlocked;
+        const open = openFile();
+        if (!open) {
+            return;
+        }
+        state.unlockedFile = state.unlockedFile === open.name ? "" : open.name;
         renderProject();
-        if (state.unlocked) {
-            page.sourceInput.focus();
+        if (state.unlockedFile) {
+            editor.focus();
         }
     });
-    // The textarea is the layer that scrolls; the painted copy behind it is moved along by
-    // hand, because a file longer than the pane is the ordinary case and two layers that
-    // scroll independently are two layers nobody can read.
-    //
-    // Moved, not scrolled. Scrolling the copy meant its own scrollable height had to match
-    // the textarea's, and it never quite did: the textarea reserves room for a horizontal
-    // scrollbar and the copy, which has none, clamps a scrollbar's height short of the
-    // bottom -- so the last line of a long file sat about fifteen pixels out of register
-    // with the caret on it. A transform has nothing to clamp against.
-    page.sourceInput.addEventListener("scroll", () => {
-        page.sourcePaint.style.transform =
-            `translate(${-page.sourceInput.scrollLeft}px, ${-page.sourceInput.scrollTop}px)`;
-    });
-    page.sourceInput.addEventListener("input", onSourceInput);
-    for (const when of ["click", "keyup"]) {
-        page.sourceInput.addEventListener(when, focusFromCaret);
-    }
     page.sheetClose.addEventListener("click", () => {
         page.sheet.hidden = true;
     });

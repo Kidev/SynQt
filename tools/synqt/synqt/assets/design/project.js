@@ -212,6 +212,19 @@ export function contractOf(link) {
     return owner ? `${owner[0].toUpperCase()}${owner.slice(1)}` : "";
 }
 
+// What a link is called, everywhere anything names one: the two entities it runs between, in
+// the names their author gave them. It used to be the owner's name capitalised, which is the
+// type a consumer writes in QML and not a name this drawing has anything to do with -- so a
+// canvas of entities called `edge` and `app` labelled the line between them `Edge`, and a
+// reader had two spellings of one thing and nothing saying they were one thing.
+//
+// `consumer` narrows it to one line; without it the point is named by every consumer it has.
+export function linkTitle(link, consumer) {
+    const owner = (link || {}).owner || "nobody yet";
+    const consumers = consumer ? [consumer] : ((link || {}).consumers || []);
+    return `${owner} > ${consumers.join(", ") || "nobody yet"}`;
+}
+
 export function entityDir(entity) {
     const folder = TYPE_FOLDERS[entityType(entity)] || TYPE_FOLDERS.service;
     return `${folder}/${entity.name}`;

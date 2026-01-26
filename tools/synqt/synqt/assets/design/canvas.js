@@ -583,8 +583,20 @@ function alertAt(front) {
                  : {x: NODE_RADIUS * 0.72, y: -NODE_RADIUS * 0.72};
 }
 
+// Where it sits on a contract badge: on the far side of the badge from the entity the badge
+// is pinned to. The badge sits on its owner's rim, so the corner that used to carry this was
+// the top right whichever side of the disc that was, and on a point drawn off the left of an
+// entity that put the mark between the badge and the disc, in the busiest few pixels on the
+// canvas. Pushed outward it is always over open space.
+const BADGE_ALERT_REACH = 9.5;
+
+export function badgeAlertAt(away) {
+    const span = Math.hypot(away.x, away.y) || 1;
+    return {x: (away.x / span) * BADGE_ALERT_REACH, y: (away.y / span) * BADGE_ALERT_REACH};
+}
+
 // The one word that says which end of a hovered link this entity is. Drawn on every node and
-// hidden, then shown by the stylesheet when the page marks the node: the highlight runs off
+// hidden, then shown by the stylesheet when the page marks the node. The highlight runs off
 // pointer moves and must never rebuild the drawing, so what it can turn on has to already be
 // there. Above the disc, where nothing else is written.
 function roleLabels(group, front) {
@@ -904,9 +916,9 @@ function breakMark(link, consumer, at) {
 // The contract, drawn on the slot its link was pulled from and never hidden: the free slots
 // come and go with the pointer, but what an entity has already agreed to say is part of the
 // drawing. `level` is the verdict on the contract alone, which is not the verdict on the
-// link: a contract with nothing in it is not the same complaint as a consumer that cannot
+// link. A contract with nothing in it is not the same complaint as a consumer that cannot
 // reach its owner, and the two are drawn separately so both are legible at once.
-function contractBadge(link, at, level, selected) {
+function contractBadge(link, at, level, selected, away) {
     const group = element("g", {
         class: `link__doc${level ? ` is-${level}` : ""}${selected ? " is-selected" : ""}`,
         transform: `translate(${at.x},${at.y})`,
@@ -917,7 +929,7 @@ function contractBadge(link, at, level, selected) {
     group.append(element("path", {class: "link__doc-lines",
                                   d: "M -2.5,-3 H 2.5 M -2.5,0 H 2.5 M -2.5,3 H 2.5"}));
     if (level) {
-        group.append(alertMark({x: 6, y: -7}, 5));
+        group.append(alertMark(badgeAlertAt(away), 5));
     }
     return group;
 }
@@ -1212,6 +1224,11 @@ function line(link, from, to, options) {
     // saying the opposite of what is true.
     const cut = options.broken ? splitCurve(edge, BREAK_AT) : null;
     if (cut) {
+        // Said on the group as well as drawn on the line, so that pointing anywhere along a
+        // broken line answers with the break rather than with the ordinary card about a link
+        // that works. The cross is one mark on a curve crossing the canvas, and the line is
+        // the part of it a reader's pointer lands on.
+        group.dataset.broken = "1";
         group.append(element("path", {class: "link__line", d: cut.before}));
         group.append(element("path", {class: "link__line link__line--severed", d: cut.after}));
     } else {
@@ -1223,11 +1240,14 @@ function line(link, from, to, options) {
     // an arrowhead nine pixels long at the far end of a curve crossing the canvas. A dash
     // travelling from owner to consumer says it along the whole line and needs no aiming at.
     // Stopped for anybody who asked their system for less motion.
-    group.append(element("path", {class: "link__flow", d: path}));
+    //
+    // It stops at the break, because what it is drawing is travel and past the break nothing
+    // travels. Running it the whole way was the animation contradicting the line under it.
+    group.append(element("path", {class: "link__flow", d: cut ? cut.before : path}));
 
-    // What answers a click: the same curve again, drawn wide and transparent. A stroke has no
-    // area for anything measuring a bounding box, which is why this used to be a rectangle
-    // laid along the line, but a curve has no rectangle to lay; `pointer-events: stroke` says
+    // What answers a click. The same curve again, drawn wide and transparent. A stroke has no
+    // area for anything measuring a bounding box, and a curve has no rectangle to lay
+    // along it. `pointer-events: stroke` says
     // the band catches the pointer without asking how it is painted.
     group.append(element("path", {class: "link__hit", d: path}));
 
@@ -1400,11 +1420,13 @@ export function draw(layers, design, {problems, selected, filesOf}) {
         }
         const found = problems.links.get(link.name) || [];
         const carries = (link.members || []).length;
+        const at = contractPoint(owner, slots.get(link.name) || 0, fronts.has(owner.name));
         layers.links.append(contractBadge(
             link,
-            contractPoint(owner, slots.get(link.name) || 0, fronts.has(owner.name)),
+            at,
             levelWithin(found, "contract") || (carries ? "" : "warn"),
-            selected && selected.kind === "contract" && selected.name === link.name));
+            selected && selected.kind === "contract" && selected.name === link.name,
+            {x: at.x - (owner.x || 0), y: at.y - (owner.y || 0)}));
     }
 
     for (const entity of entities) {

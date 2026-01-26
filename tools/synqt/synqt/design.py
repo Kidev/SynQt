@@ -3,28 +3,18 @@
 
 """``synqt design``: the designer, served to a browser on this machine only.
 
-The editor is a page in a browser, and what it drives is a directory on the developer's
-disk. Every other page in that browser can reach a localhost port too, so the whole of this
-module's guard is about telling this editor's requests apart from anybody else's:
+Every page in the browser can reach a localhost port, so the guard is about telling this
+editor's requests apart:
 
-* the socket is bound to the loopback address, so nothing off the machine can connect;
-* every ``/api`` request carries a token minted for this run, compared in constant time.
-  It travels in the URL fragment, which no browser ever sends to a server and no proxy or
-  history file ever records, so the page can read it while a request for the page cannot
-  carry it. That is why the shell itself is served without one: it holds nothing about the
-  project, and everything that does is behind ``/api``;
-* a request that says where it came from has to say this editor. An ``Origin`` or a
-  ``Referer`` naming another page is refused, which is what stops a page the developer has
-  open in another tab from posting a design here;
-* what the request calls this server is checked too. A name the attacker controls, pointed
-  at 127.0.0.1, is how a page gets the browser to treat this server as its own origin and
-  send nothing worth refusing. A ``Host`` that is not the loopback address this server
-  bound is not this server.
+* the socket is bound to the loopback address;
+* every ``/api`` request carries a per-run token, compared in constant time. It travels in
+  the URL fragment, which browsers never send, so the page can read it and a request for the
+  page cannot carry it. The shell is served without it and holds nothing about the project;
+* an ``Origin`` or ``Referer`` naming another page is refused;
+* a ``Host`` that is not the bound loopback address is refused, which stops DNS rebinding.
 
-Nothing is written until the editor asks for it by digest. It computes a plan, the page
-shows the diff, and applying it names the plan that was shown. A design that ``synqt
-check`` refuses is refused here, so the editor is not a way around the rules the command
-line holds.
+Nothing is written until the editor applies a plan by digest, after showing its diff. A
+design `synqt check` refuses is refused here too.
 """
 
 from __future__ import annotations
@@ -50,12 +40,10 @@ TOKEN_HEADER = "X-SynQt-Token"
 
 ASSETS = Path(__file__).resolve().parent / "assets" / "design"
 
-# The names a browser on this machine can call this server. Anything else is either off the
-# machine or a name somebody else controls.
+# The names a browser on this machine can call this server.
 LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1", "[::1]"})
 
-# A design document is a topology and its contracts. Kilobytes, not megabytes. The cap is
-# here so a request cannot make this process hold an arbitrary amount of memory.
+# A cap on the request body. A design document is kilobytes.
 MAX_BODY_BYTES = 4 * 1024 * 1024
 
 _CONTENT_TYPES = {
@@ -69,8 +57,9 @@ _CONTENT_TYPES = {
     ".woff2": "font/woff2",
 }
 
-# The editor loads nothing from anywhere else, so it is served under a policy that allows
-# nothing else: no inline script, no framing, and no destination for a form.
+# The editor loads nothing from elsewhere, so the policy allows nothing else: no inline
+# script, no framing, no form destination. Without `unsafe-inline` in `style-src`,
+# CodeMirror runs in a shadow root, where its stylesheet is a constructed CSSStyleSheet.
 _CSP = ("default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; "
         "font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; "
         "frame-ancestors 'none'")
@@ -100,10 +89,8 @@ def _project(server: "_DesignServer", _body: Optional[Dict[str, Any]]) -> Dict[s
 
 
 def _validate(server: "_DesignServer", body: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-    """What `synqt check` would make of a document, without writing any of it.
-
-    The cheap answer, for the editor to draw while somebody is still moving things around:
-    the topology rules only, and no walk of the disk to work out what the change set is.
+    """What `synqt check` makes of a document, without writing: the topology rules only, for
+    drawing while editing.
     """
     document = _document(body)
     base = configmod.load(server.project_dir, profile=server.profile)
@@ -113,12 +100,8 @@ def _validate(server: "_DesignServer", body: Optional[Dict[str, Any]]) -> Dict[s
 
 
 def _infer(server: "_DesignServer", _body: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-    """The contracts the project's own QML already implies, as a document to draw.
-
-    The same reading `synqt infer` prints, handed to the canvas instead of the terminal:
-    a link nobody has written a contract for arrives with the members both ends of it
-    already use, and the answer is a document like any other, so nothing is written until
-    somebody has read a change set and applied it.
+    """The contracts the project QML implies, as a document to draw (the `synqt infer`
+    reading). Nothing is written until a change set is applied.
     """
     config = configmod.load(server.project_dir, profile=server.profile)
     backend = typebackend.resolve("auto", server.project_dir)
@@ -127,9 +110,7 @@ def _infer(server: "_DesignServer", _body: Optional[Dict[str, Any]]) -> Dict[str
     except infer.InferError as error:
         raise _Refused(HTTPStatus.BAD_REQUEST, str(error)) from error
     document = infer.to_document(edges, config)
-    # The document is drawn and then applied like any other, and applying names the
-    # configuration it was read from. Without this the page would be holding a document
-    # that says nothing about which synqt.yaml it describes.
+    # Applying names the configuration the document was read from.
     document["sourceHash"] = designdoc.source_hash(server.project_dir)
     return {"document": document, "typedBy": typebackend.name_of(backend)}
 
@@ -141,12 +122,10 @@ def _plan(server: "_DesignServer", body: Optional[Dict[str, Any]]) -> Dict[str, 
 
 
 def _apply(server: "_DesignServer", body: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-    """Apply the change set somebody has read, and answer with the project as it now is.
+    """Apply the change set that was shown, and answer with the project as it now is.
 
-    The plan is worked out again here rather than kept from the last request: what is
-    applied is what the project implies now, and the digest the editor sends is how it says
-    which plan it showed. A digest that no longer matches means the answer to "what would
-    this do" has changed since it was asked, so nothing is written.
+    The plan is recomputed here. A digest that no longer matches means the change set
+    changed, so nothing is written.
     """
     document = _document(body)
     digest = body.get("digest") if isinstance(body, dict) else None
@@ -228,8 +207,7 @@ class _DesignServer(ThreadingHTTPServer):
         self.project_dir = project_dir
         self.token = token
         self.profile = profile
-        # One project on one disk. Two requests writing it at once is not a case worth
-        # having, so the routes take a turn each.
+        # One project on one disk: requests are served one at a time.
         self.lock = threading.Lock()
 
 
@@ -245,11 +223,7 @@ class _Handler(BaseHTTPRequestHandler):
         self._serve("POST")
 
     def log_request(self, code: Any = "-", size: Any = "-") -> None:
-        """Say nothing about a request that was served. One per redraw is not news.
-
-        What was refused still goes to the terminal, because a developer whose editor has
-        stopped answering is owed the reason on the screen they started it from.
-        """
+        """Log refused requests only."""
         status = str(getattr(code, "value", code))
         if status.startswith(("4", "5")):
             super().log_request(code, size)
@@ -266,8 +240,7 @@ class _Handler(BaseHTTPRequestHandler):
                     raise _Refused(HTTPStatus.NOT_FOUND, f"no such route: {method} {path}")
                 self._send_asset(path)
                 return
-            # Authorized before it is read. A request nobody has vouched for does not get
-            # this process to hold its body in memory, or to say which routes exist.
+            # Authorized before the body is read.
             self._check_token()
             route = ROUTES.get((method, path))
             if route is None:
@@ -278,8 +251,7 @@ class _Handler(BaseHTTPRequestHandler):
         except _Refused as refusal:
             self._send_json(refusal.status, {"error": refusal.reason})
         except Exception as error:
-            # Answered rather than raised. An unhandled error here would leave the page
-            # waiting on a connection that was closed without saying anything.
+            # Answered rather than raised, so the page is not left waiting.
             self._send_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(error)})
 
     def _body(self, method: str) -> Optional[Dict[str, Any]]:
@@ -308,8 +280,7 @@ class _Handler(BaseHTTPRequestHandler):
 
     def _send(self, status: int, content_type: str, payload: bytes) -> None:
         if int(status) >= 400:
-            # The body of a refused request may be unread, and a connection with bytes
-            # left on it desynchronises the next request that reuses it.
+            # An unread body would desynchronise the next request on the connection.
             self.close_connection = True
         self.send_response(int(status))
         self.send_header("Content-Type", content_type)
@@ -341,11 +312,8 @@ class _Handler(BaseHTTPRequestHandler):
                            "page opened at that URL has it")
 
     def _check_host(self) -> None:
-        """Refuse a request that calls this server by a name somebody else controls.
-
-        The rebinding case. A name resolving to 127.0.0.1 makes the browser treat this
-        server as the attacker's own origin, so it sends no Origin worth refusing. What it
-        calls this server is the part that still gives it away.
+        """Refuse a request that calls this server by a name somebody else controls (DNS
+        rebinding).
         """
         host = self.headers.get("Host")
         if host is None:
@@ -376,10 +344,8 @@ def _is_this_server(url: str, port: int) -> bool:
 
 
 def _asset_path(path: str) -> Optional[Path]:
-    """The file `path` asks for inside the assets directory, or None if it is outside it.
-
-    Resolved and then checked against the directory rather than filtered for '..': a path
-    is only inside the directory if what it resolves to is, and that is the thing to ask.
+    """The file `path` names inside the assets directory, or None. Resolved, then checked
+    against the directory.
     """
     relative = unquote(path).lstrip("/") or "index.html"
     if "\x00" in relative:
@@ -395,14 +361,10 @@ def _asset_path(path: str) -> Optional[Path]:
 
 
 def _already_answering(port: int) -> bool:
-    """Whether something is already listening on that loopback port.
+    """Whether something already listens on that loopback port.
 
-    Asked rather than left to bind() because bind() does not give the same answer on every
-    platform. `HTTPServer` sets `SO_REUSEADDR`, which on Windows means a second socket may
-    take an address another socket already holds. There the bind succeeds, two servers split
-    the port between them, and which one a request reaches is up to the operating system. A
-    connection attempt is the same question on all three, and the answer arrives immediately
-    on loopback whether it is accepted or refused.
+    Asked by connecting, because with `SO_REUSEADDR` (set by `HTTPServer`) a second bind
+    succeeds on Windows.
     """
     if port == 0:
         return False  # the operating system is picking a free one
@@ -413,10 +375,8 @@ def _already_answering(port: int) -> bool:
 
 def make_server(project_dir: os.PathLike[str] | str, *, port: int, token: str,
                 profile: Optional[str] = None) -> ThreadingHTTPServer:
-    """A server for one project, bound to the loopback address and not yet serving.
-
-    `port` 0 lets the operating system pick one, which is what the tests use. The port that
-    was bound is on the returned server as ``server_port``.
+    """A server for one project, bound to loopback and not yet serving. `port` 0 lets the OS
+    pick; the bound port is ``server_port``.
     """
     root = Path(project_dir)
     if not (root / "synqt.yaml").is_file():
@@ -439,10 +399,8 @@ def url_for(port: int, token: str) -> str:
 
 def serve(project_dir: os.PathLike[str] | str, *, port: int = 8181,
           open_browser: bool = True, profile: Optional[str] = None) -> str:
-    """Serve the editor until interrupted, and open it in a browser.
-
-    The token is minted per run, so a URL from an earlier one is worth nothing, and it is
-    printed only here. Closing the tab means opening the printed URL again, not restarting.
+    """Serve the editor until interrupted, and open it in a browser. The token is minted per
+    run and printed only here.
     """
     httpd = make_server(project_dir, port=port, token=secrets.token_urlsafe(24),
                         profile=profile)

@@ -1,0 +1,147 @@
+/* SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+   SPDX-License-Identifier: Apache-2.0
+
+   The file pane's editor, styled.
+
+   Its own stylesheet and not part of design.css, because the editor lives in a shadow root
+   under `#source-view` and this is the sheet that root adopts. That is not decoration: the
+   vendored CodeMirror builds its own stylesheet at runtime, and inside a shadow root
+   style-mod builds it as a constructed CSSStyleSheet rather than as a <style> element with
+   text in it. A page served under `default-src 'none'` with no `unsafe-inline` refuses the
+   second and has no opinion about the first, so the boundary is what lets a real editor live
+   under the real policy. Scoping the library's styles away from the rest of the page is the
+   second reason, and it would have been reason enough.
+
+   The palette is the page's: custom properties cross a shadow boundary, so `var(--ink)` here
+   is the same ink as everywhere else and follows the reader's light or dark setting with it.
+
+   Written as CSS rather than passed to `EditorView.theme` for the same reason: a theme built
+   in JavaScript would have to be rebuilt when that setting changed. CodeMirror's base styles
+   are injected at a low precedence, so ordinary rules on its documented class names win. */
+
+:host {
+  display: block;
+  min-height: 0;
+  height: 100%;
+}
+
+.cm-editor {
+  height: 100%;
+  background: var(--page);
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+/* No ring around the pane when the caret is in it. Which pane has the caret is said by the
+   caret, and an outline the width of the files pane is a box drawn around the whole project. */
+.cm-editor.cm-focused {
+  outline: none;
+}
+
+.cm-scroller {
+  font-family: inherit;
+  line-height: inherit;
+}
+
+.cm-content {
+  padding: .75rem 0;
+  caret-color: var(--accent);
+}
+
+/* The line numbers, which is half of what this pane gained by becoming an editor: a finding
+   naming a line, a stack trace, and a colleague saying "look at line 40" all point at
+   something now. Quiet, because they are an index and not the file. */
+.cm-gutters {
+  background: var(--page);
+  color: var(--ink-dim);
+  border-right: 1px solid var(--line);
+  padding-right: .1rem;
+  opacity: .65;
+}
+
+.cm-lineNumbers .cm-gutterElement {
+  min-width: 2.2em;
+  padding: 0 .45rem 0 .75rem;
+}
+
+.cm-activeLineGutter {
+  background: transparent;
+  color: var(--ink);
+  opacity: 1;
+}
+
+/* The line the caret is on, marked rather than lit: a filled band across a pane this narrow
+   reads as a selection, and the pane already has one of those. */
+.cm-activeLine {
+  background: color-mix(in srgb, var(--panel-high) 55%, transparent);
+}
+
+.cm-cursor,
+.cm-dropCursor {
+  border-left-color: var(--accent);
+  border-left-width: 2px;
+}
+
+.cm-selectionBackground,
+.cm-content ::selection,
+.cm-line ::selection {
+  background: color-mix(in srgb, var(--accent) 34%, transparent);
+}
+
+.cm-focused .cm-selectionBackground {
+  background: color-mix(in srgb, var(--accent) 44%, transparent);
+}
+
+/* The other half of what it gained: the brace at the far end of the block the caret is in.
+   QML is nested objects, and the one question a reader has of a closing brace is which
+   opening one it answers. */
+.cm-matchingBracket,
+.cm-focused .cm-matchingBracket {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  outline: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  color: inherit;
+}
+
+.cm-nonmatchingBracket,
+.cm-focused .cm-nonmatchingBracket {
+  background: color-mix(in srgb, var(--error) 22%, transparent);
+  color: inherit;
+}
+
+.cm-specialChar {
+  color: var(--error);
+}
+
+/* A file being read rather than typed into. The lock is said on the bar above in words; this
+   is the pane agreeing with it, quietly enough that a locked file is still a file to read. */
+.cm-editor:not(.cm-focused) .cm-activeLine {
+  background: transparent;
+}
+
+.tok--comment {
+  color: var(--ink-dim);
+  font-style: italic;
+}
+
+.tok--keyword {
+  color: var(--accent);
+}
+
+.tok--type {
+  color: var(--client);
+}
+
+.tok--string {
+  color: var(--warn);
+}
+
+.tok--number {
+  color: var(--warn);
+}
+
+.tok--member {
+  color: var(--ink);
+  font-weight: 600;
+}

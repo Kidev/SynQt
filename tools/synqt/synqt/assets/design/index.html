@@ -19,6 +19,9 @@
          has no such file to give it. -->
     <link rel="icon" href="synqt.ico" sizes="any">
     <link rel="stylesheet" href="design.css">
+    <!-- The file pane's editor lives in a shadow root and adopts this itself. Named here as
+         well so the browser has it before the pane is built rather than after. -->
+    <link rel="preload" as="style" href="editor.css">
     <script type="module" src="design.js"></script>
   </head>
   <body>
@@ -112,14 +115,11 @@
           <div class="dock__pane" id="dock-pane">
             <ul class="tree" id="tree"></ul>
             <div class="source">
-              <!-- One layer painted and one layer typed into, sharing a box and a font: the
-                   textarea on top is transparent apart from its caret, and the coloured copy
-                   behind it is what anyone actually reads. -->
-              <div class="source__view">
-                <pre class="source__paint" id="source-paint"></pre>
-                <textarea class="source__input" id="source-input" spellcheck="false"
-                          autocomplete="off" autocapitalize="off" wrap="off"></textarea>
-              </div>
+              <!-- Where the editor is built, and the whole of what this file says about it:
+                   what goes in here is CodeMirror (vendor/README.md), wired up by editor.js
+                   and coloured by source.js, which is the same reader that colours the
+                   members written along a link on the canvas. -->
+              <div class="source__view" id="source-view"></div>
             </div>
           </div>
         </section>

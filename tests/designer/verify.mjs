@@ -139,17 +139,40 @@ async function unlock(page) {
     }
 }
 
-// Type `line` in just above the file's closing brace, which is where a declaration goes. The
+// The whole file the pane is holding, as an expression the browser evaluates.
+//
+// Read off the editor and not off the page. The pane is CodeMirror, which renders the lines
+// that are on screen and no others, so its DOM is a window onto a file and never the file.
+// `#source-view.editor` is the handle the pane puts there for exactly this. Written as text
+// because a `waitForFunction` closure is serialised on its own and cannot call a helper that
+// lives out here.
+const SOURCE = 'document.getElementById("source-view").editor.state.doc.toString()';
+
+function sourceText(page) {
+    return page.evaluate(SOURCE);
+}
+
+// Whether the file in the pane is one somebody can type into.
+function sourceIsLocked(page) {
+    return page.evaluate(
+        () => document.getElementById("source-view").editor.state.readOnly);
+}
+
+// Put the caret in the pane, on the editor's own content, which is what takes one.
+async function clickIntoSource(page) {
+    await page.locator(".cm-content").click();
+}
+
+// Type `line` in above the file's closing brace, which is where a declaration goes. The
 // caret starts at the end of the file, which is past that brace, so it walks back one line
-// first; typing at the end would put the declaration outside the object it belongs to.
+// first. Typing at the end would put the declaration outside the object it belongs to.
 async function typeIntoRootBlock(page, line) {
     await unlock(page);
-    const typing = page.locator("#source-input");
-    await typing.click();
-    await typing.press("Control+End");
-    await typing.press("ArrowUp");
-    await typing.press("Home");
-    await typing.type(line);
+    await clickIntoSource(page);
+    await page.keyboard.press("Control+End");
+    await page.keyboard.press("ArrowUp");
+    await page.keyboard.press("Home");
+    await page.keyboard.type(line);
 }
 
 // The tree names each file by its leaf under a heading for the directory it is in, and that
@@ -174,12 +197,11 @@ function fileRow(page, name) {
 async function openAndWaitFor(page, file, wanted) {
     await fileRow(page, file).click();
     try {
-        await page.waitForFunction(
-            (text) => document.getElementById("source-paint").textContent.includes(text),
-            wanted, { timeout: 15000 });
+        await page.waitForFunction(`${SOURCE}.includes(${JSON.stringify(wanted)})`,
+                                   null, { timeout: 15000 });
     } catch (error) {
-        const held = await page.locator("#source-paint").textContent();
-        throw new Error(`${file} never held "${wanted}". It held:\n${held}`);
+        throw new Error(`${file} never held "${wanted}". It held:\n`
+                        + await sourceText(page));
     }
 }
 
@@ -404,6 +426,24 @@ async function unwireSeat(page, front, scope, at) {
     await page.mouse.up();
 }
 
+// Put the pointer on a link's own curve, `along` of the way from its owner. Aimed off the
+// path itself rather than at a bounding box, because a link is a bowed curve and the middle
+// of the box it sits in is usually canvas.
+async function hoverAlong(page, link, along) {
+    const at = await page.evaluate(([name, fraction]) => {
+        const path = document.querySelector(`[data-link="${name}"] .link__hit`);
+        const on = path.getPointAtLength(path.getTotalLength() * fraction);
+        const point = document.getElementById("canvas").createSVGPoint();
+        point.x = on.x;
+        point.y = on.y;
+        const screen = point.matrixTransform(path.getScreenCTM());
+        return { x: screen.x, y: screen.y };
+    }, [link, along]);
+    await page.mouse.move(at.x - 4, at.y - 4);
+    await page.mouse.move(at.x, at.y);
+    return at;
+}
+
 // The break on a line into a front, dragged onto the word naming a scope: the fix for what the
 // cross says, done from the cross itself.
 async function dragBreak(page, link, front, scope) {
@@ -488,9 +528,8 @@ async function theFrontThatSplitsCallers() {
 
         // And it is in the file, which is the only place any of it means anything.
         await fileRow(page, "synqt.yaml").click();
-        await page.waitForFunction(
-            () => document.getElementById("source-paint").textContent.includes("behind:"));
-        const written = await page.locator("#source-paint").textContent();
+        await page.waitForFunction(`${SOURCE}.includes("behind:")`);
+        const written = await sourceText(page);
         check(/behind:\s*\n\s*admin: service/.test(written),
               "and written as 'behind: admin: service' in synqt.yaml");
 
@@ -509,6 +548,30 @@ async function theFrontThatSplitsCallers() {
         check(await page.locator('[data-break="service"] .link__break-word')
                         .first().textContent() === "broken",
               "and says it is broken, on the line, at the end it fails to reach");
+        // Said by the whole line, not only by the cross on it. The cross is one mark near the
+        // far end of a curve crossing the canvas, and the line is what a pointer reaching for
+        // it lands on. Answering the line with the ordinary card had the drawing describe a
+        // link that carries nobody as though it worked.
+        await hoverAlong(page, "service", 0.3);
+        await page.waitForSelector("#tip:not([hidden])");
+        check((await page.locator("#tip .tip__kind").first().textContent()) === "broken",
+              "and pointing anywhere along it says the same thing the cross does");
+        // The travelling dash stops there too. It draws travel, and past the break nothing
+        // travels. Running it the whole way was the animation contradicting the line under it.
+        const carried = await page.evaluate(() => {
+            const of = (name) => Math.round(document
+                .querySelector(`[data-link="service"] ${name}`).getTotalLength());
+            return {flow: of(".link__flow"), whole: of(".link__hit")};
+        });
+        check(carried.flow < carried.whole,
+              `and the dash that runs stops at the break (${carried.flow} of ${carried.whole})`);
+        // Pressing the cross is pressing the line, one gesture and one result. It must not select
+        // the connect point and start drawing a line out of the cross, as though the cross
+        // were an entity somebody had reached for.
+        await page.locator('[data-break="service"]').click();
+        await page.waitForSelector('[data-link="service"].is-selected');
+        check(await page.locator("#ghost *").count() === 0,
+              "and pressing it selects the line rather than starting one");
         await dragBreak(page, "service", "web", "moderator");
         await page.waitForFunction(
             () => document.querySelectorAll("[data-break]").length === 0);
@@ -544,10 +607,9 @@ async function theFrontThatSplitsCallers() {
         // canvas drew a wedge with four seats and handed over a file describing a plain edge,
         // and `synqt check` had nothing to warn about because there was no front in the file
         // to warn about.
-        await page.waitForFunction(
-            () => document.getElementById("source-paint").textContent.includes("behind: {}"));
+        await page.waitForFunction(`${SOURCE}.includes("behind: {}")`);
         check(!/behind:\s*\n\s*\w+:/.test(
-                  await page.locator("#source-paint").textContent()),
+                  await sourceText(page)),
               "with the routing gone from synqt.yaml and the front still declared");
 
         check(refused.length === 0,
@@ -715,64 +777,92 @@ async function theProjectALinkHandsYou() {
                              : "every entity has its own file, and every file its directory");
 
         await fileRow(page, "web/edge/Edge.qml").click();
-        const source = await page.locator("#source-paint").textContent();
+        const source = await sourceText(page);
         // Rooted at its own name: the edge exports `Edge`, and `Edge {}` is the Source
         // that answers it. One entity, one file, one name.
         check(source.includes("Edge {"),
               "and reading one shows the Source the owner would host");
         check(!source.includes("SPDX-License-Identifier"),
               "without the licence notice, which is on every file and read by nobody");
-        check(await page.locator("#source-paint .tok--keyword").count() > 0,
+        check(await page.locator(".cm-content .tok--keyword").count() > 0,
               "coloured as the QML it is");
 
         // Opening a file selects what it is on the canvas, and the reverse, so the two views
-        // never disagree about what is in hand.
-        await page.waitForSelector("[data-link='edge'].is-selected");
-        check(true, "opening a file selects what it is out on the canvas");
+        // never disagree about what is in hand. The entity: a file sits in an entity's folder
+        // and is that entity's own code, whether or not a connect point is exported out of it.
+        await page.waitForSelector("[data-entity='edge'].is-selected");
+        check(true, "opening a file selects the entity it belongs to, out on the canvas");
         await page.locator("#nodes [data-entity='feeds']").click();
         await page.waitForFunction(
             () => document.getElementById("source-name").textContent === "api/feeds/Feeds.qml");
         check(true, "and selecting an entity opens the file it is");
+        // That click was a redraw, with the pointer still on the entity it drew. The handles
+        // a link is pulled from are put on whichever entity the pointer is nearest, and the
+        // drawing is rebuilt from the document on every change: they used to go with it, so a
+        // press where a handle had been a moment ago landed on the canvas behind it and
+        // panned the view instead of starting a link.
+        check(await page.locator("[data-entity='feeds'].is-near").count() === 1,
+              "and the handles a link is drawn from survive the redraw that click causes");
 
         // Read-only until unlocked: the pane holds the entity's own code.
         await fileRow(page, "web/edge/Edge.qml").click();
-        check(await page.locator("#source-input").evaluate((box) => box.readOnly),
-              "a file opens read-only");
+        check(await sourceIsLocked(page), "a file opens read-only");
+        // And the unlock belongs to the file, not to the pane. Opening another shows it
+        // locked, and coming back finds the one you unlocked still open: as a flag it had to
+        // be cleared by hand everywhere the pane could change underneath it, and every place
+        // that forgot re-locked the file being typed into.
+        await unlock(page);
+        await fileRow(page, "synqt.yaml").click();
+        const relocked = await sourceIsLocked(page);
+        await fileRow(page, "web/edge/Edge.qml").click();
+        check(relocked && !(await sourceIsLocked(page)),
+              "unlocking one file locks none of the others, and lasts on the one it was for");
         // Typing a declaration into a Source is the same gesture as adding a member in the
-        // panel, which is the whole reason the pane is a textarea and not a preview.
+        // panel, which is the whole reason the pane is a textarea and not a preview. It
+        // declares; it does not export. A contract is the list of what an owner has agreed to
+        // say to somebody else, and writing a property on an entity is not that agreement --
+        // it is also how a half-typed name used to walk onto the wire one letter at a time.
         await typeIntoRootBlock(page, "    property string headline\n");
-        // Into the point's own `export:` block in synqt.yaml, which is where a contract lives.
+        await openAndWaitFor(page, "web/edge/Edge.qml", "property string headline");
+        const exported = await sourceText(page);
+        await fileRow(page, "synqt.yaml").click();
+        await page.waitForFunction(
+            () => document.getElementById("source-name").textContent === "synqt.yaml");
+        check(!(await sourceText(page)).includes("prop string headline")
+              && exported.includes("property string headline"),
+              "a property typed into a Source is declared, and does not cross until it is "
+              + "ticked");
+        // And ticking it is what puts it there. The contract icon opens the point; the list
+        // under it is everything the owner declares, with what crosses ticked.
+        await page.locator("[data-contract='edge']").click();
+        await page.locator(".tick label", { hasText: "prop string headline" })
+                  .locator("input").check();
         await openAndWaitFor(page, "synqt.yaml", "prop string headline");
-        check(true, "a property typed into an unlocked Source becomes a member of its "
-                    + "contract");
+        check(true, "and ticking it on the connect point is what makes it cross");
 
         // Putting the caret on a line points the canvas at what that line is about, which is
         // how somebody reading a file finds the thing they are reading in the drawing.
         await fileRow(page, "web/edge/Edge.qml").click();
         await unlock(page);
-        await page.locator("#source-input").click();
-        await page.locator("#source-input").press("Control+End");
-        await page.locator("#source-input").press("ArrowUp");
-        await page.locator("#source-input").press("ArrowUp");
+        await clickIntoSource(page);
+        await page.keyboard.press("Control+End");
+        await page.keyboard.press("ArrowUp");
+        await page.keyboard.press("ArrowUp");
         await page.waitForSelector("[data-link='edge'].is-selected");
         check(true, "the line the caret is on selects what it declares, out on the canvas");
 
-        // Undo is the browser's own, and it only stays the browser's if the pane never writes
-        // the box's value back over what was just typed into it: a programmatic write clears
-        // the undo stack. Pressed rather than called, because that is the gesture.
+        // Undo, and undo of what was typed rather than of everything the pane has been shown.
+        // The editor is given a file at a time, and the pane is rebuilt from the document on
+        // every keystroke. A history that spanned those would let somebody open a file, press
+        // undo, and watch the file before it arrive in the pane.
         await unlock(page);
-        const typed = page.locator("#source-input");
-        await typed.click();
-        await typed.press("Control+End");
-        await typed.type("// undo me");
-        const undone = await page.evaluate(async () => {
-            const box = document.getElementById("source-input");
-            return {before: box.value.includes("// undo me")};
-        });
-        await typed.press("Control+z");
-        check(undone.before
-              && !(await typed.inputValue()).includes("// undo me"),
-              "and what was typed can be undone, the way any text box undoes");
+        await clickIntoSource(page);
+        await page.keyboard.press("Control+End");
+        await page.keyboard.type("// undo me");
+        const before = (await sourceText(page)).includes("// undo me");
+        await page.keyboard.press("Control+z");
+        check(before && !(await sourceText(page)).includes("// undo me"),
+              "and what was typed can be undone, the way any editor undoes");
 
         // Reaching into another entity puts the member on the connect point it would cross.
         // This is what `synqt infer` does over a project, done here on one file while it is
@@ -783,31 +873,59 @@ async function theProjectALinkHandsYou() {
         await openAndWaitFor(page, "synqt.yaml", "prop var tally");
         check(true, "reaching into another entity adds the member it reached for, with the "
                     + "type nothing gave away");
+        // One member rather than one per letter. A name is typed a letter at a time, so every prefix
+        // of it arrives here as a reference of its own. If each became a member and stayed
+        // one, `tally` would cost the contract `t`, `ta`, `tal` and `tall` on the way.
+        const halves = (await sourceText(page))
+            .split("\n")
+            .filter((row) => /^\s+prop var tall?y?$/.test(row));
+        check(halves.length === 1 && halves[0].trim() === "prop var tally",
+              `and the name typed to get there left nothing behind (${halves.join(" | ")})`);
 
-        // A file longer than the pane is the ordinary case, and the coloured copy is a
-        // separate layer from the one holding the caret, so the two have to move together.
+        // A contract starts empty, and what the consumer's own code already reaches for is
+        // the exception: code that is written is somebody having said so, and asking them to
+        // tick a box for a call they have already made is asking them to say it twice.
+        // The edge's file calls `Store.allows(...)`, so drawing that link back gives it back.
+        await page.locator("[data-contract='store']").click();
+        await page.locator(".inspector__actions .button--danger",
+                           { hasText: "Delete connect point" }).click();
+        await page.waitForFunction(
+            () => document.querySelectorAll("[data-contract='store']").length === 0);
+        await dragLink(page, "store", "edge");
+        await page.waitForSelector("[data-contract='store']");
+        await openAndWaitFor(page, "synqt.yaml", "owner: store");
+        check((await sourceText(page)).includes("slot allows("),
+              "a link drawn to a consumer that already calls into it carries what it calls");
+
+        // The pane is an editor and not a box with text in it, and the difference is a list
+        // of things a reader can point at. The one this asserts is the one everything else
+        // relies on: the file's lines are numbered, so a finding, a stack trace or a
+        // colleague saying "line 40" all point at something.
         await fileRow(page, "client/app/Main.qml").click();
-        // Right to the bottom, which is where the two used to come apart: the textarea keeps
-        // room for a horizontal scrollbar and the copy behind it has none, so a copy that
-        // scrolled clamped a scrollbar's height short. It is moved rather than scrolled now,
-        // and what is asserted is that the copy sits exactly where the text went.
-        const scrolled = await page.evaluate(() => {
-            const input = document.getElementById("source-input");
-            const paint = document.getElementById("source-paint");
-            input.scrollTop = input.scrollHeight;
-            input.dispatchEvent(new Event("scroll"));
-            const moved = new DOMMatrixReadOnly(getComputedStyle(paint).transform);
-            return {moved: input.scrollTop, painted: -moved.m42};
+        const numbered = await page.evaluate(() => {
+            const view = document.getElementById("source-view").editor;
+            // The first element of the gutter is a spacer holding the widest number there
+            // will be, drawn to reserve the width and never read, so what is numbered is
+            // everything after it.
+            const shown = [...view.dom.querySelectorAll(".cm-lineNumbers .cm-gutterElement")]
+                .slice(1).map((one) => one.textContent);
+            return {shown: shown.slice(0, 3), lines: view.state.doc.lines};
         });
-        check(scrolled.moved > 0 && scrolled.painted === scrolled.moved,
-              `the coloured copy moves with the caret (${scrolled.painted} of `
-              + `${scrolled.moved})`);
+        check(numbered.shown.join(",") === "1,2,3" && numbered.lines > 3,
+              `the pane numbers the file's lines (${numbered.shown.join(",")} of `
+              + `${numbered.lines})`);
+        // And the styles the editor builds for itself are inside the shadow root it lives in,
+        // which is what lets it live under a policy that refuses an inline style at all.
+        check(await page.evaluate(
+                  () => document.getElementById("source-view").shadowRoot
+                                .adoptedStyleSheets.length > 0),
+              "and builds its own styles as a sheet the policy has no opinion about");
 
-        // Pressed twice, because closing and opening again are two different failures. The
-        // chevron used to be rebuilt as part of closing, which detached the element the click
-        // had landed on; the click then carried on to the strip, found no button above it,
-        // took itself for a click on the strip and opened the pane again in the same turn. It
-        // worked every other time, which is the shape of bug a single press never catches.
+        // Pressed twice, because closing and opening again are two different failures. A
+        // chevron rebuilt as part of closing detaches the element the click
+        // landed on. The click then carries on to the strip, finds no button above it,
+        // takes itself for a click on the strip and opens the pane again in the same turn. That
+        // works every other time, which is the shape of bug a single press never catches.
         await page.click("#dock-toggle");
         check(await page.locator("#dock").evaluate(
                   (dock) => dock.classList.contains("is-collapsed")),
@@ -961,14 +1079,13 @@ async function typingIntoTheProject() {
         await unlock(page);
         check(await page.locator("#revert").isVisible(),
               "the way back is offered before the first keystroke, not after it");
-        const box = page.locator("#source-input");
-        await box.click();
-        await box.press("Control+End");
+        await clickIntoSource(page);
+        await page.keyboard.press("Control+End");
         // A second point on an owner that already exports one: drawn, because it is what the
         // file says, and marked, because an entity has one connect point and the later entry
         // would quietly replace the first.
         const before = await page.locator("[data-link='store']").count();
-        await box.type("\n  - owner: store\n    consumers: [edge]\n");
+        await page.keyboard.type("\n  - owner: store\n    consumers: [edge]\n");
         await page.waitForFunction(
             (was) => document.querySelectorAll("[data-link='store']").length > was, before);
         check(true, "a connect point typed into the configuration is drawn on the canvas");
@@ -977,8 +1094,8 @@ async function typingIntoTheProject() {
         check(said.includes("store") && said.includes("two connect points"),
               `and a second point on one owner is refused on the canvas (${said.trim()})`);
 
-        await box.press("Control+End");
-        await box.type("  - owner:\n");
+        await page.keyboard.press("Control+End");
+        await page.keyboard.type("  - owner:\n");
         await waitForHint(page, "synqt.yaml, line");
         check(await page.locator("[data-entity]").count() === 4,
               "a line that does not read leaves the canvas on the last one that did");

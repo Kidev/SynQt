@@ -12,6 +12,7 @@
 
 import { SCOPES, behindOf, entityType } from "./rules.js";
 import { ROLE_HELP, accessorName, glyphSvg, memberMarkSvg, roleOf } from "./canvas.js";
+import { linkTitle } from "./project.js";
 import { baseType, declarations } from "./source.js";
 
 // The contract type vocabulary, from synqtc/types.py: QML's own built-in value types, and
@@ -293,6 +294,13 @@ function entityPanel(design, entity, actions) {
               + "Caller of their own. synqt.yaml says nothing, which is the default."
             : "Every caller gets a Source of their own, holding only what is theirs. "
               + "Written as `shared: false` on this entity."));
+        // Asked often enough to be answered here. The two look like one setting written two
+        // ways and they are not: this switch counts the Sources that answer callers, and
+        // `pragma Shared` marks a file as the entity's own single instance, of which there is
+        // one either way.
+        how.append(note("Not `pragma Shared`, which marks a file as the entity's own one "
+                        + "instance. There is one of that file whichever way this is set, "
+                        + "and it is where state every caller sees belongs.", true));
     }
 
     panel.append(section("How it runs", how));
@@ -831,8 +839,9 @@ function frontPanel(design, entity, actions) {
 // it, the scope it is gated behind, how it is carried, and what crosses it.
 function contractPanel(design, link, actions) {
     const panel = document.createDocumentFragment();
-    panel.append(tag("h2", {class: "inspector__title"},
-                     link.owner ? `${link.owner}'s connect point` : "this connect point"));
+    // Named by its two ends, the same way the card on the canvas names it and the same way
+    // the panel for one line into it does.
+    panel.append(tag("h2", {class: "inspector__title"}, linkTitle(link)));
 
     // Nothing to name. An entity has one connect point, so the owner names it: consumers
     // reach it as the owner capitalised, and the contract carries that same name.
@@ -852,11 +861,10 @@ function contractPanel(design, link, actions) {
         link.consumers = (link.consumers || []).filter((consumer) => consumer !== value);
         actions.rebuild();
     }, "nobody yet"), "owner"));
-    who.append(note("The owner is the name: consumers reach this as "
-                    + `${link.owner ? accessorName(link.owner) : "<Owner>"}, and it `
-                    + "carries the "
-                    + `${link.owner ? accessorName(link.owner) : "<Owner>"} type. `
-                    + "An entity that already exports one is not offered here."));
+    who.append(note("The owner is the name: a consumer reaches this point by writing "
+                    + `${link.owner ? accessorName(link.owner) : "<Owner>"}, which is also `
+                    + "the type it carries. An entity that already exports one is not "
+                    + "offered here."));
 
     const consumers = tag("div");
     for (const name of names.filter((name) => name !== link.owner)) {
@@ -928,20 +936,19 @@ function contractPanel(design, link, actions) {
 // selection to anybody who drew them, so clicking the only line opens the point itself.
 function linePanel(design, link, consumer, actions) {
     const panel = document.createDocumentFragment();
-    panel.append(tag("h2", {class: "inspector__title"},
-                     `${link.owner} to ${consumer}`));
+    panel.append(tag("h2", {class: "inspector__title"}, linkTitle(link, consumer)));
     panel.append(tag("p", {class: "inspector__help"},
-                     `'${consumer}' consumes ${link.owner ? accessorName(link.owner) : ""}, `
-                     + `so it acquires a replica of everything the connect point carries. `
-                     + `What that is belongs to the connect point, not to this line.`));
+                     `'${consumer}' consumes the connect point '${link.owner}' owns, `
+                     + `so it acquires a replica of everything that point carries. `
+                     + `What that is belongs to the point, not to this line.`));
 
-    // The point this line is one of, named as a consumer names it. The label says who
-    // decides and the button goes there, which is the one thing this panel is for.
+    // The point this line is one of. The label says who decides and the button goes there,
+    // which is the one thing this panel is for.
     const button = tag("button", {type: "button", class: "button"},
-                       accessorName(link.owner) || "the connect point");
+                       link.owner || "the connect point");
     button.addEventListener("click", () => actions.openContract(link));
     panel.append(group("Owned by", button));
-    panel.append(note(`Every consumer of ${accessorName(link.owner) || "this connect point"} `
+    panel.append(note(`Every consumer of '${link.owner || "this connect point"}' `
                       + "gets the same contract, so it is edited in one place. The contract "
                       + "icon on the canvas, which every line leaves from, opens the same "
                       + "panel."));

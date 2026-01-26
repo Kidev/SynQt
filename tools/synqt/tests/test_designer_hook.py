@@ -57,8 +57,26 @@ def test_the_hook_copies_every_asset(tmp_path):
 def test_the_hook_publishes_the_whole_directory(tmp_path):
     """Named file by file, the copy would drift the first time the editor gains a module."""
     _hook().on_post_build({"site_dir": str(tmp_path)})
-    published = {path.name for path in (tmp_path / "designer").iterdir()}
-    assert published == {path.name for path in ASSETS.iterdir() if path.is_file()}
+    site = tmp_path / "designer"
+    published = {str(path.relative_to(site)) for path in site.rglob("*") if path.is_file()}
+    # Everything under it, not only the top of it: the file pane is a vendored CodeMirror in
+    # `vendor/`, and a copy that stopped at the top published a page importing ten modules it
+    # had not brought.
+    assert published == {str(path.relative_to(ASSETS)) for path in ASSETS.rglob("*")
+                         if path.is_file() and path.suffix != ".md"}
+    assert any(name.startswith("vendor/") for name in published)
+
+
+def test_the_hook_publishes_no_markdown(tmp_path):
+    """The Markdown in the editor's directory is a note to whoever maintains this repository
+    about what is vendored under `vendor/` and how it was fetched.
+
+    No page loads it, and the links in it name other hosts, which is the one thing every
+    published file is held to. Not publishing it is why there is no file exempt from that
+    rule."""
+    _hook().on_post_build({"site_dir": str(tmp_path)})
+    assert list((tmp_path / "designer").rglob("*.md")) == []
+    assert (ASSETS / "vendor" / "README.md").is_file()
 
 
 def test_publishing_twice_leaves_the_same_copy(tmp_path):
