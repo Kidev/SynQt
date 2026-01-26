@@ -42,17 +42,18 @@
            nowhere to go. -->
       <span class="bar__project" id="project" hidden
             title="Double click to rename the project"></span>
-      <!-- The way back over what was just done, and forward again. Beside the project's name
-           rather than over with Review and Apply: those three are what happens to the project
-           on disk, and these two are what happens on the canvas. design.js draws the arrows
-           and enables each one only while there is a step that way to take. -->
+      <span class="bar__gap"></span>
+      <!-- The way back over what was done, and forward again, at the head of the
+           controls rather than beside the project's name. Everything at this end of the bar
+           is something to press, and these two are the first thing reached for when the last
+           thing pressed was wrong. design.js draws the arrows and enables each one only while
+           there is a step that way to take. -->
       <span class="bar__history">
         <button type="button" class="button button--step" id="undo" disabled
                 aria-label="Undo" title="Undo the last change (Ctrl-Z)"></button>
         <button type="button" class="button button--step" id="redo" disabled
                 aria-label="Redo" title="Redo the change undone (Ctrl-Shift-Z)"></button>
       </span>
-      <span class="bar__gap"></span>
       <button type="button" class="button button--danger" id="restart" hidden>Clear</button>
       <!-- The way back out of an edit to synqt.yaml, offered while that file is unlocked:
            every version of it that read cleanly is remembered, and this returns to the last
@@ -86,35 +87,37 @@
             </g>
           </svg>
           <!-- What happened, said once and then gone. It is not where a reader learns what
-               the drawing is: a situation worth acting on is marked on the entity or the
+               the drawing is. A situation worth acting on is marked on the entity or the
                connect point it is about, and hovering that mark is what says it. -->
           <p class="stage__hint" id="hint" role="status" aria-live="polite"></p>
         </div>
 
-        <!-- The same project as text, open from the start: the files are what is being
+        <!-- The same project as text, open from the start. The files are what is being
              designed, not a second opinion about it. Redrawn from the document on every
              change, so it is never a snapshot of an older design, and the QML in it is typed
-             into rather than read: what a Source declares is what its contract holds. Hiding
+             into rather than read. What a Source declares is what its contract holds. Hiding
              it leaves the bar, which is what opens it again. -->
         <section class="dock" id="dock">
-          <!-- One bar, saying each thing once: what the pane is, which file is open in it,
-               the control that unlocks that file, and the chevron that puts the whole pane
-               away. Nothing explains itself here: the button says what pressing it does and
-               carries the longer version as its own tooltip, which is one line of prose
+          <!-- One bar, saying each thing once. What the pane is, the control that opens the
+               files for editing, which file is open, and the chevron that puts the whole
+               pane away. Nothing explains itself here. The button says what pressing it does
+               and carries the longer version as its own tooltip, which is one line of prose
                fewer between the file name and the thing that opens the file. -->
           <!-- Split where the pane below it is split, so each half of the bar is the
                heading of the half under it: "Files" sits over the tree, and the file's own
-               name sits over the file. The button that unlocks it comes first, before the
-               name, because it is what this half of the bar is for -- the name is what is
-               open, and the button is the thing to press. -->
+               name sits over the file. What unlocks the files sits at the end of the Files
+               half, because it is about all of them and not about whichever one is open. -->
           <header class="dock__bar" id="dock-bar">
-            <span class="dock__title">Files</span>
-            <span class="dock__file">
-              <!-- Read-only until somebody says otherwise. The pane holds the entity's own
-                   code, and a stray keystroke over a file you were reading is not an edit
-                   anybody asked to make. -->
+            <span class="dock__files">
+              <span class="dock__title">Files</span>
+              <span class="bar__gap"></span>
+              <!-- Read-only until somebody says otherwise, and then the whole project at
+                   once: the pane holds the entities' own code, and a stray keystroke over a
+                   file you were reading is not an edit anybody asked to make. -->
               <button type="button" class="button button--lock" id="source-lock"
                       aria-pressed="false"></button>
+            </span>
+            <span class="dock__file">
               <span class="dock__name" id="source-name"></span>
               <span class="bar__gap"></span>
               <button type="button" class="button button--chevron" id="dock-toggle"

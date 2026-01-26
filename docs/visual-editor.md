@@ -119,6 +119,11 @@ entity's provider, a connect point's consumer list, and what crosses it. The con
 is the authorization: an entity that is not on it is refused the replica.
 [Security](security.md) is where that is spelled out.
 
+Each section of the panel says what it is behind the `?` on its heading, which appears when
+the pointer is on that section. The words are there when you want them and out of the way
+when you do not, so what is on screen is the settings rather than a paragraph before each of
+them.
+
 Under **Wired to**, an entity's panel names who is at the other end of every line it is on:
 the entities that consume the connect point it owns, and the owner of every point it consumes.
 Each of those names is a button that selects that entity, so following a line is a click
@@ -149,8 +154,9 @@ Double-clicking a node renames it and <kbd>Delete</kbd> removes what is selected
 entity carries the new name into every connect point that referred to the old one, including
 the one it exports, and deleting one takes that point with it.
 
-The two arrows beside the project's name go back over what you have done and forward again,
-and so do <kbd>Ctrl</kbd>+<kbd>Z</kbd> and <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd>.
+The two arrows at the head of the buttons on the right of the bar go back over what you have
+done and forward again, and so do <kbd>Ctrl</kbd>+<kbd>Z</kbd> and
+<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd>.
 Everything an edit changes is in the design, so a step back is the whole design as it was:
 undoing a delete brings the entity back with the lines that went with it. A drag is one step
 however many times the pointer moved, and typing into a file is one step for that file rather
@@ -175,13 +181,14 @@ block inside it, and a `schema.sql` are each read as what they are.
 Selecting an entity or a connect point on the canvas opens its file, and opening a file selects
 the entity it belongs to, so the two views are never on different subjects.
 
-**Every file here is one you type into, and what you type is the design.** A property
-declared in an entity's QML is one that entity declares; an entity written into `synqt.yaml`
-is one on the canvas. Every file opens read-only, and the button beside its name unlocks the
-one you want to edit. The unlock belongs to that file: open another and it is locked, come
-back to this one and it is still open. There is no save: what you type is in the design as you
-type it, and the design still reaches the project only through the change set you review and
-apply.
+Every file here is one you type into, and what you type is the design. A property
+declared in an entity's QML is one that entity declares. An entity written into `synqt.yaml`
+is one on the canvas. The project opens read-only, and **Edit files**, at the end of the bar
+over the tree, opens all of it for typing until you press it again. Following a declaration
+from one entity into another is three files in a minute, and a lock picked again on each of
+them would be three interruptions in the middle of one thought. There is no save. What you type is
+in the design as you type it, and the design still reaches the project only through the change
+set you review and apply.
 
 Declare a property, a signal or a function in an entity's file and the entity declares it,
 which is exactly what adding it in the panel does:

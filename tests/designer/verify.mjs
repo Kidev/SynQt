@@ -131,8 +131,9 @@ async function dropEntity(page, label, at) {
         .dragTo(page.locator("#canvas"), { targetPosition: at });
 }
 
-// A file is read-only until it is unlocked, which is the point of the lock: the pane holds
-// the entity's own code, and a stray keystroke over a file being read is not an edit.
+// The project is read-only until it is opened for editing, which is the point of the lock:
+// the pane holds the entities' own code, and a stray keystroke over a file being read is not
+// an edit. One press opens all of it, so this is a no-op once it has been pressed.
 async function unlock(page) {
     if ((await page.locator("#source-lock").getAttribute("aria-pressed")) !== "true") {
         await page.locator("#source-lock").click();
@@ -847,19 +848,27 @@ async function theProjectALinkHandsYou() {
         check(await page.locator("[data-entity='feeds'].is-near").count() === 1,
               "and the handles a link is drawn from survive the redraw that click causes");
 
-        // Read-only until unlocked: the pane holds the entity's own code.
+        // Read-only until it is opened for editing: the pane holds the entities' own code.
         await fileRow(page, "web/edge/Edge.qml").click();
         check(await sourceIsLocked(page), "a file opens read-only");
-        // And the unlock belongs to the file, not to the pane. Opening another shows it
-        // locked, and coming back finds the one you unlocked still open: as a flag it had to
-        // be cleared by hand everywhere the pane could change underneath it, and every place
-        // that forgot re-locked the file being typed into.
+        // And what the button opens is the project, not the file that happened to be on
+        // screen when it was pressed. Following a declaration from one entity into another is
+        // three files in a minute, and a lock to pick again on each of them was three
+        // interruptions in the middle of one thought.
         await unlock(page);
         await fileRow(page, "synqt.yaml").click();
-        const relocked = await sourceIsLocked(page);
+        const alsoOpen = !(await sourceIsLocked(page));
         await fileRow(page, "web/edge/Edge.qml").click();
-        check(relocked && !(await sourceIsLocked(page)),
-              "unlocking one file locks none of the others, and lasts on the one it was for");
+        check(alsoOpen && !(await sourceIsLocked(page)),
+              "and Edit files opens every one of them, not the one that was on screen");
+        // Pressed again it shuts all of them, which is what makes it a mode somebody can
+        // leave rather than a door propped open for the rest of the afternoon.
+        await page.locator("#source-lock").click();
+        const shut = await sourceIsLocked(page);
+        await fileRow(page, "synqt.yaml").click();
+        check(shut && await sourceIsLocked(page), "and pressing it again closes them all");
+        await fileRow(page, "web/edge/Edge.qml").click();
+        await unlock(page);
         // Typing a declaration into a Source is the same gesture as adding a member in the
         // panel, which is the whole reason the pane is a textarea and not a preview. It
         // declares; it does not export. A contract is the list of what an owner has agreed to
@@ -1038,6 +1047,14 @@ async function theProjectALinkHandsYou() {
         // put back by hand.
         check(!(await page.locator("#undo").isDisabled()),
               "with something to undo, the way back is offered");
+        // At the head of the controls on the right, not beside the project's name: everything
+        // at that end of the bar is something to press, and these two are the first thing
+        // reached for when the last thing pressed was wrong.
+        const stepBox = await page.locator("#undo").boundingBox();
+        const namedBox = await page.locator("#project").boundingBox();
+        const applyBox = await page.locator("#apply").boundingBox();
+        check(stepBox.x > namedBox.x + namedBox.width && stepBox.x < applyBox.x,
+              "and it sits with the buttons at that end of the bar, at the head of them");
         await page.locator("#undo").click();
         await page.waitForSelector("#nodes [data-entity='cache']");
         check(await page.locator("[data-link='store']").count() === 2,
@@ -1047,6 +1064,31 @@ async function theProjectALinkHandsYou() {
             () => !document.querySelector("#nodes [data-entity='cache']"));
         check(await page.locator("#redo").isDisabled(),
               "redo takes it away again, and then there is nothing ahead");
+
+        // The panel says what each of its sections is behind the `?` on that section's
+        // heading, and not in a paragraph under every control. Eleven settings with an
+        // explanation before each of them is more prose than settings, and a reader looking
+        // for the one they came for reads all of it on the way past.
+        await page.locator("#nodes [data-entity='store']").click();
+        const runs = page.locator(".block").filter({ hasText: "How it runs" }).first();
+        const ask = runs.locator(".block__ask");
+        await ask.waitFor();
+        check(!(await runs.locator("> .field__note").count())
+              && await ask.evaluate((mark) => getComputedStyle(mark).opacity === "0"),
+              "a section's explanation is behind a ? on its heading, out of sight until asked");
+        await runs.hover();
+        // Handed the element itself, because every section that explains itself has one of
+        // these and the first in the document is not necessarily this one.
+        await page.waitForFunction((mark) => getComputedStyle(mark).opacity !== "0",
+                                   await ask.elementHandle());
+        check(true, "which appears the moment the pointer is on the section it belongs to");
+        await ask.hover();
+        const aside = runs.locator(".block__tip");
+        await page.waitForFunction((words) => getComputedStyle(words).visibility === "visible",
+                                   await aside.elementHandle());
+        const behind = (await aside.textContent()).trim();
+        check(behind.includes("engine behind the type"),
+              `and hovering it is what says it (${behind.slice(0, 48)}...)`);
 
         // In place, over the entity, and not in a dialog: the field opens where the name was,
         // holding it, and Enter is what commits. A prompt would cover the drawing the new
@@ -1219,6 +1261,21 @@ async function typingIntoTheProject() {
             () => document.getElementById("project").textContent === "demoing");
         check((await page.title()) === "SynQt - demoing",
               `and the tab it is open in says so too (${await page.title()})`);
+
+        // Clearing a design that grew out of an example leaves the example as well. The
+        // address is what the page reads on the way in, so a Clear that left `example=` in it
+        // emptied the canvas and handed the same example straight back on the next reload,
+        // which reads as a Clear that did not take.
+        page.once("dialog", (dialog) => dialog.accept());
+        await page.locator("#restart").click();
+        await waitForHint(page, "Cleared");
+        check(!page.url().includes("example="),
+              `Clear takes the example out of the address with it (${page.url()})`);
+        await page.reload();
+        await page.waitForFunction(
+            () => document.getElementById("apply").textContent === "Download");
+        check(await page.locator("#nodes [data-entity]").count() === 0,
+              "so a reload finds the canvas it was cleared to, not the example again");
 
         check(refused.length === 0,
               `the policy refuses nothing on the page (${refused.join(" | ") || "no errors"})`);

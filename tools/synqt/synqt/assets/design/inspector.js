@@ -96,19 +96,68 @@ function group(label, controls, role) {
 // with a paragraph under most of them, and without these the heading of the next block was one
 // more line of prose in the same flow as the last block's explanation: eleven controls, no
 // edges, nothing to scan for.
+//
+// The paragraphs come off the panel and go behind the `?` on the heading, which is the second
+// half of that same job: with the rules in, the panel was a column of edges with more prose
+// than controls between them, and a reader looking for the one setting they came for read a
+// paragraph at each one to find it. Nothing is lost -- every word is still on the section it
+// explains, one hover away -- and what is on screen is the settings.
 function section(label, ...parts) {
     const box = tag("section", {class: "block"});
-    box.append(tag("h2", {class: "block__title"}, label));
+    const head = blockHead(box, label);
     for (const part of parts) {
         if (part) {
             box.append(part);
         }
     }
+    explain(box, head);
     return box;
 }
 
+// The heading row of a block, and what the `?` hangs from. Its own function because two of
+// these blocks are built a line at a time rather than out of finished parts, and a heading
+// written a second way is a heading that explains itself a second way, or not at all.
+function blockHead(box, label) {
+    const head = tag("div", {class: "block__head"});
+    head.append(tag("h2", {class: "block__title"}, label));
+    box.append(head);
+    return head;
+}
+
+// Move this section's paragraphs behind a `?` beside its heading.
+//
+// Unless they are all it has. A section whose whole content is its explanation -- "Nothing
+// yet. Drag from a handle on this entity's rim" and the rest of the empty states -- is a
+// heading over an empty box the moment the words are taken away, and an empty box explains
+// itself to nobody. Decided on a copy, so the paragraphs are only ever detached once it is
+// settled that they are going.
+function explain(box, head) {
+    const notes = Array.from(box.querySelectorAll("p.field__note"));
+    if (!notes.length) {
+        return;
+    }
+    const probe = box.cloneNode(true);
+    probe.querySelector(".block__head").remove();
+    for (const paragraph of Array.from(probe.querySelectorAll("p.field__note"))) {
+        paragraph.remove();
+    }
+    if (!probe.textContent.trim() && !probe.querySelector("input, select, textarea, button")) {
+        return;
+    }
+    const label = head.querySelector(".block__title").textContent;
+    const ask = tag("button", {type: "button", class: "block__ask",
+                               "aria-label": `What "${label}" means`}, "?");
+    const tip = tag("span", {class: "block__tip", role: "tooltip"});
+    for (const paragraph of notes) {
+        paragraph.remove();
+        paragraph.classList.remove("field__note--loose");
+        tip.append(paragraph);
+    }
+    head.append(ask, tip);
+}
+
 // A line under whatever it explains. `loose` is for one that follows a heading or a button
-// rather than a field: the tight form pulls itself up under the control it belongs to, and
+// rather than a field. The tight form pulls itself up under the control it belongs to, and
 // under a heading that reads as one line printed on top of another.
 function note(text, loose) {
     return tag("p", {class: loose ? "field__note field__note--loose" : "field__note"}, text);
@@ -405,7 +454,7 @@ function wiredPanel(design, entity, actions) {
 // look for it somewhere else.
 function declaresPanel(design, entity, actions) {
     const box = tag("div", {class: "block members"});
-    box.append(tag("h2", {class: "block__title"}, "What this entity declares"));
+    const head = blockHead(box, "What this entity declares");
     const found = declarations(entity.qml || "");
     const point = ownPointOf(design, entity);
     const models = ((point || {}).members || []).filter((one) => one.kind === "model");
@@ -439,6 +488,7 @@ function declaresPanel(design, entity, actions) {
           + "has no QML form, so it is written straight onto the connect point."
         : "Draw a connect point off this entity before adding a model: a model has no QML "
           + "form, so the connect point is the only place one can be written.", true));
+    explain(box, head);
     return box;
 }
 
@@ -721,7 +771,7 @@ function roleList(parts) {
 // same one, which is what the drawing says too: every line leaves the one icon.
 function ticksPanel(design, link, actions) {
     const box = tag("div", {class: "block members"});
-    box.append(tag("h2", {class: "block__title"}, "What crosses this connect point"));
+    const head = blockHead(box, "What crosses this connect point");
     const owner = (design.entities || []).find((one) => one.name === link.owner);
     if (!owner) {
         box.append(note("No owner yet, so there is nothing to carry.", true));
@@ -817,6 +867,7 @@ function ticksPanel(design, link, actions) {
           + "same contract."
         : "Nothing consumes this connect point yet, so none of it reaches anywhere. Drag "
           + "from the contract icon to an entity.", true));
+    explain(box, head);
     return box;
 }
 

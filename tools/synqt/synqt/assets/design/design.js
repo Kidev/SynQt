@@ -97,31 +97,30 @@ const state = {
     plan: null,
     backend: true,
     token: "",
-    // Whether the files pane is open, which file it is reading, and which file has been
-    // unlocked. The pane opens with the page, because the files are what is being designed
-    // rather than a second opinion about it; the lock starts on, because reading a file is
-    // the common gesture and a keystroke over one you were reading is not an edit anybody
-    // asked for.
+    // Whether the files pane is open, which file it is reading, and whether the project is
+    // open for editing. The pane opens with the page, because the files are what is being
+    // designed rather than a second opinion about it. Editing starts off, because reading a
+    // file is the common gesture and a keystroke over one you were reading is not an edit
+    // anybody asked for.
     //
-    // The unlock is a file's name and not a flag. It is a thing somebody did to one file, so
-    // it belongs to that file: opening another shows it locked without anything having to
-    // remember to say so, and coming back finds the one you unlocked still open. As a flag it
-    // had to be cleared by hand everywhere the pane could change under it, and every place
-    // that forgot -- the file list changing shape mid-keystroke was one -- re-locked the file
-    // being typed into.
+    // Editing is the project's state and not one file's. Following a declaration from one
+    // entity into another is three files in a minute, and a lock that had to be picked again
+    // on each of them was three interruptions in the middle of one thought. So the button
+    // says Edit files, and until it is pressed again every file the pane will take a
+    // keystroke over takes one. Which files those are is `editable`, and it does not move.
     //
-    // Both are a file's path inside the project (`web/edge/Edge.qml`) and never the whole
+    // `reading` is a file's path inside the project (`web/edge/Edge.qml`) and never the whole
     // name it is listed under (`gavel/web/edge/Edge.qml`). The project's own directory is the
     // first segment of every one of those and says nothing about which file a file is: keyed
     // by the whole name, renaming the project in synqt.yaml renamed every name in the list at
-    // once, so the pane lost the file it was on and the unlock went with it, and the rename
-    // being typed stopped after its first letter.
+    // once, so the pane lost the file it was on and the rename being typed stopped after its
+    // first letter.
     files: true,
     reading: "",
-    unlockedFile: "",
+    editing: false,
     // The configuration exactly as it is being typed, while it is being typed, and the last
     // design that read cleanly out of it. The first keeps the pane from rewriting a
-    // half-finished line under the caret; the second is what the way back returns to.
+    // half-finished line under the caret. The second is what the way back returns to.
     configText: "",
     lastGood: "",
     // The example this drawing started life as, where it started as one. Kept with the design
@@ -236,6 +235,22 @@ async function request(method, path, body) {
 function fromHash(key) {
     const hash = window.location.hash.replace(/^#/, "");
     return new URLSearchParams(hash).get(key) || "";
+}
+
+// Take a key back out of the address, leaving whatever else is in there. Clearing a design
+// that grew out of an example has to do this, or the example is still what the address asks
+// for. The canvas would be empty, the link in the bar would still name the example, and the
+// next reload would hand it straight back as though Clear had not been pressed. Written with
+// replaceState so the page is not navigated and there is no entry in the history to press
+// back into.
+function forgetInHash(key) {
+    const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+    if (!hash.has(key)) {
+        return;
+    }
+    hash.delete(key);
+    const rest = hash.toString();
+    window.history.replaceState(null, "", rest ? `#${rest}` : window.location.pathname);
 }
 
 // A project named in the fragment, for a link that wants to hand somebody a system to look
@@ -630,36 +645,27 @@ function renderProject() {
     // the project in synqt.yaml handed the editor a new file on every keystroke, so the caret
     // went back to the top of it and the rename stopped after one letter.
     const named = inProject(open.name);
-    editor.show(named, withoutNotice(reading.text),
-                !editable(open) || state.unlockedFile !== named);
+    editor.show(named, withoutNotice(reading.text), !editable(open) || !state.editing);
     renderLock(open);
 }
 
 // The control names what pressing it does, not what the pane is doing: a button reading
-// "Read-only" beside a file leaves it to be guessed whether that is the state or the offer.
+// "Read-only" over a tree of files leaves it to be guessed whether that is the state or the
+// offer. It is never disabled, because it is about the project rather than about whichever
+// file happens to be open.
 function renderLock(open) {
-    const canEdit = Boolean(open && editable(open));
-    const unlocked = canEdit && state.unlockedFile === inProject(open.name);
-    page.sourceLock.disabled = !canEdit;
-    page.sourceLock.setAttribute("aria-pressed", String(unlocked));
-    page.sourceLock.textContent = !canEdit ? "Written from the design"
-        : (unlocked ? "Lock" : "Edit");
-    // The tooltip is where the longer answer lives, and what it says depends on the file:
-    // typing into the configuration moves the canvas, and typing into a Source is how a
-    // contract gets a member. That used to be a line of prose on the bar itself, between the
-    // file's name and the button that opens it.
-    page.sourceLock.title = !canEdit
-        ? "This file is written from the design, so the design is where it is edited."
-        : (unlocked
-           ? "Lock it again. Changes are already in the design; nothing is written to the "
-             + "project until you apply a change set."
-           : (isConfig(open)
-              ? "Unlock it to type into it. Entities and connect points typed here move "
-                + "the canvas."
-              : "Unlock it to type into it. A property, a signal or a function declared "
-                + "here is one a connect point can carry."));
+    page.sourceLock.setAttribute("aria-pressed", String(state.editing));
+    page.sourceLock.textContent = state.editing ? "Lock files" : "Edit files";
+    // The tooltip is where the longer answer lives, rather than a line of prose on the bar
+    // itself, between the file's name and the button that opens it.
+    page.sourceLock.title = state.editing
+        ? "Lock them again. Changes are already in the design; nothing is written to the "
+          + "project until you apply a change set."
+        : "Open every file for typing. A property, a signal or a function declared in an "
+          + "entity's own QML is one a connect point can carry, and an entity or a connect "
+          + "point typed into synqt.yaml moves the canvas.";
     // Offered only while there is something to go back to and something to go back from.
-    page.revert.hidden = !(state.lastGood && open && isConfig(open) && unlocked);
+    page.revert.hidden = !(state.lastGood && open && isConfig(open) && state.editing);
 }
 
 // The three seams, each named by the custom property it drags and how far that property is
@@ -723,19 +729,24 @@ function chevron() {
     return svg;
 }
 
-// The arrow on the two step buttons: a hook turning back on itself, mirrored for the one
-// that goes forward. Drawn rather than written, because "Undo" and "Redo" beside a project's
-// name read as two more of the four buttons at the other end of the bar, and these two are
-// not that kind of control. The words are still there for anybody reading the page through a
-// screen reader, on the button's label.
+// The arrow on the two step buttons. The one every editor draws for undo, an arrow pointing
+// back with its tail curling round underneath, and the same glyph mirrored for the one that
+// goes forward. Drawn rather than written, because the words sit at the end of a bar of
+// buttons that each do something to the project on disk, and these two do not. The words are
+// still there for anybody reading the page through a screen reader, on the button's label.
+//
+// The transform is what centres it. The two paths are drawn where they read best and the
+// group carries them onto the middle of the box, and mirroring is that same shift about the
+// box's centre line.
 function stepArrow(forward) {
-    const svg = element("svg", {class: "glyph", viewBox: "-10 -10 20 20",
+    const svg = element("svg", {class: "glyph", viewBox: "0 0 24 24",
                                 "aria-hidden": "true", focusable: "false"});
-    const turn = element("g", forward ? {transform: "scale(-1,1)"} : {});
-    turn.append(element("path", {d: "M -6,-4 A 6,6 0 1 1 -6,5", fill: "none",
+    const turn = element("g", {transform: forward ? "translate(23,0.5) scale(-1,1)"
+                                                  : "translate(1,0.5)"});
+    turn.append(element("path", {d: "M 4,9 H 13 A 5,5 0 0 1 13,19", fill: "none",
                                  stroke: "currentColor", "stroke-width": 2,
                                  "stroke-linecap": "round"}));
-    turn.append(element("path", {d: "M -9,-7 L -6,-4 L -9,-1", fill: "none",
+    turn.append(element("path", {d: "M 8.5,4.5 L 4,9 L 8.5,13.5", fill: "none",
                                  stroke: "currentColor", "stroke-width": 2,
                                  "stroke-linecap": "round", "stroke-linejoin": "round"}));
     svg.append(turn);
@@ -2025,10 +2036,10 @@ function declareOn(entity, member) {
     // a request to declare one: a row that arrives closed answers it with a line of code and
     // nowhere to fill it in.
     openWhenDrawn(entity.name, named.name);
-    // Open the file it was written into, on the line it went on: a declaration nobody can see
-    // is the panel and the pane disagreeing about what just happened.
+    // Open the file it was written into, on the line it went on. A declaration nobody can see
+    // is the panel and the pane disagreeing about what happened.
     state.reading = entityQmlPath(entity);
-    state.unlockedFile = state.reading;
+    state.editing = true;
     touched();
     redraw();
     renderInspector();
@@ -3678,6 +3689,9 @@ function wire() {
         }
         await forgetDesign();
         state.seed = "";
+        // And out of the example the address named, so this is a blank canvas on a reload
+        // too rather than the example again.
+        forgetInHash("example");
         adopt({version: 1, project: "", entities: [], links: []});
         page.restart.hidden = true;
         fit();
@@ -3746,14 +3760,9 @@ function wire() {
         }
     });
     page.sourceLock.addEventListener("click", () => {
-        const open = openFile();
-        if (!open) {
-            return;
-        }
-        const key = inProject(open.name);
-        state.unlockedFile = state.unlockedFile === key ? "" : key;
+        state.editing = !state.editing;
         renderProject();
-        if (state.unlockedFile) {
+        if (state.editing) {
             editor.focus();
         }
     });

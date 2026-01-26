@@ -258,6 +258,22 @@ def test_the_panes_styling_is_a_theme_and_not_a_stylesheet_that_loses():
         f"editor.css styles CodeMirror's own classes, which the base theme outranks: {losing}"
 
 
+def test_a_panel_section_is_never_built_without_the_mark_that_explains_it():
+    """Every block of the inspector gets its heading from `blockHead`, and so gets its `?`.
+
+    The panel's explanations live behind that mark rather than under the controls, which is
+    what `explain` moves them to, and it is reached from the one function that writes a
+    heading. Two of the blocks are built a line at a time rather than out of finished parts,
+    and both of them wrote their own `<h2>` at first: they kept their wall of prose while
+    every other section lost one, which is a difference nobody would think to look for.
+    """
+    body = _text("inspector.js")
+    blocks = re.findall(r'tag\("(?:section|div)", \{class: "block[ "]', body)
+    heads = re.findall(r"(?<!function )blockHead\(box,", body)
+    assert len(blocks) == len(heads), \
+        "a block of the panel is built without the heading that carries its explanation"
+
+
 def test_the_page_reaches_the_vendored_library_only_through_vendor():
     """One copy of it, reached one way.
 
