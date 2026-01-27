@@ -53,10 +53,16 @@
   --bar-height: 3.5rem;
   --rail-width: 14rem;
   --inspector-width: 22rem;
-  /* What the panel folds to on a narrow window: a strip wide enough to hold the handle that
-     brings it back, and no wider. */
-  --inspector-strip: 1.75rem;
-  --rail-strip: 1.75rem;
+  /* The fold control, in its two shapes. Open, it is a small square button in the panel's own
+     top corner, the size the bar's arrows are. Folded, the panel is gone and the same button
+     is all that is left of it. A tab against the window's edge, narrow enough to be furniture
+     and tall enough to be aimed at. */
+  --fold-button: 1.6rem;
+  --fold-tab-width: 1.35rem;
+  --fold-tab-height: 2.4rem;
+  /* Level with the first line of the panel it belongs to, which is the line that says what
+     the panel is. */
+  --fold-top: 1rem;
   --dock-height: 40vh;
   --mono: ui-monospace, "Roboto Mono", "SFMono-Regular", Menlo, Consolas, monospace;
   --text: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
@@ -387,19 +393,38 @@ h2 {
   min-height: 0;
 }
 
+/* Each in the column it is named for, said out loud rather than left to the order the three
+   are written in. On a narrow window a panel opens over the drawing and leaves the flow to do
+   it, and auto-placement then hands its column to whatever is left. The stage fell into the
+   rail's column, took its width, and the drawing went off the side of the page for as long as
+   the rail was open. */
+.rail {
+  grid-column: 1;
+}
+
+.stage {
+  grid-column: 2;
+}
+
+.inspector {
+  grid-column: 3;
+}
+
+/* Folded is folded. The column goes, and the drawing gets all of it. What is left of the
+   panel is the tab, which hangs out of a column with no width in it. */
 .work.is-rail-shut {
-  --rail-col: var(--rail-strip);
+  --rail-col: 0px;
 }
 
 .work.is-panel-shut {
-  --inspector-col: var(--inspector-strip);
+  --inspector-col: 0px;
 }
 
 /* Neither panel goes away when it folds, and neither is dropped from the layout: everything
    that edits a selection is in the panel, and everything that adds an entity is in the rail,
    so a page that can select a thing and not edit it, or draw nothing at all, is a page
-   missing half of itself. Each keeps the strip its handle sits on, and the strip is what
-   brings it back. */
+   missing half of itself. What each one leaves behind is one tab, and the tab is what brings
+   it back. */
 .rail,
 .inspector {
   position: relative;
@@ -407,19 +432,27 @@ h2 {
   overflow: hidden;
 }
 
-/* The gutter the handle lives in, so the strip is never over the words. */
 .rail {
   border-right: 1px solid var(--line);
-  padding-right: var(--rail-strip);
 }
 
 .inspector {
   border-left: 1px solid var(--line);
-  padding-left: var(--inspector-strip);
 }
 
-/* The panel's contents scroll, rather than the panel: the strip is positioned against the
-   panel, and a strip inside something that scrolls slides away with the text. */
+/* Folded, there is no panel to draw: no ground, no edge, no width. The element stays for the
+   tab to hang off, and hangs it over the drawing rather than clipping it, which is the whole
+   reason the panel is not dropped from the grid. */
+.work.is-rail-shut .rail,
+.work.is-panel-shut .inspector {
+  z-index: 6;
+  border: none;
+  background: none;
+  overflow: visible;
+}
+
+/* The panel's contents scroll, rather than the panel. The fold button is positioned against
+   the panel, and a button inside something that scrolls slides away with the text. */
 .rail__body,
 .inspector__body {
   height: 100%;
@@ -438,34 +471,44 @@ h2 {
   display: none;
 }
 
-/* The handle: the whole strip down the panel's outer edge, because a target that thin should
-   not also be a target that small. It carries the same chevron the dock's toggle does, turned
-   to point the way the panel would go. */
+/* The row the fold button sits at the end of, on each of the three things a panel can open
+   with. Both panels write from the left, so on both of them the free end is the same end, and
+   the rule is one rule. The control that puts a panel away is at the end of the line that
+   says what the panel is. The row is held to the button's own height so the two are level
+   whether the line is a heading, a heading over a list, or a glyph and a name. */
+.rail__body > .rail__title:first-child,
+.inspector__head,
+.inspector__empty > .block__title {
+  display: flex;
+  align-items: center;
+  min-height: var(--fold-button);
+  margin-top: 0;
+  padding-right: var(--fold-button);
+}
+
+/* The handle, open, is a button in the panel it belongs to, at the top of it, the size and the
+   weight of the arrows on the bar. A full-height strip down the panel's edge
+   costs a column of furniture either side of the drawing and goes on costing it once the
+   panel is folded and the strip is all that is left. A panel's own corner is where a
+   reader already is when they decide to put it away.
+
+   It carries the same chevron the dock's toggle does, turned to point the way the panel
+   would go. */
 .panel__handle {
   position: absolute;
-  top: 0;
-  bottom: 0;
+  top: var(--fold-top);
+  right: .5rem;
   z-index: 2;
-  width: var(--rail-strip);
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding-top: .75rem;
-  background: var(--panel);
+  width: var(--fold-button);
+  height: var(--fold-button);
+  display: grid;
+  place-items: center;
+  padding: 0;
   border: none;
+  border-radius: .25rem;
+  background: var(--panel);
   color: var(--ink-dim);
   cursor: pointer;
-}
-
-.rail .panel__handle {
-  right: 0;
-  border-left: 1px solid var(--line);
-}
-
-.inspector .panel__handle {
-  left: 0;
-  width: var(--inspector-strip);
-  border-right: 1px solid var(--line);
 }
 
 .panel__handle:hover {
@@ -473,10 +516,61 @@ h2 {
   background: var(--panel-high);
 }
 
+.panel__handle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+/* The handle, folded: the tab. The panel is gone and this is the whole of what is left of it,
+   so it is drawn as a panel that has been pushed off the edge -- the panel's own ground and
+   line, rounded and lifted on the side still in the room, square and borderless on the side
+   that is out of it. It holds the height it had when it was a button, so the fold and the
+   unfold are the same gesture in the same place rather than one control that moves. */
+.work.is-rail-shut .rail .panel__handle,
+.work.is-panel-shut .inspector .panel__handle {
+  /* Grown from its own middle, so the chevron does not move when the panel does. */
+  top: calc(var(--fold-top) + (var(--fold-button) - var(--fold-tab-height)) / 2);
+  width: var(--fold-tab-width);
+  height: var(--fold-tab-height);
+  border: 1px solid var(--line);
+  background: var(--panel);
+}
+
+.work.is-rail-shut .rail .panel__handle {
+  right: auto;
+  left: 0;
+  border-left: none;
+  border-radius: 0 .4rem .4rem 0;
+  box-shadow: 3px 0 12px var(--shadow);
+}
+
+.work.is-panel-shut .inspector .panel__handle {
+  right: 0;
+  border-right: none;
+  border-radius: .4rem 0 0 .4rem;
+  box-shadow: -3px 0 12px var(--shadow);
+}
+
+/* Said again for the tab, which names its own ground and would otherwise out-rank the hover
+   that is meant to change it. */
+.work.is-rail-shut .rail .panel__handle:hover,
+.work.is-panel-shut .inspector .panel__handle:hover {
+  background: var(--panel-high);
+}
+
 .panel__handle .glyph {
   width: 1rem;
   height: 1rem;
   transition: transform 140ms ease-out;
+}
+
+/* The one thing on this page that moves when a panel folds. For a reader who has asked for
+   less of that, it arrives already turned. */
+@media (prefers-reduced-motion: reduce) {
+  .panel__handle .glyph,
+  .button--chevron .glyph {
+    transition: none;
+  }
 }
 
 /* Pointing at the edge the panel would fold to, and the other way once it is folded. */
@@ -502,8 +596,8 @@ h2 {
    no width to drag. */
 @media (max-width: 62rem) {
   .work {
-    --rail-col: var(--rail-strip);
-    --inspector-col: var(--inspector-strip);
+    --rail-col: 0px;
+    --inspector-col: 0px;
   }
 
   .grip--rail,
@@ -527,7 +621,7 @@ h2 {
 
   .work:not(.is-panel-shut) .inspector {
     right: 0;
-    width: min(var(--inspector-width), calc(100vw - var(--rail-strip)));
+    width: min(var(--inspector-width), 82vw);
   }
 }
 
@@ -618,6 +712,12 @@ h2 {
   right: var(--inspector-col);
   margin-left: 0;
   margin-right: -3px;
+}
+
+/* A folded panel has no width to drag, so its seam goes with it. */
+.work.is-rail-shut .grip--rail,
+.work.is-panel-shut .grip--inspector {
+  display: none;
 }
 
 .grip--dock {

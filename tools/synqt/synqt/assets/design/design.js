@@ -2207,10 +2207,10 @@ function renameInPlace(kind, name, what, at) {
 // it edits is drawn into an SVG that has no input to put there. This name is already HTML in
 // a bar that lays itself out, so swapping the element keeps it where the layout had it.
 
-// Either side panel, folded to the strip its handle sits on or brought back out.
+// Either side panel, folded to the tab its handle becomes or brought back out.
 //
 // One gesture at every width. On a wide window the panel is a column of the grid and folding
-// it gives the drawing that width; on a narrow one it opens over the canvas instead, which is
+// it gives the drawing that width. On a narrow one it opens over the canvas instead, which is
 // the same fold with nowhere to put the column. The canvas is a different shape afterwards
 // either way, so what fitted it no longer does.
 function showRail(open) {
@@ -4040,7 +4040,8 @@ page.undo.replaceChildren(stepArrow(false));
 page.redo.replaceChildren(stepArrow(true));
 dress(page.exportPng, "picture", "Export");
 dress(page.restart, "clear", "Clear");
-// The same arrow on both panel handles, turned by CSS to point at the edge each one folds to.
+// The same arrow on both panel handles, turned by CSS to point at the edge each one folds
+// to, and turned back once it is folded.
 page.inspectorHandle.replaceChildren(chevron());
 page.railHandle.replaceChildren(chevron());
 // Where there is no room for three columns, both panels start folded and the drawing gets

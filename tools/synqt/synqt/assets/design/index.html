@@ -78,8 +78,9 @@
     <main class="work">
       <!-- The rail folds the way the panel does, and for the same reason: on a narrow window
            the drawing is the whole point and two columns of furniture either side of it leave
-           nothing between them. Its handle is the strip down its own edge, always in the
-           markup so nothing has to be built at the moment the window is resized. -->
+           nothing between them. Its handle is a button in its own top corner while it is
+           open and the tab it leaves behind once it is folded, which is one element in two
+           shapes rather than a control that appears when the window is resized. -->
       <aside class="rail" id="rail">
         <button type="button" class="panel__handle" id="rail-handle"
                 aria-expanded="true" aria-controls="rail-body"
@@ -158,12 +159,10 @@
         </section>
       </section>
 
-      <!-- The panel for whatever is selected. On a narrow window it folds to the strip its
-           handle sits on and opens over the canvas, rather than being dropped from the
-           layout: everything that edits a selection is in here, so a page that can select a
-           thing and not edit it is a page missing half of itself. The handle is always in
-           the markup and shown only where the panel folds, so nothing has to be built at
-           the moment the window is resized. -->
+      <!-- The panel for whatever is selected. On a narrow window it folds to its tab and
+           opens over the canvas, rather than being dropped from the layout: everything that
+           edits a selection is in here, so a page that can select a thing and not edit it is
+           a page missing half of itself. -->
       <aside class="inspector" id="inspector">
         <button type="button" class="panel__handle" id="inspector-handle"
                 aria-expanded="true" aria-controls="inspector-body"

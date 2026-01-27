@@ -713,9 +713,10 @@ async function theCopyOnTheSite() {
         check(await page.locator("#verdict").count() === 0,
               "and the bar carries no verdict of its own");
 
-        // Both side panels fold to the strip their handle sits on, and the drawing gets the
-        // width. On a phone a rail, a sliver of canvas and a panel is a page showing no design
-        // at all, and on a wide window it is still the way to give a big drawing the room.
+        // Both side panels fold to a tab against the edge of the window, and the drawing gets
+        // the width. On a phone a rail, a sliver of canvas and a panel is a page showing no
+        // design at all, and on a wide window it is still the way to give a big drawing the
+        // room.
         const drawn = async () => (await page.locator(".stage").boundingBox()).width;
         const bothOpen = await drawn();
         await page.locator("#rail-handle").click();
@@ -729,14 +730,52 @@ async function theCopyOnTheSite() {
         check(railShut > bothOpen && bothShut > railShut,
               `either panel folds and the drawing takes the width (${Math.round(bothOpen)} `
               + `-> ${Math.round(railShut)} -> ${Math.round(bothShut)})`);
+
+        // All of it, rather than all but a column each side. A fold that leaves a full-height
+        // strip behind for the handle to sit on is a column of furniture either side of
+        // the drawing that costs the same whether the panel is open or shut. What is left
+        // is the handle itself, as a tab, shorter than the window it is against, and the thing
+        // that brings the panel back.
+        const work = await page.locator(".work").boundingBox();
+        check(Math.round(bothShut) === Math.round(work.width),
+              "and a folded panel leaves no column behind it");
+        for (const which of ["rail", "inspector"]) {
+            const tab = await page.locator(`#${which}-handle`).boundingBox();
+            check(tab.width > 0 && tab.height < work.height / 4,
+                  `the folded ${which} leaves a tab rather than a strip `
+                  + `(${Math.round(tab.width)}x${Math.round(tab.height)})`);
+        }
+
         await page.locator("#rail-handle").click();
         await page.locator("#inspector-handle").click();
         await page.waitForFunction(
             () => !document.querySelector(".work").classList.contains("is-panel-shut"));
         check(Math.round(await drawn()) === Math.round(bothOpen),
-              "and the strip each one leaves behind is what brings it back");
+              "and the tab each one leaves behind is what brings it back");
 
-        // The drawing as a picture, under the policy: the SVG on the page is carried into a
+        // Narrow enough that the three columns become one drawing with two panels over it.
+        // A panel opening over the canvas leaves the grid to do it, and the two columns it is
+        // not in are placed by name for exactly that reason. Left to auto-placement the stage
+        // fell into the rail's column the moment the rail went absolute, took its width, and
+        // the drawing went off the side of the page for as long as the rail was open.
+        await page.setViewportSize({ width: 640, height: 900 });
+        await page.waitForFunction(
+            () => document.querySelector(".work").classList.contains("is-rail-shut"));
+        const phone = (await page.locator(".work").boundingBox()).width;
+        await page.locator("#rail-handle").click();
+        await page.waitForFunction(
+            () => !document.querySelector(".work").classList.contains("is-rail-shut"));
+        check(Math.round(await drawn()) === Math.round(phone),
+              "a panel opening over the drawing on a narrow window leaves the drawing the "
+              + "whole width");
+        await page.locator("#rail-handle").click();
+        await page.waitForFunction(
+            () => document.querySelector(".work").classList.contains("is-rail-shut"));
+        await page.setViewportSize({ width: 1440, height: 900 });
+        await page.waitForFunction(
+            () => !document.querySelector(".work").classList.contains("is-rail-shut"));
+
+        // The drawing as a picture, under the policy. The SVG on the page is carried into a
         // `data:` image with this page's stylesheet inside it, drawn into a canvas and handed
         // back as a PNG. Every step of that is something a strict policy can refuse, which is
         // why it is proven on the copy that has to live under one.

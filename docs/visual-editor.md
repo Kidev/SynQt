@@ -123,8 +123,9 @@ entity's provider, a connect point's consumer list, and what crosses it. The con
 is the authorization: an entity that is not on it is refused the replica.
 [Security](security.md) is where that is spelled out.
 
-Both side panels fold. The strip down the outer edge of each one is its handle: press it and
-the panel goes, and the drawing takes the width; press the strip again and it comes back. On a
+Both side panels fold. The chevron at the top of each one, level with the line that says what
+the panel is, puts it away: the panel goes, the drawing takes the width, and all that is left
+of it is a tab against the edge of the window. Press the tab and the panel comes back. On a
 window too narrow for three columns they start folded and open over the canvas, so a phone
 shows the design rather than two columns of furniture with a sliver between them.
 
