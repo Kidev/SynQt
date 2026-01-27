@@ -30,6 +30,7 @@
 // cannot fall out of step with it.
 
 import { SCOPES, entityType, frontsOf } from "./rules.js";
+import { linkEnds } from "./project.js";
 
 const SVG = "http://www.w3.org/2000/svg";
 
@@ -228,6 +229,102 @@ export function glyphSvg(role) {
         svg.append(element(tag, attributes));
     }
     return svg;
+}
+
+// One member of a contract as the line of code it is: the vocabulary of the `export:` block
+// (`prop`, `model`, `signal`, `slot`), painted in the same runs the pane and the canvas paint.
+//
+// One reading, everywhere a full member is written out. The panel's list of what crosses, the
+// picker a right click opens, and the card that hovering a row on a link opens. Three
+// strings built three times would let a reader following one member across the page see
+// it spelled three ways.
+export function memberCode(member) {
+    const line = codeLine();
+    line.append(codeWord("kw", member.kind || "prop"), codeWord("punct", " "));
+    if (member.kind === "prop") {
+        line.append(codeWord("type", member.type || "var"), codeWord("punct", " "),
+                    codeWord("name", member.name));
+        return line;
+    }
+    if (member.kind === "slot" && member.type) {
+        line.append(codeWord("type", member.type), codeWord("punct", " "));
+    }
+    line.append(codeWord("name", member.name), codeWord("punct", "("));
+    codeParts(line, member.kind === "model" ? member.roles : member.params);
+    line.append(codeWord("punct", ")"));
+    return line;
+}
+
+// A run of source, and one word of it. The three colours are the file pane's own
+// (source.js paints the same runs), so a reader with the pane open and a card open is
+// reading one colour scheme and not two.
+export function codeLine(extra) {
+    const line = document.createElement("span");
+    line.className = `code${extra ? ` ${extra}` : ""}`;
+    return line;
+}
+
+export function codeWord(kind, text) {
+    const run = document.createElement("span");
+    run.className = `code__tok code__tok--${kind}`;
+    run.textContent = text;
+    return run;
+}
+
+// A parameter list, or a model's roles. Each one a type and a name, with the comma between
+// them written as punctuation rather than glued to either side of it.
+export function codeParts(line, held) {
+    (held || []).forEach((part, index) => {
+        if (index) {
+            line.append(codeWord("punct", ", "));
+        }
+        line.append(codeWord("type", part.type || "var"), codeWord("punct", " "),
+                    codeWord("name", part.name || ""));
+    });
+    return line;
+}
+
+// The mark a connect point is drawn with on the canvas, on its own for a heading or a row:
+// the same little document the icon every line leaves from is. One drawing, so the panel for
+// a connect point opens with the thing that was clicked to open it.
+export function contractSvg() {
+    const svg = element("svg", {class: "glyph", viewBox: "-8 -8 16 16",
+                                "aria-hidden": "true", focusable: "false"});
+    svg.append(element("rect", {class: "glyph__doc-box", x: -5, y: -6.5, width: 10,
+                                height: 13, rx: 2}));
+    svg.append(element("path", {class: "glyph__doc-lines",
+                                d: "M -2.5,-3 H 2.5 M -2.5,0 H 2.5 M -2.5,3 H 2.5"}));
+    return svg;
+}
+
+// The arrow between the two ends of a link, wherever one is named. A `>`
+// typed between the names is, at this size, a piece of punctuation a reader has to
+// decide is an arrow. The drawing says which way a connect point runs with an arrowhead,
+// and this is that arrowhead.
+export function arrowSvg() {
+    const svg = element("svg", {class: "arrow", viewBox: "0 0 16 12",
+                                "aria-hidden": "true", focusable: "false"});
+    svg.append(element("path", {d: "M 1,6 H 13 M 9,2 L 13,6 L 9,10", fill: "none",
+                                stroke: "currentColor", "stroke-width": 1.6,
+                                "stroke-linecap": "round", "stroke-linejoin": "round"}));
+    return svg;
+}
+
+// A link's name as something to look at: the owner, the arrow, and whoever is at the other
+// end, each end in the colour the drawing gives that role. `linkTitle` says the same words
+// where only words fit (a tooltip attribute, a label for a screen reader).
+export function linkTitleNode(link, consumer) {
+    const ends = linkEnds(link, consumer);
+    const row = document.createElement("span");
+    row.className = "ends";
+    const owner = document.createElement("span");
+    owner.className = "ends__end ends__end--owner";
+    owner.textContent = ends.owner;
+    const reached = document.createElement("span");
+    reached.className = "ends__end ends__end--consumer";
+    reached.textContent = ends.consumers;
+    row.append(owner, arrowSvg(), reached);
+    return row;
 }
 
 // Where a link is pulled out of, and where the contract it made then lives.

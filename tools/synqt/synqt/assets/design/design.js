@@ -21,15 +21,15 @@
 
 import { entityType, findings as ruleFindings, frontsOf } from "./rules.js";
 import { MEMBER_KINDS, NODE_RADIUS, ROLE_HELP, accessorName, describe, draw, element,
-         endsOfPoint, entityAt, extent, glyphSvg, memberMarkSvg, memberParts,
-         nearestFreeSlot, roleOf, seatAt, seatsOfFront, slotIndex,
+         endsOfPoint, entityAt, extent, glyphSvg, linkTitleNode, memberCode, memberMarkSvg,
+         memberParts, nearestFreeSlot, roleOf, seatAt, seatsOfFront, slotIndex,
          turnsToward } from "./canvas.js";
 import { inspect, openWhenDrawn } from "./inspector.js";
 import { makeEditor } from "./editor.js";
 import { forgetDesign, keepDesign, keepPane, keptDesign,
          readPanes } from "./keep.js";
 import { contractOf, entityDir, entityFiles, entityQml, entityQmlPath, isShared,
-         linkTitle, projectFiles } from "./project.js";
+         projectFiles } from "./project.js";
 import { declarationLine, declarations, references, rewritten,
          withoutDeclaration, withoutNotice } from "./source.js";
 import { YamlError, parseDesign } from "./yamlin.js";
@@ -150,13 +150,14 @@ const page = {
     ghost: document.getElementById("ghost"),
     palette: document.getElementById("palette"),
     findings: document.getElementById("findings"),
-    inspector: document.getElementById("inspector"),
     inspectorBody: document.getElementById("inspector-body"),
     inspectorHandle: document.getElementById("inspector-handle"),
+    railHandle: document.getElementById("rail-handle"),
     home: document.getElementById("home"),
     project: document.getElementById("project"),
     hint: document.getElementById("hint"),
     restart: document.getElementById("restart"),
+    exportPng: document.getElementById("export"),
     undo: document.getElementById("undo"),
     redo: document.getElementById("redo"),
     infer: document.getElementById("infer"),
@@ -183,6 +184,12 @@ const page = {
     sheetFindings: document.getElementById("sheet-findings"),
     sheetDiff: document.getElementById("sheet-diff"),
     sheetClose: document.getElementById("sheet-close"),
+    modal: document.getElementById("modal"),
+    modalTitle: document.getElementById("modal-title"),
+    modalText: document.getElementById("modal-text"),
+    modalExtra: document.getElementById("modal-extra"),
+    modalYes: document.getElementById("modal-yes"),
+    modalNo: document.getElementById("modal-no"),
 };
 
 // The pane's editor, made once and given a file at a time. Both callbacks are somebody
@@ -753,6 +760,44 @@ function stepArrow(forward) {
     return svg;
 }
 
+// The mark on a button that does something to the whole project, or to what is on screen.
+// Each is the plainest drawing of the thing it does, in the button's own colour: a bin for
+// Clear, a picture for Export, a tray with an arrow going into it for Download. They sit
+// beside the word rather than instead of it, because a row of six unlabelled marks is a
+// puzzle, and the mark is what the eye finds once the word has been read once.
+const MARKS = {
+    // A bin: the lid, the handle above it, and the body under it.
+    clear: ["M 3,5 H 13", "M 6.5,5 V 3.5 H 9.5 V 5",
+            "M 4.5,5 L 5.2,13.5 H 10.8 L 11.5,5", "M 6.8,7.5 V 11", "M 9.2,7.5 V 11"],
+    // A picture: a frame with a horizon and a sun in it.
+    picture: ["M 2,3.5 H 14 V 12.5 H 2 Z", "M 2,10 L 6,6.5 L 9.5,10",
+              "M 8.5,9 L 10.5,7.2 L 14,10.2", "M 11,5.8 A 0.9,0.9 0 1 1 11,5.79"],
+    // Into a tray: the arrow, its head, and the tray it lands in.
+    download: ["M 8,2.5 V 9.5", "M 5,7 L 8,10 L 11,7", "M 3,12.5 H 13"],
+};
+
+function markSvg(name) {
+    const svg = element("svg", {class: "glyph", viewBox: "0 0 16 16",
+                                "aria-hidden": "true", focusable: "false"});
+    for (const d of MARKS[name]) {
+        svg.append(element("path", {d, fill: "none", stroke: "currentColor",
+                                    "stroke-width": 1.4, "stroke-linecap": "round",
+                                    "stroke-linejoin": "round"}));
+    }
+    return svg;
+}
+
+// The word on a button that carries a mark, and the mark that goes with it. Both are set
+// here rather than in the markup, because the one button that changes what it does also
+// changes both. Over a project it applies a change set, and on the drawing board it hands
+// you a zip.
+function dress(button, name, word) {
+    const said = document.createElement("span");
+    said.className = "button__word";
+    said.textContent = word;
+    button.replaceChildren(markSvg(name), said);
+}
+
 function showDock(open) {
     state.files = open === undefined ? !state.files : open;
     page.dock.classList.toggle("is-collapsed", !state.files);
@@ -1299,24 +1344,6 @@ function tipMember(member) {
     return row;
 }
 
-function memberText(member) {
-    // Chosen by kind, not by which list happens to be there: an empty array is truthy, so
-    // `member.params || member.roles` picks the empty params of a model every time and its
-    // roles, the only thing a model has, never get written.
-    const held = member.kind === "model" ? member.roles : member.params;
-    const parts = (held || []).map((part) => `${part.type} ${part.name}`).join(", ");
-    if (member.kind === "prop") {
-        return `prop ${member.type} ${member.name}`;
-    }
-    if (member.kind === "model") {
-        return `model ${member.name}(${parts})`;
-    }
-    if (member.kind === "signal") {
-        return `signal ${member.name}(${parts})`;
-    }
-    return `slot ${member.type ? member.type + " " : ""}${member.name}(${parts})`;
-}
-
 // What one member carries, written out in full: the canvas has room for the types alone, so
 // this is where the names that go with them live. A row's roles are what a consumer's delegate
 // reads by name, and a call's parameters are what somebody writing the call has to supply, so
@@ -1359,9 +1386,10 @@ function tipFor(what) {
         const head = document.createElement("div");
         head.className = "tip__head tip__head--link";
         head.append(memberMarkSvg(member.kind));
-        const title = document.createElement("span");
-        title.textContent = memberText(member);
-        head.append(title);
+        // The member as the line of code it is, in the same runs the file pane and the row on
+        // the canvas are painted in. It was one grey string, which is a card titled with the
+        // one thing on it a reader can already see spelled out below.
+        head.append(memberCode(member));
         const kind = document.createElement("span");
         kind.className = "tip__kind";
         kind.textContent = said.name;
@@ -1449,9 +1477,7 @@ function tipFor(what) {
         }
         const head = document.createElement("div");
         head.className = "tip__head tip__head--broken";
-        const title = document.createElement("span");
-        title.textContent = linkTitle(link, what.consumer);
-        head.append(title);
+        head.append(linkTitleNode(link, what.consumer));
         const kind = document.createElement("span");
         kind.className = "tip__kind";
         kind.textContent = "broken";
@@ -1559,9 +1585,7 @@ function tipFor(what) {
     }
     const head = document.createElement("div");
     head.className = "tip__head tip__head--link";
-    const title = document.createElement("span");
-    title.textContent = linkTitle(link, what.consumer);
-    head.append(title);
+    head.append(linkTitleNode(link, what.consumer));
     const kind = document.createElement("span");
     kind.className = "tip__kind";
     kind.textContent = "connect point";
@@ -1952,9 +1976,11 @@ function openPicker(link, at) {
     const offered = owner ? declarations(owner.qml || "") : [];
     page.picker.replaceChildren();
 
+    // Named the way everything else names a connect point. Its two ends, with the arrow
+    // between them drawn rather than typed.
     const head = document.createElement("header");
     head.className = "picker__head";
-    head.textContent = `What crosses ${link.owner}'s connect point`;
+    head.append(document.createTextNode("What crosses "), linkTitleNode(link));
     page.picker.append(head);
 
     const note = document.createElement("p");
@@ -1982,10 +2008,7 @@ function openPicker(link, at) {
         box.addEventListener("change", () => {
             tickMember(link, member, box.checked);
         });
-        const text = document.createElement("span");
-        text.className = "picker__member";
-        text.textContent = memberText(member);
-        label.append(box, text);
+        label.append(box, memberCode(member));
         row.append(label);
         list.append(row);
     }
@@ -2183,16 +2206,27 @@ function renameInPlace(kind, name, what, at) {
 // It is not `renameInPlace`: that one floats a box at a canvas coordinate, because the name
 // it edits is drawn into an SVG that has no input to put there. This name is already HTML in
 // a bar that lays itself out, so swapping the element keeps it where the layout had it.
-// Open the panel where it folds, and put the drawing back where it does not.
+
+// Either side panel, folded to the strip its handle sits on or brought back out.
 //
-// Only the narrow layout has anything to open: on a wide window the panel is a column of the
-// grid and `is-open` means nothing, so this is safe to call from anywhere that wants the
-// panel looked at (the right-click menu's Edit, and the handle itself).
+// One gesture at every width. On a wide window the panel is a column of the grid and folding
+// it gives the drawing that width; on a narrow one it opens over the canvas instead, which is
+// the same fold with nowhere to put the column. The canvas is a different shape afterwards
+// either way, so what fitted it no longer does.
+function showRail(open) {
+    page.work.classList.toggle("is-rail-shut", !open);
+    page.railHandle.setAttribute("aria-expanded", String(open));
+    page.railHandle.setAttribute("aria-label", open ? "Hide the entities"
+                                                    : "Show the entities");
+    fit();
+}
+
 function showInspector(open = true) {
-    page.inspector.classList.toggle("is-open", open);
+    page.work.classList.toggle("is-panel-shut", !open);
     page.inspectorHandle.setAttribute("aria-expanded", String(open));
     page.inspectorHandle.setAttribute("aria-label", open ? "Hide the panel"
                                                          : "Show the panel");
+    fit();
 }
 
 function renameProject() {
@@ -2303,7 +2337,6 @@ function onContextMenu(event) {
         const entity = entityNamed(under.name);
         select({kind: "entity", name: entity.name});
         openMenu(at, entity.name, [
-            {label: "Edit", act: () => showInspector()},
             {label: "Rename", act: () => renameInPlace("entity", entity.name, "entity", at)},
             {label: "Delete", act: () => removeEntity(entity), danger: true},
         ]);
@@ -2320,7 +2353,6 @@ function onContextMenu(event) {
         // is what moves it, and that is on the node.
         openMenu(at, `${found.owner}'s connect point`, [
             {label: "What crosses it", act: () => openPicker(found, at)},
-            {label: "Edit", act: () => showInspector()},
             ...((found.consumers || []).length
                 ? [{label: "Disconnect the consumer", act: () => disconnectLink(found)}]
                 : []),
@@ -3476,6 +3508,166 @@ function download() {
         + "edit it in place.");
 }
 
+// Asking, in this page's own face
+
+// One question, over the drawing it is about, answered yes or no. A real `dialog`, so Escape
+// answers no, the focus is held inside it, and the page behind it is inert while it is up.
+//
+// The browser's own confirm box is kept for one thing only. Leaving the site. There the
+// browser is the one asking, and nothing on the page can hold a navigation open long enough
+// to ask anything. Everywhere else this is what asks, because a box that arrives from outside
+// the window in somebody else's face is a box that reads as an error rather than a choice.
+function askPage({title, text, confirm, danger, extra}) {
+    page.modalTitle.textContent = title;
+    page.modalText.textContent = text;
+    page.modalExtra.replaceChildren();
+    if (extra) {
+        page.modalExtra.append(extra);
+    }
+    page.modalYes.textContent = confirm;
+    page.modalYes.className = `button ${danger ? "button--danger" : "button--go"}`;
+    page.modal.returnValue = "";
+    return new Promise((resolve) => {
+        const yes = () => page.modal.close("yes");
+        const no = () => page.modal.close("");
+        const settle = () => {
+            page.modalYes.removeEventListener("click", yes);
+            page.modalNo.removeEventListener("click", no);
+            page.modal.removeEventListener("close", settle);
+            resolve(page.modal.returnValue === "yes");
+        };
+        page.modalYes.addEventListener("click", yes);
+        page.modalNo.addEventListener("click", no);
+        page.modal.addEventListener("close", settle);
+        page.modal.showModal();
+    });
+}
+
+// A switch for a question that has one, built the way the panel builds them so the box in the
+// dialog is the box everywhere else on the page.
+function modalCheck(label, checked) {
+    const wrap = document.createElement("label");
+    wrap.className = "check";
+    const box = document.createElement("input");
+    box.type = "checkbox";
+    box.checked = checked;
+    const said = document.createElement("span");
+    said.className = "check__label";
+    said.textContent = label;
+    wrap.append(box, said);
+    return {wrap, box};
+}
+
+// The drawing as a picture
+
+// How much empty space is left round the drawing in the exported picture, and how many device
+// pixels one canvas unit becomes. Two, because the picture is going into a document or a
+// message at whatever size that thing gives it, and a drawing that has been scaled down reads
+// better than one that has been scaled up.
+const EXPORT_MARGIN = 40;
+const EXPORT_SCALE = 2;
+
+// The canvas, as a PNG, exactly as it is drawn.
+//
+// Not a screenshot of the window. The whole design at its own size, whatever is scrolled into
+// view, with a margin round it. It is built out of the same SVG the page is drawing, with this
+// page's stylesheet carried inside it, so a picture of a design and the design cannot say
+// different things.
+//
+// The stylesheet is fetched and inlined rather than left as a link, because the picture is
+// rendered in an `img`, which is its own document with no access to this one: everything it
+// needs to draw has to be inside the file. `:root` in an SVG document is the `svg` element
+// itself, so the palette at the top of design.css lands on the drawing with nothing to change.
+async function exportPicture(transparent) {
+    if (!extent(state.design)) {
+        say("Nothing to export yet. Drag an entity out of the rail to begin.", "error");
+        return;
+    }
+    // What is drawn, asked of the drawing rather than worked out from the document:
+    // the boxes are where the entities are, and a name written under a node or a contract
+    // written beside a line reaches past them. Measured before the view's own transform, so
+    // it is in the coordinates the picture is cut from.
+    const held = page.viewport.getBBox();
+    const left = held.x - EXPORT_MARGIN;
+    const top = held.y - EXPORT_MARGIN;
+    const width = held.width + (EXPORT_MARGIN * 2);
+    const height = held.height + (EXPORT_MARGIN * 2);
+
+    const picture = page.canvas.cloneNode(true);
+    picture.setAttribute("viewBox", `${left} ${top} ${width} ${height}`);
+    picture.setAttribute("width", String(width));
+    picture.setAttribute("height", String(height));
+    // The view this window happens to be at belongs to the window, and the picture is the
+    // whole drawing. The box above already says where to look.
+    picture.querySelector("#viewport").removeAttribute("transform");
+    // Everything that is only there to be dragged or pointed at. The half-drawn link, the
+    // invisible fat targets over the lines, the handles that appear under the pointer. None
+    // of it is part of the drawing, and some of it draws nothing at all.
+    for (const spare of picture.querySelectorAll(
+            "#ghost, .link__hit, .node__slot-grab, .node__slot, .link__break-grab, "
+            + ".node__seat-grab")) {
+        spare.remove();
+    }
+    if (!transparent) {
+        const ground = element("rect", {x: left, y: top, width, height,
+                                        fill: "var(--page)"});
+        picture.insertBefore(ground, picture.firstChild);
+    }
+    const paint = document.createElementNS("http://www.w3.org/2000/svg", "style");
+    paint.textContent = await pageStyles();
+    picture.insertBefore(paint, picture.firstChild);
+
+    const drawn = new XMLSerializer().serializeToString(picture);
+    const file = await pngOf(`data:image/svg+xml;charset=utf-8,${encodeURIComponent(drawn)}`,
+                             width, height);
+    const url = URL.createObjectURL(file);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `${state.design.project || "design"}.png`;
+    anchor.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 10000);
+    say(`Exported the drawing as ${anchor.download}.`);
+}
+
+// This page's stylesheet, as text, read once and kept. It is the same file every time and it
+// is what the picture is painted with.
+let styles = "";
+
+async function pageStyles() {
+    if (!styles) {
+        const answer = await fetch("design.css");
+        styles = await answer.text();
+    }
+    return styles;
+}
+
+// The SVG drawn into a canvas and handed back as a PNG. The image is a `data:` URL of the
+// drawing itself, which is same-origin data and taints nothing, so the canvas can be read
+// back. The policy this page runs under admits `data:` for images and nothing else.
+function pngOf(source, width, height) {
+    return new Promise((resolve, reject) => {
+        const drawing = new Image();
+        drawing.addEventListener("load", () => {
+            const board = document.createElement("canvas");
+            board.width = Math.round(width * EXPORT_SCALE);
+            board.height = Math.round(height * EXPORT_SCALE);
+            const brush = board.getContext("2d");
+            brush.scale(EXPORT_SCALE, EXPORT_SCALE);
+            brush.drawImage(drawing, 0, 0, width, height);
+            board.toBlob((file) => {
+                if (file) {
+                    resolve(file);
+                    return;
+                }
+                reject(new Error("the drawing could not be turned into a picture"));
+            }, "image/png");
+        });
+        drawing.addEventListener("error",
+                                 () => reject(new Error("the drawing could not be read back")));
+        drawing.src = source;
+    });
+}
+
 // Starting up
 
 // Dragging is the only way an entity reaches the canvas, so that where it lands is always
@@ -3607,7 +3799,7 @@ async function goOffline(reason) {
     // no project on the other end of this page.
     page.infer.hidden = true;
     page.review.hidden = true;
-    page.apply.textContent = "Download";
+    dress(page.apply, "download", "Download");
     page.apply.disabled = false;
     // What was being drawn last time comes back first. An example named in the address is a
     // *preset*: it is where a drawing starts, not a page that replaces one. So a design already
@@ -3683,8 +3875,14 @@ function wire() {
     // Only ever on the drawing board, where it is the way out of a design this browser is
     // holding. It clears the stored copy first, so a reload does not bring it straight back.
     page.restart.addEventListener("click", async () => {
-        if (!window.confirm("Clear this design and start over? It is not stored anywhere "
-                            + "else, so this cannot be undone.")) {
+        const sure = await askPage({
+            title: "Clear this design?",
+            text: "The canvas goes back to empty and the copy kept in this browser goes with "
+                  + "it. Press Download first to keep what is drawn.",
+            confirm: "Clear",
+            danger: true,
+        });
+        if (!sure) {
             return;
         }
         await forgetDesign();
@@ -3736,12 +3934,36 @@ function wire() {
         page.stage.classList.remove("is-target");
     });
     page.canvas.addEventListener("drop", onDrop);
+    // The drawing as a picture, and the one thing worth asking about it: what is behind it.
+    // A page colour is what somebody dropping it into a document wants; transparency is what
+    // somebody dropping it onto a slide of their own wants, and neither guess is safe.
+    page.exportPng.addEventListener("click", async () => {
+        const clear = modalCheck("Transparent background", false);
+        const go = await askPage({
+            title: "Export the drawing",
+            text: "The whole design as a PNG, at twice its drawn size, with a margin round "
+                  + "it.",
+            confirm: "Export",
+            extra: clear.wrap,
+        });
+        if (!go) {
+            return;
+        }
+        try {
+            await exportPicture(clear.box.checked);
+        } catch (error) {
+            say(`${error.message}`, "error");
+        }
+    });
     page.revert.addEventListener("click", () => revertToLastGood());
     page.undo.addEventListener("click", () => undo());
     page.redo.addEventListener("click", () => redo());
     page.project.addEventListener("dblclick", () => renameProject());
     page.inspectorHandle.addEventListener("click", () => {
-        showInspector(!page.inspector.classList.contains("is-open"));
+        showInspector(page.work.classList.contains("is-panel-shut"));
+    });
+    page.railHandle.addEventListener("click", () => {
+        showRail(page.work.classList.contains("is-rail-shut"));
     });
     page.infer.addEventListener("click", () => inferContracts());
     page.review.addEventListener("click", () => review());
@@ -3816,8 +4038,22 @@ wire();
 page.dockToggle.replaceChildren(chevron());
 page.undo.replaceChildren(stepArrow(false));
 page.redo.replaceChildren(stepArrow(true));
-// The same arrow on the folded panel's handle, turned to point at the edge it opens from.
+dress(page.exportPng, "picture", "Export");
+dress(page.restart, "clear", "Clear");
+// The same arrow on both panel handles, turned by CSS to point at the edge each one folds to.
 page.inspectorHandle.replaceChildren(chevron());
+page.railHandle.replaceChildren(chevron());
+// Where there is no room for three columns, both panels start folded and the drawing gets
+// the window. A phone showing a rail, a strip of canvas and a panel is showing no design at
+// all. Crossing the width either way is the same decision made again, because a layout laid
+// out for one window is not the layout for the other.
+const roomy = window.matchMedia("(min-width: 62.01rem)");
+showRail(roomy.matches);
+showInspector(roomy.matches);
+roomy.addEventListener("change", (event) => {
+    showRail(event.matches);
+    showInspector(event.matches);
+});
 for (const grip of GRIPS) {
     holdGrip(grip);
 }

@@ -13,8 +13,8 @@
 // digest that ties Apply to the change set that was shown.
 //
 // Case 2 is the copy the documentation site publishes, which has no server behind it. The
-// assets are served as static files under `Content-Security-Policy: default-src 'self'`, the
-// policy that copy has to live under, and the page has to come up as a drawing board with
+// assets are served as static files under the policy the CLI's own server sends, which is
+// the policy that copy has to live under, and the page has to come up as a drawing board with
 // Apply offering a download. Nothing may be fetched from another origin and nothing may be
 // refused by the policy; the CLI has a server sending that header on every response, and the
 // hosted copy has nobody, so this is where it is measured.
@@ -375,7 +375,10 @@ function serveAssets() {
             }
             response.writeHead(200, {
                 "Content-Type": CONTENT_TYPES[path.extname(file)] || "application/octet-stream",
-                "Content-Security-Policy": "default-src 'self'",
+                // The policy the CLI's own server sends (design.py `_CSP`), near enough:
+                // everything from this origin, and a `data:` image, which is how the drawing
+                // is handed to a canvas on its way to being a PNG.
+                "Content-Security-Policy": "default-src 'self'; img-src 'self' data:",
             });
             response.end(fs.readFileSync(file));
         });
@@ -710,6 +713,45 @@ async function theCopyOnTheSite() {
         check(await page.locator("#verdict").count() === 0,
               "and the bar carries no verdict of its own");
 
+        // Both side panels fold to the strip their handle sits on, and the drawing gets the
+        // width. On a phone a rail, a sliver of canvas and a panel is a page showing no design
+        // at all, and on a wide window it is still the way to give a big drawing the room.
+        const drawn = async () => (await page.locator(".stage").boundingBox()).width;
+        const bothOpen = await drawn();
+        await page.locator("#rail-handle").click();
+        await page.waitForFunction(
+            () => document.querySelector(".work").classList.contains("is-rail-shut"));
+        const railShut = await drawn();
+        await page.locator("#inspector-handle").click();
+        await page.waitForFunction(
+            () => document.querySelector(".work").classList.contains("is-panel-shut"));
+        const bothShut = await drawn();
+        check(railShut > bothOpen && bothShut > railShut,
+              `either panel folds and the drawing takes the width (${Math.round(bothOpen)} `
+              + `-> ${Math.round(railShut)} -> ${Math.round(bothShut)})`);
+        await page.locator("#rail-handle").click();
+        await page.locator("#inspector-handle").click();
+        await page.waitForFunction(
+            () => !document.querySelector(".work").classList.contains("is-panel-shut"));
+        check(Math.round(await drawn()) === Math.round(bothOpen),
+              "and the strip each one leaves behind is what brings it back");
+
+        // The drawing as a picture, under the policy: the SVG on the page is carried into a
+        // `data:` image with this page's stylesheet inside it, drawn into a canvas and handed
+        // back as a PNG. Every step of that is something a strict policy can refuse, which is
+        // why it is proven on the copy that has to live under one.
+        await page.locator("#export").click();
+        await page.waitForSelector("#modal[open]");
+        const [picture] = await Promise.all([
+            page.waitForEvent("download"),
+            page.locator("#modal-yes").click(),
+        ]);
+        check(picture.suggestedFilename().endsWith(".png"),
+              `Export hands back a picture (${picture.suggestedFilename()})`);
+        const bytes = fs.readFileSync(await picture.path());
+        check(bytes.length > 1000 && bytes.subarray(1, 4).toString() === "PNG",
+              `and what it hands back is a real PNG (${bytes.length} bytes)`);
+
         check(offOrigin.length === 0,
               `nothing is fetched from another origin (${offOrigin.join(", ") || "none"})`);
         check(refused.length === 0,
@@ -796,7 +838,21 @@ async function theProjectALinkHandsYou() {
         check(said.includes("denied") && said.includes("signal"),
               `and hovering a mark says which of the four it is (${said.slice(0, 60)})`);
 
-        // The pane is open with the page: the files are what is being designed, not a second
+        // A link, selected: the panel opens with the mark the thing was clicked on, the two
+        // entities it runs between, and a line saying what that means in their own names. The
+        // arrow between them is drawn, because a `>` typed between two names at this size is
+        // punctuation a reader has to decide is an arrow.
+        await page.locator("#links [data-contract='edge']").click();
+        await page.waitForSelector(".inspector__head .ends");
+        check(await page.locator(".inspector__head .ends svg.arrow").count() === 1,
+              "a connect point is named by its two ends, with the arrow drawn between them");
+        const ends = await page.locator(".inspector__head .ends").textContent();
+        const says = await page.locator(".inspector__help").first().textContent();
+        check(ends.includes("edge") && ends.includes("app")
+              && says.includes("'edge'") && says.includes("'app'"),
+              `and what it is, is said in those names (${says.slice(0, 56)}...)`);
+
+        // The pane is open with the page. The files are what is being designed, not a second
         // opinion about it that has to be asked for.
         await page.waitForSelector(".tree__file");
         check(!(await page.locator("#dock").evaluate(
@@ -1065,30 +1121,49 @@ async function theProjectALinkHandsYou() {
         check(await page.locator("#redo").isDisabled(),
               "redo takes it away again, and then there is nothing ahead");
 
-        // The panel says what each of its sections is behind the `?` on that section's
-        // heading, and not in a paragraph under every control. Eleven settings with an
-        // explanation before each of them is more prose than settings, and a reader looking
-        // for the one they came for reads all of it on the way past.
+        // The panel says what each of its controls is behind a `?` beside that control, and
+        // not in a paragraph under every one of them. Eleven settings with an explanation
+        // before each is more prose than settings, and a reader looking for the one they came
+        // for reads all of it on the way past. On the setting, not gathered onto the section:
+        // the answer wanted is the answer about the thing being pointed at.
         await page.locator("#nodes [data-entity='store']").click();
         const runs = page.locator(".block").filter({ hasText: "How it runs" }).first();
-        const ask = runs.locator(".block__ask");
+        const ask = runs.locator(".field .ask").first();
         await ask.waitFor();
         check(!(await runs.locator("> .field__note").count())
               && await ask.evaluate((mark) => getComputedStyle(mark).opacity === "0"),
-              "a section's explanation is behind a ? on its heading, out of sight until asked");
+              "a control's explanation is behind a ? beside it, out of sight until asked");
         await runs.hover();
-        // Handed the element itself, because every section that explains itself has one of
+        // Handed the element itself, because every control that explains itself has one of
         // these and the first in the document is not necessarily this one.
         await page.waitForFunction((mark) => getComputedStyle(mark).opacity !== "0",
                                    await ask.elementHandle());
         check(true, "which appears the moment the pointer is on the section it belongs to");
         await ask.hover();
-        const aside = runs.locator(".block__tip");
+        const aside = runs.locator(".field .ask__tip").first();
         await page.waitForFunction((words) => getComputedStyle(words).visibility === "visible",
                                    await aside.elementHandle());
         const behind = (await aside.textContent()).trim();
-        check(behind.includes("engine behind the type"),
+        check(behind.includes("engine behind this kind of entity"),
               `and hovering it is what says it (${behind.slice(0, 48)}...)`);
+        // The section keeps a mark of its own, for what the group of settings is. Both, so
+        // neither question has to be asked of the other one's answer.
+        check(await runs.locator(".block__head .ask").count() === 1
+              && await runs.locator(".field .ask").count() > 0,
+              "the section says what it is for, and each setting in it says what it is");
+
+        // A member of a contract is a line of code, and is painted as one wherever it is
+        // written out: the same three colours the file pane uses, so the panel and the file
+        // are one contract and not two spellings of it.
+        await page.locator("#nodes [data-entity='edge']").click();
+        const declared = page.locator(".members .member__summary");
+        await declared.first().waitFor();
+        // Across the list rather than on its first row: what a row holds depends on what it
+        // declares, and a function that takes nothing and answers nothing is a name and two
+        // brackets. Every row has a word for what it is. A type is on whichever rows have one.
+        check(await declared.locator(".code__tok--kw").count() === await declared.count()
+              && await declared.locator(".code__tok--type").count() > 0,
+              "what an entity declares is painted the way the file that declares it is");
 
         // In place, over the entity, and not in a dialog: the field opens where the name was,
         // holding it, and Enter is what commits. A prompt would cover the drawing the new
@@ -1266,8 +1341,14 @@ async function typingIntoTheProject() {
         // address is what the page reads on the way in, so a Clear that left `example=` in it
         // emptied the canvas and handed the same example straight back on the next reload,
         // which reads as a Clear that did not take.
-        page.once("dialog", (dialog) => dialog.accept());
+        // Asked in the page's own face, over the drawing the question is about. The
+        // browser's own box is kept for leaving the site, where the browser is the one
+        // asking. Anything a listener here can hold open is asked here.
         await page.locator("#restart").click();
+        await page.waitForSelector("#modal[open]");
+        check(await page.locator("#modal-title").textContent() === "Clear this design?",
+              "Clear asks in this page's own dialog, not in the browser's");
+        await page.locator("#modal-yes").click();
         await waitForHint(page, "Cleared");
         check(!page.url().includes("example="),
               `Clear takes the example out of the address with it (${page.url()})`);

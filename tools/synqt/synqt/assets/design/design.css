@@ -42,9 +42,10 @@
   --grid-dot: rgba(106, 91, 153, .3);
   --grid-rule: rgba(106, 91, 153, .14);
 
-  /* Syntax on the canvas: the same three hues the file pane paints with, held back a step.
+  /* Syntax on the canvas. The same three hues the file pane paints with, held back a step.
      A link's rows are set at 8px over whatever the line is crossing, and the pane's contrast
      at that size reads as a row of shouting rather than as a reminder of what crosses. */
+  --code-keyword: #6ea8d8;
   --code-type: #6cbf8b;
   --code-name: #c3c4e6;
   --code-punct: #8079ad;
@@ -55,6 +56,7 @@
   /* What the panel folds to on a narrow window: a strip wide enough to hold the handle that
      brings it back, and no wider. */
   --inspector-strip: 1.75rem;
+  --rail-strip: 1.75rem;
   --dock-height: 40vh;
   --mono: ui-monospace, "Roboto Mono", "SFMono-Regular", Menlo, Consolas, monospace;
   --text: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
@@ -85,6 +87,7 @@
     --grid-dot: rgba(176, 168, 208, .45);
     --grid-rule: rgba(176, 168, 208, .3);
 
+    --code-keyword: #2b6f9c;
     --code-type: #16794a;
     --code-name: #33265c;
     --code-punct: #6d6693;
@@ -123,13 +126,41 @@ h2 {
 
 /* The bar */
 
+/* `min-width: 0`, and the same on the work below it: a grid track is at least as wide as its
+   content, and this bar's content is a logo and eight controls. On a phone that made the row
+   wider than the window, which made the page wider than the window -- and since the body hides
+   its overflow, the far end of the drawing and the right-hand panel were simply not on screen,
+   with nothing to scroll to reach them. The bar takes the width it is given and scrolls inside
+   itself if what it holds will not fit. */
 .bar {
   display: flex;
   align-items: center;
   gap: .75rem;
+  min-width: 0;
   padding: 0 1rem;
   background: var(--panel);
   border-bottom: 1px solid var(--line);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+/* Narrower than the bar's own contents. The mark stays, because it is the way out. The word
+   beside it goes, because the tab already says what this page is. The buttons keep their
+   marks and drop their words, which is what the marks are for. */
+@media (max-width: 46rem) {
+  .bar {
+    gap: .5rem;
+    padding: 0 .5rem;
+  }
+
+  .bar__wordmark,
+  .button--icon .button__word {
+    display: none;
+  }
+
+  .button--icon {
+    padding: .35rem .5rem;
+  }
 }
 
 /* The mark and the word beside it are one link, back to where the rest of the site is. It
@@ -264,6 +295,21 @@ h2 {
   color: var(--error);
 }
 
+/* A button that says what it does twice. The word, and the mark beside it. The mark is what
+   the eye finds in a row of six buttons, and the word is what makes it unambiguous, so
+   neither is decoration and neither is dropped on a narrow window. */
+.button--icon {
+  display: inline-flex;
+  align-items: center;
+  gap: .35rem;
+}
+
+.button--icon .glyph {
+  width: .9rem;
+  height: .9rem;
+  flex: none;
+}
+
 /* Square, because what is in it is an arrow and not a word. It points down while the pane is
    open (press to put it away) and up while it is closed. */
 .button--chevron {
@@ -326,110 +372,218 @@ h2 {
    the three columns add up to more than the window on a narrow one, the grid overflows, and
    the inspector is pushed off the right-hand edge -- while the grip that sizes it, which is
    positioned against the window rather than against the grid, stays behind on top of the
-   drawing. A panel and its handle leave together or neither does. */
+   drawing. A panel and its handle leave together or neither does.
+
+   Either side column folds to a strip. The width each one currently is, is a variable rather
+   than a value written into the grid, because the grips and the dock are laid out against
+   the same edges and every one of them has to move when a panel does. */
 .work {
+  --rail-col: var(--rail-width);
+  --inspector-col: var(--inspector-width);
   position: relative;
   display: grid;
-  grid-template-columns: var(--rail-width) minmax(0, 1fr) var(--inspector-width);
+  min-width: 0;
+  grid-template-columns: var(--rail-col) minmax(0, 1fr) var(--inspector-col);
   min-height: 0;
 }
 
-/* Narrower than the two side columns and anything worth drawing between them.
-   The panel does not go away here, because everything that edits a selection is in it: on a
-   small screen it used to disappear entirely, which left the canvas selectable and nothing
-   on the page able to change what had been selected. Instead it folds to a strip with a
-   handle, and opening it lays it over the canvas rather than squeezing the drawing into
-   what is left. Its grip goes, because a panel that is either shut or the width of the
-   overlay has no width to drag. */
-@media (max-width: 62rem) {
-  .work {
-    grid-template-columns: var(--rail-width) minmax(0, 1fr) var(--inspector-strip);
-  }
-
-  .grip--inspector {
-    display: none;
-  }
-
-  .inspector {
-    padding: 0;
-    overflow: visible;
-  }
-
-  /* Shut: the strip and its handle, and nothing of the panel's contents. */
-  .inspector__body {
-    display: none;
-  }
-
-  /* Qualified, because the rule that hides it by default is written after this block and
-     would otherwise win on source order at equal specificity. */
-  .work .inspector__handle {
-    display: flex;
-  }
-
-  /* Open: over the canvas, from under the bar to the top of the dock, and wide enough to be
-     the same panel it is on a wide window rather than a narrower version of it. */
-  .inspector.is-open {
-    position: absolute;
-    top: 0;
-    right: 0;
-    bottom: 0;
-    width: min(var(--inspector-width), calc(100vw - var(--rail-width)));
-    z-index: 6;
-    padding: 1rem;
-    overflow: auto;
-    background: var(--panel);
-    border-left: 1px solid var(--line);
-    box-shadow: -8px 0 24px rgb(0 0 0 / .14);
-  }
-
-  .inspector.is-open .inspector__body {
-    display: block;
-  }
-
-  .grip--dock {
-    right: var(--inspector-strip);
-  }
+.work.is-rail-shut {
+  --rail-col: var(--rail-strip);
 }
 
-/* The handle on the folded panel: present in the markup always, shown only where the panel
-   folds. It carries the same chevron the dock's toggle does, turned to point at the edge it
-   would come out of. */
-.inspector__handle {
+.work.is-panel-shut {
+  --inspector-col: var(--inspector-strip);
+}
+
+/* Neither panel goes away when it folds, and neither is dropped from the layout: everything
+   that edits a selection is in the panel, and everything that adds an entity is in the rail,
+   so a page that can select a thing and not edit it, or draw nothing at all, is a page
+   missing half of itself. Each keeps the strip its handle sits on, and the strip is what
+   brings it back. */
+.rail,
+.inspector {
+  position: relative;
+  background: var(--panel);
+  overflow: hidden;
+}
+
+/* The gutter the handle lives in, so the strip is never over the words. */
+.rail {
+  border-right: 1px solid var(--line);
+  padding-right: var(--rail-strip);
+}
+
+.inspector {
+  border-left: 1px solid var(--line);
+  padding-left: var(--inspector-strip);
+}
+
+/* The panel's contents scroll, rather than the panel: the strip is positioned against the
+   panel, and a strip inside something that scrolls slides away with the text. */
+.rail__body,
+.inspector__body {
+  height: 100%;
+  padding: 1rem;
+  overflow-y: auto;
+}
+
+.rail__body {
+  display: flex;
+  flex-direction: column;
+  gap: .5rem;
+}
+
+.work.is-rail-shut .rail__body,
+.work.is-panel-shut .inspector__body {
   display: none;
+}
+
+/* The handle: the whole strip down the panel's outer edge, because a target that thin should
+   not also be a target that small. It carries the same chevron the dock's toggle does, turned
+   to point the way the panel would go. */
+.panel__handle {
   position: absolute;
   top: 0;
-  right: 0;
-  width: var(--inspector-strip);
-  height: 100%;
+  bottom: 0;
+  z-index: 2;
+  width: var(--rail-strip);
+  display: flex;
   align-items: flex-start;
   justify-content: center;
   padding-top: .75rem;
   background: var(--panel);
   border: none;
-  border-left: 1px solid var(--line);
   color: var(--ink-dim);
   cursor: pointer;
 }
 
-.inspector__handle:hover {
-  color: var(--ink);
+.rail .panel__handle {
+  right: 0;
+  border-left: 1px solid var(--line);
 }
 
-/* Pointing left, at the edge the panel comes out of, and right again once it is out. */
-.inspector__handle .glyph {
+.inspector .panel__handle {
+  left: 0;
+  width: var(--inspector-strip);
+  border-right: 1px solid var(--line);
+}
+
+.panel__handle:hover {
+  color: var(--ink);
+  background: var(--panel-high);
+}
+
+.panel__handle .glyph {
   width: 1rem;
   height: 1rem;
-  transform: rotate(90deg);
   transition: transform 140ms ease-out;
 }
 
-.inspector.is-open .inspector__handle .glyph {
+/* Pointing at the edge the panel would fold to, and the other way once it is folded. */
+.rail .panel__handle .glyph {
+  transform: rotate(90deg);
+}
+
+.work.is-rail-shut .rail .panel__handle .glyph {
   transform: rotate(-90deg);
 }
 
-.inspector.is-open .inspector__handle {
-  right: 100%;
-  border-left: 1px solid var(--line);
+.inspector .panel__handle .glyph {
+  transform: rotate(-90deg);
+}
+
+.work.is-panel-shut .inspector .panel__handle .glyph {
+  transform: rotate(90deg);
+}
+
+/* Narrower than the two side columns and anything worth drawing between them. Here both
+   panels start folded and open over the canvas rather than squeezing the drawing into what
+   is left, and their grips go. A panel that is either shut or the width of the overlay has
+   no width to drag. */
+@media (max-width: 62rem) {
+  .work {
+    --rail-col: var(--rail-strip);
+    --inspector-col: var(--inspector-strip);
+  }
+
+  .grip--rail,
+  .grip--inspector {
+    display: none;
+  }
+
+  .work:not(.is-rail-shut) .rail,
+  .work:not(.is-panel-shut) .inspector {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    z-index: 6;
+    box-shadow: 0 0 24px rgb(0 0 0 / .22);
+  }
+
+  .work:not(.is-rail-shut) .rail {
+    left: 0;
+    width: min(var(--rail-width), 82vw);
+  }
+
+  .work:not(.is-panel-shut) .inspector {
+    right: 0;
+    width: min(var(--inspector-width), calc(100vw - var(--rail-strip)));
+  }
+}
+
+/* The one question this page asks itself, in this page's own face rather than in the
+   browser's. A browser's confirm box arrives from outside the window, in a face and a palette
+   that belong to somebody else, and says nothing about what is about to happen beyond the
+   sentence in it. This is the page: the same panel colour, the same buttons, and the drawing
+   it is about still visible behind it.
+
+   The browser's own box is kept for exactly one thing, leaving the site, where the browser is
+   the one asking and nothing on the page can hold a navigation open long enough to ask. */
+.modal {
+  width: min(26rem, calc(100vw - 2rem));
+  padding: 1.1rem 1.2rem 1rem;
+  border: 1px solid var(--line);
+  border-radius: .5rem;
+  background: var(--panel);
+  color: var(--ink);
+  font-family: var(--text);
+  font-size: 14px;
+  box-shadow: 0 18px 48px var(--shadow);
+}
+
+.modal::backdrop {
+  background: rgb(0 0 0 / .45);
+}
+
+.modal__title {
+  margin: 0 0 .5rem;
+  font-size: 13px;
+  color: var(--ink);
+}
+
+.modal__text {
+  margin: 0;
+  line-height: 1.5;
+  color: var(--ink-dim);
+}
+
+/* Whatever else the question needs answering with. The one switch on the export, and nothing
+   at all on a question that is only yes or no. */
+.modal__extra:not(:empty) {
+  margin-top: .8rem;
+}
+
+.modal__extra .check {
+  margin: 0;
+}
+
+/* The answer on the right, where the last thing read is the thing being pressed, and the way
+   out to the left of it. */
+.modal__row {
+  display: flex;
+  justify-content: flex-end;
+  gap: .5rem;
+  margin-top: 1.1rem;
 }
 
 /* The seams. Each is a hair wide to look at and several pixels wide to hit, which is the
@@ -456,19 +610,19 @@ h2 {
 }
 
 .grip--rail {
-  left: var(--rail-width);
+  left: var(--rail-col);
 }
 
 .grip--inspector {
   left: auto;
-  right: var(--inspector-width);
+  right: var(--inspector-col);
   margin-left: 0;
   margin-right: -3px;
 }
 
 .grip--dock {
-  left: var(--rail-width);
-  right: var(--inspector-width);
+  left: var(--rail-col);
+  right: var(--inspector-col);
   bottom: var(--dock-height);
   height: 7px;
   margin-bottom: -3px;
@@ -483,24 +637,6 @@ h2 {
    ends up selecting text in the pane it crossed. */
 .work.is-resizing {
   user-select: none;
-}
-
-.rail,
-.inspector {
-  padding: 1rem;
-  background: var(--panel);
-  overflow-y: auto;
-}
-
-.rail {
-  border-right: 1px solid var(--line);
-  display: flex;
-  flex-direction: column;
-  gap: .5rem;
-}
-
-.inspector {
-  border-left: 1px solid var(--line);
 }
 
 .rail__title {
@@ -1550,6 +1686,7 @@ h2 {
 }
 
 .field {
+  position: relative;
   display: block;
   margin-bottom: .6rem;
 }
@@ -1598,6 +1735,7 @@ h2 {
 }
 
 .tick__extras .field {
+  position: static;
   display: flex;
   align-items: center;
   gap: .35rem;
@@ -1694,11 +1832,80 @@ select:focus {
   overflow-wrap: anywhere;
 }
 
-/* A label that is a name out of the project: an entity, or a member as its own file declares
+/* A label that is a name out of the project. An entity, or a member as its own file declares
    it. Those are code and are set as code. A sentence about the entity is not. */
 .check--code .check__label {
   font-family: var(--mono);
   font-size: 12px;
+}
+
+/* A line of the project's own code, wherever one is written outside the pane. A member on a
+   contract, the signature of a declaration, the title of a card. The same three colours the
+   pane paints with (editor.css) and the canvas paints its rows with, held back one step for a
+   surface that is not the file itself. One scheme, so a reader following a member from the
+   file to the panel to the card is reading one thing painted the same way three times. */
+.code {
+  font-family: var(--mono);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.code__tok--kw {
+  color: var(--code-keyword);
+}
+
+.code__tok--type {
+  color: var(--code-type);
+}
+
+.code__tok--name {
+  color: var(--code-name);
+}
+
+.code__tok--punct {
+  color: var(--code-punct);
+}
+
+/* The two ends of a link, wherever one is named: the owner, an arrow, and whoever is at the
+   other end. The names take the two role colours the drawing puts on the entities themselves,
+   so the panel and the canvas say which end is which the same way. The arrow was a `>` typed
+   between them, which at this size is punctuation a reader has to decide is an arrow. */
+.ends {
+  display: inline-flex;
+  align-items: center;
+  gap: .3rem;
+  min-width: 0;
+  font-family: var(--mono);
+  overflow-wrap: anywhere;
+}
+
+.ends__end--owner {
+  color: var(--owner);
+}
+
+.ends__end--consumer {
+  color: var(--consumer);
+}
+
+.arrow {
+  width: .9rem;
+  height: .7rem;
+  flex: none;
+  color: var(--ink-dim);
+}
+
+/* The connect point's own mark, the little document every line on the canvas leaves from. */
+.glyph__doc-box {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.4;
+}
+
+.glyph__doc-lines {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.2;
+  opacity: .75;
 }
 
 /* A block of the panel, ruled off from the one above it. The panel is a column of settings
@@ -1736,16 +1943,19 @@ select:focus {
 }
 
 /* Out of sight until the pointer is on the section it belongs to. A panel of eleven settings
-   with a mark on every heading is eleven marks to read past; a mark that appears on the one
-   section you are already looking at is a mark nobody has to read past at all. It keeps its
-   space either way, so nothing moves when it arrives.
+   with a mark on every one of them is eleven marks to read past. The marks of the section the
+   pointer is already on are marks nobody has to read past at all. Each keeps its space either
+   way, so nothing moves when they arrive.
 
-   Where there is no pointer to hover with, it is simply always there. */
-.block__ask {
+   Where there is no pointer to hover with, they are always there. */
+.ask {
   width: 1rem;
   height: 1rem;
-  display: grid;
+  flex: none;
+  display: inline-grid;
   place-items: center;
+  translate: 0 -1px;
+  margin-left: .25rem;
   padding: 0;
   border: 1px solid var(--line);
   border-radius: 50%;
@@ -1754,34 +1964,39 @@ select:focus {
   font: inherit;
   font-size: 10px;
   line-height: 1;
+  text-transform: none;
   cursor: help;
   opacity: 0;
   transition: opacity 120ms ease-out, color 120ms ease-out, border-color 120ms ease-out;
 }
 
-.block:hover .block__ask,
-.block:focus-within .block__ask {
+.block:hover .ask,
+.block:focus-within .ask,
+.inspector__head:hover .ask {
   opacity: 1;
 }
 
-.block__ask:hover,
-.block__ask:focus-visible {
+.ask:hover,
+.ask:focus-visible {
   opacity: 1;
   border-color: var(--accent);
   color: var(--accent);
 }
 
 @media (hover: none) {
-  .block__ask {
+  .ask {
     opacity: 1;
   }
 }
 
-/* What the section is, over whatever is under it. The width of the panel, because that is
-   what a paragraph in this column has always been, and above the controls it covers rather
-   than pushing them down the page: opening an explanation must not move the thing it
-   explains out from under the pointer. */
-.block__tip {
+/* What the thing beside it is, over whatever is under it. The width of the panel, because
+   that is what a paragraph in this column has always been, and above the controls it covers
+   rather than pushing them down the page. Opening an explanation must not move the thing it
+   explains out from under the pointer.
+
+   Positioned against whichever ancestor is the width of the panel. A field, a block's heading
+   row, or the wrapper a switch is put in for exactly this. */
+.ask__tip {
   position: absolute;
   z-index: 6;
   top: calc(100% + .3rem);
@@ -1797,21 +2012,47 @@ select:focus {
   transition: opacity 120ms ease-out, visibility 120ms;
 }
 
-.block__ask:hover ~ .block__tip,
-.block__ask:focus-visible ~ .block__tip {
+.ask:hover ~ .ask__tip,
+.ask:focus-visible ~ .ask__tip {
   opacity: 1;
   visibility: visible;
 }
 
 /* In here the paragraphs are the whole content, so they space themselves against each other
-   rather than against the control they used to sit under. */
-.block__tip .field__note {
+   rather than against a control. Set as ordinary prose, because they are
+   sentences, and the label above them is the only thing in this column wearing small capitals
+   for a reason. */
+.ask__line {
   margin: 0;
   padding: 0;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--ink);
+  font-weight: 400;
+  letter-spacing: normal;
+  text-transform: none;
 }
 
-.block__tip .field__note + .field__note {
+.ask__line + .ask__line {
   margin-top: .45rem;
+}
+
+/* A switch with a mark of its own. The wrapper is what the explanation is measured against,
+   and what holds the mark out at the end of the line rather than inside the words of the
+   switch, where it would be part of what clicking the switch means. */
+.helped {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+}
+
+.helped > .check {
+  flex: 1;
+  min-width: 0;
+}
+
+.helped > .ask {
+  margin-top: .1rem;
 }
 
 /* One member of the contract, ticked out of what its owner declares, with the two things
@@ -1824,10 +2065,12 @@ select:focus {
   margin: .5rem 0 .6rem;
 }
 
-/* One member: the declaration it is, and under it whatever this contract adds to it. A
+/* One member. The declaration it is, and under it whatever this contract adds to it. A
    column, because those are two different things and the second one only appears once the
-   first is ticked. */
+   first is ticked. Positioned, because it is the width an explanation of anything in it
+   wants to be. The two controls under a ticked member are a few words wide each. */
 .tick {
+  position: relative;
   display: flex;
   flex-direction: column;
   padding: .2rem 0;
@@ -2794,12 +3037,23 @@ select:focus {
 }
 
 .picker__head {
+  display: flex;
+  align-items: center;
+  gap: .3rem;
   margin-bottom: .3rem;
   font-size: 12px;
   font-weight: 600;
   letter-spacing: .04em;
   text-transform: uppercase;
   color: var(--ink-dim);
+}
+
+/* The two ends of the point, in its heading. Set as the names they are rather than in the
+   small capitals the rest of the heading wears. */
+.picker__head .ends {
+  text-transform: none;
+  letter-spacing: normal;
+  font-size: 13px;
 }
 
 .picker__note {
@@ -2831,8 +3085,9 @@ select:focus {
   background: var(--panel-high);
 }
 
-.picker__member {
-  font-family: var(--mono);
+/* A member here is the line of code it is, painted by the same reader as everywhere else. All
+   this sets is the size it is set at. */
+.picker__row .code {
   font-size: 12px;
 }
 

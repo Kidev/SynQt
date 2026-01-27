@@ -212,17 +212,31 @@ export function contractOf(link) {
     return owner ? `${owner[0].toUpperCase()}${owner.slice(1)}` : "";
 }
 
-// What a link is called, everywhere anything names one: the two entities it runs between, in
-// the names their author gave them. It used to be the owner's name capitalised, which is the
-// type a consumer writes in QML and not a name this drawing has anything to do with -- so a
-// canvas of entities called `edge` and `app` labelled the line between them `Edge`, and a
-// reader had two spellings of one thing and nothing saying they were one thing.
+// What a link is called: the two entities it runs between, in the names their author gave
+// them. It used to be the owner's name capitalised, which is the type a consumer writes in
+// QML and not a name this drawing has anything to do with -- so a canvas of entities called
+// `edge` and `app` labelled the line between them `Edge`, and a reader had two spellings of
+// one thing and nothing saying they were one thing.
 //
-// `consumer` narrows it to one line; without it the point is named by every consumer it has.
-export function linkTitle(link, consumer) {
-    const owner = (link || {}).owner || "nobody yet";
+// This is the form for the places that take text and nothing else: a `title` attribute, a
+// label read out by a screen reader. On the page itself a link is drawn rather than written,
+// by `linkTitleNode`, with the arrow between the names as an arrow.
+//
+// `consumer` narrows it to one line. Without it the point is named by every consumer it has.
+//
+// The two ends are answered separately as well, because most places that name a link draw it
+// rather than write it: the arrow between the two names is a mark on the page, and the names
+// themselves are coloured for the role each end plays. This is the one reading of a link's
+// name, so the drawn form and the written form can never say different things.
+export function linkEnds(link, consumer) {
     const consumers = consumer ? [consumer] : ((link || {}).consumers || []);
-    return `${owner} > ${consumers.join(", ") || "nobody yet"}`;
+    return {owner: (link || {}).owner || "nobody yet",
+            consumers: consumers.join(", ") || "nobody yet"};
+}
+
+export function linkTitle(link, consumer) {
+    const ends = linkEnds(link, consumer);
+    return `${ends.owner} > ${ends.consumers}`;
 }
 
 export function entityDir(entity) {

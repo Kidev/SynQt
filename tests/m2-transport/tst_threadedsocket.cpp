@@ -28,6 +28,8 @@
 #include <QWebSocket>
 #include <QWebSocketServer>
 
+#include <atomic>
+
 using SynQt::SocketChannel;
 using SynQt::WebSocketTransport;
 
@@ -250,9 +252,10 @@ void TestThreadedSocket::destroyingTheDeviceDestroysItsSocketOnItsOwnThread()
 {
     // A QWebSocket torn down from a thread that is not its own leaves socket notifiers
     // being disabled from the wrong side, which Qt refuses to do, so the device asks for
-    // the channel to be deleted on its thread rather than deleting it. The half of that
-    // worth pinning is that it actually happens: a deferred delete only runs if something
-    // delivers it, and at shutdown the only thing left to is the event loop being quit.
+    // the channel to be deleted on its thread rather than deleting it. Two things are
+    // worth pinning. That the deletion happens at all (a deferred delete only runs if
+    // something delivers it, and at shutdown the only thing left to do that is the event
+    // loop being quit), and that the thread which runs the destructor is the channel's own.
     ThreadedLink link;
     QVERIFY(link.connectPair());
 
@@ -261,13 +264,24 @@ void TestThreadedSocket::destroyingTheDeviceDestroysItsSocketOnItsOwnThread()
     QVERIFY(!channel.isNull());
     QVERIFY(!socket.isNull());
 
-    link.destroyDevice();
-    // Not yet: the deletion is posted, not done, and it belongs to the other thread.
-    QVERIFY(!channel.isNull());
+    // Where the destructor runs, recorded by the destructor itself: connected with no
+    // context object, so the lambda is called on whichever thread does the deleting.
+    //
+    // This is what the case is about, and looking for the channel still being alive
+    // between the two steps below is not. The deletion is posted the moment the device
+    // goes, and whether the IO thread has picked it up by the time the next line runs is
+    // a race between two running threads. It usually has not, and on a Windows runner it
+    // sometimes has.
+    std::atomic<QThread *> destroyedOn{nullptr};
+    QObject::connect(channel.data(), &QObject::destroyed, [&destroyedOn]() {
+        destroyedOn.store(QThread::currentThread());
+    });
 
+    link.destroyDevice();
     link.stopIoThread();
     QVERIFY2(channel.isNull(), "the channel outlived the device that owned it");
     QVERIFY2(socket.isNull(), "the socket outlived the channel it was a child of");
+    QCOMPARE(destroyedOn.load(), link.ioThread());
 }
 
 QTEST_MAIN(TestThreadedSocket)

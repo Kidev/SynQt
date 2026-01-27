@@ -30,6 +30,10 @@ It is a starting point, not a page: once it is open it is an ordinary project. M
 add things, edit the files, and what you left is what comes back the next time you follow the
 same link. Download takes it with you and Clear starts over.
 
+**Export** hands you the drawing as a PNG: the whole design at its own size with a margin
+round it, over the page colour or over nothing, which is the picture to paste into a document
+or an issue. It is the canvas as it is drawn, so it says what the project says.
+
 ## What you can draw
 
 The rail on the left is the entity palette, and it is the list from
@@ -119,12 +123,23 @@ entity's provider, a connect point's consumer list, and what crosses it. The con
 is the authorization: an entity that is not on it is refused the replica.
 [Security](security.md) is where that is spelled out.
 
-Each section of the panel says what it is behind the `?` on its heading, which appears when
-the pointer is on that section. The words are there when you want them and out of the way
-when you do not, so what is on screen is the settings rather than a paragraph before each of
-them.
+Both side panels fold. The strip down the outer edge of each one is its handle: press it and
+the panel goes, and the drawing takes the width; press the strip again and it comes back. On a
+window too narrow for three columns they start folded and open over the canvas, so a phone
+shows the design rather than two columns of furniture with a sliver between them.
 
-Under **Wired to**, an entity's panel names who is at the other end of every line it is on:
+Each control in the panel says what it is behind the `?` beside it, and each section says
+what the group of them is for behind the `?` on its heading. The marks appear when the pointer
+is on that section and the words when the pointer is on the mark, so what is on screen is the
+settings rather than a paragraph before each of them, and the answer you get is the answer
+about the setting you were pointing at.
+
+Every member is written the way the file that declares it writes it, in the same colours the
+pane below uses, `prop bool loaded` or `slot bool placeBid(int amount)`. A connect point is
+named by its two ends with an arrow between them, `edge -> app`, on its own panel, on the
+button that opens it, and on the card that hovering it opens.
+
+Under **Wired to**, an entity's panel names who is at the other end of every line it is on,
 the entities that consume the connect point it owns, and the owner of every point it consumes.
 Each of those names is a button that selects that entity, so following a line is a click
 rather than a hunt across the canvas.

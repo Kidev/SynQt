@@ -261,11 +261,11 @@ def test_the_panes_styling_is_a_theme_and_not_a_stylesheet_that_loses():
 def test_a_panel_section_is_never_built_without_the_mark_that_explains_it():
     """Every block of the inspector gets its heading from `blockHead`, and so gets its `?`.
 
-    The panel's explanations live behind that mark rather than under the controls, which is
-    what `explain` moves them to, and it is reached from the one function that writes a
-    heading. Two of the blocks are built a line at a time rather than out of finished parts,
-    and both of them wrote their own `<h2>` at first: they kept their wall of prose while
-    every other section lost one, which is a difference nobody would think to look for.
+    The panel's explanations live behind those marks rather than under the controls, and a
+    heading is where the one that explains the whole section hangs from. Two of the blocks
+    are built a line at a time rather than out of finished parts, and both of them wrote
+    their own `<h2>` at first. They kept their wall of prose while every other section lost
+    one, which is a difference nobody would think to look for.
     """
     body = _text("inspector.js")
     blocks = re.findall(r'tag\("(?:section|div)", \{class: "block[ "]', body)

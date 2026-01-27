@@ -11,7 +11,9 @@
 // not there.
 
 import { SCOPES, behindOf, entityType } from "./rules.js";
-import { ROLE_HELP, accessorName, glyphSvg, memberMarkSvg, roleOf } from "./canvas.js";
+import { ROLE_HELP, accessorName, codeLine, codeParts, codeWord, contractSvg,
+         glyphSvg, linkTitleNode, memberCode, memberMarkSvg,
+         roleOf } from "./canvas.js";
 import { linkTitle } from "./project.js";
 import { baseType, declarations } from "./source.js";
 
@@ -69,10 +71,17 @@ function tag(name, attributes, text) {
 
 // A label and the one control it names. A real `<label>`, so clicking the words puts the
 // caret in the box.
-function field(label, control, role) {
+//
+// `help` is what that one control is, which is where an explanation belongs: on the setting
+// it is about, and not gathered into a paragraph at the top of the section with the other
+// ten. The mark that holds it goes beside the label, so the words being explained and the way
+// to ask about them are the same three characters wide.
+function field(label, control, {role, help} = {}) {
     const wrap = tag("label", {class: "field"});
-    wrap.append(tag("span", {class: `field__label${role ? ` field__label--${role}` : ""}`},
-                    label), control);
+    const name = tag("span", {class: `field__label${role ? ` field__label--${role}` : ""}`},
+                     label);
+    asked(name, label, help);
+    wrap.append(name, control);
     return wrap;
 }
 
@@ -85,10 +94,12 @@ function field(label, control, role) {
 // and function all announced themselves as "Add property model signal function", which is
 // what a screen reader says and what a test looking for the button named "property" fails
 // to find.
-function group(label, controls, role) {
+function group(label, controls, {role, help} = {}) {
     const wrap = tag("div", {class: "field"});
-    wrap.append(tag("span", {class: `field__label${role ? ` field__label--${role}` : ""}`},
-                    label), controls);
+    const name = tag("span", {class: `field__label${role ? ` field__label--${role}` : ""}`},
+                     label);
+    asked(name, label, help);
+    wrap.append(name, controls);
     return wrap;
 }
 
@@ -97,63 +108,69 @@ function group(label, controls, role) {
 // more line of prose in the same flow as the last block's explanation: eleven controls, no
 // edges, nothing to scan for.
 //
-// The paragraphs come off the panel and go behind the `?` on the heading, which is the second
-// half of that same job: with the rules in, the panel was a column of edges with more prose
-// than controls between them, and a reader looking for the one setting they came for read a
-// paragraph at each one to find it. Nothing is lost -- every word is still on the section it
-// explains, one hover away -- and what is on screen is the settings.
-function section(label, ...parts) {
+// `help` is what the whole block is, and it is short. Prose swept off the controls
+// and piled behind the one mark on the heading would make a
+// section explain eleven settings in one paragraph nobody can aim at. Each setting says
+// what it is where it is, and this says what the group of them is for.
+function section(label, help, ...parts) {
     const box = tag("section", {class: "block"});
-    const head = blockHead(box, label);
+    blockHead(box, label, help);
     for (const part of parts) {
         if (part) {
             box.append(part);
         }
     }
-    explain(box, head);
     return box;
 }
 
-// The heading row of a block, and what the `?` hangs from. Its own function because two of
+// The heading row of a block, and what its `?` hangs from. Its own function because two of
 // these blocks are built a line at a time rather than out of finished parts, and a heading
 // written a second way is a heading that explains itself a second way, or not at all.
-function blockHead(box, label) {
+function blockHead(box, label, help) {
     const head = tag("div", {class: "block__head"});
     head.append(tag("h2", {class: "block__title"}, label));
+    asked(head, label, help);
     box.append(head);
     return head;
 }
 
-// Move this section's paragraphs behind a `?` beside its heading.
+// The `?` beside a label, and the words it holds.
 //
-// Unless they are all it has. A section whose whole content is its explanation -- "Nothing
-// yet. Drag from a handle on this entity's rim" and the rest of the empty states -- is a
-// heading over an empty box the moment the words are taken away, and an empty box explains
-// itself to nobody. Decided on a copy, so the paragraphs are only ever detached once it is
-// settled that they are going.
-function explain(box, head) {
-    const notes = Array.from(box.querySelectorAll("p.field__note"));
-    if (!notes.length) {
-        return;
+// Hidden until the pointer is on the section it belongs to, so a panel of settings reads as
+// settings; hovering the mark is what says what the setting is. Every word is still on the
+// thing it explains, which is the whole point of putting a mark on each one rather than a
+// paragraph at the top: the reader asks about the control they are looking at, and gets the
+// answer to that question and no others.
+//
+// `host` is what the mark is appended to, and the tip is positioned against whichever
+// ancestor of it is the width of the panel (`.field`, `.block__head`, `.helped`), because a
+// paragraph in this column has always been that wide.
+function asked(host, label, help) {
+    const lines = (Array.isArray(help) ? help : [help]).filter(Boolean);
+    if (!lines.length) {
+        return host;
     }
-    const probe = box.cloneNode(true);
-    probe.querySelector(".block__head").remove();
-    for (const paragraph of Array.from(probe.querySelectorAll("p.field__note"))) {
-        paragraph.remove();
-    }
-    if (!probe.textContent.trim() && !probe.querySelector("input, select, textarea, button")) {
-        return;
-    }
-    const label = head.querySelector(".block__title").textContent;
-    const ask = tag("button", {type: "button", class: "block__ask",
+    const ask = tag("button", {type: "button", class: "ask",
                                "aria-label": `What "${label}" means`}, "?");
-    const tip = tag("span", {class: "block__tip", role: "tooltip"});
-    for (const paragraph of notes) {
-        paragraph.remove();
-        paragraph.classList.remove("field__note--loose");
-        tip.append(paragraph);
+    const tip = tag("span", {class: "ask__tip", role: "tooltip"});
+    for (const line of lines) {
+        tip.append(tag("p", {class: "ask__line"}, line));
     }
-    head.append(ask, tip);
+    host.append(ask, tip);
+    return host;
+}
+
+// A control that is not a labelled field -- a switch, a row of them -- with a mark of its own.
+// The wrapper is what the explanation is measured against, and it is also what holds the mark
+// out at the end of the line, away from the words of the switch itself.
+function helped(node, label, help) {
+    if (!help) {
+        return node;
+    }
+    const wrap = tag("div", {class: "helped"});
+    wrap.append(node);
+    asked(wrap, label, help);
+    return wrap;
 }
 
 // A line under whatever it explains. `loose` is for one that follows a heading or a button
@@ -182,16 +199,21 @@ function choice(values, current, onChange, emptyLabel) {
 }
 
 // A switch and what it says. `code` is for a label that is a name out of the project (an
-// entity, a declaration): those are set in the code face, and a sentence about the entity is
+// entity, a declaration). Those are set in the code face, and a sentence about the entity is
 // not. Everything wore the code face, which made a plain English switch read like something
 // quoted out of a file and cost it a line of wrapping at this width.
-function check(label, checked, onChange, {code} = {}) {
+//
+// `label` is a string, or the nodes to set as one: a member of a contract is a line of code
+// and is painted the way the file it comes from is, which a string cannot carry.
+function check(label, checked, onChange, {code, help} = {}) {
     const wrap = tag("label", {class: code ? "check check--code" : "check"});
     const box = tag("input", {type: "checkbox"});
     box.checked = checked;
     box.addEventListener("change", () => onChange(box.checked));
-    wrap.append(box, tag("span", {class: "check__label"}, label));
-    return wrap;
+    const said = tag("span", {class: "check__label"});
+    said.append(typeof label === "string" ? document.createTextNode(label) : label);
+    wrap.append(box, said);
+    return helped(wrap, typeof label === "string" ? label : "this", help);
 }
 
 // A type, and the size that goes with it where the type takes one. Two controls, because
@@ -282,14 +304,20 @@ function entityPanel(design, entity, actions) {
 
     // What it is called, and what it is. Two facts about the thing itself, above everything
     // that is a decision about how it behaves.
-    panel.append(section("This entity",
+    panel.append(section("This entity", "",
         field("Name", text(entity.name, (value) => {
             renameEntity(design, entity, value);
             actions.rename("entity", value);
-        })),
+        }), {help: "The name the rest of the project reaches this by: its folder on disk, "
+                   + "the accessor other entities write in their QML, and the connect point "
+                   + "it owns. Typing a new one here carries it into all of them at once."}),
         // Stated, not offered. What an entity is was decided when it was dragged off the
         // palette, and everything drawn since means what it means because of that.
-        group("Kind", tag("p", {class: "field__fixed"}, KIND_LABELS[role]))));
+        group("Kind", tag("p", {class: "field__fixed"}, KIND_LABELS[role]),
+              {help: "What this entity is, chosen when it was dragged off the palette. It "
+                     + "decides which Qt modules the entity links, where its files are "
+                     + "written, and what it is allowed to reach. Drag a new entity out to "
+                     + "have a different kind."})));
 
     const how = tag("div");
     if (entityType(entity) === "client") {
@@ -307,45 +335,56 @@ function entityPanel(design, entity, actions) {
                 actions.changed();
             }, {code: true}));
         }
-        how.append(group("Targets", targets));
-        how.append(note("The browser bundle, a native desktop app from the same QML, or "
-                        + "both. Either way it holds no secret and no mesh certificate."));
+        how.append(group("Targets", targets,
+                         {help: ["`wasm` builds the browser bundle the edge serves. "
+                                 + "`desktop` builds a native app for Windows, macOS and "
+                                 + "Linux from the same QML. Tick both to ship both out of "
+                                 + "one source tree.",
+                                 "Either way it is a connector: it reaches services "
+                                 + "through the edge, and the secrets and the mesh "
+                                 + "certificates stay on the entities behind it."]}));
     } else if (role === "edge") {
         how.append(check("Runs the sign-in flow", Boolean(entity.identity), (on) => {
             entity.identity = on;
             actions.changed();
-        }));
-        how.append(note("The one entity the browser can reach. Everything else is "
-                        + "behind it, on the mesh."));
+        }, {help: "Turn this on for the entity that signs people in: it runs the OAuth "
+                  + "exchange, keeps the tokens and the sessions, and hands the browser a "
+                  + "cookie. `synqt add auth <provider>` fills in the rest."}));
         how.append(frontPanel(design, entity, actions));
     } else if (PROVIDER_FAMILIES.has(entityType(entity))) {
         how.append(field("Provider", text(entity.provider, (value) => {
             entity.provider = value;
             actions.changed();
-        }, "sqlite")));
-        how.append(note("The engine behind the type, swapped with this one value. "
-                        + "Its credentials come from this entity's own environment and "
-                        + "never from here."));
+        }, "sqlite"),
+                         {help: ["The engine behind this kind of entity, named the way "
+                                 + "`synqt providers` lists it: `sqlite` or `postgres` for a "
+                                 + "relational entity, `memory` or `redis` for a cache. Type "
+                                 + "another one in to swap engines; the connect point and "
+                                 + "everything that consumes it stay as they are.",
+                                 "The engine's credentials come from this entity's own "
+                                 + "environment, so they stay on this side of the mesh."]}));
     }
 
     if (role !== "client") {
         const shared = typeof entity.shared === "boolean" ? entity.shared : true;
-        // `rebuild` and not `changed`: the line under this switch is what the switch means,
-        // and redrawing only the canvas left it saying the opposite of the box beside it.
-        // A switch whose explanation does not move is a switch that looks like it did
-        // nothing.
+        // `rebuild` and not `changed`: what the switch means depends on where it is, so the
+        // panel is built again around it. A switch whose surroundings do not move is a
+        // switch that looks like it did nothing.
         how.append(check("One of it, for everybody", shared, (on) => {
             entity.shared = on;
             actions.rebuild();
-        }));
-        how.append(note(shared
-            ? "One Source answers every caller, and each of them still arrives with a "
-              + "Caller of their own. synqt.yaml says nothing, which is the default."
-            : "Every caller gets a Source of their own, holding only what is theirs. "
-              + "Written as `shared: false` on this entity."));
+        }, {help: ["On, and one Source answers every caller while each of them still arrives "
+                   + "with a `Caller` of their own. It is the default, and what a database or "
+                   + "a cache wants: the state belongs to the system rather than to whoever "
+                   + "asked.",
+                   "Off, and every caller gets a Source holding only what is theirs, written "
+                   + "as `shared: false` on this entity."]}));
     }
 
-    panel.append(section("How it runs", how));
+    panel.append(section("How it runs",
+                         "How this entity behaves once it is running, and what it is built "
+                         + "to link. Everything here is written onto this entity in "
+                         + "synqt.yaml.", how));
 
     panel.append(wiredPanel(design, entity, actions));
 
@@ -394,8 +433,11 @@ function wiredPanel(design, entity, actions) {
                         .filter(Boolean);
     const open = (name) => actions.select({kind: "entity", name});
 
+    const about = "Who is at the other end of every line this entity is on. The same two "
+        + "words synqt.yaml uses: an owner answers a connect point and decides what crosses "
+        + "it, a consumer acquires a replica of it.";
     if (!owned.length && !owners.length) {
-        return section("Wired to",
+        return section("Wired to", about,
             note("Nothing yet. Drag from a handle on this entity's rim to another entity to "
                  + "draw a connect point out of it, or from that entity to this one to "
                  + "consume theirs.", true));
@@ -406,30 +448,47 @@ function wiredPanel(design, entity, actions) {
         const point = owned[0];
         box.append(group("Consumers", consumers.length
             ? jumps(consumers, open)
-            : tag("p", {class: "field__fixed"}, "nobody yet")));
-        box.append(note(consumers.length
-            ? `These acquire a replica of the connect point '${entity.name}' owns, and can `
-              + "only ask it for what crosses. Nothing else on the mesh may reach it."
-            : `'${entity.name}' owns a connect point that nothing consumes yet. Drag a line `
-              + "from its rim to whatever should reach it."));
-        const contract = tag("button", {type: "button", class: "button"},
-                             `What crosses '${entity.name}'`);
+            : tag("p", {class: "field__fixed"}, "nobody yet"),
+                         {help: consumers.length
+                             ? [`Each of these acquires a replica of the connect point `
+                                + `'${entity.name}' owns and can ask it for what crosses. `
+                                + `This list is the authorization: an entity that is not on `
+                                + `it is refused the replica.`,
+                                "Press one to go to it."]
+                             : [`'${entity.name}' owns a connect point and nothing consumes `
+                                + `it yet. Drag a line from the contract icon on its rim to `
+                                + `whatever should reach it.`]}));
+        // Named the way everything else names a link, and the size of the buttons above it:
+        // both are one press to somewhere else, and a wider one read as a different kind of
+        // control. It names the thing it opens rather than the panel it opens ("What
+        // crosses 'store'"), which would be a sentence where a name will do.
+        const contract = tag("button", {type: "button", class: "button button--chip"});
+        contract.append(linkTitleNode(point));
+        contract.title = `Open the connect point ${linkTitle(point)}`;
         contract.addEventListener("click", () => actions.openContract(point));
-        box.append(group("Contract", contract));
+        box.append(group("Contract", contract,
+                         {help: `The connect point '${entity.name}' owns, where you tick `
+                                + `what crosses it out of what this entity declares. One `
+                                + `entity owns one, and its consumers all get the same `
+                                + `contract.`}));
     }
     if (owners.length) {
-        box.append(group("Owner", jumps([...new Set(owners)], open)));
         // A client says `Server` for the edge it reaches, which is the one accessor that is
-        // not the owner's own name: it is a browser's word for whatever is in front of it.
+        // not the owner's own name. It is a browser's word for whatever is in front of it.
         // Only ever one owner there, because the edge is the only thing a browser can reach.
         const reaches = roleOf(entity) === "client" ? "Server" : accessorName(owners[0]);
-        box.append(note(owners.length === 1
-            ? `'${entity.name}' consumes the connect point '${owners[0]}' owns, and reaches `
-              + `it as \`${reaches}\` in its own QML.`
-            : `'${entity.name}' consumes a connect point from each of these, and reaches each `
-              + "one by that owner's own name."));
+        box.append(group("Owner", jumps([...new Set(owners)], open),
+                         {help: owners.length === 1
+                             ? [`'${entity.name}' consumes the connect point '${owners[0]}' `
+                                + `owns, and reaches it by writing \`${reaches}\` in its own `
+                                + `QML.`,
+                                "Press it to go to that entity."]
+                             : [`'${entity.name}' consumes a connect point from each of `
+                                + `these, and reaches each one by that owner's own name in `
+                                + `its QML.`,
+                                "Press one to go to it."]}));
     }
-    return section("Wired to", box);
+    return section("Wired to", about, box);
 }
 
 // What the entity's own file declares, edited where it is declared.
@@ -454,7 +513,13 @@ function wiredPanel(design, entity, actions) {
 // look for it somewhere else.
 function declaresPanel(design, entity, actions) {
     const box = tag("div", {class: "block members"});
-    const head = blockHead(box, "What this entity declares");
+    blockHead(box, "What this entity declares",
+              ["Everything this entity's own QML declares, read out of the file itself: a "
+               + "property is state, a model is a list of rows, a signal is something that "
+               + "happened, and a function is something callers can ask for.",
+               "This is the pool every connect point this entity owns ticks its contract "
+               + "from. Press a line to open it, and what you change is written back into "
+               + "the file."]);
     const found = declarations(entity.qml || "");
     const point = ownPointOf(design, entity);
     const models = ((point || {}).members || []).filter((one) => one.kind === "model");
@@ -481,14 +546,19 @@ function declaresPanel(design, entity, actions) {
                                      params: [], roles: []});
         }));
     }
-    box.append(group("Add", adders));
-    box.append(note(point || !models.length
-        ? "A property, a signal and a function are written into this entity's own file, "
-          + "which is where a connect point it owns finds them to put on a contract. A model "
-          + "has no QML form, so it is written straight onto the connect point."
-        : "Draw a connect point off this entity before adding a model: a model has no QML "
-          + "form, so the connect point is the only place one can be written.", true));
-    explain(box, head);
+    box.append(group("Add", adders,
+                     {help: point || !models.length
+                         ? ["A property, a signal and a function are written into this "
+                            + "entity's own file, which is where a connect point it owns "
+                            + "finds them.",
+                            "A model is written straight onto the connect point, which is "
+                            + "the one place a model can live: QML has a form for the other "
+                            + "three and none for this."]
+                         : ["A property, a signal and a function are written into this "
+                            + "entity's own file.",
+                            "A model lives on a connect point, so draw one off this entity "
+                            + "first: drag from a handle on its rim to whatever should "
+                            + "reach it."]}));
     return box;
 }
 
@@ -600,22 +670,34 @@ function declaredPanel(design, entity, member, actions) {
         const was = member.name;
         member.name = value;
         actions.redeclare(entity, member, {...member}, was);
-    }, "name")));
+    }, "name"),
+                     {help: "What the declaration is called in the entity's own file, and "
+                            + "what a consumer writes to reach it. Typing here rewrites the "
+                            + "line in the file and carries the new name onto every contract "
+                            + "already carrying it."}));
 
-    // No size here, and no size on the parameters below: a declaration is kept as the line
+    // No size here, and no size on the parameters below. A declaration is kept as the line
     // in the file, and QML has no type with a limit in it. Where a size is a real thing is
     // on the connect point, beside the scope, and that is where the box for it is.
     if (member.kind === "prop") {
         row.append(field("Type", choice(TYPES, baseType(member.type) || "var", (value) => {
             member.type = value;
             actions.redeclare(entity, member, {...member}, member.name);
-        })));
+        }),
+                         {help: "The QML value type this property holds, and what a consumer "
+                                + "gets on the other side. The list is the vocabulary the "
+                                + "contract compiler accepts, so every one of these builds."}));
     }
     if (member.kind === "slot") {
         row.append(field("Answers", choice(["", ...TYPES], baseType(member.type), (value) => {
             member.type = value;
             actions.redeclare(entity, member, {...member}, member.name);
-        }, "nothing")));
+        }, "nothing"),
+                         {help: ["What the caller gets back. Give it a type and the call "
+                                 + "resolves with a value, which a consumer awaits: "
+                                 + "`Store.place(bid).then(ok => ...)`.",
+                                 "Leave it at nothing and the call is made and not waited "
+                                 + "on, which is what a fire and forget slot is."]}));
     }
     edit.append(row);
 
@@ -636,36 +718,49 @@ function memberHead(member, open, onToggle, removeTitle, onRemove) {
     const summary = tag("button", {type: "button", class: "member__summary",
                                    "aria-expanded": String(open)});
     summary.append(memberMarkSvg(member.kind));
-    summary.append(tag("span", {class: "member__kind"}, KIND_WORDS[member.kind]));
+    summary.append(tag("span", {class: "member__kind code__tok code__tok--kw"},
+                       KIND_WORDS[member.kind]));
     // The name on its own, so an unfinished one is visibly unfinished rather than a line with
     // a gap in it. Everything after the name is the signature, quieter, because two members of
     // the same kind are told apart by their names.
     summary.append(member.name
         ? tag("span", {class: "member__name"}, member.name)
         : tag("span", {class: "member__name member__name--empty"}, "unnamed"));
-    const rest = signatureRest(member);
-    if (rest) {
-        summary.append(tag("span", {class: "member__signature"}, rest));
-    }
+    summary.append(signatureRest(member));
     summary.addEventListener("click", onToggle);
     head.append(summary);
     head.append(remover(removeTitle, onRemove));
     return head;
 }
 
-// Everything a declaration says after its own name: the type it holds, what it takes, what it
+// Everything a declaration says after its own name. The type it holds, what it takes, what it
 // answers. Written the way the file writes it, so it can be found in the file by searching for
-// it.
+// it, and painted the way the file paints it. A type is in the type colour here as much as in
+// the pane, which is what makes a row of these read as the code it is rather than as a label.
 function signatureRest(member) {
+    const rest = codeLine("member__signature");
     if (member.kind === "prop") {
-        return `: ${baseType(member.type) || "var"}`;
+        rest.append(codeWord("punct", ": "), codeWord("type", baseType(member.type) || "var"));
+        return rest;
     }
+    rest.append(codeWord("punct", "("));
     if (member.kind === "model") {
-        return `(${roleList(member.roles)})`;
+        codeParts(rest, member.roles);
+        rest.append(codeWord("punct", ")"));
+        return rest;
     }
-    const params = (member.params || [])
-        .map((param) => `${param.name}: ${baseType(param.type)}`).join(", ");
-    return `(${params})${member.type ? `: ${baseType(member.type)}` : ""}`;
+    (member.params || []).forEach((param, index) => {
+        if (index) {
+            rest.append(codeWord("punct", ", "));
+        }
+        rest.append(codeWord("name", param.name || ""), codeWord("punct", ": "),
+                    codeWord("type", baseType(param.type) || "var"));
+    });
+    rest.append(codeWord("punct", ")"));
+    if (member.type) {
+        rest.append(codeWord("punct", ": "), codeWord("type", baseType(member.type)));
+    }
+    return rest;
 }
 
 // A model, which lives on the point rather than in the file. Its roles are what crosses,
@@ -689,7 +784,10 @@ function modelPanel(point, model, actions) {
     edit.append(field("Name", text(model.name, (value) => {
         model.name = value;
         actions.changed();
-    }, "name")));
+    }, "name"),
+                      {help: "What the model is called on the contract. The owner publishes "
+                             + "its rows by binding `<name>Rows` to wherever they live, and "
+                             + "a consumer hands the same name to a view as its model."}));
     edit.append(partsPanel(model, "roles", "Roles", actions, true));
     box.append(edit);
     return box;
@@ -742,27 +840,9 @@ function partsPanel(member, key, label, actions, sized) {
 // `slot recordWinner(var item)` for one that only exists on the point, so a single list mixed
 // two words for the same thing and read as two lists that had been shuffled together. The
 // entity's own panel is where the QML form belongs, and it says it there.
-function memberText(member) {
-    if (member.kind === "model") {
-        return `model ${member.name}(${roleList(member.roles)})`;
-    }
-    if (member.kind === "prop") {
-        return `prop ${member.type || "var"} ${member.name}`;
-    }
-    if (member.kind === "signal") {
-        return `signal ${member.name}(${roleList(member.params)})`;
-    }
-    return `slot ${member.type ? `${member.type} ` : ""}${member.name}`
-           + `(${roleList(member.params)})`;
-}
-
-function roleList(parts) {
-    return (parts || []).map((part) => `${part.type} ${part.name}`).join(", ");
-}
-
 // The contract as a list to tick, out of what the owner entity already declares.
 //
-// This is the reading half of the same fact the entity panel writes: a member is declared on
+// This is the reading half of the same fact the entity panel writes. A member is declared on
 // the entity, in the entity's own file, and it crosses a connect point because somebody
 // ticked it here. Nothing is offered that the owner has not got, so a member cannot reach a
 // contract without the file that implements it gaining the line first.
@@ -771,7 +851,13 @@ function roleList(parts) {
 // same one, which is what the drawing says too: every line leaves the one icon.
 function ticksPanel(design, link, actions) {
     const box = tag("div", {class: "block members"});
-    const head = blockHead(box, "What crosses this connect point");
+    blockHead(box, "What crosses it",
+              [`Everything ticked here is what '${link.owner || "the owner"}' says to `
+               + `whoever consumes this point, and it is what the generated replica carries. `
+               + `Nothing else ever crosses.`,
+               "The list is what the owner entity declares, so a member reaches a consumer "
+               + "because somebody ticked it here, and the file that implements it already "
+               + "has the line."]);
     const owner = (design.entities || []).find((one) => one.name === link.owner);
     if (!owner) {
         box.append(note("No owner yet, so there is nothing to carry.", true));
@@ -799,7 +885,7 @@ function ticksPanel(design, link, actions) {
     const list = tag("div", {class: "ticks"});
     for (const member of offered) {
         const row = tag("div", {class: "tick"});
-        row.append(check(memberText(member), ticked.has(member.name), (on) => {
+        row.append(check(memberCode(member), ticked.has(member.name), (on) => {
             actions.tick(link, member, on);
         }, {code: true}));
         // The two things about a ticked member that are not in the owner's file, so the two
@@ -831,7 +917,13 @@ function ticksPanel(design, link, actions) {
                 extras.append(field("At most", typeAndSize(carried.type, (value) => {
                     carried.type = value;
                     actions.changed();
-                })));
+                }),
+                                    {help: "The limit the owner-side boundary holds this "
+                                           + "member to, written into the contract as "
+                                           + "`string[120]`. It belongs here because QML has "
+                                           + "no type with a size in it, so the declaration "
+                                           + "in the file cannot carry one. Leave it empty "
+                                           + "for no limit."}));
             }
             // The scope raises the bar for this member alone, so nothing about it crosses to
             // a caller the rest of the point reaches.
@@ -839,7 +931,12 @@ function ticksPanel(design, link, actions) {
                                                 (value) => {
                 carried.scope = value;
                 actions.changed();
-            }, "the connect point's scope")));
+            }, "the connect point's scope"),
+                                {help: "The gate on this member alone. Raise it above the "
+                                       + "point's own scope and this one member is held back "
+                                       + "from callers the rest of the point answers, which "
+                                       + "is how one admin slot lives on a public "
+                                       + "connect point."}));
             row.append(extras);
         } else {
             row.append(tickSummary(carried, sized, () => {
@@ -851,23 +948,19 @@ function ticksPanel(design, link, actions) {
     }
     box.append(list);
     if (carriedOnly.length) {
-        box.append(note(`${carriedOnly.length === 1 ? "One member is" : "These are"} `
-                        + `written in '${link.owner}' in a form this panel reads on the `
-                        + `entity rather than here: a model is written on the connect point `
-                        + `itself, `
-                        + `and a property set from a binding or a signal raised through `
-                        + `Caller is code rather than a declaration. Untick one to take it `
-                        + `off the contract.`, true));
+        box.append(note(`${carriedOnly.length === 1 ? "One member here is" : "Some of these"} `
+                        + `${carriedOnly.length === 1 ? "carried" : "are carried"} by the `
+                        + `contract and written in '${link.owner}' as code: a model lives on `
+                        + `the point itself, and a property set from a binding or a signal `
+                        + `raised through Caller is a line this reader takes at its word. `
+                        + `Untick one to take it off the contract.`, true));
     }
 
     const consumers = link.consumers || [];
-    box.append(note(consumers.length
-        ? `Ticked members are what '${link.owner}' says to '${consumers.join("', '")}'. `
-          + "Nothing else ever crosses, and every consumer of this connect point gets the "
-          + "same contract."
-        : "Nothing consumes this connect point yet, so none of it reaches anywhere. Drag "
-          + "from the contract icon to an entity.", true));
-    explain(box, head);
+    if (!consumers.length) {
+        box.append(note("Drag from the contract icon to an entity to say who gets this. "
+                        + "A connect point exists before anything consumes it.", true));
+    }
     return box;
 }
 
@@ -917,49 +1010,97 @@ function frontPanel(design, entity, actions) {
     }
     const tiers = behindOf(link);
     const isFront = Boolean(link.behind);
+    const wired = SCOPES.filter((scope) => tiers[scope]);
+    // What the switch means, on the switch: turned on, this edge stops answering its own
+    // connect point and every caller is served by whichever entity their scope is wired to.
+    // The rules paint the two halves of that a drawing can decide on its own (a front with
+    // nothing behind it, and a slot that answers a value, which a front cannot). The third is
+    // a comparison of two contracts, and `synqt check` is what has that answer.
     box.append(check("Hands callers to the entities behind it", isFront, (on) => {
         link.behind = on ? {...tiers} : undefined;
         if (!on) {
             delete link.behind;
         }
         actions.rebuild();
-    }));
+    }, {help: isFront
+        ? [`'${entity.name}' keeps the session and the sign-in, and each caller is served by `
+           + `the entity wired to their scope. The browser goes on writing `
+           + `\`${accessorName(entity.name)}\`, whoever answers behind it.`,
+           `Every entity wired to a scope carries the members this point offers callers of `
+           + `that scope; Review changes is what compares the two.`,
+           "Drag between a scope on this edge's back and an entity to wire one, either way "
+           + "round, or drag a seat onto empty canvas to take it off."]
+        : [`'${entity.name}' answers its own connect point, which is the ordinary shape: one `
+           + `edge, one Source, every caller.`,
+           "Turn this on to make it a front. It keeps the session and the sign-in, and hands "
+           + "each caller to the entity that serves people of their scope, which is how an "
+           + "admin surface runs in its own binary."]}));
     if (!isFront) {
-        box.append(note("The edge answers its own connect point. Turn this on to make it a "
-                        + "front: it keeps the session and the sign-in, and hands each "
-                        + "caller to the entity that serves people of their scope."));
         return box;
     }
-    const wired = SCOPES.filter((scope) => tiers[scope]);
+    // Where each scope currently goes, which is a fact about this drawing rather than an
+    // explanation of it, so it stays on the panel. It is the one part of the routing that is
+    // read rather than seen, the seats on the canvas being small.
     box.append(note(wired.length
-        ? `Drawn on the canvas: ${wired.map((scope) => `${scope} to ${tiers[scope]}`)
-            .join(", ")}. Drag between a scope on the edge's back and an entity to change `
-            + `one, either way round, or onto empty canvas to take it off.`
-        : "Now drag between a scope on the edge's back and the entity that serves it, either "
-          + "way round. Until one is wired the front hands nobody anywhere."));
-    // What the switch has just done to everything already drawn, said where the switch is.
-    // The rules paint the two halves of this that a drawing can decide on its own (a front
-    // with nothing behind it, and a slot that answers a value, which a front cannot); the
-    // third is a comparison of two contracts, and `synqt check` is what has that answer.
-    const carries = (link.members || []).length;
-    box.append(note(carries
-        ? `'${entity.name}' no longer answers its own connect point. Every entity wired to a `
-          + `scope has to carry the members this point offers callers of that scope, and `
-          + `Review changes is what compares the two.`
-        : `'${entity.name}' no longer answers its own connect point. What crosses it is `
-          + `still declared here, and answered by whichever entity a caller's scope is `
-          + `wired to.`));
+        ? `Drawn on the canvas: ${wired.map((scope) => `${scope} to '${tiers[scope]}'`)
+            .join(", ")}.`
+        : "No scope is wired yet, so this front hands nobody anywhere. Drag between a scope "
+          + "on its back and the entity that serves it, either way round."));
     return box;
 }
 
+// What having selected this connect point means, said in the names of the entities at its
+// two ends rather than in the words owner and consumer. It is the opening line of the panel,
+// and the panel opens because somebody clicked a thing on the canvas. What they want first is
+// what that thing does, with the names they gave it.
+function contractSays(design, link) {
+    const consumers = link.consumers || [];
+    const carries = (link.members || []).length;
+    const how = link.transport === "local" ? "a local socket on this host"
+                                           : "the mesh, over mutual TLS";
+    if (!link.owner) {
+        return "Nothing owns this connect point yet, so nothing answers it. Name the entity "
+               + "that does below, and it becomes the name the point is reached by.";
+    }
+    if (!consumers.length) {
+        return `'${link.owner}' owns this connect point and nothing consumes it yet. Drag `
+               + `from its icon on the canvas to whatever should reach it, or tick that `
+               + `entity below.`;
+    }
+    return `'${link.owner}' answers this connect point, and ${listed(consumers)} `
+           + `${consumers.length === 1 ? "acquires" : "each acquire"} a replica of it over `
+           + `${how}. ${carries ? `${carries} member${carries === 1 ? "" : "s"} of `
+                                  + `'${link.owner}' cross${carries === 1 ? "es" : ""} it`
+                                : "Nothing crosses it yet"}, and `
+           + `${link.scope ? `a caller has to hold '${link.scope}' to reach it`
+                           : "any caller may reach it"}.`;
+}
+
+// A list of names as a sentence says them, with quotation marks and an `and` at the end.
+function listed(names) {
+    const quoted = names.map((name) => `'${name}'`);
+    if (quoted.length < 2) {
+        return quoted.join("") || "nobody";
+    }
+    return `${quoted.slice(0, -1).join(", ")} and ${quoted[quoted.length - 1]}`;
+}
+
 // The connect point itself, opened by clicking its icon on the canvas. Everything that is
-// true of the point rather than of one line into it lives here: who owns it, who may consume
+// true of the point rather than of one line into it lives here. Who owns it, who may consume
 // it, the scope it is gated behind, how it is carried, and what crosses it.
 function contractPanel(design, link, actions) {
     const panel = document.createDocumentFragment();
-    // Named by its two ends, the same way the card on the canvas names it and the same way
-    // the panel for one line into it does.
-    panel.append(tag("h2", {class: "inspector__title"}, linkTitle(link)));
+    // Opened the way an entity's panel opens. The mark the thing was clicked on, its name,
+    // and one line saying what it is in the names of the two entities it runs
+    // between. The two names and nothing else would name the selection and
+    // then leave a reader to work out what having selected it means.
+    const head = tag("div", {class: "inspector__head"});
+    head.append(contractSvg());
+    const title = tag("h2", {class: "inspector__title"});
+    title.append(linkTitleNode(link));
+    head.append(title);
+    panel.append(head);
+    panel.append(tag("p", {class: "inspector__help"}, contractSays(design, link)));
 
     // Nothing to name. An entity has one connect point, so the owner names it: consumers
     // reach it as the owner capitalised, and the contract carries that same name.
@@ -978,11 +1119,15 @@ function contractPanel(design, link, actions) {
         link.name = value;
         link.consumers = (link.consumers || []).filter((consumer) => consumer !== value);
         actions.rebuild();
-    }, "nobody yet"), "owner"));
-    who.append(note("The owner is the name: a consumer reaches this point by writing "
-                    + `${link.owner ? accessorName(link.owner) : "<Owner>"}, which is also `
-                    + "the type it carries. An entity that already exports one is not "
-                    + "offered here."));
+    }, "nobody yet"),
+                     {role: "owner",
+                      help: [`The entity that answers this connect point, hosts its Source `
+                             + `and decides what crosses it.`,
+                             `The owner is the name: a consumer reaches the point by writing `
+                             + `\`${link.owner ? accessorName(link.owner) : "<Owner>"}\` in `
+                             + `its QML, which is also the type the contract carries. The `
+                             + `list offers each entity that has a connect point to spare, `
+                             + `since one entity owns one.`]}));
 
     const consumers = tag("div");
     for (const name of names.filter((name) => name !== link.owner)) {
@@ -999,10 +1144,18 @@ function contractPanel(design, link, actions) {
             actions.rebuild();
         }, {code: true}));
     }
-    who.append(group("Consumers", consumers, "consumer"));
-    who.append(note("This list is the authorization. An entity that is not on it is "
-                    + "refused the replica, and nothing it does can talk its way on."));
-    panel.append(section("The two ends", who));
+    who.append(group("Consumers", consumers,
+                     {role: "consumer",
+                      help: ["Every entity ticked here acquires a replica of this connect "
+                             + "point and can ask it for what crosses.",
+                             "The list is the authorization: it is checked against the "
+                             + "verified name on the caller's own certificate, so an entity "
+                             + "reaches this point because it is ticked here and for no "
+                             + "other reason."]}));
+    panel.append(section("The two ends",
+                         "Who answers this connect point, and who is allowed to reach it. "
+                         + "Both are written on the point in synqt.yaml, and both are drawn "
+                         + "on the canvas as the line between them.", who));
 
     const reach = tag("div");
     // `rebuild`, because this is the default every member below inherits and the list of
@@ -1010,26 +1163,37 @@ function contractPanel(design, link, actions) {
     reach.append(field("Scope", choice(["", ...SCOPES], link.scope || "", (value) => {
         link.scope = value;
         actions.rebuild();
-    }, "any session, anonymous included")));
-    reach.append(note("A browser below this scope never acquires the connect point at all, "
-                      + "so its "
-                      + "slots cannot be called and none of its state arrives. It is also "
-                      + "the default for every member below: raise one of them on its own "
-                      + "to keep an admin surface off a public page."));
+    }, "any session, anonymous included"),
+                       {help: ["The session a browser has to hold to acquire this connect "
+                               + "point at all. A caller holding it gets the replica, its "
+                               + "state and its slots; a caller below it is served the page "
+                               + "and never the point.",
+                               "It is also the default every member below inherits, so "
+                               + "raising one member on its own is how an admin surface "
+                               + "stays off a public page."]}));
 
-    // `rebuild`, because the warning under this field appears and disappears with the value:
-    // picking `local` used to change the transport and leave the page saying nothing about
-    // what that costs until something else happened to redraw the panel.
+    // `rebuild`, because what is said about the transport changes with the value. Picking
+    // `local` must not change the transport and leave the page saying nothing about what
+    // that costs until something else happens to redraw the panel.
     reach.append(field("Transport", choice(["", "local"], link.transport, (value) => {
         link.transport = value;
         actions.rebuild();
-    }, "mutual TLS (the default)")));
-    if (link.transport === "local") {
-        reach.append(note("On a local socket the operating system identifies the connecting "
-                          + "user, not the entity, so any process running as that user can "
-                          + "present any entity name. Same host only."));
-    }
-    panel.append(section("Who may reach it", reach));
+    }, "mutual TLS (the default)"),
+                       {help: link.transport === "local"
+                           ? ["A local socket on one host, opted into by name. It is the "
+                              + "fast path: no TLS handshake, and the socket file is "
+                              + "restricted to the user the entities run as.",
+                              "The operating system identifies that user rather than the "
+                              + "entity, so `Caller.entity` here is trusted by colocation. "
+                              + "`synqt check` flags every link that takes it."]
+                           : ["Mutual TLS on every link, loopback included: both ends verify "
+                              + "the other against the project CA, and the verified subject "
+                              + "on the peer certificate is the calling entity's name.",
+                              "`local` swaps it for a same-host socket where the operating "
+                              + "system identifies the user instead."]}));
+    panel.append(section("Who may reach it",
+                         "What a caller has to hold to acquire this point, and how the two "
+                         + "ends carry it between them.", reach));
 
     panel.append(ticksPanel(design, link, actions));
 
@@ -1054,22 +1218,36 @@ function contractPanel(design, link, actions) {
 // selection to anybody who drew them, so clicking the only line opens the point itself.
 function linePanel(design, link, consumer, actions) {
     const panel = document.createDocumentFragment();
-    panel.append(tag("h2", {class: "inspector__title"}, linkTitle(link, consumer)));
+    // The same opening an entity and a connect point get: the mark, the name, and a line
+    // saying what this one is. A line is the narrowest selection on the canvas, so it is the
+    // one that most needs saying what it is a selection of.
+    const head = tag("div", {class: "inspector__head"});
+    head.append(contractSvg());
+    const title = tag("h2", {class: "inspector__title"});
+    title.append(linkTitleNode(link, consumer));
+    head.append(title);
+    panel.append(head);
+    const carries = (link.members || []).length;
     panel.append(tag("p", {class: "inspector__help"},
-                     `'${consumer}' consumes the connect point '${link.owner}' owns, `
-                     + `so it acquires a replica of everything that point carries. `
-                     + `What that is belongs to the point, not to this line.`));
+                     `'${consumer}' consumes the connect point '${link.owner}' owns, so it `
+                     + `acquires a replica of ${carries ? `the ${carries} member`
+                                                          + `${carries === 1 ? "" : "s"} that `
+                                                          + `cross${carries === 1 ? "es" : ""}`
+                                                        : "whatever crosses"} it and can ask `
+                     + `for ${carries === 1 ? "that" : "those"} and nothing else. What `
+                     + `crosses belongs to the point, which every line into it shares.`));
 
     // The point this line is one of. The label says who decides and the button goes there,
     // which is the one thing this panel is for.
-    const button = tag("button", {type: "button", class: "button"},
-                       link.owner || "the connect point");
+    const button = tag("button", {type: "button", class: "button button--chip"});
+    button.append(linkTitleNode(link));
+    button.title = `Open the connect point ${linkTitle(link)}`;
     button.addEventListener("click", () => actions.openContract(link));
-    panel.append(group("Owned by", button));
-    panel.append(note(`Every consumer of '${link.owner || "this connect point"}' `
-                      + "gets the same contract, so it is edited in one place. The contract "
-                      + "icon on the canvas, which every line leaves from, opens the same "
-                      + "panel."));
+    panel.append(group("Owned by", button,
+                       {help: [`Every consumer of '${link.owner || "this connect point"}' `
+                               + `gets the same contract, so it is edited in one place: `
+                               + `press this, or the contract icon on the canvas that every `
+                               + `line leaves from.`]}));
 
     const actionsRow = tag("div", {class: "inspector__actions"});
     const remove = tag("button", {type: "button", class: "button button--danger"},

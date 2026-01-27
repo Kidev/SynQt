@@ -54,23 +54,43 @@
         <button type="button" class="button button--step" id="redo" disabled
                 aria-label="Redo" title="Redo the change undone (Ctrl-Shift-Z)"></button>
       </span>
-      <button type="button" class="button button--danger" id="restart" hidden>Clear</button>
+      <!-- Take the drawing away as a picture: the canvas as it is drawn, with a margin round
+           it so it can be dropped into a document or a message and read there. It sits with
+           the two steps because it does nothing to the project either -- it makes a file out
+           of what is on screen. -->
+      <button type="button" class="button button--icon" id="export">
+        <span class="button__word">Export</span>
+      </button>
+      <button type="button" class="button button--danger button--icon" id="restart" hidden>
+        <span class="button__word">Clear</span>
+      </button>
       <!-- The way back out of an edit to synqt.yaml, offered while that file is unlocked:
            every version of it that read cleanly is remembered, and this returns to the last
            one. It is what makes typing into the configuration something to try. -->
       <button type="button" class="button" id="revert" hidden>Back to the last good version</button>
       <button type="button" class="button" id="infer">Infer from the sources</button>
       <button type="button" class="button" id="review">Review changes</button>
-      <button type="button" class="button button--go" id="apply" disabled>Apply</button>
+      <button type="button" class="button button--go button--icon" id="apply" disabled>
+        <span class="button__word">Apply</span>
+      </button>
     </header>
 
     <main class="work">
-      <aside class="rail">
-        <h2 class="rail__title">Add an entity</h2>
-        <p class="rail__hint">Drag one onto the canvas, where you want it.</p>
-        <div class="palette" id="palette"></div>
-        <h2 class="rail__title">Review</h2>
-        <ul class="findings findings--verdict" id="findings"></ul>
+      <!-- The rail folds the way the panel does, and for the same reason: on a narrow window
+           the drawing is the whole point and two columns of furniture either side of it leave
+           nothing between them. Its handle is the strip down its own edge, always in the
+           markup so nothing has to be built at the moment the window is resized. -->
+      <aside class="rail" id="rail">
+        <button type="button" class="panel__handle" id="rail-handle"
+                aria-expanded="true" aria-controls="rail-body"
+                aria-label="Hide the entities"></button>
+        <div class="rail__body" id="rail-body">
+          <h2 class="rail__title">Add an entity</h2>
+          <p class="rail__hint">Drag one onto the canvas, where you want it.</p>
+          <div class="palette" id="palette"></div>
+          <h2 class="rail__title">Review</h2>
+          <ul class="findings findings--verdict" id="findings"></ul>
+        </div>
       </aside>
 
       <section class="stage">
@@ -145,9 +165,9 @@
            the markup and shown only where the panel folds, so nothing has to be built at
            the moment the window is resized. -->
       <aside class="inspector" id="inspector">
-        <button type="button" class="inspector__handle" id="inspector-handle"
-                aria-expanded="false" aria-controls="inspector-body"
-                aria-label="Show the panel"></button>
+        <button type="button" class="panel__handle" id="inspector-handle"
+                aria-expanded="true" aria-controls="inspector-body"
+                aria-label="Hide the panel"></button>
         <div class="inspector__body" id="inspector-body"></div>
       </aside>
 
@@ -163,8 +183,23 @@
     </main>
 
     <!-- What hovering something on the canvas opens, over whatever it was opened on. Filled
-         by design.js and positioned at the pointer; it holds nothing until then. -->
+         by design.js and positioned at the pointer. It holds nothing until then. -->
     <div class="tip" id="tip" hidden></div>
+
+    <!-- The one question this page asks itself, in this page's own face. A browser's own
+         confirm box is kept for leaving the site, where the browser is the one asking and
+         nothing here can be trusted to stop a navigation. Everything else that needs an
+         answer is asked here, over the drawing it is about. A real `dialog`, so Escape
+         closes it, the focus is held inside it and the page behind it is inert. -->
+    <dialog class="modal" id="modal" aria-labelledby="modal-title">
+      <h2 class="modal__title" id="modal-title"></h2>
+      <p class="modal__text" id="modal-text"></p>
+      <div class="modal__extra" id="modal-extra"></div>
+      <div class="modal__row">
+        <button type="button" class="button" id="modal-no">Cancel</button>
+        <button type="button" class="button" id="modal-yes">Yes</button>
+      </div>
+    </dialog>
 
     <!-- What a right click opens. -->
     <ul class="menu" id="menu" hidden></ul>
