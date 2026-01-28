@@ -1359,6 +1359,28 @@ def route_view(route: Dict[str, Any]) -> str:
     return _view_file(view, route.get("path"))
 
 
+def routes_for(config: Dict[str, Any],
+               entity: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+    """The route table one client entity owns.
+
+    A client entity may declare its own `routes:` block, which is what lets a project hold
+    more than one client. A gate and an application, or an application and an operator
+    console, each with its own table. The top-level `routes:` block stays as the shorthand
+    for a project with exactly one client, which is every project written before bundles
+    existed, so nothing that works today has to be rewritten.
+
+    An entity declaring `routes: []` has an empty table rather than a missing one. The distinction
+    matters. A client with no routes of its own is a real design (a gate that is one
+    page), and inheriting the application's table there would compile the application's
+    views into it.
+    """
+    if isinstance(entity, dict):
+        own = entity.get("routes")
+        if isinstance(own, list):
+            return [route for route in own if isinstance(route, dict)]
+    return [route for route in (config.get("routes") or []) if isinstance(route, dict)]
+
+
 def route_views(config: Dict[str, Any]) -> List[str]:
     """Every distinct view file the routes name, in declaration order, minus Main.qml.
 

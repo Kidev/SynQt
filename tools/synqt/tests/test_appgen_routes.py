@@ -306,3 +306,36 @@ def test_a_project_with_no_identity_gets_no_routes():
     source = maingen.render_client_main({"name": "shop"}, uri="Shop")
     assert "loginRoute" not in source
     assert "logoutRoute" not in source
+
+
+def test_routes_for_prefers_the_entity_own_table():
+    config = {"routes": [{"path": "/", "view": "Global.qml"}],
+              "entities": [{"name": "app", "type": "client",
+                            "routes": [{"path": "/", "view": "Own.qml"}]}]}
+    entity = config["entities"][0]
+    assert appmodel.routes_for(config, entity) == [{"path": "/", "view": "Own.qml"}]
+
+
+def test_routes_for_falls_back_to_the_top_level_shorthand():
+    config = {"routes": [{"path": "/", "view": "Global.qml"}],
+              "entities": [{"name": "app", "type": "client"}]}
+    entity = config["entities"][0]
+    assert appmodel.routes_for(config, entity) == [{"path": "/", "view": "Global.qml"}]
+
+
+def test_routes_for_without_an_entity_reads_the_top_level_block():
+    config = {"routes": [{"path": "/", "view": "Global.qml"}]}
+    assert appmodel.routes_for(config) == [{"path": "/", "view": "Global.qml"}]
+
+
+def test_routes_for_drops_non_mapping_entries():
+    config = {"routes": ["not-a-route", {"path": "/", "view": "Home.qml"}]}
+    assert appmodel.routes_for(config) == [{"path": "/", "view": "Home.qml"}]
+
+
+def test_routes_for_treats_an_empty_own_list_as_declared():
+    # A client that declares `routes: []` has no routes, and must not silently inherit
+    # the shorthand. An empty table is a statement, not an omission.
+    config = {"routes": [{"path": "/", "view": "Global.qml"}],
+              "entities": [{"name": "app", "type": "client", "routes": []}]}
+    assert appmodel.routes_for(config, config["entities"][0]) == []
