@@ -68,6 +68,17 @@
   --text: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
 }
 
+/* The pane opens at a share of the window, so it is measured the way the window is. Written
+   as its own rule rather than as a second line beside the token, because a custom property
+   holding a unit the browser has never heard of is still a perfectly valid property: the
+   value would survive here and be thrown out at every length computed from it, which is the
+   pane's height and the seam that drags it. */
+@supports (height: 100dvh) {
+  :root {
+    --dock-height: 40dvh;
+  }
+}
+
 @media (prefers-color-scheme: light) {
   :root {
     color-scheme: light;
@@ -112,7 +123,16 @@ html {
 
 body {
   margin: 0;
+  /* The window as it is on screen, not as it would be with the browser's own bars out of the
+     way. On a phone `100vh` is the taller measure, the one the window has only while the
+     address bar is retracted, so a page that is exactly `100vh` and hides its overflow puts
+     its last inch behind the browser's chrome with nothing to scroll to reach it. That inch
+     is the files bar once the pane is folded, and the files bar is the only thing on the page
+     that brings the pane back, so it was the one strip that could not afford to be there.
+     `dvh` is the window as it stands right now, and the `vh` line above it is what a browser that
+     does not know the unit is left with. */
   height: 100vh;
+  height: 100dvh;
   display: grid;
   grid-template-rows: var(--bar-height) 1fr;
   color: var(--ink);

@@ -1106,6 +1106,42 @@ async function theProjectALinkHandsYou() {
               && await page.locator("#source-name").isHidden()
               && await page.locator("#source-lock").isHidden(),
               "carrying only Files and the control that opens it again");
+
+        // Folded, that bar is the last inch of the page, which on a phone is the one place a
+        // page measured in `vh` cannot put anything. `100vh` is the window with the browser's
+        // own bars retracted, so a body exactly that tall, hiding its overflow, ends below the
+        // screen with nothing to scroll to reach it, and what was below the screen was the
+        // whole bar. The word saying what is behind it and the only control that brings it
+        // back. The page is measured in `dvh` now, which is the window as it stands.
+        await page.setViewportSize({ width: 390, height: 844 });
+        check(await page.evaluate(() => {
+                  for (const sheet of document.styleSheets) {
+                      let rules;
+                      try {
+                          rules = sheet.cssRules;
+                      } catch (error) {
+                          continue;       // another origin's sheet, and not one of the page's
+                      }
+                      for (const rule of rules) {
+                          if (rule.selectorText === "body") {
+                              return rule.style.height === "100dvh";
+                          }
+                      }
+                  }
+                  return false;
+              }),
+              "the page is as tall as the window is, not as tall as it would be with the "
+              + "browser's own bars out of the way");
+        const folded = await page.locator("#dock-bar").boundingBox();
+        check(folded.height > 0 && folded.y + folded.height <= 844
+              && await page.locator("#dock-toggle").isVisible()
+              && await page.locator(".dock__title").isVisible(),
+              "so the folded bar is on screen on a phone, control and all "
+              + `(bottom ${Math.round(folded.y + folded.height)} of 844)`);
+        await page.setViewportSize({ width: 1440, height: 900 });
+        await page.waitForFunction(
+            () => !document.querySelector(".work").classList.contains("is-rail-shut"));
+
         await page.click("#dock-toggle");
         check(!(await page.locator("#dock").evaluate(
                    (dock) => dock.classList.contains("is-collapsed"))),
