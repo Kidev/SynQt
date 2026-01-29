@@ -339,3 +339,16 @@ def test_routes_for_treats_an_empty_own_list_as_declared():
     config = {"routes": [{"path": "/", "view": "Global.qml"}],
               "entities": [{"name": "app", "type": "client", "routes": []}]}
     assert appmodel.routes_for(config, config["entities"][0]) == []
+
+
+def test_route_views_reads_the_entity_own_table():
+    config = {"routes": [{"path": "/", "view": "Global.qml"}],
+              "entities": [{"name": "app", "type": "client",
+                            "routes": [{"path": "/", "view": "Own.qml"},
+                                       {"path": "/b", "view": "Other.qml"}]}]}
+    assert appmodel.route_views(config, config["entities"][0]) == ["Own.qml", "Other.qml"]
+
+
+def test_route_views_without_an_entity_is_unchanged():
+    config = {"routes": [{"path": "/", "view": "Home.qml"}]}
+    assert appmodel.route_views(config) == ["Home.qml"]

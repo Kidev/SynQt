@@ -1393,8 +1393,20 @@ def _route_view_findings(path: Any, view: Any, client: str, client_dir: Path) ->
             f"'{client}/{name}'{hint}"]
 
 
+def _unique(messages: List[str]) -> List[str]:
+    """The same findings, in order, with the repeats one shorthand table produces removed."""
+    seen: Set[str] = set()
+    unique: List[str] = []
+    for message in messages:
+        if message not in seen:
+            seen.add(message)
+            unique.append(message)
+    return unique
+
+
 def lint_routes(config: Dict[str, Any],
-                project_dir: os.PathLike[str] | str | None = None) -> List[str]:
+                project_dir: os.PathLike[str] | str | None = None,
+                entity: Optional[Dict[str, Any]] = None) -> List[str]:
     """Validate the top-level `routes` and `router` blocks (check.routes_valid /
     check.router_base_valid). Returns findings, empty when the table is clean.
 
@@ -1412,12 +1424,12 @@ def lint_routes(config: Dict[str, Any],
     gets every rule that does not need files.
     """
     findings: List[str] = []
-    routes = config.get("routes") or []
+    routes = appmodel.routes_for(config, entity)
     router = config.get("router")
     if not isinstance(router, dict):
         router = {}
     reserved = {_normalized_route_path(p) for p in _reserved_edge_paths(config)}
-    client = _client_folder(config)
+    client = appmodel.entity_dir(entity) if entity else _client_folder(config)
     client_dir = Path(project_dir) / client if project_dir is not None and client else None
 
 
@@ -1565,7 +1577,8 @@ def _imports_of(qml_file: os.PathLike[str] | str) -> List[str]:
 
 
 def lint_remote_pages(config: Dict[str, Any],
-                      project_dir: os.PathLike[str] | str | None = None) -> List[str]:
+                      project_dir: os.PathLike[str] | str | None = None,
+                      entity: Optional[Dict[str, Any]] = None) -> List[str]:
     """Validate every route's `remote:` (check.remote_pages_valid). Returns findings,
     empty when clean.
 
@@ -1592,7 +1605,7 @@ def lint_remote_pages(config: Dict[str, Any],
     config can be told.
     """
     findings: List[str] = []
-    routes = [r for r in (config.get("routes") or []) if isinstance(r, dict)]
+    routes = appmodel.routes_for(config, entity)
     router = config.get("router")
     if not isinstance(router, dict):
         router = {}
@@ -1707,7 +1720,8 @@ def _loading_messages(config: Dict[str, Any]) -> List[str]:
 
 
 def lint_graphics(config: Dict[str, Any],
-                  project_dir: os.PathLike[str] | str) -> List[str]:
+                  project_dir: os.PathLike[str] | str,
+                  entity: Optional[Dict[str, Any]] = None) -> List[str]:
     """Report what the graphics scan concluded for each route.
 
     The scan decides for a route that declares nothing, so it has to say so: a page hidden
@@ -1716,10 +1730,10 @@ def lint_graphics(config: Dict[str, Any],
     reported, since one of the two is wrong and only the author knows which.
     """
     client_dir, edge_dir = graphics.route_dirs(config, project_dir)
+    if entity is not None and project_dir is not None:
+        client_dir = Path(project_dir) / appmodel.entity_dir(entity)
     messages: List[str] = []
-    for route in config.get("routes") or []:
-        if not isinstance(route, dict):
-            continue
+    for route in appmodel.routes_for(config, entity):
         _, findings = graphics.route_requirement(route, client_dir, edge_dir)
         messages += [f"warn: {finding}" for finding in findings]
 
@@ -2635,9 +2649,18 @@ def check_project(project_dir: os.PathLike[str] | str, *, release: bool = False,
     client_root_messages = lint_client_root(project_dir)
     source_messages = lint_connect_point_sources(config, project_dir)
     caller_messages = lint_caller_use(config, project_dir)
-    route_messages = lint_routes(config, project_dir)
-    remote_page_messages = lint_remote_pages(config, project_dir)
-    graphics_messages = lint_graphics(config, project_dir)
+    # Once per client entity, because a client may hold its own route table and a table
+    # nobody validates is a table that fails in a visitor's browser. Two clients falling
+    # back to the same shorthand produce the same findings twice, so the three lists are
+    # deduplicated rather than concatenated.
+    clients = [entity for entity in appmodel.entities(config)
+               if appmodel.is_client(entity)] or [None]
+    route_messages = _unique(
+        [m for client in clients for m in lint_routes(config, project_dir, client)])
+    remote_page_messages = _unique(
+        [m for client in clients for m in lint_remote_pages(config, project_dir, client)])
+    graphics_messages = _unique(
+        [m for client in clients for m in lint_graphics(config, project_dir, client)])
     drift_messages = lint_contract_drift(config, project_dir, types=types)
     messages += contract_messages
     messages += export_messages

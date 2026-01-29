@@ -1381,7 +1381,27 @@ def routes_for(config: Dict[str, Any],
     return [route for route in (config.get("routes") or []) if isinstance(route, dict)]
 
 
-def route_views(config: Dict[str, Any]) -> List[str]:
+def all_routes(config: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Every route any client in this project serves, in declaration order, deduplicated.
+
+    The edge's page list is the union rather than one client's table. A remote page is
+    delivered by the edge to whichever client navigates to it, so an edge serving a gate and
+    an application has to know about both. Two clients falling back to the same shorthand
+    yield that table once, which is why this deduplicates rather than concatenating.
+    """
+    clients = [entity for entity in entities(config) if is_client(entity)]
+    if not clients:
+        return routes_for(config)
+    gathered: List[Dict[str, Any]] = []
+    for client in clients:
+        for route in routes_for(config, client):
+            if route not in gathered:
+                gathered.append(route)
+    return gathered
+
+
+def route_views(config: Dict[str, Any],
+                entity: Optional[Dict[str, Any]] = None) -> List[str]:
     """Every distinct view file the routes name, in declaration order, minus Main.qml.
 
     Main.qml is in the client's QML module unconditionally (it is the window), so it is
@@ -1390,7 +1410,7 @@ def route_views(config: Dict[str, Any]) -> List[str]:
     into the client module.
     """
     views: List[str] = []
-    for route in config.get("routes") or []:
+    for route in routes_for(config, entity):
         if not isinstance(route, dict):
             continue
         if is_remote_route(route):
@@ -1480,7 +1500,8 @@ def _refuse_shadowed_type_names(files: List[str]) -> None:
 
 
 def client_qml_files(config: Dict[str, Any],
-                     client_dir: Optional[Path]) -> List[str]:
+                     client_dir: Optional[Path],
+                     entity: Optional[Dict[str, Any]] = None) -> List[str]:
     """Every QML file the client's module compiles in, relative to the client directory.
 
     Main.qml first (it is the window), then the views the routes name in declaration
@@ -1492,10 +1513,10 @@ def client_qml_files(config: Dict[str, Any],
     Without `client_dir` (a caller rendering CMake from a config alone) only the first
     two groups are known, which is the set this generator has always emitted.
 
-    Deduplicated by relative path, so a file that a route also names is listed once; and
+    Deduplicated by relative path, so a file that a route also names is listed once, and
     refused outright when two different paths would claim one QML type name.
     """
-    files = ["Main.qml"] + route_views(config)
+    files = ["Main.qml"] + route_views(config, entity)
     if client_dir is not None and client_dir.is_dir():
         for qml_file in sorted(client_dir.rglob("*.qml")):
             relative = qml_file.relative_to(client_dir)

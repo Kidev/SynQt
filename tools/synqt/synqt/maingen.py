@@ -617,8 +617,9 @@ def _route_literal(route: Dict[str, Any], uri: str) -> str:
             f'{graphics_literal}}}')
 
 
-def render_client_main(config: Dict[str, Any], uri: str) -> str:
-    client = appmodel.client_entity(config) or {}
+def render_client_main(config: Dict[str, Any], uri: str,
+                       entity: Optional[Dict[str, Any]] = None) -> str:
+    client = entity or appmodel.client_entity(config) or {}
     name = client.get("name", "client")
     consumed = appmodel.consumed_by(config, name)
     contracts = appmodel.contracts_of(consumed)
@@ -626,9 +627,9 @@ def render_client_main(config: Dict[str, Any], uri: str) -> str:
     scopes = appmodel.scope_vocab(config)
     # No declared routes means no route table. A manufactured "/" -> Main.qml route would
     # point the router at the window itself, so a Loader bound to Router.pageComponent
-    # inside Main.qml would load the window again; with an empty table pageComponent stays
+    # inside Main.qml would load the window again. With an empty table pageComponent stays
     # null and an app that does not use the router behaves exactly as before.
-    routes = [r for r in (config.get("routes") or []) if isinstance(r, dict)]
+    routes = appmodel.routes_for(config, client or None)
 
     # The path the edge accepts the upgrade on. It was hard-coded as "/sync" here while
     # `public.sync_route` reached the edge, so an edge that moved it stopped being
@@ -1043,8 +1044,8 @@ def render_edge_main(config: Dict[str, Any], edge: Dict[str, Any],
     # Pages connect point is not a mesh link. Emitted only when the project has at least
     # one remote route, so an edge that does not use the feature stays byte-for-byte what
     # it was before this existed.
-    remote_routes = [r for r in (config.get("routes") or [])
-                     if isinstance(r, dict) and appmodel.is_remote_route(r)]
+    remote_routes = [route for route in appmodel.all_routes(config)
+                     if appmodel.is_remote_route(route)]
     if remote_routes:
         page_blocks: List[str] = []
         for index, route in enumerate(remote_routes):

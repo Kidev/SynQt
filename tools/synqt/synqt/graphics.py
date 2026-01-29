@@ -125,24 +125,49 @@ def resolve(config: Dict[str, Any],
     list are generated from one decision rather than two. Mirrors
     `appmodel.with_auth_connect_points`, which expands the topology the same way.
     """
-    routes = config.get("routes")
-    if not isinstance(routes, list):
+    root = Path(project_dir)
+    _, edge_dir = route_dirs(config, project_dir)
+    messages: List[str] = []
+
+    def annotate(routes: List[Any], client_dir: Optional[Path]) -> List[Any]:
+        annotated: List[Any] = []
+        for route in routes:
+            if not isinstance(route, dict):
+                annotated.append(route)
+                continue
+            requirement, findings = route_requirement(route, client_dir, edge_dir)
+            messages.extend(findings)
+            entry = dict(route)
+            entry[RESOLVED_KEY] = requirement
+            annotated.append(entry)
+        return annotated
+
+    top = config.get("routes")
+    # A client entity may hold its own table (appmodel.routes_for), and each one resolves
+    # its views against its own folder. Two clients naming Home.qml name two files, and
+    # scanning both against one directory would report the wrong requirement for one of
+    # them.
+    own = [entity for entity in appmodel.entities(config)
+           if appmodel.is_client(entity) and isinstance(entity.get("routes"), list)]
+    if not isinstance(top, list) and not own:
         return config, []
-    client_dir, edge_dir = route_dirs(config, project_dir)
 
     resolved = dict(config)
-    messages: List[str] = []
-    annotated: List[Any] = []
-    for route in routes:
-        if not isinstance(route, dict):
-            annotated.append(route)
-            continue
-        requirement, findings = route_requirement(route, client_dir, edge_dir)
-        messages += findings
-        entry = dict(route)
-        entry[RESOLVED_KEY] = requirement
-        annotated.append(entry)
-    resolved["routes"] = annotated
+    if isinstance(top, list):
+        client = appmodel.client_entity(config)
+        resolved["routes"] = annotate(
+            top, root / appmodel.entity_dir(client) if client else None)
+    if own:
+        entities: List[Any] = []
+        for entity in config.get("entities") or []:
+            if isinstance(entity, dict) and entity in own:
+                carried = dict(entity)
+                carried["routes"] = annotate(entity["routes"],
+                                             root / appmodel.entity_dir(entity))
+                entities.append(carried)
+                continue
+            entities.append(entity)
+        resolved["entities"] = entities
     return resolved, messages
 
 
