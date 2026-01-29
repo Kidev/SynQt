@@ -1393,6 +1393,29 @@ def _route_view_findings(path: Any, view: Any, client: str, client_dir: Path) ->
             f"'{client}/{name}'{hint}"]
 
 
+def lint_client_routes(config: Dict[str, Any]) -> List[str]:
+    """Refuse a project where the top-level `routes:` shorthand names no one client.
+
+    The shorthand exists so that a project with one client writes its table where it always
+    has. With two clients it stops being a shorthand and becomes a coin toss: whichever
+    entity the generator happened to render first would take the table and the other would
+    silently compile with nothing in it. Naming both entities in the message is the whole
+    fix, so the reader can see which two are competing for it.
+    """
+    clients = [entity for entity in appmodel.entities(config)
+               if appmodel.is_client(entity)]
+    if len(clients) < 2 or not (config.get("routes") or []):
+        return []
+    falling_back = sorted(str(entity.get("name") or "")
+                          for entity in clients
+                          if not isinstance(entity.get("routes"), list))
+    if len(falling_back) < 2:
+        return []
+    return [f"error: the top-level routes: block is a shorthand for a project with one "
+            f"client, and {', '.join(falling_back)} would all claim it; give each client "
+            f"its own routes: block (see https://synqt.org/routing/)"]
+
+
 def _unique(messages: List[str]) -> List[str]:
     """The same findings, in order, with the repeats one shorthand table produces removed."""
     seen: Set[str] = set()
@@ -2657,6 +2680,7 @@ def check_project(project_dir: os.PathLike[str] | str, *, release: bool = False,
                if appmodel.is_client(entity)] or [None]
     route_messages = _unique(
         [m for client in clients for m in lint_routes(config, project_dir, client)])
+    route_messages += lint_client_routes(config)
     remote_page_messages = _unique(
         [m for client in clients for m in lint_remote_pages(config, project_dir, client)])
     graphics_messages = _unique(
