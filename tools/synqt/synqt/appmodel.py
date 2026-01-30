@@ -679,9 +679,60 @@ def scopes_hierarchical(config: Dict[str, Any]) -> bool:
     return bool(config.get("scopes", {}).get("hierarchical", True))
 
 
+# bundles
+
+#: A `bundles:` value naming a client entity, which the build compiles and assembles.
+BUNDLE_CLIENT = "client"
+#: A `bundles:` value naming a directory of files served as they are, with no build.
+BUNDLE_STATIC = "static"
+
+
+def bundles_for(config: Dict[str, Any],
+                edge: Dict[str, Any]) -> Dict[str, Tuple[str, str]]:
+    """What one web edge serves each scope, as scope -> (kind, value).
+
+    A value holding a `/` is a directory relative to the edge entity's own folder. A bare
+    name is a client entity. The rule is visible at a glance, which is why it is the rule;
+    `check.lint_bundles` refuses anything that could be read both ways rather than guessing.
+
+    An edge with no `bundles:` block serves the project's one client entity to the default
+    scope, which is exactly what the edge did before this key existed. That is what keeps
+    the key dormant. A project that never writes it resolves to the same one-entry map it
+    always had, through the same code path as a project with five.
+    """
+    declared = edge.get("bundles")
+    if not isinstance(declared, dict) or not declared:
+        client = client_entity(config)
+        if client is None:
+            return {}
+        return {default_scope(config) or "anonymous":
+                (BUNDLE_CLIENT, str(client.get("name") or ""))}
+    resolved: Dict[str, Tuple[str, str]] = {}
+    for scope, value in declared.items():
+        text = str(value or "").strip()
+        kind = BUNDLE_STATIC if "/" in text else BUNDLE_CLIENT
+        resolved[str(scope)] = (kind, text)
+    return resolved
+
+
+def bundle_output_dir(config: Dict[str, Any], client: Dict[str, Any]) -> str:
+    """Where `synqt build` assembles one client entity's bundle, project-root relative.
+
+    A project with one client keeps `build/client/`, which is the path the documentation,
+    the generated compose files, the deploy scripts and every developer's muscle memory
+    already name. Only a project that holds more than one client grows the
+    per-entity directories, which is the same rule the `bundles:` key itself follows: a
+    thing you did not ask for does not move.
+    """
+    clients = [entity for entity in entities(config) if is_client(entity)]
+    if len(clients) < 2:
+        return "build/client"
+    return f"build/client-{client.get('name')}"
+
+
 # the edge's browser-facing policy
 #
-# Everything under here answers one question: what did the project DECLARE? Never "what
+# Everything under here answers one question. What did the project DECLARE? Never "what
 # does the framework do when the project declares nothing": the defaults live once, in
 # `WebEdgeConfig` (src/edge/webedgeconfig.h) and `IdentityConfig`
 # (src/identity/identityconfig.h), and a second copy here would be a second thing to keep
