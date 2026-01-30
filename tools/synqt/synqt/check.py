@@ -1393,6 +1393,101 @@ def _route_view_findings(path: Any, view: Any, client: str, client_dir: Path) ->
             f"'{client}/{name}'{hint}"]
 
 
+def lint_bundles(config: Dict[str, Any],
+                 project_dir: os.PathLike[str] | str | None = None) -> List[str]:
+    """Validate every web edge's `bundles:` block (check.bundles_valid).
+
+    This is a security rule wearing a configuration rule's clothes. A bundle is what a
+    caller may download, so a mistake here is not a broken page. It is either an
+    application nobody can load or an operator console handed to the public. Anything that
+    could be read two ways is refused rather than resolved.
+
+    Without `project_dir` the rules that need the filesystem (a static directory being
+    there, holding an index, staying inside the entity folder, and the ambiguity that only
+    exists when both readings resolve) are skipped, so a caller holding nothing but a
+    parsed config still gets every rule that does not need files.
+    """
+    findings: List[str] = []
+    scopes = set(appmodel.scope_vocab(config))
+    default = appmodel.default_scope(config) or "anonymous"
+    clients = {str(entity.get("name") or ""): entity
+               for entity in appmodel.entities(config) if appmodel.is_client(entity)}
+    reached: Set[str] = set()
+    declared_anywhere = False
+    root = Path(project_dir) if project_dir is not None else None
+    for edge in appmodel.entities(config):
+        if not appmodel.is_edge(edge):
+            continue
+        declared = edge.get("bundles")
+        if not isinstance(declared, dict) or not declared:
+            # No block is the single-bundle case, and the one client is served everybody.
+            reached.update(clients)
+            continue
+        declared_anywhere = True
+        where = f"entity '{edge.get('name')}'"
+        entity_root = root / appmodel.entity_dir(edge) if root is not None else None
+        resolved = appmodel.bundles_for(config, edge)
+        for scope, (kind, value) in sorted(resolved.items()):
+            if scope not in scopes:
+                findings.append(
+                    f"error: {where} maps bundle scope '{scope}', which is not a declared "
+                    f"scope (scopes.order names {sorted(scopes)})")
+            directory = entity_root / value if entity_root is not None else None
+            if kind == appmodel.BUNDLE_CLIENT:
+                if value not in clients:
+                    findings.append(
+                        f"error: {where} maps scope '{scope}' to '{value}', which is not a "
+                        f"client entity; a value naming a directory must contain a '/'")
+                    continue
+                if directory is not None and (directory / "index.html").is_file():
+                    findings.append(
+                        f"error: {where} maps scope '{scope}' to '{value}', which is "
+                        f"ambiguous: it names a client entity and a directory holding an "
+                        f"index.html; write '{value}/' for the directory or rename one")
+                    continue
+                reached.add(value)
+                if "wasm" not in appmodel.client_targets(clients[value]):
+                    findings.append(
+                        f"error: {where} maps scope '{scope}' to client '{value}', which "
+                        f"does not build for wasm; a desktop-only client has no bundle to "
+                        f"serve")
+                continue
+            if directory is None:
+                continue
+            resolved_dir = directory.resolve()
+            contained = entity_root.resolve()
+            if resolved_dir != contained and contained not in resolved_dir.parents:
+                findings.append(
+                    f"error: {where} maps scope '{scope}' to '{value}', which resolves "
+                    f"outside the entity folder; a static bundle lives under "
+                    f"{appmodel.entity_dir(edge)}/")
+                continue
+            if not resolved_dir.is_dir():
+                findings.append(
+                    f"error: {where} maps scope '{scope}' to '{value}', which is not a "
+                    f"directory under {appmodel.entity_dir(edge)}/")
+                continue
+            if not (resolved_dir / "index.html").is_file():
+                findings.append(
+                    f"error: {where} maps scope '{scope}' to '{value}', which holds no "
+                    f"index.html; a static bundle is a directory with a page in it")
+        if default not in resolved:
+            findings.append(
+                f"error: {where} maps no bundle to the default scope '{default}', so a "
+                f"first-time visitor would be served nothing at all")
+        if len(resolved) > 1 and not appmodel.identity_enabled(config, edge):
+            findings.append(
+                f"warn: {where} maps {len(resolved)} bundles but no identity is "
+                f"configured, so no caller can leave scope '{default}' and every bundle "
+                f"above it is unreachable")
+    if declared_anywhere:
+        for name in sorted(set(clients) - reached):
+            findings.append(
+                f"warn: client '{name}' is not mapped by any edge's bundles:, so nothing "
+                f"serves it")
+    return findings
+
+
 def lint_client_routes(config: Dict[str, Any]) -> List[str]:
     """Refuse a project where the top-level `routes:` shorthand names no one client.
 
@@ -2681,6 +2776,7 @@ def check_project(project_dir: os.PathLike[str] | str, *, release: bool = False,
     route_messages = _unique(
         [m for client in clients for m in lint_routes(config, project_dir, client)])
     route_messages += lint_client_routes(config)
+    route_messages += lint_bundles(config, project_dir)
     remote_page_messages = _unique(
         [m for client in clients for m in lint_remote_pages(config, project_dir, client)])
     graphics_messages = _unique(
