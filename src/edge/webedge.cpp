@@ -140,6 +140,11 @@ WebEdge::WebEdge(WebEdgeConfig config, QQmlEngine *engine, QObject *parent)
                                           m_config.sessionTtlMinutes, this}}
     , m_clientAddress{m_config.trustedProxies}
 {
+    // The single-bundle shorthand, folded in once. Everything downstream reads `bundles`
+    // and only `bundles`, so `bundleDir` cannot disagree with it later.
+    if (m_config.bundles.isEmpty() && !m_config.bundleDir.isEmpty()) {
+        m_config.bundles.insert(m_config.defaultScope, m_config.bundleDir);
+    }
 }
 
 /// Put the connections down before the threads their sockets are on.
@@ -582,7 +587,7 @@ void WebEdge::stampResponse(const QHttpServerRequest &request, QHttpServerRespon
 void WebEdge::cacheBundle()
 {
     m_etags.clear();
-    const QDir root{m_config.bundleDir};
+    const QDir root{defaultBundle()};
     const QFileInfoList entries{root.entryInfoList(QDir::Files | QDir::NoSymLinks)};
     for (const QFileInfo &entry : entries) {
         // A precompressed variant is the same resource under a different encoding, so it
@@ -609,16 +614,60 @@ QByteArray WebEdge::etagFor(const QString &path) const
     return m_etags.value(QFileInfo{path}.canonicalFilePath());
 }
 
+QString WebEdge::bundleForScope(const QString &scope) const
+{
+    const QString fallback{m_config.bundles.value(m_config.defaultScope)};
+    if (scope.isEmpty()) {
+        return fallback;
+    }
+    const QString exact{m_config.bundles.value(scope)};
+    if (!exact.isEmpty()) {
+        return exact;
+    }
+    // Hierarchical scopes rank, so a scope with no bundle of its own is served the nearest
+    // one below it. That is what lets a project declare two bundles instead of one per
+    // scope. Set-based scopes do not rank at all, so there is no "below" to walk and an
+    // unmapped scope takes the default scope's bundle.
+    if (!m_config.scopesHierarchical) {
+        return fallback;
+    }
+    const qsizetype rank{m_config.scopeOrder.indexOf(scope)};
+    if (rank < 0) {
+        return fallback;
+    }
+    for (qsizetype index{rank - 1}; index >= 0; --index) {
+        const QString candidate{m_config.bundles.value(m_config.scopeOrder.at(index))};
+        if (!candidate.isEmpty()) {
+            return candidate;
+        }
+    }
+    return fallback;
+}
+
+QString WebEdge::bundleFor(const QHttpServerRequest &request) const
+{
+    const QByteArray sessionId{sessionIdFromCookie(request.value("Cookie"))};
+    const SessionRecord *record{m_sessionManager->lookup(sessionId)};
+    return bundleForScope(record ? record->scope : QString{});
+}
+
+/// The default scope's bundle. Task 7 replaces every use of this with a per-request
+/// resolution; until then the read sites behave exactly as they did with one directory.
+QString WebEdge::defaultBundle() const
+{
+    return m_config.bundles.value(m_config.defaultScope);
+}
+
 QString WebEdge::bundlePathFor(const QString &urlPath) const
 {
     if (urlPath == m_config.clientRoute) {
-        return QDir{m_config.bundleDir}.filePath(QStringLiteral("index.html"));
+        return QDir{defaultBundle()}.filePath(QStringLiteral("index.html"));
     }
     const QString name{urlPath.mid(1)};
     if (name.isEmpty() || name.contains(QLatin1Char('/'))) {
         return {};
     }
-    const QString resolved{QFileInfo{QDir{m_config.bundleDir}, name}.canonicalFilePath()};
+    const QString resolved{QFileInfo{QDir{defaultBundle()}, name}.canonicalFilePath()};
     return m_etags.contains(resolved) ? resolved : QString{};
 }
 
@@ -638,7 +687,7 @@ QHttpServerResponse WebEdge::shellOrNotFound(const QString &path,
     if (path.mid(lastSlash + 1).contains(QLatin1Char('.'))) {
         return QHttpServerResponse{QHttpServerResponse::StatusCode::NotFound};
     }
-    const QString index{QDir{m_config.bundleDir}.filePath(QStringLiteral("index.html"))};
+    const QString index{QDir{defaultBundle()}.filePath(QStringLiteral("index.html"))};
     if (auto notModified{notModifiedFor(request, etagFor(index))}) {
         stampShell(*notModified, request);
         return std::move(*notModified);
@@ -661,7 +710,7 @@ void WebEdge::stampShell(QHttpServerResponse &response, const QHttpServerRequest
     //
     // Never reached for m_config.clientRoute (that route is registered first and
     // answers it), so this cannot double the Set-Cookie stampResponse() issues there.
-    const QString index{QDir{m_config.bundleDir}.filePath(QStringLiteral("index.html"))};
+    const QString index{QDir{defaultBundle()}.filePath(QStringLiteral("index.html"))};
     const QByteArray etag{etagFor(index)};
     QHttpHeaders headers{response.headers()};
     if (!etag.isEmpty() && !headers.contains(QHttpHeaders::WellKnownHeader::ETag)) {
@@ -682,7 +731,7 @@ void WebEdge::stampShell(QHttpServerResponse &response, const QHttpServerRequest
 void WebEdge::computeScriptHashes()
 {
     m_scriptHashes.clear();
-    QFile index{QDir{m_config.bundleDir}.filePath(QStringLiteral("index.html"))};
+    QFile index{QDir{defaultBundle()}.filePath(QStringLiteral("index.html"))};
     if (!index.open(QIODevice::ReadOnly)) {
         return;
     }
@@ -739,7 +788,7 @@ bool WebEdge::start()
     m_httpServer = new QHttpServer{this};
     if (m_config.serveClient) {
         m_httpServer->route(m_config.clientRoute, [this](const QHttpServerRequest &request) {
-            const QString index{QDir{m_config.bundleDir}.filePath(QStringLiteral("index.html"))};
+            const QString index{QDir{defaultBundle()}.filePath(QStringLiteral("index.html"))};
             if (auto notModified{notModifiedFor(request, etagFor(index))}) {
                 return std::move(*notModified);
             }
@@ -951,7 +1000,7 @@ void WebEdge::registerBundleRoutes()
     // Skipped entirely when a CDN delivers the bundle: an edge that is not the origin of
     // the app has no business serving files, and every path that is not one of its own
     // routes should be a 404 rather than a second copy of what the CDN is authoritative for.
-    const QString bundleRoot{QDir{m_config.bundleDir}.canonicalPath()};
+    const QString bundleRoot{QDir{defaultBundle()}.canonicalPath()};
     m_httpServer->route(QStringLiteral("/<arg>"),
                         [this, bundleRoot](const QString &asset,
                                            const QHttpServerRequest &request) {
@@ -959,7 +1008,7 @@ void WebEdge::registerBundleRoutes()
             || asset.contains(QLatin1Char('\0')) || asset.contains(QLatin1Char('\\'))) {
             return QHttpServerResponse{QHttpServerResponse::StatusCode::Forbidden};
         }
-        const QString resolved{QFileInfo{QDir{m_config.bundleDir}, asset}.canonicalFilePath()};
+        const QString resolved{QFileInfo{QDir{defaultBundle()}, asset}.canonicalFilePath()};
         if (resolved.isEmpty()) {
             // The bundle holds no such file. This route and the shell fallback below
             // share the "/<arg>" template and this one is registered first, so a

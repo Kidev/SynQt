@@ -81,8 +81,14 @@ public:
     /// entity serving people of their scope. This is that entity, as the Replica this edge
     /// consumes it through. Set when the mesh link comes up, which is after the edge has
     /// started, so a browser arriving before it does does not have that point
-    /// hosted: nothing is answered by an object that is not there yet.
+    /// hosted. Nothing is answered by an object that is not there yet.
     void setEntityBehind(const QString &entity, QObject *replica);
+
+    /// The bundle directory one scope is entitled to, walking down the scope vocabulary
+    /// when this scope has no bundle of its own. Public because it answers a question
+    /// about configuration rather than about any caller, which is also what makes it
+    /// the thing a test can ask directly.
+    QString bundleForScope(const QString &scope) const;
 
 signals:
     void upgradeAccepted(const QString &peer);
@@ -101,6 +107,9 @@ private:
     void cacheBundle();
     QByteArray etagFor(const QString &path) const;
     QString bundlePathFor(const QString &urlPath) const;
+    QString defaultBundle() const;
+    /// The bundle root this request is entitled to, read from its session cookie.
+    QString bundleFor(const QHttpServerRequest &request) const;
     /// The answer for a URL that names no bundle file: the application shell when the
     /// request is a navigation to a client route, a 404 otherwise. Two routes need this,
     /// because the asset route and the shell fallback share one URL template.

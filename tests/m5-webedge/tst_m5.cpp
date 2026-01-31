@@ -66,6 +66,17 @@ WebEdgeConfig makeConfig(bool crossOriginIsolation, int socketThreads = 1)
     return config;
 }
 
+WebEdgeConfig makeGatedConfig()
+{
+    WebEdgeConfig config{makeConfig(false)};
+    config.scopeOrder = {QStringLiteral("anonymous"), QStringLiteral("user"),
+                         QStringLiteral("moderator")};
+    config.defaultScope = QStringLiteral("anonymous");
+    config.bundles = {{QStringLiteral("anonymous"), QStringLiteral(M5_SRCDIR "/gate")},
+                      {QStringLiteral("user"), QStringLiteral(M5_SRCDIR "/bundle")}};
+    return config;
+}
+
 } // namespace
 
 class TestM5 : public QObject
@@ -129,6 +140,39 @@ private slots:
     {
         QVERIFY2(QSslSocket::supportsSsl(), "TLS backend unavailable");
         synqtRegisterGreetingSources();
+    }
+
+    void bundleForScopeWalksDownTheVocabulary()
+    {
+        QQmlEngine engine;
+        WebEdgeConfig config{makeGatedConfig()};
+        config.scopesHierarchical = true;
+        WebEdge edge{config, &engine};
+
+        // Exactly mapped.
+        QCOMPARE(edge.bundleForScope(QStringLiteral("user")),
+                 QStringLiteral(M5_SRCDIR "/bundle"));
+        // Unmapped and hierarchical. The nearest lower bundle, not the default one.
+        QCOMPARE(edge.bundleForScope(QStringLiteral("moderator")),
+                 QStringLiteral(M5_SRCDIR "/bundle"));
+        // No session at all.
+        QCOMPARE(edge.bundleForScope(QString{}), QStringLiteral(M5_SRCDIR "/gate"));
+        // A scope nobody declared falls back to the default scope's bundle.
+        QCOMPARE(edge.bundleForScope(QStringLiteral("nonsense")),
+                 QStringLiteral(M5_SRCDIR "/gate"));
+    }
+
+    void bundleForScopeIgnoresRankWhenScopesAreASet()
+    {
+        QQmlEngine engine;
+        WebEdgeConfig config{makeGatedConfig()};
+        config.scopesHierarchical = false;
+        WebEdge edge{config, &engine};
+
+        // Set-based scopes do not rank, so an unmapped scope inherits nothing and takes
+        // the default scope's bundle rather than the nearest one below it.
+        QCOMPARE(edge.bundleForScope(QStringLiteral("moderator")),
+                 QStringLiteral(M5_SRCDIR "/gate"));
     }
 
     void bundleHeadersDefault()

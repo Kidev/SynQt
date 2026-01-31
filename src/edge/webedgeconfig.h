@@ -73,7 +73,21 @@ struct WebEdgePage
 /// safe ones from [Security](https://synqt.org/security/).
 struct WebEdgeConfig
 {
-    /// Delivery.
+    /// Delivery: what this edge serves each scope, as scope name to bundle directory.
+    ///
+    /// A caller is served the bundle their session's scope maps to and no file of any
+    /// other, which is what makes a privileged bundle absent from an unauthorized disk
+    /// rather than merely un-navigable (a route guard is navigation, and says so). One
+    /// entry keyed by `defaultScope` is the single-bundle case, and is what a project
+    /// writing no `bundles:` emits, so there is no dormant second code path in here.
+    QMap<QString, QString> bundles;
+
+    /// The single-bundle spelling: one directory served to everyone.
+    ///
+    /// A shorthand, not a second source of truth. `WebEdge`'s constructor folds it into
+    /// `bundles` under `defaultScope` when `bundles` is empty and nothing reads it again,
+    /// so there is one place the two are reconciled and no way for them to drift. Most
+    /// projects serve one bundle and should keep writing this.
     QString bundleDir;
     QString clientRoute{QStringLiteral("/")};
     QString syncRoute{QStringLiteral("/sync")};
