@@ -104,25 +104,30 @@ private:
 
     QByteArray computeCsp() const;
     void computeScriptHashes();
+    /// Add one index.html's inline-script hashes to the policy's set.
+    void collectScriptHashes(const QString &indexPath);
     void cacheBundle();
     QByteArray etagFor(const QString &path) const;
-    QString bundlePathFor(const QString &urlPath) const;
-    QString defaultBundle() const;
+    /// Where one URL path resolves inside a given bundle, or empty when it names no
+    /// file of it. The root is the caller's, so a file of another bundle resolves to
+    /// nothing here even though the ETag table knows it.
+    QString bundlePathFor(const QString &root, const QString &urlPath) const;
     /// The bundle root this request is entitled to, read from its session cookie.
     QString bundleFor(const QHttpServerRequest &request) const;
     /// The answer for a URL that names no bundle file: the application shell when the
     /// request is a navigation to a client route, a 404 otherwise. Two routes need this,
     /// because the asset route and the shell fallback share one URL template.
-    QHttpServerResponse shellOrNotFound(const QString &path,
+    QHttpServerResponse shellOrNotFound(const QString &root, const QString &path,
                                         const QHttpServerRequest &request);
     /// The bundle-document headers the shell shares with the client route: the session
     /// cookie the client presents at the wss upgrade, and index.html's cache terms.
-    void stampShell(QHttpServerResponse &response, const QHttpServerRequest &request);
-    /// Register everything that delivers the client bundle: the asset route and the
+    void stampShell(const QString &root, QHttpServerResponse &response,
+                    const QHttpServerRequest &request);
+    /// Register everything that delivers the client bundle. The asset route and the
     /// application-shell fallback. Called only when this edge is the app's origin
     /// (`public.serve_client`), so a CDN-delivered app leaves the edge serving no files.
     void registerBundleRoutes();
-    /// The answer to a cross-origin credential request: a session cookie and nothing else.
+    /// The answer to a cross-origin credential request. A session cookie and nothing else.
     /// It is what lets a browser that loaded the app from a CDN reach the wss upgrade with
     /// a credential, since the upgrade refuses a request that carries none.
     QHttpServerResponse credentialResponse(const QHttpServerRequest &request);

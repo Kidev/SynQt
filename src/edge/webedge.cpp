@@ -559,7 +559,7 @@ void WebEdge::stampResponse(const QHttpServerRequest &request, QHttpServerRespon
     // browser keeps the bytes and spends one conditional GET to confirm them, which is
     // what turns a repeat visit into a 304 instead of a full download. It is also what
     // stops a browser pinning a stale service worker.
-    const QString requested{bundlePathFor(request.url().path())};
+    const QString requested{bundlePathFor(bundleFor(request), request.url().path())};
     if (!requested.isEmpty()) {
         const QByteArray etag{etagFor(requested)};
         if (!etag.isEmpty() && !headers.contains(QHttpHeaders::WellKnownHeader::ETag)) {
@@ -587,9 +587,12 @@ void WebEdge::stampResponse(const QHttpServerRequest &request, QHttpServerRespon
 void WebEdge::cacheBundle()
 {
     m_etags.clear();
-    const QDir root{defaultBundle()};
-    const QFileInfoList entries{root.entryInfoList(QDir::Files | QDir::NoSymLinks)};
-    for (const QFileInfo &entry : entries) {
+    // Every bundle this edge may serve, not just one: the table is keyed by canonical
+    // absolute path, so two roots holding a file of the same name never collide.
+    for (const QString &bundle : std::as_const(m_config.bundles)) {
+        const QDir root{bundle};
+        const QFileInfoList entries{root.entryInfoList(QDir::Files | QDir::NoSymLinks)};
+        for (const QFileInfo &entry : entries) {
         // A precompressed variant is the same resource under a different encoding, so it
         // shares the identity of the file it encodes and is never requested directly.
         if (entry.fileName().endsWith(QLatin1String(".br"))
@@ -604,8 +607,9 @@ void WebEdge::cacheBundle()
         if (!hash.addData(&file)) {
             continue;
         }
-        m_etags.insert(entry.canonicalFilePath(),
-                       '"' + hash.result().toHex().left(32) + '"');
+            m_etags.insert(entry.canonicalFilePath(),
+                           '"' + hash.result().toHex().left(32) + '"');
+        }
     }
 }
 
@@ -651,27 +655,26 @@ QString WebEdge::bundleFor(const QHttpServerRequest &request) const
     return bundleForScope(record ? record->scope : QString{});
 }
 
-/// The default scope's bundle. Task 7 replaces every use of this with a per-request
-/// resolution; until then the read sites behave exactly as they did with one directory.
-QString WebEdge::defaultBundle() const
-{
-    return m_config.bundles.value(m_config.defaultScope);
-}
-
-QString WebEdge::bundlePathFor(const QString &urlPath) const
+QString WebEdge::bundlePathFor(const QString &root, const QString &urlPath) const
 {
     if (urlPath == m_config.clientRoute) {
-        return QDir{defaultBundle()}.filePath(QStringLiteral("index.html"));
+        return QDir{root}.filePath(QStringLiteral("index.html"));
     }
     const QString name{urlPath.mid(1)};
     if (name.isEmpty() || name.contains(QLatin1Char('/'))) {
         return {};
     }
-    const QString resolved{QFileInfo{QDir{defaultBundle()}, name}.canonicalFilePath()};
+    const QString resolved{QFileInfo{QDir{root}, name}.canonicalFilePath()};
+    // Membership of the ETag table is no longer enough: it now holds every bundle's
+    // files, so a path has to be inside the bundle this caller was served as well.
+    const QString canonicalRoot{QDir{root}.canonicalPath()};
+    if (canonicalRoot.isEmpty() || !resolved.startsWith(canonicalRoot + QLatin1Char('/'))) {
+        return {};
+    }
     return m_etags.contains(resolved) ? resolved : QString{};
 }
 
-QHttpServerResponse WebEdge::shellOrNotFound(const QString &path,
+QHttpServerResponse WebEdge::shellOrNotFound(const QString &root, const QString &path,
                                              const QHttpServerRequest &request)
 {
     // Only a navigation gets the shell. A POST or a DELETE to an unknown URL is a
@@ -687,17 +690,18 @@ QHttpServerResponse WebEdge::shellOrNotFound(const QString &path,
     if (path.mid(lastSlash + 1).contains(QLatin1Char('.'))) {
         return QHttpServerResponse{QHttpServerResponse::StatusCode::NotFound};
     }
-    const QString index{QDir{defaultBundle()}.filePath(QStringLiteral("index.html"))};
+    const QString index{QDir{root}.filePath(QStringLiteral("index.html"))};
     if (auto notModified{notModifiedFor(request, etagFor(index))}) {
-        stampShell(*notModified, request);
+        stampShell(root, *notModified, request);
         return std::move(*notModified);
     }
     QHttpServerResponse response{QHttpServerResponse::fromFile(index)};
-    stampShell(response, request);
+    stampShell(root, response, request);
     return response;
 }
 
-void WebEdge::stampShell(QHttpServerResponse &response, const QHttpServerRequest &request)
+void WebEdge::stampShell(const QString &root, QHttpServerResponse &response,
+                         const QHttpServerRequest &request)
 {
     // A deep link is a cold visitor's first page load just as often as "/" is, so it
     // has to leave with the same two things the client route's response leaves with.
@@ -710,7 +714,7 @@ void WebEdge::stampShell(QHttpServerResponse &response, const QHttpServerRequest
     //
     // Never reached for m_config.clientRoute (that route is registered first and
     // answers it), so this cannot double the Set-Cookie stampResponse() issues there.
-    const QString index{QDir{defaultBundle()}.filePath(QStringLiteral("index.html"))};
+    const QString index{QDir{root}.filePath(QStringLiteral("index.html"))};
     const QByteArray etag{etagFor(index)};
     QHttpHeaders headers{response.headers()};
     if (!etag.isEmpty() && !headers.contains(QHttpHeaders::WellKnownHeader::ETag)) {
@@ -731,7 +735,20 @@ void WebEdge::stampShell(QHttpServerResponse &response, const QHttpServerRequest
 void WebEdge::computeScriptHashes()
 {
     m_scriptHashes.clear();
-    QFile index{QDir{defaultBundle()}.filePath(QStringLiteral("index.html"))};
+    // The union across bundles, not a set per bundle. Response stamping runs as an
+    // after-request handler, where the bundle that produced the response is no longer in
+    // hand, so a per-bundle policy would cost per-request state on the path of every
+    // response. Every hash here is of a loader script this build generated, and injecting
+    // an inline script matching one would already require controlling a bundle, so the
+    // union buys an attacker nothing.
+    for (const QString &bundle : std::as_const(m_config.bundles)) {
+        collectScriptHashes(QDir{bundle}.filePath(QStringLiteral("index.html")));
+    }
+}
+
+void WebEdge::collectScriptHashes(const QString &indexPath)
+{
+    QFile index{indexPath};
     if (!index.open(QIODevice::ReadOnly)) {
         return;
     }
@@ -788,7 +805,8 @@ bool WebEdge::start()
     m_httpServer = new QHttpServer{this};
     if (m_config.serveClient) {
         m_httpServer->route(m_config.clientRoute, [this](const QHttpServerRequest &request) {
-            const QString index{QDir{defaultBundle()}.filePath(QStringLiteral("index.html"))};
+            const QString index{QDir{bundleFor(request)}
+                                    .filePath(QStringLiteral("index.html"))};
             if (auto notModified{notModifiedFor(request, etagFor(index))}) {
                 return std::move(*notModified);
             }
@@ -1000,21 +1018,24 @@ void WebEdge::registerBundleRoutes()
     // Skipped entirely when a CDN delivers the bundle: an edge that is not the origin of
     // the app has no business serving files, and every path that is not one of its own
     // routes should be a 404 rather than a second copy of what the CDN is authoritative for.
-    const QString bundleRoot{QDir{defaultBundle()}.canonicalPath()};
     m_httpServer->route(QStringLiteral("/<arg>"),
-                        [this, bundleRoot](const QString &asset,
-                                           const QHttpServerRequest &request) {
+                        [this](const QString &asset,
+                               const QHttpServerRequest &request) {
+        // Resolved per request rather than once at start: which bundle a caller may read
+        // from is a property of their session, not of this edge.
+        const QString root{bundleFor(request)};
+        const QString bundleRoot{QDir{root}.canonicalPath()};
         if (asset.isEmpty() || QDir::isAbsolutePath(asset)
             || asset.contains(QLatin1Char('\0')) || asset.contains(QLatin1Char('\\'))) {
             return QHttpServerResponse{QHttpServerResponse::StatusCode::Forbidden};
         }
-        const QString resolved{QFileInfo{QDir{defaultBundle()}, asset}.canonicalFilePath()};
+        const QString resolved{QFileInfo{QDir{root}, asset}.canonicalFilePath()};
         if (resolved.isEmpty()) {
             // The bundle holds no such file. This route and the shell fallback below
             // share the "/<arg>" template and this one is registered first, so a
             // single-segment client route ("/about") is matched here and would never
             // reach the fallback. Answer it on the fallback's own terms.
-            return shellOrNotFound(asset, request);
+            return shellOrNotFound(root, asset, request);
         }
         if (bundleRoot.isEmpty() || !resolved.startsWith(bundleRoot + QLatin1Char('/'))) {
             // It exists, but outside the bundle. Refuse it, and never dress the attempt
@@ -1029,7 +1050,7 @@ void WebEdge::registerBundleRoutes()
             // its neighbors already do. After the containment test, so an attempt to
             // probe outside the bundle is still refused before anything else looks at
             // the path.
-            return shellOrNotFound(asset, request);
+            return shellOrNotFound(root, asset, request);
         }
         if (auto notModified{notModifiedFor(request, etagFor(resolved))}) {
             return std::move(*notModified);
@@ -1081,7 +1102,7 @@ void WebEdge::registerBundleRoutes()
     m_httpServer->route(QStringLiteral("/<arg>"), QHttpServerRequest::Method::Get
                                                        | QHttpServerRequest::Method::Head,
                         [this](const QUrl &rest, const QHttpServerRequest &request) {
-        return shellOrNotFound(rest.path(), request);
+        return shellOrNotFound(bundleFor(request), rest.path(), request);
     });
 }
 

@@ -175,6 +175,79 @@ private slots:
                  QStringLiteral(M5_SRCDIR "/gate"));
     }
 
+    void anonymousGetsTheGateAndNotTheApplication()
+    {
+        QQmlEngine engine;
+        WebEdge edge{makeGatedConfig(), &engine};
+        QVERIFY2(edge.start(), qPrintable(edge.errorString()));
+
+        QNetworkReply *index{httpGet(edge.httpOrigin() + QStringLiteral("/"))};
+        QVERIFY(index != nullptr);
+        QVERIFY2(index->readAll().contains("SYNQT-M5-GATE"), "anonymous got the app");
+    }
+
+    void anAssetOfAnotherBundleIsNotFound()
+    {
+        QQmlEngine engine;
+        WebEdge edge{makeGatedConfig(), &engine};
+        QVERIFY2(edge.start(), qPrintable(edge.errorString()));
+
+        // app.js is in the application bundle and not in the gate. An anonymous caller is
+        // told it does not exist, not that it is forbidden. A private deployment does not
+        // confirm what it holds.
+        QNetworkReply *asset{httpGet(edge.httpOrigin() + QStringLiteral("/app.js"))};
+        QVERIFY(asset != nullptr);
+        const QByteArray body{asset->readAll()};
+        QVERIFY2(!body.contains("console.log"), body.constData());
+    }
+
+    void aSignedInSessionGetsTheApplication()
+    {
+        QQmlEngine engine;
+        WebEdge edge{makeGatedConfig(), &engine};
+        QVERIFY2(edge.start(), qPrintable(edge.errorString()));
+
+        // Created at the scope directly rather than elevated: setScope rotates the
+        // credential, so the cookie a test built beforehand would name the old one.
+        const QByteArray id{
+            edge.sessionManager()->createSession(QStringLiteral("user"))};
+        const QByteArray cookie{"synqt_session=" + id};
+
+        QNetworkReply *index{httpGet(edge.httpOrigin() + QStringLiteral("/"),
+                                     "Cookie", cookie)};
+        QVERIFY(index != nullptr);
+        QVERIFY2(index->readAll().contains("SYNQT-M5-BUNDLE"),
+                 "a user-scoped session was served the gate");
+
+        QNetworkReply *asset{httpGet(edge.httpOrigin() + QStringLiteral("/app.js"),
+                                     "Cookie", cookie)};
+        QVERIFY(asset != nullptr);
+        QVERIFY(asset->readAll().contains("console.log"));
+    }
+
+    void aDeepLinkWithNoSessionLandsOnTheGateShell()
+    {
+        QQmlEngine engine;
+        WebEdge edge{makeGatedConfig(), &engine};
+        QVERIFY2(edge.start(), qPrintable(edge.errorString()));
+
+        QNetworkReply *deep{httpGet(edge.httpOrigin() + QStringLiteral("/admin/reports"))};
+        QVERIFY(deep != nullptr);
+        QVERIFY2(deep->readAll().contains("SYNQT-M5-GATE"),
+                 "a deep link served the application shell to an anonymous caller");
+    }
+
+    void oneBundleBehavesExactlyAsBefore()
+    {
+        QQmlEngine engine;
+        WebEdge edge{makeConfig(false), &engine};
+        QVERIFY2(edge.start(), qPrintable(edge.errorString()));
+
+        QNetworkReply *reply{httpGet(edge.httpOrigin() + QStringLiteral("/"))};
+        QVERIFY(reply != nullptr);
+        QVERIFY(reply->readAll().contains("SYNQT-M5-BUNDLE"));
+    }
+
     void bundleHeadersDefault()
     {
         QQmlEngine engine;
