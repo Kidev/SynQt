@@ -167,6 +167,35 @@ def serve(project_dir: os.PathLike[str] | str, *, profile: Optional[str] = None)
     return "\n".join(lines)
 
 
+def _bundle_arguments(root: Path, edge: Dict[str, Any],
+                      config: Dict[str, Any]) -> List[str]:
+    """The `--bundle` arguments one edge is launched with.
+
+    An edge with no `bundles:` block is passed the bare directory it has always been
+    passed, which the generated main reads as the single-bundle shorthand. An edge that
+    declares the block is passed one `<scope>=<dir>` per mapped scope: a static bundle
+    resolves inside the edge's own folder, a client bundle to where the build assembled
+    that client.
+    """
+    if not isinstance(edge.get("bundles"), dict) or not edge["bundles"]:
+        return ["--bundle", str(root / "build" / "client")]
+    clients = {str(entity.get("name") or ""): entity
+               for entity in appmodel.entities(config) if appmodel.is_client(entity)}
+    arguments: List[str] = []
+    for scope, (kind, value) in sorted(appmodel.bundles_for(config, edge).items()):
+        if kind == appmodel.BUNDLE_STATIC:
+            directory = root / appmodel.entity_dir(edge) / value
+        else:
+            client = clients.get(value)
+            if client is None:
+                # Refused by `synqt check`. Skipped here rather than launching an edge
+                # pointed at a directory no build ever writes.
+                continue
+            directory = root / appmodel.bundle_output_dir(config, client)
+        arguments += ["--bundle", f"{scope}={directory}"]
+    return arguments
+
+
 def dev_command(root: Path, entity: Dict[str, Any], config: Dict[str, Any],
                 port: int) -> List[str]:
     """The argv to launch one entity for `synqt dev` (plaintext localhost), run from the
@@ -177,9 +206,9 @@ def dev_command(root: Path, entity: Dict[str, Any], config: Dict[str, Any],
     resolved = host_binary(root, name)
     binary = str(resolved) if resolved else str(root / "build" / "host" / name)
     if appmodel.is_edge(entity):
-        return [binary, "--bundle", str(root / "build" / "client"),
-                "--qml-dir", str(root / appmodel.GENERATED_DIR),
-                "--port", str(port), "--dev"]
+        return ([binary] + _bundle_arguments(root, entity, config)
+                + ["--qml-dir", str(root / appmodel.GENERATED_DIR),
+                   "--port", str(port), "--dev"])
     command = [binary, "--topology", str(root / "build" / name / "topology.json")]
     # A service that declares pragma-Singleton QML resolves it against the mirror under
     # generated/, which is where the loadable copy of every entity's QML lives.

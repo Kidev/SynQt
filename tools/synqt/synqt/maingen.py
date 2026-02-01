@@ -1123,8 +1123,10 @@ int main(int argc, char *argv[])
     QCommandLineParser parser;
     parser.addHelpOption();
     const QCommandLineOption bundleOption{{QStringLiteral("bundle"),
-        QStringLiteral("Directory of the client bundle to serve."),
-        QStringLiteral("dir"), QStringLiteral("build/client")}};
+        QStringLiteral("Bundle to serve, as <scope>=<dir>. Repeatable: this edge serves "
+                       "each scope the bundle it is mapped to. A bare <dir> is the "
+                       "bundle for the default scope."),
+        QStringLiteral("[scope=]dir"), QStringLiteral("build/client")}};
     const QCommandLineOption qmlDirOption{{QStringLiteral("qml-dir"),
         QStringLiteral("Directory the entity folders of loadable QML live under."),
         QStringLiteral("dir"), QStringLiteral("generated")}};
@@ -1154,7 +1156,18 @@ int main(int argc, char *argv[])
 
     QQmlEngine engine;
 {mesh_runtime_block}    WebEdgeConfig config;
-    config.bundleDir = parser.value(bundleOption);
+    // Bundles, as <scope>=<dir>. A bare value is the single-bundle shorthand, which is
+    // what a project with no `bundles:` block passes and what every project passed before
+    // the key existed; WebEdge's constructor folds it in under the default scope, so this
+    // loop needs no ordering relationship with the scope vocabulary below it.
+    for (const QString &bundle : parser.values(bundleOption)) {{
+        const qsizetype separator{{bundle.indexOf(QLatin1Char('='))}};
+        if (separator < 0) {{
+            config.bundleDir = bundle;
+            continue;
+        }}
+        config.bundles.insert(bundle.left(separator), bundle.mid(separator + 1));
+    }}
     config.port = parser.value(portOption).toUShort();
     config.certFile = parser.value(certOption);
     config.keyFile = parser.value(keyOption);

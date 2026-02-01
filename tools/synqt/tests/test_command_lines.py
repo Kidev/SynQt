@@ -255,3 +255,30 @@ def test_a_configured_build_reaches_ctest_and_returns_what_it_said(tmp_path, mon
 
 if __name__ == "__main__":
     pytest.main([__file__])
+
+
+def _bundle_values(argv):
+    return [argv[index + 1] for index, item in enumerate(argv) if item == "--bundle"]
+
+
+def test_dev_passes_one_bundle_per_scope():
+    config = {"entities": [{"name": "web", "type": "web_edge",
+                            "bundles": {"anonymous": "landing/", "user": "app"}},
+                           {"name": "app", "type": "client"},
+                           {"name": "gate", "type": "client"}],
+              "scopes": {"order": ["anonymous", "user"], "default": "anonymous"}}
+    argv = runmod.dev_command(Path("/p"), config["entities"][0], config, 8443)
+    values = _bundle_values(argv)
+    assert any(v.startswith("anonymous=") and v.endswith("/web/web/landing")
+               for v in values), values
+    assert any(v.startswith("user=") and v.endswith("/build/client-app")
+               for v in values), values
+
+
+def test_dev_passes_a_bare_bundle_for_a_project_with_no_block():
+    # The historic argv, unchanged: the generated main keys a bare value by the default
+    # scope, so a project that never wrote `bundles:` is launched exactly as before.
+    config = {"entities": [{"name": "web", "type": "web_edge"},
+                           {"name": "app", "type": "client"}]}
+    argv = runmod.dev_command(Path("/p"), config["entities"][0], config, 8443)
+    assert _bundle_values(argv) == [str(Path("/p") / "build" / "client")]
