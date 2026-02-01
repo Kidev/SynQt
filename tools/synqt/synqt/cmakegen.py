@@ -82,8 +82,6 @@ def render_root_cmakelists(config: Dict[str, Any], synqt_root: os.PathLike[str] 
     project = config.get("project", {})
     name = project.get("name", "app")
     qt_version = project.get("qt_version", "6.11.1")
-    uri = appmodel.qml_uri(name)
-    client = appmodel.client_entity(config)
     services = [e for e in appmodel.entities(config) if appmodel.is_service(e)]
 
     lines: List[str] = [_HEADER_CMAKE, "",
@@ -114,10 +112,22 @@ def render_root_cmakelists(config: Dict[str, Any], synqt_root: os.PathLike[str] 
                         "Core Gui Qml Quick QuickControls2 Network RemoteObjects WebSockets)",
                         "qt_standard_project_setup(REQUIRES 6.11)", ""]
 
-    if client is not None:
+    clients = [entity for entity in appmodel.entities(config)
+               if appmodel.is_client(entity)]
+    if clients:
         root = Path(project_dir) if project_dir is not None else None
-        client_dir = root / appmodel.entity_dir(client) if root is not None else None
-        lines += _client_cmake(config, client, uri, client_dir)
+        # Once, however many clients there are. The runtime library is one target and
+        # CMake refuses the same source directory added twice under one binary directory.
+        lines += ["# The client runtime, shared by every client entity below.",
+                  'add_subdirectory("${SYNQT_ROOT}/src/client"'
+                  ' "${CMAKE_BINARY_DIR}/SynQtClient")',
+                  'set(SYNQT_EDGE_URL "wss://127.0.0.1:8443/sync" CACHE STRING '
+                  '"Desktop client edge URL")', ""]
+        for entity in clients:
+            client_dir = (root / appmodel.entity_dir(entity)
+                          if root is not None else None)
+            lines += _client_cmake(config, entity,
+                                   appmodel.qml_uri_for(config, entity), client_dir)
 
     if services:
         lines += ["", "# Service entities (host only; never built for WebAssembly)",
@@ -249,18 +259,17 @@ def _client_cmake(config: Dict[str, Any], client: Dict[str, Any], uri: str,
     consumed = appmodel.consumed_by(config, name)
     contracts = appmodel.contracts_of(consumed)
     # The window, every view a route names, and every other QML file the client entity
-    # holds: a file outside the module is not in the resource system, so neither the URL
+    # holds. A file outside the module is not in the resource system, so neither the URL
     # the route table carries nor a view's own `Card {}` would resolve to anything.
-    views = appmodel.client_qml_files(config, client_dir)
+    views = appmodel.client_qml_files(config, client_dir, client)
     folder = appmodel.entity_dir(client)
-    # From the mirror under generated/, not from the entity folder: that is the copy whose
+    # From the mirror under generated/, not from the entity folder. That is the copy whose
     # root objects are loadable (synqt.qmlrewrite). It changes nothing about where a view
     # ends up in the resource system, because every file below is given an explicit
     # QT_RESOURCE_ALIAS of its bare name, which is what the route table and
     # loadFromModule() address it by.
     qml_files = ['"${SYNQT_GENERATED}/%s/%s"' % (folder, view) for view in views]
-    lines = ["# The client (browser WASM and native desktop, from one QML)",
-             'add_subdirectory("${SYNQT_ROOT}/src/client" "${CMAKE_BINARY_DIR}/SynQtClient")']
+    lines = [f"# Client '{name}' (browser WASM and native desktop, from one QML)"]
     # Each file is listed by absolute path, and each has to land where it sits in the
     # entity directory: the module root is where loadFromModule() looks for Main and
     # where the compiled route table points (qrc:/qt/qml/<Uri>/<view>). Without an alias
@@ -275,8 +284,6 @@ def _client_cmake(config: Dict[str, Any], client: Dict[str, Any], uri: str,
                      "    PROPERTIES %sQT_RESOURCE_ALIAS %s)"
                      % (qml_file, properties, view))
     lines += [
-             'set(SYNQT_EDGE_URL "wss://127.0.0.1:8443/sync" CACHE STRING '
-             '"Desktop client edge URL")',
              f'qt_add_executable({name} '
              f'"${{SYNQT_GENERATED}}/{folder}/main.cpp")',
              f"qt_add_qml_module({name}",

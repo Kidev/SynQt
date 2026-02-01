@@ -50,3 +50,21 @@ def test_a_multi_client_project_gets_a_directory_per_client():
     gate = config["entities"][2]
     assert appmodel.bundle_output_dir(config, app) == "build/client-app"
     assert appmodel.bundle_output_dir(config, gate) == "build/client-gate"
+
+
+def test_one_client_keeps_the_project_qml_uri():
+    config, _ = _config()
+    config["project"] = {"name": "shop"}
+    assert appmodel.qml_uri_for(config, config["entities"][1]) == "Shop"
+
+
+def test_two_clients_get_distinct_qml_uris():
+    config, _ = _config(clients=("app", "gate"))
+    config["project"] = {"name": "shop"}
+    app = appmodel.qml_uri_for(config, config["entities"][1])
+    gate = appmodel.qml_uri_for(config, config["entities"][2])
+    # Distinct, or both modules would claim qrc:/qt/qml/Shop/Main.qml and the second
+    # would silently win for every route in the first.
+    assert app != gate
+    assert app == "ShopApp"
+    assert gate == "ShopGate"

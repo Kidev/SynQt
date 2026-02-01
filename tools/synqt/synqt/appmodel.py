@@ -715,6 +715,23 @@ def bundles_for(config: Dict[str, Any],
     return resolved
 
 
+def qml_uri_for(config: Dict[str, Any], client: Dict[str, Any]) -> str:
+    """The QML module URI one client entity's module is registered under.
+
+    A project with one client keeps the URI derived from the project name, which is what
+    every route's compiled `qrc:/qt/qml/<Uri>/<view>` already says and what
+    `loadFromModule()` already looks in. A second client cannot share it: both modules
+    would claim `qrc:/qt/qml/<Uri>/Main.qml`, and the one registered last would answer for
+    every route in the other, which is a collision no error reports.
+    """
+    base = qml_uri(str(config.get("project", {}).get("name", "app")))
+    clients = [entity for entity in entities(config) if is_client(entity)]
+    if len(clients) < 2:
+        return base
+    name = str(client.get("name") or "")
+    return base + name[:1].upper() + name[1:]
+
+
 def bundle_output_dir(config: Dict[str, Any], client: Dict[str, Any]) -> str:
     """Where `synqt build` assembles one client entity's bundle, project-root relative.
 
