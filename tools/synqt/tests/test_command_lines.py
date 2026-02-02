@@ -121,8 +121,11 @@ def _config(*entities):
 
 def test_a_project_with_no_client_builds_only_its_services():
     config = _config({"name": "web", "type": "service"}, {"name": "db", "type": "service"})
-    entity, host, client = buildmod._targets_for(config, "all")
-    assert entity is None
+    entities, host, client = buildmod._targets_for(config, "all")
+    # Every client entity, not the first one: a project may hold a gate and an
+    # application, and building only whichever was declared first leaves the other with no
+    # bundle while the build reports success.
+    assert entities == []
     assert host == ["web", "db"]
     assert client == []
 
@@ -130,8 +133,8 @@ def test_a_project_with_no_client_builds_only_its_services():
 def test_a_browser_client_is_built_by_the_wasm_kit_and_not_with_the_services():
     config = _config({"name": "app", "type": "client", "targets": ["wasm"]},
                      {"name": "web", "type": "service"})
-    entity, host, client = buildmod._targets_for(config, "wasm")
-    assert entity["name"] == "app"
+    entities, host, client = buildmod._targets_for(config, "wasm")
+    assert [e["name"] for e in entities] == ["app"]
     assert host == ["web"]
     assert client == ["wasm"]
 
@@ -143,6 +146,26 @@ def test_a_desktop_client_is_built_by_the_host_kit_and_joins_the_services():
                      {"name": "web", "type": "service"})
     _, host, client = buildmod._targets_for(config, "all")
     assert host == ["web", "app"]
+    assert set(client) == {"wasm", "desktop"}
+
+
+def test_two_clients_are_both_built():
+    """The whole point of the list: a gate and an application both reach the compiler."""
+    config = _config({"name": "app", "type": "client", "targets": ["wasm"]},
+                     {"name": "gate", "type": "client", "targets": ["wasm"]},
+                     {"name": "web", "type": "service"})
+    entities, host, client = buildmod._targets_for(config, "wasm")
+    assert [e["name"] for e in entities] == ["app", "gate"]
+    assert host == ["web"]
+    assert client == ["wasm"]
+
+
+def test_a_desktop_client_beside_a_wasm_one_joins_the_host_build():
+    config = _config({"name": "app", "type": "client", "targets": ["wasm"]},
+                     {"name": "kiosk", "type": "client", "targets": ["desktop"]},
+                     {"name": "web", "type": "service"})
+    _, host, client = buildmod._targets_for(config, "all")
+    assert host == ["web", "kiosk"]
     assert set(client) == {"wasm", "desktop"}
 
 

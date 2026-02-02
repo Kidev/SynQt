@@ -44,8 +44,33 @@ A route names its page one of two ways, and the key is what differs.
 `view:` is a QML file compiled into the bundle, downloaded once with everything else.
 `remote:` is a QML file the web edge keeps and delivers at navigation time, over the same
 authenticated `wss` link, so it never enters the bundle and changes without a client
-rebuild; [remote pages](remote-pages.md) is the reference for that half. The two are
+rebuild. [Remote pages](remote-pages.md) is the reference for that half. The two are
 mutually exclusive on one route, and everything else on this page is true of both.
+
+### Where the table lives
+
+`routes:` at the top level is the table of the project's client. A project holding more than
+one client (a landing page and the application, or an application and an operator console)
+gives each its own, on the entity:
+
+```yaml
+entities:
+  - name: app
+    type: client
+    routes:
+      - path: /
+        view: Home.qml
+```
+
+The top-level list is the shorthand for a project with exactly one client, which is what
+every project written before this had. With two clients both falling back to it, `synqt
+check` refuses the topology rather than picking one, because whichever entity the
+generator rendered first would take the table and the other would compile with nothing in it.
+
+Which client a visitor is served in the first place is a separate question, answered by
+[`bundles:`](project-layout-and-config.md) on the web edge. A route guard decides where a
+visitor may navigate inside the bundle they already hold. A bundle decides which one they
+were given.
 
 Nothing in your QML branches on which kind a route is. One `Loader` renders whatever the
 router resolved:

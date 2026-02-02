@@ -485,9 +485,58 @@ An entity with `inbound` links Qt HTTP Server, which is GPLv3 only, so its artif
 GPLv3 and its generated `THIRD-PARTY-LICENSES` says so. An outbound only entity links
 neither and stays LGPLv3. See [licensing](licensing.md).
 
+### `bundles`: which scope is served which client
+
+A web edge serves the bundle the caller's session scope maps to, and no file of any other.
+Declared on the edge entity, because delivery is that entity's job:
+
+```yaml
+entities:
+  - name: web
+    type: web_edge
+    bundles:
+      anonymous: landing/     # a directory under web/web/
+      user: app               # a client entity
+      moderator: app
+```
+
+A value holding a `/` is a directory, relative to the edge entity's own folder. A bare name
+is a client entity. Anything that could be read both ways is refused by
+[`synqt check`](build-system-and-cli.md) rather than guessed at.
+
+With no `bundles:` block the project's one client is served to everybody, which is what
+every project written before this key did, so nothing has to be added to keep working.
+
+Two things follow from it, and the first is the reason it exists:
+
+- A visitor is not merely stopped from navigating to a privileged view: the file is not
+  delivered to them at all. A route `scope:` is a navigation guard and says so in
+  [the programming model](programming-model.md), so a privileged view in a shared bundle
+  still ships to every visitor. A bundle boundary is the one that does not.
+- A request for a file outside the caller's bundle is answered `404`, not `403`. A private
+  deployment does not confirm that an operator console exists.
+
+When `scopes.hierarchical` is true (the default) a scope with no bundle of its own is
+served the nearest one below it, so a project declares two bundles rather than one per
+scope. With set-based scopes there is no "below", and an unmapped scope is served the
+default scope's bundle.
+
+The bundle is chosen when the page loads. If a session's scope changes so that a different
+bundle now applies, the next full page load picks it up. Nothing hot-swaps a
+WebAssembly module underneath a running app.
+
+A static bundle is any directory holding an `index.html`: a landing page with a sign-in
+button, the output of a site generator, or a single form. It costs no build. A client
+entity is a full SynQt client, and because the edge mints an anonymous session for every
+visitor it can consume anonymous-scope connect points, so a landing page can show live
+public data rather than being a poster. It costs a WebAssembly build.
+
+A project with more than one client entity gets one QML module and one bundle directory per
+client (`build/client-<name>/`). A project with one keeps `build/client/` exactly as before.
+
 ### `connect_points` (ownership and consumers)
 
-A block sequence with one entry per connect point. An entity has one: the surface it
+A block sequence with one entry per connect point. An entity has one, the surface it
 exports, with exactly one owner and a list of consumers. Nothing in the entry is a name,
 because the owner is the name.
 

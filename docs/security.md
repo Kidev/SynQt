@@ -586,6 +586,11 @@ Browser link:
 - The session is the httpOnly Secure cookie. There is no alternative transport: the
   subprotocol is refused for a toolkit reason recorded with the config keys.
 - CSP is the restrictive default; any widening is reviewed.
+- A private deployment maps its default scope to a gate through
+  [`bundles:`](project-layout-and-config.md), so an unauthenticated visitor is served the
+  gate and no file of any other bundle. A route `scope:` alone does not do this: it is a
+  navigation guard, so the QML of a privileged view still ships to every visitor when one
+  bundle serves everybody. A file outside the caller's bundle answers 404, never 403.
 - Cross origin isolation matches the threading mode.
 - The route table passes `synqt check`: no client route claims a path the edge
   answers itself (the sync endpoint or the login routes), and the fallback is a

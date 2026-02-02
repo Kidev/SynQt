@@ -406,6 +406,20 @@
       "defended_by": "synqt check refuses an embedded (sqlite/memory) identity.device.store under replicas > 1.",
       "file": "tools/synqt/tests/test_check_replicas.py",
       "test": "test_an_embedded_device_store_is_an_error"
+    },
+    {
+      "id": "unauthenticated-bundle-fetch",
+      "what": "A visitor with no session asks for a file of a bundle their scope does not map to, to read the QML of a view the route guard would only have refused to navigate to.",
+      "defended_by": "The edge resolves the bundle from the caller's session scope before it looks any file up, so a path outside that bundle resolves to nothing. It answers 404 rather than 403: a private deployment does not confirm that an operator console exists.",
+      "file": "tests/m5-webedge/tst_m5.cpp",
+      "test": "anAssetOfAnotherBundleIsNotFound"
+    },
+    {
+      "id": "deep-link-bundle-leak",
+      "what": "A visitor with no session follows a deep link into a privileged route, which the client route does not answer and the shell fallback does.",
+      "defended_by": "shellOrNotFound serves the shell of the caller's own bundle, so a deep link with no session lands on the gate instead of on an application shell that would then fail to fetch its module.",
+      "file": "tests/m5-webedge/tst_m5.cpp",
+      "test": "aDeepLinkWithNoSessionLandsOnTheGateShell"
     }
   ]
 }
