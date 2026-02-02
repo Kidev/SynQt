@@ -320,6 +320,36 @@ function entityPanel(design, entity, actions) {
                      + "have a different kind."})));
 
     const how = tag("div");
+    if (entityType(entity) === "web_edge") {
+        // Which scope is served which bundle. Read-only here. A value is either a client
+        // entity or a directory, and `synqt check` refuses anything ambiguous, so this
+        // shows what the topology says rather than offering a text box that could write a
+        // mapping the build would then refuse.
+        const bundles = entity.bundles || {};
+        const scopes = Object.keys(bundles).sort();
+        const rows = tag("div");
+        if (!scopes.length) {
+            rows.append(tag("p", {class: "field__fixed"},
+                             "one bundle, served to everybody"));
+        }
+        for (const scope of scopes) {
+            const value = String(bundles[scope] || "");
+            const kind = value.includes("/") ? "directory" : "client";
+            rows.append(tag("p", {class: "field__fixed"},
+                             `${scope} -> ${value} (${kind})`));
+        }
+        how.append(group("Bundles", rows,
+                         {help: ["Which client bundle this edge serves each scope. A "
+                                 + "caller is served the bundle their session's scope "
+                                 + "maps to and no file of any other, so a privileged "
+                                 + "bundle is not on an unauthorized visitor's disk at "
+                                 + "all.",
+                                 "A value with a `/` is a directory under this entity's "
+                                 + "folder (a static gate); a bare name is a client "
+                                 + "entity. With no bundles at all the project's one "
+                                 + "client is served to everybody, which is what an app "
+                                 + "that never wrote the key does."]}));
+    }
     if (entityType(entity) === "client") {
         const targets = tag("div");
         for (const target of TARGETS) {

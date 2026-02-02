@@ -715,6 +715,20 @@ def bundles_for(config: Dict[str, Any],
     return resolved
 
 
+def desktop_output_dir(config: Dict[str, Any], client: Dict[str, Any]) -> str:
+    """Where a client entity's native desktop build lands, project-root relative.
+
+    The platform folder (`windows/`, `macos/`, `linux/`) goes underneath this, per
+    docs/desktop.md. Same rule as `bundle_output_dir`: one client keeps the historic
+    `build/client-desktop`, and only a project holding more than one grows a directory per
+    client.
+    """
+    clients = [entity for entity in entities(config) if is_client(entity)]
+    if len(clients) < 2:
+        return "build/client-desktop"
+    return f"build/client-desktop-{client.get('name')}"
+
+
 def qml_uri_for(config: Dict[str, Any], client: Dict[str, Any]) -> str:
     """The QML module URI one client entity's module is registered under.
 

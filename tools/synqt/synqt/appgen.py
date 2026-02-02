@@ -109,7 +109,7 @@ def generate(project_dir: os.PathLike[str] | str, config: Dict[str, Any], *,
             # The same QML module URI the client target is configured with in
             # render_root_cmakelists (qt_add_qml_module URI ...), so a compiled-in route's
             # qrc URL actually matches where qmlcachegen puts the view.
-            uri = appmodel.qml_uri(config.get("project", {}).get("name", "app"))
+            uri = appmodel.qml_uri_for(config, entity)
             source = maingen.render_client_main(config, uri, entity)
         elif appmodel.is_edge(entity):
             source = maingen.render_edge_main(config, entity, singletons)

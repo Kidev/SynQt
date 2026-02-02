@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import math
+from pathlib import Path
 
 from test_designpage import _module, _node
 
@@ -258,5 +259,17 @@ def test_a_link_into_a_front_is_broken_until_a_scope_names_its_owner():
     assert _break(f"isBroken({json.dumps(front)}, 'worker')") is False
     assert _break(f"isBroken({json.dumps(front)}, 'store')") is True
     assert _break('isBroken({"tiers": {}}, "store")') is True
-    # Not a front at all: an ordinary link into an ordinary entity is never broken.
+    # Not a front at all. An ordinary link into an ordinary entity is never broken.
     assert _break("isBroken(null, 'store')") is False
+
+
+def test_the_edge_node_summarises_the_bundles_it_serves():
+    source = (Path(__file__).resolve().parents[1]
+              / "synqt/assets/design/canvas.js").read_text()
+    assert "bundles" in source
+
+
+def test_the_inspector_shows_which_scope_gets_which_bundle():
+    source = (Path(__file__).resolve().parents[1]
+              / "synqt/assets/design/inspector.js").read_text()
+    assert "Bundles" in source

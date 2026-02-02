@@ -647,3 +647,9 @@ def test_a_table_the_editor_only_read_is_not_written_back(tmp_path):
     schema = project / "db" / "relational" / "books" / "schema.sql"
     schema.write_text(schema.read_text(encoding="utf-8") + "\n-- theirs\n", encoding="utf-8")
     assert designplan.compute(project, document).changes == ()
+
+
+def test_bundles_is_a_modelled_entity_field():
+    # An entity field the document does not model is one the editor drops on the next
+    # save. For `bundles:` that would silently hand a private bundle to the public.
+    assert "bundles" in designplan._ENTITY_FIELDS

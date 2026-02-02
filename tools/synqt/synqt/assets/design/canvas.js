@@ -417,6 +417,13 @@ export function describe(entity) {
     if (entity.provider) {
         parts.push(entity.provider);
     }
+    // An edge that serves more than one bundle says so, because who may download what is
+    // not something to discover by opening a file. The mapping itself is in the inspector:
+    // a node is a disc and not a list, the same reason `caption` counts files.
+    const bundles = Object.keys(entity.bundles || {});
+    if (bundles.length > 1) {
+        parts.push(`${bundles.length} bundles`);
+    }
     return parts.join(" / ");
 }
 

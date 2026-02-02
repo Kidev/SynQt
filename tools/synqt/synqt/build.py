@@ -44,29 +44,60 @@ def _client_targets(entity: Dict[str, Any], requested: str) -> List[str]:
     return [requested] if requested in declared else []
 
 
-def _wasm_runtime_files(wasm_dir: Path) -> List[Path]:
+def _wasm_runtime_files(wasm_dir: Path, target: Optional[str] = None) -> List[Path]:
     """The Emscripten runtime + assets to serve (the .js/.wasm/.svg, not Qt's .html: SynQt
-    ships its own CSP-clean index shell instead of Qt's inline-handler template)."""
+    ships its own CSP-clean index shell instead of Qt's inline-handler template).
+
+    With `target`, only that target's own artifacts plus the files every client shares
+    (qtloader.js and any assets). One Emscripten build directory holds every client
+    entity's `<target>.js` and `<target>.wasm` side by side, so a project with two clients
+    would otherwise copy both into each bundle and pick whichever sorted first as the
+    entry point.
+    """
+    shared = {"qtloader.js"}
     wanted: List[Path] = []
     for pattern in ("*.js", "*.wasm", "*.svg"):
         # qtlogo.svg exists only for Qt's stock template, which SynQt replaces: shipping it
         # would put Qt's mark (and two precompressed copies of it) in every app's bundle,
         # referenced by nothing.
-        wanted += sorted(p for p in wasm_dir.glob(pattern) if p.name != "qtlogo.svg")
+        for path in sorted(wasm_dir.glob(pattern)):
+            if path.name == "qtlogo.svg":
+                continue
+            if (target is not None and path.suffix in (".js", ".wasm")
+                    and path.stem != target and path.name not in shared):
+                continue
+            wanted.append(path)
     return wanted
 
 
+def client_bundle_targets(config: Dict[str, Any]) -> Dict[str, str]:
+    """Every client entity to assemble a served bundle for, mapped to where it goes.
+
+    Keyed by entity name, which is also the CMake target name, so the caller can pick that
+    target's runtime files out of one Emscripten build directory. A desktop-only client is
+    absent: it produces an executable, and there is no bundle to serve.
+
+    The value is the same `build/client` a single-client project has always used, so the
+    documentation, the generated compose files and the deploy scripts all keep naming a
+    path that is still there.
+    """
+    return {str(entity.get("name") or ""): appmodel.bundle_output_dir(config, entity)
+            for entity in appmodel.entities(config)
+            if appmodel.is_client(entity) and "wasm" in appmodel.client_targets(entity)}
+
+
 def assemble_bundle(wasm_dir: Path, client_dir: Path, config: Dict[str, Any],
-                    project_dir: Path) -> int:
-    """Assemble the served bundle: copy the WASM runtime + assets, then write SynQt's own
+                    project_dir: Path, target: Optional[str] = None) -> int:
+    """Assemble the served bundle. Copy the WASM runtime + assets, then write SynQt's own
     CSP-clean index.html and external synqt-boot.js (Qt's default template boots from an
     inline handler the edge's strict CSP blocks). Returns the file count."""
     client_dir.mkdir(parents=True, exist_ok=True)
-    runtime = _wasm_runtime_files(wasm_dir)
-    # The app runtime js is <target>.js; the loader is qtloader.js. The entry symbol the
+    runtime = _wasm_runtime_files(wasm_dir, target)
+    # The app runtime js is <target>.js. The loader is qtloader.js. The entry symbol the
     # boot script calls is window.<target>_entry.
     app_js = next((p for p in runtime if p.name != "qtloader.js" and p.suffix == ".js"), None)
-    target = app_js.stem if app_js else "client"
+    if target is None:
+        target = app_js.stem if app_js else "client"
 
     count = 0
     for source in runtime:
@@ -81,10 +112,10 @@ def assemble_bundle(wasm_dir: Path, client_dir: Path, config: Dict[str, Any],
     # therefore precaches itself along with the rest of the shell.
     if clientcache.uses_service_worker(config):
         writer.write_if_changed(client_dir / "synqt-sw.js",
-                                clientshell.render_service_worker_js())
+                                clientshell.render_service_worker_js(target))
         extra += 1
 
-    # Written last: the manifest lists the assembled bundle, and precompression has not
+    # Written last. The manifest lists the assembled bundle, and precompression has not
     # run yet, so the .br/.gz variants are correctly absent from it either way.
     if app_js is not None and (client_dir / f"{target}.wasm").is_file():
         manifest.write(client_dir, f"{target}.wasm")
@@ -290,14 +321,16 @@ def _cmake_build(project_dir: Path, resolved: Dict[str, Optional[str]],
             if verbose:
                 wasm_build.append("--verbose")
             _run(wasm_build, project_dir, verbose)
-            assemble_bundle(wasm_dir, project_dir / "build" / "client", config, project_dir)
+            for target, destination in client_bundle_targets(config).items():
+                assemble_bundle(wasm_dir, project_dir / destination, config,
+                                project_dir, target)
         return built_note(host_targets, client_targets)
     except subprocess.CalledProcessError as error:
-        # A failed compile ends the command. This used to return the message as a note, which
-        # build() then appended to a "Built N entity artifact(s)" summary and printed on the
-        # way to exit code 0: `synqt build` reported success, listed artifacts it had not
-        # produced, and wrote each one a THIRD-PARTY-LICENSES describing a binary that did not
-        # exist. CI only caught it because a later step looked for the bundle on disk.
+        # A failed compile ends the command. Returning the message as a note, for
+        # build() to append to a "Built N entity artifact(s)" summary and print on the
+        # way to exit code 0, would make `synqt build` report success, list artifacts it had not
+        # produced, and write each one a THIRD-PARTY-LICENSES describing a binary that does not
+        # exist.
         raise BuildError(_compile_failure(error, verbose)) from error
 
 
@@ -322,18 +355,27 @@ def _compile_failure(error: subprocess.CalledProcessError, verbose: bool) -> str
     return f"cmake build failed: {command}\n{tail}"
 
 
-def _targets_for(config: Dict[str, Any], client: str) -> Tuple[Optional[Dict[str, Any]],
+def _targets_for(config: Dict[str, Any], client: str) -> Tuple[List[Dict[str, Any]],
                                                                List[str], List[str]]:
-    """Resolve the host targets (services, plus the client only for a desktop build) and the
-    client targets requested. The browser client compiles through the separate wasm kit."""
-    client_entity = next((e for e in appmodel.entities(config) if appmodel.is_client(e)),
-                         None)
-    client_targets = _client_targets(client_entity, client) if client_entity else []
+    """Resolve the host targets (services, plus each client that builds for desktop) and the
+    client targets requested. The browser client compiles through the separate wasm kit.
+
+    Every client entity, not the first. A project may hold a gate and an application, and
+    compiling only whichever was declared first leaves the other with nothing while the
+    build reports success.
+    """
+    client_entities = [e for e in appmodel.entities(config) if appmodel.is_client(e)]
+    client_targets: List[str] = []
+    for entity in client_entities:
+        for target in _client_targets(entity, client):
+            if target not in client_targets:
+                client_targets.append(target)
     host_targets = [e.get("name") for e in config.get("entities", [])
                     if appmodel.is_service(e) and e.get("name")]
-    if client_entity and "desktop" in client_targets:
-        host_targets.append(client_entity.get("name"))
-    return client_entity, host_targets, client_targets
+    for entity in client_entities:
+        if "desktop" in _client_targets(entity, client) and entity.get("name"):
+            host_targets.append(entity.get("name"))
+    return client_entities, host_targets, client_targets
 
 
 def compile_incremental(project_dir: os.PathLike[str] | str, config: Dict[str, Any], *,
@@ -347,7 +389,7 @@ def compile_incremental(project_dir: os.PathLike[str] | str, config: Dict[str, A
     appgen.generate(root, config)
     presets.write(root, config)
     topologywriter.write(root, config)  # the machine topology each service reads at startup
-    client_entity, host_targets, client_targets = _targets_for(config, client)
+    _, host_targets, client_targets = _targets_for(config, client)
     edge_url = _desktop_edge_url(config) if "desktop" in client_targets else None
     note = _cmake_build(root, resolved, host_targets, client_targets, config=config,
                         edge_url=edge_url)
@@ -359,7 +401,8 @@ def compile_incremental(project_dir: os.PathLike[str] | str, config: Dict[str, A
         if appmodel.is_client(entity):
             if "desktop" in _client_targets(entity, client):
                 _install_binary(build_dir, name,
-                                build_dir / "client-desktop" / desktop_platform())
+                                root / appmodel.desktop_output_dir(config, entity)
+                                / desktop_platform())
         else:
             _install_binary(build_dir, name, build_dir / name)
     return note, host_targets, client_targets
@@ -579,14 +622,22 @@ def build(project_dir: os.PathLike[str] | str, *, release: bool = True,
     topologywriter.write(root, config)  # the machine topology each service reads at startup
 
     # Only among the selected entities: `--entity web` must not compile the client too.
-    client_entity = next((e for e in selected if appmodel.is_client(e)), None)
-    client_targets = _client_targets(client_entity, client) if client_entity else []
+    # Every selected client, not the first one: a project may hold a gate and an
+    # application, and building only whichever was declared first would leave the other
+    # with no bundle while reporting success.
+    client_entities = [e for e in selected if appmodel.is_client(e)]
+    client_targets: List[str] = []
+    for entity in client_entities:
+        for target in _client_targets(entity, client):
+            if target not in client_targets:
+                client_targets.append(target)
 
-    # Host targets: every service entity, plus the client only when a desktop build is
+    # Host targets. Every service entity, plus the client only when a desktop build is
     # requested (the browser client compiles through the separate wasm kit).
     host_targets = [e.get("name") for e in selected if appmodel.is_service(e)]
-    if client_entity and "desktop" in client_targets:
-        host_targets.append(client_entity.get("name"))
+    for client_entity in client_entities:
+        if "desktop" in _client_targets(client_entity, client):
+            host_targets.append(client_entity.get("name"))
     edge_url = _desktop_edge_url(config) if "desktop" in client_targets else None
     compile_note = _cmake_build(root, resolved, host_targets, client_targets,
                                 config=config, edge_url=edge_url, verbose=verbose)
@@ -597,8 +648,11 @@ def build(project_dir: os.PathLike[str] | str, *, release: bool = True,
         name = entity.get("name")
         if appmodel.is_client(entity):
             for target in _client_targets(entity, client):
-                folder = "client" if target == "wasm" else "client-desktop"
-                out = build_dir / folder
+                folder = (appmodel.bundle_output_dir(config, entity) if target == "wasm"
+                          else appmodel.desktop_output_dir(config, entity))
+                # Both are project-root relative ("build/client"), and `out` is built from
+                # the project root so the historic path stays byte-identical.
+                out = build_dir.parent / folder
                 if target == "desktop":
                     # The host's own folder (windows/, macos/, linux/ per docs/desktop.md). A
                     # desktop client is native, so the only one this build can fill is this
@@ -625,7 +679,7 @@ def build(project_dir: os.PathLike[str] | str, *, release: bool = True,
                             _deployed_note(root, name, out, sign))
                     else:
                         (out.parent / "DEPLOY.txt").write_text(_deploy_note(root, name, out))
-                produced.append(f"build/{folder}/ ({target})")
+                produced.append(f"{folder}/ ({target})")
         else:
             out = build_dir / name
             out.mkdir(parents=True, exist_ok=True)
@@ -636,8 +690,11 @@ def build(project_dir: os.PathLike[str] | str, *, release: bool = True,
 
     # Only when this build produced the bundle: with --entity web the client dir may still
     # hold an older bundle, and recompressing it would report work this build did not do.
-    built_wasm_client = "wasm" in client_targets and (build_dir / "client").exists()
-    compressed = precompress(build_dir / "client") if built_wasm_client else 0
+    bundle_dirs = [build_dir.parent / destination
+                   for destination in client_bundle_targets(config).values()]
+    built_wasm_client = "wasm" in client_targets and any(d.exists() for d in bundle_dirs)
+    compressed = sum(precompress(directory) for directory in bundle_dirs
+                     if directory.exists()) if built_wasm_client else 0
     write_process_manifest(config, build_dir)
 
     summary = [f"Built {len(produced)} entity artifact(s) ({'release' if release else 'debug'}):"]

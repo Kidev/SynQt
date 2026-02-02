@@ -43,7 +43,7 @@ _IGNORED = ("build", "generated", ".git", ".synqt", "__pycache__", "node_modules
 
 # The entity fields the document models. Anything else in an entity block (TLS files,
 # provider settings, an env file) is the author's and is left where it is.
-_ENTITY_FIELDS = ("type", "provider", "targets", "identity", "shared")
+_ENTITY_FIELDS = ("type", "provider", "targets", "identity", "shared", "bundles")
 _LINK_FIELDS = ("owner", "consumers", "transport", "scope", "behind", "export")
 
 

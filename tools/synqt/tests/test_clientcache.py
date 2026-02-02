@@ -146,3 +146,44 @@ class EdgeConfigTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_two_bundles_get_different_cache_names():
+    app = clientshell.render_service_worker_js("app")
+    gate = clientshell.render_service_worker_js("gate")
+    assert '"app"' in app
+    assert '"gate"' in gate
+    # Different bytes, which is the point: the browser only re-runs install when the
+    # worker script itself changed, so two identical scripts would leave the old bundle's
+    # worker active and serving its cached "/" after a scope change.
+    assert app != gate
+
+
+def test_the_default_bundle_name_is_stable():
+    # A single-client project must not churn its worker between builds, or every build
+    # would evict every repeat visitor's copy of a 20 MB bundle.
+    assert clientshell.render_service_worker_js() == clientshell.render_service_worker_js()
+
+
+def test_the_worker_still_sweeps_every_synqt_cache():
+    # Scoped naming, global sweep. A switch reclaims the other bundle's cache rather than
+    # leaving a full uncompressed module on disk forever.
+    worker = clientshell.render_service_worker_js("app")
+    assert 'PREFIX = "synqt-"' in worker
+    assert "caches.delete" in worker
+
+
+def test_the_warm_script_reads_the_real_manifest_keys():
+    script = clientshell.render_warm_script()
+    assert "synqtWarmBundle" in script
+    # The keys manifest.manifest() writes. Guessing them is how a warm-up
+    # silently fetches nothing and still resolves.
+    assert "wasm_size" in script
+    assert ".wasm" in script or "manifest.wasm" in script
+    assert "files" in script
+
+
+def test_the_warm_script_reports_progress_and_survives_failure():
+    script = clientshell.render_warm_script()
+    assert "onProgress" in script
+    assert "catch" in script

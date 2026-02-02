@@ -222,3 +222,29 @@ class IncompatibleCache(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+
+class ClientBundleTargets(unittest.TestCase):
+    """Which client entities `synqt build` assembles a bundle for, and where."""
+
+    def test_every_client_entity_gets_its_own_bundle_directory(self):
+        config = {"entities": [{"name": "web", "type": "web_edge",
+                                "bundles": {"anonymous": "gate", "user": "app"}},
+                               {"name": "app", "type": "client"},
+                               {"name": "gate", "type": "client"}]}
+        self.assertEqual(build.client_bundle_targets(config),
+                         {"app": "build/client-app", "gate": "build/client-gate"})
+
+    def test_a_single_client_project_keeps_build_client(self):
+        config = {"entities": [{"name": "web", "type": "web_edge"},
+                               {"name": "app", "type": "client"}]}
+        self.assertEqual(build.client_bundle_targets(config), {"app": "build/client"})
+
+    def test_a_desktop_only_client_is_not_assembled(self):
+        # Nothing to serve. A desktop client produces an executable, not a bundle.
+        config = {"entities": [{"name": "web", "type": "web_edge"},
+                               {"name": "app", "type": "client"},
+                               {"name": "kiosk", "type": "client",
+                                "targets": ["desktop"]}]}
+        self.assertNotIn("kiosk", build.client_bundle_targets(config))
