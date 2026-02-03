@@ -59,6 +59,8 @@ qt_add_library(SynQtService STATIC
     caller.h
     sourcefactory.cpp
     sourcefactory.h
+    traceevent.cpp
+    traceevent.h
 )
 
 set_target_properties(SynQtService PROPERTIES AUTOMOC ON)

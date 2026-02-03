@@ -35,6 +35,7 @@ set(SYNQT_HOST_SUITES
     entity-test
     graphics
     memory
+    monitor
 )
 
 # Suites that cannot join the tree because CMake is not their entry point: each one runs a
