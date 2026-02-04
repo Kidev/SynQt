@@ -8,8 +8,11 @@
 // the happy path.
 
 #include "eventring.h"
+#include "tracer.h"
 #include "traceevent.h"
 
+#include <QMutex>
+#include <QMutexLocker>
 #include <QTest>
 #include <QThread>
 
@@ -98,6 +101,111 @@ private slots:
         }
         // 2000 pushed into 1024: nothing lost track of, nothing counted twice.
         QCOMPARE(ring.size() + ring.dropped(), static_cast<qint64>(2000));
+    }
+
+    void anEventBelowItsCategoryLevelIsNotRecorded()
+    {
+        Tracer tracer;
+        tracer.setLevel(Category::Call, Severity::Warning);
+        QVERIFY(!tracer.isEnabled(Category::Call, Severity::Info));
+        QVERIFY(tracer.isEnabled(Category::Call, Severity::Error));
+        // Per category, not global. An operator turns call tracing down without losing
+        // the refusals, which are the events worth alerting on.
+        QVERIFY(tracer.isEnabled(Category::Authorization, Severity::Info));
+    }
+
+    void aDisabledTracerReportsNothingEnabledAndRemembersTheLevels()
+    {
+        Tracer tracer;
+        tracer.setLevel(Category::Call, Severity::Error);
+        tracer.setEnabled(false);
+        QVERIFY(!tracer.isEnabled());
+        QVERIFY(!tracer.isEnabled(Category::Authorization, Severity::Fatal));
+
+        // Switching it back on restores what was configured rather than the defaults:
+        // an operator who silences an entity for an hour does not lose their filters.
+        tracer.setEnabled(true);
+        QVERIFY(tracer.isEnabled(Category::Authorization, Severity::Info));
+        QVERIFY(!tracer.isEnabled(Category::Call, Severity::Warning));
+        QVERIFY(tracer.isEnabled(Category::Call, Severity::Error));
+    }
+
+    void aBatchReachesTheSinkOnceItIsFull()
+    {
+        // Declared before the tracer, and so destroyed after it. The sink runs on the
+        // writer thread, and the tracer's destructor is what stops that thread.
+        QMutex mutex;
+        QList<TraceEvent> delivered;
+        const auto count = [&mutex, &delivered]() {
+            QMutexLocker locker{&mutex};
+            return delivered.size();
+        };
+
+        Tracer tracer;
+        tracer.setSink([&mutex, &delivered](const QList<TraceEvent> &batch) {
+            QMutexLocker locker{&mutex};
+            delivered.append(batch);
+        });
+        tracer.setBatch(4, 60000);  // size trigger only, so the test is not timing-bound
+        for (int index{0}; index < 4; ++index) {
+            tracer.record(TraceEvent{});
+        }
+        QTRY_COMPARE(count(), 4);
+    }
+
+    void flushDeliversAPartialBatch()
+    {
+        QMutex mutex;
+        QList<TraceEvent> delivered;
+        const auto count = [&mutex, &delivered]() {
+            QMutexLocker locker{&mutex};
+            return delivered.size();
+        };
+
+        Tracer tracer;
+        tracer.setSink([&mutex, &delivered](const QList<TraceEvent> &batch) {
+            QMutexLocker locker{&mutex};
+            delivered.append(batch);
+        });
+        tracer.setBatch(1024, 60000);
+        tracer.record(TraceEvent{});
+        tracer.flush();
+        // flush() returns once the writer has drained, so this is a plain compare and
+        // not a QTRY: a flush that has to be waited on afterwards is not a flush.
+        QCOMPARE(count(), 1);
+    }
+
+    void theElapsedTriggerDeliversWithoutAFullBatch()
+    {
+        QMutex mutex;
+        QList<TraceEvent> delivered;
+        const auto count = [&mutex, &delivered]() {
+            QMutexLocker locker{&mutex};
+            return delivered.size();
+        };
+
+        Tracer tracer;
+        tracer.setSink([&mutex, &delivered](const QList<TraceEvent> &batch) {
+            QMutexLocker locker{&mutex};
+            delivered.append(batch);
+        });
+        tracer.setBatch(1024, 20);
+        tracer.record(TraceEvent{});
+        // Nobody calls flush here, and the batch is nowhere near full. The timer lives
+        // on the writer thread precisely so that an entity too busy to run its own event
+        // loop still gets its events out.
+        QTRY_COMPARE_WITH_TIMEOUT(count(), 1, 5000);
+    }
+
+    void recordingWithNoSinkIsHarmless()
+    {
+        // An entity with no monitor in its topology still traces into the ring. Nothing
+        // reads it and nothing fails. That is what lets instrumentation be unconditional.
+        Tracer tracer;
+        for (int index{0}; index < 100; ++index) {
+            tracer.record(TraceEvent{});
+        }
+        QVERIFY(true);
     }
 };
 
