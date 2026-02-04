@@ -5,6 +5,7 @@
 #define SYNQT_TRACER_H
 
 #include "eventring.h"
+#include "tracecontext.h"
 #include "traceevent.h"
 
 #include <QMutex>
@@ -72,6 +73,18 @@ public:
     void setBatch(int events, int milliseconds);
 
     void record(TraceEvent event);
+
+    /// Opens a span under `parent`, or a new trace when `parent` carries none. Records
+    /// nothing on its own: a span that never ends is not an event, and an entity that
+    /// died mid-call is reported by the absence of the closing event rather than by a
+    /// half-written one.
+    TraceContext startSpan(const TraceContext &parent, const QString &name);
+
+    /// Closes a span and records it, with how long it took. A span that did not end as
+    /// intended is recorded at `Severity::Warning`, because a refusal is the event an
+    /// operator wants to be told about rather than one they have to go looking for.
+    void endSpan(const TraceContext &span, Category category, SpanOutcome outcome,
+                 const QVariantMap &attributes = QVariantMap());
 
     /// Delivers everything waiting and returns once the sink has seen it. Safe to call
     /// from any thread except the writer's, where it returns immediately rather than

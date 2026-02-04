@@ -3,11 +3,16 @@
 
 #include "tracer.h"
 
+#include <QDateTime>
 #include <QMutexLocker>
+#include <QRandomGenerator>
 #include <QThread>
 #include <QTimer>
 
+#include <QRegularExpression>
+
 #include <algorithm>
+#include <chrono>
 #include <utility>
 
 namespace SynQt {
@@ -17,6 +22,32 @@ namespace {
 /// Big enough that a burst survives a slow sink, small enough to be a rounding error
 /// against an entity's own working set: 8192 events at roughly 200 bytes each.
 constexpr int kRingCapacity{8192};
+
+/// Lower-case hex of a fixed width, which is what W3C trace context asks for, with the
+/// all-zero value the specification forbids replaced rather than retried: a collector
+/// drops a traceparent carrying it, and one bit is not worth a loop.
+QString randomHex(int characters)
+{
+    QString value;
+    value.reserve(characters);
+    while (value.size() < characters) {
+        value += QString::number(QRandomGenerator::global()->generate64(), 16)
+                     .rightJustified(16, QLatin1Char('0'));
+    }
+    value.truncate(characters);
+    if (!value.contains(QRegularExpression{QStringLiteral("[1-9a-f]")})) {
+        value[0] = QLatin1Char('1');
+    }
+    return value;
+}
+
+/// Monotonic microseconds, so a duration is never a clock adjustment.
+qint64 nowUs()
+{
+    return std::chrono::duration_cast<std::chrono::microseconds>(
+               std::chrono::steady_clock::now().time_since_epoch())
+        .count();
+}
 
 }
 
@@ -147,9 +178,46 @@ void Tracer::record(TraceEvent event)
     }
 }
 
+TraceContext Tracer::startSpan(const TraceContext &parent, const QString &name)
+{
+    TraceContext span;
+    span.traceId = parent.traceId.isEmpty() ? randomHex(32) : parent.traceId;
+    span.spanId = randomHex(16);
+    span.parentSpanId = parent.spanId;
+    span.startedUs = nowUs();
+    span.name = name;
+    return span;
+}
+
+void Tracer::endSpan(const TraceContext &span, Category category, SpanOutcome outcome,
+                     const QVariantMap &attributes)
+{
+    const bool ok{outcome == SpanOutcome::Ok};
+    if (!isEnabled(category, ok ? Severity::Info : Severity::Warning)) {
+        return;
+    }
+    TraceEvent event;
+    event.timestampMs = QDateTime::currentMSecsSinceEpoch();
+    event.severity = ok ? Severity::Info : Severity::Warning;
+    event.category = category;
+    event.traceId = span.traceId;
+    event.spanId = span.spanId;
+    event.parentSpanId = span.parentSpanId;
+    event.durationUs = (span.startedUs > 0) ? (nowUs() - span.startedUs) : -1;
+    event.ok = ok;
+    event.message = span.name;
+    event.attributes = attributes;
+    if (!ok) {
+        event.attributes.insert(QStringLiteral("outcome"),
+                                (outcome == SpanOutcome::Refused) ? QStringLiteral("refused")
+                                                                  : QStringLiteral("failed"));
+    }
+    record(std::move(event));
+}
+
 void Tracer::wake()
 {
-    // One post per batch rather than one per event: the writer clears the flag when it
+    // One post per batch rather than one per event. The writer clears the flag when it
     // starts draining, so a burst of ten thousand events costs a handful of queued calls
     // instead of ten thousand.
     bool posted{false};

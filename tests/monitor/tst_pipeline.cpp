@@ -7,12 +7,15 @@
 // they assert the shape of the losses (bounded, counted, newest kept) rather than only
 // the happy path.
 
+#include "caller.h"
 #include "eventring.h"
+#include "tracecontext.h"
 #include "tracer.h"
 #include "traceevent.h"
 
 #include <QMutex>
 #include <QMutexLocker>
+#include <QRegularExpression>
 #include <QTest>
 #include <QThread>
 
@@ -206,6 +209,93 @@ private slots:
             tracer.record(TraceEvent{});
         }
         QVERIFY(true);
+    }
+
+    void aSpanContinuesItsParentTrace()
+    {
+        Tracer tracer;
+        const TraceContext root{tracer.startSpan(TraceContext{}, QStringLiteral("upgrade"))};
+        QCOMPARE(root.traceId.size(), 32);
+        QCOMPARE(root.spanId.size(), 16);
+
+        const TraceContext child{tracer.startSpan(root, QStringLiteral("placeBid"))};
+        // Same trace, new span, parent recorded. That is what makes a click one story
+        // across three entities rather than three unrelated lines.
+        QCOMPARE(child.traceId, root.traceId);
+        QVERIFY(child.spanId != root.spanId);
+        QCOMPARE(child.parentSpanId, root.spanId);
+    }
+
+    void aTraceIdIsAValidW3cValue()
+    {
+        Tracer tracer;
+        const TraceContext context{tracer.startSpan(TraceContext{}, QStringLiteral("x"))};
+        // Lower-case hex and not all zeroes, or a collector rejects the traceparent.
+        QVERIFY(QRegularExpression{QStringLiteral("^[0-9a-f]{32}$")}
+                    .match(context.traceId).hasMatch());
+        QVERIFY(QRegularExpression{QStringLiteral("^[0-9a-f]{16}$")}
+                    .match(context.spanId).hasMatch());
+        QVERIFY(context.traceId != QString(32, QLatin1Char('0')));
+        QVERIFY(context.spanId != QString(16, QLatin1Char('0')));
+    }
+
+    void endingASpanRecordsHowLongItTook()
+    {
+        QMutex mutex;
+        QList<TraceEvent> delivered;
+        const auto taken = [&mutex, &delivered]() {
+            QMutexLocker locker{&mutex};
+            return delivered;
+        };
+
+        Tracer tracer;
+        tracer.setSink([&mutex, &delivered](const QList<TraceEvent> &batch) {
+            QMutexLocker locker{&mutex};
+            delivered.append(batch);
+        });
+        const TraceContext span{tracer.startSpan(TraceContext{}, QStringLiteral("placeBid"))};
+        tracer.endSpan(span, Category::Call, SpanOutcome::Refused);
+        tracer.flush();
+
+        const QList<TraceEvent> events{taken()};
+        QCOMPARE(events.size(), 1);
+        QCOMPARE(events.first().category, Category::Call);
+        QCOMPARE(events.first().traceId, span.traceId);
+        QCOMPARE(events.first().spanId, span.spanId);
+        QCOMPARE(events.first().message, QStringLiteral("placeBid"));
+        QVERIFY(!events.first().ok);
+        // A refusal is the event an operator alerts on, so it does not arrive as Info.
+        QCOMPARE(events.first().severity, Severity::Warning);
+        QVERIFY(events.first().durationUs >= 0);
+    }
+
+    void theTraceTravelsWithTheSessionAndABrowserCannotForgeIt()
+    {
+        QObject owner;
+        Tracer tracer;
+        const TraceContext edgeSpan{tracer.startSpan(TraceContext{}, QStringLiteral("call"))};
+
+        QVariantMap forwarded;
+        forwarded.insert(QStringLiteral("key"), QStringLiteral("k"));
+        forwarded.insert(QStringLiteral("scope"), QStringLiteral("user"));
+        forwarded.insert(QStringLiteral("traceId"), edgeSpan.traceId);
+        forwarded.insert(QStringLiteral("spanId"), edgeSpan.spanId);
+
+        // A service reached over the mesh. The peer is certificate-authenticated, so the
+        // trace it says it is continuing is taken, exactly as the session is.
+        Caller *entity{Caller::forEntity(QString{}, QStringLiteral("web"), true, nullptr, &owner)};
+        entity->assumeSession(forwarded);
+        QCOMPARE(entity->traceContext().traceId, edgeSpan.traceId);
+        QCOMPARE(entity->traceContext().spanId, edgeSpan.spanId);
+        // And it keeps travelling, or the chain stops at the first hop.
+        QCOMPARE(entity->forwardedSession().value(QStringLiteral("traceId")).toString(),
+                 edgeSpan.traceId);
+
+        // A browser could put the same fields in a call. It is the one caller whose
+        // assertions are never read, and a trace id is no different from a session key.
+        Caller *user{Caller::forUser(QString{}, nullptr, QByteArray{}, nullptr, &owner)};
+        user->assumeSession(forwarded);
+        QVERIFY(!user->traceContext().isValid());
     }
 };
 

@@ -17,6 +17,8 @@ namespace {
 const QLatin1StringView kKey{"key"};
 const QLatin1StringView kScope{"scope"};
 const QLatin1StringView kIdentity{"identity"};
+const QLatin1StringView kTraceId{"traceId"};
+const QLatin1StringView kSpanId{"spanId"};
 
 // The name one session answers to everywhere in a system, derived from the credential and
 // never the credential itself. A downstream entity keys its own per-session state on this,
@@ -245,14 +247,40 @@ QVariantMap Caller::forwardedSession() const
     const SessionRecord *rec{record()};
     if (!rec) {
         // Either this caller is already acting for someone, and the chain continues past
-        // this entity unchanged, or it is not, and there is nothing to pass on.
-        return m_forwarded;
+        // this entity unchanged, or it is not, and there is nothing to pass on. The trace
+        // is added either way: an entity with no session of its own is still a hop.
+        QVariantMap session{m_forwarded};
+        withTrace(session);
+        return session;
     }
     QVariantMap session;
     session.insert(kKey, sessionKey(rec->id));
     session.insert(kScope, rec->scope);
     session.insert(kIdentity, rec->identity.isEmpty() ? QVariant{} : QVariant{rec->identity});
+    withTrace(session);
     return session;
+}
+
+void Caller::withTrace(QVariantMap &session) const
+{
+    // The trace rides along with the session because the session is already the thing that
+    // travels down the chain, and a second channel for it would be a second thing to
+    // forget. It is not part of the session: nothing authorizes anything by it.
+    if (!m_trace.isValid()) {
+        return;
+    }
+    session.insert(kTraceId, m_trace.traceId);
+    session.insert(kSpanId, m_trace.spanId);
+}
+
+TraceContext Caller::traceContext() const
+{
+    return m_trace;
+}
+
+void Caller::setTraceContext(const TraceContext &context)
+{
+    m_trace = context;
 }
 
 void Caller::assumeSession(const QVariantMap &session)
@@ -260,11 +288,14 @@ void Caller::assumeSession(const QVariantMap &session)
     if (m_isUser) {
         // The browser is the one place a caller could put this on the wire itself, so it is
         // the one place it is not read. A user's session is the credential the edge looked
-        // up when the connection was accepted; nothing in a call can change who that is.
+        // up when the connection was accepted. Nothing in a call can change who that is.
+        // The trace identifiers travel in the same map and are refused on the same ground:
+        // a visitor who could name the trace could stitch their call into someone else's.
         return;
     }
     if (session.isEmpty()) {
         m_forwarded.clear();
+        m_trace = TraceContext{};
         return;
     }
     // Only the three keys a session is made of, so nothing else a peer sent is carried
@@ -274,6 +305,10 @@ void Caller::assumeSession(const QVariantMap &session)
     taken.insert(kScope, session.value(kScope).toString());
     taken.insert(kIdentity, session.value(kIdentity));
     m_forwarded = taken;
+
+    m_trace = TraceContext{};
+    m_trace.traceId = session.value(kTraceId).toString();
+    m_trace.spanId = session.value(kSpanId).toString();
 }
 
 void Caller::setScopeOrder(const QStringList &order, bool hierarchical)

@@ -5,6 +5,7 @@
 #define SYNQT_CALLER_H
 
 #include "sessionmanager.h"
+#include "tracecontext.h"
 
 #include <QObject>
 #include <QPointer>
@@ -139,6 +140,15 @@ public:
     /// call never keeps the last one's session.
     Q_INVOKABLE void assumeSession(const QVariantMap &session);
 
+    /// Where this call sits in the story a click tells, empty when nothing told us.
+    ///
+    /// Set by whichever transport minted the Caller: at the edge the span opened when the
+    /// browser's call arrived, on a mesh link the span the calling entity says its call
+    /// continues. The entity's own spans hang off it, which is what makes one click one
+    /// trace across three entities instead of three unrelated ones.
+    TraceContext traceContext() const;
+    void setTraceContext(const TraceContext &context);
+
     /// The scope vocabulary for hierarchical checks (order low->high). Empty == set-based.
     void setScopeOrder(const QStringList &order, bool hierarchical);
 
@@ -167,12 +177,18 @@ private:
 
     const SessionRecord *record() const;
 
+    /// Adds this call's trace identifiers to a session about to travel downstream.
+    void withTrace(QVariantMap &session) const;
+
     QPointer<SessionManager> m_sessions;
     QByteArray m_sessionId;
     /// The session a calling entity said it was acting for, empty when it said nothing.
     /// Read only through the accessors below, which prefer a live session of this edge's
     /// own over any assertion, so a user caller can never be talked into being someone else.
     QVariantMap m_forwarded;
+    /// The trace this call continues. Kept beside the forwarded session rather than in
+    /// it, so that map stays exactly the three keys a session is made of.
+    TraceContext m_trace;
     QString m_entity;
     QPointer<QObject> m_source;
     QStringList m_scopeOrder;
