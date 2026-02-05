@@ -631,3 +631,41 @@ def test_both_stacks_in_a_process_sweep_flatten_side_by_side():
     metrics = baselines.flatten(document)
     assert metrics["synqt.p4.throughput_msgs_per_sec"].value == 400.0
     assert metrics["node.p4.throughput_msgs_per_sec"].value == 430.0
+
+
+def test_a_disabled_tracer_that_started_costing_something_is_caught():
+    """The budget the whole monitoring design rests on. Every SynQt entity carries the
+    instrumented call sites whether or not it has a monitor, so a disabled `record()` that
+    grows a lock or an allocation is a tax on applications that never asked for any of it."""
+    document = load_kind("monitor")
+    for row in document["latency"]:
+        if row["name"] == "record_disabled":
+            row["p50"] = 40.0
+    assert_fails(document, "monitor.disabled_path_is_free")
+
+
+def test_recording_that_started_touching_the_wire_is_caught():
+    document = load_kind("monitor")
+    for row in document["latency"]:
+        if row["name"] == "record_enabled":
+            row["p50"] = 25_000.0
+    assert_fails(document, "monitor.enabled_path_stays_off_the_wire")
+
+
+def test_a_full_ring_becoming_a_cliff_is_caught():
+    """An entity under a burst is exactly the entity whose events matter. If overflow gets
+    expensive instead of staying flat, the pipeline finishes off what it was observing."""
+    document = load_kind("monitor")
+    normal = next(row for row in document["latency"] if row["name"] == "record_enabled")
+    for row in document["latency"]:
+        if row["name"] == "record_dropping":
+            row["p50"] = normal["p50"] * 20
+    assert_fails(document, "monitor.dropping_is_not_a_cliff")
+
+
+def test_events_vanishing_without_being_counted_is_caught():
+    """A monitor may lose events. What it may not do is lose them quietly. A gap nobody is
+    told about reads exactly like a period when nothing happened."""
+    document = load_kind("monitor")
+    document["dropped_under_pressure"] = 0
+    assert_fails(document, "monitor.a_gap_is_reported_as_a_gap")

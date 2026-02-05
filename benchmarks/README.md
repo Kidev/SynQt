@@ -216,6 +216,55 @@ table size (token mint + hash insert), and one operation remains O(N) by design:
   consumer), so 39 ms at 100k sessions is expected; it runs once per consumer connect, off the
   per-request path.
 
+## monitor: what tracing costs the entity being traced (monitoring)
+
+`monitor/` measures `SynQt::Tracer::record` at the call site. Monitoring is only worth
+having if it is free enough to leave on, so the claim "the pipeline never slows the entity
+down" is a measured number here rather than a sentence in a design document. Three paths,
+because they fail differently. Tracing switched off (what an application that never asked
+for monitoring pays), tracing on with room in the ring, and tracing on with the ring full
+and evicting (what a burst pays, and the one that must not become a cliff):
+
+```sh
+./benchmarks/monitor/run-bench.sh
+./benchmarks/monitor/run-bench.sh --batches 400 --batch-size 10000
+```
+
+Nanosecond-scale work cannot be timed one operation at a time, so each sample is a batch of
+`--batch-size` records timed as a whole and divided, and the distribution is over `--batches`
+such samples after a warm-up.
+
+### Baseline captured on this checkout
+
+`results/monitor-kidevPC_.json` (Qt 6.11.1, Arch Linux x86_64), 1 005 000 records
+per measurement:
+
+| path | p50 | p99 |
+|------|-----|-----|
+| `record_disabled` | 0.2 ns | 0.2 ns |
+| `record_enabled` | 42 ns | 208 ns |
+| `record_dropping` | 19 ns | 22 ns |
+
+**The budget is on the first row: the disabled path must stay under 25 ns.** It is the
+number the whole design rests on, because every instrumented call site in every SynQt
+application pays it whether or not that application ever adds a monitor. At 0.2 ns it is one
+relaxed atomic load and a comparison, inlined into the call site; there is no measurable
+tax. If a later change spends that budget, the answer is a compile-time branch, not a faster
+mutex: an entity that pays for monitoring it has switched off is a tax on every SynQt app.
+
+The other two rows are reported and sanity-checked rather than tightly gated. `record_enabled`
+at ~ 42 ns is a mutex, a move and an integer update, which is the cost of the deliberate
+choice of a plain `QMutex` over a lock-free ring; that choice is what this row exists to keep
+honest. `record_dropping` being *cheaper* than `record_enabled` is not a mistake: a full ring
+overwrites in place and never grows, while the enabled path is also competing with a writer
+thread draining it. What matters is that it stays a flat constant, which is what makes an
+entity under a burst degrade by losing events rather than by falling over.
+
+The run also reports the ring's accounting: with a live sink nothing was dropped
+(1 005 000 delivered, 0 dropped), and with no sink at all 996 808 of 1 005 000 were dropped
+and counted, which is the whole ring capacity's worth kept and every other event accounted
+for rather than silently lost.
+
 ## fanout: the edge publish() growth (M5)
 
 `fanout/` measures the arena's server-authoritative `publish()` as one owner change reaches N
@@ -552,8 +601,8 @@ useful thing to know about it: `.syn` lowering is not where build time goes.
 ## Coverage of the benchmarking plan
 
 Every path in the plan has a harness: transport (BENCH-1), the edge HTTP path, the edge
-fan-out `publish()` growth, the mesh transports, the sessions hot path, the persistence/cache
-providers, the client (bundle weight and frame time), the capstone load test, and the
+fan-out `publish()` growth, the mesh transports, the sessions hot path, the monitoring
+pipeline's call-site cost, the persistence/cache providers, the client (bundle weight and frame time), the capstone load test, and the
 build-time report above. The runtime numbers are committed, and every baseline carries the
 date it was measured. [Browser proofs](../docs/browser-proofs.md) covers where the runs that
 need a display happen.

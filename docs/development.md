@@ -522,7 +522,7 @@ named as excluded from the soak instead of quietly halved.
 
 Performance is measured, because the client to edge path rides an officially
 unsupported transport. Each harness lives in its own directory (`transport`, `mesh`,
-`fanout`, `sessions`, `persistence`, `edge`, `client`, `remote-pages`, `capstone`) and
+`fanout`, `sessions`, `monitor`, `persistence`, `edge`, `client`, `remote-pages`, `capstone`) and
 writes a JSON result under
 [`benchmarks/results/`](https://github.com/Kidev/SynQt/tree/main/benchmarks/results), keyed
 by hostname, so a committed baseline fails review when a change regresses it. [`benchmarks/README.md`](https://github.com/Kidev/SynQt/blob/main/benchmarks/README.md) describes each harness and how to run it,

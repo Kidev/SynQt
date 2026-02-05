@@ -1,0 +1,49 @@
+{
+    "arch": "x86_64",
+    "batch_size": 5000,
+    "batches": 200,
+    "benchmark": "monitor",
+    "delivered": 1005000,
+    "dropped": 0,
+    "dropped_under_pressure": 996808,
+    "host": "Arch Linux",
+    "latency": [
+        {
+            "max": 0.298,
+            "mean": 0.23435800000000093,
+            "min": 0.232,
+            "name": "record_disabled",
+            "p50": 0.234,
+            "p95": 0.234,
+            "p99": 0.258,
+            "samples": 200,
+            "unit": "ns"
+        },
+        {
+            "max": 221.4724,
+            "mean": 48.19869600000003,
+            "min": 40.2396,
+            "name": "record_enabled",
+            "p50": 42.5596,
+            "p95": 54.3476,
+            "p99": 218.9146,
+            "samples": 200,
+            "unit": "ns"
+        },
+        {
+            "max": 51.8836,
+            "mean": 19.770919000000003,
+            "min": 18.42,
+            "name": "record_dropping",
+            "p50": 19.3918,
+            "p95": 21.2578,
+            "p99": 24.3658,
+            "samples": 200,
+            "unit": "ns"
+        }
+    ],
+    "path": "tracer-record-call-site",
+    "qt_version": "6.11.1",
+    "recorded": "2026-08-23T23:14:28Z",
+    "records_per_measurement": 1005000
+}

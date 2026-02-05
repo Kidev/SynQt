@@ -1173,10 +1173,83 @@ def _check_vs_node_live(document: Mapping[str, Any], checks: List[Check]) -> Non
         )
 
 
+def _check_monitor_pipeline(document: Mapping[str, Any], checks: List[Check]) -> None:
+    """The one number the monitoring design rests on, and the ring's accounting.
+
+    Everything else in monitoring is a consumer of `Tracer::record`. If recording is not
+    close to free when tracing is switched off, every SynQt application pays for a feature
+    it never asked for, and the right answer is a compile-time branch rather than a faster
+    lock. So that budget is enforced here. The enabled and dropping paths are reported, and
+    only their shape is gated.
+    """
+    rows = document.get("latency", [])
+    disabled = _by_name(rows, "record_disabled")
+    enabled = _by_name(rows, "record_enabled")
+    dropping = _by_name(rows, "record_dropping")
+    if not disabled or not enabled or not dropping:
+        checks.append(
+            Check("monitor.paths", False, "need record_disabled, record_enabled and record_dropping")
+        )
+        return
+
+    budget_ns = 25.0
+    checks.append(
+        Check(
+            "monitor.disabled_path_is_free",
+            disabled["p50"] < budget_ns,
+            f"tracing off costs {disabled['p50']:.2f} ns/call (budget {budget_ns:.0f} ns)",
+        )
+    )
+    # A ceiling loose enough that it is about the design and not about this host's clock:
+    # what it refuses is a record() that has started doing real work (a format, an
+    # allocation that grows, a syscall) on the caller's thread.
+    checks.append(
+        Check(
+            "monitor.enabled_path_stays_off_the_wire",
+            enabled["p50"] < 1000.0,
+            f"tracing on costs {enabled['p50']:.1f} ns/call with room in the ring",
+        )
+    )
+    # An entity in trouble is exactly the entity whose events matter. Dropping must be a
+    # flat cost, not a cliff, or the pipeline finishes off the entity it was observing.
+    ratio = _ratio(dropping["p50"], enabled["p50"])
+    checks.append(
+        Check(
+            "monitor.dropping_is_not_a_cliff",
+            ratio <= 3.0,
+            f"a full ring costs {ratio:.2f}x the normal path ({dropping['p50']:.1f} ns/call)",
+        )
+    )
+
+    total = document.get("records_per_measurement", 0)
+    delivered = document.get("delivered", 0)
+    dropped = document.get("dropped", 0)
+    checks.append(
+        Check(
+            "monitor.nothing_is_lost_track_of",
+            total > 0 and (delivered + dropped) == total,
+            f"{delivered} delivered + {dropped} dropped == {total} recorded"
+            if (delivered + dropped) == total
+            else f"{delivered} delivered + {dropped} dropped != {total} recorded",
+        )
+    )
+    # With no sink at all every record after the ring fills must be counted, or a gap in
+    # the record would be invisible, which is the one failure a monitor may not have.
+    under_pressure = document.get("dropped_under_pressure", 0)
+    checks.append(
+        Check(
+            "monitor.a_gap_is_reported_as_a_gap",
+            under_pressure > 0 and under_pressure < total,
+            f"{under_pressure} of {total} dropped and counted with no sink attached",
+        )
+    )
+
+
 INVARIANTS: Dict[str, Callable[[Mapping[str, Any], List[Check]], None]] = {
     "transport": _check_transport,
     "mesh": _check_mesh,
     "sessions": _check_sessions,
+    "monitor": _check_monitor_pipeline,
     "fanout": _check_fanout,
     "persistence": _check_persistence,
     "capstone": _check_capstone,

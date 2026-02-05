@@ -82,14 +82,20 @@ Tracer::Tracer(QObject *parent)
 Tracer::~Tracer()
 {
     flush();
+    // The worker and its timer were created on the writer thread, and a QObject holding
+    // timers may only be destroyed there. Deleting it from here is undefined, and Qt says
+    // so on stderr. Deferred deletion as the thread finishes is the documented way, and
+    // it is set up here rather than in the constructor so nothing else can ever trigger
+    // it while the tracer is still in use.
+    QObject::connect(m_thread, &QThread::finished, m_worker, &QObject::deleteLater);
     m_thread->quit();
     // Bounded, because a destructor that can hang is worse than one that leaks: if the
-    // sink is wedged, give up on it rather than on the process shutting down.
+    // sink is wedged, give up on it rather than on the process shutting down. The worker
+    // is then leaked, since there is no thread left that could safely free it.
     if (!m_thread->wait(5000)) {
         m_thread->terminate();
         m_thread->wait();
     }
-    delete m_worker;
     delete m_thread;
 }
 

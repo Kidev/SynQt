@@ -199,6 +199,7 @@ jobs:
           run_one sessions    --iterations 200000 --sizes 1000,10000,100000
           run_one persistence --autocommit-rows 2000 --reads 5000 --contended-rows 1000
           run_one fanout      --sizes 10,25,50 --ticks 100 --interest 16
+          run_one monitor     --batches 40 --batch-size 2000
 
           if [ -f "$RUNNER_TEMP/failed" ]; then
             echo "::error::harnesses that did not complete: $(tr '\n' ' ' < "$RUNNER_TEMP/failed")"
