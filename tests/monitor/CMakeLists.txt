@@ -5,22 +5,34 @@
 # ring that drops rather than blocks, the tracer and its per-category levels, and the
 # writer thread that batches off the caller's thread.
 #
-# Qt Core and Qt Test only, on purpose: the pipeline lives in SynQtService, which links
-# nothing GPLv3, and a suite that quietly pulled in Qt Sql or Qt HTTP Server would stop
-# proving that.
+# Two executables, and the split is the point. `tst_pipeline` links Qt Core and Qt Test and
+# nothing else, which is what proves the pipeline stayed inside SynQtService and never grew
+# a GPLv3 dependency. `tst_instrumentation` drives a real web edge and a real session store
+# to prove the choke points actually record what they promise, and links what that needs.
 
 cmake_minimum_required(VERSION 3.21)
 project(synqt_monitor LANGUAGES CXX)
 
 include("${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/SynQtBuildFlags.cmake")
 
-find_package(Qt6 6.11 REQUIRED COMPONENTS Core Test)
+find_package(Qt6 6.11 REQUIRED COMPONENTS
+    Core Network Qml RemoteObjects WebSockets HttpServer Test)
 qt_standard_project_setup()
 
 # Guarded: configured on its own, this suite is what pulls the runtime library in;
 # configured from the tree root, the root has already added it (see tests/CMakeLists.txt).
-if(NOT TARGET SynQtService)
-    add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../../src/service" "${CMAKE_BINARY_DIR}/SynQtService")
+if(NOT TARGET SynQtEdge)
+    add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../../src/edge" "${CMAKE_BINARY_DIR}/SynQtEdge")
+endif()
+
+set(MONITOR_CERTS "${CMAKE_CURRENT_BINARY_DIR}/certs")
+execute_process(
+    COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/gen-cert.sh" "${MONITOR_CERTS}"
+    RESULT_VARIABLE _cert_rc
+    ERROR_VARIABLE _cert_err
+)
+if(NOT _cert_rc EQUAL 0)
+    message(FATAL_ERROR "monitor suite certificate generation failed:\n${_cert_err}")
 endif()
 
 enable_testing()
@@ -34,3 +46,23 @@ target_link_libraries(tst_pipeline PRIVATE
 )
 
 add_test(NAME monitor-pipeline COMMAND tst_pipeline)
+
+qt_add_executable(tst_instrumentation tst_instrumentation.cpp)
+
+target_compile_definitions(tst_instrumentation PRIVATE
+    MONITOR_CERT_DIR="${MONITOR_CERTS}"
+    MONITOR_SRCDIR="${CMAKE_CURRENT_SOURCE_DIR}"
+)
+
+target_link_libraries(tst_instrumentation PRIVATE
+    SynQtEdge
+    Qt6::Core
+    Qt6::Network
+    Qt6::Qml
+    Qt6::RemoteObjects
+    Qt6::WebSockets
+    Qt6::HttpServer
+    Qt6::Test
+)
+
+add_test(NAME monitor-instrumentation COMMAND tst_instrumentation)

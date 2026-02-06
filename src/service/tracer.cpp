@@ -175,13 +175,102 @@ void Tracer::setBatch(int events, int milliseconds)
     }, Qt::QueuedConnection);
 }
 
+void Tracer::setEntity(const QString &entity)
+{
+    QMutexLocker locker{&m_mutex};
+    m_entity = entity;
+}
+
+QString Tracer::entity() const
+{
+    QMutexLocker locker{&m_mutex};
+    return m_entity;
+}
+
+void Tracer::recordNow(Category category, Severity severity, const QString &message,
+                       const QVariantMap &attributes)
+{
+    TraceEvent event;
+    event.severity = severity;
+    event.category = category;
+    event.message = message;
+    event.attributes = attributes;
+    record(std::move(event));
+}
+
 void Tracer::record(TraceEvent event)
 {
+    if (event.timestampMs == 0) {
+        event.timestampMs = QDateTime::currentMSecsSinceEpoch();
+    }
+    if (event.entity.isEmpty()) {
+        QMutexLocker locker{&m_mutex};
+        event.entity = m_entity;
+    }
+    bound(event);
     m_ring.push(std::move(event));
     const int pending{m_pending.fetch_add(1, std::memory_order_relaxed) + 1};
     if (pending >= m_batchEvents.load(std::memory_order_relaxed)) {
         wake();
     }
+}
+
+void Tracer::bound(TraceEvent &event)
+{
+    // Every one of these values can be chosen by whoever is being watched: an Origin
+    // header, a path, a member name off the wire. Bounding them here, once, is what keeps
+    // a hostile caller from turning the record of their own request into the thing that
+    // exhausts the entity's memory.
+    //
+    // Measured first, rewritten only if something is over: rebuilding the map
+    // unconditionally cost ten times the whole rest of `record` (benchmarks/monitor put
+    // the enabled path at 414 ns against 42), and an event that is already within its
+    // bounds is the overwhelmingly common case.
+    if (event.message.size() > MaxMessageChars) {
+        event.message.truncate(MaxMessageChars);
+    }
+    bool oversized{event.attributes.size() > MaxAttributes};
+    if (!oversized) {
+        for (auto it{event.attributes.cbegin()}; it != event.attributes.cend(); ++it) {
+            if (it.key().size() > MaxAttributeChars) {
+                oversized = true;
+                break;
+            }
+            if ((it.value().typeId() == QMetaType::QString)
+                && (it.value().toString().size() > MaxAttributeChars)) {
+                oversized = true;
+                break;
+            }
+        }
+    }
+    if (!oversized) {
+        return;
+    }
+
+    QVariantMap bounded;
+    int skipped{0};
+    for (auto it{event.attributes.cbegin()}; it != event.attributes.cend(); ++it) {
+        if (bounded.size() >= (MaxAttributes - 1)) {
+            ++skipped;
+            continue;
+        }
+        if (it.value().typeId() == QMetaType::QString) {
+            QString value{it.value().toString()};
+            if (value.size() > MaxAttributeChars) {
+                value.truncate(MaxAttributeChars);
+            }
+            bounded.insert(it.key().left(MaxAttributeChars), value);
+            continue;
+        }
+        bounded.insert(it.key().left(MaxAttributeChars), it.value());
+    }
+    if (skipped > 0) {
+        // The same rule the ring follows. An event may lose part of itself, but never
+        // quietly. A record that silently shed half its attributes reads exactly like one
+        // that never had them.
+        bounded.insert(QStringLiteral("attributesDropped"), skipped);
+    }
+    event.attributes = bounded;
 }
 
 TraceContext Tracer::startSpan(const TraceContext &parent, const QString &name)

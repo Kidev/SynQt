@@ -3,6 +3,9 @@
 
 #include "sessionmanager.h"
 
+#include "tracer.h"
+
+#include <QCryptographicHash>
 #include <QDateTime>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -62,6 +65,15 @@ void SessionManager::emitUpsert(const SessionRecord &record)
                          identityToJson(record.identity), static_cast<double>(record.createdMs));
 }
 
+QString SessionManager::keyFor(const QByteArray &id)
+{
+    if (id.isEmpty()) {
+        return QString{};
+    }
+    const QByteArray digest{QCryptographicHash::hash(id, QCryptographicHash::Sha256)};
+    return QString::fromLatin1(digest.toHex().left(32));
+}
+
 QByteArray SessionManager::createSession(const QString &scope, const QVariantMap &identity)
 {
     purgeExpired();
@@ -82,6 +94,12 @@ QByteArray SessionManager::createSession(const QString &scope, const QVariantMap
                                   Q_ARG(QString, identityToJson(record.identity)),
                                   Q_ARG(double, static_cast<double>(record.createdMs)));
     }
+    // The handle, never the credential. A monitor that recorded the id would be a place a
+    // visitor's session can be read out of.
+    trace(Category::Authorization, Severity::Info, QStringLiteral("session created"),
+          {{QStringLiteral("session"), keyFor(record.id)},
+           {QStringLiteral("scope"), record.scope},
+           {QStringLiteral("identified"), !record.identity.isEmpty()}});
     return record.id;
 }
 
@@ -139,6 +157,12 @@ QByteArray SessionManager::setScope(const QByteArray &id, const QString &scope,
         QMetaObject::invokeMethod(m_remote, "removeSession",
                                   Q_ARG(QString, QString::fromLatin1(id)));
     }
+    // An elevation is the one session event worth finding in a hurry, so it names both
+    // handles: what an operator is chasing is which session became which, and when.
+    trace(Category::Authorization, Severity::Info, QStringLiteral("session scope changed"),
+          {{QStringLiteral("session"), keyFor(record.id)},
+           {QStringLiteral("previousSession"), keyFor(id)},
+           {QStringLiteral("scope"), record.scope}});
     return record.id;
 }
 
@@ -161,6 +185,8 @@ void SessionManager::revoke(const QByteArray &id)
         dropRotationTo(it.value());
         m_sessions.erase(it);
         emit sessionRemoved(QString::fromLatin1(id));
+        trace(Category::Authorization, Severity::Info, QStringLiteral("session revoked"),
+              {{QStringLiteral("session"), keyFor(id)}});
     }
     if (m_remote) {
         QMetaObject::invokeMethod(m_remote, "removeSession",
@@ -284,9 +310,11 @@ void SessionManager::purgeExpired()
         if (it != m_sessions.end() && it->createdMs == createdMs) {
             dropRotationTo(it.value());
             m_sessions.erase(it);
-            // Local only (see sessionExpired): what an expired session was still holding
+            // Local only (see sessionExpired), what an expired session was still holding
             // here goes with it, and nothing is told about it anywhere else.
             emit sessionExpired(QString::fromLatin1(id));
+            trace(Category::Authorization, Severity::Info, QStringLiteral("session expired"),
+                  {{QStringLiteral("session"), keyFor(id)}});
         }
     }
 }

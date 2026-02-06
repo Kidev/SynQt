@@ -420,6 +420,20 @@
       "defended_by": "shellOrNotFound serves the shell of the caller's own bundle, so a deep link with no session lands on the gate instead of on an application shell that would then fail to fetch its module.",
       "file": "tests/m5-webedge/tst_m5.cpp",
       "test": "aDeepLinkWithNoSessionLandsOnTheGateShell"
+    },
+    {
+      "id": "monitor-credential-capture",
+      "what": "A session credential, a token or an Authorization header is written into the monitoring record, so anyone who can read the monitor can replay the session it belongs to.",
+      "defended_by": "Every session event names the session by SessionManager::keyFor (half its SHA-256), never by its id, and the edge records an upgrade's decision and reason rather than the request that carried it. The tests render each recorded event back to JSON and assert the credential appears nowhere in it.",
+      "file": "tests/monitor/tst_instrumentation.cpp",
+      "test": "theSessionLifecycleIsRecordedByItsHandleAndNotItsCredential"
+    },
+    {
+      "id": "monitor-event-flood",
+      "what": "A caller drives an entity into recording faster than the monitor can take events, to exhaust its memory or block its event loop through the pipeline it cannot turn off.",
+      "defended_by": "The ring is bounded and drops the oldest rather than growing or blocking, counting every drop so the gap stays visible, and each event's message and attributes are truncated at the pipeline rather than at the call site, so an oversized header cannot become an oversized record.",
+      "file": "tests/monitor/tst_pipeline.cpp",
+      "test": "aFullRingDropsAndCountsRatherThanGrowing"
     }
   ]
 }

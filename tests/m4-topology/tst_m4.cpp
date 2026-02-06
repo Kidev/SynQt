@@ -10,6 +10,7 @@
 #include "entityruntime.h"
 #include "meshclient.h"
 #include "topology.h"
+#include "tracer.h"
 
 #include "thing_sourcehelper.h"  // synqtRegisterThingSources()
 
@@ -20,6 +21,9 @@
 #include <QQmlEngine>
 #include <QRemoteObjectDynamicReplica>
 #include <QRemoteObjectNode>
+#include <QMutex>
+#include <QMutexLocker>
+#include <QScopeGuard>
 #include <QSignalSpy>
 #include <QSslCertificate>
 #include <QSslKey>
@@ -173,6 +177,37 @@ private slots:
 
         // Deny by default: a valid mesh entity C that is not a listed consumer is
         // refused at the connect point even though its certificate is CA-signed.
+        //
+        // A refusal is also the kind of event an operator needs to be told about, so it is
+        // recorded as well as signalled, and the recording is asserted here rather than in
+        // a fixture of its own: this is the only place in the tree where a real mesh peer
+        // is really refused (tests/monitor covers the rest of the instrumentation).
+        QList<TraceEvent> recorded;
+        QMutex recordedMutex;
+        Tracer::instance()->setEntity(QStringLiteral("a"));
+        Tracer::instance()->setEnabled(true);
+        Tracer::instance()->setBatch(1, 20);
+        Tracer::instance()->setSink([&](const QList<TraceEvent> &batch) {
+            QMutexLocker locker{&recordedMutex};
+            recorded.append(batch);
+        });
+        const auto tracedMessages = [&]() {
+            Tracer::instance()->flush();
+            QMutexLocker locker{&recordedMutex};
+            QStringList messages;
+            for (const TraceEvent &event : std::as_const(recorded)) {
+                messages.append(event.message);
+            }
+            return messages;
+        };
+        // Put the process tracer back the way it was found, whatever this test does next:
+        // it is process-wide state, and a later case must not inherit a live sink pointing
+        // at a stack list that has gone.
+        const QScopeGuard resetTracer{[]() {
+            Tracer::instance()->setSink(Tracer::Sink{});
+            Tracer::instance()->setEnabled(false);
+        }};
+
         QSignalSpy refusedSpy{&runtimeA, &EntityRuntime::connectionRefused};
         MeshClient rogue;
         QRemoteObjectNode rogueNode;
@@ -196,6 +231,24 @@ private slots:
         // C never acquires a valid replica.
         if (rogueReplica) {
             QVERIFY(!rogueReplica->isReplicaValid());
+        }
+
+        // Both halves: B attached and C was refused, and the record says both. A record
+        // that only ever holds refusals cannot tell a working gate from one that refuses
+        // everybody, which is the failure tests/m5-webedge went red over.
+        QTRY_VERIFY(tracedMessages().contains(QStringLiteral("consumer refused")));
+        QVERIFY(tracedMessages().contains(QStringLiteral("consumer attached")));
+        QMutexLocker locker{&recordedMutex};
+        for (const TraceEvent &event : std::as_const(recorded)) {
+            if (event.message != QStringLiteral("consumer refused")) {
+                continue;
+            }
+            QCOMPARE(event.category, Category::Authorization);
+            QCOMPARE(event.entity, QStringLiteral("a"));
+            QCOMPARE(event.attributes.value(QStringLiteral("callingEntity")).toString(),
+                     QStringLiteral("c"));
+            QCOMPARE(event.attributes.value(QStringLiteral("connectPoint")).toString(),
+                     QStringLiteral("thing"));
         }
     }
 

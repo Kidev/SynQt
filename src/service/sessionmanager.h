@@ -47,6 +47,21 @@ class SessionManager : public QObject
 public:
     explicit SessionManager(QString defaultScope, int ttlMinutes, QObject *parent = nullptr);
 
+    /// The name one session answers to everywhere in a system, derived from the
+    /// credential and never the credential itself.
+    ///
+    /// The id IS the credential. Anything holding a copy of it is that visitor, so it may
+    /// not be handed to a consumer, written to a monitor, or put in a log. This is what
+    /// goes in its place, half of its SHA-256. A downstream entity keys its own
+    /// per-session state on it, and correlating two entities' records is reading the same
+    /// string in both. What it cannot do is be replayed at the edge, which is the whole
+    /// reason the browser's own id stops there.
+    ///
+    /// It changes when the credential rotates, which happens on a scope change: an
+    /// elevated session is a different session, and state a service kept for the anonymous
+    /// visitor is not state it should go on keeping for the signed-in one.
+    static QString keyFor(const QByteArray &id);
+
     /// Create a fresh session. An empty scope means the configured default (anonymous).
     QByteArray createSession(const QString &scope = QString(),
                              const QVariantMap &identity = QVariantMap());

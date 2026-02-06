@@ -297,6 +297,57 @@ private slots:
         user->assumeSession(forwarded);
         QVERIFY(!user->traceContext().isValid());
     }
+
+    void whatOneEventMayCarryIsBounded()
+    {
+        QMutex mutex;
+        QList<TraceEvent> delivered;
+        const auto taken = [&mutex, &delivered]() {
+            QMutexLocker locker{&mutex};
+            return delivered;
+        };
+
+        Tracer tracer;
+        tracer.setEntity(QStringLiteral("web"));
+        tracer.setSink([&mutex, &delivered](const QList<TraceEvent> &batch) {
+            QMutexLocker locker{&mutex};
+            delivered.append(batch);
+        });
+
+        // The shape of a hostile request being recorded. An Origin header a megabyte long.
+        TraceEvent oversized;
+        oversized.category = Category::Authorization;
+        oversized.severity = Severity::Warning;
+        oversized.message = QString(200000, QLatin1Char('a'));
+        oversized.attributes.insert(QStringLiteral("origin"),
+                                    QString(200000, QLatin1Char('b')));
+        tracer.record(oversized);
+
+        // And more attributes than any event has business carrying.
+        TraceEvent crowded;
+        crowded.category = Category::Authorization;
+        for (int index{0}; index < 200; ++index) {
+            crowded.attributes.insert(QStringLiteral("k%1").arg(index), index);
+        }
+        tracer.record(crowded);
+        tracer.flush();
+
+        const QList<TraceEvent> events{taken()};
+        QCOMPARE(events.size(), 2);
+        QCOMPARE(events.first().message.size(), Tracer::MaxMessageChars);
+        QCOMPARE(events.first().attributes.value(QStringLiteral("origin")).toString().size(),
+                 Tracer::MaxAttributeChars);
+        // Recorded without saying where, so the tracer says it. A call site records what
+        // happened, never where it happened.
+        QCOMPARE(events.first().entity, QStringLiteral("web"));
+        QVERIFY(events.first().timestampMs > 0);
+
+        QVERIFY(events.last().attributes.size() <= Tracer::MaxAttributes);
+        // And the part it shed is reported, not swallowed. An event that quietly loses
+        // half of itself reads exactly like one that never had it.
+        QCOMPARE(events.last().attributes.value(QStringLiteral("attributesDropped")).toInt(),
+                 200 - (Tracer::MaxAttributes - 1));
+    }
 };
 
 QTEST_GUILESS_MAIN(TestPipeline)

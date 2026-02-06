@@ -6,6 +6,7 @@
 #include "caller.h"
 #include "meshserver.h"
 #include "sourcefactory.h"
+#include "tracer.h"
 
 #include <QAbstractSocket>
 #include <QHostAddress>
@@ -31,6 +32,19 @@ ConnectPointHost::ConnectPointHost(ConnectPointConfig config, MeshCredentials cr
     , m_credentials{std::move(credentials)}
     , m_engine{engine}
 {
+    // Both halves, connected once. A gate watched only through its refusals looks healthy
+    // when it is refusing everybody, which is how `identity.required` refused every
+    // visitor for months. The accepted link is the event that says the gate still opens.
+    connect(this, &ConnectPointHost::connectionRefused, this, [this](const QString &entity) {
+        trace(Category::Authorization, Severity::Warning, QStringLiteral("consumer refused"),
+              {{QStringLiteral("connectPoint"), m_config.name},
+               {QStringLiteral("callingEntity"), entity}});
+    });
+    connect(this, &ConnectPointHost::consumerAttached, this, [this](const QString &entity) {
+        trace(Category::Lifecycle, Severity::Info, QStringLiteral("consumer attached"),
+              {{QStringLiteral("connectPoint"), m_config.name},
+               {QStringLiteral("callingEntity"), entity}});
+    });
 }
 
 ConnectPointHost::~ConnectPointHost() = default;

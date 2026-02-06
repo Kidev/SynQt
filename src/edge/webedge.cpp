@@ -12,6 +12,7 @@
 #include "sessionmanager.h"
 #include "sourcefactory.h"
 #include "topology.h"           // loadCertificate / loadPrivateKey
+#include "tracer.h"
 #include "iothreadpool.h"       // reused host-side (from src/transport)
 #include "socketchannel.h"      // reused host-side (from src/transport)
 #include "socketoptions.h" // reused host-side (from src/transport)
@@ -145,6 +146,22 @@ WebEdge::WebEdge(WebEdgeConfig config, QQmlEngine *engine, QObject *parent)
     if (m_config.bundles.isEmpty() && !m_config.bundleDir.isEmpty()) {
         m_config.bundles.insert(m_config.defaultScope, m_config.bundleDir);
     }
+
+    // Every upgrade the edge decides on, recorded once. Connected to the signals rather
+    // than written at each `emit`, so a refusal added later is traced by existing here
+    // and not by someone remembering to add a line beside it.
+    //
+    // What is recorded is the decision and its reason, never the credential behind it: a
+    // session cookie, a bearer token or an Authorization header must not reach a monitor,
+    // because a record of a credential is a copy of it (docs/security.md).
+    connect(this, &WebEdge::upgradeRejected, this, [](const QString &reason) {
+        trace(Category::Authorization, Severity::Warning, QStringLiteral("upgrade refused"),
+              {{QStringLiteral("reason"), reason}});
+    });
+    connect(this, &WebEdge::upgradeAccepted, this, [](const QString &peer) {
+        trace(Category::Transport, Severity::Info, QStringLiteral("upgrade accepted"),
+              {{QStringLiteral("peer"), peer}});
+    });
 }
 
 /// Put the connections down before the threads their sockets are on.

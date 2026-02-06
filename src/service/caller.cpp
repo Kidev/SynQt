@@ -20,23 +20,6 @@ const QLatin1StringView kIdentity{"identity"};
 const QLatin1StringView kTraceId{"traceId"};
 const QLatin1StringView kSpanId{"spanId"};
 
-// The name one session answers to everywhere in a system, derived from the credential and
-// never the credential itself. A downstream entity keys its own per-session state on this,
-// and correlating two entities' logs is reading the same string in both; what it cannot do
-// is be replayed at the edge, which is the whole reason the browser's own id stops there.
-//
-// It changes when the credential rotates, which happens on a scope change: an elevated
-// session is a different session, and state a service kept for the anonymous visitor is
-// not state it should go on keeping for the signed-in one.
-QString sessionKey(const QByteArray &id)
-{
-    if (id.isEmpty()) {
-        return QString{};
-    }
-    const QByteArray digest{QCryptographicHash::hash(id, QCryptographicHash::Sha256)};
-    return QString::fromLatin1(digest.toHex().left(32));
-}
-
 // The per-contract Caller factories the generated synqtRegister<Contract>Sources() install,
 // so forUser/forEntity can mint the typed <Contract>Caller that carries the emit<Signal>
 // sugar. A contract with no registered factory falls back to the base Caller.
@@ -154,7 +137,7 @@ QVariant Caller::session() const
     }
     QVariantMap map;
     map.insert(QStringLiteral("id"), QString::fromLatin1(rec->id));
-    map.insert(QStringLiteral("key"), sessionKey(rec->id));
+    map.insert(QStringLiteral("key"), SessionManager::keyFor(rec->id));
     map.insert(QStringLiteral("scope"), rec->scope);
     map.insert(QStringLiteral("identity"),
                rec->identity.isEmpty() ? QVariant{} : QVariant{rec->identity});
@@ -254,7 +237,7 @@ QVariantMap Caller::forwardedSession() const
         return session;
     }
     QVariantMap session;
-    session.insert(kKey, sessionKey(rec->id));
+    session.insert(kKey, SessionManager::keyFor(rec->id));
     session.insert(kScope, rec->scope);
     session.insert(kIdentity, rec->identity.isEmpty() ? QVariant{} : QVariant{rec->identity});
     withTrace(session);
