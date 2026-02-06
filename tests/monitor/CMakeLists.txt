@@ -24,6 +24,7 @@ qt_standard_project_setup()
 if(NOT TARGET SynQtEdge)
     add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../../src/edge" "${CMAKE_BINARY_DIR}/SynQtEdge")
 endif()
+include("${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/SynQtContracts.cmake")
 
 set(MONITOR_CERTS "${CMAKE_CURRENT_BINARY_DIR}/certs")
 execute_process(
@@ -48,6 +49,11 @@ target_link_libraries(tst_pipeline PRIVATE
 add_test(NAME monitor-pipeline COMMAND tst_pipeline)
 
 qt_add_executable(tst_instrumentation tst_instrumentation.cpp)
+
+# ROLE source: the test drives the generated Source helper directly, which is where the
+# call span the contract compiler emits actually lives. No transport is involved, because
+# what is under test is the generated body and not the link it would be reached over.
+synqt_add_contract(tst_instrumentation ROLE source SYN "${CMAKE_CURRENT_SOURCE_DIR}/shared/Hall.syn")
 
 target_compile_definitions(tst_instrumentation PRIVATE
     MONITOR_CERT_DIR="${MONITOR_CERTS}"

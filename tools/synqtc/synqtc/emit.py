@@ -198,6 +198,31 @@ QVariantMap synqtActingForSession() { return QVariantMap{}; }
 } // namespace
 #endif
 """
+CALL_SPAN_SHIM = """// Every slot call crossing a link is timed and recorded, however it leaves: refused by a
+// scope gate, refused by a bound on an argument, forwarded to the entity behind a front,
+// or answered by the owner's own QML. The record is closed by the destructor rather than
+// by a line before each return, so a return added here later stays traced.
+//
+// It records the shape of the call and never its arguments, which are what a person
+// typed. The whole thing lives in the service runtime. A contract-only target links no
+// runtime, has nothing to record to, and compiles the same slot bodies against a span
+// that does nothing at all.
+#if __has_include(<callspan.h>)
+#  include <callspan.h>
+using SynqtCallSpan = SynQt::CallSpan;
+#else
+namespace {
+class SynqtCallSpan
+{
+public:
+    SynqtCallSpan(const char *, const char *, QObject *, int) {}
+    ~SynqtCallSpan() {}
+    void refuse(const char *) {}
+    void fail(const char *) {}
+};
+} // namespace
+#endif
+"""
 
 
 VARIANT_BYTES_HELPER = """namespace {
@@ -685,6 +710,7 @@ def emit_source_helper_source(syn: SynFile, lstem: str) -> str:
     out += [MODULE_IMPORTS_INCLUDE, ""]
     if any(contract.slots for contract in syn.contracts):
         out += [ACTING_FOR_SHIM, ""]
+        out += [CALL_SPAN_SHIM, ""]
     if _bounds_a_var(syn):
         out += [VARIANT_BYTES_HELPER, ""]
     has_slots = any(contract.slots for contract in syn.contracts)
@@ -1261,7 +1287,13 @@ def _slot_impl(syn: SynFile, class_name: str, slot: Slot, records, path) -> str:
     # handed on to be stored, echoed, or written to a column that is exactly that wide.
     where = f"{class_name}.{slot.name}"
     refuse = ["return;"] if is_void else [f"return {ret}{{}};"]
-    lines: List[str] = []
+
+    # Opened before anything else and closed by its destructor, so every way out of this
+    # body is timed: the two refusals below, the relay, the shared Source, the owner's QML.
+    lines: List[str] = [
+        f'    SynqtCallSpan synqtSpan{{"{class_name}", "{slot.name}",',
+        f"                            m_synqtCaller.data(), {len(slot.params)}}};",
+    ]
     if syn.forwards_session:
         # Who the calling entity says it is acting for, taken before anything else so that
         # every check below already sees the right Caller. Sent on every call, an empty one
@@ -1283,9 +1315,13 @@ def _slot_impl(syn: SynFile, class_name: str, slot: Slot, records, path) -> str:
             f"    if (!synqtAllows({_gate_literal(gate)})) {{",
             f'        qWarning("%s: refused, the caller does not hold the scope it needs",',
             f'                 "{where}");',
+            '        synqtSpan.refuse("scope");',
         ] + [f"        {line}" for line in refuse] + ["    }"]
+    # A refusal is what an operator wants to be told about, so each one names which check
+    # made it rather than leaving them all looking alike in the record.
+    refuse_bound = ['synqtSpan.refuse("bound");'] + refuse
     for param in slot.params:
-        lines += _bound_guard(param.type, param.name, where, param.name, refuse, "    ")
+        lines += _bound_guard(param.type, param.name, where, param.name, refuse_bound, "    ")
     # Whoever this slot is answering, for as long as it runs: a call the owner's
     # implementation makes on to another entity carries them, so the chain keeps its person.
     lines.append(f"    const SynqtActingFor synqtActing{{m_synqtCaller.data()}};")

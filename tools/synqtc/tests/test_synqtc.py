@@ -486,5 +486,54 @@ class SharedSourceTest(unittest.TestCase):
                       self.source)
 
 
+class CallSpanTest(unittest.TestCase):
+    """Every slot crossing a link is timed, and the record says which check refused it.
+
+    The span is opened by a declaration at the top of the body and closed by its
+    destructor, which is what makes a return added to the body later stay traced. What it
+    must not do is drag the service runtime into a contract-only target, so the whole thing
+    is behind `__has_include`, exactly as the acting-for shim is.
+    """
+
+    SYN = """
+        contract Hall {
+            slot enter(string[32] name)
+            <moderator> slot promote(string[32] name)
+            slot int count()
+        }
+    """
+
+    def setUp(self):
+        self.syn = parse_text(self.SYN, path="hall.syn", stem="hall")
+        self.source = emit_source_helper_source(self.syn, "hall")
+
+    def test_every_slot_opens_a_span_naming_its_contract_and_member(self):
+        self.assertIn('SynqtCallSpan synqtSpan{"Hall", "enter",', self.source)
+        self.assertIn('SynqtCallSpan synqtSpan{"Hall", "promote",', self.source)
+        # A returning slot too: a call that answers is still a call that crossed a link.
+        self.assertIn('SynqtCallSpan synqtSpan{"Hall", "count",', self.source)
+
+    def test_the_span_is_told_how_many_arguments_there_were_and_never_their_values(self):
+        self.assertIn("m_synqtCaller.data(), 1};", self.source)
+        self.assertIn("m_synqtCaller.data(), 0};", self.source)
+        # The shape, not the contents: nothing hands an argument to the span.
+        self.assertNotIn("synqtSpan.capture(", self.source)
+
+    def test_a_refusal_names_the_check_that_made_it(self):
+        self.assertIn('synqtSpan.refuse("scope");', self.source)
+        self.assertIn('synqtSpan.refuse("bound");', self.source)
+
+    def test_a_contract_only_target_compiles_against_a_span_that_does_nothing(self):
+        self.assertIn("#if __has_include(<callspan.h>)", self.source)
+        self.assertIn("using SynqtCallSpan = SynQt::CallSpan;", self.source)
+        self.assertIn("SynqtCallSpan(const char *, const char *, QObject *, int) {}",
+                      self.source)
+
+    def test_a_contract_with_no_slots_carries_none_of_it(self):
+        quiet = parse_text("contract Q { prop int value }", path="q.syn", stem="q")
+        source = emit_source_helper_source(quiet, "q")
+        self.assertNotIn("SynqtCallSpan", source)
+
+
 if __name__ == "__main__":
     unittest.main()

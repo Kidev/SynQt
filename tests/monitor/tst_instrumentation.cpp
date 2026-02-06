@@ -11,10 +11,13 @@
 // refused every visitor of every SynQt application for months without one test going red
 // (tests/m5-webedge). The accepted case is what says the gate still opens.
 
+#include "caller.h"
 #include "sessionmanager.h"
 #include "tracer.h"
 #include "webedge.h"
 #include "webedgeconfig.h"
+
+#include "hall_sourcehelper.h"
 
 #include <QMutex>
 #include <QMutexLocker>
@@ -257,6 +260,94 @@ private slots:
         sessions.revoke(sessions.createSession());
 
         QVERIFY(recorded.events().isEmpty());
+    }
+
+    // The generated half. Every slot the contract compiler emits opens a span at the top
+    // of its body and closes it in a destructor, so the record is written whichever way
+    // the call leaves: refused by the gate, refused by a bound, or answered.
+    void aSlotCrossingALinkIsRecordedByItsShapeAndNotItsArguments()
+    {
+        Recorded recorded;
+        SessionManager sessions{QStringLiteral("anonymous"), 60};
+        const QByteArray token{sessions.createSession(QStringLiteral("user"))};
+
+        QObject owner;
+        HallSourceHelper hall;
+        Caller *caller{Caller::forUser(QStringLiteral("Hall"), &sessions, token, &hall,
+                                       &owner)};
+        caller->setScopeOrder({QStringLiteral("anonymous"), QStringLiteral("user"),
+                               QStringLiteral("moderator")}, true);
+        hall.synqtSetCaller(caller);
+
+        // 1. An open slot, answered. Nothing implements it in QML here, which is exactly
+        //    an owner who did not implement it: the call still crossed, and still counts.
+        hall.enter(QStringLiteral("ada"));
+
+        // 2. The same caller at the same scope, refused by the gate.
+        hall.promote(QStringLiteral("ada"));
+
+        // 3. Refused by the bound on the argument, before the owner sees any of it.
+        hall.enter(QString(64, QLatin1Char('x')));
+
+        const QList<TraceEvent> calls{recorded.withMessage(QStringLiteral("enter"))
+                                      + recorded.withMessage(QStringLiteral("promote"))};
+        QCOMPARE(calls.size(), 3);
+        for (const TraceEvent &event : calls) {
+            QCOMPARE(event.category, Category::Call);
+            QCOMPARE(event.attributes.value(QStringLiteral("contract")).toString(),
+                     QStringLiteral("Hall"));
+            QCOMPARE(event.attributes.value(QStringLiteral("caller")).toString(),
+                     QStringLiteral("user"));
+            QCOMPARE(event.attributes.value(QStringLiteral("args")).toInt(), 1);
+            QVERIFY(event.durationUs >= 0);
+            // The shape, never the contents. "ada" is what a person typed, and the record
+            // of an operation is not where what they typed ends up.
+            QVERIFY(!event.attributes.contains(QStringLiteral("name")));
+            const QString rendered{QString::fromUtf8(
+                QJsonDocument::fromVariant(event.toVariant()).toJson())};
+            QVERIFY2(!rendered.contains(QStringLiteral("ada")),
+                     qPrintable(QStringLiteral("an argument value reached the record: ")
+                                + rendered));
+        }
+
+        const QList<TraceEvent> answered{recorded.withMessage(QStringLiteral("enter"))};
+        QCOMPARE(answered.size(), 2);
+        QVERIFY(answered.first().ok);
+        QVERIFY(!answered.first().attributes.contains(QStringLiteral("refusedBy")));
+
+        // And each refusal names which check made it, or they all look alike in the record.
+        QCOMPARE(answered.last().attributes.value(QStringLiteral("refusedBy")).toString(),
+                 QStringLiteral("bound"));
+        const QList<TraceEvent> gated{recorded.withMessage(QStringLiteral("promote"))};
+        QCOMPARE(gated.size(), 1);
+        QVERIFY(!gated.first().ok);
+        QCOMPARE(gated.first().severity, Severity::Warning);
+        QCOMPARE(gated.first().attributes.value(QStringLiteral("refusedBy")).toString(),
+                 QStringLiteral("scope"));
+    }
+
+    void aCallHangsOffTheTraceTheCallerBroughtWithIt()
+    {
+        Recorded recorded;
+        QObject owner;
+        HallSourceHelper hall;
+        Caller *caller{Caller::forEntity(QStringLiteral("Hall"), QStringLiteral("web"), true,
+                                         &hall, &owner)};
+        const TraceContext upstream{
+            Tracer::instance()->startSpan(TraceContext{}, QStringLiteral("upgrade"))};
+        caller->setTraceContext(upstream);
+        hall.synqtSetCaller(caller);
+
+        hall.enter(QStringLiteral("ada"));
+
+        const QList<TraceEvent> calls{recorded.withMessage(QStringLiteral("enter"))};
+        QCOMPARE(calls.size(), 1);
+        // One click, one story. The entity's own work continues the trace that reached it
+        // rather than starting a second one nothing can be joined to.
+        QCOMPARE(calls.first().traceId, upstream.traceId);
+        QCOMPARE(calls.first().parentSpanId, upstream.spanId);
+        QCOMPARE(calls.first().attributes.value(QStringLiteral("caller")).toString(),
+                 QStringLiteral("entity"));
     }
 };
 

@@ -1,0 +1,10 @@
+// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+// SPDX-License-Identifier: Apache-2.0
+
+// A contract with the three shapes a call span has to close over. An open slot, one
+// behind a scope gate, and one whose argument carries a bound.
+contract Hall {
+    prop int visitors
+    slot enter(string[32] name)
+    <moderator> slot promote(string[32] name)
+}
