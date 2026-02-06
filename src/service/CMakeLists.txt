@@ -62,6 +62,8 @@ qt_add_library(SynQtService STATIC
     sessionmanager.h
     caller.cpp
     caller.h
+    callspan.cpp
+    callspan.h
     sourcefactory.cpp
     sourcefactory.h
     traceevent.cpp
