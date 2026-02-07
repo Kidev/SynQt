@@ -41,9 +41,8 @@ from .errors import SynError
 from .model import Contract, Model, Param, Prop, Record, Role, Signal, Slot, SynFile
 from .types import cpp_type
 
-#: The most parameters a `signal` may declare. A signal is delivered to one caller through
-#: `Caller.emit<Signal>(...)`, which forwards into `SynQt::Caller::emitSignal`, and that has
-#: a fixed argument pack (SynQt::Caller::MaxSignalArgs). The two numbers have to agree.
+#: The most parameters a `signal` may declare. `Caller.emit<Signal>(...)` forwards into
+#: `SynQt::Caller::emitSignal`, whose argument pack is fixed (SynQt::Caller::MaxSignalArgs).
 MAX_SIGNAL_PARAMS = 8
 
 KEYWORDS = {"contract", "record", "prop", "model", "signal", "slot"}
@@ -118,8 +117,9 @@ class Parser:
         self._path = path
         self._pos = 0
 
-    def _peek(self) -> Token:
-        return self._tokens[self._pos]
+    def _peek(self, ahead: int = 0) -> Token:
+        index = min(self._pos + ahead, len(self._tokens) - 1)
+        return self._tokens[index]
 
     def _next(self) -> Token:
         token = self._tokens[self._pos]
@@ -192,12 +192,24 @@ class Parser:
         member.scope = scope
         return member
 
-    def _parse_gate(self) -> List[str]:
-        """``<admin>`` or ``<admin, auditor>`` before a member, or nothing.
+    def _parse_capture(self) -> bool:
+        """``capture`` after ``slot``: record the call's argument values in the monitoring
+        record.
 
-        Any one of the named scopes reaches the member, which is what set-based scopes
-        need. Hierarchical ones rarely name more than one. Order is kept as written so an
-        error message can quote the line back.
+        Opt in, per member. Not a reserved word: a slot named `capture` is told apart by the
+        next token (a name is followed by its parameter list).
+        """
+        token = self._peek()
+        if token.kind != "ident" or token.value != "capture":
+            return False
+        if self._peek(1).kind == "(":
+            return False
+        self._next()
+        return True
+
+    def _parse_gate(self) -> List[str]:
+        """``<admin>`` or ``<admin, auditor>`` before a member, or nothing. Any one named scope
+        reaches the member. Order is kept for error messages.
         """
         if self._peek().kind != "<":
             return []
@@ -215,11 +227,8 @@ class Parser:
         return scopes
 
     def _parse_type(self, what: str) -> Token:
-        """A type name and, when it carries one, the bound in brackets after it.
-
-        Returned as one token spelling the whole thing (`string[64]`), so every node keeps
-        the type as it was written and the one place that has to take it apart is
-        :mod:`synqtc.types`.
+        """A type name with its optional bracketed bound, returned as one token (`string[64]`).
+        :mod:`synqtc.types` takes it apart.
         """
         token = self._expect("ident", what)
         if self._peek().kind != "[":
@@ -264,9 +273,9 @@ class Parser:
         return Signal(name=name.value, params=params, line=keyword.line, col=keyword.col)
 
     def _parse_slot(self, keyword: Token) -> Slot:
+        capture = self._parse_capture()
         first = self._parse_type("a slot name or return type")
-        # 'slot NAME(' -> void return; 'slot TYPE NAME(' -> returning slot. A bound after
-        # the first word settles it early: only a type can carry one.
+        # 'slot NAME(' is void; 'slot TYPE NAME(' returns. Only a type carries a bound.
         if self._peek().kind == "(":
             if first.value in KEYWORDS:
                 raise self._error(f"'{first.value}' is a reserved keyword and cannot be a slot name", first)
@@ -288,6 +297,7 @@ class Parser:
             return_type=return_type,
             line=keyword.line,
             col=keyword.col,
+            capture=capture,
         )
 
     def _parse_record(self) -> Record:
@@ -358,10 +368,8 @@ def _validate(syn: SynFile, path: str) -> None:
             for role in model.roles:
                 resolve(role.type, role.line, role.col)
         for signal in contract.signals:
-            # A signal is deliverable to one caller through `Caller.emit<Signal>(...)`, and
-            # that path carries a bounded number of arguments (SynQt::Caller::MaxSignalArgs).
-            # Refused here, by name. Past the bound the generated forwarder does not compile,
-            # and what a reader gets instead is a template error in a file they did not write.
+            # Past SynQt::Caller::MaxSignalArgs the generated forwarder would not compile;
+            # refuse by name.
             if len(signal.params) > MAX_SIGNAL_PARAMS:
                 raise SynError(
                     f"signal '{signal.name}' takes {len(signal.params)} parameters; the most "

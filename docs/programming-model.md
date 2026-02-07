@@ -258,6 +258,40 @@ point no client consumes refuses every caller, since a scope belongs to a user's
 and a calling entity has none. Gate a service-to-service member on `Caller.entity` in the
 slot instead.
 
+### Recording a call's values: `capture`
+
+Every slot that crosses a link is already recorded when a project has a monitor
+entity: what member was called, whether a person or an entity called it,
+how many arguments there were, how long it took, and which check refused it if one did.
+What is not recorded is the arguments themselves, because they are what somebody typed.
+
+A member whose values are worth keeping says so:
+
+```yaml
+    export: |
+      slot capture placeBid(int amount)
+```
+
+Now the record of a call to `placeBid` carries `amount`. It is written per member and never
+per contract or per entity, because the question is about one member. An operator chasing a
+refused bid wants to know what the bid was, and nobody wants a monitor that has quietly
+accumulated every value the system has ever handled. A record outlives the session it came
+from, is read by people it is not about, and goes wherever an operator points their
+collector, so what goes into it is a decision rather than a default.
+
+`synqt check` refuses `capture` on a member whose arguments carry an identity (`sub`,
+`email`, `login`, whether directly or through a `record`), because that turns the
+operations record into a second copy of the identity store. If that is what you want, say
+so once, at the top of `synqt.yaml`:
+
+```yaml
+monitoring:
+  capture_identity: acknowledged
+```
+
+`capture` is not a reserved word: a slot may still be called `capture`, which is settled by
+what follows it, exactly as the compiler settles it.
+
 ### Handing callers on: `behind:`
 
 Member scopes decide what crosses; `behind:` decides *who answers*. A web edge may own a

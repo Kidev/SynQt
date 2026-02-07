@@ -434,6 +434,13 @@
       "defended_by": "The ring is bounded and drops the oldest rather than growing or blocking, counting every drop so the gap stays visible, and each event's message and attributes are truncated at the pipeline rather than at the call site, so an oversized header cannot become an oversized record.",
       "file": "tests/monitor/tst_pipeline.cpp",
       "test": "aFullRingDropsAndCountsRatherThanGrowing"
+    },
+    {
+      "id": "monitor-identity-copy",
+      "what": "A contract asks for its call arguments to be recorded, and those arguments carry who the caller is, so the monitoring record becomes a second copy of the identity store: kept longer than a session, readable by people the identities are not about, and exported to whatever collector an operator points it at.",
+      "defended_by": "Value capture is off unless a member writes `capture`, and `synqt check` refuses `capture` on a member whose arguments carry an identity field (directly or through a record) unless the project writes `monitoring.capture_identity: acknowledged`. Without the modifier the generated span records the shape of a call only: contract, member, caller kind and argument count.",
+      "file": "tools/synqt/tests/test_check_monitoring.py",
+      "test": "test_an_identity_reached_through_a_record_is_refused_too"
     }
   ]
 }

@@ -516,8 +516,32 @@ class CallSpanTest(unittest.TestCase):
     def test_the_span_is_told_how_many_arguments_there_were_and_never_their_values(self):
         self.assertIn("m_synqtCaller.data(), 1};", self.source)
         self.assertIn("m_synqtCaller.data(), 0};", self.source)
-        # The shape, not the contents: nothing hands an argument to the span.
+        # The shape, not the contents. Nothing hands an argument to the span.
         self.assertNotIn("synqtSpan.capture(", self.source)
+
+    def test_a_member_that_asks_for_its_values_gets_them_and_the_others_do_not(self):
+        asked = parse_text("contract Hall { slot capture enter(string[32] name) "
+                           "slot promote(string[32] name) }",
+                           path="hall.syn", stem="hall")
+        source = emit_source_helper_source(asked, "hall")
+        self.assertIn('synqtSpan.capture(QStringLiteral("name"),', source)
+        # One member asking says nothing about the next one: the flag is per member.
+        self.assertEqual(source.count("synqtSpan.capture("), 1)
+
+    def test_a_captured_value_is_taken_after_its_bound_is_checked(self):
+        asked = parse_text("contract Hall { slot capture enter(string[32] name) }",
+                           path="hall.syn", stem="hall")
+        source = emit_source_helper_source(asked, "hall")
+        # Otherwise an argument refused for being too large would still be copied into the
+        # record, which is the one place a bound is there to keep it out of.
+        self.assertLess(source.index("if (nameSize > 32) {"),
+                        source.index("synqtSpan.capture("))
+
+    def test_capture_is_not_a_reserved_word(self):
+        # A slot may still be called `capture`, which one it is settles on the token after.
+        named = parse_text("contract Hall { slot capture() }", path="hall.syn", stem="hall")
+        self.assertEqual(named.contracts[0].slots[0].name, "capture")
+        self.assertFalse(named.contracts[0].slots[0].capture)
 
     def test_a_refusal_names_the_check_that_made_it(self):
         self.assertIn('synqtSpan.refuse("scope");', self.source)

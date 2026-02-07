@@ -2045,6 +2045,110 @@ def lint_contracts(config: Dict[str, Any]) -> List[str]:
     return messages
 
 
+
+#: Field and parameter names that carry who somebody is. A monitoring record is an
+#: operations record. It is read by people who are not the people whose data it holds, kept
+#: for longer than a session, and exported to whatever collector an operator points it at.
+#: Putting an identity in it turns it into a second copy of the identity store, in a place
+#: nobody chose it to be.
+_IDENTITY_FIELDS = ("sub", "email", "login")
+
+
+def lint_capture(config: Dict[str, Any]) -> List[str]:
+    """Refuse `capture` where it would copy an identity into the monitoring record.
+
+    `capture` on a member asks for that call's argument values to be recorded, which is a
+    real need. An operator chasing a refused bid wants to know what the bid was. What it
+    must not become is a way for the record of an operation to accumulate the people behind
+    it. So a captured member whose arguments carry an identity is refused, and the refusal
+    can be answered in one place, explicitly, by writing
+    `monitoring.capture_identity: acknowledged` rather than by editing the rule.
+    """
+    messages: List[str] = []
+    monitoring = config.get("monitoring")
+    acknowledged = (isinstance(monitoring, dict)
+                    and str(monitoring.get("capture_identity") or "") == "acknowledged")
+    for point in appmodel.app_points(appmodel.connect_points(config)):
+        if not contractgen.has_export(point):
+            continue
+        where = f"connect point '{appmodel.point_name(point)}'"
+        text = contractgen.export_text(point)
+        code = [line.split("//", 1)[0] for line in text.splitlines()]
+        records = _record_fields(code)
+        for line in code:
+            statement = contractgen.split_gate(line.strip())[1].strip()
+            if not _asks_for_capture(statement):
+                continue
+            member = _member_name(statement)
+            for name, spelling in _slot_parameters(statement):
+                carried = [name] if name in _IDENTITY_FIELDS else []
+                carried += [field for field in records.get(_base_type(spelling), ())
+                            if field in _IDENTITY_FIELDS]
+                if not carried or acknowledged:
+                    continue
+                messages.append(
+                    f"error: {where}: 'capture' on '{member}' would record "
+                    f"{', '.join(sorted(set(carried)))}, which says who the caller is. A "
+                    "monitoring record is kept longer than a session and exported to "
+                    "whatever collector an operator points it at, so this makes it a "
+                    "second copy of the identity store. Drop 'capture' from this member, "
+                    "or write 'monitoring: {capture_identity: acknowledged}' to say you "
+                    "meant it")
+    return messages
+
+
+def _asks_for_capture(statement: str) -> bool:
+    """`slot capture <name>(...)`, read the way the contract compiler reads it.
+
+    `slot capture(...)` is a slot *named* capture and asks for nothing, which is settled
+    here by what follows the word, exactly as :meth:`synqtc.parser.Parser._parse_capture`
+    settles it by what follows the token.
+    """
+    if not statement.startswith("slot "):
+        return False
+    rest = statement[len("slot "):].lstrip()
+    if not rest.startswith("capture"):
+        return False
+    tail = rest[len("capture"):]
+    if tail[:1].isalnum() or tail[:1] == "_":
+        return False   # a longer name that merely begins with the word
+    return not tail.lstrip().startswith("(")
+
+
+def _member_name(statement: str) -> str:
+    head = statement.split("(", 1)[0].split()
+    return head[-1] if head else statement
+
+
+def _slot_parameters(statement: str) -> List[Tuple[str, str]]:
+    """`(type name, ...)` off one declaration, as (name, type) pairs."""
+    if "(" not in statement or ")" not in statement:
+        return []
+    inside = statement[statement.index("(") + 1:statement.rindex(")")]
+    pairs: List[Tuple[str, str]] = []
+    for part in inside.split(","):
+        words = part.split()
+        if len(words) >= 2:
+            pairs.append((words[-1], words[-2]))
+    return pairs
+
+
+def _base_type(spelling: str) -> str:
+    return spelling.split("[", 1)[0]
+
+
+def _record_fields(code: List[str]) -> Dict[str, List[str]]:
+    """Every `record Name(...)` in an export block, as name -> field names."""
+    records: Dict[str, List[str]] = {}
+    for line in code:
+        statement = contractgen.split_gate(line.strip())[1].strip()
+        if not statement.startswith("record ") or "(" not in statement:
+            continue
+        name = statement[len("record "):].split("(", 1)[0].strip()
+        records[name] = [field for field, _ in _slot_parameters(statement)]
+    return records
+
+
 def lint_member_scopes(config: Dict[str, Any]) -> List[str]:
     """Hold every `<scope>` gate in an `export:` block to the vocabulary and to its point.
 
@@ -2762,6 +2866,7 @@ def check_project(project_dir: os.PathLike[str] | str, *, release: bool = False,
                             starting=starting)
     messages = [f"note: {source} applied" for source in resolved.sources] + messages
     contract_messages = lint_contracts(config)
+    contract_messages += lint_capture(config)
     export_messages = lint_exports(config, project_dir)
     loading_messages = lint_loading(project_dir)
     client_root_messages = lint_client_root(project_dir)

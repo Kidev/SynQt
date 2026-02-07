@@ -1322,10 +1322,18 @@ def _slot_impl(syn: SynFile, class_name: str, slot: Slot, records, path) -> str:
     refuse_bound = ['synqtSpan.refuse("bound");'] + refuse
     for param in slot.params:
         lines += _bound_guard(param.type, param.name, where, param.name, refuse_bound, "    ")
-    # Whoever this slot is answering, for as long as it runs: a call the owner's
+    if getattr(slot, "capture", False):
+        # Only where the contract asked for it, and only after the bounds above have run:
+        # the values a monitor keeps have to be inside the contract's limits like every
+        # other value, or an argument refused for being too large would still be copied.
+        lines.append("    // `capture` on this member: the contract asked for the values.")
+        for param in slot.params:
+            lines.append(f'    synqtSpan.capture(QStringLiteral("{param.name}"),')
+            lines.append(f"                      QVariant::fromValue({param.name}));")
+    # Whoever this slot is answering, for as long as it runs. A call the owner's
     # implementation makes on to another entity carries them, so the chain keeps its person.
     lines.append(f"    const SynqtActingFor synqtActing{{m_synqtCaller.data()}};")
-    # A front implements nothing: the call belongs to the entity serving this caller's
+    # A front implements nothing. The call belongs to the entity serving this caller's
     # scope. Sent with the session this Source is answering for, which is what lets that
     # entity authorize the person rather than the edge that carried them.
     session_arg = "Q_ARG(QVariantMap, synqtActingForSession())"
