@@ -1,0 +1,25 @@
+// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+// SPDX-License-Identifier: Apache-2.0
+
+// The framework's own connect point for monitoring. Every service in a project consumes
+// it and the monitor owns it, so events reach the monitor over an ordinary mesh link:
+// mutual TLS, the same deny-by-default consumer list as anything else, and a `Caller`
+// whose `entity` is the certificate subject. That last part is what makes the record
+// trustworthy. An entity cannot report events as another entity, because it cannot present
+// another entity's certificate.
+//
+// A client never consumes this. A browser cannot reach the mesh, and a value a visitor
+// controls must never be read as an entity identity (docs/security.md, the two identity
+// systems). What a browser does reaches the record through the edge that served it, as
+// something observed rather than something claimed.
+
+contract Ingest {
+    // One batch of events, each a serialized TraceEvent. Bounded at the boundary rather
+    // than trusted: 512 events is a large batch and an unbounded list is a way to make the
+    // monitor allocate whatever a broken or hostile entity feels like sending.
+    slot publish(list[512] events)
+
+    // Still here, and what it last saw. An entity that stops sending is the case a monitor
+    // exists to notice, and silence is indistinguishable from health without this.
+    slot heartbeat(string[64] entity, double sentMs)
+}

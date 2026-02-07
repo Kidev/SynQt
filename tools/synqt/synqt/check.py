@@ -353,7 +353,9 @@ def validate(config: Dict[str, Any], *, release: bool = False,
     # `identity.provider_entity` implies. Checked before the expansion, because a collision
     # with a declared connect point is exactly what the expansion silently steps around.
     messages += _provider_entity_messages(config, entities)
+    messages += _monitor_entity_messages(config, entities)
     config = appmodel.with_auth_connect_points(config)
+    config = appmodel.with_monitoring_connect_points(config)
 
     web_edges = {name for name, e in entities.items() if _is_web_edge(e)}
     clients = {name for name, e in entities.items() if appmodel.is_client(e)}
@@ -996,6 +998,50 @@ def _provider_entity_messages(config: Dict[str, Any],
                 f"identity.provider_entity implies; rename it, because the auth entity "
                 f"'{owner}' owns '{appmodel.AUTH_IDENTITY_POINT}' and "
                 f"'{appmodel.AUTH_SESSION_POINT}'")
+    return messages
+
+
+
+def _monitor_entity_messages(config: Dict[str, Any],
+                             entities: Dict[str, Any]) -> List[str]:
+    """`monitoring.entity` names a real monitor entity, and only implies one link.
+
+    Adding a monitor is one line, so the link every service consumes is synthesized rather
+    than declared (see appmodel.with_monitoring_connect_points). Everything that could go
+    wrong with it is therefore invisible in the project's own configuration, which is why
+    it is said here.
+    """
+    monitoring = config.get("monitoring")
+    if monitoring is not None and not isinstance(monitoring, dict):
+        return ["error: monitoring: must be a block, e.g. 'monitoring: {entity: ops}'"]
+    if isinstance(monitoring, dict):
+        for key in monitoring:
+            if key not in ("entity", "capture_identity", "levels", "console"):
+                messages = [f"error: monitoring: unknown key '{key}' (want entity, "
+                            "capture_identity, levels or console)"]
+                return messages
+    owner = appmodel.monitor_entity(config)
+    if not owner:
+        return []
+    messages: List[str] = []
+    entity = entities.get(owner)
+    if entity is None:
+        messages.append(
+            f"error: monitoring.entity names '{owner}', which is not a declared entity; "
+            "add it (type: monitor) or drop monitoring.entity to run without a monitor")
+        return messages
+    if appmodel.entity_type(entity) != "monitor":
+        messages.append(
+            f"error: monitoring.entity names '{owner}', which is a "
+            f"'{appmodel.entity_type(entity)}' entity. The monitor holds every entity's "
+            "record and serves the operator console, so it is its own entity with its own "
+            "type; give it 'type: monitor' or point monitoring.entity at one that has it")
+    if appmodel.MONITOR_POINT in {appmodel.point_name(cp)
+                                  for cp in appmodel.connect_points(config)}:
+        messages.append(
+            f"error: connect point '{appmodel.MONITOR_POINT}' collides with the one "
+            f"monitoring.entity implies; rename it, because the monitor '{owner}' owns "
+            f"'{appmodel.MONITOR_POINT}' and every service consumes it")
     return messages
 
 

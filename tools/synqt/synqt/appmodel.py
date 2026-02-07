@@ -121,6 +121,7 @@ TYPE_FOLDERS: Dict[str, str] = {
     "cache": "cache",
     "api": "api",
     "jobs": "jobs",
+    "monitor": "monitor",
     "service": "service",
 }
 
@@ -1304,6 +1305,79 @@ def with_auth_connect_points(config: Dict[str, Any]) -> Dict[str, Any]:
     The input is never mutated. Callers share one loaded config.
     """
     extra = auth_connect_points(config)
+    if not extra:
+        return config
+    expanded = dict(config)
+    expanded["connect_points"] = list(connect_points(config)) + extra
+    return expanded
+
+
+
+# The monitoring fan-in
+#
+# One connect point, owned by the monitor and consumed by every service in the project. It
+# is derived from `monitoring.entity` rather than written, for the same reason the auth
+# links are. A link every entity needs is a link nobody should have to remember to declare,
+# and one an author could forget on a single entity is a hole in the record shaped exactly
+# like the entity that was misbehaving.
+MONITOR_POINT = "ingest"
+
+#: The contract the monitor owns, shipped with the runtime library like the other framework
+#: contracts (src/monitor/contracts/).
+MONITOR_CONTRACT = "Ingest"
+
+
+def monitor_entity(config: Dict[str, Any]) -> str:
+    """``monitoring.entity``, or "" when the project has no monitor."""
+    monitoring = config.get("monitoring")
+    if not isinstance(monitoring, dict):
+        return ""
+    declared = monitoring.get("entity")
+    return declared.strip() if isinstance(declared, str) else ""
+
+
+def monitoring_connect_points(config: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """The ingest link `monitoring.entity` implies, or [].
+
+    Consumed by every service and never by a client. A browser cannot reach the mesh at
+    all, and a client that could report events as an entity would be putting a value a
+    visitor controls where an authenticated entity name belongs, which is the one
+    conflation SynQt's two identity systems exist to prevent (docs/security.md). What the
+    browser does gets into the record through the edge that served it, where it is a fact
+    somebody observed rather than a claim somebody made.
+
+    The monitor is not a consumer of its own point. It owns it, and an entity that opened a
+    link to itself would deadlock its own event loop on the first publish.
+    """
+    owner = monitor_entity(config)
+    if not owner:
+        return []
+    owning = next((entity for entity in entities(config)
+                   if entity.get("name") == owner), {"name": owner, "type": "monitor"})
+    consumers = [name for name in (entity.get("name") for entity in entities(config)
+                                   if not is_client(entity) and entity.get("name") != owner)
+                 if name]
+    if MONITOR_POINT in {point_name(cp) for cp in connect_points(config)}:
+        return []
+    return [{"name": MONITOR_POINT,
+             "contract": MONITOR_CONTRACT,
+             "owner": owner,
+             "consumers": consumers,
+             # Generated, like the auth points': nobody writes this file and nobody edits it.
+             "server": f"{GENERATED_DIR}/{source_path(owning, MONITOR_CONTRACT)}",
+             "framework": True}]
+
+
+def with_monitoring_connect_points(config: Dict[str, Any]) -> Dict[str, Any]:
+    """`config` with the monitor's implied link appended to ``connect_points``.
+
+    Runs at the same entry points as :func:`with_auth_connect_points`, and for the same
+    reason: the monitor must host what it owns, every service must open its consumer link,
+    and `synqt check` must hold those links to the mesh rules like any other. Idempotent,
+    and a project that declares a point of the same name keeps its own. The input is never
+    mutated: callers share one loaded config.
+    """
+    extra = monitoring_connect_points(config)
     if not extra:
         return config
     expanded = dict(config)

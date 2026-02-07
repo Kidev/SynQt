@@ -260,6 +260,7 @@ def write(project_dir: os.PathLike[str] | str, config: Dict[str, Any]) -> List[s
     # entity listens where its edges dial and `synqt check` holds them to the same mesh
     # rules. See appmodel.with_auth_connect_points.
     config = appmodel.with_auth_connect_points(config)
+    config = appmodel.with_monitoring_connect_points(config)
     project_name = config.get("project", {}).get("name", "app")
     endpoints = resolve_endpoints(config, project_name)
     written: List[str] = []

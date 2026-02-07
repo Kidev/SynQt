@@ -107,6 +107,8 @@ def startup_order(config: Dict[str, Any]) -> List[str]:
     # Including the links `identity.provider_entity` implies, so an auth entity comes up
     # before the edges that reach it for a login.
     config = appmodel.with_auth_connect_points(config)
+    # And the monitor's, so it comes up before the entities that report to it.
+    config = appmodel.with_monitoring_connect_points(config)
     services = {e.get("name") for e in appmodel.entities(config)
                 if appmodel.is_service(e)}
     after: Dict[str, set] = {name: set() for name in services}

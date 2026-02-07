@@ -52,9 +52,12 @@ def generate(project_dir: os.PathLike[str] | str, config: Dict[str, Any], *,
     root = Path(project_dir)
     synqt_root = Path(synqt_root) if synqt_root else appmodel.framework_root()
     # `identity.provider_entity` implies two mesh links (the auth entity owns identity and
-    # sessions; every edge consumes them). Expanded once here so the CMake, every main.cpp
+    # sessions. Every edge consumes them). Expanded once here so the CMake, every main.cpp
     # and the Source QML below all see the same topology.
     config = appmodel.with_auth_connect_points(config)
+    # And the ingest link `monitoring.entity` implies (the monitor owns it. Every
+    # service consumes it, and no client does).
+    config = appmodel.with_monitoring_connect_points(config)
     # Resolved once, here, so the client's route table and the edge's page list are
     # generated from one decision. What the scan concluded is reported by `synqt check`
     # (check.lint_graphics), which runs the same resolution.
