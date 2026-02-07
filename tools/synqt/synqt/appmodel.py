@@ -22,9 +22,9 @@ import os
 import re
 import sys
 from pathlib import Path, PurePosixPath
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set, Tuple
 
-# The OAuth provider templates are one table: `synqt add auth` writes it into synqt.yaml,
+# The OAuth provider templates are one table. `synqt add auth` writes it into synqt.yaml,
 # and this module reads it back to fill in what a hand-written short form left out. Read
 # from the scaffolder rather than copied, so the two can never describe the same provider
 # differently.
@@ -140,9 +140,16 @@ TYPE_HELPERS: Dict[str, str] = {
     "jobs": "Jobs",
 }
 
+#: The helpers every service entity gets, whatever its type. The rule above is about
+#: engines. A type has one, and the helper is how its QML reaches it without naming it. This
+#: is the other kind, and there is one of them. `Log` is what an entity says about itself,
+#: and every entity has something to say, so it is installed for all of them and the
+#: reserved-name rule covers the name everywhere rather than per type.
+UNIVERSAL_HELPERS: Tuple[str, ...] = ("Log",)
+
 #: The helpers a `network:` block grants, on any type. Where an entity may connect is a
 #: deployment's decision, not a property of what it is, so it is the topology that grants
-#: these: `network.outbound` installs `Http` restricted to the prefixes it names, and
+#: these. `network.outbound` installs `Http` restricted to the prefixes it names, and
 #: `network.inbound` installs `Api` and opens the port it names. An entity with no
 #: `network:` block gets neither and is reachable only by its mesh consumers.
 NETWORK_HELPERS: Dict[str, str] = {

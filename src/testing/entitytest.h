@@ -4,6 +4,7 @@
 #ifndef SYNQT_ENTITYTEST_H
 #define SYNQT_ENTITYTEST_H
 
+#include <QtCore/qmutex.h>
 #include <QtCore/qobject.h>
 #include <QtCore/qstringlist.h>
 #include <QtCore/qurl.h>
@@ -26,6 +27,7 @@ class ICacheProvider;
 class IDocumentProvider;
 class IPersistenceProvider;
 class Jobs;
+class Log;
 class SessionManager;
 
 /// The QML type `EntityTest`, in the import `SynQt.Test`: an owned connect point's Source,
@@ -111,6 +113,15 @@ public:
     /// Read the in-memory cache directly.
     Q_INVOKABLE QVariant cacheValue(const QString &key);
 
+    /// What the entity recorded while this test ran, oldest first, one map per event
+    /// carrying `severity`, `category`, `message` and `attributes`.
+    ///
+    /// A `Log.info(...)` in an entity's QML is a fact about how it behaves, so it is
+    /// testable like any other. The events come from the real pipeline, which the harness
+    /// switches on for the entity under test alone and drains on each `load()`, so one
+    /// test never reads what an earlier one said.
+    Q_INVOKABLE QVariantList recorded() const;
+
 signals:
     void sourceChanged();
     void subjectChanged();
@@ -145,6 +156,9 @@ private:
     std::unique_ptr<IPersistenceProvider> m_persistence;
     std::unique_ptr<ICacheProvider> m_cache;
     std::unique_ptr<IDocumentProvider> m_document;
+    mutable QMutex m_recordedMutex;
+    QVariantList m_recorded;
+    Log *m_log{nullptr};
     Db *m_db{nullptr};
     Cache *m_cacheHelper{nullptr};
     Docs *m_docs{nullptr};

@@ -23,6 +23,9 @@ Ledger {
             return;
         }
         ledger.highBid = amount;
+        // What an entity says about itself. A message and a map, never a sentence with the
+        // numbers glued into it. What reads the record filters and searches it.
+        Log.info("bid accepted", { amount: amount, bidder: bidder });
     }
 
     // A slot that hands the work to another entity, which is what an edge Source normally
@@ -33,7 +36,7 @@ Ledger {
         Database.recordWinner(item, "bob", 1);
     }
 
-    // Only the edge may write the permanent record, and it is an entity, not a person.
+    // Only the edge may write the permanent record, and the edge is an entity.
     function recordWinner(item, winner, amount) {
         if (Caller.entity !== "web") {
             return false;

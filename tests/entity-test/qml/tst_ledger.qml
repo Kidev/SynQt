@@ -115,4 +115,49 @@ TestCase {
         verify(harness.load(), harness.errorString);
         compare(harness.dbQuery("SELECT * FROM winners").length, 0);
     }
+
+    // What an entity says about itself is testable like anything else it does. `Log` is in
+    // scope in every entity, whatever its type, unlike `Db` or `Cache`.
+    function test_an_entity_says_what_it_did_in_its_own_words() {
+        harness.callerIsUser("user", { sub: "alice" });
+        harness.subject.placeBid(150, "alice");
+
+        const said = harness.recorded().filter(event => event.message === "bid accepted");
+        compare(said.length, 1);
+        compare(said[0].attributes.amount, 150);
+        compare(said[0].attributes.bidder, "alice");
+        // The entity's own log line, at info level.
+        compare(said[0].categoryName, "application");
+        compare(said[0].severityName, "info");
+    }
+
+    function test_a_refused_bid_says_nothing_and_the_record_shows_it() {
+        harness.callerIsUser("anonymous");
+        harness.subject.placeBid(500, "mallory");
+        compare(harness.recorded().filter(e => e.message === "bid accepted").length, 0);
+    }
+
+    function test_an_entity_cannot_claim_to_be_another_one() {
+        harness.callerIsUser("user", { sub: "alice" });
+        // The attribute is written by the entity. The name is stamped by the runtime past
+        // anything QML can reach, so this is the one thing an entity cannot forge about
+        // itself. Whatever it puts in the map, the record says who said it.
+        harness.subject.placeBid(150, "alice");
+        const said = harness.recorded().filter(event => event.message === "bid accepted");
+        compare(said.length, 1);
+        compare(said[0].entity, "test");
+    }
+
+    function test_what_one_test_said_is_not_read_by_the_next() {
+        harness.callerIsUser("user", { sub: "alice" });
+        harness.subject.placeBid(150, "alice");
+        compare(harness.recorded().filter(e => e.message === "bid accepted").length, 1);
+
+        // A fresh load starts the record over. What is left is the harness minting this
+        // test's own session, which the framework records like any other session: an
+        // assertion of an empty list would be asserting that the framework stopped saying
+        // things it is supposed to say.
+        verify(harness.load(), harness.errorString);
+        compare(harness.recorded().filter(e => e.categoryName === "application").length, 0);
+    }
 }

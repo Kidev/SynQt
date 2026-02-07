@@ -123,11 +123,33 @@ The line between the two is what a test here can be trusted to prove.
 `<Owner>Source` type the entity uses. `Caller`, minted through the same factory the
 mesh and the web edge mint it through, including the typed `emit<Signal>` methods and
 hierarchical `hasScope`. The entity type helpers, `Db`, `Cache`, `Docs` and `Jobs`, are the
-same classes an entity gets.
+same classes an entity gets, and so is `Log`, which every entity has.
 
 **Substituted**: only the engine behind a helper. `Db` runs on SQLite in memory, `Cache`
 and `Docs` on the memory providers. Nothing else is faked, and there is no test-only
-door in `Caller` for the harness to use: it reaches it the same way a transport does.
+door in `Caller` for the harness to use. It reaches it the same way a transport does.
+
+### Asserting on what an entity said
+
+`Log.info("bid accepted", { amount: amount })` in an entity's QML is a fact about how it
+behaves, so `recorded()` hands it back:
+
+```qml
+    function test_an_accepted_bid_is_recorded() {
+        harness.callerIsUser("user", { sub: "alice" });
+        harness.subject.placeBid(150, "alice");
+
+        const said = harness.recorded().filter(event => event.message === "bid accepted");
+        compare(said.length, 1);
+        compare(said[0].attributes.amount, 150);
+        compare(said[0].categoryName, "application");
+    }
+```
+
+The list is the real pipeline's, drained on every `load()`, so one test never reads what an
+earlier one said. It holds the framework's own events too, which is why the example filters
+rather than counting: a signed-in caller means a session, and a session being created is
+something the framework records.
 
 The consequence worth relying on: a slot cannot pass here and fail in production because
 the test stubbed the authorization. It can still fail for a reason the harness does not

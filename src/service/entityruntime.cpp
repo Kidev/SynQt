@@ -4,8 +4,10 @@
 #include "entityruntime.h"
 
 #include "connectpointhost.h"
+#include "log.h"
 #include "meshclient.h"
 #include "proxypolicy.h"
+#include "tracer.h"
 
 #include "consumerbase.h"
 #include "consumerfactory.h"
@@ -141,6 +143,15 @@ bool EntityRuntime::buildTypeContext()
     } else if (type == QLatin1String("jobs")) {
         m_typeContext.insert(QStringLiteral("Jobs"), new Jobs{1000, this});
     }
+
+    // For every type, unlike the helpers above. Those exist because a type has an engine
+    // behind it, and are absent where there is none. Every entity has something to say
+    // about itself, so every entity gets this one.
+    m_typeContext.insert(QStringLiteral("Log"), new Log{this});
+    // The name this process records under, set once here rather than passed to every call
+    // site. It is also why an entity cannot claim to be another one: the stamp is applied
+    // on the way out of the pipeline, past anything QML can reach.
+    Tracer::instance()->setEntity(m_topology.entity);
 
     // `Http` is granted by the topology, not by the type: any entity that declares
     // `network.outbound` gets it, restricted to exactly the prefixes in that list, and an

@@ -55,6 +55,14 @@ struct TraceEvent
     static TraceEvent fromVariant(const QVariantMap &value);
 };
 
+/// The names an operator reads, and the names a third-party collector expects.
+///
+/// The enums cross the link as their numbers, which is what the store indexes and what
+/// keeps a batch small. These turn one back into a word at the two places a word is what is
+/// wanted. A console listing and an exported record.
+QString severityName(Severity severity);
+QString categoryName(Category category);
+
 } // namespace SynQt
 
 #endif // SYNQT_TRACEEVENT_H

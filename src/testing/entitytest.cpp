@@ -13,9 +13,11 @@
 #include "idocumentprovider.h"
 #include "ipersistenceprovider.h"
 #include "jobs.h"
+#include "log.h"
 #include "persistencefactory.h"
 #include "providerconfig.h"
 #include "sessionmanager.h"
+#include "tracer.h"
 
 #include <QtQml/qqmlcomponent.h>
 #include <QtQml/qqmlcontext.h>
@@ -30,8 +32,7 @@ namespace SynQt {
 
 namespace {
 
-/// The scope vocabulary a project gets from `synqt new`. A test that never says otherwise
-/// should behave like the app it is testing, not like an empty configuration.
+/// The scope vocabulary `synqt new` writes, so a test behaves like the app by default.
 const QStringList &defaultScopeOrder()
 {
     static const QStringList order{QStringLiteral("anonymous"), QStringLiteral("user"),
@@ -39,8 +40,8 @@ const QStringList &defaultScopeOrder()
     return order;
 }
 
-/// Split a schema file into the statements migrate() applies. The same naive split the
-/// runtime uses. Statements are separated by semicolons at the end of a line.
+/// Split a schema file into migrate() statements, as the runtime does: a semicolon at the
+/// end of a line separates statements.
 QStringList schemaSteps(const QString &text)
 {
     QStringList steps;
@@ -59,12 +60,17 @@ EntityTest::EntityTest(QObject *parent)
     : QObject{parent},
       m_scopeOrder{defaultScopeOrder()}
 {
-    // One session store for the harness, with the same default scope a scaffolded project
-    // uses, so an unauthenticated caller is anonymous here too.
+    // One session store for the harness, with a scaffolded project's default scope, so an
+    // unauthenticated caller is anonymous.
     m_sessions = new SessionManager{QStringLiteral("anonymous"), 60, this};
 }
 
-EntityTest::~EntityTest() = default;
+EntityTest::~EntityTest()
+{
+    // The sink points at a member of this object, so it has to go before this object does.
+    Tracer::instance()->setSink(Tracer::Sink{});
+    Tracer::instance()->setEnabled(false);
+}
 
 QUrl EntityTest::source() const
 {
@@ -124,11 +130,9 @@ QString EntityTest::derivedContract() const
     if (m_subject == nullptr) {
         return QString{};
     }
-    // The contract name selects the typed Caller that carries emit<Signal>, and the only
-    // place it survives at run time is the generated C++ type's name. The subject is not
-    // that type. A Source written in QML is a QML-defined subclass whose own class name is
-    // `Ledger_QMLTYPE_0`, which says nothing. So walk up to the generated base,
-    // `LedgerSourceHelper`, and take what precedes it.
+    // The contract name selects the typed Caller with emit<Signal>, and it survives at run
+    // time only in the generated C++ type name. A QML Source is a subclass named like
+    // `Ledger_QMLTYPE_0`, so walk up to `LedgerSourceHelper` and take the prefix.
     for (const QMetaObject *type{m_subject->metaObject()}; type != nullptr;
          type = type->superClass()) {
         const QString className{QString::fromUtf8(type->className())};
@@ -170,9 +174,9 @@ void EntityTest::callerIsNobody()
 
 void EntityTest::rebuildCaller()
 {
-    // The Caller carries the Source it may emit back through, so it cannot outlive one and
-    // cannot be built before one exists. Both directions land here: setting the caller
-    // before load(), and load() replacing the subject under an already-chosen caller.
+    // The Caller carries the Source it emits through, so it is built after the Source and
+    // never outlives it: here, for both a caller set before load() and a load() under an
+    // existing caller.
     delete m_caller;
     m_caller = nullptr;
     if (m_subject == nullptr || m_context == nullptr) {
@@ -196,8 +200,8 @@ void EntityTest::rebuildCaller()
     if (m_caller != nullptr) {
         m_caller->setScopeOrder(m_scopeOrder, m_hierarchical);
     }
-    // A null Caller is the representation of no caller. A slot that reads it
-    // outside a call gets nothing, exactly as it would on the entity.
+    // A null Caller means no caller: read outside a call it gives nothing, as on the
+    // entity.
     m_context->setContextProperty(QStringLiteral("Caller"), m_caller);
     m_context->setContextProperty(QStringLiteral("Client"),
                                   m_callerKind == CallerKind::User ? m_caller : nullptr);
@@ -209,9 +213,8 @@ void EntityTest::buildHelpers()
         return;   // built once per harness. load() resets their contents rather than their wiring
     }
 
-    // Every helper an entity could have, rather than the one its type would give it.
-    // A test harness that guessed the type would be one more thing to configure, and
-    // guessing wrong would surface as an undefined name rather than as a clear failure.
+    // Every helper an entity could have, not just its type's, so the harness needs no type
+    // setting.
     ProviderConfig persistenceConfig;
     persistenceConfig.name = QStringLiteral("sqlite");
     persistenceConfig.file = QStringLiteral(":memory:");
@@ -239,6 +242,30 @@ void EntityTest::buildHelpers()
     m_cacheHelper = new Cache{m_cache.get(), this};
     m_docs = new Docs{m_document.get(), this};
     m_jobs = new Jobs{1000, this};
+    m_log = new Log{this};
+
+    // The real trace pipeline, enabled for the entity under test, so `Log.info(...)` can be
+    // asserted. Delivered on the writer thread, so the list is guarded.
+    Tracer::instance()->setEntity(QStringLiteral("test"));
+    Tracer::instance()->setEnabled(true);
+    Tracer::instance()->setBatch(1, 20);
+    Tracer::instance()->setSink([this](const QList<TraceEvent> &batch) {
+        QMutexLocker locker{&m_recordedMutex};
+        for (const TraceEvent &event : batch) {
+            QVariantMap value{event.toVariant()};
+            // The names beside the numbers, so a test does not assert `category === 5`.
+            value.insert(QStringLiteral("severityName"), severityName(event.severity));
+            value.insert(QStringLiteral("categoryName"), categoryName(event.category));
+            m_recorded.append(value);
+        }
+    });
+}
+
+QVariantList EntityTest::recorded() const
+{
+    Tracer::instance()->flush();
+    QMutexLocker locker{&m_recordedMutex};
+    return m_recorded;
 }
 
 bool EntityTest::load()
@@ -263,9 +290,14 @@ bool EntityTest::load()
     }
 
     buildHelpers();
+    {
+        // Drained per load, so one test never reads what an earlier one said.
+        Tracer::instance()->flush();
+        QMutexLocker locker{&m_recordedMutex};
+        m_recorded.clear();
+    }
 
-    // Reset the state, not the wiring: a fresh Source over a database still holding the
-    // previous test's rows would pass or fail depending on test order.
+    // Reset the state, not the wiring, so results do not depend on test order.
     if (m_persistence != nullptr) {
         QString error;
         m_persistence->disconnect();
@@ -297,6 +329,7 @@ bool EntityTest::load()
     m_context->setContextProperty(QStringLiteral("Cache"), m_cacheHelper);
     m_context->setContextProperty(QStringLiteral("Docs"), m_docs);
     m_context->setContextProperty(QStringLiteral("Jobs"), m_jobs);
+    m_context->setContextProperty(QStringLiteral("Log"), m_log);
     m_context->setContextProperty(QStringLiteral("Caller"), nullptr);
     m_context->setContextProperty(QStringLiteral("Client"), nullptr);
 

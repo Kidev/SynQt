@@ -313,6 +313,40 @@ consumed by entities that enqueue work. It is internal only.
 Security: the jobs entity authorizes who may enqueue work, bounds queue size, and
 runs each job with only the connect point access its work requires.
 
+### `Log` (in every entity, whatever its type)
+
+The helpers above exist because a type has an engine behind it, and each one is in scope
+only where that engine is: `Db` in a relational entity, `Cache` in a cache entity. `Log` is
+the other kind, and there is one of it. Every entity has something to say about itself, so
+every entity has it.
+
+```qml
+    function placeBid(amount, bidder) {
+        if (amount <= ledger.highBid) {
+            Caller.emitBidRejected("Bid must beat " + ledger.highBid + ".");
+            return;
+        }
+        ledger.highBid = amount;
+        Log.info("bid accepted", { amount: amount, bidder: bidder });
+    }
+```
+
+Four levels: `Log.debug`, `Log.info`, `Log.warn`, `Log.error`. Pass a message and a map,
+never a sentence with the values glued into it. Whoever reads the record filters and
+searches it, and `Log.info("saved " + count + " rows")` makes both a substring hunt where
+`Log.info("saved rows", { rows: count })` does not.
+
+The framework already records what it can see, which is links coming up, callers being
+refused and calls crossing. What it cannot see is why an entity did what it did, and that is
+usually the half an operator is looking for.
+
+Which entity said it is stamped by the runtime, past anything QML can reach, so an entity
+cannot claim to be another one. It costs nothing when nobody is listening: the level check
+is a single atomic read, measured at 0.23 ns per call site
+([the monitoring baseline](https://github.com/Kidev/SynQt/blob/main/benchmarks/README.md)).
+What an entity says is testable like anything else it does; see
+[asserting on what an entity said](testing.md#asserting-on-what-an-entity-said).
+
 ## Building a custom entity
 
 When no other type fits, `synqt add entity <name>` scaffolds a bare service entity:

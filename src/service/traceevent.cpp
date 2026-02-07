@@ -46,4 +46,43 @@ TraceEvent TraceEvent::fromVariant(const QVariantMap &value)
     return event;
 }
 
+
+QString severityName(Severity severity)
+{
+    switch (severity) {
+    case Severity::Trace:
+        return QStringLiteral("trace");
+    case Severity::Debug:
+        return QStringLiteral("debug");
+    case Severity::Info:
+        return QStringLiteral("info");
+    case Severity::Warning:
+        return QStringLiteral("warning");
+    case Severity::Error:
+        return QStringLiteral("error");
+    case Severity::Fatal:
+        return QStringLiteral("fatal");
+    }
+    return QStringLiteral("info");
+}
+
+QString categoryName(Category category)
+{
+    switch (category) {
+    case Category::Lifecycle:
+        return QStringLiteral("lifecycle");
+    case Category::Transport:
+        return QStringLiteral("transport");
+    case Category::Authorization:
+        return QStringLiteral("authorization");
+    case Category::Call:
+        return QStringLiteral("call");
+    case Category::Data:
+        return QStringLiteral("data");
+    case Category::Application:
+        return QStringLiteral("application");
+    }
+    return QStringLiteral("lifecycle");
+}
+
 } // namespace SynQt
