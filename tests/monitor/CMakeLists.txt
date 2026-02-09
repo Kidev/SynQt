@@ -16,13 +16,13 @@ project(synqt_monitor LANGUAGES CXX)
 include("${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/SynQtBuildFlags.cmake")
 
 find_package(Qt6 6.11 REQUIRED COMPONENTS
-    Core Network Qml RemoteObjects WebSockets HttpServer Test)
+    Core Network Qml RemoteObjects WebSockets HttpServer Sql Test)
 qt_standard_project_setup()
 
 # Guarded: configured on its own, this suite is what pulls the runtime library in;
 # configured from the tree root, the root has already added it (see tests/CMakeLists.txt).
-if(NOT TARGET SynQtEdge)
-    add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../../src/edge" "${CMAKE_BINARY_DIR}/SynQtEdge")
+if(NOT TARGET SynQtMonitor)
+    add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../../src/monitor" "${CMAKE_BINARY_DIR}/SynQtMonitor")
 endif()
 include("${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/SynQtContracts.cmake")
 
@@ -85,3 +85,15 @@ target_link_libraries(tst_ingest PRIVATE
 )
 
 add_test(NAME monitor-ingest COMMAND tst_ingest)
+
+# The monitor's own history, on its own: no entities, no transport, a temporary file.
+qt_add_executable(tst_store tst_store.cpp)
+
+target_link_libraries(tst_store PRIVATE
+    SynQtMonitor
+    Qt6::Core
+    Qt6::Sql
+    Qt6::Test
+)
+
+add_test(NAME monitor-store COMMAND tst_store)

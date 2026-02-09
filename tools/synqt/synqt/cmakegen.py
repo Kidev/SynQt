@@ -167,7 +167,8 @@ def _runtime_library_cmake(config: Dict[str, Any],
     needed = {library for entity in services
               for library in appmodel.service_libraries(config, entity)}
     lines: List[str] = []
-    for library in ("SynQtService", "SynQtIdentity", "SynQtEdge", "SynQtGateway"):
+    for library in ("SynQtService", "SynQtIdentity", "SynQtEdge", "SynQtGateway",
+                    "SynQtMonitor"):
         if library not in needed:
             continue
         folder = appmodel.SERVICE_LIBRARIES[library]

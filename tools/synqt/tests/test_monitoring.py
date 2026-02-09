@@ -5,7 +5,7 @@
 
 from pathlib import Path
 
-from synqt import appmodel, check, topologywriter
+from synqt import appmodel, check, cmakegen, licenses, topologywriter
 
 
 def _config(monitoring=True, extra=()):
@@ -154,3 +154,32 @@ def test_a_client_gets_no_spool_and_no_link():
 
 def test_a_project_with_no_monitor_writes_no_spool():
     assert "monitoring" not in _topology("web", _config(monitoring=False))
+
+
+# What a monitor entity is made of. Its library, and the license that follows from it.
+
+
+def test_a_monitor_links_its_own_runtime_library():
+    entity = {"name": "ops", "type": "monitor"}
+    assert appmodel.service_libraries(_config(), entity) == ["SynQtMonitor"]
+
+
+def test_the_generated_build_adds_the_monitor_library():
+    config = {"project": {"name": "x"}, "monitoring": {"entity": "ops"},
+              "entities": [{"name": "ops", "type": "monitor"},
+                           {"name": "web", "type": "web_edge"}]}
+    lines = cmakegen._runtime_library_cmake(config, config["entities"])
+    assert any("src/monitor" in line for line in lines)
+    linked = cmakegen._service_cmake(config, config["entities"][0])
+    assert any("SynQtMonitor" in line for line in linked)
+
+
+def test_the_monitor_reports_the_modules_it_actually_links():
+    config = {"entities": [{"name": "ops", "type": "monitor"}]}
+    modules = licenses.entity_modules(config["entities"][0], "native", config)
+    # It serves the console over HTTP and keeps a history.
+    assert "Qt HTTP Server" in modules
+    assert "Qt Sql" in modules
+    # Which makes it GPLv3, like the edge. That is a fact about an operations tool, not
+    # about anything a project conveys to its visitors.
+    assert licenses.effective_license(modules) == "GPL-3.0-only"

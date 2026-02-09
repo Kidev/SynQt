@@ -1213,6 +1213,7 @@ SERVICE_LIBRARIES: Dict[str, str] = {
     "SynQtIdentity": "src/identity",
     "SynQtEdge": "src/edge",
     "SynQtGateway": "src/gateway",
+    "SynQtMonitor": "src/monitor",
 }
 
 # GPLv3-only Qt modules, by the library that links them.
@@ -1221,6 +1222,9 @@ LIBRARY_GPL_MODULES: Dict[str, List[str]] = {
     "SynQtIdentity": ["Qt Network Authorization"],
     "SynQtEdge": ["Qt Network Authorization", "Qt HTTP Server"],
     "SynQtGateway": ["Qt HTTP Server"],
+    # The monitor serves the operator console over HTTP through SynQtEdge, so it carries
+    # the same obligation. Qt Sql is LGPLv3 and adds none of its own.
+    "SynQtMonitor": ["Qt Network Authorization", "Qt HTTP Server"],
 }
 
 
@@ -1234,12 +1238,21 @@ def service_libraries(config: Dict[str, Any], entity: Dict[str, Any]) -> List[st
     Everything else takes `SynQtService`, which links no GPLv3-only module at all.
 
     `SynQtGateway` is added on top for an entity whose `network.inbound` opens a port,
-    whatever its type. The edge is the exception: it already serves HTTP through its own
+    whatever its type. The edge is the exception. It already serves HTTP through its own
     library, and `synqt check` refuses `network.inbound` on it rather than letting one
     entity carry two listeners.
+
+    A `monitor` takes `SynQtMonitor`, which is `SynQtEdge` plus a history: it serves the
+    operator console over HTTP and keeps every entity's events in SQLite. That makes it
+    GPLv3 like the edge, which is a fact about the console and not a surprise: a monitor is
+    an operations tool, not something a project conveys to its visitors.
     """
     libraries: List[str] = []
-    if is_edge(entity):
+    if entity_type(entity) == "monitor":
+        # The monitor serves a console of its own, so it is an HTTP server as much as the
+        # edge is, and it keeps a history, so it links Qt Sql on top.
+        libraries.append("SynQtMonitor")
+    elif is_edge(entity):
         libraries.append("SynQtEdge")
     elif entity.get("name") and provider_entity(config) == entity.get("name"):
         libraries.append("SynQtIdentity")

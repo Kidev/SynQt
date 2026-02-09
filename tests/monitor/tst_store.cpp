@@ -1,0 +1,244 @@
+// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+// SPDX-License-Identifier: Apache-2.0
+
+// The monitor's history. What it has to get right is the two things an operator does with
+// it. Ask it questions, and not have it fill the disk.
+
+#include "eventstore.h"
+#include "traceevent.h"
+
+#include <QDateTime>
+#include <QElapsedTimer>
+#include <QSqlDatabase>
+#include <QSqlQuery>
+#include <QTemporaryDir>
+#include <QTest>
+
+using namespace SynQt;
+
+namespace {
+
+TraceEvent made(const QString &entity, Category category, Severity severity,
+                const QString &message, qint64 ts)
+{
+    TraceEvent event;
+    event.timestampMs = ts;
+    event.severity = severity;
+    event.category = category;
+    event.entity = entity;
+    event.message = message;
+    event.attributes.insert(QStringLiteral("member"), QStringLiteral("placeBid"));
+    return event;
+}
+
+} // namespace
+
+class TestStore : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void initTestCase()
+    {
+        QVERIFY2(QSqlDatabase::isDriverAvailable(QStringLiteral("QSQLITE")),
+                 "the QSQLITE driver is missing; the monitor cannot keep a history without it");
+    }
+
+    void aBatchIsOneTransactionAndNotOneWritePerEvent()
+    {
+        QTemporaryDir dir;
+        EventStore store{dir.filePath(QStringLiteral("events.db"))};
+        QVERIFY2(store.open(), qPrintable(store.errorString()));
+
+        QList<TraceEvent> batch;
+        batch.reserve(10000);
+        for (int index{0}; index < 10000; ++index) {
+            batch.append(made(QStringLiteral("web"), Category::Call, Severity::Info,
+                              QStringLiteral("call %1").arg(index), 1750000000000 + index));
+        }
+        QElapsedTimer clock;
+        clock.start();
+        QVERIFY2(store.append(batch), qPrintable(store.errorString()));
+        // Ten thousand events committed one at a time is ten thousand fsyncs. The number
+        // is generous, because what it refuses is a per-event commit rather than a slow disk.
+        QVERIFY2(clock.elapsed() < 10000,
+                 "appending one batch took long enough to suggest a commit per event");
+        QCOMPARE(store.count(), static_cast<qint64>(10000));
+    }
+
+    void theStoreIsStrictAndJournalsAhead()
+    {
+        QTemporaryDir dir;
+        EventStore store{dir.filePath(QStringLiteral("events.db"))};
+        QVERIFY(store.open());
+
+        QSqlDatabase db{QSqlDatabase::database(QSqlDatabase::connectionNames().last())};
+        QSqlQuery query{db};
+
+        // STRICT: a column declared to hold an integer holds an integer. Without it SQLite
+        // stores whatever it is handed, and a wrong type reads back wrong months later
+        // instead of failing at the write.
+        QVERIFY(query.exec(QStringLiteral("SELECT sql FROM sqlite_master "
+                                          "WHERE name='events'")));
+        QVERIFY(query.next());
+        QVERIFY2(query.value(0).toString().contains(QStringLiteral("STRICT")),
+                 qPrintable(query.value(0).toString()));
+
+        // WAL, so a console reading the history never blocks an entity's batch.
+        QVERIFY(query.exec(QStringLiteral("PRAGMA journal_mode")));
+        QVERIFY(query.next());
+        QCOMPARE(query.value(0).toString().toLower(), QStringLiteral("wal"));
+    }
+
+    void theHistoryAnswersTheQuestionsAnOperatorAsks()
+    {
+        QTemporaryDir dir;
+        EventStore store{dir.filePath(QStringLiteral("events.db"))};
+        QVERIFY(store.open());
+
+        const qint64 now{QDateTime::currentMSecsSinceEpoch()};
+        QList<TraceEvent> batch;
+        batch.append(made(QStringLiteral("web"), Category::Call, Severity::Info,
+                          QStringLiteral("placeBid answered"), now - 1000));
+        batch.append(made(QStringLiteral("web"), Category::Authorization, Severity::Warning,
+                          QStringLiteral("upgrade refused"), now - 500));
+        batch.append(made(QStringLiteral("db"), Category::Data, Severity::Info,
+                          QStringLiteral("rows published"), now - 100));
+        batch.append(made(QStringLiteral("db"), Category::Call, Severity::Error,
+                          QStringLiteral("query failed"), now - 50));
+        QVERIFY(store.append(batch));
+
+        EventQuery byEntity;
+        byEntity.entities = {QStringLiteral("db")};
+        QCOMPARE(store.query(byEntity).size(), 2);
+
+        EventQuery byCategory;
+        byCategory.categories = {Category::Call};
+        QCOMPARE(store.query(byCategory).size(), 2);
+
+        // "Warnings and worse", which is the filter an operator leaves switched on.
+        EventQuery bySeverity;
+        bySeverity.minimumSeverity = Severity::Warning;
+        QCOMPARE(store.query(bySeverity).size(), 2);
+
+        EventQuery byWindow;
+        byWindow.fromMs = now - 600;
+        QCOMPARE(store.query(byWindow).size(), 3);
+
+        EventQuery bySearch;
+        bySearch.search = QStringLiteral("refused");
+        const QList<TraceEvent> found{store.query(bySearch)};
+        QCOMPARE(found.size(), 1);
+        QCOMPARE(found.first().message, QStringLiteral("upgrade refused"));
+
+        // Newest first. What happened is what an operator opened the console for.
+        const QList<TraceEvent> everything{store.query(EventQuery{})};
+        QCOMPARE(everything.size(), 4);
+        QCOMPARE(everything.first().message, QStringLiteral("query failed"));
+        // And an event comes back whole, attributes included.
+        QCOMPARE(everything.first().attributes.value(QStringLiteral("member")).toString(),
+                 QStringLiteral("placeBid"));
+    }
+
+    void oneClickComesBackAsOneStory()
+    {
+        QTemporaryDir dir;
+        EventStore store{dir.filePath(QStringLiteral("events.db"))};
+        QVERIFY(store.open());
+
+        const QString trace{QStringLiteral("0af7651916cd43dd8448eb211c80319c")};
+        QList<TraceEvent> batch;
+        for (const QString &entity : {QStringLiteral("web"), QStringLiteral("db"),
+                                      QStringLiteral("cache")}) {
+            TraceEvent event{made(entity, Category::Call, Severity::Info,
+                                  QStringLiteral("hop"), 1750000000000)};
+            event.traceId = trace;
+            batch.append(event);
+        }
+        batch.append(made(QStringLiteral("web"), Category::Call, Severity::Info,
+                          QStringLiteral("unrelated"), 1750000000001));
+        QVERIFY(store.append(batch));
+
+        EventQuery byTrace;
+        byTrace.traceId = trace;
+        QCOMPARE(store.query(byTrace).size(), 3);
+    }
+
+    void whatAnOperatorTypesIsNeverSql()
+    {
+        QTemporaryDir dir;
+        EventStore store{dir.filePath(QStringLiteral("events.db"))};
+        QVERIFY(store.open());
+        QVERIFY(store.append({made(QStringLiteral("web"), Category::Call, Severity::Info,
+                                   QStringLiteral("hello"), 1750000000000)}));
+
+        // The search box is the one field a person writes freely. Bound as a parameter
+        // like every other value, so this is a search that finds nothing rather than a
+        // statement that runs.
+        EventQuery hostile;
+        hostile.search = QStringLiteral("x'; DROP TABLE events; --");
+        store.query(hostile);
+        QCOMPARE(store.count(), static_cast<qint64>(1));
+
+        EventQuery byEntity;
+        byEntity.entities = {QStringLiteral("web'; DROP TABLE events; --")};
+        QCOMPARE(store.query(byEntity).size(), 0);
+        QCOMPARE(store.count(), static_cast<qint64>(1));
+    }
+
+    void retentionDropsTheOldestAndKeepsTheNewest()
+    {
+        QTemporaryDir dir;
+        EventStore store{dir.filePath(QStringLiteral("events.db"))};
+        QVERIFY(store.open());
+
+        const qint64 now{QDateTime::currentMSecsSinceEpoch()};
+        QList<TraceEvent> batch;
+        batch.append(made(QStringLiteral("web"), Category::Call, Severity::Info,
+                          QStringLiteral("ancient"), now - (40LL * 86400000LL)));
+        batch.append(made(QStringLiteral("web"), Category::Call, Severity::Info,
+                          QStringLiteral("recent"), now - 1000));
+        QVERIFY(store.append(batch));
+
+        QVERIFY(store.retire(30, 0));
+        const QList<TraceEvent> left{store.query(EventQuery{})};
+        QCOMPARE(left.size(), 1);
+        QCOMPARE(left.first().message, QStringLiteral("recent"));
+    }
+
+    void aStoreLeftRunningDoesNotFillTheDisk()
+    {
+        QTemporaryDir dir;
+        const QString path{dir.filePath(QStringLiteral("events.db"))};
+        EventStore store{path};
+        QVERIFY(store.open());
+
+        for (int round{0}; round < 12; ++round) {
+            QList<TraceEvent> batch;
+            batch.reserve(2000);
+            for (int index{0}; index < 2000; ++index) {
+                batch.append(made(QStringLiteral("web"), Category::Call, Severity::Info,
+                                  QStringLiteral("event %1 %2").arg(round).arg(index),
+                                  1750000000000 + (round * 2000) + index));
+            }
+            QVERIFY(store.append(batch));
+        }
+        const qint64 before{store.count()};
+        QVERIFY(before > 0);
+
+        // A monitor left running is a monitor whose store grows until the disk is full,
+        // and a full disk is an outage caused by the thing that reports outages.
+        QVERIFY(store.retire(0, 256 * 1024));
+        QVERIFY2(store.count() < before, "retention removed nothing");
+        QVERIFY(QFileInfo{path}.size() <= (512 * 1024));
+
+        // The newest survived. They are what an operator is reading when something has
+        // gone wrong.
+        const QList<TraceEvent> left{store.query(EventQuery{})};
+        QVERIFY(!left.isEmpty());
+        QCOMPARE(left.first().message, QStringLiteral("event 11 1999"));
+    }
+};
+
+QTEST_GUILESS_MAIN(TestStore)
+#include "tst_store.moc"
