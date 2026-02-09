@@ -4,6 +4,7 @@
 #include "entityruntime.h"
 
 #include "connectpointhost.h"
+#include "ingestclient.h"
 #include "log.h"
 #include "meshclient.h"
 #include "proxypolicy.h"
@@ -36,6 +37,7 @@
 #include <QSslCertificate>
 #include <QSslKey>
 
+#include <algorithm>
 #include <utility>
 
 namespace SynQt {
@@ -152,6 +154,7 @@ bool EntityRuntime::buildTypeContext()
     // site. It is also why an entity cannot claim to be another one: the stamp is applied
     // on the way out of the pipeline, past anything QML can reach.
     Tracer::instance()->setEntity(m_topology.entity);
+    buildIngest();
 
     // `Http` is granted by the topology, not by the type: any entity that declares
     // `network.outbound` gets it, restricted to exactly the prefixes in that list, and an
@@ -185,6 +188,48 @@ bool EntityRuntime::buildTypeContext()
     return true;
 }
 
+/// Point the tracer at the monitor, if this entity has one to report to.
+///
+/// The client is built whether or not the link is up: an entity that starts before its
+/// monitor spools until it arrives, which is the window an operator most often wants and
+/// the one a naive implementation drops on the floor. The Replica is attached when the
+/// link comes up and detached when it goes away, and neither is anything the entity's own
+/// code sees.
+void EntityRuntime::buildIngest()
+{
+    const bool reports{std::any_of(m_topology.connectPoints.cbegin(),
+                                   m_topology.connectPoints.cend(),
+                                   [this](const ConnectPointConfig &point) {
+        return (point.name == QLatin1String("ingest"))
+                && (point.owner != m_topology.entity);
+    })};
+    if (!reports) {
+        // No monitor in this topology, so nothing to point the tracer at. It is left
+        // exactly as it was found rather than switched off here. The process tracer starts
+        // off (see Tracer::instance), so an application that never asked for monitoring
+        // already pays nothing, and turning it off from here would also silence a sink
+        // something else installed, such as a local exporter or a test harness.
+        return;
+    }
+
+    const QString spool{m_topology.spoolDir.isEmpty()
+                            ? QString{}
+                            : m_topology.spoolDir + QLatin1String("/monitoring.spool")};
+    m_ingest = new IngestClient{spool, m_topology.spoolCapBytes, this};
+    Tracer::instance()->setEnabled(true);
+    // The sink runs on the tracer's writer thread, and IngestClient is built for that: it
+    // writes to the Replica's socket or to a file, and never waits on either.
+    IngestClient *ingest{m_ingest};
+    Tracer::instance()->setSink([ingest](const QList<TraceEvent> &batch) {
+        ingest->publish(batch);
+    });
+    connect(this, &EntityRuntime::consumedReplicaReady, this,
+            [this](const QString &, const QString &connectPoint, QObject *replica) {
+        if (connectPoint == QLatin1String("ingest")) {
+            m_ingest->setReplica(replica);
+        }
+    });
+}
 QString EntityRuntime::accessorName(const QString &owner)
 {
     if (owner.isEmpty()) {

@@ -72,3 +72,16 @@ target_link_libraries(tst_instrumentation PRIVATE
 )
 
 add_test(NAME monitor-instrumentation COMMAND tst_instrumentation)
+
+# The reporting half, on its own: no transport, no monitor entity, a stand-in for the
+# Replica. What it is about is what happens when the monitor is NOT there, so standing a
+# real one up would be testing the wrong thing.
+qt_add_executable(tst_ingest tst_ingest.cpp)
+
+target_link_libraries(tst_ingest PRIVATE
+    SynQtService
+    Qt6::Core
+    Qt6::Test
+)
+
+add_test(NAME monitor-ingest COMMAND tst_ingest)

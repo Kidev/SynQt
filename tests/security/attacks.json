@@ -441,6 +441,20 @@
       "defended_by": "Value capture is off unless a member writes `capture`, and `synqt check` refuses `capture` on a member whose arguments carry an identity field (directly or through a record) unless the project writes `monitoring.capture_identity: acknowledged`. Without the modifier the generated span records the shape of a call only: contract, member, caller kind and argument count.",
       "file": "tools/synqt/tests/test_check_monitoring.py",
       "test": "test_an_identity_reached_through_a_record_is_refused_too"
+    },
+    {
+      "id": "monitor-spool-disk-exhaustion",
+      "what": "A monitor stays unreachable, so every entity reporting to it keeps writing what it could not hand over, and the spool fills the disk of the entity it was supposed to be watching.",
+      "defended_by": "The spool is bounded by `monitoring.spool_cap_bytes`. Past the cap the oldest batches are dropped and the newest kept, and the number dropped is published to the monitor when it returns, so the gap is visible rather than silent.",
+      "file": "tests/monitor/tst_ingest.cpp",
+      "test": "theSpoolIsBoundedAndTheOverflowIsReported"
+    },
+    {
+      "id": "client-forged-monitoring-report",
+      "what": "A browser reports fabricated events as if it were an entity, so the operations record shows activity that never happened, or shows it as coming from an entity the visitor is not.",
+      "defended_by": "No client ever consumes the ingest point: appmodel.monitoring_connect_points lists every service and never a client, and a browser cannot reach the mesh at all. What a browser does reaches the record through the edge that served it, where it is a fact the edge observed rather than a claim the browser made.",
+      "file": "tools/synqt/tests/test_monitoring.py",
+      "test": "test_a_client_never_consumes_it"
     }
   ]
 }

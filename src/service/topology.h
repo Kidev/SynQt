@@ -123,6 +123,14 @@ struct Topology
     /// not one that calls out.
     bool outboundDeclared{false};
 
+    /// Where this entity keeps what it has not been able to hand over yet: the monitoring
+    /// spool, and nothing else so far. Empty means the entity has nowhere to write, and
+    /// what an unreachable monitor misses is then lost rather than kept.
+    QString spoolDir;
+    /// How large the monitoring spool may grow before its oldest batches are dropped. A
+    /// monitor that never comes back must not fill the disk of the entity it was watching.
+    qint64 spoolCapBytes{4 * 1024 * 1024};
+
     QList<ConnectPointConfig> owned() const;
     QList<ConnectPointConfig> consumed() const;
 };

@@ -3,7 +3,9 @@
 
 """The monitoring fan-in: one link, derived rather than written, and never to a client."""
 
-from synqt import appmodel, check
+from pathlib import Path
+
+from synqt import appmodel, check, topologywriter
 
 
 def _config(monitoring=True, extra=()):
@@ -120,3 +122,35 @@ def test_monitoring_has_to_be_a_block():
 
 def test_a_project_with_no_monitor_says_nothing():
     assert _messages(_config(monitoring=False)) == []
+
+
+# The resolved topology: what each entity's binary is actually handed.
+
+
+def _topology(name, config=None):
+    config = appmodel.with_monitoring_connect_points(config or _config())
+    config.setdefault("project", {"name": "x"})
+    entity = next(e for e in config["entities"] if e["name"] == name)
+    endpoints = topologywriter.resolve_endpoints(config, "x")
+    return topologywriter.entity_topology(config, entity, Path("/p"), endpoints)
+
+
+def test_a_reporting_entity_is_told_where_it_may_spool():
+    # Inside the project. A spool is a copy of the record, and a copy of the record living
+    # somewhere the project does not own is a copy nobody is watching.
+    spool = _topology("web")["monitoring"]["spool_dir"]
+    assert spool == "/p/build/web/state"
+
+
+def test_the_monitor_itself_gets_no_spool():
+    assert "monitoring" not in _topology("ops")
+
+
+def test_a_client_gets_no_spool_and_no_link():
+    topology = _topology("app")
+    assert "monitoring" not in topology
+    assert topology.get("connect_points", []) == []
+
+
+def test_a_project_with_no_monitor_writes_no_spool():
+    assert "monitoring" not in _topology("web", _config(monitoring=False))

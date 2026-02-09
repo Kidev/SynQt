@@ -22,6 +22,7 @@ QT_END_NAMESPACE
 namespace SynQt {
 
 class ConnectPointHost;
+class IngestClient;
 class ConsumerBase;
 class ICacheProvider;
 class IDocumentProvider;
@@ -105,11 +106,14 @@ private:
     /// `provider.name` selects nothing, or the selected engine will not open. An entity whose
     /// Sources would find no helper in context must not reach enableRemoting().
     bool buildTypeContext();
+    void buildIngest();
 
     Topology m_topology;
     QQmlEngine *m_engine;
     QList<ConnectPointHost *> m_ownedHosts;
     QHash<QString, QObject *> m_accessors;
+    /// The monitoring client, when this entity reports to a monitor. Null otherwise.
+    IngestClient *m_ingest{nullptr};
     QHash<QString, QObject *> m_consumedReplicas;
     /// The node currently carrying each consumed connect point, so a link that comes back
     /// up replaces what it had rather than adding to it. Keyed like m_consumedReplicas.

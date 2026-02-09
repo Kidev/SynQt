@@ -78,6 +78,15 @@ Topology topologyFromJson(const QJsonObject &object)
         topology.schema.append(step.toString());
     }
 
+    // Where this entity may keep what a monitor did not take. Written by the generator
+    // into the entity's own build directory, so it never reaches outside the project.
+    const QJsonObject monitoring = object.value(QStringLiteral("monitoring")).toObject();
+    topology.spoolDir = monitoring.value(QStringLiteral("spool_dir")).toString();
+    if (monitoring.contains(QStringLiteral("spool_cap_bytes"))) {
+        topology.spoolCapBytes =
+            static_cast<qint64>(monitoring.value(QStringLiteral("spool_cap_bytes")).toDouble());
+    }
+
     // network.outbound: absent or empty leaves this entity closed, which is the default
     // for every type. Copy initialization for the same reason as the arrays above.
     const QJsonObject network = object.value(QStringLiteral("network")).toObject();

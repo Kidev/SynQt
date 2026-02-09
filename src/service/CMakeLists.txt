@@ -58,6 +58,8 @@ qt_add_library(SynQtService STATIC
     eventring.h
     envfile.cpp
     envfile.h
+    ingestclient.cpp
+    ingestclient.h
     log.cpp
     log.h
     sessionmanager.cpp

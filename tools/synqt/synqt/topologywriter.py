@@ -211,11 +211,19 @@ def entity_topology(config: Dict[str, Any], entity: Dict[str, Any], project_dir:
     # empty list is what makes every call it tries fail by name. Leaving the key out is a
     # different thing, and means the entity does not call out at all.
     if appmodel.declares_outbound(entity):
-        # The records, not only the prefixes: a named entry is what `Http.api(name)`
+        # The records, not only the prefixes. A named entry is what `Http.api(name)`
         # resolves, and its headers are what the runtime attaches. An `env:` header value
         # is passed through as written, exactly like a provider password, so this file
         # carries the name of a secret and never the secret.
         topology["network"] = {"outbound": appmodel.outbound_endpoints(entity)}
+    # Where this entity keeps what an unreachable monitor did not take. Inside the project,
+    # under the entity's own build directory. A spool is a copy of the record, and a copy of
+    # the record living somewhere the project does not own is a copy nobody is watching.
+    # Written only for an entity that reports, so nothing else grows a state
+    # directory it never uses.
+    if appmodel.monitor_entity(config) and name != appmodel.monitor_entity(config) \
+            and not appmodel.is_client(entity):
+        topology["monitoring"] = {"spool_dir": _path(root / "build" / str(name) / "state")}
 
     owners = {str(one.get("name") or ""): one for one in appmodel.entities(config)}
     connect_points: List[Dict[str, Any]] = []

@@ -101,10 +101,20 @@ Tracer::~Tracer()
 
 Tracer *Tracer::instance()
 {
-    // Parented to nothing and never deleted, on purpose. Call sites in destructors run
+    // Parented to nothing and never deleted. Call sites in destructors run
     // during static teardown, and a tracer destroyed before them would turn a shutdown
     // trace into a crash.
-    static Tracer *tracer{new Tracer{}};
+    //
+    // Switched off until something asks for it, which a directly constructed Tracer is
+    // not. The difference is deliberate: this one is process state that the entity runtime
+    // configures from the topology, so an application that never asked for monitoring pays
+    // nothing even if nothing ever configures it; a Tracer somebody constructed is one
+    // they constructed on purpose, and making that silent by default would be a trap.
+    static Tracer *tracer{[]() {
+        Tracer *made{new Tracer{}};
+        made->setEnabled(false);
+        return made;
+    }()};
     return tracer;
 }
 
