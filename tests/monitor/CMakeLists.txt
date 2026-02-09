@@ -97,3 +97,15 @@ target_link_libraries(tst_store PRIVATE
 )
 
 add_test(NAME monitor-store COMMAND tst_store)
+
+# Who may read the console: the monitor's own identity system, which is deliberately not
+# the application's.
+qt_add_executable(tst_operator tst_operator.cpp)
+
+target_link_libraries(tst_operator PRIVATE
+    SynQtMonitor
+    Qt6::Core
+    Qt6::Test
+)
+
+add_test(NAME monitor-operator COMMAND tst_operator)

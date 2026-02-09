@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import argparse
+import getpass
 import json
 import shutil
 import sys
@@ -16,7 +17,8 @@ from typing import Any, Dict, List, Optional
 from . import (addauth, addcontract, addentity, addprovider, appmodel,
                build as buildmod, check as checkmod, clientbuild,
                config as configmod, create, deploy as deploymod, design as designmod,
-               docker as dockermod, doctor, infer as infermod, mesh, newproject,
+               docker as dockermod, doctor, infer as infermod, mesh,
+               monitorops, newproject,
                run as runmod, typebackend, version as versionmod)
 
 
@@ -207,6 +209,21 @@ def build_parser() -> argparse.ArgumentParser:
                         help="layer synqt.<NAME>.yaml over synqt.yaml")
     meshp.set_defaults(project_dir=".", profile=None)
 
+    # `synqt monitor` manages the operator credentials for the monitoring console. Only
+    # `operator add` exists. The list lives in the monitor entity's environment, and a
+    # command that listed or removed entries would be a command that edits whatever file
+    # the deployment keeps it in.
+    monitorp = sub.add_parser("monitor", help="the monitoring console's operators")
+    monitor_sub = monitorp.add_subparsers(dest="monitor_command", required=True)
+    mop = monitor_sub.add_parser("operator", help="operator credentials")
+    mop_sub = mop.add_subparsers(dest="operator_command", required=True)
+    moa = mop_sub.add_parser("add", help="mint one operator credential")
+    moa.add_argument("name")
+    moa.add_argument("--password-stdin", action="store_true",
+                     help="read the password from stdin instead of prompting")
+    moa.add_argument("--project-dir", default=".")
+    monitorp.set_defaults(project_dir=".")
+
     # `synqt docker`: generate the container setup for an existing project, and drive it.
     # `init` is the one that writes anything; `up` and `down` are `docker compose` with the
     # profile and the two checks worth making before it, so that neither has to be
@@ -321,6 +338,20 @@ def _run_mesh(args: argparse.Namespace) -> int:
         print(mesh.rotate(args.project_dir, args.entity, _service_entities(config)))
     elif args.mesh_command == "status":
         print(mesh.status(args.project_dir))
+    return 0
+
+
+def _run_monitor(args: argparse.Namespace) -> int:
+    if args.monitor_command != "operator" or args.operator_command != "add":
+        raise monitorops.MonitorOpsError("unknown monitor command")
+    if args.password_stdin:
+        password = sys.stdin.readline().rstrip("\n")
+    else:
+        # getpass, so the password is not echoed and does not end up in a shell history.
+        password = getpass.getpass(f"password for operator '{args.name}': ")
+        if password != getpass.getpass("repeat: "):
+            raise monitorops.MonitorOpsError("the two passwords do not match")
+    print(monitorops.instructions(monitorops.mint(args.name, password)))
     return 0
 
 
@@ -462,6 +493,8 @@ def main(argv: Optional[List[str]] = None) -> int:
             return runmod.test(args.project_dir)
         elif args.command == "mesh":
             return _run_mesh(args)
+        elif args.command == "monitor":
+            return _run_monitor(args)
         elif args.command == "docker":
             return _run_docker(args)
         elif args.command == "add":
@@ -473,6 +506,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             addprovider.AddProviderError, addcontract.AddContractError, mesh.MeshError,
             designmod.DesignError, infermod.InferError, typebackend.TypeBackendError,
             dockermod.DockerError, appmodel.AppGenError, buildmod.BuildError,
+            monitorops.MonitorOpsError,
             configmod.ConfigError, FileNotFoundError) as error:
         print(f"synqt {args.command}: {error}", file=sys.stderr)
         return 1

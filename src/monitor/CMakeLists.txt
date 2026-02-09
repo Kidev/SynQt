@@ -22,6 +22,8 @@ endif()
 qt_add_library(SynQtMonitor STATIC
     eventstore.cpp
     eventstore.h
+    operatorstore.cpp
+    operatorstore.h
 )
 
 set_target_properties(SynQtMonitor PROPERTIES AUTOMOC ON)

@@ -144,6 +144,9 @@ synqt add provider <name> --family <fam>         # Scaffold a provider for a fam
 
 synqt providers         # List available providers per entity type.
 synqt mesh ...          # Certificate authority and entity certificates.
+synqt monitor operator add <name>
+                        # Mint one operator credential for the monitoring console and
+                        # print the line to put in the monitor's environment.
 
 synqt docker init       # Generate the Dockerfile, compose file, and container profile.
 synqt docker up         # Build the images and start one container per entity.

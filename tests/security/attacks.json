@@ -455,6 +455,13 @@
       "defended_by": "No client ever consumes the ingest point: appmodel.monitoring_connect_points lists every service and never a client, and a browser cannot reach the mesh at all. What a browser does reaches the record through the edge that served it, where it is a fact the edge observed rather than a claim the browser made.",
       "file": "tools/synqt/tests/test_monitoring.py",
       "test": "test_a_client_never_consumes_it"
+    },
+    {
+      "id": "monitor-console-open-by-default",
+      "what": "The monitoring console is reachable with no operator configured, so whoever can reach the monitor's port reads every request the system has served.",
+      "defended_by": "OperatorStore fails closed: an empty store refuses every sign-in rather than allowing all, credentials are read from the monitor entity's own environment and never from synqt.yaml, and a credential derived with fewer than 600000 PBKDF2 iterations is refused at load rather than accepted with a warning.",
+      "file": "tests/monitor/tst_operator.cpp",
+      "test": "aMonitorWithNoOperatorsRefusesEverybody"
     }
   ]
 }
