@@ -109,3 +109,18 @@ target_link_libraries(tst_operator PRIVATE
 )
 
 add_test(NAME monitor-operator COMMAND tst_operator)
+
+# The cold tier: the encoding a third-party collector reads, and what happens when there is
+# nothing at the other end. No collector is stood up, because what is under test is the
+# serialization and the refusal to block, and a running collector would hide both.
+qt_add_executable(tst_export tst_export.cpp)
+
+target_link_libraries(tst_export PRIVATE
+    SynQtMonitor
+    Qt6::Core
+    Qt6::Network
+    Qt6::Sql
+    Qt6::Test
+)
+
+add_test(NAME monitor-export COMMAND tst_export)

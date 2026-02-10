@@ -37,6 +37,16 @@ entities:
     retention:
       max_age_days: 7
       max_bytes: 67108864
+    # The cold tier, on, so the generated main is compiled with both exporters in it rather
+    # than only with the branch that has none. Loopback and a file under build/: nothing
+    # here reaches a network, and nothing is running at 4318 during the build.
+    export:
+      otlp:
+        endpoint: http://127.0.0.1:4318
+      jsonl:
+        path: build/ops/state/events.jsonl
+        max_bytes: 8388608
+        keep: 3
     bundles:
       anonymous: signin/
       operator: ops-console

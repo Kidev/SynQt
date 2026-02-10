@@ -19,7 +19,7 @@ through :func:`cxx_string_literal` first. What the topology says is read through
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from . import appmodel, clientbuild, clientcache, graphics
 
@@ -1438,9 +1438,60 @@ QUICK_TEST_MAIN_WITH_SETUP(synqt_app_tests, SynQtTestSetup)
 """
 
 
+def _monitor_exporters(entity: Dict[str, Any]) -> Tuple[str, str, str]:
+    """The cold tier, from the monitor entity's `export:` block.
+
+    Off unless it is written, because the store is the answer for a deployment that wants
+    no second thing to operate, and turning on a network client nobody asked for is not a
+    default a monitoring tool gets to choose. Returns the construction and the includes it
+    needs, so a monitor with no `export:` block compiles without a network client at all.
+    """
+    settings = entity.get("export") if isinstance(entity.get("export"), dict) else {}
+    otlp = settings.get("otlp") if isinstance(settings.get("otlp"), dict) else {}
+    jsonl = settings.get("jsonl") if isinstance(settings.get("jsonl"), dict) else {}
+
+    includes: List[str] = []
+    qt_includes: List[str] = []
+    lines: List[str] = []
+    endpoint = str(otlp.get("endpoint") or "")
+    if endpoint:
+        includes.append('#include "otlpexporter.h"')
+        qt_includes.append("#include <QUrl>")
+        lines.append(f"""
+    // The cold tier. The same events, on their way to whatever this deployment already
+    // runs. The collector never sees anything the store did not already keep, and a
+    // collector that is down cannot cost the monitor a batch (src/monitor/otlpexporter.h).
+    OtlpSettings otlpSettings;
+    otlpSettings.endpoint = QUrl{{QStringLiteral("{cxx_string_literal(endpoint)}")}};
+    otlpSettings.maxInFlight = {int(otlp.get("max_in_flight", 8))};
+    otlpSettings.timeoutMs = {int(otlp.get("timeout_ms", 5000))};
+    // The API key, if there is one, from this entity's environment and never from
+    // synqt.yaml, which is a file in a repository.
+    otlpSettings.headers = OtlpExporter::headersFromEnvironment();
+    OtlpExporter otlpExporter{{otlpSettings}};
+    service.addExporter(&otlpExporter);""")
+
+    path = str(jsonl.get("path") or "")
+    if path:
+        includes.append('#include "jsonlexporter.h"')
+        lines.append(f"""
+    // One JSON object per line, for a collection that is already file-based. Capped and
+    // rotated, because a monitor that fills the disk it is watching has become the outage.
+    JsonlExporter jsonlExporter{{QStringLiteral("{cxx_string_literal(path)}"),
+                                {int(jsonl.get("max_bytes", 64 * 1024 * 1024))}LL,
+                                {int(jsonl.get("keep", 5))}}};
+    service.addExporter(&jsonlExporter);""")
+
+    if not lines:
+        return "", "", ""
+    return ("\n".join(lines) + "\n",
+            "".join(f"{line}\n" for line in sorted(includes)),
+            "".join(f"{line}\n" for line in sorted(qt_includes)))
+
+
 def render_monitor_main(config: Dict[str, Any], entity: Dict[str, Any],
                         singletons: Optional[List[str]] = None) -> str:
-    """The monitor entity's main: both halves of what a monitor is.
+    """The monitor entity's main. Both halves of what a monitor is.
 
     It is the one entity that is a mesh owner and a browser-facing server at once. The mesh
     half is an ordinary `EntityRuntime` hosting the `ingest` point every service reports
@@ -1460,6 +1511,7 @@ def render_monitor_main(config: Dict[str, Any], entity: Dict[str, Any],
     retention = entity.get("retention") if isinstance(entity.get("retention"), dict) else {}
     max_age = int(retention.get("max_age_days", 14))
     max_bytes = int(retention.get("max_bytes", 512 * 1024 * 1024))
+    export_block, export_includes, export_qt_includes = _monitor_exporters(entity)
 
     console = next((cp for cp in appmodel.owned_by(config, name)
                     if appmodel.point_name(cp) == appmodel.MONITOR_CONSOLE_POINT), None)
@@ -1496,7 +1548,7 @@ def render_monitor_main(config: Dict[str, Any], entity: Dict[str, Any],
 #include "entityruntime.h"
 #include "envfile.h"
 #include "eventstore.h"
-#include "monitorservice.h"
+{export_includes}#include "monitorservice.h"
 #include "operatorstore.h"
 #include "topology.h"
 #include "tracer.h"
@@ -1514,7 +1566,7 @@ def render_monitor_main(config: Dict[str, Any], entity: Dict[str, Any],
 #include <QJsonObject>
 #include <QFile>
 #include <QQmlEngine>
-
+{export_qt_includes}
 using namespace SynQt;
 
 int main(int argc, char *argv[])
@@ -1590,8 +1642,9 @@ int main(int argc, char *argv[])
     retention.maxAgeDays = {max_age};
     retention.maxBytes = {max_bytes}LL;
     MonitorService service{{&store, &operators, retention}};
+{export_block}
 
-    // The mesh half: the `ingest` point every other entity reports through, hosted with
+    // The mesh half. The `ingest` point every other entity reports through, hosted with
     // mutual TLS and the same deny-by-default consumer list as any other link.
     EntityRuntime runtime{{topology, &engine}};
     runtime.setContextObject(QStringLiteral("Monitor"), &service);

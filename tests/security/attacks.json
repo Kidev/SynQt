@@ -450,6 +450,20 @@
       "test": "theSpoolIsBoundedAndTheOverflowIsReported"
     },
     {
+      "id": "monitor-export-key-in-repository",
+      "what": "The API key of the collector a monitor exports to is written into synqt.yaml, so a credential that grants write access to the operator's whole observability backend is committed alongside the code and readable by everyone with the repository.",
+      "defended_by": "There is no configuration key to write it into. `export.otlp` names the endpoint and nothing else, and the generated main fills the request headers from OtlpExporter::headersFromEnvironment(), which reads the monitor entity's own environment. The same rule every other credential in SynQt follows.",
+      "file": "tools/synqt/tests/test_monitor_export.py",
+      "test": "test_the_collectors_api_key_is_read_from_the_environment_and_never_from_the_project"
+    },
+    {
+      "id": "monitor-export-exhausts-the-monitor",
+      "what": "The collector a monitor exports to stops answering, or the file it writes lines to is never rotated, so the exporter queues without a bound or grows without one and the monitor takes down the machine it was watching.",
+      "defended_by": "An exporter drops rather than queues: past `max_in_flight` requests a batch is dropped and counted, and the JSONL file is capped and rotated with a bounded number of files. Exporting happens after the history is written, so a dead collector costs the monitor no record and no time, and `synqt check` warns about a jsonl file with no cap.",
+      "file": "tests/monitor/tst_export.cpp",
+      "test": "aCollectorThatIsDownCostsTheMonitorNothingAndLosesNoHistory"
+    },
+    {
       "id": "client-forged-monitoring-report",
       "what": "A browser reports fabricated events as if it were an entity, so the operations record shows activity that never happened, or shows it as coming from an entity the visitor is not.",
       "defended_by": "No client ever consumes the ingest point: appmodel.monitoring_connect_points lists every service and never a client, and a browser cannot reach the mesh at all. What a browser does reaches the record through the edge that served it, where it is a fact the edge observed rather than a claim the browser made.",

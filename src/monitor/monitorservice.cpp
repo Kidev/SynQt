@@ -114,8 +114,22 @@ void MonitorService::take(const QVariantList &events, const QString &from)
         // tell it from a hole in the record.
         m_dropped += batch.size();
     }
+
+    // Last, and after the store. Whatever a collector does with these, it does it with a
+    // copy of something already written down here.
+    for (IEventExporter *exporter : std::as_const(m_exporters)) {
+        exporter->take(batch);
+    }
+
     emit countersChanged();
     emit arrived();
+}
+
+void MonitorService::addExporter(IEventExporter *exporter)
+{
+    if (exporter != nullptr) {
+        m_exporters.append(exporter);
+    }
 }
 
 void MonitorService::heartbeat(const QString &entity, double sentMs)

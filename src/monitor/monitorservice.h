@@ -5,6 +5,7 @@
 #define SYNQT_MONITORSERVICE_H
 
 #include "eventstore.h"
+#include "ieventexporter.h"
 #include "operatorstore.h"
 
 #include <QHash>
@@ -17,17 +18,9 @@ QT_END_NAMESPACE
 
 namespace SynQt {
 
-/// The monitor's engine. What its two Sources bridge to.
-///
-/// The `Ingest` Source hands it batches, and the `Console` Source asks it questions. Both go
-/// through here rather than touching the store, so there is one place that decides what a
-/// reporting entity is allowed to say about itself and one place that turns a stored record
-/// into something a console can show.
-///
-/// The rule that matters is in `take`: the entity name on every event is the one the
-/// transport verified, not the one the batch carried. A reporting entity is authenticated
-/// by its certificate, so it cannot report as another entity, and an operator reading the
-/// record is reading who said it.
+/// The monitor's engine, behind its two Sources: `Ingest` hands it batches, `Console` asks it
+/// questions. In `take`, the entity name on every event is the one the transport verified,
+/// not the one the batch carried.
 class MonitorService : public QObject
 {
     Q_OBJECT
@@ -48,6 +41,10 @@ public:
 
     MonitorService(EventStore *store, OperatorStore *operators, Retention retention,
                    QObject *parent = nullptr);
+
+    /// Also send every batch here, after it has been stored, so an exporter never loses a batch
+    /// for SynQt's own history. Not owned.
+    void addExporter(IEventExporter *exporter);
 
     /// One batch from one entity, with the entity name the transport verified.
     Q_INVOKABLE void take(const QVariantList &events, const QString &from);
@@ -91,6 +88,7 @@ private:
     Retention m_retention;
     QTimer *m_sweep{nullptr};
     QHash<QString, Reporter> m_reporters;
+    QList<IEventExporter *> m_exporters;
     qint64 m_received{0};
     qint64 m_stored{0};
     qint64 m_dropped{0};

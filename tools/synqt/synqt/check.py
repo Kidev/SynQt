@@ -9,6 +9,7 @@ import os
 import re
 import shutil
 import subprocess
+import urllib.parse
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
@@ -1053,7 +1054,84 @@ def _monitor_entity_messages(config: Dict[str, Any],
             f"error: connect point '{appmodel.MONITOR_POINT}' collides with the one "
             f"monitoring.entity implies; rename it, because the monitor '{owner}' owns "
             f"'{appmodel.MONITOR_POINT}' and every service consumes it")
+    messages += _monitor_export_messages(owner, entity)
     return messages
+
+
+def _monitor_export_messages(owner: str, entity: Dict[str, Any]) -> List[str]:
+    """The monitor's `export:` block: where the events also go.
+
+    Off unless it is written, so everything here is about a block somebody wrote on
+    purpose. What it has to catch is the settings that fail as silence: an exporter with no
+    destination sends nothing and says nothing, and a file exporter with no cap grows until
+    the monitor has filled the disk of the machine it is watching.
+    """
+    settings = entity.get("export")
+    if settings is None:
+        return []
+    if not isinstance(settings, dict):
+        return [f"error: entity '{owner}': export must be a block, e.g. "
+                "'export: {otlp: {endpoint: http://127.0.0.1:4318}}'"]
+
+    messages: List[str] = []
+    for key in settings:
+        if key not in ("otlp", "jsonl"):
+            messages.append(f"error: entity '{owner}': export: unknown key '{key}' "
+                            "(want otlp or jsonl)")
+
+    otlp = settings.get("otlp")
+    if otlp is not None:
+        if not isinstance(otlp, dict):
+            messages.append(f"error: entity '{owner}': export.otlp must be a block naming "
+                            "the collector, e.g. 'endpoint: http://127.0.0.1:4318'")
+        else:
+            endpoint = str(otlp.get("endpoint") or "").strip()
+            if not endpoint:
+                messages.append(
+                    f"error: entity '{owner}': export.otlp names no endpoint, so nothing "
+                    "is exported and nothing says so; give it the collector's base URL "
+                    "(http://127.0.0.1:4318) or drop the block")
+            elif not endpoint.startswith(("http://", "https://")):
+                messages.append(
+                    f"error: entity '{owner}': export.otlp.endpoint '{endpoint}' is not an "
+                    "http(s) URL; OTLP over HTTP is what this exports, and the endpoint is "
+                    "the collector's base URL with no signal path on it")
+            elif endpoint.startswith("http://") and not _is_loopback_url(endpoint):
+                messages.append(
+                    f"warn: entity '{owner}': export.otlp.endpoint '{endpoint}' is "
+                    "plaintext to a host that is not loopback, so every event and the API "
+                    "key with it cross the network in the clear; use https")
+
+    jsonl = settings.get("jsonl")
+    if jsonl is not None:
+        if not isinstance(jsonl, dict):
+            messages.append(f"error: entity '{owner}': export.jsonl must be a block naming "
+                            "the file, e.g. 'path: build/ops/state/events.jsonl'")
+        else:
+            if not str(jsonl.get("path") or "").strip():
+                messages.append(
+                    f"error: entity '{owner}': export.jsonl names no path, so nothing is "
+                    "written and nothing says so; give it a file or drop the block")
+            if int(jsonl.get("max_bytes", 64 * 1024 * 1024) or 0) <= 0:
+                messages.append(
+                    f"warn: entity '{owner}': export.jsonl sets no max_bytes, so the file "
+                    "grows without a bound; the monitor then fills the disk of the machine "
+                    "it is watching unless something else is rotating that file")
+            if int(jsonl.get("keep", 5) or 0) < 1:
+                messages.append(
+                    f"error: entity '{owner}': export.jsonl keeps {jsonl.get('keep')} "
+                    "rotations, so rotating deletes the history instead of keeping it; "
+                    "keep at least 1")
+    return messages
+
+
+def _is_loopback_url(url: str) -> bool:
+    """Whether a URL names this machine. Plaintext to a collector on the same host never
+    leaves it, which is the ordinary deployment and not something to warn about."""
+    # urlsplit rather than a split on ':', which reads the first colon of an IPv6 literal
+    # as the port separator and decides that `http://[::1]:4318` is remote.
+    host = (urllib.parse.urlsplit(url).hostname or "").lower()
+    return host in ("127.0.0.1", "localhost", "::1")
 
 
 def _cdn_delivery_messages(config: Dict[str, Any]) -> List[str]:

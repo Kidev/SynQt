@@ -26,10 +26,16 @@ include("${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/SynQtContracts.cmake")
 qt_add_library(SynQtMonitor STATIC
     eventstore.cpp
     eventstore.h
+    ieventexporter.cpp
+    ieventexporter.h
+    jsonlexporter.cpp
+    jsonlexporter.h
     monitorservice.cpp
     monitorservice.h
     operatorstore.cpp
     operatorstore.h
+    otlpexporter.cpp
+    otlpexporter.h
 )
 
 set_target_properties(SynQtMonitor PROPERTIES AUTOMOC ON)
@@ -58,5 +64,8 @@ target_link_libraries(SynQtMonitor PUBLIC SynQtContract)
 target_link_libraries(SynQtMonitor PUBLIC
     SynQtEdge
     Qt6::Core
+    # The cold tier's only dependency: OTLP over HTTP with JSON encoding needs a network
+    # client and nothing else, which is why that encoding was chosen over protobuf.
+    Qt6::Network
     Qt6::Sql
 )
