@@ -5,6 +5,8 @@
 
 from pathlib import Path
 
+import pytest
+
 from synqt import appmodel, check, cmakegen, licenses, topologywriter
 
 
@@ -183,3 +185,101 @@ def test_the_monitor_reports_the_modules_it_actually_links():
     # Which makes it GPLv3, like the edge. That is a fact about an operations tool, not
     # about anything a project conveys to its visitors.
     assert licenses.effective_license(modules) == "GPL-3.0-only"
+
+
+# The console's point, the scaffold, and the two rules a monitor changes.
+
+
+def _console_config():
+    config = _config()
+    config["entities"].append({"name": "console", "type": "client", "console": True,
+                               "edge": "ops"})
+    return config
+
+
+def test_the_console_gets_its_own_point_gated_on_operator():
+    points = {point["name"]: point for point
+              in appmodel.monitoring_connect_points(_console_config())}
+    assert set(points) == {"ingest", "console"}
+    assert points["console"]["scope"] == appmodel.MONITOR_SCOPE
+    assert points["console"]["consumers"] == ["console"]
+
+
+def test_an_ordinary_client_is_not_offered_the_console():
+    # `console: true` is what marks one, because the difference is not a shade of
+    # configuration. A console is delivered by the monitor and reaches the application not
+    # at all.
+    points = {point["name"]: point for point
+              in appmodel.monitoring_connect_points(_console_config())}
+    assert "app" not in points["console"]["consumers"]
+
+
+def test_a_project_with_no_console_client_gets_no_console_point():
+    names = {point["name"] for point in appmodel.monitoring_connect_points(_config())}
+    assert names == {"ingest"}
+
+
+def test_a_browser_may_reach_a_monitor():
+    # A monitor serves its own console on its own port, so it is browser-facing the way an
+    # edge is. Kept apart from is_edge, which is about the application's edge.
+    assert appmodel.serves_browser({"name": "ops", "type": "monitor"})
+    assert appmodel.serves_browser({"name": "web", "type": "web_edge"})
+    assert not appmodel.serves_browser({"name": "db", "type": "relational"})
+    assert not appmodel.is_edge({"name": "ops", "type": "monitor"})
+
+
+def test_a_second_client_still_has_no_session_field_to_forge():
+    # The real one. A `forwards_session` that compares against the first client alone
+    # lets a project with two of them put the session field on a link whose only consumer is a
+    # browser, which is the one property it exists to provide.
+    config = _console_config()
+    console_point = {"owner": "ops", "consumers": ["console"]}
+    assert not appmodel.forwards_session(config, console_point)
+    app_point = {"owner": "web", "consumers": ["app"]}
+    assert not appmodel.forwards_session(config, app_point)
+    # And a service consumer still carries it.
+    assert appmodel.forwards_session(config, {"owner": "ops", "consumers": ["web"]})
+
+
+def test_scaffolding_a_monitor_writes_all_four_things_it_is_made_of(tmp_path):
+    from synqt import addentity
+
+    (tmp_path / "synqt.yaml").write_text(
+        "project:\n  name: demo\n\nentities:\n  - name: app\n    type: client\n"
+        "  - name: web\n    type: web_edge\n")
+    addentity.scaffold(tmp_path, "ops", "monitor")
+
+    import yaml
+    config = yaml.safe_load((tmp_path / "synqt.yaml").read_text())
+    names = {entity["name"]: entity for entity in config["entities"]}
+    assert "ops" in names and names["ops"]["type"] == "monitor"
+    assert "ops-console" in names and names["ops-console"]["console"] is True
+    # The line that makes every service report. Without it the other three do nothing.
+    assert appmodel.monitor_entity(config) == "ops"
+    # The gate. An anonymous visitor is handed a different bundle, not a 403 on the console.
+    assert names["ops"]["bundles"]["anonymous"] == "signin/"
+    assert names["ops"]["bundles"]["operator"] == "ops-console"
+    assert (tmp_path / "monitor/ops/signin/index.html").exists()
+    assert (tmp_path / "client/ops-console/Main.qml").exists()
+
+
+def test_the_console_listens_on_loopback_by_default(tmp_path):
+    from synqt import addentity
+    import yaml
+
+    (tmp_path / "synqt.yaml").write_text("entities: []\n")
+    addentity.scaffold(tmp_path, "ops", "monitor")
+    config = yaml.safe_load((tmp_path / "synqt.yaml").read_text())
+    monitor = next(e for e in config["entities"] if e["name"] == "ops")
+    # A console that shows every request a system has served is not something to put on a
+    # public interface because nobody thought about it.
+    assert monitor["public"]["host"] == "127.0.0.1"
+
+
+def test_scaffolding_twice_is_refused_rather_than_doubling_the_console(tmp_path):
+    from synqt import addentity
+
+    (tmp_path / "synqt.yaml").write_text("entities: []\n")
+    addentity.scaffold(tmp_path, "ops", "monitor")
+    with pytest.raises(addentity.AddEntityError):
+        addentity.scaffold(tmp_path, "ops", "monitor")

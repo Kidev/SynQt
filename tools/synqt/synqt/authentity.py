@@ -127,7 +127,18 @@ SOURCE_QML = {"Identity": IDENTITY_SOURCE_QML, "SessionStore": SESSION_SOURCE_QM
 
 
 def render_source_qml(contract: str) -> str:
-    """The Source QML bridging one framework connect point to its C++ engine."""
+    """The Source QML bridging one framework connect point to its C++ engine.
+
+    Both families of framework point are answered here. The auth entity's two, written
+    above, and the monitor's two, which live in :mod:`synqt.monitorentity` because they
+    bridge to a different engine and belong beside it. One function, because the caller
+    (`appgen`) has a connect point and a contract name and no reason to know which library
+    owns which.
+    """
+    from . import monitorentity
+
+    if contract in monitorentity.SOURCE_QML:
+        return monitorentity.SOURCE_QML[contract]
     try:
         return SOURCE_QML[contract]
     except KeyError:

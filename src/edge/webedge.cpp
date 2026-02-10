@@ -25,6 +25,7 @@
 #include <QFileInfo>
 #include <QHostAddress>
 #include <QRegularExpression>
+#include <QUrlQuery>
 #include <QHttpHeaders>
 #include <QHttpServer>
 #include <QHttpServerRequest>
@@ -500,6 +501,44 @@ QByteArray WebEdge::computeCsp() const
     return directives.join("; ");
 }
 
+/// The password gate an entity serves for its own people (`signInPath`).
+///
+/// On success the caller's existing session is elevated rather than replaced, which is what
+/// makes the delivery gate work. They already hold a session cookie from fetching the
+/// sign-in page, and raising its scope means the next request for the same URL resolves to
+/// a different bundle. `setScope` rotates the credential, so the new one is handed back.
+///
+/// One answer for every failure. Saying which half was wrong tells whoever is guessing
+/// which names exist.
+QHttpServerResponse WebEdge::handleSignIn(const QHttpServerRequest &request)
+{
+    const QUrlQuery form{QString::fromUtf8(request.body())};
+    const QString name{form.queryItemValue(QStringLiteral("name"),
+                                           QUrl::FullyDecoded)};
+    const QString password{form.queryItemValue(QStringLiteral("password"),
+                                               QUrl::FullyDecoded)};
+    if (name.isEmpty() || password.isEmpty() || !m_config.signIn(name, password)) {
+        emit signInRefused(name);
+        return QHttpServerResponse{QByteArrayLiteral("text/plain"),
+                                   QByteArrayLiteral("no"),
+                                   QHttpServerResponder::StatusCode::Unauthorized};
+    }
+    const QByteArray presented{sessionIdFromCookie(request.value("Cookie"))};
+    QByteArray elevated{m_sessionManager->setScope(presented, m_config.signInScope)};
+    if (elevated.isEmpty()) {
+        // No live session to raise: they arrived without one, which a browser that fetched
+        // the page would not have done, but a script might. Give them one at the scope they
+        // just proved they hold.
+        elevated = m_sessionManager->createSession(m_config.signInScope);
+    }
+    QHttpServerResponse response{QByteArrayLiteral("text/plain"), QByteArrayLiteral("ok")};
+    QHttpHeaders headers{response.headers()};
+    headers.append(QHttpHeaders::WellKnownHeader::SetCookie, cookieFor(elevated));
+    response.setHeaders(std::move(headers));
+    emit signInAccepted(name);
+    return response;
+}
+
 QByteArray WebEdge::issueSessionCookie()
 {
     return cookieFor(m_sessionManager->createSession());
@@ -882,6 +921,14 @@ bool WebEdge::start()
         m_httpServer->route(m_identity->deviceRoute(), QHttpServerRequest::Method::Post,
                             [this](const QHttpServerRequest &request) {
             return m_identity->handleDevice(request);
+        });
+    }
+    // The monitor's operator gate. POST only, so a password never lands in a request log,
+    // in an address bar, or in a cache.
+    if (!m_config.signInPath.isEmpty() && m_config.signIn) {
+        m_httpServer->route(m_config.signInPath, QHttpServerRequest::Method::Post,
+                            [this](const QHttpServerRequest &request) {
+            return handleSignIn(request);
         });
     }
     // Delivery of the bundle itself, only when this edge is the app's origin.

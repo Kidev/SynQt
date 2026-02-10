@@ -1,0 +1,48 @@
+// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+// SPDX-License-Identifier: Apache-2.0
+
+// What an operator sees. The console client consumes this and nothing else, which is what
+// makes the console independent of the project it watches. Every type here is generic, so
+// the same console bundle serves an auction, an arena and a system nobody has written yet,
+// and a project that adds an entity does not have to rebuild it.
+//
+// One point, gated on `operator`. The monitor holds every entity's record, so acquiring
+// this is acquiring the whole picture. There is no useful half of it to hand to somebody
+// who has not signed in.
+
+contract Console {
+    // The tail an operator is watching, newest first, already filtered by whatever they
+    // asked for. Per caller, because the filter is theirs. Two operators usually look at
+    // different things.
+    //
+    // `severity` and `category` are the words rather than the numbers: what crosses here
+    // is read by a person, and a console that had to carry its own copy of the vocabulary
+    // would be a second place for it to drift.
+    model events(double ts, string[16] severity, string[16] category, string[64] entity,
+                 string[512] message, bool ok, double durationMs, string[32] traceId,
+                 string[2048] attributes)
+
+    // One row per entity the monitor has heard from, which is the health view: an entity
+    // that has stopped reporting is the case a monitor exists to notice, and silence is
+    // indistinguishable from health without a row that says when it was last heard.
+    model entities(string[64] name, double lastSeenMs, double events, double refusals,
+                   bool live)
+
+    // What the monitor itself is doing. `dropped` is the half that admits loss. The pipeline drops
+    // rather than blocks, and an operator reading a quiet period needs to know whether it
+    // was quiet or whether the record has a hole in it.
+    prop double received
+    prop double dropped
+    prop double stored
+
+    // Ask again, with a different question. Republishes `events` for this caller alone;
+    // there is no reply, because the answer is the model.
+    slot ask(string[200] text, string[64] entity, string[16] minimumSeverity, int limit)
+
+    // Everything that carries one trace id, which is one click's whole story across every
+    // entity it touched.
+    slot follow(string[32] traceId)
+
+    // What the last question could not answer, said to the operator who asked it.
+    signal refused(string[200] reason)
+}

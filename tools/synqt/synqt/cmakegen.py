@@ -297,8 +297,15 @@ def _client_cmake(config: Dict[str, Any], client: Dict[str, Any], uri: str,
     forwarding = appmodel.session_forwarding_contracts(config)
     for contract in contracts:
         carries = " FORWARDS_SESSION" if contract in forwarding else ""
+        # A framework contract (the monitoring console's) ships with the runtime rather than
+        # with the project, so the compiler is pointed at the checkout. No project carries
+        # an `export:` for it, which is what keeps the console independent of the topology
+        # it watches.
+        framework = appmodel.framework_contract_path(contract)
+        source = (f"${{SYNQT_ROOT}}/{framework}" if framework
+                  else f"${{SYNQT_APP_ROOT}}/{paths[contract]}")
         lines.append(f"synqt_add_contract({name} ROLE replica{carries} "
-                     f'SYN "${{SYNQT_APP_ROOT}}/{paths[contract]}")')
+                     f'SYN "{source}")')
     lines += [f'target_compile_definitions({name} PRIVATE SYNQT_EDGE_URL="${{SYNQT_EDGE_URL}}")',
               f"target_link_libraries({name} PRIVATE",
               "    SynQtClient Qt6::Core Qt6::Gui Qt6::Qml Qt6::Quick Qt6::QuickControls2",

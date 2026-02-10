@@ -1,0 +1,59 @@
+<!-- SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ops - sign in</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; min-height: 100vh; display: grid; place-items: center;
+         background: linear-gradient(165deg, #201335 0%, #232a5c 38%, #0d1224 100%);
+         color: #d7dafa; font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  form { width: min(22rem, 90vw); padding: 2rem; border-radius: 14px;
+          background: #161c33; border: 1px solid #2b3358; }
+  h1 { margin: 0 0 1.5rem; font-size: 1.15rem; font-weight: 600; }
+  label { display: block; margin-bottom: 1rem; color: #8f96c4; font-size: 0.85rem; }
+  input { display: block; width: 100%; margin-top: 0.35rem; padding: 0.6rem 0.7rem;
+           box-sizing: border-box; border-radius: 8px; border: 1px solid #2b3358;
+           background: #0d1224; color: #d7dafa; font: inherit; }
+  button { width: 100%; padding: 0.65rem; border: 0; border-radius: 8px;
+            background: #00a6ed; color: #04121c; font: inherit; font-weight: 600;
+            cursor: pointer; }
+  p { margin: 1rem 0 0; min-height: 1.5em; color: #e6b450; font-size: 0.85rem; }
+</style>
+</head>
+<body>
+<form id="signin">
+  <h1>ops</h1>
+  <label>operator<input name="name" autocomplete="username" autofocus required></label>
+  <label>password<input name="password" type="password"
+                        autocomplete="current-password" required></label>
+  <button type="submit">Sign in</button>
+  <p id="said"></p>
+</form>
+<script>
+  const form = document.getElementById("signin");
+  const said = document.getElementById("said");
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    said.textContent = "";
+    const body = new URLSearchParams(new FormData(form));
+    const answer = await fetch("/monitor/signin", {
+      method: "POST", body, credentials: "same-origin"
+    });
+    if (answer.ok) {
+      // The session now holds `operator`, so the same URL is a different bundle.
+      window.location.reload();
+      return;
+    }
+    // One message for every failure. Saying which half was wrong tells whoever is
+    // guessing which operator names exist.
+    said.textContent = "That did not work.";
+    form.password.value = "";
+    form.password.focus();
+  });
+</script>
+</body>
+</html>

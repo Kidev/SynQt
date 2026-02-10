@@ -302,9 +302,22 @@ def is_edge(entity: Dict[str, Any]) -> bool:
     return entity_type(entity) == "web_edge"
 
 
+def serves_browser(entity: Dict[str, Any]) -> bool:
+    """Can a browser reach this entity directly?
+
+    A web edge, and a monitor, which serves its own operator console on its own port. Kept
+    apart from :func:`is_edge` because nearly everything that asks "is this the edge"
+    is asking about the application's edge, and a monitor is not that. It has its own
+    bundle, its own sessions and its own identity, and it must not be swept into the
+    application's login, its allowed origins or its auth links by a predicate that answers
+    a different question.
+    """
+    return is_edge(entity) or entity_type(entity) == "monitor"
+
+
 # What an entity is allowed to reach, and what may reach it
 #
-# Absent, which is the default on every type, means closed: the entity makes no outbound
+# Absent, which is the default on every type, means closed. The entity makes no outbound
 # calls and serves no public surface, and the only things that can reach it are the mesh
 # consumers its connect points list. Opening it is a deployment's decision, written in one
 # place next to those consumer lists, and it opens onto named places rather than onto the
@@ -606,10 +619,15 @@ def forwards_session(config: Dict[str, Any], point: Dict[str, Any]) -> bool:
     caller that could put a session of its own choosing on the wire has no field to put it
     in. (The owner would ignore it anyway, but not being there is better than being
     ignored.)
+
+    Every client, not the first one. A project with two of them (an application and a
+    monitoring console, say) used to have the second read as a service here, which put the
+    session field on a link a browser is the only consumer of, and took away the one
+    property this function exists to provide.
     """
-    client = client_entity(config)
-    client_name = str(client.get("name") or "") if client else ""
-    return any(str(name) != client_name for name in (point.get("consumers") or []))
+    clients = {str(entity.get("name") or "") for entity in entities(config)
+               if is_client(entity)}
+    return any(str(name) not in clients for name in (point.get("consumers") or []))
 
 
 def session_forwarding_contracts(config: Dict[str, Any]) -> Set[str]:
@@ -620,6 +638,25 @@ def session_forwarding_contracts(config: Dict[str, Any]) -> Set[str]:
     """
     return {contract_of(point) for point in connect_points(config)
             if forwards_session(config, point) and contract_of(point)}
+
+
+#: Where each framework contract's `.syn` lives, relative to the SynQt checkout. A framework
+#: point declares no `export:` and no project carries its file, so anything pointing a
+#: compiler at one has to look here rather than in the owner's folder.
+FRAMEWORK_CONTRACT_PATHS: Dict[str, str] = {
+    "Identity": "src/identity/contracts/Identity.syn",
+    "SessionStore": "src/identity/contracts/SessionStore.syn",
+    "Pages": "src/edge/contracts/Pages.syn",
+    # Written out rather than keyed by the constants below, which are defined further
+    # down. A table at module scope cannot forward-reference them.
+    "Ingest": "src/monitor/contracts/Ingest.syn",
+    "Console": "src/monitor/contracts/Console.syn",
+}
+
+
+def framework_contract_path(contract: str) -> str:
+    """The `.syn` of a framework contract, relative to the SynQt checkout, or ""."""
+    return FRAMEWORK_CONTRACT_PATHS.get(contract, "")
 
 
 def contract_paths(config: Dict[str, Any]) -> Dict[str, str]:
@@ -1335,9 +1372,20 @@ def with_auth_connect_points(config: Dict[str, Any]) -> Dict[str, Any]:
 # like the entity that was misbehaving.
 MONITOR_POINT = "ingest"
 
-#: The contract the monitor owns, shipped with the runtime library like the other framework
+#: The console's own point, owned by the monitor and consumed by the console client. The
+#: monitor serves that client itself, which is what `serves_browser` is about: it is a web
+#: edge with a history and an operator identity, so a browser can reach it.
+MONITOR_CONSOLE_POINT = "console"
+
+#: The contracts the monitor owns, shipped with the runtime library like the other framework
 #: contracts (src/monitor/contracts/).
 MONITOR_CONTRACT = "Ingest"
+MONITOR_CONSOLE_CONTRACT = "Console"
+
+#: The scope an operator holds. Not in a project's own vocabulary by default: an operator is
+#: not a user of the application, and a scope that meant both would make one login reach the
+#: other's surface.
+MONITOR_SCOPE = "operator"
 
 
 def monitor_entity(config: Dict[str, Any]) -> str:
@@ -1370,15 +1418,44 @@ def monitoring_connect_points(config: Dict[str, Any]) -> List[Dict[str, Any]]:
     consumers = [name for name in (entity.get("name") for entity in entities(config)
                                    if not is_client(entity) and entity.get("name") != owner)
                  if name]
-    if MONITOR_POINT in {point_name(cp) for cp in connect_points(config)}:
-        return []
-    return [{"name": MONITOR_POINT,
-             "contract": MONITOR_CONTRACT,
-             "owner": owner,
-             "consumers": consumers,
-             # Generated, like the auth points': nobody writes this file and nobody edits it.
-             "server": f"{GENERATED_DIR}/{source_path(owning, MONITOR_CONTRACT)}",
-             "framework": True}]
+    declared = {point_name(cp) for cp in connect_points(config)}
+    points: List[Dict[str, Any]] = []
+    if MONITOR_POINT not in declared:
+        points.append({"name": MONITOR_POINT,
+                       "contract": MONITOR_CONTRACT,
+                       "owner": owner,
+                       "consumers": consumers,
+                       # Generated, like the auth points': nobody writes this file and
+                       # nobody edits it.
+                       "server": f"{GENERATED_DIR}/{source_path(owning, MONITOR_CONTRACT)}",
+                       "framework": True})
+    # The console's own point, consumed by whichever clients the monitor serves. Gated on
+    # `operator`: the monitor holds every entity's record, so acquiring this is acquiring
+    # the whole picture, and there is no useful half of it for somebody who has not signed
+    # in.
+    watchers = [name for name in (entity.get("name") for entity in entities(config)
+                                  if is_client(entity) and monitor_watches(entity))
+                if name]
+    if watchers and (MONITOR_CONSOLE_POINT not in declared):
+        points.append({"name": MONITOR_CONSOLE_POINT,
+                       "contract": MONITOR_CONSOLE_CONTRACT,
+                       "owner": owner,
+                       "consumers": watchers,
+                       "scope": MONITOR_SCOPE,
+                       "server": f"{GENERATED_DIR}/"
+                                 f"{source_path(owning, MONITOR_CONSOLE_CONTRACT)}",
+                       "framework": True})
+    return points
+
+
+def monitor_watches(entity: Dict[str, Any]) -> bool:
+    """Is this client the monitoring console rather than the application?
+
+    Written on the client as `console: true`. One word, because the difference is not a
+    shade of configuration. A console is delivered by the monitor, gated on `operator`, and
+    reaches the application's own entities not at all.
+    """
+    return bool(entity.get("console"))
 
 
 def with_monitoring_connect_points(config: Dict[str, Any]) -> Dict[str, Any]:

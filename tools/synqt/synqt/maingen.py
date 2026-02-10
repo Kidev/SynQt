@@ -1436,3 +1436,206 @@ QUICK_TEST_MAIN_WITH_SETUP(synqt_app_tests, SynQtTestSetup)
 
 #include "tests_main.moc"
 """
+
+
+def render_monitor_main(config: Dict[str, Any], entity: Dict[str, Any],
+                        singletons: Optional[List[str]] = None) -> str:
+    """The monitor entity's main: both halves of what a monitor is.
+
+    It is the one entity that is a mesh owner and a browser-facing server at once. The mesh
+    half is an ordinary `EntityRuntime` hosting the `ingest` point every service reports
+    through, mutual TLS and deny-by-default like any other link. The browser half is a
+    `WebEdge` serving the operator console on its own port, gated by `bundles:` so an
+    anonymous visitor is handed a sign-in page and never the console.
+
+    Both halves reach the same `MonitorService`, which is what makes them one entity rather
+    than two that happen to share a directory. The batches that arrive over the mesh are the
+    rows the console reads.
+    """
+    name = str(entity.get("name") or "monitor")
+    folder = appmodel.entity_dir(entity)
+    public = appmodel.public_settings(entity)
+    host = str(public.get("host") or "127.0.0.1")
+    port = int(public.get("port") or 8443)
+    retention = entity.get("retention") if isinstance(entity.get("retention"), dict) else {}
+    max_age = int(retention.get("max_age_days", 14))
+    max_bytes = int(retention.get("max_bytes", 512 * 1024 * 1024))
+
+    console = next((cp for cp in appmodel.owned_by(config, name)
+                    if appmodel.point_name(cp) == appmodel.MONITOR_CONSOLE_POINT), None)
+    if console is not None:
+        console_block = f"""    {{
+        WebEdgeConnectPoint consolePoint;
+        consolePoint.name = QStringLiteral("{appmodel.MONITOR_CONSOLE_POINT}");
+        consolePoint.contract = QStringLiteral("{appmodel.MONITOR_CONSOLE_CONTRACT}");
+        consolePoint.serverFile = qmlDir
+            + QStringLiteral("/{folder}/{appmodel.MONITOR_CONSOLE_CONTRACT}.qml");
+        consolePoint.scope = QStringLiteral("{appmodel.MONITOR_SCOPE}");
+        // One Source per operator. The filter belongs to whoever is looking, and two
+        // operators looking at different things is the normal case.
+        consolePoint.shared = false;
+        config.connectPoints.append(consolePoint);
+    }}"""
+    else:
+        console_block = "    // No console client, so nothing browser-facing to host."
+
+    bundle_lines = "".join(
+        f'    config.bundles.insert(QStringLiteral("{cxx_string_literal(scope)}"),\n'
+        f'                          QStringLiteral("{cxx_string_literal(value)}"));\n'
+        for scope, value in (entity.get("bundles") or {}).items())
+
+    return f"""{_HEADER_CPP}
+// The {name} monitor entity: it keeps every entity's record and serves the operator
+// console. Generated. Edit the topology, not this file.
+//
+// Two halves, one service behind them. The mesh half hosts the `ingest` point every other
+// entity reports through. The browser half serves the console on its own port, behind the
+// delivery gate in `bundles:` and the operator password gate below. Both reach the same
+// MonitorService, which is what makes this one entity rather than two.
+
+#include "entityruntime.h"
+#include "envfile.h"
+#include "eventstore.h"
+#include "monitorservice.h"
+#include "operatorstore.h"
+#include "topology.h"
+#include "tracer.h"
+#include "webedge.h"
+#include "webedgeconfig.h"
+
+#include "console_sourcehelper.h"  // synqtRegisterConsoleSources()
+#include "ingest_sourcehelper.h"   // synqtRegisterIngestSources()
+
+#include <QCommandLineOption>
+#include <QCommandLineParser>
+#include <QDir>
+#include <QGuiApplication>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QFile>
+#include <QQmlEngine>
+
+using namespace SynQt;
+
+int main(int argc, char *argv[])
+{{
+    QGuiApplication app{{argc, argv}};
+
+    QCommandLineParser parser;
+    parser.addHelpOption();
+    const QCommandLineOption topologyOption{{QStringLiteral("topology"),
+        QStringLiteral("Resolved topology JSON for this entity."),
+        QStringLiteral("file"), QStringLiteral("build/{name}/topology.json")}};
+    const QCommandLineOption qmlDirOption{{QStringLiteral("qml-dir"),
+        QStringLiteral("Directory the entity folders of loadable QML live under."),
+        QStringLiteral("dir"), QStringLiteral("generated")}};
+    const QCommandLineOption storeOption{{QStringLiteral("store"),
+        QStringLiteral("Where the history is kept."),
+        QStringLiteral("file"), QStringLiteral("build/{name}/state/events.db")}};
+    const QCommandLineOption portOption{{QStringLiteral("port"),
+        QStringLiteral("Port the console is served on."),
+        QStringLiteral("n"), QStringLiteral("{port}")}};
+    const QCommandLineOption certOption{{QStringLiteral("cert"),
+        QStringLiteral("TLS certificate for the console."), QStringLiteral("file")}};
+    const QCommandLineOption keyOption{{QStringLiteral("key"),
+        QStringLiteral("TLS private key for the console."), QStringLiteral("file")}};
+    parser.addOptions({{topologyOption, qmlDirOption, storeOption, portOption, certOption,
+                       keyOption}});
+    parser.process(app);
+
+    // The operator credentials, from this entity's own environment. Never from synqt.yaml,
+    // which is a file in a repository.
+    loadEnvFile(QStringLiteral("{folder}/.env"));
+    loadEnvFile(QStringLiteral(".env"));
+
+    QFile topologyFile{{parser.value(topologyOption)}};
+    if (!topologyFile.open(QIODevice::ReadOnly)) {{
+        qCritical().noquote() << "cannot read" << topologyFile.fileName();
+        return 1;
+    }}
+    const Topology topology{{topologyFromJson(
+        QJsonDocument::fromJson(topologyFile.readAll()).object())}};
+    topologyFile.close();
+
+    const QString qmlDir{{QDir{{parser.value(qmlDirOption)}}.absolutePath()}};
+
+    // Each of these makes `import SynQt` bring QtQuick with it, so nothing else has to.
+    synqtRegisterIngestSources();
+    synqtRegisterConsoleSources();
+
+    QQmlEngine engine;
+
+    EventStore store{{parser.value(storeOption)}};
+    if (!store.open()) {{
+        // Fatal, and said at startup rather than at the first event. A monitor that cannot
+        // keep a history has nothing to do.
+        qCritical().noquote() << "{name} cannot open its history:" << store.errorString();
+        return 1;
+    }}
+
+    OperatorStore operators;
+    QString operatorError;
+    if (!operators.loadFromEnvironment(&operatorError)) {{
+        qWarning().noquote() << "{name}: some operator credentials were refused:"
+                             << operatorError;
+    }}
+    if (operators.isEmpty()) {{
+        // Said out loud, because the console is then closed to everybody and that is easy
+        // to mistake for a broken deployment. Failing closed is intended. Failing silently is not.
+        qWarning().noquote() << "{name}: no operators configured, so the console refuses "
+                                "everybody. Run 'synqt monitor operator add <name>'.";
+    }}
+
+    MonitorService::Retention retention;
+    retention.maxAgeDays = {max_age};
+    retention.maxBytes = {max_bytes}LL;
+    MonitorService service{{&store, &operators, retention}};
+
+    // The mesh half: the `ingest` point every other entity reports through, hosted with
+    // mutual TLS and the same deny-by-default consumer list as any other link.
+    EntityRuntime runtime{{topology, &engine}};
+    runtime.setContextObject(QStringLiteral("Monitor"), &service);
+    if (!runtime.start()) {{
+        qCritical().noquote() << "{name} failed to start:" << runtime.errorString();
+        return 1;
+    }}
+
+    // The browser half: the console, on its own port, behind two gates. `bundles:` decides
+    // what a caller may download at all, so an anonymous visitor is handed the sign-in page
+    // and the console bundle is not addressable to them. The password gate is what raises
+    // their session to `{appmodel.MONITOR_SCOPE}`.
+    WebEdgeConfig config;
+    config.host = QStringLiteral("{cxx_string_literal(host)}");
+    config.port = parser.value(portOption).toUShort();
+    config.certFile = parser.value(certOption);
+    config.keyFile = parser.value(keyOption);
+    config.scopeOrder = {{QStringLiteral("anonymous"),
+                         QStringLiteral("{appmodel.MONITOR_SCOPE}")}};
+    config.defaultScope = QStringLiteral("anonymous");
+    config.signInPath = QStringLiteral("/monitor/signin");
+    config.signInScope = QStringLiteral("{appmodel.MONITOR_SCOPE}");
+    config.signIn = [&service](const QString &who, const QString &password) {{
+        return service.signIn(who, password);
+    }};
+{bundle_lines}{console_block}
+
+    WebEdge edge{{config, &engine}};
+    // The console's own gate, recorded like everything else the monitor sees. A refused
+    // sign-in is the event an operator most wants to find later.
+    QObject::connect(&edge, &WebEdge::signInRefused, &edge, [](const QString &who) {{
+        trace(Category::Authorization, Severity::Warning,
+              QStringLiteral("operator sign-in refused"),
+              {{{{QStringLiteral("operator"), who}}}});
+    }});
+    QObject::connect(&edge, &WebEdge::signInAccepted, &edge, [](const QString &who) {{
+        trace(Category::Authorization, Severity::Info, QStringLiteral("operator signed in"),
+              {{{{QStringLiteral("operator"), who}}}});
+    }});
+    if (!edge.start()) {{
+        qCritical().noquote() << "{name} console failed to start:" << edge.errorString();
+        return 1;
+    }}
+    qInfo().noquote() << QStringLiteral("{name} console on %1").arg(edge.httpOrigin());
+    return app.exec();
+}}
+"""

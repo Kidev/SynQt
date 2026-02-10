@@ -117,6 +117,22 @@ QNetworkReply *httpGet(QNetworkAccessManager &manager, const QString &url)
     return reply;
 }
 
+QNetworkReply *postForm(QNetworkAccessManager &manager, const QString &url,
+                        const QByteArray &cookie, const QByteArray &body)
+{
+    QNetworkRequest request{QUrl{url}};
+    request.setSslConfiguration(insecureClientConfig());
+    request.setHeader(QNetworkRequest::ContentTypeHeader,
+                      QByteArrayLiteral("application/x-www-form-urlencoded"));
+    request.setRawHeader("Cookie", cookie);
+    QNetworkReply *reply{manager.post(request, body)};
+    QSignalSpy finished{reply, &QNetworkReply::finished};
+    if (!finished.wait(10000)) {
+        return nullptr;
+    }
+    return reply;
+}
+
 QByteArray sessionCookie(QNetworkReply *reply)
 {
     const QByteArray raw{reply->rawHeader("Set-Cookie")};
@@ -348,6 +364,64 @@ private slots:
         QCOMPARE(calls.first().parentSpanId, upstream.spanId);
         QCOMPARE(calls.first().attributes.value(QStringLiteral("caller")).toString(),
                  QStringLiteral("entity"));
+    }
+
+    // The console's gate. The monitor authenticates its own operators, because an operator
+    // is not a user of the application and the application's login provider is often the
+    // thing they are signing in to investigate.
+    void anOperatorSignsInAndTheirSessionIsRaisedRatherThanReplaced()
+    {
+        QQmlEngine engine;
+        WebEdgeConfig config{makeConfig()};
+        config.scopeOrder = {QStringLiteral("anonymous"), QStringLiteral("operator")};
+        config.defaultScope = QStringLiteral("anonymous");
+        config.signInPath = QStringLiteral("/monitor/signin");
+        config.signInScope = QStringLiteral("operator");
+        config.signIn = [](const QString &name, const QString &password) {
+            return (name == QStringLiteral("ada"))
+                    && (password == QStringLiteral("correct horse battery"));
+        };
+        WebEdge edge{config, &engine};
+        QVERIFY2(edge.start(), qPrintable(edge.errorString()));
+
+        QNetworkAccessManager manager;
+        QNetworkReply *page{httpGet(manager, edge.httpOrigin() + QStringLiteral("/"))};
+        QVERIFY(page != nullptr);
+        const QByteArray cookie{sessionCookie(page)};
+        page->deleteLater();
+        QVERIFY(!cookie.isEmpty());
+
+        // The wrong password. One answer, and the session is left exactly as it was.
+        QSignalSpy refused{&edge, &WebEdge::signInRefused};
+        QNetworkReply *no{postForm(manager, edge.httpOrigin() + config.signInPath, cookie,
+                                   QByteArrayLiteral("name=ada&password=wrong"))};
+        QVERIFY(no != nullptr);
+        QCOMPARE(no->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt(), 401);
+        QVERIFY(no->rawHeader("Set-Cookie").isEmpty());
+        no->deleteLater();
+        QCOMPARE(refused.count(), 1);
+
+        // The right one: the session they already hold is raised rather than replaced,
+        // which is what makes the delivery gate work. `setScope` rotates the credential,
+        // so a fresh cookie comes back.
+        QSignalSpy accepted{&edge, &WebEdge::signInAccepted};
+        QNetworkReply *yes{postForm(manager, edge.httpOrigin() + config.signInPath, cookie,
+                                    QByteArrayLiteral("name=ada&password=correct%20horse%20battery"))};
+        QVERIFY(yes != nullptr);
+        QCOMPARE(yes->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt(), 200);
+        const QByteArray raised{sessionCookie(yes)};
+        yes->deleteLater();
+        QVERIFY(!raised.isEmpty());
+        QVERIFY2(raised != cookie, "the credential has to rotate when the scope changes");
+        QCOMPARE(accepted.count(), 1);
+
+        const QByteArray token{raised.mid(raised.indexOf('=') + 1)};
+        const SessionRecord *record{edge.sessionManager()->lookup(token)};
+        QVERIFY(record != nullptr);
+        QCOMPARE(record->scope, QStringLiteral("operator"));
+
+        // And the password is nowhere in what the gate said about itself.
+        QCOMPARE(accepted.first().first().toString(), QStringLiteral("ada"));
     }
 };
 

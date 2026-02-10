@@ -358,18 +358,22 @@ def validate(config: Dict[str, Any], *, release: bool = False,
     config = appmodel.with_monitoring_connect_points(config)
 
     web_edges = {name for name, e in entities.items() if _is_web_edge(e)}
+    # Every entity a browser can reach directly, which is the web edges plus a monitor: it
+    # serves its own operator console on its own port. Kept apart from `web_edges`, which
+    # is about the application's edge and is what the identity and origin rules read.
+    browser_facing = {name for name, e in entities.items() if appmodel.serves_browser(e)}
     clients = {name for name, e in entities.items() if appmodel.is_client(e)}
 
-    # A browser reaches a web edge or it reaches nothing: it holds no mesh certificate and
+    # A browser reaches a web edge or it reaches nothing. It holds no mesh certificate and
     # the mesh is not routable from it. A client in a project with no web_edge entity has
     # nowhere to connect, so it is a client that cannot run rather than one not wired yet.
     #
-    # A desktop-only client is the one exception, and it is not a loophole: it is not served
+    # A desktop-only client is the one exception, and it is not a loophole. It is not served
     # by an edge, it dials the one `build.desktop.edge_url` names, and that edge can be
     # deployed from another project entirely. Requiring one here would refuse a shape the
     # framework supports (docs/desktop.md), and `_desktop_client_messages` already holds a
     # desktop client to naming an edge at all.
-    if not web_edges:
+    if not browser_facing:
         for name in sorted(clients):
             if "wasm" not in (entities[name].get("targets") or ["wasm"]):
                 continue
@@ -448,9 +452,9 @@ def validate(config: Dict[str, Any], *, release: bool = False,
             if consumer not in entities:
                 messages.append(
                     f"error: connect point '{name}' has unknown consumer '{consumer}'")
-            # The browser can only physically reach a web edge: a client may consume a
+            # The browser can only physically reach a web edge. A client may consume a
             # connect point only if its owner is a web_edge entity.
-            if consumer in clients and owner not in web_edges:
+            if consumer in clients and owner not in browser_facing:
                 messages.append(
                     f"error: client '{consumer}' consumes '{name}', owned by '{owner}', "
                     "which is not a web_edge entity (the browser can only reach a web edge)")
@@ -459,6 +463,13 @@ def validate(config: Dict[str, Any], *, release: bool = False,
         # that is not in scopes.order is not a scope at all: hasScope() would never match
         # it, so the connect point is silently unreachable rather than protected.
         scope = connect_point.get("scope")
+        # A framework point the monitor owns is gated on the monitor's own vocabulary, not
+        # the project's. That separation is the point: an operator is not a user of the
+        # application, and putting `operator` in the application's `scopes.order` would make
+        # one login reach the other's surface.
+        if appmodel.is_framework_point(connect_point) \
+                and appmodel.entity_type(entities.get(owner) or {}) == "monitor":
+            scope = None
         if scope is not None and scope_order and str(scope) not in scope_order:
             messages.append(
                 f"error: connect point '{name}' requires scope '{scope}', which is not in "
@@ -2026,9 +2037,14 @@ def lint_connect_point_sources(config: Dict[str, Any],
             # generated helper and relays. There is nothing for a server file to say, and
             # asking for one would be asking for a file whose every member is dead code.
             continue
+        if appmodel.is_framework_point(point):
+            # The framework writes this one (the auth entity's two bridges, the monitor's
+            # two). Reporting it missing would be telling the author to write a file they
+            # must never edit, and it is written by the same command that would read this.
+            continue
         relative = appmodel.authored_source_path(owning, point)
-        # A project written before an entity was one file still carries the two names the
-        # framework used to derive. Say which file becomes which, because whatever else is
+        # A project written against an older layout may still carry the two derived names.
+        # Say which file becomes which, because whatever else is
         # wrong with it, that is the edit, and the other messages would describe symptoms.
         older = root / f"{appmodel.entity_dir(owning)}/{contract}Contract.qml"
         if older.is_file():
@@ -2910,6 +2926,13 @@ def check_project(project_dir: os.PathLike[str] | str, *, release: bool = False,
     config = resolved.config
     ok, messages = validate(config, release=release, project_dir=project_dir,
                             starting=starting)
+    # The lints below read the topology the way the runtime will see it, framework links
+    # included. `validate` above reads it as written, because a collision between a declared
+    # point and an implied one is exactly what the expansion steps around. Without this a
+    # lint that resolves a client's accessor from the points it consumes resolves the
+    # console client to the application's edge, and then reports every member of the console
+    # contract as one the application never declared.
+    config = appmodel.with_monitoring_connect_points(config)
     messages = [f"note: {source} applied" for source in resolved.sources] + messages
     contract_messages = lint_contracts(config)
     contract_messages += lint_capture(config)

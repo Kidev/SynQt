@@ -94,9 +94,16 @@ signals:
     void upgradeAccepted(const QString &peer);
     void upgradeRejected(const QString &reason);
 
+    /// The password gate answered. Named so the monitor can record its own sign-ins the
+    /// way it records everything else; the password is not part of either signal.
+    void signInAccepted(const QString &name);
+    void signInRefused(const QString &name);
+
 private:
     /// The upgrade pipeline, run with the full request before any socket exists.
     QHttpServerWebSocketUpgradeResponse verifyUpgrade(const QHttpServerRequest &request);
+    /// The password gate an entity serves for its own people; see webedgeconfig.h.
+    QHttpServerResponse handleSignIn(const QHttpServerRequest &request);
     void onNewWebSocketConnection();
     void hostConnection(QWebSocket *socket);
     void trackPendingUpgrade(QAbstractSocket *socket);

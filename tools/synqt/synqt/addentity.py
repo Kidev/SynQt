@@ -3,11 +3,9 @@
 
 """``synqt add entity`` and ``synqt providers``: scaffold an entity of a given type.
 
-An entity is instantiated with secure defaults. The embedded provider needs no
-configuration. An external provider is masked behind the same entity, its secret recorded
-as an ``env:`` reference (with a ``.env.example`` entry) and its connection forced to
-verified TLS. The connect point Source calls only the provider interface, so the engine
-choice never leaks into the rest of the system.
+The embedded provider needs no configuration. An external provider's secret is an ``env:``
+reference (with a ``.env.example`` entry) and its connection is forced to verified TLS. The
+Source calls only the provider interface.
 """
 
 from __future__ import annotations
@@ -18,40 +16,35 @@ from typing import Any, Dict, List, Optional
 
 import yaml
 
-from synqt import addcontract, appgen, appmodel, newproject, presets, yamledit
+from synqt import (addcontract, appgen, appmodel, monitorscaffold, newproject,
+                   presets, yamledit)
 
-# Family -> the providers bundled for it (default first). This is the list the C++ family
-# factories accept, and the only place it is written down: `synqt add entity` offers these
-# and `synqt check` validates a provider.name against them. Anything else needs a custom
-# provider registered with the ProviderRegistry and selected as custom:<Name>.
+# Family to bundled providers, default first. The list the C++ factories accept. Anything
+# else is a custom provider selected as custom:<Name>.
 PROVIDERS: Dict[str, List[str]] = {
     "relational": ["sqlite", "postgres", "mysql"],
     "cache": ["memory", "redis"],
     "document": ["memory", "mongodb"],
 }
 
-# The selector that sends a provider name to the ProviderRegistry rather than to a bundled
-# engine. `synqt check` cannot know what an entity registers (that is C++ resolved at
-# start), so it validates the shape and leaves the lookup to the factory, which names the
-# registered alternatives when it misses.
+# The selector that sends a name to the ProviderRegistry. `synqt check` validates only its
+# shape; the factory names the registered providers on a miss.
 CUSTOM_PREFIX = "custom:"
 
-# Entity type -> the provider family behind it, or None for a type with no data engine.
-# `client` and `web_edge` are entity types too but are not offered here. A project has one
-# of each, `synqt new` writes them, and a second of either is not a thing to scaffold.
+# Entity type to provider family, or None. `client` and `web_edge` are written by `synqt
+# new`, not here.
 TYPES: Dict[str, Optional[str]] = {
     "relational": "relational",
     "cache": "cache",
     "document": "document",
     "api": None,   # QHttpServer inbound (opt-in) + Http outbound; no data provider
     "jobs": None,      # timers + bounded queue; no data provider
+    "monitor": None,   # the operations console: a history, an operator gate, no data provider
     "service": None,   # a bare entity: no engine, no browser-facing side, just its QML
 }
 
-# External providers. The NAME of the environment variable the credential is read from, and
-# the provider block that references it. Nothing here ever holds a credential: `secret_env` is
-# a variable name, and the block records the `env:` reference the runtime resolves at start-up
-# from the entity's own environment. That distinction is why these are not called `secret`.
+# External providers: the variable name the credential is read from (`secret_env`), and the
+# provider block with its `env:` reference. Never a credential.
 _EXTERNAL: Dict[str, Dict[str, Any]] = {
     "postgres": {"secret_env": "DB_PASSWORD", "block": lambda name, secret_env: {
         "name": "postgres", "host": "db.internal", "port": 5432, "database": name,
@@ -75,31 +68,22 @@ class AddEntityError(Exception):
 
 
 def entity_qml(entity_type: str, name: str) -> str:
-    """An entity's own file, showing the helper its type gives it.
+    """An entity own file, showing the helper its type gives it.
 
-    An entity that exports nothing is one of it, for as long as it runs, which is what
-    ``pragma Shared`` says (``synqt build`` writes it as QML's own ``pragma Singleton`` into
-    the copy the engine loads).
-    Exporting a connect point turns this same file into that point's Source, rooted at the
-    entity's name, which is what `synqt add connect-point <name>` rewrites it into while it
-    is still untouched. One entity, one file, whichever of the two it currently is.
-
-    Written the way ``qmlformat`` would write it, using the project's own
-    ``.qmlformat.ini``, so a scaffolded project passes its own ``synqt check`` (the
-    ``check.qml_format`` rule) with nothing to reformat first.
+    Marked ``pragma Shared`` (``synqt build`` writes ``pragma Singleton`` into the engine
+    copy). `synqt add connect-point` rewrites it into the Source while it is untouched.
+    Formatted as ``qmlformat`` would with the project ``.qmlformat.ini``.
     """
     header = ("// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux\n"
               "// SPDX-License-Identifier: Apache-2.0\n\n"
               f"pragma {appmodel.SHARED_PRAGMA}\n\nimport SynQt\n\n")
     if entity_type == "relational":
         return header + (
-            f"// The '{name}' entity itself. It reaches its engine through the `Db`\n"
-            "// helper only (parameterized query/exec) and never names one.\n"
+            f"// The '{name}' entity itself. It reaches its engine only through the `Db` helper\n"
+            "// (parameterized query and exec) and never names the engine.\n"
             "//\n"
-            "// No `Caller` here, and that is not an omission: this file is the entity, not\n"
-            "// a connect point, so nothing outside the entity can reach it and there is no\n"
-            "// caller to authorize. Authorization lives in the Source of each connect\n"
-            "// point, which is where a caller actually arrives.\n"
+            "// There is no `Caller` here: this file is the entity, not a connect point, so no\n"
+            "// caller arrives here. Authorize callers in the Source of each connect point.\n"
             "QtObject {\n"
             "    id: root\n"
             "\n"
@@ -110,8 +94,8 @@ def entity_qml(entity_type: str, name: str) -> str:
             "}\n")
     if entity_type == "cache":
         return header + (
-            f"// The '{name}' entity itself. It calls the `Cache` helper only, so the\n"
-            "// entity works the same on the embedded store and on an external engine.\n"
+            f"// The '{name}' entity itself. It calls only the `Cache` helper, so it works the\n"
+            "// same on the embedded store and on an external engine.\n"
             "QtObject {\n"
             "    id: root\n"
             "\n"
@@ -125,13 +109,13 @@ def entity_qml(entity_type: str, name: str) -> str:
             "}\n")
     if entity_type == "document":
         return header + (
-            f"// The '{name}' entity itself. It calls the `Docs` helper only\n"
-            "// (collection, filter and document as maps) and never names an engine. The\n"
-            "// filter is built here from a value, never forwarded whole from a caller: a\n"
-            "// filter map is the engine's query language the way a string is SQL's.\n"
+            f"// The '{name}' entity itself. It calls only the `Docs` helper (collection, filter\n"
+            "// and document as maps) and never names an engine. The filter is built here from a\n"
+            "// value, never forwarded whole from a caller: a filter map is the engine's query\n"
+            "// language.\n"
             "//\n"
-            "// No `Caller` here: this file is the entity, not a connect point, so there is\n"
-            "// no caller to authorize. That check belongs in each connect point's Source.\n"
+            "// There is no `Caller` here: this file is the entity, not a connect point.\n"
+            "// Authorize callers in the Source of each connect point.\n"
             "QtObject {\n"
             "    id: root\n"
             "\n"
@@ -147,34 +131,32 @@ def entity_qml(entity_type: str, name: str) -> str:
             "}\n")
     if entity_type == "api":
         return header + (
-            f"// The '{name}' entity itself: the two halves of talking to the outside.\n"
+            f"// The '{name}' entity itself: its outbound and inbound HTTP.\n"
             "//\n"
-            "// Outbound is `Http`, and it can reach exactly the prefixes network.outbound\n"
-            "// names in synqt.yaml and nothing else. TLS is verified and plaintext is\n"
-            "// refused in release, so this file never touches a socket or a certificate.\n"
+            "// Outbound is `Http`. It reaches only the prefixes network.outbound names in\n"
+            "// synqt.yaml, verifies TLS, and refuses plaintext in release.\n"
             "//\n"
-            "// Inbound is `Api`, and the routes below are this entity's whole public\n"
-            "// surface. Who may call them was decided in synqt.yaml (the API keys, the\n"
-            "// browser origins, the limits) and checked before a handler runs, so a\n"
-            "// handler is about the answer and not about the caller.\n"
+            "// Inbound is `Api`, and the routes below are this entity's whole public surface.\n"
+            "// synqt.yaml sets who may call them (API keys, browser origins, limits), and that\n"
+            "// is checked before a handler runs.\n"
             "QtObject {\n"
             "    id: root\n"
             "\n"
-            "    // Uncomment network.inbound in synqt.yaml and these start serving.\n"
+            "    // Uncomment network.inbound in synqt.yaml to serve these routes.\n"
             "    Component.onCompleted: {\n"
             "        if (typeof Api === \"undefined\") {\n"
             "            return;   // outbound only: this entity opens no port\n"
             "        }\n"
             "\n"
-            "        // Return a value and it is the 200.\n"
+            "        // A returned value is the 200 response.\n"
             "        Api.get(\"/health\", () => {\n"
             "            return {\n"
             "                ok: true\n"
             "            };\n"
             "        });\n"
             "\n"
-            "        // A captured `:name` segment, and a body the handler validates before\n"
-            "        // it trusts it. `request.body` is the parsed JSON for a JSON request.\n"
+            "        // A captured `:id` segment, and a body the handler validates.\n"
+            "        // `request.body` is the parsed JSON of a JSON request.\n"
             "        Api.post(\"/things/:id\", request => {\n"
             "            if (!request.body || !request.body.value) {\n"
             "                request.fail(422, \"value is required\");\n"
@@ -187,29 +169,25 @@ def entity_qml(entity_type: str, name: str) -> str:
             "        });\n"
             "    }\n"
             "\n"
-            "    // Outbound, for whatever this gateway fronts. Answer later by calling\n"
-            "    // request.reply(...) from the promise, which is what lets one route wait\n"
-            "    // for an upstream or for a connect point before it answers.\n"
+            "    // Outbound calls to what this gateway fronts. A route can answer later by\n"
+            "    // calling request.reply(...) from the promise.\n"
             "    function upstream(url) {\n"
             "        return Http.get(url);\n"
             "    }\n"
             "}\n")
     if entity_type == "jobs":
         return header + (
-            f"// The '{name}' entity itself. Scheduling and the bounded work queue belong\n"
-            "// to the `Jobs` helper, so there is no timer here to manage and nothing to deploy.\n"
+            f"// The '{name}' entity itself. The `Jobs` helper owns the scheduling and\n"
+            "// the bounded work queue.\n"
             "QtObject {\n"
             "    id: root\n"
             "\n"
-            "    // The rollup this entity exists to run, every minute, off the request path.\n"
+            "    // Runs every minute, off the request path.\n"
             "    Component.onCompleted: Jobs.every(60000, function () {\n"
             "        console.log(\"rollup\");\n"
             "    })\n"
             "}\n")
-    # A plain service is the one type with nothing to put in the braces, so all it carries
-    # is the id every SynQt root object carries. Written the way qmlformat writes it, since
-    # the scaffold promises a project that passes its own `synqt check` with nothing to
-    # reformat first.
+    # A plain service carries only its id, formatted as qmlformat writes it.
     return header + "QtObject {\n    id: root\n}\n"
 
 
@@ -226,10 +204,8 @@ def entity_block(name: str, entity_type: str, provider: Optional[str]) -> Dict[s
         else:
             block["provider"] = {"name": chosen}
     if entity_type == "api":
-        # Outbound with an empty allowlist and no inbound at all. The entity is closed, and
-        # opening it is one edit in one place. The empty list is written rather than left
-        # out so there is somewhere obvious to put the first prefix. `synqt check` says
-        # nothing about it, because an allowlist that allows nothing allows nothing.
+        # Outbound with an empty allowlist, no inbound: closed, with an obvious place for
+        # the first prefix.
         block["network"] = {"outbound": []}
     return block
 
@@ -244,9 +220,11 @@ def scaffold(project_dir: os.PathLike[str] | str, name: str,
         raise AddEntityError(
             f"provider '{provider}' is not a {entity_type} provider; "
             f"one of {PROVIDERS[family]}")
-    # Built before the name is checked, because what the block grants is part of what the
-    # name may collide with: an entity that declares `network.outbound` has `Http` in scope,
-    # and one that does not may be called `http` like any other word.
+    # Built before the name check: `Http` is only reserved when `network.outbound` is
+    # declared.
+    if entity_type == "monitor":
+        # A monitor has its own scaffold (monitorscaffold).
+        return monitorscaffold.scaffold(project_dir, name)
     block = entity_block(name, entity_type, provider)
     try:
         addcontract.check_qml_name(f"{name[:1].upper()}{name[1:]}",
@@ -263,15 +241,13 @@ def scaffold(project_dir: os.PathLike[str] | str, name: str,
     if any(isinstance(e, dict) and e.get("name") == name for e in entities):
         raise AddEntityError(f"an entity named '{name}' already exists")
 
-    # Spliced into the text rather than dumped over it. The file is the author's, and one
-    # added entity is not a reason to lose their comments and their formatting.
+    # Spliced into the text, keeping the author's comments and formatting.
     if not config_path.exists():
         config_path.write_text("entities: []\n")
     config_path.write_text(yamledit.append_item(config_path.read_text(), "entities", block))
 
-    # The entity folder and the entity's own file. Relational gets a schema file too. No
-    # Source: a Source answers a connect point, and this entity exports none until somebody
-    # says who may consume it. `synqt add connect-point` writes one then.
+    # The entity folder and file, plus a schema for relational. No Source until the entity
+    # exports a point.
     entity_dir = root / appmodel.entity_dir(block)
     entity_dir.mkdir(parents=True, exist_ok=True)
     own = appmodel.entity_file_path(block)
@@ -282,8 +258,7 @@ def scaffold(project_dir: os.PathLike[str] | str, name: str,
             "CREATE TABLE items (id INTEGER PRIMARY KEY AUTOINCREMENT,\n"
             "                    text TEXT NOT NULL, author TEXT NOT NULL);\n")
 
-    # An external provider's credential is documented by name, with no value: the line written
-    # here is `DB_PASSWORD=`, so the variable to set is discoverable and nothing is committed.
+    # The external credential variable, with no value (`DB_PASSWORD=`).
     chosen = provider or (PROVIDERS[family][0] if family else None)
     secret_env: Optional[str] = None
     if chosen in _EXTERNAL:
@@ -305,10 +280,7 @@ def scaffold(project_dir: os.PathLike[str] | str, name: str,
             steps.append("  - The QMYSQL plugin must be built against MariaDB Connector/C "
                          "(LGPLv2.1), never Oracle's GPLv2-only libmysqlclient (see "
                          "https://synqt.org/licensing/).")
-    # Regenerate the buildable app. The new entity needs its main.cpp, its CMake target
-    # and its preset, and a command that leaves a project needing a build before it is
-    # complete is a command that half worked. `synqt build` regenerates these too, so this
-    # only moves the moment, but the moment is the one the author is looking at.
+    # Regenerate the app so the new entity has its main.cpp, CMake target and preset.
     config = yaml.safe_load(config_path.read_text()) or {}
     presets.write(root, config)
     appgen.generate(root, config)

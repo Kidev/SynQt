@@ -462,6 +462,20 @@
       "defended_by": "OperatorStore fails closed: an empty store refuses every sign-in rather than allowing all, credentials are read from the monitor entity's own environment and never from synqt.yaml, and a credential derived with fewer than 600000 PBKDF2 iterations is refused at load rather than accepted with a warning.",
       "file": "tests/monitor/tst_operator.cpp",
       "test": "aMonitorWithNoOperatorsRefusesEverybody"
+    },
+    {
+      "id": "monitor-console-bundle-fetch",
+      "what": "A visitor with no operator session downloads the monitoring console bundle and reads it, or reaches its connect point directly, learning what the system is made of and what it has been doing.",
+      "defended_by": "The console is delivered through `bundles:`, so an anonymous caller is handed a static sign-in page and the console bundle is not addressable to them at all (404, not 403). Its connect point is gated on `operator`, which only the monitor's own password gate grants, and the monitor listens on loopback by default.",
+      "file": "tools/synqt/tests/test_monitoring.py",
+      "test": "test_scaffolding_a_monitor_writes_all_four_things_it_is_made_of"
+    },
+    {
+      "id": "second-client-session-field",
+      "what": "A project with two clients (an application and a monitoring console) puts the forwarded-session field on the second client's link, giving a browser a field to put a session of its own choosing in.",
+      "defended_by": "appmodel.forwards_session compares a point's consumers against every client entity, not the first one. A point only a browser consumes carries nothing beyond its contract, which is what leaves the one caller that could forge a session with nowhere to put it.",
+      "file": "tools/synqt/tests/test_monitoring.py",
+      "test": "test_a_second_client_still_has_no_session_field_to_forge"
     }
   ]
 }

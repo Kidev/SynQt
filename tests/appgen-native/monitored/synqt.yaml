@@ -1,0 +1,57 @@
+# SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+# SPDX-License-Identifier: Apache-2.0
+
+# The smallest project with a monitor: a client, an edge, and the monitor with its console.
+#
+# What a green build proves that a string test cannot. The generated monitor main compiles
+# against SynQtMonitor, hosts the `ingest` point over the mesh and the `console` point over
+# HTTP from one process, and finds the Source registrations for two contracts no project
+# file declares. It is also the only place the whole monitoring feature is assembled the way
+# `synqt add entity --type monitor` assembles it.
+project:
+  name: monitored
+  version: 0.1.0
+  qt_version: 6.11.1
+
+scopes:
+  order: [anonymous, user]
+  hierarchical: true
+  default: anonymous
+
+entities:
+  - name: app
+    type: client
+    targets: [wasm]
+
+  - name: edge
+    type: web_edge
+    public:
+      host: 0.0.0.0
+      port: 8443
+
+  - name: ops
+    type: monitor
+    public:
+      host: 127.0.0.1
+      port: 8444
+    retention:
+      max_age_days: 7
+      max_bytes: 67108864
+    bundles:
+      anonymous: signin/
+      operator: ops-console
+
+  - name: ops-console
+    type: client
+    console: true
+    edge: ops
+
+connect_points:
+  - owner: edge
+    consumers: [app]
+    export: |
+      prop string[80] headline
+      slot refresh()
+
+monitoring:
+  entity: ops

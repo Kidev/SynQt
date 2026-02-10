@@ -47,7 +47,7 @@ export QTDIR="$QT_HOST"
 
 WORK="$REPO_ROOT/build/appgen-native"
 SRC="$WORK/gavel"
-echo "== [1/7] Materialize the gavel topology and run appgen over it =="
+echo "== [1/8] Materialize the gavel topology and run appgen over it =="
 rm -rf "$WORK"
 mkdir -p "$WORK"
 cp -r "$REPO_ROOT/examples/gavel" "$SRC"
@@ -68,14 +68,14 @@ written = appgen.generate(app, config, synqt_root=repo)
 print("  appgen wrote:", ", ".join(written))
 PY
 
-echo "== [2/7] Configure + build every entity with the native host kit =="
+echo "== [2/8] Configure + build every entity with the native host kit =="
 cmake -S "$SRC" -B "$SRC/build" -G Ninja \
     -DCMAKE_PREFIX_PATH="$QT_HOST" \
     -DSYNQT_ROOT="$REPO_ROOT" \
     -DCMAKE_BUILD_TYPE=Release
 cmake --build "$SRC/build"
 
-echo "== [3/7] Assert each generated entity produced a native executable =="
+echo "== [3/8] Assert each generated entity produced a native executable =="
 rc=0
 for entity in app edge books; do
     assert_native_exe "$SRC/build/$entity" "$entity" || rc=1
@@ -85,7 +85,7 @@ if [ "$rc" -ne 0 ]; then
     exit 1
 fi
 
-echo "== [4/7] A generated client with routes: build it, and watch the router resolve them =="
+echo "== [4/8] A generated client with routes: build it, and watch the router resolve them =="
 # Compiling is not enough for URL routing. Every route's view has to be IN the client's QML
 # module, and so does everything a view reaches (a helper component, a singleton), or the
 # qrc URL resolves to nothing and the router reports Error on a bundle that built perfectly.
@@ -151,9 +151,9 @@ if grep -nE '\.qml:[0-9]+:' "$routed_log"; then
 fi
 echo "  routed client : OK (every route resolved Ready, each to the view it names)"
 
-echo "== [5/7] Promoted identity: one line moves the OAuth engine off the edge =="
+echo "== [5/8] Promoted identity: one line moves the OAuth engine off the edge =="
 # `identity.provider_entity: auth` is documented as a one-line change, so everything else it
-# needs is generated: two mesh connect points nobody declared, a Source QML bridge for each,
+# needs is generated. Two mesh connect points nobody declared, a Source QML bridge for each,
 # an auth main holding the OAuth engine and the authoritative session store, and an edge main
 # that adopts both Replicas in C++. Compiling that is necessary and not sufficient, because
 # the claim is about WHERE a secret lives, so this phase runs the pair and asks the edge for a
@@ -323,10 +323,10 @@ echo "  promoted pair : OK (both mesh links up, the edge holds no client id, no 
 echo "                  endpoint and no secret; the auth entity holds the first two and"
 echo "                  reads the secret from its own environment)"
 
-echo "== [6/7] A front: an edge that owns a point it does not implement =="
+echo "== [6/8] A front: an edge that owns a point it does not implement =="
 # A front hands each caller to the entity serving people of their scope, so the edge has no
 # server file for that point and the Source the browser acquires relays to a Replica of a
-# different contract. Compiling is the check that matters: the generated edge main has to
+# different contract. Compiling is the check that matters. The generated edge main has to
 # build with no server file, its `behind:` block reaches WebEdge through a QSet the generator
 # has to remember to include, and the generated relay has to resolve against a contract the
 # front's own binary knows only by name.
@@ -363,7 +363,7 @@ for entity in gate lobby backoffice; do
 done
 echo "  front : OK (the edge builds with no Source of its own for the point it fronts)"
 
-echo "== [7/7] An entity with a network: block: build it, and call the API it serves =="
+echo "== [7/8] An entity with a network: block: build it, and call the API it serves =="
 # The generated main is what is under test. It has to build an ApiConfig from the topology,
 # link SynQtGateway, put `Api` on the root context BEFORE the entity singleton is created
 # (or the singleton's routes go nowhere) and start listening AFTER (or a caller can arrive
@@ -503,7 +503,50 @@ cleanup_gateway
 echo "  gateway       : OK (serves the routes its own QML declared, refuses an unkeyed"
 echo "                  caller before the handler, and calls only what it is allowed to)"
 
+echo "== [8/8] A monitor: two halves of one entity, and a console that outlives the topology =="
+# The monitor is the one entity that is a mesh owner and a browser-facing server at once, and
+# the only one whose Sources are generated from contracts no project file declares. Nothing
+# but a build says whether that assembles. The console client compiles the framework's own
+# Console.syn at the replica role, the monitor compiles both at the source role from
+# SynQtMonitor, and its generated main has to find both registrations and link an HTTP
+# server, a QML engine and a SQLite store into one binary.
+MONITORED="$WORK/monitored"
+cp -r "$REPO_ROOT/tests/appgen-native/monitored" "$MONITORED"
+PYTHONPATH="$REPO_ROOT/tools/synqt" python3 - "$MONITORED" "$REPO_ROOT" <<'MONPY'
+import sys, yaml
+from pathlib import Path
+from synqt import appgen, check
+
+app, repo = Path(sys.argv[1]), sys.argv[2]
+ok, messages = check.check_project(app)
+for message in messages:
+    print("  synqt check:", message)
+if not ok:
+    raise SystemExit("the monitored fixture does not pass synqt check")
+config = yaml.safe_load((app / "synqt.yaml").read_text())
+print("  appgen wrote:", ", ".join(appgen.generate(app, config, synqt_root=repo)))
+MONPY
+
+cmake -S "$MONITORED" -B "$MONITORED/build" -G Ninja \
+    -DCMAKE_PREFIX_PATH="$QT_HOST" \
+    -DSYNQT_ROOT="$REPO_ROOT" \
+    -DCMAKE_BUILD_TYPE=Release
+cmake --build "$MONITORED/build"
+
+monitored_rc=0
+for entity in edge ops ops-console; do
+    assert_native_exe "$MONITORED/build/$entity" "$entity" || monitored_rc=1
+done
+if [ "$monitored_rc" -ne 0 ]; then
+    echo "APPGEN-NATIVE GATE: NO-GO"
+    exit 1
+fi
+echo "  monitored     : OK (the monitor hosts its mesh point and serves its console from"
+echo "                  one binary, and the console compiles against a contract no"
+echo "                  project file declares)"
+
 echo "APPGEN-NATIVE GATE: GO (appgen output compiles and links for every entity, a"
 echo "                       generated client resolves every declared route to its view,"
-echo "                       a promoted identity signs in from the auth entity, and a"
-echo "                       gateway serves the surface its network: block opened)"
+echo "                       a promoted identity signs in from the auth entity, a"
+echo "                       gateway serves the surface its network: block opened, and a"
+echo "                       monitor assembles both of its halves into one binary)"
