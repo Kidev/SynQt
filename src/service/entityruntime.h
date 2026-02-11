@@ -106,6 +106,7 @@ private:
     /// `provider.name` selects nothing, or the selected engine will not open. An entity whose
     /// Sources would find no helper in context must not reach enableRemoting().
     bool buildTypeContext();
+    void applyTraceLevels();
     void buildIngest();
 
     Topology m_topology;

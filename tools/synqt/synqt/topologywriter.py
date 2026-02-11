@@ -224,6 +224,13 @@ def entity_topology(config: Dict[str, Any], entity: Dict[str, Any], project_dir:
     if appmodel.monitor_entity(config) and name != appmodel.monitor_entity(config) \
             and not appmodel.is_client(entity):
         topology["monitoring"] = {"spool_dir": _path(root / "build" / str(name) / "state")}
+        # How much each category records. Carried into the resolved topology rather than
+        # compiled in, because turning a category up is something an operator does during
+        # an incident and a monitoring system you must rebuild to switch on is useless
+        # during the one you needed it for.
+        levels = appmodel.trace_levels(config)
+        if levels:
+            topology["monitoring"]["levels"] = levels
 
     owners = {str(one.get("name") or ""): one for one in appmodel.entities(config)}
     connect_points: List[Dict[str, Any]] = []

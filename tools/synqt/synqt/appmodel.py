@@ -1448,6 +1448,29 @@ def monitoring_connect_points(config: Dict[str, Any]) -> List[Dict[str, Any]]:
     return points
 
 
+#: What a category records when nothing says otherwise, and the vocabulary `monitoring.levels`
+#: is written in. `off` is the seventh word: it is not a severity, it is the category
+#: refused.
+TRACE_SEVERITIES = ("trace", "debug", "info", "warning", "error", "fatal", "off")
+TRACE_CATEGORIES = ("lifecycle", "transport", "authorization", "call", "data", "application")
+
+
+def trace_levels(config: Dict[str, Any]) -> Dict[str, str]:
+    """``monitoring.levels``: the lowest severity each category records.
+
+    A deployment setting rather than a build one, so it lands in the resolved topology and
+    is read at startup. What is not named here keeps its default, and a category set to
+    `off` records nothing at all.
+    """
+    monitoring = config.get("monitoring")
+    if not isinstance(monitoring, dict):
+        return {}
+    levels = monitoring.get("levels")
+    if not isinstance(levels, dict):
+        return {}
+    return {str(category): str(level) for category, level in levels.items()}
+
+
 def monitor_watches(entity: Dict[str, Any]) -> bool:
     """Is this client the monitoring console rather than the application?
 

@@ -450,6 +450,20 @@
       "test": "theSpoolIsBoundedAndTheOverflowIsReported"
     },
     {
+      "id": "monitor-reachable-from-the-internet",
+      "what": "The monitoring console is bound to a public interface, so every request the system has served, every refusal and the shape of every entity in it are one password away from anyone who finds the port.",
+      "defended_by": "A monitor binds 127.0.0.1 by default, and `synqt check` refuses any other host unless the project writes `monitoring: {public: acknowledged}`. Reaching the console then means reaching the machine: a VPN, an SSH tunnel, or being on the host. The delivery gate applies either way, so even on a public interface the bundle is not addressable without an operator session.",
+      "file": "tools/synqt/tests/test_monitoring.py",
+      "test": "test_a_monitor_on_a_public_interface_has_to_say_so"
+    },
+    {
+      "id": "monitor-record-reaches-the-application-client",
+      "what": "The application's own client is listed as a consumer of a point the monitor owns, so every entity's record is delivered to whoever can sign in to the application, behind the application's scope vocabulary rather than the operator gate.",
+      "defended_by": "`synqt check` refuses a client on the consumer list of any point a monitor owns unless that client is the console (`console: true`), which the monitor delivers itself behind the operator password gate. The framework's own console point is only ever given to console clients, and the ingest point never to a client at all.",
+      "file": "tools/synqt/tests/test_monitoring.py",
+      "test": "test_the_application_client_cannot_consume_what_the_monitor_owns"
+    },
+    {
       "id": "monitor-export-key-in-repository",
       "what": "The API key of the collector a monitor exports to is written into synqt.yaml, so a credential that grants write access to the operator's whole observability backend is committed alongside the code and readable by everyone with the repository.",
       "defended_by": "There is no configuration key to write it into. `export.otlp` names the endpoint and nothing else, and the generated main fills the request headers from OtlpExporter::headersFromEnvironment(), which reads the monitor entity's own environment. The same rule every other credential in SynQt follows.",

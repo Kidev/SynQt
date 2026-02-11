@@ -154,9 +154,10 @@ bool EntityRuntime::buildTypeContext()
     // site. It is also why an entity cannot claim to be another one: the stamp is applied
     // on the way out of the pipeline, past anything QML can reach.
     Tracer::instance()->setEntity(m_topology.entity);
+    applyTraceLevels();
     buildIngest();
 
-    // `Http` is granted by the topology, not by the type: any entity that declares
+    // `Http` is granted by the topology, not by the type. Any entity that declares
     // `network.outbound` gets it, restricted to exactly the prefixes in that list, and an
     // entity that declares none does not get it at all. An empty list still installs the
     // helper and allows nothing, so a call names the config key it is missing instead of
@@ -188,9 +189,43 @@ bool EntityRuntime::buildTypeContext()
     return true;
 }
 
+/// How much this entity records, from `monitoring.levels`.
+///
+/// Applied whether or not there is a monitor, and before the sink is installed: the levels
+/// govern what a local exporter or a test harness sees as much as what a monitor does. A
+/// category nobody named keeps its default, so turning one up is one line and costs the
+/// others nothing.
+///
+/// A word this build does not know is reported rather than guessed at. Reading an unknown
+/// level as the quietest one it could have meant is how an operator ends up watching a
+/// category they believe they turned on.
+void EntityRuntime::applyTraceLevels()
+{
+    for (auto it{m_topology.traceLevels.constBegin()};
+         it != m_topology.traceLevels.constEnd(); ++it) {
+        Category category{Category::Application};
+        if (!categoryFromName(it.key(), &category)) {
+            qWarning().noquote() << "monitoring.levels: unknown category" << it.key();
+            continue;
+        }
+        if (it.value() == QLatin1String("off")) {
+            // Off is not a severity. It is every severity refused.
+            Tracer::instance()->setCategoryOff(category);
+            continue;
+        }
+        Severity minimum{Severity::Info};
+        if (!severityFromName(it.value(), &minimum)) {
+            qWarning().noquote() << "monitoring.levels:" << it.key()
+                                 << "has unknown level" << it.value();
+            continue;
+        }
+        Tracer::instance()->setLevel(category, minimum);
+    }
+}
+
 /// Point the tracer at the monitor, if this entity has one to report to.
 ///
-/// The client is built whether or not the link is up: an entity that starts before its
+/// The client is built whether or not the link is up. An entity that starts before its
 /// monitor spools until it arrives, which is the window an operator most often wants and
 /// the one a naive implementation drops on the floor. The Replica is attached when the
 /// link comes up and detached when it goes away, and neither is anything the entity's own

@@ -24,13 +24,12 @@ enum class Category {
     Application,    ///< whatever an entity's own QML says through Log
 };
 
-/// One thing that happened, in the shape the OpenTelemetry log and span model uses, so
-/// that exporting to a third-party collector is a serialization rather than a
-/// translation.
+/// One thing that happened, in the shape of the OpenTelemetry log and span model, so that
+/// exporting to a third-party collector is a serialization rather than a translation.
 ///
-/// A record, never a formatted string. An operator filters on `entity` and `category`
-/// and searches `attributes`, and prose would make both a substring hunt. `message` is
-/// the human sentence, and it carries no fact that is not also an attribute.
+/// A record, never a formatted string: an operator filters on `entity` and `category` and
+/// searches `attributes`. `message` is the human sentence, and it carries no fact that is not
+/// also an attribute.
 struct TraceEvent
 {
     qint64 timestampMs{0};
@@ -57,11 +56,16 @@ struct TraceEvent
 
 /// The names an operator reads, and the names a third-party collector expects.
 ///
-/// The enums cross the link as their numbers, which is what the store indexes and what
-/// keeps a batch small. These turn one back into a word at the two places a word is what is
-/// wanted. A console listing and an exported record.
+/// The enums cross the link as their numbers; these turn one back into a word for a console
+/// listing and an exported record.
 QString severityName(Severity severity);
 QString categoryName(Category category);
+
+/// The reverse, for a word that came from a configuration file. False when it is not one of
+/// them, so a misspelled level is reported rather than read as the quietest thing it could
+/// have meant.
+bool severityFromName(const QString &name, Severity *severity);
+bool categoryFromName(const QString &name, Category *category);
 
 } // namespace SynQt
 

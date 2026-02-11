@@ -10,25 +10,12 @@ namespace SynQt {
 
 namespace {
 
-/// An entity that has not been heard from for this long is shown as not live. Long enough
-/// that an idle entity is not reported as down (the tracer batches on a timer and an
-/// entity with nothing to say still sends a heartbeat), short enough that a stopped one is
-/// noticed while it still matters.
+/// An entity silent for this long is shown as not live. Long enough for an idle entity (the
+/// tracer sends heartbeats on a timer), short enough to notice a stopped one in time.
 constexpr qint64 kLivenessMs{120000};
 
-Severity severityFromName(const QString &name)
-{
-    for (int level{0}; level <= static_cast<int>(Severity::Fatal); ++level) {
-        if (severityName(static_cast<Severity>(level)) == name) {
-            return static_cast<Severity>(level);
-        }
-    }
-    return Severity::Trace;
-}
-
-/// One stored event in the shape the console's model declares. The words rather than the
-/// numbers, because what crosses here is read by a person and a console that carried its
-/// own copy of the vocabulary would be a second place for it to drift.
+/// One stored event in the shape of the console's model, with names rather than numbers, so
+/// the console needs no copy of the vocabulary.
 QVariantMap consoleRow(const TraceEvent &event)
 {
     QVariantMap row;
@@ -88,9 +75,9 @@ void MonitorService::take(const QVariantList &events, const QString &from)
     batch.reserve(events.size());
     for (const QVariant &value : events) {
         TraceEvent event{TraceEvent::fromVariant(value.toMap())};
-        // The name the transport verified, whatever the batch said. A reporting entity is
-        // authenticated by its certificate, so this is the one field in the record that
-        // cannot be chosen by whoever is being recorded.
+        // The name the transport verified, whatever the batch says: a reporting entity is
+        // authenticated by its certificate, so this field cannot be chosen by the entity
+        // being recorded.
         if (!from.isEmpty()) {
             event.entity = from;
         }
@@ -110,13 +97,11 @@ void MonitorService::take(const QVariantList &events, const QString &from)
     if ((m_store != nullptr) && m_store->append(batch)) {
         m_stored += batch.size();
     } else {
-        // Counted, never swallowed. An operator reading a quiet period has to be able to
-        // tell it from a hole in the record.
+        // Counted, never swallowed, so a quiet period can be told from a gap.
         m_dropped += batch.size();
     }
 
-    // Last, and after the store. Whatever a collector does with these, it does it with a
-    // copy of something already written down here.
+    // Last, after the store: collectors receive a copy of what is already stored.
     for (IEventExporter *exporter : std::as_const(m_exporters)) {
         exporter->take(batch);
     }
@@ -151,7 +136,12 @@ QVariantList MonitorService::ask(const QString &text, const QString &entity,
     if (!entity.trimmed().isEmpty()) {
         request.entities = {entity.trimmed()};
     }
-    request.minimumSeverity = severityFromName(minimumSeverity);
+    // An unknown or misspelled filter word matches everything rather than nothing, so a
+    // typo shows too much instead of an empty console.
+    Severity minimum{Severity::Trace};
+    if (severityFromName(minimumSeverity, &minimum)) {
+        request.minimumSeverity = minimum;
+    }
     request.limit = (limit > 0) ? limit : 200;
     return toRows(m_store->query(request));
 }
@@ -186,8 +176,7 @@ QVariantList MonitorService::entityRows() const
 
 bool MonitorService::signIn(const QString &name, const QString &password) const
 {
-    // Fail closed. No operator store, no operators. An empty gate letting everybody in is
-    // how a console that shows every request a system has served ends up open.
+    // Fail closed: no operator store means no operators.
     return (m_operators != nullptr) && m_operators->verify(name, password);
 }
 

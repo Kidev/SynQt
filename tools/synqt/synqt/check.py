@@ -1028,10 +1028,13 @@ def _monitor_entity_messages(config: Dict[str, Any],
         return ["error: monitoring: must be a block, e.g. 'monitoring: {entity: ops}'"]
     if isinstance(monitoring, dict):
         for key in monitoring:
-            if key not in ("entity", "capture_identity", "levels", "console"):
+            if key not in ("entity", "capture_identity", "levels", "public"):
                 messages = [f"error: monitoring: unknown key '{key}' (want entity, "
-                            "capture_identity, levels or console)"]
+                            "capture_identity, levels or public)"]
                 return messages
+        level_messages = _trace_level_messages(monitoring.get("levels"))
+        if level_messages:
+            return level_messages
     owner = appmodel.monitor_entity(config)
     if not owner:
         return []
@@ -1055,6 +1058,92 @@ def _monitor_entity_messages(config: Dict[str, Any],
             f"monitoring.entity implies; rename it, because the monitor '{owner}' owns "
             f"'{appmodel.MONITOR_POINT}' and every service consumes it")
     messages += _monitor_export_messages(owner, entity)
+    messages += _monitor_reach_messages(config, owner, entity)
+    messages += _monitor_consumer_messages(config, owner, entities)
+    return messages
+
+
+def _monitor_reach_messages(config: Dict[str, Any], owner: str,
+                            entity: Dict[str, Any]) -> List[str]:
+    """A monitor on a public interface, which has to be said out loud to be allowed.
+
+    The console shows every request the system has served, every refusal, and the shape of
+    every entity in it. That is a thing to reach by first reaching the machine: a VPN, an
+    SSH tunnel, or being on the host. Loopback is the default, and this is what keeps it
+    from being changed by somebody copying an edge's `public:` block without noticing what
+    it means here.
+
+    Acknowledged rather than refused outright, because a deployment behind its own
+    authenticating proxy is a real shape and this framework does not get to decide it is
+    wrong. What it does get to do is make it explicit.
+    """
+    host = str(appmodel.public_settings(entity).get("host") or "127.0.0.1").strip()
+    if host in ("127.0.0.1", "localhost", "::1"):
+        return []
+    monitoring = config.get("monitoring")
+    acknowledged = isinstance(monitoring, dict) \
+        and str(monitoring.get("public") or "") == "acknowledged"
+    if acknowledged:
+        return []
+    return [f"error: monitor '{owner}' binds public.host '{host}', so its console is "
+            "reachable from off this machine. It shows every request the system has "
+            "served and every refusal, behind one password and no second factor. Leave "
+            "the host at 127.0.0.1 and reach it through a VPN or an SSH tunnel, or write "
+            "'monitoring: {public: acknowledged}' to say this deployment means it"]
+
+
+def _monitor_consumer_messages(config: Dict[str, Any], owner: str,
+                               entities: Dict[str, Any]) -> List[str]:
+    """Only the console may consume what the monitor owns.
+
+    A monitor holds every entity's record. A point of its own consumed by the application's
+    client would put that record behind the application's scope vocabulary and deliver it
+    to the application's visitors, which is the whole picture handed to whoever can sign in
+    to the app. The console is the one client that reads a monitor, it is marked
+    `console: true`, and it is delivered by the monitor itself behind the operator gate.
+    """
+    messages: List[str] = []
+    for connect_point in appmodel.connect_points(config):
+        if connect_point.get("owner") != owner:
+            continue
+        name = appmodel.point_name(connect_point) or "<unnamed>"
+        for consumer in (connect_point.get("consumers") or []):
+            watcher = entities.get(str(consumer))
+            if watcher is None or not appmodel.is_client(watcher):
+                continue
+            if appmodel.monitor_watches(watcher):
+                continue
+            messages.append(
+                f"error: client '{consumer}' consumes '{name}', which the monitor "
+                f"'{owner}' owns; a monitor holds every entity's record, and the only "
+                "client that may read one is its console (mark it 'console: true', which "
+                "makes the monitor deliver it behind the operator gate)")
+    return messages
+
+
+def _trace_level_messages(levels: Any) -> List[str]:
+    """`monitoring.levels`: how much each category records.
+
+    Every word here is checked because every one of them fails as silence. A category
+    nobody spelled right keeps its default, and an operator who turned `call` up during an
+    incident and typed `calls` would be reading an empty console while believing they had
+    already looked.
+    """
+    if levels is None:
+        return []
+    if not isinstance(levels, dict):
+        return ["error: monitoring.levels must be a block of category: level, e.g. "
+                "'levels: {call: debug}'"]
+    messages: List[str] = []
+    for category, level in levels.items():
+        if str(category) not in appmodel.TRACE_CATEGORIES:
+            messages.append(
+                f"error: monitoring.levels: unknown category '{category}' (want "
+                + ", ".join(appmodel.TRACE_CATEGORIES) + ")")
+        if str(level) not in appmodel.TRACE_SEVERITIES:
+            messages.append(
+                f"error: monitoring.levels.{category}: unknown level '{level}' (want "
+                + ", ".join(appmodel.TRACE_SEVERITIES) + ")")
     return messages
 
 

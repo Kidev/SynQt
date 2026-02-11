@@ -66,6 +66,32 @@ QString severityName(Severity severity)
     return QStringLiteral("info");
 }
 
+bool severityFromName(const QString &name, Severity *severity)
+{
+    for (int level{0}; level <= static_cast<int>(Severity::Fatal); ++level) {
+        if (severityName(static_cast<Severity>(level)) == name) {
+            if (severity != nullptr) {
+                *severity = static_cast<Severity>(level);
+            }
+            return true;
+        }
+    }
+    return false;
+}
+
+bool categoryFromName(const QString &name, Category *category)
+{
+    for (int which{0}; which <= static_cast<int>(Category::Application); ++which) {
+        if (categoryName(static_cast<Category>(which)) == name) {
+            if (category != nullptr) {
+                *category = static_cast<Category>(which);
+            }
+            return true;
+        }
+    }
+    return false;
+}
+
 QString categoryName(Category category)
 {
     switch (category) {

@@ -130,6 +130,15 @@ struct Topology
     /// How large the monitoring spool may grow before its oldest batches are dropped. A
     /// monitor that never comes back must not fill the disk of the entity it was watching.
     qint64 spoolCapBytes{4 * 1024 * 1024};
+    /// The lowest severity each category records, by category name ("call", "data", ...)
+    /// and severity name ("debug", "warning", ...). What is not named keeps the default,
+    /// and a category set to "off" records nothing.
+    ///
+    /// A deployment setting, not a build one. A monitoring system you have to rebuild to
+    /// turn up is useless during the incident you need it for, so the levels are read at
+    /// startup and the instrumentation is compiled into every build either way (its
+    /// disabled cost is measured in benchmarks/monitor).
+    QMap<QString, QString> traceLevels;
 
     QList<ConnectPointConfig> owned() const;
     QList<ConnectPointConfig> consumed() const;

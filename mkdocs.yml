@@ -222,6 +222,7 @@ nav:
       - Running in containers: docker.md
       - Deploying: deploying.md
       - Desktop clients: desktop.md
+      - Monitoring: monitoring.md
       - Security: security.md
       - Content-Security-Policy: csp.md
       - Examples: examples.md

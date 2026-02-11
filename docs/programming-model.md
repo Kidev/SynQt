@@ -260,8 +260,8 @@ slot instead.
 
 ### Recording a call's values: `capture`
 
-Every slot that crosses a link is already recorded when a project has a monitor
-entity: what member was called, whether a person or an entity called it,
+Every slot that crosses a link is already recorded when a project has a
+[monitor entity](monitoring.md): what member was called, whether a person or an entity called it,
 how many arguments there were, how long it took, and which check refused it if one did.
 What is not recorded is the arguments themselves, because they are what somebody typed.
 

@@ -798,12 +798,42 @@ The mesh CA private key lives only where certs are issued (a developer machine o
 CI secret store), never in a running entity and never committed. A running entity
 holds only its own cert and key plus the CA certificate to verify peers.
 `synqt dev` maintains a separate, throwaway development CA under `synqt/mesh/dev/`,
-issued automatically so development mesh links keep mutual TLS with no setup; it is
+issued automatically so development mesh links keep mutual TLS with no setup. It is
 never valid for a release build.
+
+### `monitoring` (optional operations record)
+
+Omit for a project with no monitor, and nothing is recorded and nothing is stored. Adding one
+is `synqt add entity ops --type monitor`, which writes the entity, its console client, the
+sign-in gate and this block:
+
+```yaml
+monitoring:
+  entity: ops                     # the type: monitor entity every service reports to
+  levels:                         # optional, the lowest severity each category records
+    call: debug                   # lifecycle, transport, authorization, call, data,
+    data: off                     # application, and a level of `off` records nothing
+  capture_identity: acknowledged  # optional, allows `capture` on a member carrying an
+                                  # identity field, which `synqt check` otherwise refuses
+  public: acknowledged            # optional, allows the monitor to bind a non-loopback
+                                  # host, which `synqt check` otherwise refuses
+```
+
+`entity` is the whole wiring. The link every service opens to the monitor is derived from
+it rather than written, because a link every entity needs is a link nobody should have to remember
+to declare, and one an author could forget on a single entity is a hole in the record
+shaped exactly like the entity that was misbehaving. It is an ordinary mesh link,
+mutually authenticated like every other, and `synqt check` validates it like any other.
+
+`levels` is read at startup from the resolved topology, so turning a category up is a
+configuration change and a restart rather than a rebuild.
+
+Retention, the console's port and the exporters are settings on the monitor entity itself.
+See [monitoring](monitoring.md) for all of it.
 
 ### `identity` (optional login)
 
-Omit for an app with no login; every browser session runs at `scopes.default`. The
+Omit for an app with no login, and every browser session runs at `scopes.default`. The
 easy, secure setup is `synqt add auth <provider>`, which writes this section with
 hardened defaults. Full treatment in [authentication](authentication.md).
 

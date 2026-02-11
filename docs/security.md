@@ -572,6 +572,15 @@ Refusals are logged because a spike in rejected upgrades, failed peer verificati
 or authorization failures is worth alerting on. The browser receives only what a
 contract signal deliberately sends it (for example a user facing rejection reason).
 
+Where those events go, what they are allowed to carry, and who may read them is
+[monitoring](monitoring.md). Three things there are security decisions rather than
+operational ones. A record names a session by a handle and never by the credential a
+browser sends. A recorded call carries the shape of the call and not its arguments unless a
+member asks with `capture`, which `synqt check` refuses on a member carrying an identity.
+And the console is reached by first reaching the machine: the monitor binds loopback, a
+non-loopback host has to be acknowledged in `synqt.yaml`, and the console bundle is not
+addressable at all without an operator session.
+
 ## Security checklist (use before every deploy)
 
 For the mechanics of the deployment these items apply to, see [deploying a SynQt

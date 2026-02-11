@@ -147,6 +147,19 @@ Severity Tracer::level(Category category) const
     return static_cast<Severity>(m_configured[index]);
 }
 
+void Tracer::setCategoryOff(Category category)
+{
+    const int index{static_cast<int>(category)};
+    if ((index < 0) || (index >= CategoryCount)) {
+        return;
+    }
+    {
+        QMutexLocker locker{&m_mutex};
+        m_configured[index] = OffLevel;
+    }
+    applyLevels();
+}
+
 void Tracer::applyLevels()
 {
     // The switch and the per-category levels are folded into the one value the hot path

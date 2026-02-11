@@ -117,6 +117,40 @@ private slots:
         QVERIFY(tracer.isEnabled(Category::Authorization, Severity::Info));
     }
 
+    void aCategoryTurnedOffRecordsNothingAtAnySeverity()
+    {
+        Tracer tracer;
+        tracer.setCategoryOff(Category::Data);
+        // Off is not "fatal and worse": it is the category refused, including the severity
+        // nothing is above.
+        QVERIFY(!tracer.isEnabled(Category::Data, Severity::Fatal));
+        QVERIFY(tracer.isEnabled(Category::Call, Severity::Info));
+    }
+
+    void aLevelWrittenAsAWordIsReadBackAsTheSameOne()
+    {
+        // The round trip a deployment setting depends on. `monitoring.levels` is written in
+        // words, and a word this build does not know has to be recognisable as unknown
+        // rather than read as the quietest thing it could have meant.
+        Severity severity{Severity::Info};
+        QVERIFY(severityFromName(QStringLiteral("warning"), &severity));
+        QCOMPARE(severity, Severity::Warning);
+        QVERIFY(!severityFromName(QStringLiteral("verbose"), &severity));
+        QCOMPARE(severity, Severity::Warning);
+
+        Category category{Category::Application};
+        QVERIFY(categoryFromName(QStringLiteral("authorization"), &category));
+        QCOMPARE(category, Category::Authorization);
+        QVERIFY(!categoryFromName(QStringLiteral("calls"), &category));
+
+        for (int level{0}; level <= static_cast<int>(Severity::Fatal); ++level) {
+            const Severity written{static_cast<Severity>(level)};
+            Severity read{Severity::Info};
+            QVERIFY(severityFromName(severityName(written), &read));
+            QCOMPARE(read, written);
+        }
+    }
+
     void aDisabledTracerReportsNothingEnabledAndRemembersTheLevels()
     {
         Tracer tracer;

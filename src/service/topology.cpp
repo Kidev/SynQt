@@ -86,8 +86,15 @@ Topology topologyFromJson(const QJsonObject &object)
         topology.spoolCapBytes =
             static_cast<qint64>(monitoring.value(QStringLiteral("spool_cap_bytes")).toDouble());
     }
+    // How much each category records, read at startup rather than compiled in: turning
+    // tracing up is something an operator does during an incident, not something they
+    // rebuild for.
+    const QJsonObject levels = monitoring.value(QStringLiteral("levels")).toObject();
+    for (auto it{levels.constBegin()}; it != levels.constEnd(); ++it) {
+        topology.traceLevels.insert(it.key(), it.value().toString());
+    }
 
-    // network.outbound: absent or empty leaves this entity closed, which is the default
+    // network.outbound. Absent or empty leaves this entity closed, which is the default
     // for every type. Copy initialization for the same reason as the arrays above.
     const QJsonObject network = object.value(QStringLiteral("network")).toObject();
     topology.outboundDeclared = network.contains(QStringLiteral("outbound"));

@@ -283,3 +283,79 @@ def test_scaffolding_twice_is_refused_rather_than_doubling_the_console(tmp_path)
     addentity.scaffold(tmp_path, "ops", "monitor")
     with pytest.raises(addentity.AddEntityError):
         addentity.scaffold(tmp_path, "ops", "monitor")
+
+
+def _findings(config):
+    entities = {entity["name"]: entity for entity in config["entities"]}
+    return check._monitor_entity_messages(config, entities)
+
+
+def test_how_much_each_category_records_is_a_deployment_setting():
+    config = _config()
+    config["monitoring"]["levels"] = {"call": "debug", "data": "off"}
+    assert _findings(config) == []
+    # It reaches the entity through the resolved topology, so an operator turns a category
+    # up by changing configuration rather than by rebuilding. A monitoring system you must
+    # rebuild to switch on is useless during the incident you needed it for.
+    assert appmodel.trace_levels(config) == {"call": "debug", "data": "off"}
+
+
+def test_a_category_nobody_spelled_right_is_refused():
+    config = _config()
+    config["monitoring"]["levels"] = {"calls": "debug"}
+    findings = _findings(config)
+    # It fails as an empty console otherwise, which reads as a category with nothing in it.
+    assert any("unknown category 'calls'" in finding for finding in findings)
+
+
+def test_a_level_nobody_spelled_right_is_refused():
+    config = _config()
+    config["monitoring"]["levels"] = {"call": "verbose"}
+    findings = _findings(config)
+    assert any("unknown level 'verbose'" in finding for finding in findings)
+
+
+def test_the_levels_reach_a_reporting_entity_and_not_the_monitor(tmp_path):
+    config = _config()
+    config["monitoring"]["levels"] = {"call": "debug"}
+    topologywriter.write(tmp_path, config)
+    import json
+
+    edge = json.loads((tmp_path / "build" / "web" / "topology.json").read_text())
+    assert edge["monitoring"]["levels"] == {"call": "debug"}
+    # The monitor reports to nobody, so it grows neither a spool nor a level table.
+    monitor = json.loads((tmp_path / "build" / "ops" / "topology.json").read_text())
+    assert "monitoring" not in monitor
+
+
+def test_a_monitor_on_a_public_interface_has_to_say_so():
+    config = _config()
+    monitor = config["entities"][0]
+    monitor["public"] = {"host": "0.0.0.0", "port": 8444}
+    findings = _findings(config)
+    assert len(findings) == 1
+    # Reaching the console should mean reaching the machine first. Acknowledged rather than
+    # refused, because a deployment behind its own authenticating proxy is a real shape.
+    assert "reachable from off this machine" in findings[0]
+
+    config["monitoring"]["public"] = "acknowledged"
+    assert _findings(config) == []
+
+
+def test_the_application_client_cannot_consume_what_the_monitor_owns():
+    config = _config()
+    config["connect_points"] = [{"owner": "ops", "consumers": ["app"],
+                                 "export": "prop string headline\n"}]
+    findings = _findings(config)
+    assert len(findings) == 1
+    # The whole record, behind the application's own scope vocabulary, delivered to whoever
+    # can sign in to the application.
+    assert "only client that may read one is its console" in findings[0]
+
+
+def test_the_console_client_may():
+    config = _config(extra=[{"name": "ops-console", "type": "client", "console": True,
+                             "edge": "ops"}])
+    config["connect_points"] = [{"owner": "ops", "consumers": ["ops-console"],
+                                 "export": "prop string headline\n"}]
+    assert _findings(config) == []

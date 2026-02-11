@@ -74,6 +74,12 @@ public:
     void setLevel(Category category, Severity minimum);
     Severity level(Category category) const;
 
+    /// Record nothing at all in this category. Its own call rather than a severity above
+    /// `Fatal`, because "off" is not a severity. The sentinel that makes one comparison
+    /// cover both the level and the switch is an implementation detail of the hot path,
+    /// and a caller writing it out would be depending on that detail.
+    void setCategoryOff(Category category);
+
     void setSink(Sink sink);
 
     /// Deliver once `events` are waiting, or once `milliseconds` have passed with any

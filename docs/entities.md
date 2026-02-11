@@ -338,13 +338,14 @@ searches it, and `Log.info("saved " + count + " rows")` makes both a substring h
 
 The framework already records what it can see, which is links coming up, callers being
 refused and calls crossing. What it cannot see is why an entity did what it did, and that is
-usually the half an operator is looking for.
+usually the half an operator is looking for. Where all of it goes, and who may read it, is
+[monitoring](monitoring.md).
 
-Which entity said it is stamped by the runtime, past anything QML can reach, so an entity
-cannot claim to be another one. It costs nothing when nobody is listening: the level check
+The runtime stamps which entity said it, past anything QML can reach, so an entity
+cannot claim to be another one. It costs nothing when nobody is listening. The level check
 is a single atomic read, measured at 0.23 ns per call site
 ([the monitoring baseline](https://github.com/Kidev/SynQt/blob/main/benchmarks/README.md)).
-What an entity says is testable like anything else it does; see
+What an entity says is testable like anything else it does. See
 [asserting on what an entity said](testing.md#asserting-on-what-an-entity-said).
 
 ## Building a custom entity
