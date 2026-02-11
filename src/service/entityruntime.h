@@ -28,18 +28,11 @@ class ICacheProvider;
 class IDocumentProvider;
 class IPersistenceProvider;
 
-/// The entry point for a service entity. From the resolved topology it derives this
-/// entity's owned and consumed connect points, brings up an owner (ConnectPointHost)
-/// for each owned connect point, opens a consumer link for each consumed connect point
-/// (and only those), and puts each owner it consumes from in QML scope under that owner's
-/// name, capitalized (owner `database` -> `Database.rows`).
-///
-/// An entity has one connect point, which is why the accessor is the whole address: there
-/// is no second name under it to say which of the owner's surfaces is meant.
-///
-/// Deny by default is structural on the consumer side (a link is opened only to an
-/// owner this entity consumes from) and enforced on the owner side by each
-/// ConnectPointHost against its consumer allowlist.
+/// The entry point for a service entity. From the resolved topology it brings up an owner
+/// (ConnectPointHost) for each owned connect point, opens a consumer link for each consumed
+/// one and no other, and puts each owner it consumes in QML scope under that owner's name,
+/// capitalized (owner `database` -> `Database.rows`). Each ConnectPointHost enforces its
+/// consumer allowlist.
 class EntityRuntime : public QObject
 {
     Q_OBJECT
@@ -51,14 +44,9 @@ public:
     bool start();
     QString errorString() const;
 
-    /// Expose an accessor to every owned Source's QML context, alongside the ones this
-    /// runtime builds for the entity's type. Call it before start(): an owned connect
-    /// point's Source is created there, and a Source cannot be given context afterwards.
-    ///
-    /// This is how an entity contributes an engine of its own that the topology cannot
-    /// describe. The auth entity is the case that needs it. Its generated main hands the
-    /// Sources `IdentityEngine` (the OAuth engine holding the client secret and the tokens)
-    /// and `Sessions` (the authoritative session store), neither of which is a provider.
+    /// Expose an accessor to every owned Source's QML context, beside the type's own helpers.
+    /// Call it before start(), where the Sources are created. The auth entity uses it for
+    /// `IdentityEngine` and `Sessions`.
     void setContextObject(const QString &name, QObject *object);
 
     QList<ConnectPointHost *> ownedHosts() const;
@@ -79,15 +67,10 @@ public:
 signals:
     void connectionRefused(const QString &connectPoint, const QString &entity);
 
-    /// A consumed connect point's Replica has finished initializing, so its signals and
-    /// slots exist and it can be handed to code that connects to them by name. A dynamic
-    /// Replica builds its metaobject on initialization, so a connect made before this
-    /// arrives silently matches nothing.
-    ///
-    /// The QML accessor (`<Owner>`) needs none of this, which is why it took a
-    /// signal to add: C++ that adopts a Replica does. A generated edge uses it to attach
-    /// the auth entity's Identity and SessionStore Replicas to its IdentityProvider and
-    /// SessionManager. Emitted again after a reconnect, since that is a new Replica.
+    /// A consumed connect point's Replica has finished initializing, so C++ can connect to its
+    /// signals and slots by name (a dynamic Replica builds its metaobject on initialization).
+    /// A generated edge attaches the auth entity's Replicas here. Emitted again after a
+    /// reconnect.
     void consumedReplicaReady(const QString &owner, const QString &connectPoint,
                               QObject *replica);
 
@@ -115,6 +98,9 @@ private:
     QHash<QString, QObject *> m_accessors;
     /// The monitoring client, when this entity reports to a monitor. Null otherwise.
     IngestClient *m_ingest{nullptr};
+    /// Whether this runtime is the one that installed the tracer's sink, so the
+    /// destructor clears that sink and never one somebody else owns.
+    bool m_installedSink{false};
     QHash<QString, QObject *> m_consumedReplicas;
     /// The node currently carrying each consumed connect point, so a link that comes back
     /// up replaces what it had rather than adding to it. Keyed like m_consumedReplicas.

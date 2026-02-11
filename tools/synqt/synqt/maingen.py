@@ -1565,7 +1565,9 @@ def render_monitor_main(config: Dict[str, Any], entity: Dict[str, Any],
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QFile>
+#include <QMetaObject>
 #include <QQmlEngine>
+#include <QVariantList>
 {export_qt_includes}
 using namespace SynQt;
 
@@ -1671,6 +1673,32 @@ int main(int argc, char *argv[])
         return service.signIn(who, password);
     }};
 {bundle_lines}{console_block}
+
+    // The monitor records itself, into its own store.
+    //
+    // Nothing else is watching this process: it owns `ingest`, so it has no monitor of its
+    // own to report to, and without this its own events -- an operator failing to sign in
+    // five hundred times, a reporting entity being refused, its console attaching -- would
+    // be recorded into nothing. Those are the events an operator most wants to find.
+    //
+    // Queued, never direct: the sink runs on the tracer's writer thread, and the store's
+    // QSqlDatabase belongs to the thread that opened it.
+    Tracer::instance()->setEnabled(true);
+    Tracer::instance()->setSink([&service](const QList<TraceEvent> &batch) {{
+        QVariantList rows;
+        rows.reserve(batch.size());
+        for (const TraceEvent &event : batch) {{
+            rows.append(event.toVariant());
+        }}
+        QMetaObject::invokeMethod(&service, "take", Qt::QueuedConnection,
+                                  Q_ARG(QVariantList, rows),
+                                  Q_ARG(QString, QStringLiteral("{name}")));
+    }});
+    // Cleared while `service` is still alive. The tracer is a function-local static, so it
+    // outlives main's own locals and its destructor can deliver one last batch.
+    QObject::connect(&app, &QCoreApplication::aboutToQuit, &app, []() {{
+        Tracer::instance()->setSink(Tracer::Sink{{}});
+    }});
 
     WebEdge edge{{config, &engine}};
     // The console's own gate, recorded like everything else the monitor sees. A refused

@@ -91,7 +91,21 @@ EntityRuntime::EntityRuntime(Topology topology, QQmlEngine *engine, QObject *par
 {
 }
 
-EntityRuntime::~EntityRuntime() = default;
+EntityRuntime::~EntityRuntime()
+{
+    // The sink this runtime installed holds a raw pointer to a child of this object, and
+    // the tracer outlives it: `Tracer::instance()` is a function-local static, so it is
+    // destroyed after main's own locals, and its destructor stops the writer thread, which
+    // can deliver one last batch on the way down. Without this that batch reaches an
+    // IngestClient that is already gone.
+    //
+    // Only the sink this runtime installed. Clearing unconditionally would silence one
+    // something else owns, which is the same reason buildIngest only ever enables the
+    // tracer and never disables it.
+    if (m_installedSink) {
+        Tracer::instance()->setSink(Tracer::Sink{});
+    }
+}
 
 bool EntityRuntime::buildTypeContext()
 {
@@ -258,6 +272,7 @@ void EntityRuntime::buildIngest()
     Tracer::instance()->setSink([ingest](const QList<TraceEvent> &batch) {
         ingest->publish(batch);
     });
+    m_installedSink = true;
     connect(this, &EntityRuntime::consumedReplicaReady, this,
             [this](const QString &, const QString &connectPoint, QObject *replica) {
         if (connectPoint == QLatin1String("ingest")) {
