@@ -330,6 +330,17 @@ read them.
   reclaimed. (Qt's QWebSocketServer does enforce its own 10 second default, but
   that class is used only in the transport spike, never on the edge.) The
   verifier's early rejection compounds this.
+
+  The window currently runs from the moment the socket is accepted and is cancelled
+  only by an upgrade request, so it applies to every connection rather than to
+  upgrade attempts alone. A browser that loads the page and then fetches the bundle
+  over the same connection is on that clock, and so is one it parks for reuse. Past
+  the window the edge resets the socket and records a refused upgrade that nobody
+  attempted. At ordinary speeds nothing runs that long and none of this shows. On a
+  link slow enough for the bundle transfer to pass the window, the transfer is cut
+  and the page does not load. Raising `security.handshake_timeout_ms` avoids that,
+  at the cost of giving a silent socket longer to hold a connection slot. This is a
+  defect and not the intended behaviour.
 - Connection caps. `security.max_connections_per_ip` (20) and
   `security.max_connections_global` (1000), applied inside the upgrade verifier, so
   a connection over the cap is refused before a socket exists.
