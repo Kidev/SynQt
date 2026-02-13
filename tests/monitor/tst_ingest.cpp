@@ -72,7 +72,12 @@ private slots:
         client.setReplica(&monitor);
 
         client.publish(events(3));
-        QCOMPARE(monitor.flattened().size(), 3);
+        // The publish is queued, which is not an implementation detail to work around
+        // here. A Replica belongs to the thread that acquired it, and the reporting path
+        // runs on the tracer's writer thread, so reaching into one directly is touching
+        // another thread's QObject state. What crosses is one metacall carrying a list
+        // that is already built, and this is where it is delivered.
+        QTRY_COMPARE(monitor.flattened().size(), 3);
         QCOMPARE(client.spooledEvents(), static_cast<qint64>(0));
     }
 
@@ -162,7 +167,7 @@ private slots:
         // longer. Splitting here is what keeps that refusal from meaning "lose 1300
         // events" the first time an entity has a busy second.
         client.publish(events(1300));
-        QCOMPARE(monitor.flattened().size(), 1300);
+        QTRY_COMPARE(monitor.flattened().size(), 1300);
         for (const QVariantList &batch : monitor.batches) {
             QVERIFY(batch.size() <= 512);
         }

@@ -1,0 +1,10 @@
+{
+    "name": "synqt-monitor-console-verify",
+    "version": "1.0.0",
+    "private": true,
+    "type": "module",
+    "description": "Playwright end-to-end test: the delivery gate, the operator sign-in, and the console running in a browser against the real monitor.",
+    "dependencies": {
+        "playwright": "^1.49.0"
+    }
+}

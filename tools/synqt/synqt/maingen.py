@@ -685,13 +685,18 @@ def render_client_main(config: Dict[str, Any], uri: str,
             f'    engine.rootContext()->setContextProperty(\n'
             f'        QStringLiteral("{cxx_string_literal(accessor)}"),\n'
             f'        client->server()->point(QStringLiteral("{cxx_string_literal(point)}")));')
+    # `Server` is the alias for the entity that served this page, which is a web edge for
+    # an application client and the monitor for its console: both are browser-facing
+    # servers, and a console written against `Server` is written against the same accessor
+    # every other client uses.
     edge_point = next((appmodel.point_name(cp) for cp in consumed
-                       if appmodel.is_edge(by_name.get(str(cp.get("owner") or ""), {}))), "")
+                       if appmodel.serves_browser(by_name.get(str(cp.get("owner") or ""),
+                                                              {}))), "")
     server_line = (
         '    engine.rootContext()->setContextProperty(QStringLiteral("Server"),\n'
         f'        client->server()->point(QStringLiteral("{cxx_string_literal(edge_point)}")));'
         if edge_point else
-        '    // No edge to alias as Server yet.')
+        '    // Nothing browser-facing to alias as Server yet.')
     owner_accessors = "\n".join(accessor_lines)
     route_list = ",\n                     ".join(
         _route_literal(r, uri) for r in routes)
@@ -1438,6 +1443,34 @@ QUICK_TEST_MAIN_WITH_SETUP(synqt_app_tests, SynQtTestSetup)
 """
 
 
+def _monitor_bundle_defaults(config: Dict[str, Any], entity: Dict[str, Any]) -> str:
+    """Where each scope's files land for this project, as `<scope>=<dir>` literals.
+
+    The same resolution `synqt dev` uses (run._bundle_arguments): a value holding a `/` is
+    a folder inside the monitor's own directory, a bare name is a client entity and
+    resolves to wherever the build assembled that client. Baked as the option's defaults
+    rather than as the map itself, so a deployment that puts its files elsewhere passes
+    --bundle instead of fighting a compiled-in path.
+    """
+    clients = {str(one.get("name") or ""): one for one in appmodel.entities(config)
+               if appmodel.is_client(one)}
+    folder = appmodel.entity_dir(entity)
+    literals: List[str] = []
+    for scope, (kind, value) in sorted(appmodel.bundles_for(config, entity).items()):
+        if kind == appmodel.BUNDLE_STATIC:
+            directory = f"{folder}/{value.rstrip('/')}"
+        else:
+            client = clients.get(value)
+            if client is None:
+                # Refused by `synqt check`. Skipped rather than baking a path no build
+                # ever writes.
+                continue
+            directory = appmodel.bundle_output_dir(config, client)
+        literals.append(f'QStringLiteral("{cxx_string_literal(scope)}='
+                        f'{cxx_string_literal(directory)}")')
+    return ",\n                                         ".join(literals)
+
+
 def _monitor_exporters(entity: Dict[str, Any]) -> Tuple[str, str, str]:
     """The cold tier, from the monitor entity's `export:` block.
 
@@ -1512,6 +1545,7 @@ def render_monitor_main(config: Dict[str, Any], entity: Dict[str, Any],
     max_age = int(retention.get("max_age_days", 14))
     max_bytes = int(retention.get("max_bytes", 512 * 1024 * 1024))
     export_block, export_includes, export_qt_includes = _monitor_exporters(entity)
+    bundle_defaults = _monitor_bundle_defaults(config, entity)
 
     console = next((cp for cp in appmodel.owned_by(config, name)
                     if appmodel.point_name(cp) == appmodel.MONITOR_CONSOLE_POINT), None)
@@ -1531,10 +1565,6 @@ def render_monitor_main(config: Dict[str, Any], entity: Dict[str, Any],
     else:
         console_block = "    // No console client, so nothing browser-facing to host."
 
-    bundle_lines = "".join(
-        f'    config.bundles.insert(QStringLiteral("{cxx_string_literal(scope)}"),\n'
-        f'                          QStringLiteral("{cxx_string_literal(value)}"));\n'
-        for scope, value in (entity.get("bundles") or {}).items())
 
     return f"""{_HEADER_CPP}
 // The {name} monitor entity: it keeps every entity's record and serves the operator
@@ -1593,8 +1623,21 @@ int main(int argc, char *argv[])
         QStringLiteral("TLS certificate for the console."), QStringLiteral("file")}};
     const QCommandLineOption keyOption{{QStringLiteral("key"),
         QStringLiteral("TLS private key for the console."), QStringLiteral("file")}};
+    // Where each scope's files are, as <scope>=<dir>, exactly as a web edge takes
+    // them. Paths and not names: `bundles:` in synqt.yaml says which client or which folder
+    // a scope is served, and only the build knows where that landed (see
+    // run._bundle_arguments). A main that baked the names would be a console nothing could
+    // ever deliver.
+    const QCommandLineOption bundleOption{{QStringLiteral("bundle"),
+        QStringLiteral("Files served to one scope, as <scope>=<dir>."),
+        QStringLiteral("scope=dir")}};
+    // Defaulted to where this project's build puts them, project-root relative,
+    // exactly as --topology and --store are. That is what makes `synqt serve` work
+    // with no arguments. `synqt dev` passes absolute ones over the top.
+    QCommandLineOption bundleWithDefaults{{bundleOption}};
+    bundleWithDefaults.setDefaultValues({{{bundle_defaults}}});
     parser.addOptions({{topologyOption, qmlDirOption, storeOption, portOption, certOption,
-                       keyOption}});
+                       keyOption, bundleWithDefaults}});
     parser.process(app);
 
     // The operator credentials, from this entity's own environment. Never from synqt.yaml,
@@ -1672,7 +1715,18 @@ int main(int argc, char *argv[])
     config.signIn = [&service](const QString &who, const QString &password) {{
         return service.signIn(who, password);
     }};
-{bundle_lines}{console_block}
+    for (const QString &bundle : parser.values(bundleWithDefaults)) {{
+        const qsizetype separator{{bundle.indexOf(QLatin1Char('='))}};
+        if (separator < 0) {{
+            // A bare directory is the one-bundle shorthand. Not what a scaffolded monitor
+            // passes, which always names both scopes, but a monitor serving only a console
+            // to everyone on a machine nobody else can reach is a shape somebody will run.
+            config.bundleDir = bundle;
+            continue;
+        }}
+        config.bundles.insert(bundle.left(separator), bundle.mid(separator + 1));
+    }}
+{console_block}
 
     // The monitor records itself, into its own store.
     //

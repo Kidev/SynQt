@@ -10,6 +10,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QMetaObject>
+#include <QMutexLocker>
 #include <QSaveFile>
 #include <QVariantList>
 
@@ -54,7 +55,10 @@ IngestClient::~IngestClient() = default;
 
 void IngestClient::setReplica(QObject *replica)
 {
-    m_replica = replica;
+    {
+        QMutexLocker locker{&m_replicaMutex};
+        m_replica = replica;
+    }
     if (replica != nullptr) {
         replay();
     }
@@ -75,14 +79,29 @@ void IngestClient::publish(const QList<TraceEvent> &batch)
 
 bool IngestClient::send(const QList<TraceEvent> &batch)
 {
-    if (m_replica.isNull()) {
+    QObject *replica{nullptr};
+    {
+        QMutexLocker locker{&m_replicaMutex};
+        replica = m_replica.data();
+    }
+    if (replica == nullptr) {
         return false;
     }
     // Fire and forget, by name: this library knows nothing of the generated Ingest
-    // replica's type, and a monitor is a consumer like any other. A queued call would put
-    // the batch on the entity's event loop, which is the one thread monitoring may not
-    // touch, so it is direct: the Replica's write goes straight down its own socket.
-    return QMetaObject::invokeMethod(m_replica.data(), "publish", Qt::DirectConnection,
+    // replica's type, and a monitor is a consumer like any other.
+    //
+    // Queued, and this is not a preference. A Replica belongs to the thread that acquired
+    // it, which is the entity's; calling into it from the writer thread starts and stops
+    // that thread's timers, which is undefined behaviour and which Qt reports as
+    // "QObject::killTimer: Timers cannot be stopped from another thread". The expensive
+    // half stays here: `toVariants` runs on this thread, so what crosses is one metacall
+    // carrying a list that is already built, and the entity's loop only hands it to a
+    // socket.
+    //
+    // True on a successful hand-off rather than on delivery: a queued call returns before
+    // anything is sent, so there is no answer to wait for. The case the spool exists for
+    // is the one above, where there is no replica at all.
+    return QMetaObject::invokeMethod(replica, "publish", Qt::QueuedConnection,
                                      Q_ARG(QVariantList, toVariants(batch)));
 }
 

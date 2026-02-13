@@ -45,15 +45,32 @@ WARN = "#e6b450"
 BAD = "#ff6b6b"
 
 
-def monitor_block(name: str) -> Dict[str, Any]:
+def free_port(config: Dict[str, Any]) -> int:
+    """A port no browser-facing entity in this project already has.
+
+    A project gains its second browser-facing server the moment it gains a monitor: the
+    edge serves the application, the monitor serves its console. Both would default to 8443
+    and the first `synqt dev` afterwards would fail to bind one of them, so the scaffolder
+    steps past what is taken rather than writing a collision for `synqt check` to report.
+    """
+    taken = {int(appmodel.public_settings(entity).get("port") or 0)
+             for entity in appmodel.entities(config)
+             if appmodel.serves_browser(entity)}
+    port = 8443
+    while port in taken:
+        port += 1
+    return port
+
+
+def monitor_block(name: str, config: Dict[str, Any] | None = None) -> Dict[str, Any]:
     """The monitor entity's own entry in `synqt.yaml`."""
     return {
         "name": name,
         "type": "monitor",
         # Loopback by default, and said out loud in the scaffold. A console that shows every
         # request a system has served is not something to put on a public interface because
-        # nobody thought about it; reaching it should mean reaching the machine first.
-        "public": {"host": "127.0.0.1", "port": 8443},
+        # nobody thought about it. Reaching it should mean reaching the machine first.
+        "public": {"host": "127.0.0.1", "port": free_port(config or {})},
         "retention": {"max_age_days": 14, "max_bytes": 512 * 1024 * 1024},
     }
 
@@ -158,14 +175,19 @@ def console_qml(monitor: str) -> str:
     contract as a string, a number or a bool, so nothing here knows what the system it is
     watching is made of, and a project that adds an entity does not rebuild it.
     """
-    accessor = f"{monitor[:1].upper()}{monitor[1:]}"
+    # The attached-handler name is the CONTRACT, not the owner: `<Contract>.on<Signal>` is
+    # what the consumer facade registers as a QML type (see synqtc's consumer output). For
+    # the monitor's console point that is the framework's own `Console`, whatever the
+    # monitor entity is called, which is the same reason this file does not change when the
+    # topology does.
+    accessor = appmodel.MONITOR_CONSOLE_CONTRACT
     return f'''// SPDX-FileCopyrightText: 2026 Alexandre \'kidev\' Poumaroux
 // SPDX-License-Identifier: Apache-2.0
 
 // The monitoring console. One page: what every entity is doing right now, what the monitor
 // itself is doing, and a way to ask a different question.
 //
-// `Server` is the monitor, which is this client\'s edge; `{accessor}` names its contract, which
+// `Server` is the monitor, which is this client\'s edge; `{accessor}` is its contract, which
 // is what an attached signal handler is written against. Every value shown arrives through
 // the framework\'s own `Console` contract, so this file knows nothing about the system it
 // watches.
@@ -455,7 +477,8 @@ ApplicationWindow {{
     }}
 
     // What the last question could not answer, said to the operator who asked it. The
-    // attached handler names the contract, which is the monitor\'s own name.
+    // attached handler names the contract, which is the framework\'s own and not this
+    // monitor\'s, so this line is the same in every project.
     {accessor}.onRefused: reason => {{
         search.placeholderText = reason;
     }}
@@ -487,7 +510,7 @@ def scaffold(project_dir: os.PathLike[str] | str, name: str) -> str:
         if taken in existing:
             raise addentity.AddEntityError(f"an entity named '{taken}' already exists")
 
-    monitor = monitor_block(name)
+    monitor = monitor_block(name, config)
     monitor["bundles"] = bundles_block(console)
     if not config_path.exists():
         config_path.write_text("entities: []\n")
@@ -525,9 +548,12 @@ def scaffold(project_dir: os.PathLike[str] | str, name: str) -> str:
         f"Monitor '{name}' scaffolded, with its console client '{console}'.",
         "",
         f"  - {appmodel.entity_dir(monitor)}/ keeps the history and serves the console on",
-        "    127.0.0.1:8443. It listens on loopback because a console that shows every",
-        "    request a system has served is not something to expose by default; reaching it",
-        "    should mean reaching the machine first, through a VPN or an SSH tunnel.",
+        f"    127.0.0.1:{monitor['public']['port']}. It listens on loopback because a "
+        "console that",
+        "    shows every request a system has served is not something to expose by "
+        "default;",
+        "    reaching it should mean reaching the machine first, through a VPN or an SSH",
+        "    tunnel.",
         f"  - {appmodel.entity_dir(console_entity)}/Main.qml is the console. It reads the",
         "    framework's own Console contract, so it does not change when your topology does.",
         f"  - {appmodel.entity_dir(monitor)}/signin/ is what an anonymous visitor gets. The",

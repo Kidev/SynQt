@@ -382,6 +382,7 @@ def validate(config: Dict[str, Any], *, release: bool = False,
                 f"error: client '{name}' has no web_edge entity to reach; the browser can "
                 "only reach a web edge (see https://synqt.org/entities/)")
 
+    messages += _public_port_messages(entities)
     messages += _entity_type_messages(declared)
     messages += _network_messages(declared)
     messages += _shared_messages(declared)
@@ -1060,6 +1061,38 @@ def _monitor_entity_messages(config: Dict[str, Any],
     messages += _monitor_export_messages(owner, entity)
     messages += _monitor_reach_messages(config, owner, entity)
     messages += _monitor_consumer_messages(config, owner, entities)
+    return messages
+
+
+def _public_port_messages(entities: Dict[str, Any]) -> List[str]:
+    """Two browser-facing entities cannot both have the port.
+
+    A project gains a second one the moment it gains a monitor: the edge serves the
+    application and the monitor serves its console, each on its own server. Both default to
+    8443, because neither scaffolder knows the other ran, so the first `synqt dev` after
+    adding a monitor fails to bind and the entity that lost the race is simply missing.
+    Said here, where the whole topology is in view, rather than left to a bind error naming
+    one process.
+    """
+    seen: Dict[Tuple[str, int], str] = {}
+    messages: List[str] = []
+    for name in sorted(entities):
+        entity = entities[name]
+        if not appmodel.serves_browser(entity):
+            continue
+        public = appmodel.public_settings(entity)
+        port = int(public.get("port") or 0)
+        if port == 0:
+            continue
+        host = str(public.get("host") or "127.0.0.1")
+        taken = seen.get((host, port))
+        if taken is not None:
+            messages.append(
+                f"error: entities '{taken}' and '{name}' both serve browsers on "
+                f"{host}:{port}; only one of them can bind it, so give one a port of its "
+                "own (public.port)")
+            continue
+        seen[(host, port)] = name
     return messages
 
 

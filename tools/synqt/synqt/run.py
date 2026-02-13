@@ -211,6 +211,15 @@ def dev_command(root: Path, entity: Dict[str, Any], config: Dict[str, Any],
         return ([binary] + _bundle_arguments(root, entity, config)
                 + ["--qml-dir", str(root / appmodel.GENERATED_DIR),
                    "--port", str(port), "--dev"])
+    if appmodel.entity_type(entity) == "monitor":
+        # Both halves: the mesh point it hosts needs its topology and the Source QML the
+        # generator mirrored under generated/, and the console it serves needs the same
+        # bundle arguments an edge gets. Its own port, from `public:`, because it is a
+        # second browser-facing server and must not be handed the edge's.
+        return ([binary, "--topology", str(root / "build" / name / "topology.json"),
+                 "--qml-dir", str(root / appmodel.GENERATED_DIR),
+                 "--port", str(appmodel.public_settings(entity).get("port") or 8443)]
+                + _bundle_arguments(root, entity, config))
     command = [binary, "--topology", str(root / "build" / name / "topology.json")]
     # A service that declares pragma-Singleton QML resolves it against the mirror under
     # generated/, which is where the loadable copy of every entity's QML lives.

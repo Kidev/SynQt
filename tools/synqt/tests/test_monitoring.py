@@ -359,3 +359,88 @@ def test_the_console_client_may():
     config["connect_points"] = [{"owner": "ops", "consumers": ["ops-console"],
                                  "export": "prop string headline\n"}]
     assert _findings(config) == []
+
+
+def test_two_browser_facing_entities_cannot_share_a_port():
+    entities = {
+        "web": {"name": "web", "type": "web_edge",
+                "public": {"host": "127.0.0.1", "port": 8443}},
+        "ops": {"name": "ops", "type": "monitor",
+                "public": {"host": "127.0.0.1", "port": 8443}},
+    }
+    findings = check._public_port_messages(entities)
+    # Only one of them binds it, so the other is missing from the first `synqt dev`
+    # after a monitor was added, with nothing but a bind error naming one process.
+    assert len(findings) == 1
+    assert "both serve browsers on 127.0.0.1:8443" in findings[0]
+
+    entities["ops"]["public"]["port"] = 8444
+    assert check._public_port_messages(entities) == []
+
+
+def test_the_scaffolder_steps_past_a_port_the_edge_already_has(tmp_path):
+    from synqt import addentity, monitorscaffold
+    import yaml
+
+    (tmp_path / "synqt.yaml").write_text(
+        "entities:\n"
+        "  - name: web\n"
+        "    type: web_edge\n"
+        "    public:\n"
+        "      host: 127.0.0.1\n"
+        "      port: 8443\n")
+    addentity.scaffold(tmp_path, "ops", "monitor")
+    config = yaml.safe_load((tmp_path / "synqt.yaml").read_text())
+    monitor = next(e for e in config["entities"] if e["name"] == "ops")
+    # Written free rather than written colliding for `synqt check` to report afterwards.
+    assert monitor["public"]["port"] == 8444
+    assert monitorscaffold.free_port(config) == 8445
+
+
+def test_the_monitor_is_told_where_the_bundles_are_and_not_what_they_are_called():
+    from synqt import maingen
+
+    config = {
+        "project": {"name": "demo"},
+        "monitoring": {"entity": "ops"},
+        "entities": [
+            {"name": "ops", "type": "monitor",
+             "bundles": {"anonymous": "signin/", "operator": "ops-console"}},
+            {"name": "app", "type": "client"},
+            {"name": "ops-console", "type": "client", "console": True, "edge": "ops"},
+        ],
+    }
+    source = maingen.render_monitor_main(config, config["entities"][0])
+    # `bundles:` names a folder or a client entity. Only the build knows where either
+    # landed. A main that baked those names would be a console nothing could deliver.
+    assert '"anonymous=monitor/ops/signin"' in source
+    assert '"operator=build/client-ops-console"' in source
+    # And they are the option's defaults, not the map, so a deployment that puts its files
+    # elsewhere passes --bundle rather than fighting a compiled-in path.
+    assert "bundleWithDefaults.setDefaultValues" in source
+    assert 'parser.values(bundleWithDefaults)' in source
+
+
+def test_synqt_dev_launches_a_monitor_with_its_own_port_and_its_bundles():
+    from pathlib import Path
+    from synqt import run
+
+    config = {
+        "project": {"name": "demo"},
+        "monitoring": {"entity": "ops"},
+        "entities": [
+            {"name": "ops", "type": "monitor",
+             "public": {"host": "127.0.0.1", "port": 8444},
+             "bundles": {"anonymous": "signin/", "operator": "ops-console"}},
+            {"name": "app", "type": "client"},
+            {"name": "ops-console", "type": "client", "console": True, "edge": "ops"},
+        ],
+    }
+    command = run.dev_command(Path("/p"), config["entities"][0], config, 8080)
+    # Its own port, from `public:`. The 8080 above is the edge's, and handing it to a
+    # second browser-facing server is the collision this rule exists to avoid.
+    assert "--port" in command and command[command.index("--port") + 1] == "8444"
+    assert "anonymous=/p/monitor/ops/signin" in command
+    assert "operator=/p/build/client-ops-console" in command
+    # Both halves: it hosts a mesh point as well as serving a console.
+    assert "--topology" in command and "--qml-dir" in command

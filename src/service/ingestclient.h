@@ -7,6 +7,7 @@
 #include "traceevent.h"
 
 #include <QList>
+#include <QMutex>
 #include <QObject>
 #include <QPointer>
 #include <QString>
@@ -35,7 +36,12 @@ namespace SynQt {
 ///    went is reported to the monitor when it returns, so the gap is visible as a gap.
 ///
 /// Everything here runs on the tracer's writer thread, which is where the sink is called,
-/// so the entity's own event loop never touches this.
+/// so the entity's own event loop is left alone. The one thing that has to cross back is
+/// the publish itself. A Replica belongs to the thread that acquired it, and reaching into
+/// one from here would be touching another thread's QObject state (Qt says so, loudly:
+/// "Timers cannot be stopped from another thread"). So the batch is serialized here, where
+/// the cost is, and handed over queued. The entity's loop pays one metacall to give an
+/// already-built list to a socket.
 class IngestClient : public QObject
 {
     Q_OBJECT
@@ -67,6 +73,9 @@ private:
     void replay();
     void trim();
 
+    /// Read on the writer thread and written on the entity's, so it is guarded. A raw
+    /// QPointer read across threads is a race whatever the pointer is worth.
+    mutable QMutex m_replicaMutex;
     QPointer<QObject> m_replica;
     QString m_spoolPath;
     qint64 m_spoolCapBytes{0};

@@ -494,9 +494,9 @@
     {
       "id": "monitor-console-bundle-fetch",
       "what": "A visitor with no operator session downloads the monitoring console bundle and reads it, or reaches its connect point directly, learning what the system is made of and what it has been doing.",
-      "defended_by": "The console is delivered through `bundles:`, so an anonymous caller is handed a static sign-in page and the console bundle is not addressable to them at all (404, not 403). Its connect point is gated on `operator`, which only the monitor's own password gate grants, and the monitor listens on loopback by default.",
-      "file": "tools/synqt/tests/test_monitoring.py",
-      "test": "test_scaffolding_a_monitor_writes_all_four_things_it_is_made_of"
+      "defended_by": "The console is delivered through `bundles:`, so an anonymous caller is handed a static sign-in page and the console bundle is not addressable to them at all (404, not 403). Its connect point is gated on `operator`, which only the monitor's own password gate grants, and the monitor listens on loopback by default. Proven in a real browser against a real monitor, not only as a string: tests/monitor-console fetches the console's files as an anonymous visitor and asserts 404 on each.",
+      "file": "tests/monitor-console/verify/verify.mjs",
+      "test": "theConsoleBundleIsNotAddressableToAnAnonymousCaller"
     },
     {
       "id": "second-client-session-field",

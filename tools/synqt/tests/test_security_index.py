@@ -46,10 +46,14 @@ def test_every_attack_names_a_test_that_exists(attack):
     assert source.is_file(), f"{attack['id']}: {attack['file']} is not in the repository"
     text = source.read_text(encoding="utf-8")
     name = re.escape(attack["test"])
-    # A Qt private slot (`void name()`) or a pytest function (`def name(`), the latter at
-    # any indentation, because a pytest test is as often a method on a class as a bare
-    # function. Still anchored to the declaration and not to the name appearing anywhere.
-    declared = re.search(rf"(?:void\s+{name}\s*\()|(?:^\s*def\s+{name}\s*\()",
+    # A Qt private slot (`void name()`), a pytest function (`def name(`) at any
+    # indentation, because a pytest test is as often a method on a class as a bare
+    # function, or a JavaScript function in a browser harness (`async function name(`),
+    # because a proof that only a browser can carry out is a test like any other. Still
+    # anchored to the declaration and not to the name appearing anywhere.
+    declared = re.search(rf"(?:void\s+{name}\s*\()"
+                         rf"|(?:^\s*def\s+{name}\s*\()"
+                         rf"|(?:^\s*(?:async\s+)?function\s+{name}\s*\()",
                          text, re.MULTILINE)
     assert declared, (f"{attack['id']}: {attack['file']} declares no test named "
                       f"{attack['test']!r}. If it was renamed, rename it here too; if it "
