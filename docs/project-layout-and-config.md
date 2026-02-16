@@ -658,10 +658,9 @@ safe one. The limits are whole numbers, and a limit of zero is refused rather th
 read as "no limit" (the caps are compared with `>=`, so zero would refuse the first
 connection).
 
-`handshake_timeout_ms` needs one warning before you tune it. The window currently
-applies to every accepted connection rather than to upgrade attempts alone, so on a
-link slow enough for the bundle transfer to run past it, the transfer is cut and the
-page fails to load. See [denial of service and resource
+`handshake_timeout_ms` is how long an accepted socket may stay silent. The first byte
+the peer sends cancels it, so it bounds a connection that arrives and says nothing and
+never a transfer in progress. See [denial of service and resource
 limits](security.md#denial-of-service-and-resource-limits).
 
 Under `origin_model: split_origin` you list the client origin here yourself, and the

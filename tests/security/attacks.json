@@ -200,7 +200,7 @@
     {
       "id": "half-open-handshake",
       "what": "A peer connects and never finishes the upgrade, holding a socket for free.",
-      "defended_by": "A timer per pending upgrade closes it at security.handshake_timeout_ms.",
+      "defended_by": "A timer per accepted socket closes one that has sent nothing by security.handshake_timeout_ms.",
       "file": "tests/m5-webedge/tst_m5.cpp",
       "test": "stalledUpgradeClosed"
     },

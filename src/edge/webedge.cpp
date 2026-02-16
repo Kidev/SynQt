@@ -1021,6 +1021,17 @@ void WebEdge::trackPendingUpgrade(QAbstractSocket *socket)
         emit upgradeRejected(QStringLiteral("handshake timeout"));
         socket->abort();
     });
+    // Only a peer that connects and then says nothing is on this clock. The browser fetches
+    // the page, the loader and the bundle over the same connection it would upgrade on, so a
+    // deadline that outlived the first byte cut ordinary transfers part-way through and
+    // recorded a refusal nobody made. What the window still covers is the socket that
+    // arrives and stays silent; a peer that speaks and then stalls is bounded by the per-IP
+    // and global connection caps instead. The observer takes itself off after the first
+    // byte, because a request body would otherwise run it once per chunk for nothing.
+    connect(socket, &QIODevice::readyRead, timer, [socket, timer]() {
+        timer->stop();
+        disconnect(socket, &QIODevice::readyRead, timer, nullptr);
+    });
     // The entry has to go when the socket does (a peer that hangs up mid-handshake never
     // reaches verifyUpgrade), but watching the socket's own destroyed() is what made every
     // closed connection print "wildcard call disconnects from destroyed signal of
