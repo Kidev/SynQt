@@ -184,26 +184,37 @@ Growth measure(int warmupCycles, int measuredCycles, const std::function<bool()>
 /// the smallest thing any of these cycles could leak is a QObject, and an empty QObject
 /// with its private data is already about 100 bytes before the connection lists, timers,
 /// nodes and sockets that hang off the ones here. This is only half the budget, though,
-/// and on the depths used here it is the smaller half; see AllowedFixedBytes for what the
-/// suite can really resolve.
+/// and on the depths used here it is the smaller half. See AllowedFixedBytes for what the
+/// suite can resolve.
 constexpr qint64 AllowedBytesPerCycle{64};
 
-/// Room for a one-time cost that lands inside the measured window rather than before it.
+/// Room for the allocator's own shape, which is a sawtooth and not a line.
 ///
-/// The slope removes what is paid once and then never again, but only if it is paid before
-/// the measurement starts, and glibc does not schedule itself around this suite. The heap
-/// under the browser cycle was plotted every twenty cycles out to four hundred: it climbs
-/// in small steps, drops about 228 KB in one move somewhere past cycle 240, and ends 200 KB
-/// below where it began. Individual windows swing by up to 9 KB in either direction with no
-/// change to the code between runs. That is the floor this suite can actually see, so it is
-/// written down instead of being wished away, and it is what sets the real sensitivity.
-/// Calibrated by leaking a known amount into the browser cycle: 200 bytes a connection is
-/// caught, 128 is not. That is about one QObject with its private data, which is the
-/// smallest thing any of these cycles could retain, and every leak this framework has
-/// actually had retained more than that.
+/// Chased down rather than guessed at, because a slack constant nobody can explain is how a
+/// real leak gets waved through. Taking the browser cycle one rung at a time (nothing, a
+/// TLS connect and close, an accepted WebSocket upgrade, the transport on top of it, QtRO
+/// on top of that), the first two rungs read exactly zero and the third reads all of it. It
+/// is not anything the edge holds. Every one of its per-connection maps (pending timers,
+/// pending sockets, verified sessions, per-session Sources, per-IP counts) is empty at the
+/// end of every window, and forcing a QML garbage collection each cycle changes nothing.
+///
+/// It is glibc. Four thousand accepted upgrades sampled every two hundred: the heap climbs
+/// about 44 bytes a cycle, drops 223 KB in one move, climbs again, drops another 100 KB,
+/// climbs again. It oscillates inside a 260 KB band and ends 171 KB BELOW where it started,
+/// so there is nothing retained per connection to find. A window landing on a rising limb
+/// reads a few kilobytes. One spanning a drop reads -229 KB. This constant is that rising
+/// limb with room to spare, which is why a per-cycle budget cannot do this job alone.
+///
+/// It also sets the real sensitivity, so that is measured too rather than claimed: leaking
+/// a known amount into the browser cycle, 200 bytes a connection is caught and 128 is not.
+/// That is about one QObject with its private data, the smallest thing any of these cycles
+/// could retain, and every leak this framework has had retained more than that.
+/// What the sawtooth does cost is the other direction. A window that happens to span a drop
+/// would swallow a leak that size. Rare, and it errs towards a green run rather than a
+/// false alarm, so it is a known limit of the method and not a reason to distrust a red.
 constexpr qint64 AllowedFixedBytes{16384};
 
-/// The most this workload may keep: the floor, plus what each cycle is allowed.
+/// The most this workload may keep. The floor, plus what each cycle is allowed.
 qint64 budgetFor(const Growth &growth, qint64 allowedPerCycle)
 {
     return AllowedFixedBytes + (allowedPerCycle * growth.cycles);
