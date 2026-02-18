@@ -254,7 +254,7 @@ five commits without ever running.
 | [`remote-pages`](https://github.com/Kidev/SynQt/tree/main/tests/remote-pages)           | The framework's own `Pages` connect point and its page store. |
 | [`entity-test`](https://github.com/Kidev/SynQt/tree/main/tests/entity-test)            | The `SynQt.Test` harness an application's own QML tests use, driven against a Source written the way an application writes one. |
 | [`graphics`](https://github.com/Kidev/SynQt/tree/main/tests/graphics)               | The fallback for a browser with no WebGL: what the runtime net recognises, that it chains to the handler already installed, the notice, and the route guard. Its `tst_softwarebackend` renders each candidate type on the raster adaptation and counts pixels, which is what decides whether a type needs the accelerated pipeline rather than a reading of Qt's source. |
-| [`memory`](https://github.com/Kidev/SynQt/tree/main/tests/memory)                 | What a repeated workload leaves behind: browser connections, page loads, sessions, sign outs and mesh reconnects, each run many times over one long lived object, with the heap required to come back to where it started. The sign out case is measured as a difference against the same visit ending in a closed tab, because what it owns is the sign out path and not the cost of a visitor. Its `run-leakcheck.sh` runs the rest of the tree and the benchmarks under LeakSanitizer. |
+| [`memory`](https://github.com/Kidev/SynQt/tree/main/tests/memory)                 | What a repeated workload leaves behind: browser connections, page loads, sessions, sign outs and mesh reconnects, each run twice over one long lived object, with the second run required to keep no more than the first. The sign out case is measured as a difference against the same visit ending in a closed tab, because what it owns is the sign out path and not the cost of a visitor. Its `run-leakcheck.sh` runs the rest of the tree and the benchmarks under LeakSanitizer. |
 | [`monitor`](https://github.com/Kidev/SynQt/tree/main/tests/monitor)                | The event pipeline every entity carries and the choke points that feed it. Its `tst_pipeline` covers the record, the bounded ring that drops the oldest and counts what it dropped, the per category levels and the writer thread, and links Qt Core and Qt Test and nothing else, which is what keeps the pipeline out of the GPLv3 libraries. Its `tst_instrumentation` drives a real edge and a real session store and asserts both halves of each gate, plus that no credential reaches the record. Its `tst_export` holds the OTLP encoding to the field names OpenTelemetry publishes and proves a collector that is down costs the monitor no history and no time. |
 | [`wasm-quick3dphysics`](https://github.com/Kidev/SynQt/tree/main/tests/wasm-quick3dphysics)    | Qt Quick 3D Physics builds and loads on the WebAssembly kit. |
 | [`designer`](https://github.com/Kidev/SynQt/tree/main/tests/designer)               | The [designer](visual-editor.md) in a browser, which is the only place most of it exists: drawing a connect point, the diff behind Review, and Apply writing what the diff said. The second case serves the page with nothing behind it, under the site's own content policy, and is what proves the hosted copy still works and still asks for nothing off-origin. No Qt, only Chromium; run by [`tests.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/tests.yml). |
@@ -483,11 +483,22 @@ goes back to the operating system with it. So memory is its own question, asked 
 
 [`tests/memory`](https://github.com/Kidev/SynQt/tree/main/tests/memory) is the gate, and it
 runs with every other suite under `ctest`. Each test takes one long-lived object (a web
-edge, a session store, a consumer of a mesh link), runs the same cycle against it many
-times, and requires the heap to come back to where it started. It measures in bytes and
-warms up first, because the first pass through any path allocates what every later pass
-reuses; what it asserts is the difference between a warm system and the same warm system
-after doing the same work again.
+edge, a session store, a consumer of a mesh link) and runs the same cycle against it over
+two consecutive windows of equal length, requiring the second window to keep no more than
+the first. The slope and not the reading, because a process heap is not a straight line:
+under the browser cycle it climbs a few dozen bytes per connection, drops a couple of
+hundred kilobytes in one move, and climbs again, ending four thousand connections later
+below where it started. A check that compared the reading against zero, which is what this
+suite did until it was caught, fails a build that keeps nothing and passes one that keeps
+an object per connection. Two windows subtract that away: a one-time cost is paid in the
+first and not the second, and a leak is paid in both.
+
+The budget is a fixed floor plus an allowance per cycle, and both halves are measured
+rather than chosen. The floor is that rising limb with room to spare; the allowance is well
+under the smallest thing one of these cycles could retain. Together they resolve a leak of
+about two hundred bytes per connection, which the suite proves it can still see by leaking
+a known amount on purpose in `theBudgetCanTellALeakFromABusyProcess` before it measures
+anything real.
 
 Every leak this framework has actually had was perfectly
 reachable at the moment it mattered: a promise parented to a facade that lives as long as
