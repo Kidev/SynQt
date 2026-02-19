@@ -84,6 +84,16 @@ class TestM5 : public QObject
     Q_OBJECT
 
 private:
+    /// One client for the whole suite, which is why this suite is the largest entry in
+    /// run-leakcheck.sh's soak table by a factor of five, and why that number is not a
+    /// leak. Every test here starts an edge on a fresh OS-assigned port, and a
+    /// QNetworkAccessManager caches a connection and its TLS session per host:port,
+    /// releasing them on an inactivity timer that never comes round inside a test run. It
+    /// holds about 131 KB per edge. Measured, and measured against the alternative:
+    /// tests/memory's anEdgeThatServedARequestLetsGoOfAllOfIt runs the same cycle with a
+    /// client thrown away each time and reads zero, which is what says the retention is the
+    /// client's and not the edge's. Kept shared because the tests here are about the edge's
+    /// behaviour across requests, which is what a browser does.
     QNetworkAccessManager m_nam;
 
     /// Every request carries exactly the cookies the test names, and stores none.

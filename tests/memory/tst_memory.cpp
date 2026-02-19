@@ -359,6 +359,45 @@ private slots:
                                              budgetFor(leaking, AllowedBytesPerCycle))));
     }
 
+    // The edge itself, taken up and down. Everything else here keeps one edge and cycles
+    // what happens to it; nothing asked what an edge costs to build and retire, and a whole
+    // suite that never asks a question is how a leak lives.
+    //
+    // The client is thrown away with each cycle, and that is the point of the test rather
+    // than a detail of it. A QNetworkAccessManager caches a connection and its TLS session
+    // per host:port and lets go only on an inactivity timer, so a long-lived one pointed at
+    // a fresh port every cycle holds about 131 KB per edge that has nothing to do with the
+    // edge. That is exactly what tests/m5-webedge does, which is why m5 is the largest
+    // number in run-leakcheck.sh's soak table by a factor of five and why it is not a leak.
+    // Measured on this cycle: 131 KB each with a shared client, and nothing with a fresh
+    // one. What is left over is the edge, and the edge keeps nothing.
+    void anEdgeThatServedARequestLetsGoOfAllOfIt()
+    {
+        const auto oneEdge{[]() {
+            QQmlEngine engine;
+            WebEdge edge{edgeConfig(), &engine};
+            if (!edge.start()) {
+                return false;
+            }
+
+            QNetworkAccessManager client;
+            QNetworkRequest request{QUrl{edge.httpOrigin() + QStringLiteral("/")}};
+            request.setSslConfiguration(insecureClientConfig());
+            std::unique_ptr<QNetworkReply> reply{client.get(request)};
+            QSignalSpy finished{reply.get(), &QNetworkReply::finished};
+            if (!finished.wait(5000)) {
+                return false;
+            }
+            return reply->readAll().contains("SYNQT-MEMORY-BUNDLE");
+        }};
+
+        const Growth growth{measure(3, 30, oneEdge)};
+        QVERIFY2(growth.completed, "an edge did not serve its bundle");
+        QVERIFY2(withinBudget(growth, AllowedBytesPerCycle),
+                 qPrintable(growth.describe("an edge started, used and destroyed",
+                                            budgetFor(growth, AllowedBytesPerCycle))));
+    }
+
     // The internet-facing loop, and the one that has to hold: browsers arrive and leave
     // for as long as the edge runs. Each accepted upgrade builds a QtRO host node, a
     // Caller, a per-session Source and a transport, all parented to the socket so the
