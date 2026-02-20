@@ -1153,6 +1153,52 @@ private slots:
         QCOMPARE(rejectedSpy.count(), 0);
     }
 
+    void anOversizedBodyIsRefusedBeforeARouteSeesIt()
+    {
+        // Qt's own ceiling is 32 MiB, which is the right answer for a server that receives
+        // uploads and the wrong one for an edge whose own POST routes carry a token and a
+        // password field. Anyone who can reach the edge can post, so the ceiling is what
+        // decides how much an anonymous stranger may make it buffer.
+        QQmlEngine engine;
+        WebEdgeConfig config{makeConfig(false)};
+        config.maxBodyBytes = 4096;
+        WebEdge edge{config, &engine};
+        QVERIFY2(edge.start(), qPrintable(edge.errorString()));
+
+        QNetworkRequest request{QUrl{edge.httpOrigin() + QStringLiteral("/sign-in")}};
+        request.setSslConfiguration(insecureClientConfig());
+        request.setHeader(QNetworkRequest::ContentTypeHeader,
+                          QStringLiteral("application/x-www-form-urlencoded"));
+        QNetworkReply *reply{m_nam.post(request, QByteArray{16384, 'x'})};
+        QSignalSpy finished{reply, &QNetworkReply::finished};
+        QVERIFY(finished.wait(5000));
+        QCOMPARE(reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt(), 413);
+        reply->deleteLater();
+    }
+
+    void aFloodOfRequestsFromOneAddressIsRefused()
+    {
+        // Off unless a project asks for it, so this is the test that it is wired at all
+        // rather than accepted and dropped. What it counts is the peer, which is why
+        // `synqt check` refuses it on an edge that names a balancer.
+        QQmlEngine engine;
+        WebEdgeConfig config{makeConfig(false)};
+        config.maxRequestsPerSecond = 4;
+        WebEdge edge{config, &engine};
+        QVERIFY2(edge.start(), qPrintable(edge.errorString()));
+
+        int refused{0};
+        for (int attempt{0}; attempt < 12; ++attempt) {
+            QNetworkReply *reply{httpGet(edge.httpOrigin() + QStringLiteral("/"))};
+            QVERIFY(reply != nullptr);
+            if (reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt() == 429) {
+                ++refused;
+            }
+            reply->deleteLater();
+        }
+        QVERIFY2(refused > 0, "twelve requests in a second went through a limit of four");
+    }
+
     void oversizedFrameRejected()
     {
         QQmlEngine engine;

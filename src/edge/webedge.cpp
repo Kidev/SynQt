@@ -28,6 +28,7 @@
 #include <QUrlQuery>
 #include <QHttpHeaders>
 #include <QHttpServer>
+#include <QHttpServerConfiguration>
 #include <QHttpServerRequest>
 #include <QHttpServerResponse>
 #include <QHttpServerWebSocketUpgradeResponse>
@@ -52,6 +53,7 @@
 #include <QUuid>
 #include <QWebSocket>
 
+#include <chrono>
 #include <functional>
 #include <optional>
 #include <utility>
@@ -859,6 +861,23 @@ bool WebEdge::start()
 
     // 2. The HTTP server: serve the bundle, stamp headers, and verify upgrades.
     m_httpServer = new QHttpServer{this};
+
+    // Qt's own limits on the request, applied before anything of ours runs. Set here rather
+    // than left at their defaults because Qt picks for a general-purpose server: a 32 MiB
+    // body ceiling is right for one that receives uploads and generous for one whose own
+    // routes carry a token and a password field. The idle timeout is load-bearing rather
+    // than housekeeping, since it is what closes a peer that sends half a request and stops
+    // (docs/security.md says which of these covers what). Rate limiting stays off unless a
+    // project asks: Qt counts the peer address, which is the balancer's on every deployment
+    // that has one.
+    QHttpServerConfiguration httpConfiguration;
+    httpConfiguration.setKeepAliveTimeout(
+        std::chrono::seconds{m_config.keepAliveTimeoutSeconds});
+    httpConfiguration.setMaximumBodySize(m_config.maxBodyBytes);
+    if (m_config.maxRequestsPerSecond > 0) {
+        httpConfiguration.setRateLimitPerSecond(m_config.maxRequestsPerSecond);
+    }
+    m_httpServer->setConfiguration(httpConfiguration);
     if (m_config.serveClient) {
         m_httpServer->route(m_config.clientRoute, [this](const QHttpServerRequest &request) {
             const QString index{QDir{bundleFor(request)}

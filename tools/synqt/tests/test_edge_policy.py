@@ -66,6 +66,40 @@ class TestSecurityBlock(unittest.TestCase):
         self.assertIn("config.maxConnectionsGlobal = 50;", source)
         self.assertIn("config.maxMessageBytes = 65536;", source)
 
+    def test_the_http_limits_reach_the_edge(self):
+        # These are Qt's own knobs rather than the framework's, and Qt picks its defaults
+        # for a general-purpose server. A project that tightens them and finds them
+        # dropped on the way to the binary is worse off than one that never had them.
+        source = render(base_config(security={
+            "keep_alive_timeout_s": 5,
+            "max_requests_per_second": 30,
+            "max_body_bytes": 4096,
+        }))
+        self.assertIn("config.keepAliveTimeoutSeconds = 5;", source)
+        self.assertIn("config.maxRequestsPerSecond = 30;", source)
+        self.assertIn("config.maxBodyBytes = 4096;", source)
+
+    def test_the_body_ceiling_follows_what_the_entity_accepts(self):
+        # Derived rather than defaulted, because its right answer is whatever this entity
+        # receives. The API's own ceiling is checked after QHttpServer has read the body,
+        # so an edge left at Qt's 32 MiB would buffer thirty-two megabytes from a stranger
+        # in order to refuse it at one.
+        config = base_config()
+        edge_of(config)["network"] = {"inbound": {"routes": [{"path": "/v1/ping"}]}}
+        self.assertIn(f"config.maxBodyBytes = {maingen.API_DEFAULT_BODY_BYTES};",
+                      render(config))
+
+        config = base_config()
+        edge_of(config)["network"] = {"inbound": {"routes": [{"path": "/v1/ping"}],
+                                                 "max_body_bytes": 2048}}
+        self.assertIn("config.maxBodyBytes = 2048;", render(config))
+
+    def test_an_edge_that_receives_nothing_keeps_the_small_ceiling(self):
+        # No inbound block, so the only bodies are the edge's own sign-in and claim
+        # routes. The struct default covers those and nothing more, and saying so here
+        # would be a second copy of it.
+        self.assertNotIn("config.maxBodyBytes", render(base_config()))
+
     def test_an_undeclared_key_is_left_to_the_struct(self):
         # The defaults live once, in src/edge/webedgeconfig.h. Emitting them here too
         # would be a second copy to keep in step, and the generated main would stop

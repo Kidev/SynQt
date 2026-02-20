@@ -171,6 +171,33 @@ struct WebEdgeConfig
     int maxConnectionsGlobal{1000};
     qint64 maxMessageBytes{1048576};
 
+    /// Limits on the HTTP request itself, which QHttpServer enforces before a route runs.
+    ///
+    /// These are Qt's own knobs rather than the framework's, and they are set here because
+    /// Qt's defaults are chosen for a general-purpose server and this is not one. What is
+    /// left at Qt's value is what an edge has no reason to move. The URL and header ceilings
+    /// (64 KiB total, 48 KiB for one field, 128 fields), which no browser approaches and no
+    /// project has asked to change.
+    ///
+    /// How long a connection may sit idle before QHttpServer closes it. This is what ends a
+    /// peer that sends part of a request and stops, since the handshake window above lets go
+    /// at the first byte; see docs/security.md.
+    int keepAliveTimeoutSeconds{15};
+
+    /// Requests per second per peer address, or zero to leave Qt's rate limiting off, which
+    /// is the default and is deliberate. Qt counts the address it is connected to and knows
+    /// nothing of `X-Forwarded-For`, so behind a balancer every visitor shares one bucket
+    /// and a limit meant for one client throttles the whole site. `synqt check` refuses the
+    /// combination rather than letting a deployment find out in production.
+    quint32 maxRequestsPerSecond{0};
+
+    /// The largest request body the edge will accept, answered with 413 past it. Qt's own
+    /// default is 32 MiB, which is right for a server that receives uploads and wrong for
+    /// one whose own routes carry a token or a password field. An edge that declares
+    /// `network.inbound` is the first case and the generator writes Qt's value for it;
+    /// everything else gets this.
+    qint64 maxBodyBytes{65536};
+
     /// Peers whose `X-Forwarded-For` this edge believes, as addresses or CIDR ranges.
     ///
     /// Empty (the default) means the connecting peer IS the client, which is true of an

@@ -650,18 +650,46 @@ security:
   # unread: the edge caps each browser socket's read buffer at four times this, and
   # closes a connection that goes past it.
   max_message_bytes: 1048576
+
+  # The three below are Qt's own limits on the HTTP request, which the edge sets
+  # rather than leaving at the values Qt picked for a general-purpose server.
+  # How long a connection may sit idle before QHttpServer closes it.
+  keep_alive_timeout_s: 15
+  # Requests per second per peer. Zero, the default, leaves Qt's rate limiting off.
+  max_requests_per_second: 0
+  # The largest body the edge will read, answered with 413 past it. Left out, it is
+  # derived from what the entity accepts (see below).
+  # max_body_bytes: 65536
 ```
 
-Every key here is carried into the edge by `synqt build`, and only the keys the
-project writes: what a project leaves out keeps the framework default, which is the
+`synqt build` carries every key here into the edge, and only the keys the
+project writes. What a project leaves out keeps the framework default, which is the
 safe one. The limits are whole numbers, and a limit of zero is refused rather than
 read as "no limit" (the caps are compared with `>=`, so zero would refuse the first
-connection).
+connection). The one exception is `max_requests_per_second`, where zero is the word
+for "off" rather than a limit of none.
 
 `handshake_timeout_ms` is how long an accepted socket may stay silent. The first byte
 the peer sends cancels it, so it bounds a connection that arrives and says nothing and
-never a transfer in progress. See [denial of service and resource
-limits](security.md#denial-of-service-and-resource-limits).
+never a transfer in progress. `keep_alive_timeout_s` is what takes over from there: it
+is what closes a peer that sends part of a request and then stops. See [denial of
+service and resource limits](security.md#denial-of-service-and-resource-limits).
+
+`max_body_bytes` is derived when you leave it out, because its right answer is
+whatever this entity actually accepts. An edge with no `network.inbound` has only its
+own routes, which carry a session token and a password field, and gets 64 KiB. One
+that declares `network.inbound` gets the ceiling that block already names
+(`network.inbound.max_body_bytes`, 1 MiB by default). The derivation is worth knowing
+about rather than trusting blindly: the API's own limit is checked after QHttpServer
+has read the body, so an edge left at Qt's 32 MiB default would buffer thirty-two
+megabytes from a stranger in order to refuse it at one.
+
+`max_requests_per_second` is off by default and `synqt check` refuses it on an edge
+that names `public.trusted_proxies`. Qt counts the address it is connected to and has
+never heard of `X-Forwarded-For`, so behind a balancer every visitor shares one budget
+and the limit throttles the site rather than the flood. Rate-limit at the balancer
+instead. The edge's own `max_connections_per_ip` does not have this problem, because
+it counts the address `public.trusted_proxies` resolves.
 
 Under `origin_model: split_origin` you list the client origin here yourself, and the
 session cookie is issued `SameSite=None; Secure`, which the edge derives from

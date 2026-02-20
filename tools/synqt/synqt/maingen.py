@@ -23,6 +23,12 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from . import appmodel, clientbuild, clientcache, graphics
 
+#: What `ApiConfig::maxBodyBytes` starts at (src/gateway/apiconfig.h), which is the ceiling
+#: an entity with `network.inbound` accepts when its block does not name one. Kept here so
+#: the edge's own HTTP ceiling can be derived from it rather than guessed at. The two
+#: disagreeing means the server buffers what the API is going to refuse.
+API_DEFAULT_BODY_BYTES = 1048576
+
 _HEADER_CPP = ("// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux\n"
                "// SPDX-License-Identifier: Apache-2.0\n")
 
@@ -302,14 +308,31 @@ def _edge_policy_lines(config: Dict[str, Any], edge: Dict[str, Any]) -> List[str
     if "threads" in edge:
         lines.append(f"    config.socketThreads = {appmodel.threads(edge)};")
 
-    # Resource limits on the upgrade path.
+    # Resource limits on the upgrade path, and on the HTTP request underneath it.
     for key, field in (("handshake_timeout_ms", "handshakeTimeoutMs"),
                        ("max_connections_per_ip", "maxConnectionsPerIp"),
                        ("max_connections_global", "maxConnectionsGlobal"),
-                       ("max_message_bytes", "maxMessageBytes")):
+                       ("max_message_bytes", "maxMessageBytes"),
+                       ("keep_alive_timeout_s", "keepAliveTimeoutSeconds"),
+                       ("max_requests_per_second", "maxRequestsPerSecond"),
+                       ("max_body_bytes", "maxBodyBytes")):
         if key in security:
             lines.append(f"    config.{field} = "
                          f"{_int_literal('security.' + key, security[key])};")
+
+    # The body ceiling is derived rather than defaulted, because its right answer is
+    # whatever this entity accepts. An edge with no `network.inbound` has only its
+    # own routes, which carry a token and a password field, and keeps the framework's small
+    # default. One that does declare inbound gets the ceiling that block already names,
+    # which matters more than it looks. The API's own `max_body_bytes` is checked after
+    # QHttpServer has read the body, so leaving Qt at its 32 MiB would have the edge buffer
+    # thirty-two megabytes from a stranger in order to refuse it at one. Written only when
+    # the project did not say, so an explicit `security.max_body_bytes` always wins.
+    if "max_body_bytes" not in security and appmodel.serves_inbound(edge):
+        inbound = appmodel.inbound_settings(edge)
+        ceiling = (_int_literal("network.inbound.max_body_bytes", inbound["max_body_bytes"])
+                   if "max_body_bytes" in inbound else str(API_DEFAULT_BODY_BYTES))
+        lines.append(f"    config.maxBodyBytes = {ceiling};  // network.inbound accepts it")
     return lines
 
 

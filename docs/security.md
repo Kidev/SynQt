@@ -358,6 +358,25 @@ read them.
 - Message size cap. `security.max_message_bytes` (1 MiB) is set on each accepted
   browser socket as both the message and the frame limit, so an oversized frame is
   rejected as it arrives rather than after it is buffered.
+- Idle connection timeout. `security.keep_alive_timeout_s` (15) is QHttpServer's own,
+  and it is the limit that ends a peer which sends part of a request and then goes
+  quiet, since the handshake window above lets go at the first byte.
+- Request body cap. `security.max_body_bytes`, answered with 413. Anyone who can
+  reach the edge can post to it, so this is what decides how much a stranger may make
+  it buffer. Left out it is derived from what the entity accepts: 64 KiB for an edge
+  whose own routes carry a session token and a password field, and the ceiling
+  `network.inbound` already names for one that receives calls. Qt's own default is
+  32 MiB, which is the right answer for a general-purpose server rather than for this.
+- Request rate cap. `security.max_requests_per_second`, off unless a project sets it,
+  answered with 429. It is off by default because Qt counts the peer address and
+  knows nothing of `X-Forwarded-For`. On an edge facing the internet that is the
+  visitor, and behind a balancer it is one bucket for everybody, where a limit meant
+  to slow one client refuses the whole site. `synqt check` refuses the combination
+  rather than letting a deployment discover it under load.
+- Header and URL ceilings. Left at Qt's values (64 KiB of headers in total, 48 KiB
+  for one field, 128 fields, a 64 KiB URL), which no browser approaches. They are
+  named here because they are the only thing bounding a peer that dribbles a request
+  forever, and at one byte every few seconds that bound is days away.
 - Read buffer ceiling. Capping one frame does not cap their sum, so the transport
   also caps what one connection may hold unread: past the ceiling it discards the
   buffer and closes the connection, rather than letting a peer that sends faster

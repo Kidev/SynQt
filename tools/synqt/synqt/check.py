@@ -1154,6 +1154,43 @@ def _monitor_consumer_messages(config: Dict[str, Any], owner: str,
     return messages
 
 
+def _rate_limit_behind_a_balancer_messages(config: Dict[str, Any],
+                                           security: Dict[str, Any]) -> List[str]:
+    """Refuse `security.max_requests_per_second` on an edge that names a balancer.
+
+    Qt counts the address it is connected to and has never heard of `X-Forwarded-For`, so
+    the limit is per peer and not per visitor. That is the right thing on an edge facing the
+    internet and exactly the wrong thing behind a balancer, where every visitor arrives from
+    one address. A limit meant to slow down one client throttles the whole site at once, and
+    it does it under load, which is when nobody is reading configuration files.
+
+    The edge's own per-IP connection cap does not have this problem, because it counts the
+    address `public.trusted_proxies` resolves rather than the peer. This is refused instead
+    of taught the same trick because the counting happens inside Qt.
+    """
+    rate = security.get("max_requests_per_second")
+    if not isinstance(rate, int) or isinstance(rate, bool) or rate <= 0:
+        return []
+
+    messages: List[str] = []
+    for entity in appmodel.entities(config):
+        if not appmodel.serves_browser(entity):
+            continue
+        try:
+            proxies = appmodel.trusted_proxies(entity)
+        except appmodel.AppGenError:
+            continue
+        if not proxies:
+            continue
+        messages.append(
+            f"error: security.max_requests_per_second is {rate} and entity "
+            f"'{str(entity.get('name') or '?')}' names 'public.trusted_proxies'. Qt counts "
+            f"the peer, which is the balancer, so every visitor shares one budget and the "
+            f"limit refuses the site rather than the flood. Rate-limit at the balancer "
+            f"instead, or drop 'public.trusted_proxies' if nothing is in front")
+    return messages
+
+
 def _trace_level_messages(levels: Any) -> List[str]:
     """`monitoring.levels`: how much each category records.
 
@@ -1343,7 +1380,7 @@ def _browser_policy_messages(config: Dict[str, Any], scope_order: List[str]) -> 
     # A quoted or fractional one reaches the generated edge as C++ that does not compile,
     # which reports the typo as a compiler error in generated code.
     for key in ("handshake_timeout_ms", "max_connections_per_ip", "max_connections_global",
-                "max_message_bytes"):
+                "max_message_bytes", "keep_alive_timeout_s", "max_body_bytes"):
         value = security.get(key)
         if value is None:
             continue
@@ -1353,6 +1390,21 @@ def _browser_policy_messages(config: Dict[str, Any], scope_order: List[str]) -> 
             messages.append(
                 f"error: security.{key} is {value}; a limit of zero or less would refuse "
                 "every connection rather than disable the limit")
+
+    # The one limit where zero is a word rather than a number, because Qt's rate limiting is
+    # off until something turns it on.
+    rate = security.get("max_requests_per_second")
+    if rate is not None:
+        if isinstance(rate, bool) or not isinstance(rate, int):
+            messages.append(
+                f"error: security.max_requests_per_second must be a whole number, "
+                f"not {rate!r}")
+        elif rate < 0:
+            messages.append(
+                f"error: security.max_requests_per_second is {rate}; zero turns the limit "
+                "off and anything above it is the limit, so a negative one says nothing")
+
+    messages.extend(_rate_limit_behind_a_balancer_messages(config, security))
 
     session = appmodel.identity_session(config)
     ttl = session.get("ttl_minutes")

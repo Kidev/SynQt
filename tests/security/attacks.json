@@ -198,6 +198,20 @@
       "test": "connectionCapRefusesTheOneOverTheLimit"
     },
     {
+      "id": "oversized-request-body",
+      "what": "A stranger posts a huge body to the edge to make it buffer megabytes per request.",
+      "defended_by": "QHttpServer's body ceiling is set from what the entity accepts (64 KiB with no network.inbound), so the body is refused with 413 before a route sees it.",
+      "file": "tests/m5-webedge/tst_m5.cpp",
+      "test": "anOversizedBodyIsRefusedBeforeARouteSeesIt"
+    },
+    {
+      "id": "request-flood",
+      "what": "One address sends requests as fast as it can, to spend the edge's time rather than its connections.",
+      "defended_by": "security.max_requests_per_second, off by default and answered with 429; synqt check refuses it on an edge that names a balancer, where Qt would count every visitor as one peer.",
+      "file": "tests/m5-webedge/tst_m5.cpp",
+      "test": "aFloodOfRequestsFromOneAddressIsRefused"
+    },
+    {
       "id": "half-open-handshake",
       "what": "A peer connects and never finishes the upgrade, holding a socket for free.",
       "defended_by": "A timer per accepted socket closes one that has sent nothing by security.handshake_timeout_ms.",

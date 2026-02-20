@@ -729,5 +729,53 @@ class NetworkBlockTest(unittest.TestCase):
         self.assertEqual(licenses.effective_license(modules), "LGPL-3.0-only")
 
 
+class TestHttpLimits(unittest.TestCase):
+    """The limits Qt enforces on the request, and the one that cannot go behind a proxy."""
+
+    def _messages(self, security, proxies=None, level="error"):
+        config = base_config(security=security)
+        if proxies is not None:
+            config["entities"][1]["public"] = {"trusted_proxies": proxies}
+        ok, messages = check.validate(config)
+        return [m for m in messages if m.startswith(level)]
+
+    def test_a_rate_limit_is_refused_behind_a_balancer(self):
+        # Qt counts the address it is connected to, which is the balancer's, so every
+        # visitor shares one budget. The limit then refuses the site instead of the flood,
+        # and it does it under load, which is when nobody is reading configuration files.
+        errors = self._messages({"max_requests_per_second": 50}, proxies=["10.0.0.1"])
+        self.assertTrue(any("max_requests_per_second" in m and "balancer" in m
+                            for m in errors), errors)
+
+    def test_the_same_limit_is_fine_with_nothing_in_front(self):
+        errors = self._messages({"max_requests_per_second": 50})
+        self.assertEqual([m for m in errors if "max_requests_per_second" in m], [])
+
+    def test_a_balancer_alone_says_nothing_about_rate_limiting(self):
+        # The refusal is about the pair, so naming a proxy while leaving Qt's rate
+        # limiting off (which is the default) has to stay quiet.
+        errors = self._messages({}, proxies=["10.0.0.1"])
+        self.assertEqual([m for m in errors if "max_requests_per_second" in m], [])
+
+    def test_zero_turns_the_rate_limit_off_rather_than_refusing_everyone(self):
+        # The other limits read zero as "refuse the first connection" and reject it. This
+        # one is Qt's switch, so zero is the word for off and has to be accepted.
+        errors = self._messages({"max_requests_per_second": 0}, proxies=["10.0.0.1"])
+        self.assertEqual([m for m in errors if "max_requests_per_second" in m], [])
+
+    def test_a_negative_rate_limit_is_refused(self):
+        errors = self._messages({"max_requests_per_second": -1})
+        self.assertTrue(any("max_requests_per_second" in m for m in errors), errors)
+
+    def test_the_new_ceilings_are_whole_positive_numbers(self):
+        for key, value in (("keep_alive_timeout_s", "15"),
+                           ("keep_alive_timeout_s", 0),
+                           ("max_body_bytes", 1.5),
+                           ("max_body_bytes", -8)):
+            with self.subTest(key=key, value=value):
+                errors = self._messages({key: value})
+                self.assertTrue(any(key in m for m in errors), errors)
+
+
 if __name__ == "__main__":
     unittest.main()
