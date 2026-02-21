@@ -109,6 +109,19 @@ std::optional<QHttpServerResponse> notModifiedFor(const QHttpServerRequest &requ
     return response;
 }
 
+/// Whether `candidate` already sits somewhere under `ancestor`, so adopting it would take
+/// it away from an owner that is counting on having it. Same question SocketChannel asks
+/// before adopting a raw socket, asked here for the link that has no channel.
+bool isUnder(const QObject *candidate, const QObject *ancestor)
+{
+    for (const QObject *walk{candidate}; walk != nullptr; walk = walk->parent()) {
+        if (walk == ancestor) {
+            return true;
+        }
+    }
+    return false;
+}
+
 // A plaintext (dev) transport server that surfaces every accepted socket so the edge
 // can start a handshake-timeout timer for it, then hands it to QHttpServer's queue.
 class EdgeTcpServer : public QTcpServer
@@ -1067,18 +1080,20 @@ void WebEdge::trackPendingUpgrade(QAbstractSocket *socket)
     // the QWebSocket on top of this socket does not lead back to it (it is not its child)
     // and there is no other way to ask. A threaded edge has to move both or the connection
     // ends up read on one thread and written on another.
-    if (m_ioThreads) {
-        // A tag whose whole job is to say when this socket is gone. The timeout timer
-        // above cannot serve, however tempting: it is deleted the moment a valid upgrade
-        // request arrives, which is exactly when the raw socket is still wanted, so
-        // hanging the entry off it means every threaded connection quietly falls back to
-        // this thread. A plain QObject child dies with the socket instead, and nothing
-        // wildcard-disconnects it (see the note on the timer above for why that matters).
-        QObject *tag{new QObject{socket}};
-        connect(tag, &QObject::destroyed, this,
-                [this, key]() { m_pendingRawSockets.remove(key); });
-        m_pendingRawSockets.insert(key, socket);
-    }
+    // A tag whose whole job is to say when this socket is gone. The timeout timer above
+    // cannot serve, however tempting. It is deleted the moment a valid upgrade request
+    // arrives, which is exactly when the raw socket is still wanted, so hanging the entry
+    // off it means every threaded connection quietly falls back to this thread. A plain
+    // QObject child dies with the socket instead, and nothing wildcard-disconnects it
+    // (see the note on the timer above for why that matters).
+    //
+    // Remembered on every link and not only a threaded one. A threaded edge needs it to
+    // move the connection; every edge needs it to own the connection, because once the
+    // upgrade is accepted nothing else does (see carry()).
+    QObject *tag{new QObject{socket}};
+    connect(tag, &QObject::destroyed, this,
+            [this, key]() { m_pendingRawSockets.remove(key); });
+    m_pendingRawSockets.insert(key, socket);
     timer->start(m_config.handshakeTimeoutMs);
 }
 
@@ -1559,9 +1574,8 @@ void WebEdge::onNewWebSocketConnection()
 /// the connection is hosted, so nothing runs on the socket between the two.
 WebSocketTransport *WebEdge::carry(QWebSocket *socket, QObject *connection)
 {
-    QAbstractSocket *raw{m_ioThreads ? m_pendingRawSockets.take(
-                             peerKey(socket->peerAddress().toString(), socket->peerPort()))
-                                     : nullptr};
+    QAbstractSocket *raw{m_pendingRawSockets.take(
+        peerKey(socket->peerAddress().toString(), socket->peerPort()))};
     if (m_ioThreads && !raw) {
         // Should not happen: every accepted socket is remembered by the same key on the
         // way in. If it ever does, this connection stays on this thread rather than going
@@ -1572,6 +1586,17 @@ WebSocketTransport *WebEdge::carry(QWebSocket *socket, QObject *connection)
     }
     if (!m_ioThreads || !raw) {
         socket->setParent(connection);
+        // And the socket underneath it, which otherwise nobody owns. QHttpServer takes the
+        // accepted socket out of the QSslServer's object tree to upgrade it, and the
+        // QWebSocket it hands back is not its parent, so an edge destroyed while a browser
+        // is still connected left the whole connection behind: 79 KB and 180 allocations
+        // per live browser, measured. A threaded edge never had this, because SocketChannel
+        // adopts the raw socket in order to carry it to another thread, and owning it was
+        // the side effect that mattered. Guarded the same way SocketChannel guards it: a
+        // socket already under the QWebSocket has an owner counting on having it.
+        if (raw && !isUnder(raw, socket)) {
+            raw->setParent(connection);
+        }
         return new WebSocketTransport{socket, connection};
     }
     SocketChannel *channel{new SocketChannel{socket, raw}};

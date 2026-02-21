@@ -398,7 +398,78 @@ private slots:
                                             budgetFor(growth, AllowedBytesPerCycle))));
     }
 
-    // The internet-facing loop, and the one that has to hold: browsers arrive and leave
+    // The two above, together, which is the combination neither of them covers, and the
+    // gap they left was real. One edge taking many browsers is flat, and an edge built and
+    // retired around a plain page load is flat, so an edge retired while a browser is still
+    // holding it read as covered by the pair and was not. QHttpServer takes the accepted
+    // socket out of the QSslServer's object tree to upgrade it and the QWebSocket it hands
+    // back is not its parent, so on the single-threaded path nothing owned it: 79 KB and
+    // 180 allocations per live browser, every time. A threaded edge never had it, because
+    // SocketChannel adopts the raw socket in order to carry it to another thread and owning
+    // it was the side effect that mattered.
+    //
+    // Found from the other side first. LeakSanitizer reported it as a graph with no root
+    // under QSslServer::incomingConnection, exactly (N-1) times for N repetitions of any
+    // m5 slot that completes an upgrade, and not once for the threaded ones.
+    void anEdgeThatCarriedABrowserLetsGoOfTheSocketItArrivedOn()
+    {
+        const auto oneEdgeWithOneBrowser{[]() {
+            QQmlEngine engine;
+            WebEdge edge{edgeConfig(), &engine};
+            if (!edge.start()) {
+                return false;
+            }
+
+            QNetworkAccessManager client;
+            QNetworkRequest landing{QUrl{edge.httpOrigin() + QStringLiteral("/")}};
+            landing.setSslConfiguration(insecureClientConfig());
+            std::unique_ptr<QNetworkReply> reply{client.get(landing)};
+            QSignalSpy finished{reply.get(), &QNetworkReply::finished};
+            if (!finished.wait(5000)) {
+                return false;
+            }
+            const QByteArray cookie{
+                reply->rawHeader("Set-Cookie").split(';').value(0).trimmed()};
+            if (cookie.isEmpty()) {
+                return false;
+            }
+
+            QWebSocket socket;
+            socket.setSslConfiguration(insecureClientConfig());
+            WebSocketTransport transport{&socket};
+            if (!transport.open(QIODevice::ReadWrite)) {
+                return false;
+            }
+            QRemoteObjectNode node;
+            node.addClientSideConnection(&transport);
+
+            QNetworkRequest sync{QUrl{edge.wssOrigin() + QStringLiteral("/sync")}};
+            sync.setRawHeader("Origin", edge.httpOrigin().toUtf8());
+            sync.setRawHeader("Cookie", cookie);
+            sync.setSslConfiguration(insecureClientConfig());
+            socket.open(sync);
+
+            // Declared after the node, so it is destroyed before it: a dynamic Replica
+            // frees the metaobject built for it, and the node holds one.
+            std::unique_ptr<QRemoteObjectDynamicReplica> replica{
+                node.acquireDynamic(QStringLiteral("probe"))};
+            if (!replica->waitForSource(5000)) {
+                return false;
+            }
+            // Deliberately not closed. An edge that goes down under a browser still
+            // holding it is the case this test is about, and it is the one nothing else
+            // covers: the cycle above closes first, and closing is what used to hide this.
+            return true;
+        }};
+
+        const Growth growth{measure(3, 30, oneEdgeWithOneBrowser)};
+        QVERIFY2(growth.completed, "an edge did not carry a browser");
+        QVERIFY2(withinBudget(growth, AllowedBytesPerCycle),
+                 qPrintable(growth.describe("an edge that accepted one upgrade, retired",
+                                            budgetFor(growth, AllowedBytesPerCycle))));
+    }
+
+    // The internet-facing loop, and the one that has to hold. Browsers arrive and leave
     // for as long as the edge runs. Each accepted upgrade builds a QtRO host node, a
     // Caller, a per-session Source and a transport, all parented to the socket so the
     // disconnect takes them. This is the test that the disconnect does.
