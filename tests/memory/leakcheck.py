@@ -15,9 +15,14 @@ suite measures.
 `sanitize` reads the reports LeakSanitizer wrote while the same binaries ran and asks who
 allocated what was lost. Precise where the other is broad, and blind where the other sees:
 it reports only what is unreachable at exit. A leak record is charged to this repository
-when a frame of ours appears near the top of its stack; one whose repository frame is
-thirty frames down, under a font library loading its cache, is not ours no matter whose
+when a repository frame appears near the top of its stack. One whose repository frame is
+thirty frames down, under a font library loading its cache, is not the repository's no matter whose
 main() is at the bottom.
+
+There is a shape it can see but cannot attribute, and it says so rather than passing it
+over: a leaked graph whose members all point at each other has no root, so LeakSanitizer
+names none, and no allocation site in it is the culprit. Those processes are listed with
+what they lost, and `soak` is what gates them.
 
 Stdlib only, so this runs on whatever interpreter is on the machine.
 """
@@ -145,13 +150,24 @@ def _records(log_dir: Path, repo: Path) -> List[dict]:
                     where = frame[frame.index(here) + len(here) + 1:].split()[0]
                     break
                 if any(marker in frame for marker in DISPATCH_FRAMES):
-                    break   # upstream reacting to an event of ours; see DISPATCH_FRAMES
+                    break   # upstream reacting to a repository event, see DISPATCH_FRAMES
+            # Which suite this was. A log is named after a pid, which tells a reader
+            # nothing. The deepest test path in the stack does. Taken over the whole
+            # block rather than from `where`, because the frame that names the repository is often
+            # library code it called, several frames above main().
+            suite = ""
+            for frame in reversed(frames):
+                marker = here + "/tests/"
+                if marker in frame:
+                    suite = frame[frame.index(marker) + len(here) + 1:].split()[0]
+                    break
             records.append({
                 "log": log.name,
                 "kind": head.group(1),
                 "bytes": int(head.group(2)),
                 "depth": depth,
                 "where": where,
+                "suite": suite,
             })
     return records
 
@@ -163,12 +179,32 @@ def sanitize(log_dir: Path, repo: Path) -> int:
         print("no leak reports: every binary exited clean")
         return 0
 
+    # Read each process on its own. Whether its records can be attributed at all depends on
+    # the shape of that process's leaked graph, and the two shapes want different answers.
+    by_log: Dict[str, List[dict]] = {}
+    for record in records:
+        by_log.setdefault(record["log"], []).append(record)
+
+    direct: List[dict] = []
+    children: List[dict] = []
+    rootless: List[Tuple[str, int, int]] = []
+    for log in sorted(by_log):
+        group = by_log[log]
+        roots = [r for r in group if r["kind"] == "Direct"]
+        rest = [r for r in group if r["kind"] != "Direct"]
+        if roots:
+            direct.extend(roots)
+            children.extend(rest)
+            continue
+        named = [r["suite"] for r in rest if r["suite"]]
+        label = max(set(named), key=named.count).split(":")[0] if named else log
+        rootless.append((label, len(rest), sum(r["bytes"] for r in rest)))
+
     # Direct records only. An indirect record is a block reachable from another leaked
-    # block, so it names a child, not a culprit: the QSslServer a leaked edge owns is
+    # block, so it names a child, not a culprit. The QSslServer a leaked edge owns is
     # allocated in src/ and lost because a test never freed the edge. Charging those to the
     # framework would report one leak as a hundred and point at the wrong file for all of
     # them. The root of every one of them is a direct record, which is what is read here.
-    direct = [r for r in records if r["kind"] == "Direct"]
     ours = [r for r in direct if r["depth"] is not None and r["depth"] <= NEAR_FRAMES]
     framework = [r for r in ours if r["where"].startswith("src/")]
     suites = [r for r in ours if not r["where"].startswith("src/")]
@@ -189,14 +225,36 @@ def sanitize(log_dir: Path, repo: Path) -> int:
     print(f"\nupstream (no frame of ours within {NEAR_FRAMES} of the allocation, or only "
           f"below a signal dispatch): {upstream} roots")
 
+    if rootless:
+        # The blind spot, named rather than counted as zero.
+        #
+        # LeakSanitizer calls a block direct only when no other leaked block points at it,
+        # and it walks out from every unreachable block tagging what it reaches. A leaked
+        # graph whose members all point at each other therefore has no direct record at
+        # all. Every block is somebody's child. A QObject tree is that shape by
+        # construction, since a child holds a pointer back to its parent, and a two-node
+        # cycle in ten lines of C reproduces it.
+        #
+        # A process in that shape reaches the lines above with nothing to contribute
+        # and would read as clean, whatever it had lost. It is not charged per site,
+        # because in a graph lost whole any member can turn up at any stack depth: the
+        # largest site in m5 is fifteen to thirty frames down inside OpenSSL, and its
+        # shallowest, `new QTcpSocket{this}`, is an object parented into the same tree.
+        # Both name where a block was born, not what dropped it. So this is reported and
+        # not gated. The soak pass is the gate that sees this shape, because memory a
+        # process still holds is exactly what a peak-RSS comparison measures.
+        print("\nleaked whole, so LeakSanitizer named no root and no site here can be "
+              f"charged ({len(rootless)} processes); the soak pass is what gates these:")
+        for label, count, size in sorted(rootless, key=lambda entry: -entry[2]):
+            print(f"  {count:>5} records {size:>9} bytes  {label}")
+
     # Reported, never gated. An indirect record is a child of a leaked root, and a root can
-    # be a region LeakSanitizer scanned conservatively, which is how an object of ours ends
-    # up filed under somebody else's arena. Read as evidence: an allocation of ours here is
+    # be a region LeakSanitizer scanned conservatively, which is how a repository object ends
+    # up filed under somebody else's arena. Read as evidence. A repository allocation here is
     # a pointer someone dropped, and worth looking at even though it is not proof.
-    indirect = [r for r in records
-                if r["kind"] != "Direct" and r["depth"] is not None
-                and r["depth"] <= NEAR_FRAMES]
-    summarize("held by a leaked root, allocated by us (evidence, not a verdict)", indirect)
+    evidence = [r for r in children
+                if r["depth"] is not None and r["depth"] <= NEAR_FRAMES]
+    summarize("held by a leaked root, allocated by us (evidence, not a verdict)", evidence)
     return 1 if framework else 0
 
 

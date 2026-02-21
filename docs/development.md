@@ -526,6 +526,15 @@ indirect one names a child of a leaked root rather than a culprit. It fails the 
 record rooted in `src/`. Reports rooted in a suite are printed too and are worth fixing,
 but they are a fixture a test never freed, not a defect in what ships.
 
+One shape it can see and still cannot attribute is listed on its own. LeakSanitizer calls a
+block direct only when no other leaked block points at it, so a leaked graph whose members
+all point at each other produces no direct record at all: every block is somebody's child.
+A QObject tree is that shape by construction, since a child holds a pointer back to its
+parent. Such a process is named with what it lost rather than counted as zero, and it is
+not charged to a file, because in a graph lost whole the allocation site is where a block
+was born and not what dropped it. The soak pass is the gate that sees this shape, since
+memory a process is still holding is exactly what a peak resident set measures.
+
 Both passes name what they did not measure. A suite that will not run twice in one process
 is listed rather than dropped, and the benchmark harnesses that stand up whole systems are
 named as excluded from the soak instead of quietly halved.

@@ -1,11 +1,9 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-"""The leak gate's own reading. Who a lost allocation belongs to.
-
-`tests/memory/leakcheck.py` fails a build when LeakSanitizer loses something this
-repository allocated. What it must not do is fail one for something a library allocated
-while reacting to repository code, because that is a gate people learn to skip.
+"""The leak gate's attribution. `tests/memory/leakcheck.py` fails a build when LeakSanitizer
+loses something this repository allocated, and not for what a library allocated while
+reacting to repository code.
 """
 
 from __future__ import annotations
@@ -34,9 +32,9 @@ def _report(tmp_path: Path, body: str) -> Path:
     return logs
 
 
-# The real one, trimmed: QtRO builds a dynamic Replica's metaobject inside its own
-# onClientRead and keeps it. The only repository frame is the `emit readyRead()` that drove
-# the socket read, five frames below the allocation and under a signal dispatch.
+# Trimmed from a real report: QtRO builds a dynamic Replica metaobject in onClientRead and
+# keeps it. The only repository frame is the `emit readyRead()` five frames down, under a
+# signal dispatch.
 UPSTREAM_UNDER_A_DISPATCH = """
 =================================================================
 ==1==ERROR: LeakSanitizer: detected memory leaks
@@ -69,13 +67,55 @@ SUMMARY: AddressSanitizer: 128 byte(s) leaked in 1 allocation(s).
 """
 
 
-def test_a_library_reacting_to_us_is_not_charged_to_us(tmp_path, capsys):
-    """Emitting a signal is not allocating.
+# A leaked graph whose members all point at each other: LeakSanitizer reports every block as
+# indirect and none as direct. A QObject tree has this shape.
+ALL_INDIRECT_NO_ROOT = """
+=================================================================
+==1==ERROR: LeakSanitizer: detected memory leaks
 
-    Above a signal dispatch the code running is a slot somebody else wrote. Below it is
-    whoever emitted. Without that boundary the gate charged QtRO's dynamic-metaobject
-    retention to `websockettransport.cpp`, because the `emit` was nine frames down and the
-    old rule looked twelve deep.
+Indirect leak of 4096 byte(s) in 8 object(s) allocated from:
+    #0 0x1 in operator new(unsigned long) (/usr/lib/libasan.so.8+0x1)
+    #1 0x2 in SynQt::WebEdge::start() {repo}/src/edge/webedge.cpp:979
+    #2 0x3 in main {repo}/tests/m5-webedge/tst_m5.cpp:120
+
+SUMMARY: AddressSanitizer: 4096 byte(s) leaked in 8 allocation(s).
+"""
+
+
+def test_a_process_that_leaked_whole_is_named_not_counted_as_zero(tmp_path, capsys):
+    """A process whose leaked graph has no direct record is named, not read as zero. It stays
+    uncharged, since the allocation site in such a graph is not the culprit.
+    """
+    leakcheck = _leakcheck()
+    logs = _report(tmp_path, ALL_INDIRECT_NO_ROOT.replace("{repo}", str(REPO)))
+    assert leakcheck.sanitize(logs, REPO) == 0
+    printed = capsys.readouterr().out
+    assert "named no root" in printed
+    assert "4096 bytes" in printed
+    # Named by the suite, not by the pid the log file is named after.
+    assert "tests/m5-webedge/tst_m5.cpp" in printed
+    # Named but left uncharged: the site is where the block was born, and something else
+    # dropped it.
+    assert "framework (src/), which is what this gate is for: 0 records" in printed
+
+
+def test_a_child_of_a_named_root_is_not_mistaken_for_a_rootless_process(tmp_path, capsys):
+    """An indirect record under a real direct root is a child; it does not trip the rootless
+    report.
+    """
+    leakcheck = _leakcheck()
+    body = (UPSTREAM_UNDER_A_DISPATCH.replace("{repo}", str(REPO)).rstrip()
+            + ALL_INDIRECT_NO_ROOT.replace("{repo}", str(REPO)))
+    logs = _report(tmp_path, body)
+    assert leakcheck.sanitize(logs, REPO) == 0
+    printed = capsys.readouterr().out
+    assert "named no root" not in printed
+    assert "held by a leaked root, allocated by us (evidence, not a verdict): 1 records" in printed
+
+
+def test_a_library_reacting_to_us_is_not_charged_to_us(tmp_path, capsys):
+    """A library reacting to a signal is not charged to the emitter: the search stops at a
+    signal dispatch.
     """
     leakcheck = _leakcheck()
     logs = _report(tmp_path, UPSTREAM_UNDER_A_DISPATCH.replace("{repo}", str(REPO)))
