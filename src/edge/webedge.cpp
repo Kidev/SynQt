@@ -1044,9 +1044,13 @@ void WebEdge::trackPendingUpgrade(QAbstractSocket *socket)
     // the page, the loader and the bundle over the same connection it would upgrade on, so a
     // deadline that outlived the first byte cut ordinary transfers part-way through and
     // recorded a refusal nobody made. What the window still covers is the socket that
-    // arrives and stays silent; a peer that speaks and then stalls is bounded by the per-IP
-    // and global connection caps instead. The observer takes itself off after the first
-    // byte, because a request body would otherwise run it once per chunk for nothing.
+    // arrives and stays silent. A peer that speaks and then stalls is left to QHttpServer's
+    // own keep-alive timeout, which ends it once it goes idle. One that keeps dribbling
+    // never goes idle and is bounded only by the header ceilings, which docs/security.md
+    // spells out. The connection caps are not that bound. They are counted when a
+    // connection is hosted, and a request that never completes is never hosted. The
+    // observer takes itself off after the first byte, because a request body would
+    // otherwise run it once per chunk for nothing.
     connect(socket, &QIODevice::readyRead, timer, [socket, timer]() {
         timer->stop();
         disconnect(socket, &QIODevice::readyRead, timer, nullptr);
