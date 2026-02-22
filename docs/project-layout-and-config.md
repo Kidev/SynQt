@@ -166,7 +166,7 @@ an application and never a directory scheme.
 
 | Directory | Holds |
 |-----------|-------|
-| `<type>/<entity>/` | one directory per entity, inside the folder its type shares: `client/`, `web/`, `db/relational/`, `db/document/`, `cache/`, `api/`, `jobs/`, `service/` (see [`entities`](#entities-the-topology)) |
+| `<type>/<entity>/` | one directory per entity, inside the folder its type shares: `client/`, `web/`, `db/relational/`, `db/document/`, `cache/`, `api/`, `jobs/`, `monitor/`, `service/` (see [`entities`](#entities-the-topology)) |
 | `build/<entity>/` | what `synqt build` produces, one deployable directory per entity |
 | `synqt/mesh/` | the project's private CA and per entity certificates (`synqt/mesh/dev/` for the throwaway development CA) |
 | `synqt/toolchain/` | the pinned Qt and Emscripten kits `synqt` provisions |
@@ -857,6 +857,12 @@ it rather than written, because a link every entity needs is a link nobody shoul
 to declare, and one an author could forget on a single entity is a hole in the record
 shaped exactly like the entity that was misbehaving. It is an ordinary mesh link,
 mutually authenticated like every other, and `synqt check` validates it like any other.
+
+Being one line is also what makes it easy to leave out, so `synqt check` warns about a
+`type: monitor` entity this key does not name. Such an entity builds, starts, hosts its
+ingest point and serves its console, and its history stays empty because nothing ever
+opened a link to it, which reads as a system where nothing is happening. A second monitor
+beside a wired one has the same shape and is reported the same way.
 
 `levels` is read at startup from the resolved topology, so turning a category up is a
 configuration change and a restart rather than a rebuild.

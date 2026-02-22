@@ -518,6 +518,13 @@
       "defended_by": "appmodel.forwards_session compares a point's consumers against every client entity, not the first one. A point only a browser consumes carries nothing beyond its contract, which is what leaves the one caller that could forge a session with nowhere to put it.",
       "file": "tools/synqt/tests/test_monitoring.py",
       "test": "test_a_second_client_still_has_no_session_field_to_forge"
+    },
+    {
+      "id": "monitor-console-served-to-the-public",
+      "what": "The operator console is mapped to a scope below `operator`, or the monitor is left with no bundle map at all, so the page that shows every request the system has handled and every refusal is delivered to whoever reaches the port. It builds, it runs, and nothing says so.",
+      "defended_by": "`synqt check` reads the resolved bundle map of every browser-facing entity, the monitor included, and refuses a `console: true` client mapped to any scope but `operator`, on a monitor or on an application edge. It refuses a monitor whose default scope resolves to a client at all, which is what a monitor with no map falls back to: the project's first client, baked into the generated main as what that port serves.",
+      "file": "tools/synqt/tests/test_check_monitoring.py",
+      "test": "test_the_console_served_to_anonymous_is_refused"
     }
   ]
 }

@@ -355,6 +355,7 @@ def validate(config: Dict[str, Any], *, release: bool = False,
     # with a declared connect point is exactly what the expansion silently steps around.
     messages += _provider_entity_messages(config, entities)
     messages += _monitor_entity_messages(config, entities)
+    messages += _console_delivery_messages(config)
     config = appmodel.with_auth_connect_points(config)
     config = appmodel.with_monitoring_connect_points(config)
 
@@ -1014,6 +1015,81 @@ def _provider_entity_messages(config: Dict[str, Any],
     return messages
 
 
+def _console_delivery_messages(config: Dict[str, Any]) -> List[str]:
+    """Who is handed the operator console, on whichever port it is served from.
+
+    `lint_bundles` validates a web edge's block and stops at the edge, because the rest of
+    what it checks is about the application's scope vocabulary and the application's login,
+    and a monitor has neither: `operator` is deliberately not in a project's scopes, and the
+    monitor signs its own operators in. So the console's own delivery went unchecked, and
+    the one thing a bundle map can get wrong here is the one thing that matters. A monitor
+    with `bundles: {anonymous: ops-console}` serves every request the system has ever
+    handled to whoever finds the port, and it built and ran and said nothing.
+
+    Two rules, and both are about who receives a bundle rather than about what a bundle is:
+    a console is addressable to an operator and to nobody else, and a monitor's default
+    scope is handed a static page rather than any client at all. The second is what covers
+    a monitor with no block, which resolves to the project's first client served to
+    everybody.
+    """
+    findings: List[str] = []
+    default = appmodel.default_scope(config) or "anonymous"
+    consoles = {str(entity.get("name") or "") for entity in appmodel.entities(config)
+                if appmodel.is_client(entity) and appmodel.monitor_watches(entity)}
+    for entity in appmodel.entities(config):
+        if not appmodel.serves_browser(entity):
+            continue
+        name = entity.get("name")
+        served = appmodel.bundles_for(config, entity)
+        for scope, (kind, value) in sorted(served.items()):
+            if kind == appmodel.BUNDLE_CLIENT and value in consoles \
+                    and scope != appmodel.MONITOR_SCOPE:
+                findings.append(
+                    f"error: entity '{name}' serves the console client '{value}' to scope "
+                    f"'{scope}'. The console shows every request the system has handled "
+                    f"and every refusal, so it is addressable to "
+                    f"'{appmodel.MONITOR_SCOPE}' and to nobody else")
+        if appmodel.entity_type(entity) != "monitor":
+            continue
+        landing = served.get(default)
+        if landing is None or landing[0] != appmodel.BUNDLE_CLIENT:
+            continue
+        declared = entity.get("bundles")
+        if isinstance(declared, dict) and declared:
+            where = f"maps scope '{default}' to the client '{landing[1]}'"
+        else:
+            where = "has no bundles: block, so it falls back to the project's first client"
+        findings.append(
+            f"error: monitor '{name}' {where}, which puts a client bundle on the "
+            f"monitor's own port for anyone who reaches it. Map '{default}' to a "
+            f"static sign-in directory instead, the way "
+            f"'synqt add entity {name} --type monitor' writes it")
+    return findings
+
+
+def _unreported_monitor_messages(owner: str,
+                                 entities: Dict[str, Any]) -> List[str]:
+    """A `type: monitor` entity that `monitoring.entity` does not name.
+
+    One line is what makes every service report, and it is the line easiest to leave out:
+    the entity builds, starts, hosts its ingest point and serves its console, and the
+    history stays empty because nothing ever opened a link to it. That reads as a system
+    where nothing is happening, which is the reading an operator is least able to argue
+    with. A second monitor beside a wired one has the same shape and the same silence, so
+    both are said the same way.
+    """
+    found: List[str] = []
+    for name, entity in entities.items():
+        if appmodel.entity_type(entity) != "monitor" or name == owner:
+            continue
+        instead = (f"monitoring.entity names '{owner}' instead" if owner
+                   else "the project declares no monitoring.entity")
+        found.append(
+            f"warn: entity '{name}' has 'type: monitor' and {instead}, so nothing reports "
+            f"to it and its history stays empty; write 'monitoring: {{entity: {name}}}' "
+            f"or take the entity out")
+    return found
+
 
 def _monitor_entity_messages(config: Dict[str, Any],
                              entities: Dict[str, Any]) -> List[str]:
@@ -1037,9 +1113,9 @@ def _monitor_entity_messages(config: Dict[str, Any],
         if level_messages:
             return level_messages
     owner = appmodel.monitor_entity(config)
+    messages: List[str] = _unreported_monitor_messages(owner, entities)
     if not owner:
-        return []
-    messages: List[str] = []
+        return messages
     entity = entities.get(owner)
     if entity is None:
         messages.append(

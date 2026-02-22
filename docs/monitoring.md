@@ -24,6 +24,16 @@ that does not work or is not safe:
 * the **sign-in gate**, a static page an anonymous visitor gets instead of the console;
 * `monitoring.entity`, the one line that makes every service report.
 
+You can also draw it. `synqt design` has a monitor on its palette; dropping one and
+applying runs the same scaffolder, and the change set names all four files before anything
+is written. The copy of the designer [on this site](visual-editor.md) shows the row and says
+to use the command instead, because it has no scaffolder behind it and a monitor without its
+console is not a monitor.
+
+`monitoring.entity` is one line, which is what makes it worth checking: a `type: monitor`
+entity nothing names still builds, starts and serves its console with an empty history, so
+`synqt check` warns about one, and about a second monitor beside a wired one.
+
 Then give yourself a way in:
 
 ```console
@@ -202,9 +212,15 @@ monitoring:
 
 Two gates apply either way. The bundle is delivered through
 [`bundles:`](project-layout-and-config.md), so an anonymous caller is handed the sign-in
-page and the console bundle is **not addressable to them at all**: a 404, not a 403.
+page and the console bundle is not addressable to them at all. It is a 404 rather than a 403.
 Signing in raises that same session to the `operator` scope, which is what makes the
-console fetchable and what gates its connect point. `operator` is not in your project's
+console fetchable and what gates its connect point.
+
+That map is the whole delivery gate, so `synqt check` reads it rather than trusting it. A
+`console: true` client mapped to any scope but `operator` is refused, on the monitor and on
+an application edge alike, and so is a monitor whose default scope resolves to a client at
+all. The second is what a monitor with no `bundles:` block falls back to, the project's
+first client, which the generated main bakes in as what that port serves. `operator` is not in your project's
 scope vocabulary, because an operator is not a user of your application and a scope that
 meant both would make one login reach the other's surface.
 

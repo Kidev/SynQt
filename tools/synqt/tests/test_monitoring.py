@@ -91,8 +91,8 @@ def test_a_monitor_entity_that_does_not_exist_is_refused():
     config = _config()
     config["monitoring"] = {"entity": "nope"}
     findings = _messages(config)
-    assert len(findings) == 1 and findings[0].startswith("error:")
-    assert "not a declared entity" in findings[0]
+    assert any(message.startswith("error:") and "not a declared entity" in message
+               for message in findings), findings
 
 
 def test_pointing_it_at_an_entity_of_another_type_is_refused():
@@ -122,11 +122,34 @@ def test_monitoring_has_to_be_a_block():
     assert any("must be a block" in message for message in _messages(config))
 
 
-def test_a_project_with_no_monitor_says_nothing():
-    assert _messages(_config(monitoring=False)) == []
+def test_a_project_with_no_monitor_at_all_says_nothing():
+    config = _config(monitoring=False)
+    config["entities"] = [entity for entity in config["entities"]
+                          if entity["name"] != "ops"]
+    assert _messages(config) == []
 
 
-# The resolved topology: what each entity's binary is actually handed.
+# The line that makes every service report is one line, and it is the one easiest to leave
+# out. Without it the monitor still builds, still starts, still serves its console, and the
+# history stays empty. That reads as a system where nothing is happening, which is the
+# reading an operator is least able to argue with.
+
+
+def test_a_monitor_nobody_reports_to_is_reported():
+    findings = _messages(_config(monitoring=False))
+    assert any(message.startswith("warn:") and "'ops'" in message
+               and "no monitoring.entity" in message for message in findings), findings
+
+
+def test_a_second_monitor_beside_the_wired_one_is_reported():
+    config = _config(extra=[{"name": "spare", "type": "monitor"}])
+    findings = _messages(config)
+    assert any(message.startswith("warn:") and "'spare'" in message
+               and "names 'ops' instead" in message for message in findings), findings
+    assert not any("'ops' has 'type: monitor'" in message for message in findings), findings
+
+
+# The resolved topology. What each entity's binary is handed.
 
 
 def _topology(name, config=None):

@@ -1,7 +1,9 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-"""`capture` validation: what a monitoring record is allowed to keep a copy of."""
+"""What the monitoring rules refuse, which values a record may keep, and who may receive the
+console.
+"""
 
 from synqt import check
 
@@ -29,8 +31,7 @@ def test_capturing_an_identity_argument_is_refused():
     assert len(findings) == 1
     assert findings[0].startswith("error:")
     assert "'capture' on 'signIn'" in findings[0]
-    # The message says what the risk is, not merely that it is refused: someone reading it
-    # has to be able to decide, and "refused" on its own only tells them to work around it.
+    # The message names the risk.
     assert "second copy of the identity store" in findings[0]
 
 
@@ -73,7 +74,58 @@ def test_every_identity_field_the_rule_knows_is_caught():
 
 
 def test_a_gated_member_is_read_past_its_gate():
-    # `<admin> slot capture ...` declares a captured slot. Who may reach it is a separate
-    # question, and a rule that stopped at the gate would miss every gated member.
+    # A gated `<admin> slot capture ...` is still checked.
     config = _config("<admin> slot capture signIn(string sub)\n")
     assert len(check.lint_capture(config)) == 1
+
+
+# Who receives the console, validated on the bundle map. Below `operator` it is refused.
+
+
+def _served(bundles=None, console="ops-console", clients=("app",)):
+    entities = [{"name": "web", "type": "web_edge"},
+                {"name": "ops", "type": "monitor",
+                 "public": {"host": "127.0.0.1", "port": 8443}}]
+    entities += [{"name": name, "type": "client"} for name in clients]
+    if console:
+        entities.append({"name": console, "type": "client", "console": True,
+                         "edge": "ops"})
+    if bundles is not None:
+        entities[1]["bundles"] = bundles
+    return {"entities": entities, "monitoring": {"entity": "ops"}}
+
+
+def test_the_scaffolded_gate_is_accepted():
+    config = _served({"anonymous": "signin/", "operator": "ops-console"})
+    assert check._console_delivery_messages(config) == []
+
+
+def test_the_console_served_to_anonymous_is_refused():
+    config = _served({"anonymous": "ops-console"})
+    findings = check._console_delivery_messages(config)
+    assert any(message.startswith("error:") and "'ops-console'" in message
+               and "'anonymous'" in message for message in findings), findings
+
+
+def test_the_console_served_by_the_application_edge_is_refused_too():
+    """The application edge may not serve the console either."""
+    config = _served({"anonymous": "signin/", "operator": "ops-console"})
+    edge = next(entity for entity in config["entities"] if entity["name"] == "web")
+    edge["bundles"] = {"anonymous": "app", "user": "ops-console"}
+    findings = check._console_delivery_messages(config)
+    assert any("entity 'web'" in message and "'ops-console'" in message
+               for message in findings), findings
+
+
+def test_a_monitor_with_no_gate_at_all_is_refused():
+    """A monitor with no `bundles:` block is refused: it would serve the first client."""
+    findings = check._console_delivery_messages(_served(bundles=None))
+    assert any(message.startswith("error:") and "no bundles: block" in message
+               for message in findings), findings
+
+
+def test_a_web_edge_with_no_gate_is_left_alone():
+    """The single-bundle case every project without the key is in, and it is not this."""
+    config = _served({"anonymous": "signin/", "operator": "ops-console"})
+    assert not any("entity 'web'" in message
+                   for message in check._console_delivery_messages(config))
