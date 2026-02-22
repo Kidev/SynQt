@@ -20,7 +20,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 import yaml
 
-from . import appmodel, clientshell, config as configmod, toolchain
+from . import appmodel, clientshell, cmakegen, config as configmod, toolchain
 
 
 def launch_env(root: Path) -> Dict[str, str]:
@@ -535,5 +535,21 @@ def test(project_dir: os.PathLike[str] | str) -> int:
         print("synqt test: no configured test build. Run 'synqt build' first "
               "(the host preset configures the test targets).")
         return 1
+
+    # Compiled here rather than by `synqt build`, which builds the entity targets by name
+    # and never named this one: ctest builds nothing, so `synqt build && synqt test` ended
+    # in "Unable to find executable" over a target nothing had ever been asked to make.
+    # Building it on the way to running it also keeps `synqt dev`'s rebuild loop to the
+    # entities, which is what a save is usually about.
+    cmake = shutil.which("cmake")
+    if cmake is None:
+        print("synqt test: cmake not found (install CMake).")
+        return 1
+    compiled = subprocess.run([cmake, "--build", str(host_build),
+                               "--target", cmakegen.TESTS_TARGET])
+    if compiled.returncode != 0:
+        print("synqt test: the tests did not build; nothing was run.")
+        return compiled.returncode
+
     result = subprocess.run(["ctest", "--test-dir", str(host_build), "--output-on-failure"])
     return result.returncode

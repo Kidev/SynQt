@@ -211,6 +211,12 @@ def _tests_cmake(config: Dict[str, Any], qt_version: str,
     ]
 
 
+#: The application test executable the generated `generated/tests/CMakeLists.txt` defines.
+#: Named here rather than spelled twice, because `synqt test` builds it before it runs it
+#: and a runner asking for a target the writer no longer emits fails as "no such target".
+TESTS_TARGET = "app_tests"
+
+
 def render_tests_cmakelists(config: Dict[str, Any]) -> str:
     """The generated `generated/tests/CMakeLists.txt` defining the app test target.
 
@@ -229,27 +235,27 @@ def render_tests_cmakelists(config: Dict[str, Any]) -> str:
              '    add_subdirectory("${SYNQT_ROOT}/src/testing" "${CMAKE_BINARY_DIR}/SynQtTesting")',
              "endif()",
              "",
-             "qt_add_executable(app_tests tests_main.cpp)"]
+             f"qt_add_executable({TESTS_TARGET} tests_main.cpp)"]
     # Every contract's Source half, because a test drives an owner and any connect point in
     # the project may be the one under test.
     forwarding = appmodel.session_forwarding_contracts(config)
     for contract, relative in contracts.items():
         carries = " FORWARDS_SESSION" if contract in forwarding else ""
-        lines.append(f"synqt_add_contract(app_tests ROLE source{carries} "
+        lines.append(f"synqt_add_contract({TESTS_TARGET} ROLE source{carries} "
                      f'SYN "${{SYNQT_APP_ROOT}}/{relative}")')
     lines += [
         "",
         "# Qt Quick Test discovers the tst_*.qml files by directory at run time, so adding",
         "# a test file needs no rebuild of anything but the list ctest reports.",
-        "target_compile_definitions(app_tests PRIVATE",
+        f"target_compile_definitions({TESTS_TARGET} PRIVATE",
         '    QUICK_TEST_SOURCE_DIR="${SYNQT_APP_ROOT}/tests")',
-        "target_link_libraries(app_tests PRIVATE",
+        f"target_link_libraries({TESTS_TARGET} PRIVATE",
         "    SynQtTesting Qt6::Core Qt6::Gui Qt6::Qml Qt6::Quick Qt6::QuickTest",
         "    Qt6::RemoteObjects)",
         "",
         "# offscreen: a slot draws nothing, and a test target that needed a display would",
         "# not run in CI.",
-        "add_test(NAME app-tests COMMAND app_tests -platform offscreen)",
+        f"add_test(NAME app-tests COMMAND {TESTS_TARGET} -platform offscreen)",
     ]
     return "\n".join(lines) + "\n"
 

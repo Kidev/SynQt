@@ -18,6 +18,7 @@ from pathlib import Path
 import pytest
 
 from synqt import build as buildmod
+from synqt import cmakegen
 from synqt import docker as dockermod
 from synqt import run as runmod
 
@@ -257,7 +258,11 @@ def test_tests_with_no_configured_build_say_which_command_configures_it(tmp_path
 
 
 def test_a_configured_build_reaches_ctest_and_returns_what_it_said(tmp_path, monkeypatch):
-    monkeypatch.setattr(runmod.shutil, "which", lambda name: "/usr/bin/ctest")
+    """The test target is built first, then ctest runs it, and ctest's code comes back.
+
+    Built here because `synqt build` builds the entity targets by name and this one is not
+    among them, so it was configured and never made."""
+    monkeypatch.setattr(runmod.shutil, "which", lambda name: f"/usr/bin/{name}")
     tests = tmp_path / "tests"
     tests.mkdir()
     (tests / "tst_Auction.qml").write_text("TestCase {}\n")
@@ -268,12 +273,14 @@ def test_a_configured_build_reaches_ctest_and_returns_what_it_said(tmp_path, mon
 
     def remember(command, **named):
         ran.append(command)
-        return subprocess.CompletedProcess(command, 3)
+        return subprocess.CompletedProcess(command, 3 if command[0] == "ctest" else 0)
 
     monkeypatch.setattr(runmod.subprocess, "run", remember)
     assert runmod.test(tmp_path) == 3
-    assert ran[0][:2] == ["ctest", "--test-dir"]
-    assert "--output-on-failure" in ran[0]
+    assert ran[0][:2] == ["/usr/bin/cmake", "--build"]
+    assert ran[0][-2:] == ["--target", cmakegen.TESTS_TARGET]
+    assert ran[1][:2] == ["ctest", "--test-dir"]
+    assert "--output-on-failure" in ran[1]
 
 
 if __name__ == "__main__":

@@ -191,7 +191,10 @@ test, or the slot split so the decision is a function of its own.
 
 ## Running them
 
-`synqt test` builds the test target and runs it under CTest:
+`synqt test` builds the test target and runs it under CTest. The project has to have been
+built once first, because that is what configures the build directory. Run `synqt test`
+against a project that never has been and it says so rather than reporting a passing run
+over nothing.
 
 ```text
 $ synqt test

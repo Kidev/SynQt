@@ -9,9 +9,11 @@ this one catches a wrong path or a missing contract in the emitted text, and tha
 catches a harness that stopped working.
 """
 
+import subprocess
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest import mock
 
 import yaml
 
@@ -172,6 +174,56 @@ class EmptyProjectTest(unittest.TestCase):
         printed = buffer.getvalue()
         self.assertIn("tests/tst_", printed)
         self.assertIn("SynQt.Test", printed)
+
+
+class BuildsBeforeItRunsTest(unittest.TestCase):
+    """`synqt test` compiles the test target itself.
+
+    `synqt build` builds the entity targets by name, and the generated test executable is
+    not one of them, so it was configured and never made. `synqt build && synqt test` ended
+    in ctest reporting "Unable to find executable" for a target nothing had been asked to
+    produce. Building it here also keeps `synqt dev`'s rebuild loop to the entities.
+    """
+
+    def _ran(self, root):
+        commands = []
+
+        def record(argv, *args, **kwargs):
+            commands.append([str(part) for part in argv])
+            return subprocess.CompletedProcess(argv, 0)
+
+        with mock.patch.object(run.subprocess, "run", record), \
+                mock.patch.object(run.shutil, "which", lambda name: f"/usr/bin/{name}"):
+            code = run.test(root)
+        return code, commands
+
+    def test_the_target_is_built_before_ctest_is_asked_to_run_it(self):
+        root = _project(with_tests=True)
+        (root / "build" / "host").mkdir(parents=True)
+        (root / "build" / "host" / "CTestTestfile.cmake").write_text("")
+        code, commands = self._ran(root)
+        self.assertEqual(code, 0)
+        self.assertEqual(len(commands), 2, commands)
+        self.assertIn("--target", commands[0])
+        self.assertEqual(commands[0][commands[0].index("--target") + 1],
+                         cmakegen.TESTS_TARGET)
+        self.assertEqual(commands[1][0], "ctest")
+
+    def test_a_build_that_fails_does_not_report_a_test_run(self):
+        root = _project(with_tests=True)
+        (root / "build" / "host").mkdir(parents=True)
+        (root / "build" / "host" / "CTestTestfile.cmake").write_text("")
+        commands = []
+
+        def record(argv, *args, **kwargs):
+            commands.append([str(part) for part in argv])
+            return subprocess.CompletedProcess(argv, 2 if commands[-1][0] != "ctest" else 0)
+
+        with mock.patch.object(run.subprocess, "run", record), \
+                mock.patch.object(run.shutil, "which", lambda name: f"/usr/bin/{name}"):
+            code = run.test(root)
+        self.assertEqual(code, 2)
+        self.assertEqual([argv[0] for argv in commands], ["/usr/bin/cmake"])
 
 
 if __name__ == "__main__":
