@@ -798,6 +798,19 @@ h2 {
   opacity: .4;
 }
 
+/* A row this copy of the page cannot honestly produce. Dimmed and not hidden: what the
+   framework can do is worth knowing about from the drawing board, and the row's own card
+   says which command draws it. */
+.palette__item.is-unavailable {
+  opacity: .45;
+  cursor: not-allowed;
+}
+
+.palette__item.is-unavailable:hover {
+  border-color: transparent;
+  background: none;
+}
+
 .rail__hint {
   margin: 0 0 .25rem;
   font-size: 11px;

@@ -31,7 +31,8 @@ import pytest
 import yaml
 
 from synqt import check as checkmod
-from synqt import addcontract, appmodel, designdoc, newproject, qmlcomments, toolchain
+from synqt import (addcontract, addentity, appmodel, designdoc, monitorscaffold,
+                   newproject, qmlcomments, toolchain)
 
 DESIGN = Path(checkmod.__file__).parent / "assets" / "design"
 
@@ -544,6 +545,77 @@ def test_the_page_and_the_cli_write_sharing_the_same_way():
     cli = {entity["name"]: appmodel.is_shared(entity) for entity in config["entities"]}
     assert page == cli
     assert page == {"app": False, "edge": False, "store": True}
+
+
+def test_a_drawn_monitor_is_written_the_way_the_scaffolder_writes_one():
+    """The monitor block and the one line that makes every service report to it.
+
+    `monitoring.entity` is the whole wiring. The link every service opens is derived from
+    it rather than declared, so a downloaded project holding the entity and not the line
+    would build an entity nothing ever reports to. The port and the loopback host are the
+    scaffolder's, compared against it rather than restated."""
+    document = {
+        "version": 1, "project": "p",
+        "entities": [
+            {"name": "app", "type": "client"},
+            {"name": "edge", "type": "web_edge"},
+            {"name": "ops", "type": "monitor"},
+        ],
+        "links": [{"owner": "edge", "consumers": ["app"], "members": []}],
+    }
+    rendered = yaml.safe_load(_node(f"""
+        import {{ renderYaml }} from {_module('project.js')};
+        process.stdout.write(renderYaml({json.dumps(document)}));
+    """, raw=True))
+    assert rendered["monitoring"] == {"entity": "ops"}
+    monitor = next(entity for entity in rendered["entities"] if entity["name"] == "ops")
+    scaffolded = monitorscaffold.monitor_block("ops")
+    assert monitor["type"] == "monitor"
+    assert monitor["public"] == scaffolded["public"]
+    assert monitor["retention"] == scaffolded["retention"]
+
+
+def test_a_project_with_no_monitor_says_nothing_about_monitoring():
+    document = {
+        "version": 1, "project": "p",
+        "entities": [{"name": "app", "type": "client"},
+                     {"name": "edge", "type": "web_edge"}],
+        "links": [{"owner": "edge", "consumers": ["app"], "members": []}],
+    }
+    rendered = yaml.safe_load(_node(f"""
+        import {{ renderYaml }} from {_module('project.js')};
+        process.stdout.write(renderYaml({json.dumps(document)}));
+    """, raw=True))
+    assert "monitoring" not in rendered
+
+
+def _palette():
+    """The rail, read out of design.js as text.
+
+    The module touches the page at import, so node cannot load it outside a browser the way
+    it loads rules.js and canvas.js. What is asserted here is a list of literals, and a list
+    of literals is readable as text."""
+    source = _text("design.js")
+    block = re.search(r"const PALETTE = \[(.*?)^\]", source, re.S | re.M).group(1)
+    return {match.group("type"): "needsCli: true" in match.group(0)
+            for match in re.finditer(
+                r'\{label:.*?make: \(\) => \(\{type: "(?P<type>\w+)"', block, re.S)}
+
+
+def test_every_type_a_project_can_hold_is_on_the_rail():
+    """What the palette lists is what SynQt has, not what one copy of the page can write."""
+    assert set(_palette()) == set(addentity.TYPES) | {"client", "web_edge"}
+
+
+def test_the_drawing_board_does_not_offer_what_it_cannot_finish():
+    """A monitor is four things, three of them files, and the console's is three hundred
+    lines of QML. The hosted page has no scaffolder behind it, so the row says which
+    command draws one rather than handing over a monitor with no console."""
+    palette = _palette()
+    assert palette["monitor"] is True
+    assert {kind for kind, cli in palette.items() if cli} == {"monitor"}
+    # And the reason is said in the page, not only in a comment about the page.
+    assert "synqt add entity ops --type monitor" in _text("design.js")
 
 
 def test_the_home_pages_project_is_the_one_the_home_page_reads():

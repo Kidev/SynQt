@@ -100,6 +100,12 @@ pipx install synqt
     plaintext connection type to reach for by mistake, only the one every entity
     already speaks.
 
+-   :material-radar: __One click, one trace__
+
+    Add a monitor and every entity reports to it, so a click in the browser becomes one
+    trace running through each entity it touched. Nothing is recorded until you add one,
+    and turning a category up during an incident is a restart, not a rebuild.
+
 </div>
 
 </div>

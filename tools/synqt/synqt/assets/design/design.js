@@ -85,9 +85,29 @@ const PALETTE = [
      make: () => ({type: "api"})},
     {label: "Jobs", role: "jobs", base: "jobs",
      make: () => ({type: "jobs"})},
+    // One per project, because `monitoring.entity` names one. The link every service opens
+    // to it is derived from that line rather than drawn, so this row adds a node the canvas
+    // shows unwired and the rules do not scold for it.
+    {label: "Monitor", role: "monitor", base: "ops", needsCli: true,
+     make: () => ({type: "monitor"})},
     {label: "Service", role: "service", base: "service",
      make: () => ({type: "service"})},
 ].map((item) => ({...item, help: ROLE_HELP[item.role]}));
+
+// What a row needs a SynQt behind the page for, in the words the rail and the message bar
+// both use. A monitor is not one entity: it is the entity that keeps the history, a console
+// client, the sign-in page an anonymous visitor is handed instead of that console, and the
+// bundle map that decides which of the two anybody gets. Three of those four are files, and
+// the console's is three hundred lines of QML nobody should be maintaining a second copy of.
+// `synqt design` runs the real scaffolder and writes all four; a zip from this page would
+// carry a monitor with no console and no honest way to finish it, so the row says so instead
+// of handing one over.
+const CLI_ONLY = {
+    monitor: "A monitor is drawn with `synqt design` inside a project, because its console, "
+        + "its sign-in gate and its bundle map are files rather than configuration and the "
+        + "scaffolder writes them. Draw the rest here, then add it with "
+        + "`synqt add entity ops --type monitor`.",
+};
 
 const state = {
     design: {version: 1, project: "", sourceHash: "", entities: [], links: []},
@@ -1509,6 +1529,9 @@ function tipFor(what) {
         head.append(title);
         box.append(head);
         box.append(tipHelp(item.help));
+        if (item.needsCli && !state.backend) {
+            box.append(tipHelp(CLI_ONLY[item.role]));
+        }
         return box;
     }
     if (what.kind === "entity") {
@@ -2656,6 +2679,10 @@ function place(role) {
 // arrangement the whole page reads in; with it, it lands where somebody put it, which is the
 // point of having dragged it there.
 function addEntity(item, at) {
+    if (item.needsCli && !state.backend) {
+        say(CLI_ONLY[item.role], "error");
+        return null;
+    }
     const taken = new Set((state.design.entities || []).map((entity) => entity.name));
     const spot = at || place(item.role);
     const entity = {
@@ -2883,7 +2910,10 @@ function offerSeat(from, target, at, {consuming} = {}) {
 // so the entity that was being reached for is made and connected in one gesture rather than
 // dragged from the rail and joined up afterwards.
 function offerEntity(owner, spot, at) {
-    openMenu(at, `Consumer for '${owner.name}'`, PALETTE.map((item) => ({
+    // Only the rows this copy of the page can actually make. A row that cannot be
+    // scaffolded here would be a menu entry whose whole answer is a refusal.
+    const offered = PALETTE.filter((item) => state.backend || !item.needsCli);
+    openMenu(at, `Consumer for '${owner.name}'`, offered.map((item) => ({
         label: item.label,
         act: () => {
             addLink(owner, addEntity(item, spot), spot, at);
@@ -3795,6 +3825,16 @@ function onDrop(event) {
 
 async function goOffline(reason) {
     state.backend = false;
+    // Said in the rail before the drag rather than in the message bar after it. The row
+    // stays, dimmed, because the palette is the list of what SynQt has and not the list of
+    // what this page can write; its card says which command draws one.
+    for (const row of page.palette.querySelectorAll(".palette__item")) {
+        const item = PALETTE.find((one) => one.role === row.dataset.role);
+        if (item && item.needsCli) {
+            row.classList.add("is-unavailable");
+            row.draggable = false;
+        }
+    }
     // Nothing to read back: inference reads the QML in a project on a disk, and there is
     // no project on the other end of this page.
     page.infer.hidden = true;

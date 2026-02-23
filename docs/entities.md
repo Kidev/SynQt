@@ -313,6 +313,29 @@ consumed by entities that enqueue work. It is internal only.
 Security: the jobs entity authorizes who may enqueue work, bounds queue size, and
 runs each job with only the connect point access its work requires.
 
+### Monitor (the operations record)
+
+Purpose: hold what every other entity did, and serve an operator console that turns one
+click into one trace running through every entity it touched.
+
+Backend: a bounded ring in each reporting entity, drained by a writer thread, SQLite with
+WAL and FTS5 on the monitor itself, and optional export to an OpenTelemetry collector or a
+rotated JSONL file. The monitor owns one connect point, `ingest`, that every service
+consumes, and that link is derived from the single `monitoring.entity` line rather than
+declared, so no entity can be left out of the record by forgetting to wire it.
+
+Security: the console binds `127.0.0.1` and `synqt check` refuses any other host without
+`monitoring: {public: acknowledged}`. Its identity is its own, deliberately not the
+application's, and an anonymous visitor is handed a sign-in page rather than a refusal on
+the console, so the console is not addressable to them at all. No credential, no call
+argument a member did not ask to [`capture`](programming-model.md), and nothing a browser
+claimed ever enters the record.
+
+`synqt add entity ops --type monitor` writes the entity, its console client, the sign-in
+gate and the `monitoring.entity` line together. It is one command because any three of them
+leave something that does not work or is not safe. All of it, including turning categories
+up during an incident without a rebuild, is in [monitoring](monitoring.md).
+
 ### `Log` (in every entity, whatever its type)
 
 The helpers above exist because a type has an engine behind it, and each one is in scope

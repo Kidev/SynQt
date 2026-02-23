@@ -27,7 +27,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-from . import addcontract, addentity, appmodel, check as checkmod, config as configmod
+from . import (addcontract, addentity, appmodel, check as checkmod, config as configmod,
+               monitorscaffold)
 from . import designdoc, newproject, qmlcomments, yamledit
 
 # Copied into the working tree and compared afterwards: everything else is build output, a
@@ -93,11 +94,50 @@ def compute(project_dir: os.PathLike[str] | str, document: Dict[str, Any], *,
         removed = _apply(work, current, wanted, reasons, base)
         changes = _changes(root, work, removed, reasons)
 
-    ok, findings = checkmod.validate(designdoc.to_config(wanted, base=base),
-                                     project_dir=root)
+    ok, findings = checkmod.validate(
+        _with_scaffolded_monitors(designdoc.to_config(wanted, base=base)), project_dir=root)
     unwritable = _uncompilable_contracts(wanted)
     return Plan(changes=tuple(changes), findings=tuple(findings) + tuple(unwritable),
                 ok=ok and not unwritable, git=_git_position(root), stale=stale)
+
+
+def _with_scaffolded_monitors(config: Dict[str, Any]) -> Dict[str, Any]:
+    """`config` as it will be once the monitor scaffolder has run over the drawn monitors.
+
+    The editor draws one node and a monitor is four things: the entity, the console client,
+    the sign-in gate the console is hidden behind, and the `monitoring.entity` line that
+    makes every service report. `_scaffold_entity` runs the real scaffolder for all four,
+    but that happens while the change set is being worked out, and what the plan validates
+    is the configuration the document describes. Validated as drawn, a monitor somebody had
+ dropped read as a monitor with no gate and no wiring, and the plan refused the
+    thing it was itself about to write correctly.
+
+    So the same three functions the scaffolder calls are called here, and nothing is
+    predicted twice. This is the scaffolder's own answer, asked one step earlier. A monitor
+    that is already wired keeps what it has.
+    """
+    entities = appmodel.entities(config)
+    drawn = [entity for entity in entities
+             if appmodel.entity_type(entity) == "monitor"
+             and not isinstance(entity.get("bundles"), dict)]
+    if not drawn:
+        return config
+    settled = dict(config)
+    settled["entities"] = [dict(entity) for entity in entities]
+    by_name = {str(entity.get("name") or ""): entity for entity in settled["entities"]}
+    for entity in drawn:
+        name = str(entity.get("name") or "")
+        console = f"{name}-console"
+        block = monitorscaffold.monitor_block(name, config)
+        block["bundles"] = monitorscaffold.bundles_block(console)
+        by_name[name].update({key: value for key, value in block.items()
+                              if key not in by_name[name]})
+        if console not in by_name:
+            settled["entities"].append(monitorscaffold.console_block(console, name))
+    if not appmodel.monitor_entity(settled):
+        settled["monitoring"] = {**(settled.get("monitoring") or {}),
+                                 "entity": str(drawn[0].get("name") or "")}
+    return settled
 
 
 def _uncompilable_contracts(wanted: Dict[str, Any]) -> List[str]:

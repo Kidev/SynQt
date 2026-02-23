@@ -665,6 +665,44 @@
           }
         ]
       }
+    },
+    {
+      "id": "a-second-monitor",
+      "rule": "second-monitor",
+      "level": "warn",
+      "why": "monitoring.entity names one entity, so a second monitor beside the wired one builds, starts and serves its console with nothing ever reporting to it.",
+      "document": {
+        "version": 1,
+        "project": "rules",
+        "entities": [
+          {
+            "name": "client",
+            "type": "client"
+          },
+          {
+            "name": "web",
+            "type": "web_edge"
+          },
+          {
+            "name": "ops",
+            "type": "monitor"
+          },
+          {
+            "name": "ops2",
+            "type": "monitor"
+          }
+        ],
+        "links": [
+          {
+            "name": "web",
+            "contract": "WebContract",
+            "owner": "web",
+            "consumers": [
+              "client"
+            ]
+          }
+        ]
+      }
     }
   ]
 }

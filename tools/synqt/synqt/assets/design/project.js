@@ -73,7 +73,33 @@ function entityLines(entity) {
                    "      cert_file: certs/web/fullchain.pem",
                    "      key_file: certs/web/privkey.pem");
     }
+    // The same block monitorscaffold.monitor_block writes, loopback included. A console
+    // that shows every request a system has served is not something to put on a public
+    // interface because nobody chose otherwise, so reaching it means reaching the machine
+    // first. The retention pair is here for the same reason: a store with no bound is a
+    // monitor that fills the disk of the machine it is watching.
+    if (entityType(entity) === "monitor") {
+        lines.push("    public:",
+                   "      host: 127.0.0.1",
+                   `      port: ${MONITOR_PORT}`,
+                   "    retention:",
+                   "      max_age_days: 14",
+                   "      max_bytes: 536870912");
+    }
     return lines;
+}
+
+// Where the monitor serves its console, matching monitorscaffold.free_port on a project
+// whose other browser-facing entity has taken no port of its own, which is every project
+// this writer produces.
+const MONITOR_PORT = 8443;
+
+// The monitor every service reports to, or "" for a project with none. The first one drawn:
+// `monitoring.entity` names a single entity, and rules.js paints every monitor after it.
+function monitorName(design) {
+    const monitor = (design.entities || []).find(
+        (entity) => entityType(entity) === "monitor");
+    return monitor ? String(monitor.name || "") : "";
 }
 
 function isWebEdge(entity) {
@@ -165,6 +191,13 @@ export function renderYaml(design) {
         ...block("connect_points", design.links || [],
                  (link) => linkLines(design, link)),
         "",
+        // Written last, where `synqt add entity --type monitor` writes it, and only when
+        // there is a monitor to name. It is the whole wiring. The link every service opens
+        // is derived from this line rather than declared, so a project with a monitor and
+        // without it has an entity nothing reports to.
+        ...(monitorName(design)
+            ? ["monitoring:", `  entity: ${scalar(monitorName(design))}`, ""]
+            : []),
     ].join("\n");
 }
 
@@ -201,6 +234,7 @@ const TYPE_FOLDERS = {
     cache: "cache",
     api: "api",
     jobs: "jobs",
+    monitor: "monitor",
     service: "service",
 };
 

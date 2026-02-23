@@ -145,6 +145,11 @@ const GLYPHS = {
         {tag: "path", d: "M 0,-3.5 V 0.5 L 3,2.5", fill: "none", stroke: "currentColor",
          "stroke-width": 1.4, "stroke-linecap": "round", "stroke-linejoin": "round"},
     ],
+    monitor: [
+        {tag: "path", d: "M -7.5,0 H -4 L -1.5,-5.5 L 1.5,5.5 L 4,0 H 7.5", fill: "none",
+         stroke: "currentColor", "stroke-width": 1.5, "stroke-linecap": "round",
+         "stroke-linejoin": "round"},
+    ],
     service: [
         {tag: "path", d: "M -2,-6 L -6,0 L -2,6", fill: "none", stroke: "currentColor",
          "stroke-width": 1.7, "stroke-linecap": "round", "stroke-linejoin": "round"},
@@ -186,6 +191,10 @@ export const ROLE_HELP = {
     jobs: "Work on a timer or a queue, with nothing listening on a port. Use it for what "
         + "should not happen while somebody waits: nightly rollups, retries, cleanup, "
         + "anything that would otherwise sit inside a request.",
+    monitor: "The operations record. Every other entity reports to this one, so one "
+        + "click becomes one trace running through every entity it touched. It keeps the "
+        + "history, serves an operator console on its own loopback port, and records no "
+        + "credential and no call argument that a member did not ask it to.",
     service: "An entity with no engine: your own logic, its own binary, reachable only "
         + "by the entities you list. Use it when a piece of the system deserves to fail, "
         + "scale and be deployed on its own.",

@@ -53,6 +53,7 @@ const KIND_LABELS = {
     document: "Document entity, records with no fixed columns",
     api: "API entity, where the system calls somebody else's",
     jobs: "Jobs entity, work on a timer with nothing listening",
+    monitor: "Monitor entity, the operations record and its console",
     service: "Service entity, your own logic in its own binary",
 };
 

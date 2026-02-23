@@ -830,8 +830,16 @@ async function theProjectALinkHandsYou() {
         // every line into it leaves from underneath that one mark.
         check(await page.locator("#links [data-contract]").count() === 3,
               "each drawn with a single contract icon, not one per consumer");
-        check(await page.locator(".palette__glyph svg").count() === 8,
+        const rows = await page.locator(".palette__item").count();
+        check(rows > 0 && await page.locator(".palette__glyph svg").count() === rows,
               "every palette row carries the glyph the canvas draws that entity with");
+        // With nothing behind the page there is no scaffolder, and a monitor is mostly
+        // files: the row stays on the rail so the rail is still the list of what SynQt has,
+        // and it says which command draws one instead of handing over half a monitor.
+        const monitor = page.locator('.palette__item[data-role="monitor"]');
+        check(await monitor.count() === 1
+              && (await monitor.getAttribute("class")).includes("is-unavailable"),
+              "and the monitor is on it, dimmed, because this copy cannot scaffold one");
         // In the page's own tooltip, not the browser's `title`: it opens at once and can
         // hold the glyph and the paragraph, where a native one arrives a second late with
         // one line of unstyled text.

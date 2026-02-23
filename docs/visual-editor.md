@@ -38,10 +38,10 @@ or an issue. It is the canvas as it is drawn, so it says what the project says.
 
 The rail on the left is the entity palette, and it is the list from
 [entities](entities.md): a client, a web edge, the four types that come with an engine
-behind them (relational, cache, document, api), the jobs type, and a plain service
-you write yourself. Each row carries the glyph the canvas draws that entity with, and hovering
-one says what that kind of entity is for and when you would reach for it; the same line
-appears in the panel once one is on the canvas.
+behind them (relational, cache, document, api), the jobs type, the
+[monitor](monitoring.md), and a plain service you write yourself. Each row carries the glyph
+the canvas draws that entity with, and hovering one says what that kind of entity is for and
+when you would reach for it; the same line appears in the panel once one is on the canvas.
 
 Drag a row onto the canvas to put an entity where you dropped it. Dragging is the only way
 one arrives, so an entity is always somewhere you chose rather than somewhere a column had
@@ -52,6 +52,20 @@ window, `client/app/Main.qml`; every other entity's is named after it, `web/edge
 one file is the entity: what it exports and the state behind it. An entity that mints a Source
 per caller and still needs something shared between them writes a `pragma Shared` file of its
 own beside it, under a name it chooses.
+
+The monitor is the one row the copy on this site cannot hand you. It is not one entity: it
+is the entity that keeps the history, a console client, the sign-in page an anonymous visitor
+is handed instead of that console, and the bundle map that decides which of the two anybody
+gets. Three of those are files, and the console's is three hundred lines of QML, so
+`synqt design` runs the real scaffolder for them and a zip from a page with nothing behind it
+cannot. The row is there, dimmed, and it says the command that draws one:
+`synqt add entity ops --type monitor`. Draw the rest of the system here, then add the monitor
+to the project you unzipped.
+
+A monitor already in a project is drawn like any other entity, and the canvas leaves it
+unwired on purpose: the link every service opens to it comes from the one `monitoring.entity`
+line rather than from a line anybody draws. A second monitor beside it is marked, because
+that line names one entity and nothing would ever report to the other.
 
 The boxes behind the nodes are the three sides of a system, and they are drawn from what each
 entity is rather than from where it sits: CLIENTS, FACES THE INTERNET, and MESH. Hovering a

@@ -255,11 +255,14 @@ function linkFindings(design, link) {
 
 // An entity nothing reaches and that reaches nothing. A warning, not an error: it is the
 // state every entity passes through between being dropped on the canvas and being wired,
-// and painting it red would mean the editor scolds you for the gesture it just performed.
-// The client and the edge are left out: both have a browser to serve.
+// and painting it red would mean the editor scolds you for the gesture it performed.
+// The client and the edge are left out. Both have a browser to serve. So is a monitor: the
+// link every service opens to it is derived from `monitoring.entity` rather than drawn, so
+// an unwired-looking monitor is the wired state and not a missing line.
 function orphanEntities(design) {
     return entitiesOf(design)
-        .filter((entity) => entityType(entity) !== "client" && !isWebEdge(entity))
+        .filter((entity) => entityType(entity) !== "client" && !isWebEdge(entity)
+                            && entityType(entity) !== "monitor")
         .filter((entity) => !linksOf(design).some(
             (link) => link.owner === nameOf(entity)
                 || (link.consumers || []).includes(nameOf(entity))))
@@ -271,6 +274,23 @@ function orphanEntities(design) {
                 + `nothing can reach it and it can reach nothing. Draw a link to it, or `
                 + `take it off the canvas.`,
         }));
+}
+
+// A project has one monitor. `monitoring.entity` names a single entity, and it is that line
+// rather than any drawn link that makes every service report, so a second monitor beside it
+// builds, starts, serves its console and stays empty. The first one on the canvas is the one
+// the project wires. Every one after it is this.
+function extraMonitors(design) {
+    const monitors = entitiesOf(design).filter(
+        (entity) => entityType(entity) === "monitor");
+    return monitors.slice(1).map((entity) => ({
+        rule: "second-monitor",
+        level: "warn",
+        entity: nameOf(entity),
+        message: `'${nameOf(monitors[0])}' is already this project's monitor, and `
+            + `monitoring.entity names one entity. Nothing would report to `
+            + `'${nameOf(entity)}', so its history would stay empty.`,
+    }));
 }
 
 // What turning an edge into a front does to everything already drawn.
@@ -409,6 +429,7 @@ export function findings(design) {
         ...sharedOnAClient(design),
         ...frontFindings(design),
         ...orphanEntities(design),
+        ...extraMonitors(design),
     ];
     for (const link of linksOf(design)) {
         found.push(...linkFindings(design, link));

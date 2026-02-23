@@ -401,6 +401,45 @@ def test_execute_writes_exactly_what_the_plan_said(tmp_path):
     assert designplan.compute(project, designdoc.read(project)).changes == ()
 
 
+def test_drawing_a_monitor_scaffolds_the_whole_monitor(tmp_path):
+    """A monitor is four things and the editor draws one node, so applying it has to run the
+    real scaffolder rather than write the block the node stands for. The console client, the
+    sign-in page and the `monitoring.entity` line are the three that are easy to leave out,
+    and a monitor missing any of them is a store nobody reads or a console with no gate."""
+    project = _copy(tmp_path, "gavel")
+    document = designdoc.read(project)
+    document["entities"].append({"name": "ops", "type": "monitor", "provider": "",
+                                 "targets": [], "identity": False, "shared": True,
+                                 "x": 680, "y": 360})
+    plan = designplan.compute(project, document)
+    designplan.execute(project, plan)
+
+    config = yaml.safe_load((project / "synqt.yaml").read_text())
+    names = {entity["name"]: entity for entity in config["entities"]}
+    assert config["monitoring"]["entity"] == "ops"
+    assert names["ops"]["public"]["host"] == "127.0.0.1"
+    assert names["ops-console"]["console"] is True
+    assert names["ops-console"]["edge"] == "ops"
+    assert (project / "monitor" / "ops" / "signin" / "index.html").is_file()
+    assert (project / "client" / "ops-console" / "Main.qml").is_file()
+
+
+def test_the_console_a_drawn_monitor_brought_is_not_removed_by_the_next_apply(tmp_path):
+    """The scaffolder adds an entity the drawing never had, so the document the editor holds
+    is behind the project the moment the plan lands. A second apply reading that document
+    would see a client nobody drew and take it out, which would delete the console and leave
+    the gate pointing at nothing."""
+    project = _copy(tmp_path, "gavel")
+    document = designdoc.read(project)
+    document["entities"].append({"name": "ops", "type": "monitor", "provider": "",
+                                 "targets": [], "identity": False, "shared": True,
+                                 "x": 680, "y": 360})
+    designplan.execute(project, designplan.compute(project, document))
+    # What the editor adopts after applying is the project, not the document it sent.
+    assert designplan.compute(project, designdoc.read(project)).changes == ()
+    assert (project / "client" / "ops-console" / "Main.qml").is_file()
+
+
 def test_execute_refuses_a_plan_with_an_error(tmp_path):
     project = _copy(tmp_path, "gavel")
     document = designdoc.read(project)
