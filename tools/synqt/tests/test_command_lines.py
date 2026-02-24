@@ -299,14 +299,15 @@ def test_dev_passes_one_bundle_per_scope():
               "scopes": {"order": ["anonymous", "user"], "default": "anonymous"}}
     argv = runmod.dev_command(Path("/p"), config["entities"][0], config, 8443)
     values = _bundle_values(argv)
-    assert any(v.startswith("anonymous=") and v.endswith("/web/web/landing")
-               for v in values), values
-    assert any(v.startswith("user=") and v.endswith("/build/client-app")
-               for v in values), values
+    # Built with Path rather than written out, because these reach a process as arguments
+    # and so carry the host's separator. The literal spelling passes on Linux and macOS and
+    # fails on Windows, which is exactly what it did.
+    assert f"anonymous={Path('/p') / 'web' / 'web' / 'landing'}" in values, values
+    assert f"user={Path('/p') / 'build' / 'client-app'}" in values, values
 
 
 def test_dev_passes_a_bare_bundle_for_a_project_with_no_block():
-    # The historic argv, unchanged: the generated main keys a bare value by the default
+    # The historic argv, unchanged. The generated main keys a bare value by the default
     # scope, so a project that never wrote `bundles:` is launched exactly as before.
     config = {"entities": [{"name": "web", "type": "web_edge"},
                            {"name": "app", "type": "client"}]}

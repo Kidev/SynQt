@@ -164,7 +164,10 @@ def test_a_reporting_entity_is_told_where_it_may_spool():
     # Inside the project. A spool is a copy of the record, and a copy of the record living
     # somewhere the project does not own is a copy nobody is watching.
     spool = _topology("web")["monitoring"]["spool_dir"]
-    assert spool == "/p/build/web/state"
+    # Forward slashes whatever the host, which is topologywriter._path's whole job, so the
+    # separator is spelled out here. The root is not, because Path("/p") picks up the
+    # current drive on Windows and the claim is about the shape, not the letter.
+    assert spool == f"{Path('/p').resolve().as_posix()}/build/web/state"
 
 
 def test_the_monitor_itself_gets_no_spool():
@@ -463,7 +466,7 @@ def test_synqt_dev_launches_a_monitor_with_its_own_port_and_its_bundles():
     # Its own port, from `public:`. The 8080 above is the edge's, and handing it to a
     # second browser-facing server is the collision this rule exists to avoid.
     assert "--port" in command and command[command.index("--port") + 1] == "8444"
-    assert "anonymous=/p/monitor/ops/signin" in command
-    assert "operator=/p/build/client-ops-console" in command
-    # Both halves: it hosts a mesh point as well as serving a console.
+    assert f"anonymous={Path('/p') / 'monitor' / 'ops' / 'signin'}" in command
+    assert f"operator={Path('/p') / 'build' / 'client-ops-console'}" in command
+    # Both halves. It hosts a mesh point as well as serving a console.
     assert "--topology" in command and "--qml-dir" in command
