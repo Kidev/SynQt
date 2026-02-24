@@ -478,36 +478,48 @@ is what those two workflows assert directly, in every engine.
 
 A service entity runs for months. An object retained per browser connection, per request or
 per reconnect is a defect even when every one of those operations is correct, and it is one
-the suites above cannot see: the operation passes, the process exits, and whatever it kept
+the suites above cannot see. The operation passes, the process exits, and whatever it kept
 goes back to the operating system with it. So memory is its own question, asked two ways.
 
 [`tests/memory`](https://github.com/Kidev/SynQt/tree/main/tests/memory) is the gate, and it
 runs with every other suite under `ctest`. Each test takes one long-lived object (a web
 edge, a session store, a consumer of a mesh link) and runs the same cycle against it over
 two consecutive windows of equal length, requiring the second window to keep no more than
-the first. The slope and not the reading, because a process heap is not a straight line:
-under the browser cycle it climbs a few dozen bytes per connection, drops a couple of
-hundred kilobytes in one move, and climbs again, ending four thousand connections later
-below where it started. A check that compared the reading against zero, which is what this
-suite did until it was caught, fails a build that keeps nothing and passes one that keeps
-an object per connection. Two windows subtract that away: a one-time cost is paid in the
-first and not the second, and a leak is paid in both.
+the first. It measures the slope rather than the reading, because a process heap is not a
+straight line. Under the browser cycle it climbs a few dozen bytes per connection, drops a
+couple of hundred kilobytes in one move, and climbs again, ending four thousand connections
+later below where it started. A check that compared the reading against zero fails a build
+that keeps nothing and passes one that keeps an object per connection. Two windows subtract
+that away. A one-time cost is paid in the first and not the second, and a leak is paid in
+both.
 
 The budget is a fixed floor plus an allowance per cycle, and both halves are measured
-rather than chosen. The floor is that rising limb with room to spare; the allowance is well
+rather than chosen. The floor is that rising limb with room to spare, and the allowance is well
 under the smallest thing one of these cycles could retain. Together they resolve a leak of
 about two hundred bytes per connection, which the suite proves it can still see by leaking
 a known amount on purpose in `theBudgetCanTellALeakFromABusyProcess` before it measures
 anything real.
 
-Every leak this framework has actually had was perfectly
-reachable at the moment it mattered: a promise parented to a facade that lives as long as
+A reading over that budget is a hypothesis rather than a verdict, because two things put
+one there. The workload keeps something every cycle, or the window happened to close
+somewhere awkward. So a test that goes over measures again with twice as many cycles, and only the
+second reading is reported. A cost paid once does not repeat, so the deeper window never
+sees it. A leak is paid every cycle, and the deeper window judges it harder rather than more
+gently, since the fixed floor is now spread over twice the cycles. It costs nothing on a
+green run, because a reading inside the budget is returned without a second measurement.
+`theConfirmationDropsAOneTimeCostAndKeepsALeak` feeds that step both answers and requires it
+to tell them apart, the same way the budget itself is checked. It exists because the edge
+cycle failed once on a CI runner and passed the immediate re-run of the same binary, on a
+build where six hundred consecutive edges climb about thirty-five bytes each.
+
+Every leak this framework has had was
+reachable at the moment it mattered. A promise parented to a facade that lives as long as
 the connection, a node replaced but not retired on reconnect, a verifier map nothing ever
 removed from. A leak checker reports what is unreachable and would have called all three
 clean.
 
 The second way runs on demand, and in CI through
-[`leaks.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/leaks.yml): on
+[`leaks.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/leaks.yml), on
 dispatch, and on any push that touches `src/` or the harness. It is not on every push
 because the sanitizer pass rebuilds the whole tree instrumented and then runs every suite
 several times slower.

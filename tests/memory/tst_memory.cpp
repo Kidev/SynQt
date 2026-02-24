@@ -227,6 +227,41 @@ bool withinBudget(const Growth &growth, qint64 allowedPerCycle)
     return growth.bytes <= budgetFor(growth, allowedPerCycle);
 }
 
+/// Measure, and do not believe an over-budget reading until a deeper window repeats it.
+///
+/// A reading over budget is a hypothesis. Two things can produce one: the workload keeps
+/// something every cycle, or the process happened to be somewhere awkward when the window
+/// closed. They are told apart by asking again with a longer window, because only one of
+/// them survives the question.
+///
+/// A cost that is paid once does not repeat, so the second measurement does not see it at
+/// all. A leak is paid every cycle, so it is still there, and the deeper window judges it
+/// harder rather than more gently. The fixed allowance is spread over twice as many
+/// cycles, so the rate this will tolerate falls from AllowedFixedBytes/n + allowedPerCycle
+/// to AllowedFixedBytes/2n + allowedPerCycle. Confirming an accusation and tightening it
+/// are the same act here, which is the only reason this is worth its runtime.
+///
+/// It costs nothing on a green run. A reading inside the budget is returned without a
+/// second measurement, which is every run where nothing is wrong.
+///
+/// This exists because the edge cycle failed once on a CI runner at 1238 bytes a cycle and
+/// passed the immediate re-run of the same binary, on a build where 600 consecutive edges
+/// climb about 35 bytes each and not one of fifty-seven 30-cycle windows comes near the
+/// budget. AllowedFixedBytes was chased down on the browser cycle, and the edge cycle is a
+/// heavier thing entirely (a QML engine, an HTTP server, a TLS server and a client
+/// handshake per pass), so carrying that constant across to it was the step nobody had
+/// checked. Widening the constant until CI went green would have bought silence. Asking
+/// twice buys an answer.
+Growth measureConfirmed(int warmupCycles, int measuredCycles, qint64 allowedPerCycle,
+                        const std::function<bool()> &cycle)
+{
+    const Growth first{measure(warmupCycles, measuredCycles, cycle)};
+    if (!first.completed || withinBudget(first, allowedPerCycle)) {
+        return first;
+    }
+    return measure(warmupCycles, measuredCycles * 2, cycle);
+}
+
 /// The same question for a mesh reconnect, where the answer is coarser.
 ///
 /// A reconnect replaces a whole QtRO node, its transport and its Replica, and QtRO keeps
@@ -359,6 +394,54 @@ private slots:
                                              budgetFor(leaking, AllowedBytesPerCycle))));
     }
 
+    // What measureConfirmed() is worth, checked the same way the budget itself is: by
+    // feeding it both answers and requiring it to tell them apart. Without this, the second
+    // measurement is an unexamined way of making a red run green, which is the one thing a
+    // gate must never be.
+    void theConfirmationDropsAOneTimeCostAndKeepsALeak()
+    {
+        QList<QByteArray> held;
+        int call{0};
+
+        // Paid once, on a single pass, and never again. This is the shape of everything the
+        // confirmation is meant to drop: a cache filling, an arena growing, a window that
+        // closed somewhere awkward. The pass is chosen to land inside the second of the two
+        // windows measure() compares, because that is the only place a one-time cost can
+        // show up as growth at all.
+        const auto onceOnly{[&held, &call]() {
+            QByteArray scratch{4096, 'x'};
+            if (++call == 40) {
+                held.append(QByteArray{65536, 'z'});
+            }
+            return !scratch.isEmpty();
+        }};
+
+        const Growth oneTime{measureConfirmed(3, 30, AllowedBytesPerCycle, onceOnly)};
+        QVERIFY2(withinBudget(oneTime, AllowedBytesPerCycle),
+                 qPrintable(oneTime.describe("a cost paid on one pass out of sixty",
+                                             budgetFor(oneTime, AllowedBytesPerCycle))));
+        // And the accusation was real before it was re-examined, or the check above proves
+        // nothing. A helper that never confirms anything would pass it too.
+        QCOMPARE(oneTime.cycles, 60);
+
+        held.clear();
+        held.squeeze();
+
+        // Paid every pass. The deeper window judges this harder than the first one did, so
+        // asking twice cannot be a way out of it.
+        const auto everyPass{[&held]() {
+            QByteArray scratch{4096, 'x'};
+            held.append(QByteArray{512, 'z'});
+            return !scratch.isEmpty();
+        }};
+
+        const Growth leaking{measureConfirmed(3, 60, AllowedBytesPerCycle, everyPass)};
+        QVERIFY2(!withinBudget(leaking, AllowedBytesPerCycle),
+                 qPrintable(leaking.describe("a cycle keeping 512 bytes of every pass",
+                                             budgetFor(leaking, AllowedBytesPerCycle))));
+        QCOMPARE(leaking.cycles, 120);
+    }
+
     // The edge itself, taken up and down. Everything else here keeps one edge and cycles
     // what happens to it; nothing asked what an edge costs to build and retire, and a whole
     // suite that never asks a question is how a leak lives.
@@ -391,7 +474,7 @@ private slots:
             return reply->readAll().contains("SYNQT-MEMORY-BUNDLE");
         }};
 
-        const Growth growth{measure(3, 30, oneEdge)};
+        const Growth growth{measureConfirmed(3, 30, AllowedBytesPerCycle, oneEdge)};
         QVERIFY2(growth.completed, "an edge did not serve its bundle");
         QVERIFY2(withinBudget(growth, AllowedBytesPerCycle),
                  qPrintable(growth.describe("an edge started, used and destroyed",
@@ -462,7 +545,7 @@ private slots:
             return true;
         }};
 
-        const Growth growth{measure(3, 30, oneEdgeWithOneBrowser)};
+        const Growth growth{measureConfirmed(3, 30, AllowedBytesPerCycle, oneEdgeWithOneBrowser)};
         QVERIFY2(growth.completed, "an edge did not carry a browser");
         QVERIFY2(withinBudget(growth, AllowedBytesPerCycle),
                  qPrintable(growth.describe("an edge that accepted one upgrade, retired",
@@ -519,7 +602,7 @@ private slots:
             return true;
         }};
 
-        const Growth growth{measure(3, 60, oneBrowser)};
+        const Growth growth{measureConfirmed(3, 60, AllowedBytesPerCycle, oneBrowser)};
         QVERIFY2(growth.completed, "a browser could not complete its round trip");
         QVERIFY2(withinBudget(growth, AllowedBytesPerCycle),
                  qPrintable(growth.describe("a browser connecting and disconnecting",
@@ -633,7 +716,7 @@ private slots:
             return !sessions.isLive(elevated);
         }};
 
-        const Growth growth{measure(10, 200, oneSession)};
+        const Growth growth{measureConfirmed(10, 200, AllowedBytesPerCycle, oneSession)};
         QVERIFY2(growth.completed, "a session did not survive its own lifecycle");
         QVERIFY2(withinBudget(growth, AllowedBytesPerCycle),
                  qPrintable(growth.describe("a session created, elevated and revoked",
@@ -803,7 +886,7 @@ private slots:
             return fresh != nullptr && fresh != before;
         }};
 
-        const Growth growth{measure(2, 20, oneRestart)};
+        const Growth growth{measureConfirmed(2, 20, AllowedBytesPerRetiredLink, oneRestart)};
         QVERIFY2(growth.completed, "the consumer did not find the restarted owner again");
         QVERIFY2(withinBudget(growth, AllowedBytesPerRetiredLink),
                  qPrintable(growth.describe("an owner restart the consumer recovered from",
