@@ -819,7 +819,7 @@ async function theProjectALinkHandsYou() {
         }
     });
     try {
-        await page.goto(`${origin}/index.html#example=feed`);
+        await page.goto(`${origin}/index.html#example=demo`);
         await page.waitForFunction(
             () => document.querySelectorAll("#nodes [data-entity]").length === 4);
         check(await page.locator("#project").textContent() === "demo",
@@ -1333,7 +1333,7 @@ async function typingIntoTheProject() {
         }
     });
     try {
-        await page.goto(`${origin}/index.html#example=feed`);
+        await page.goto(`${origin}/index.html#example=demo`);
         await page.waitForFunction(
             () => document.querySelectorAll("#nodes [data-entity]").length === 4);
 

@@ -148,9 +148,9 @@ def test_the_page_loads_nothing_from_anywhere_else():
 def _without_example_sources(body):
     """The examples with the entities' own files taken out.
 
-    An example carries the QML each of its entities is, and one of the feed project's is a
+    An example carries the QML each of its entities is, and one of the demo project's is a
     gateway calling `Http.get("https://data.example/feed")`. That is a line in somebody's
-    project, shown as text and never fetched by anything; every other string in the file
+    project, shown as text and never fetched by anything. Every other string in the file
     is still held to the rule.
     """
     document = json.loads(body)
@@ -627,15 +627,15 @@ def test_the_home_pages_project_is_the_one_the_home_page_reads():
     if not home.is_file():                       # the tests, without the repository
         pytest.skip("the documentation is not beside these tests")
     page = home.read_text(encoding="utf-8")
-    feed = json.loads(_text("examples.json"))["examples"]["feed"]
+    demo = json.loads(_text("examples.json"))["examples"]["demo"]
 
     shown = yaml.safe_load(re.search(r"```yaml\n(project:.*?)```", page, re.S).group(1))
     assert [entity["name"] for entity in shown["entities"]] == \
-        [entity["name"] for entity in feed["entities"]]
+        [entity["name"] for entity in demo["entities"]]
     assert [point["owner"] for point in shown["connect_points"]] == \
-        [link["owner"] for link in feed["links"]]
-    for point, link in zip(shown["connect_points"], feed["links"]):
-        # Nothing names the contract on either side: the type a point exports is derived
+        [link["owner"] for link in demo["links"]]
+    for point, link in zip(shown["connect_points"], demo["links"]):
+        # Nothing names the contract on either side. The type a point exports is derived
         # from its owner, so the two are compared on what each resolves to.
         assert appmodel.contract_of(point) == appmodel.contract_of(link)
         assert point["owner"] == link["owner"]
@@ -659,8 +659,8 @@ def test_the_example_carries_the_home_pages_own_files():
     shown = {found.group(1): found.group(2) for found in re.finditer(
         r'<div class="synqt-file" data-file="([a-z]+)" markdown>.*?```[a-z]*\n(.*?)```',
         home.read_text(encoding="utf-8"), re.S)}
-    feed = json.loads(_text("examples.json"))["examples"]["feed"]
-    files = {entity["name"]: entity for entity in feed["entities"]}
+    demo = json.loads(_text("examples.json"))["examples"]["demo"]
+    files = {entity["name"]: entity for entity in demo["entities"]}
     notice = ("// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux\n"
               "// SPDX-License-Identifier: Apache-2.0\n\n")
     for name, block in {"app": "client", "edge": "web",

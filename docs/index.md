@@ -661,7 +661,7 @@ Feeds {
 </div>
 
 <div class="synqt-actions">
-<a class="cta cta--quiet" href="/designer/#example=feed" markdown="0"><span class="span">Open this project in the online designer</span></a>
+<a class="cta cta--quiet" href="/designer/#example=demo" markdown="0"><span class="span">Open this project in the online designer</span></a>
 </div>
 
 </div>

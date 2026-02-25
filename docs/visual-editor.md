@@ -22,7 +22,7 @@ thing later.
 
 A link can hand you a system rather than an empty canvas: the button under
 ["what it looks like"](index.md) on the front page opens
-[that project](/designer/#example=feed) in the designer, laid out and ready to be pulled
+[that project](/designer/#example=demo) in the designer, laid out and ready to be pulled
 apart. It opens with that project's own files, the ones the page reads out underneath it,
 not with an empty entity per node.
 

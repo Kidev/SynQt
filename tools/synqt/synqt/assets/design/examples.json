@@ -1,12 +1,12 @@
 {
   "_comment": [
-    "Projects the editor can open cold, named in the fragment: /designer/#example=feed.",
+    "Projects the editor can open cold, named in the fragment: /designer/#example=demo.",
     "They exist so a link can hand somebody a system to look at rather than an empty",
     "canvas. Each one is an ordinary design document, so it is edited, checked and",
     "downloaded exactly like something drawn by hand; nothing here is a special case",
     "once it is loaded.",
     "",
-    "`feed` is the project the home page of synqt.org reads out file by file, so the",
+    "`demo` is the project the home page of synqt.org reads out file by file, so the",
     "diagram there and the canvas here are the same system. Keep them in step: the",
     "suite asserts the entities, the links and the contract members match the",
     "synqt.yaml the page shows, and that every `qml` and `schema` below is that page's",
@@ -15,7 +15,7 @@
     "same way."
   ],
   "examples": {
-    "feed": {
+    "demo": {
       "version": 1,
       "project": "demo",
       "entities": [

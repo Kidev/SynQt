@@ -1273,8 +1273,18 @@ h2 {
   font-weight: 600;
 }
 
+/* Selected, and the pointer somewhere else.
+ 
+   A thicker rim was the whole of it, and a thicker rim is not visible from across a canvas:
+   the rule below lights a hovered node's rim and its name, so next to that a selected node
+   read as the dimmer of the two and, on a drawing with several entities on it, as one that
+   had faded into the paper rather than one that was chosen. The glow is the node's own
+   colour, so it still says what kind of entity it is, and it is drawn on the disc alone, so
+   it reads as the shape being lit rather than as a box around it. In user units, which means
+   it grows and shrinks with the zoom like every other part of the drawing. */
 .node.is-selected .node__disc {
   stroke-width: 2.5;
+  filter: drop-shadow(0 0 3px currentColor) drop-shadow(0 0 9px currentColor);
 }
 
 /* Under the pointer. The disc keeps its role's colour and takes the hover colour on its rim
