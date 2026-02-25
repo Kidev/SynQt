@@ -176,8 +176,8 @@ validation:
 
 nav:
   - Home: index.md
-  - Quick start: quick-start.md
   - Tutorials:
+      - Quick start: quick-start.md
       - Getting started: getting-started.md
       - The auction:
           - Overview: tutorial.md
@@ -207,30 +207,39 @@ nav:
           - A database of your own: tutorial-advanced-database.md
           - A cache of your own: tutorial-advanced-cache.md
           - An identity service of your own: tutorial-advanced-identity.md
+  # Grouped rather than flat. Every page here used to be one row of the left menu, which
+  # made the Framework tab a column of twenty-one entries that ran past the fold on any
+  # laptop and gave a reader no way to see the shape of it. The four that introduce the
+  # model stay at the top level, because they are what somebody arriving reads in order;
+  # the rest are collapsed under the question they answer, and open when you are in them.
   - Framework:
       - Architecture: architecture.md
       - Programming model: programming-model.md
-      - Routes and URLs: routing.md
-      - Remote pages: remote-pages.md
       - Entities: entities.md
       - Providers: providers.md
-      - Authentication: authentication.md
-      - Runtime API reference: runtime-api.md
-      - Project layout and config: project-layout-and-config.md
-      - Build system and CLI: build-system-and-cli.md
-      - Testing your app: testing.md
-      - Running in containers: docker.md
-      - Deploying: deploying.md
-      - Desktop clients: desktop.md
-      - Monitoring: monitoring.md
-      - Security: security.md
-      - Content-Security-Policy: csp.md
-      - Examples: examples.md
-      - Licensing: licensing.md
+      - Building an app:
+          - Routes and URLs: routing.md
+          - Remote pages: remote-pages.md
+          - Authentication: authentication.md
+          - Desktop clients: desktop.md
+          - Testing your app: testing.md
+      - Reference:
+          - Runtime API: runtime-api.md
+          - Project layout and config: project-layout-and-config.md
+          - Build system and CLI: build-system-and-cli.md
+      - Security:
+          - Overview: security.md
+          - Content-Security-Policy: csp.md
+      - Running it:
+          - Running in containers: docker.md
+          - Deploying: deploying.md
+          - Monitoring: monitoring.md
       - Contributing:
           - Developer guide: development.md
           - C++ API reference: api-reference.md
           - Browser coverage: browser-proofs.md
+      - Examples: examples.md
+      - Licensing: licensing.md
   # Straight into the generated Doxygen reference, so it is one click from every page
   # rather than one click behind the page that introduces it. A real page of this site
   # (docs/api.md), not an absolute link out of it: the reference is shown in a frame on

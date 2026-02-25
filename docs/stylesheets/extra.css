@@ -67,9 +67,14 @@
    would cover the root's gradient inside the body's box. None of
    `.md-container`/`.md-main`/`.md-content` set a background of their own, so
    they show the gradient straight through. */
+:root {
+  --synqt-page-bg-color: #191f42;
+  --synqt-page-bg-image: linear-gradient(165deg, #201335 0%, #232a5c 38%, #0d1224 100%);
+}
+
 html {
-  background-color: #191f42;
-  background-image: linear-gradient(165deg, #201335 0%, #232a5c 38%, #0d1224 100%);
+  background-color: var(--synqt-page-bg-color);
+  background-image: var(--synqt-page-bg-image);
   background-attachment: fixed;
 }
 
@@ -194,6 +199,24 @@ body {
   font-size: .85rem;
 }
 
+/* And tighten it up. The left menu is a list of names, not a set of paragraphs: Material
+   puts .625em between rows and indents each nested level by .6rem, which reads well on a
+   handful of entries and turns a grouped section into a column carrying more air than
+   text. Both are roughly halved, in the primary sidebar only, so the table of contents on
+   the right keeps Material's own rhythm. Desktop only, because in the mobile drawer the
+   rows are touch targets and Material sizes them for a thumb. */
+@media screen and (min-width: 76.25em) {
+  .md-nav--primary .md-nav__link {
+    margin-top: .3em;
+  }
+  [dir="ltr"] .md-nav--primary .md-nav__list {
+    padding-left: .35rem;
+  }
+  [dir="rtl"] .md-nav--primary .md-nav__list {
+    padding-right: .35rem;
+  }
+}
+
 /* With navigation.tabs, an active section (e.g. "Guide", or "The auction"
    nested inside the "Tutorials" tab) is already named by its tab or its own
    entry in the list above; Material's stock nav-item.html then repeats that
@@ -209,15 +232,54 @@ body {
   }
 }
 
-/* Material pins two labels in place while the list under them scrolls: the active
-   section in the left sidebar ("Framework") and "Table of contents" on the right.
-   Both hide the text passing behind with a .4rem box-shadow drawn in the page's own
-   background colour, which on this dark page is a black halo. The list starts flush
-   against the label, so that halo lies over the first entry at rest and not only
-   mid-scroll: the section's first page and the first line of the table of contents
-   both read as dimmed. Start the list below it. Desktop only, which is where the
-   labels are pinned; in the mobile drawer they are ordinary bars with no shadow. */
+/* Material pins two labels in place while the list under them scrolls: the active section
+   in the left sidebar ("Framework") and "Table of contents" on the right. Each is meant to
+   hide the entries passing behind it, and each does it by painting
+   `var(--md-default-bg-color)` plus a .4rem box-shadow of the same colour. That colour is
+   the flat near-black of the stock slate scheme, and this page is a gradient, so what the
+   reader got was a grey pill with a black halo round it: at rest the halo lay over the
+   first entry and dimmed it, and mid-scroll the entries behind the label were smeared
+   rather than hidden.
+
+   Paint the page's own background on them instead. It is the identical declaration to the
+   root's, `background-attachment: fixed` and all, and that is what makes it exact rather
+   than close: a fixed background is positioned against the viewport, so the label resolves
+   the same pixels of the same gradient as the page immediately behind it, at any scroll
+   position and any window size. The label becomes invisible as an object, an entry
+   scrolling under it disappears cleanly at its edge, and the halo is no longer hiding
+   anything, so it goes.
+
+   The gap below each label stays. It was put there to keep the halo off the first entry
+   and is now simply room to breathe between a heading and its list.
+
+   Desktop only, which is where the labels are pinned; in the mobile drawer they are
+   ordinary bars that scroll with everything else. */
 @media screen and (min-width: 76.25em) {
+  .md-nav--lifted > .md-nav__list > .md-nav__item--active > .md-nav__link,
+  .md-nav--secondary > .md-nav__title {
+    background-color: var(--synqt-page-bg-color);
+    background-image: var(--synqt-page-bg-image);
+    background-attachment: fixed;
+    box-shadow: none;
+  }
+
+  /* Both labels are inset a few pixels further than the entries they cover, which is
+     invisible until something scrolls through the gap: the tail of the Q in "Quick start"
+     came up the left of "Tutorials" and stayed there. Widen the painted box to the edge of
+     the scrolling area without moving the text, which the padding pays back. Only the left
+     side needs it; on the right the entries stop where the label does. */
+  [dir="ltr"] .md-nav--lifted > .md-nav__list > .md-nav__item--active > .md-nav__link,
+  [dir="ltr"] .md-nav--secondary > .md-nav__title {
+    margin-left: -.5rem;
+    padding-left: .5rem;
+  }
+
+  [dir="rtl"] .md-nav--lifted > .md-nav__list > .md-nav__item--active > .md-nav__link,
+  [dir="rtl"] .md-nav--secondary > .md-nav__title {
+    margin-right: -.5rem;
+    padding-right: .5rem;
+  }
+
   .md-nav--lifted > .md-nav__list > .md-nav__item--active > .md-nav__link
     + .md-nav > .md-nav__list,
   .md-nav--secondary > .md-nav__title ~ .md-nav__list {
@@ -352,24 +414,38 @@ body {
    of its scroll. It is `!important` because Material's own script writes this property
    inline, as the height of the header alone, which is the value that produces the slide;
    an inline declaration beats a stylesheet, an important one does not. Nothing else reads
-   it: the script sizes the sidebars from where they render, so they still end a sidebar's
-   own padding short of the bottom of the window. */
-.md-container .md-sidebar {
-  top: 5.5rem !important;
+   it. */
+:root {
+  --synqt-sidebar-top: 5.5rem;
 }
 
-/* Both sidebars are short enough to show in full, so suppress their own
-   vertical scrollbars. Material gives `.md-sidebar__scrollwrap` an
-   `overflow-y: auto` plus a viewport-clipped `max-height`, which turns the
-   left nav and the right table of contents into independently scrolling
-   panes whenever they are a touch taller than the fold. Drop both: the
-   scrollwrap takes its full height and the page itself scrolls if ever
-   needed, so nothing in either menu is hidden behind a scroll. Applies to
-   `--primary` (left nav) and `--secondary` (right TOC) alike. */
-.md-sidebar__scrollwrap {
-  overflow: visible;
-  max-height: none;
-  margin: 0;
+.md-container .md-sidebar {
+  top: var(--synqt-sidebar-top) !important;
+}
+
+/* Each sidebar scrolls inside itself once it is taller than the window.
+
+   Turning Material's scrolling off, on the assumption that both are short enough to show
+   in full, holds for a nav a dozen entries long and stops holding. It leaves a menu with
+   no way to reach its end. The list runs on past the bottom of the window and over the
+   footer, because `overflow: visible` does not clip and nothing else will.
+
+   The height needs correcting rather than leaving to Material, and that is the reason for
+   the `!important` here. Material's script writes the scrollwrap's height inline as the
+   window less a sidebar's own padding top and bottom, which is right for a sidebar pinned
+   at the header. The rule above pins them 1.5rem lower than that, so the height it writes
+   runs 1.5rem past the bottom of the window, and the last entry of a long menu sits under
+   the footer whichever way the overflow is set. Compute it from where the box
+   starts, the window, less the pin, less the padding at each end.
+
+   Desktop only. Below Material's own breakpoint the left nav is a drawer with a layout of
+   its own and none of this applies to it. */
+@media screen and (min-width: 76.25em) {
+  .md-sidebar__scrollwrap {
+    overflow-y: auto;
+    max-height: calc(100vh - var(--synqt-sidebar-top) - 2.4rem) !important;
+    margin: 0;
+  }
 }
 
 /* Reference tables (runtime-api.md and friends) key off a first column that is
