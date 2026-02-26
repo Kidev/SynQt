@@ -622,8 +622,9 @@
 
 /* Hover/focus targets over each node, sized a little larger than the node itself
    so they're easy to hit. Position and size are both in %, derived from the SVG's
-   own cx/cy/r at viewBox 440x300 (e.g. the hub is at 220,150 r=26 -> 50%, 50%;
-   database at 390,80 r=18 -> 88.64%, 26.67%). */
+   own cx/cy at viewBox 520x400 (the edge is at 215,148 -> 41.35%, 37%; the store at
+   390,60 -> 75%, 15%). The stage takes the SVG's own ratio, so the two stay lined up
+   at any width. */
 .synqt-flow__hotspot {
   position: absolute;
   width: 12%;
@@ -651,58 +652,88 @@
   opacity: 1;
 }
 
-.synqt-flow__hotspot--user {
-  left: 11.36%;
-  top: 50%;
+/* One box per entity, placed at that entity's own centre in the SVG's coordinates
+   (520 by 400) expressed as a percentage of the stage, so the two move together
+   when the drawing does. The edge is given a larger box because its circle is
+   larger; everything else takes the shared size above. */
+.synqt-flow__hotspot--gate {
+  left: 10.00%;
+  top: 24.00%;
 }
 
-.synqt-flow__hotspot--hub {
-  left: 50%;
-  top: 50%;
+.synqt-flow__hotspot--app {
+  left: 10.00%;
+  top: 50.00%;
+}
+
+.synqt-flow__hotspot--store {
+  left: 75.00%;
+  top: 15.00%;
+}
+
+.synqt-flow__hotspot--recent {
+  left: 75.00%;
+  top: 39.50%;
+}
+
+.synqt-flow__hotspot--feeds {
+  left: 75.00%;
+  top: 65.50%;
+}
+
+.synqt-flow__hotspot--refresh {
+  left: 41.35%;
+  top: 72.50%;
+}
+
+.synqt-flow__hotspot--ops {
+  left: 11.54%;
+  top: 82.50%;
+}
+
+.synqt-flow__hotspot--edge {
+  left: 41.35%;
+  top: 37.00%;
   width: 14%;
-  height: 20%;
+  height: 15%;
 }
 
-.synqt-flow__hotspot--database {
-  left: 88.64%;
-  top: 26.67%;
+/* One box over each contract glyph, the size of the glyph it covers and no
+   larger: none of them carries a name under it, and each has to stop short of the
+   entity hotspot beside it. All four open the configuration, which is where a
+   link's shape is written. */
+.synqt-flow__hotspot--edge-contract {
+  left: 26.92%;
+  top: 49.00%;
+  width: 6%;
+  height: 8%;
 }
 
-.synqt-flow__hotspot--api {
-  left: 88.64%;
-  top: 73.33%;
+.synqt-flow__hotspot--store-contract {
+  left: 64.42%;
+  top: 26.25%;
+  width: 6%;
+  height: 8%;
 }
 
-/* One box over each of the three document glyphs, each the size of the glyph it
-   covers (132,166, 346,113 and 346,187 in the SVG's own coordinates) and no
-   larger: none of them carries a name under it, and the two on the mesh links
-   have to stop short of the database and api hotspots to their right, which
-   start at 82.64%. */
-.synqt-flow__hotspot--contract {
-  left: 30%;
-  top: 55.33%;
-  width: 7%;
-  height: 11%;
+.synqt-flow__hotspot--recent-contract {
+  left: 64.23%;
+  top: 48.00%;
+  width: 6%;
+  height: 8%;
 }
 
-.synqt-flow__hotspot--access-contract {
-  left: 78.64%;
-  top: 37.67%;
-  width: 7%;
-  height: 11%;
+.synqt-flow__hotspot--feeds-contract {
+  left: 58.08%;
+  top: 63.50%;
+  width: 6%;
+  height: 8%;
 }
 
-.synqt-flow__hotspot--upstream-contract {
-  left: 78.64%;
-  top: 62.33%;
-  width: 7%;
-  height: 11%;
-}
-
-/* The configuration, under the mesh. It is a trigger like the five over the
-   drawing, and the only one that is not a part of the mesh: the configuration is
-   the file the mesh is generated from, which is why it sits below the drawing
-   rather than on any one node of it.
+/* The configuration. It is a trigger like the ones over the drawing, and the only
+   one that is not a part of the mesh: the configuration is the file the mesh is
+   generated from, which is why it sits beside the drawing rather than on any node
+   of it.
 
    It used to be a cog in a disc above the diagram, which made the one trigger
    that is not an entity the only one that did not look like the rest, and left a
@@ -710,11 +741,9 @@
    Now it is drawn exactly as the contract is: one glyph at the same size, its
    name under it in the diagram's own label row, and nothing around it. */
 .synqt-flow__hotspot--config {
-  left: 50%;
-  top: 80.67%;
-  width: 10%;
-  height: 14%;
-}
+  left: 23.08%;
+  top: 64.50%;
+  width: 10%;\n  height: 14%;\n}
 
 /* The one part of the drawing that turns as well as lighting up, which it kept
    from the cog it replaced: a configuration is a thing you set, not a thing that
@@ -1150,6 +1179,15 @@
   stroke-dasharray: 3 5;
 }
 
+/* Delivery rather than a link: the edge hands that browser a bundle, and the browser
+   holds no connect point at all. Fainter and finer than the lines that carry one,
+   because the difference between the two is the whole of what the gate is there to
+   show. */
+.synqt-flow__lines--served line {
+  stroke-opacity: .18;
+  stroke-dasharray: 1 4;
+}
+
 .synqt-flow__node {
   fill: #1a1033;
   stroke: #6a5b99;
@@ -1169,6 +1207,16 @@
   stroke: #8890c0;
 }
 
+/* Not one of the system's entities: the third party the api entity calls. Drawn in the
+   paper's own line colour, with no glow, so it reads as the edge of the drawing rather
+   than as another thing this project deploys. */
+.synqt-flow__node--outside {
+  fill: none;
+  stroke: #6a5b99;
+  stroke-width: 1.2;
+  stroke-dasharray: 2 3;
+}
+
 .synqt-flow__labels text {
   fill: #9a94c4;
   font-family: var(--md-code-font-family, "Roboto Mono", monospace);
@@ -1181,6 +1229,18 @@
   fill: #6a5b99;
   font-family: var(--md-code-font-family, "Roboto Mono", monospace);
   font-size: 9.5px;
+}
+
+/* What kind of entity each one is, under the name it was given. The drawing labels
+   nodes by name now, because a system of eight has two clients and four services and
+   the role words alone stopped telling them apart; this line puts the kind back
+   without taking the name away. Dimmer and smaller than the name, so a reader takes
+   the two in that order. */
+.synqt-flow__kinds text {
+  fill: #6a5b99;
+  font-family: var(--md-code-font-family, "Roboto Mono", monospace);
+  font-size: 8.5px;
+  letter-spacing: .04em;
 }
 
 /* --- Sections ------------------------------------------------------------- */

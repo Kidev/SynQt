@@ -1,145 +1,210 @@
 {
-  "_comment": [
-    "Projects the editor can open cold, named in the fragment: /designer/#example=demo.",
-    "They exist so a link can hand somebody a system to look at rather than an empty",
-    "canvas. Each one is an ordinary design document, so it is edited, checked and",
-    "downloaded exactly like something drawn by hand; nothing here is a special case",
-    "once it is loaded.",
-    "",
-    "`demo` is the project the home page of synqt.org reads out file by file, so the",
-    "diagram there and the canvas here are the same system. Keep them in step: the",
-    "suite asserts the entities, the links and the contract members match the",
-    "synqt.yaml the page shows, and that every `qml` and `schema` below is that page's",
-    "own file with the licence notice on the front. That is what the button under the",
-    "tree opens: the project as it is written, not four empty entities arranged the",
-    "same way."
-  ],
-  "examples": {
-    "demo": {
-      "version": 1,
-      "project": "demo",
-      "entities": [
-        {
-          "name": "app",
-          "type": "client",
-          "targets": [
-            "wasm"
-          ],
-          "x": 64,
-          "y": 64,
-          "qml": "// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux\n// SPDX-License-Identifier: Apache-2.0\n\nimport SynQt\nimport QtQuick.Controls\n\nApplicationWindow {\n    id: window\n\n    property string notice: \"Loading...\"\n    readonly property bool feedReady: Server.ready\n\n    visible: true\n    title: \"Feed\"\n\n    Edge.onDenied: reason => window.notice = reason\n    onFeedReadyChanged: {\n        if (window.feedReady) {\n            Server.load();\n        }\n    }\n\n    Label {\n        id: banner\n        text: Server.loaded ? \"\" : window.notice\n    }\n\n    ListView {\n        anchors.fill: parent\n        anchors.topMargin: banner.height\n        model: Server.rows\n        delegate: Text {\n            required property var model\n            text: model.title\n        }\n    }\n}\n"
-        },
-        {
-          "name": "edge",
-          "type": "web_edge",
-          "x": 384,
-          "y": 64,
-          "qml": "// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux\n// SPDX-License-Identifier: Apache-2.0\n\nimport SynQt\n\nEdge {\n    id: feed\n\n    loaded: false\n\n    function load() {\n        if (!Caller.hasScope(\"user\")) {\n            Caller.emitDenied(\"Please sign in.\");\n            return;\n        }\n        Store.allows(Caller.identity.sub).then(ok => {\n            if (!ok) {\n                Caller.emitDenied(\"Not allowed.\");\n                return;\n            }\n            Feeds.fetch().then(rows => {\n                feed.setRows(rows);\n                feed.loaded = true;\n            });\n        });\n    }\n}\n"
-        },
-        {
-          "name": "store",
-          "type": "relational",
-          "provider": "sqlite",
-          "x": 704,
-          "y": 64,
-          "qml": "// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux\n// SPDX-License-Identifier: Apache-2.0\n\nimport SynQt\n\nStore {\n    id: access\n\n    // Nothing here asks who is calling: this point lists one consumer, so nothing\n    // else can acquire it.\n    function allows(sub) {\n        const rows = Db.query(\n            \"SELECT 1 FROM grants WHERE sub = ?\", [sub]);\n        return rows.length > 0;\n    }\n}\n",
-          "schema": "CREATE TABLE IF NOT EXISTS grants (\n    sub        TEXT PRIMARY KEY,\n    granted_at TEXT NOT NULL\n);\n\nCREATE INDEX IF NOT EXISTS grants_by_date\n    ON grants (granted_at);\n"
-        },
-        {
-          "name": "feeds",
-          "type": "api",
-          "x": 704,
-          "y": 256,
-          "qml": "// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux\n// SPDX-License-Identifier: Apache-2.0\n\nimport SynQt\n\nFeeds {\n    id: upstream\n\n    property var cached: []\n\n    function fetch() {\n        return upstream.cached;\n    }\n\n    Timer {\n        interval: 30000\n        running: true\n        repeat: true\n        triggeredOnStart: true\n        onTriggered: Http.get(\"https://data.example/feed\")\n            .then(res => upstream.cached = res.body.rows)\n    }\n}\n"
-        }
-      ],
-      "links": [
-        {
-          "owner": "edge",
-          "consumers": [
-            "app"
-          ],
-          "members": [
-            {
-              "kind": "prop",
-              "name": "loaded",
-              "type": "bool",
-              "params": [],
-              "roles": []
-            },
-            {
-              "kind": "model",
-              "name": "rows",
-              "type": "",
-              "params": [],
-              "roles": [
-                {
-                  "type": "int",
-                  "name": "id"
-                },
-                {
-                  "type": "string[120]",
-                  "name": "title"
-                }
-              ]
-            },
-            {
-              "kind": "slot",
-              "name": "load",
-              "type": "",
-              "params": [],
-              "roles": []
-            },
-            {
-              "kind": "signal",
-              "name": "denied",
-              "type": "",
-              "params": [
-                {
-                  "type": "string[120]",
-                  "name": "reason"
-                }
-              ],
-              "roles": []
-            }
-          ]
-        },
-        {
-          "owner": "store",
-          "consumers": [
-            "edge"
-          ],
-          "members": [
-            {
-              "kind": "slot",
-              "name": "allows",
-              "type": "bool",
-              "params": [
-                {
-                  "type": "string[64]",
-                  "name": "sub"
-                }
-              ],
-              "roles": []
-            }
-          ]
-        },
-        {
-          "owner": "feeds",
-          "consumers": [
-            "edge"
-          ],
-          "members": [
-            {
-              "kind": "slot",
-              "name": "fetch",
-              "type": "var",
-              "params": [],
-              "roles": []
-            }
-          ]
-        }
-      ]
+ "_comment": [
+  "Projects the editor can open cold, named in the fragment: /designer/#example=demo.",
+  "They exist so a link can hand somebody a system to look at rather than an empty",
+  "canvas. Each one is an ordinary design document, so it is edited, checked and",
+  "downloaded exactly like something drawn by hand; nothing here is a special case",
+  "once it is loaded.",
+  "",
+  "`demo` is the project the home page of synqt.org reads out file by file, so the",
+  "diagram there and the canvas here are the same system. Keep them in step: the",
+  "suite asserts the entities, the links and the contract members match the",
+  "synqt.yaml the page shows, and that every `qml` and `schema` below is that page's",
+  "own file with the licence notice on the front. That is what the button under the",
+  "tree opens: the project as it is written, not four empty entities arranged the",
+  "same way."
+ ],
+ "examples": {
+  "demo": {
+   "version": 1,
+   "project": "demo",
+   "entities": [
+    {
+     "name": "gate",
+     "type": "client",
+     "targets": [
+      "wasm"
+     ],
+     "edge": "edge",
+     "x": 64,
+     "y": 64,
+     "qml": "// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux\n// SPDX-License-Identifier: Apache-2.0\n\nimport SynQt\nimport QtQuick\nimport QtQuick.Controls\n\nApplicationWindow {\n    id: window\n\n    visible: true\n    title: qsTr(\"Feed\")\n\n    // This bundle is the whole of what an anonymous visitor downloads. The reader's\n    // app is a different bundle on the same edge, and a session without `user` cannot\n    // fetch a file of it: not a redirect, not a 403, simply not there.\n    Column {\n        anchors.centerIn: parent\n        spacing: 16\n\n        Label {\n            text: qsTr(\"Sign in to read the feed.\")\n        }\n\n        Button {\n            text: qsTr(\"Sign in\")\n            onClicked: Session.login()\n        }\n    }\n}\n"
+    },
+    {
+     "name": "app",
+     "type": "client",
+     "targets": [
+      "wasm"
+     ],
+     "edge": "edge",
+     "x": 64,
+     "y": 256,
+     "qml": "// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux\n// SPDX-License-Identifier: Apache-2.0\n\nimport SynQt\nimport QtQuick\nimport QtQuick.Controls\n\nApplicationWindow {\n    id: window\n\n    property string notice: qsTr(\"Loading...\")\n    readonly property bool feedReady: Server.ready\n\n    visible: true\n    title: qsTr(\"Feed\")\n\n    Edge.onDenied: reason => window.notice = reason\n    onFeedReadyChanged: {\n        if (window.feedReady) {\n            Server.load();\n        }\n    }\n\n    Label {\n        id: banner\n\n        text: Server.loaded ? \"\" : window.notice\n    }\n\n    ListView {\n        anchors.fill: parent\n        anchors.topMargin: banner.height\n        model: Server.rows\n\n        delegate: Text {\n            required property var model\n\n            text: model.title\n        }\n    }\n}\n"
+    },
+    {
+     "name": "edge",
+     "type": "web_edge",
+     "x": 384,
+     "y": 160,
+     "bundles": {
+      "anonymous": "gate",
+      "user": "app"
+     },
+     "qml": "// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux\n// SPDX-License-Identifier: Apache-2.0\n\nimport SynQt\n\nEdge {\n    id: feed\n\n    loaded: false\n\n    function load() {\n        if (!Caller.hasScope(\"user\")) {\n            Caller.emitDenied(qsTr(\"Please sign in.\"));\n            return;\n        }\n        Store.allows(Caller.identity.sub).then(ok => {\n            if (!ok) {\n                Caller.emitDenied(qsTr(\"Not allowed.\"));\n                return;\n            }\n            Recent.items().then(rows => {\n                feed.setRows(rows);\n                feed.loaded = true;\n            });\n        });\n    }\n}\n"
+    },
+    {
+     "name": "store",
+     "type": "relational",
+     "provider": "sqlite",
+     "x": 704,
+     "y": 64,
+     "qml": "// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux\n// SPDX-License-Identifier: Apache-2.0\n\nimport SynQt\n\nStore {\n    id: access\n\n    // Nothing here asks who is calling: this point lists one consumer, so nothing\n    // else can acquire it.\n    function allows(sub) {\n        const rows = Db.query(\n            \"SELECT 1 FROM grants WHERE sub = ?\", [sub]);\n        return rows.length > 0;\n    }\n}\n",
+     "schema": "CREATE TABLE IF NOT EXISTS grants (\n    sub        TEXT PRIMARY KEY,\n    granted_at TEXT NOT NULL\n);\n\nCREATE INDEX IF NOT EXISTS grants_by_date\n    ON grants (granted_at);\n"
+    },
+    {
+     "name": "recent",
+     "type": "cache",
+     "provider": "memory",
+     "x": 704,
+     "y": 256,
+     "qml": "// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux\n// SPDX-License-Identifier: Apache-2.0\n\nimport SynQt\n\nRecent {\n    id: kept\n\n    // A cache forgets, and here that is the arrangement rather than a risk. A miss\n    // answers empty and the reader sees the feed when the job next runs, which is why\n    // nobody's page ever waits on somebody else's server.\n    function items() {\n        return Cache.get(\"feed.rows\") || [];\n    }\n\n    function keep(rows) {\n        Cache.set(\"feed.rows\", rows, 300);\n    }\n}\n"
+    },
+    {
+     "name": "feeds",
+     "type": "api",
+     "x": 704,
+     "y": 448,
+     "qml": "// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux\n// SPDX-License-Identifier: Apache-2.0\n\nimport SynQt\n\nFeeds {\n    id: upstream\n\n    // The only entity with a route off this machine, and the only one holding the\n    // credentials for one. An upstream that changes is this file and nothing else.\n    function pull() {\n        Http.get(\"https://data.example/feed\")\n            .then(res => Recent.keep(res.body.rows));\n    }\n}\n"
+    },
+    {
+     "name": "refresh",
+     "type": "jobs",
+     "x": 704,
+     "y": 640,
+     "qml": "// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux\n// SPDX-License-Identifier: Apache-2.0\n\nimport SynQt\n\nRefresh {\n    id: schedule\n\n    // Off the request path, which is what a jobs entity is for: nobody is waiting\n    // while this runs, so a slow upstream costs a reader nothing.\n    Component.onCompleted: Jobs.every(30000, () => Feeds.pull())\n}\n"
+    },
+    {
+     "name": "ops",
+     "type": "monitor",
+     "x": 704,
+     "y": 832
     }
+   ],
+   "links": [
+    {
+     "owner": "edge",
+     "consumers": [
+      "app"
+     ],
+     "members": [
+      {
+       "kind": "prop",
+       "name": "loaded",
+       "type": "bool",
+       "params": [],
+       "roles": []
+      },
+      {
+       "kind": "model",
+       "name": "rows",
+       "type": "",
+       "params": [],
+       "roles": [
+        {
+         "type": "int",
+         "name": "id"
+        },
+        {
+         "type": "string[120]",
+         "name": "title"
+        }
+       ]
+      },
+      {
+       "kind": "slot",
+       "name": "load",
+       "type": "",
+       "params": [],
+       "roles": []
+      },
+      {
+       "kind": "signal",
+       "name": "denied",
+       "type": "",
+       "params": [
+        {
+         "type": "string[120]",
+         "name": "reason"
+        }
+       ],
+       "roles": []
+      }
+     ]
+    },
+    {
+     "owner": "store",
+     "consumers": [
+      "edge"
+     ],
+     "members": [
+      {
+       "kind": "slot",
+       "name": "allows",
+       "type": "bool",
+       "params": [
+        {
+         "type": "string[64]",
+         "name": "sub"
+        }
+       ],
+       "roles": []
+      }
+     ]
+    },
+    {
+     "owner": "recent",
+     "consumers": [
+      "edge",
+      "feeds"
+     ],
+     "members": [
+      {
+       "kind": "slot",
+       "name": "items",
+       "type": "var",
+       "params": [],
+       "roles": []
+      },
+      {
+       "kind": "slot",
+       "name": "keep",
+       "type": "",
+       "params": [
+        {
+         "type": "var",
+         "name": "rows"
+        }
+       ],
+       "roles": []
+      }
+     ]
+    },
+    {
+     "owner": "feeds",
+     "consumers": [
+      "refresh"
+     ],
+     "members": [
+      {
+       "kind": "slot",
+       "name": "pull",
+       "type": "",
+       "params": [],
+       "roles": []
+      }
+     ]
+    }
+   ]
   }
+ }
 }

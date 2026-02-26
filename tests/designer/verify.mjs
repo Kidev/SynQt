@@ -844,14 +844,17 @@ async function theProjectALinkHandsYou() {
     try {
         await page.goto(`${origin}/index.html#example=demo`);
         await page.waitForFunction(
-            () => document.querySelectorAll("#nodes [data-entity]").length === 4);
+            () => document.querySelectorAll("#nodes [data-entity]").length === 8);
         check(await page.locator("#project").textContent() === "demo",
               "the fragment named a project and the page opened it");
-        check(await page.locator("#links [data-link]").count() === 3,
+        // One line per consumer, so the cache's point, which two entities consume, is two
+        // of these and one contract icon below.
+        check(await page.locator("#links [data-link]").count() === 5,
               "with the connect points it declares");
         // One icon per point, whatever its consumer list holds: the icon is the point, and
-        // every line into it leaves from underneath that one mark.
-        check(await page.locator("#links [data-contract]").count() === 3,
+        // every line into it leaves from underneath that one mark. The cache's point has
+        // two consumers and still one icon, which is the case this counts.
+        check(await page.locator("#links [data-contract]").count() === 4,
               "each drawn with a single contract icon, not one per consumer");
         const rows = await page.locator(".palette__item").count();
         check(rows > 0 && await page.locator(".palette__glyph svg").count() === rows,
@@ -882,7 +885,7 @@ async function theProjectALinkHandsYou() {
 
         // Every link is a curve, so that two entities talking both ways, or one owning
         // several points another consumes, are lines somebody can tell apart.
-        check(await page.locator("#links path.link__line").count() === 3,
+        check(await page.locator("#links path.link__line").count() === 5,
               "the links are curves, not lines laid over each other");
 
         // What a line carries, as a block rather than as a stack of centred strings: one
@@ -1313,7 +1316,9 @@ async function theProjectALinkHandsYou() {
         // points it owned, and the points whose one consumer it was. A point left with an
         // empty consumer list is drawn as a stub from its owner to nothing, which is what a
         // point somebody deliberately disconnected looks like and is not what deleting the
-        // thing at the other end means. `edge` owns `feed` and consumes `access`, so both go.
+        // thing at the other end means. `edge` owns the point the app consumes and is the
+        // only consumer of the store's, so both of those go; it is one of two consumers of
+        // the cache's, so that one stays and loses a line.
         await page.locator("#nodes [data-entity='edge']").click({ button: "right" });
         await page.waitForSelector(".menu__item");
         check(await page.locator(".menu__what").textContent() === "edge",
@@ -1321,15 +1326,23 @@ async function theProjectALinkHandsYou() {
         await page.locator(".menu__item", { hasText: "Delete" }).click();
         await page.waitForFunction(
             () => !document.querySelector("#nodes [data-entity='edge']"));
-        check(await page.locator("#nodes [data-entity]").count() === 3,
+        check(await page.locator("#nodes [data-entity]").count() === 7,
               "and Delete there removes it");
-        // Nothing is left pointing at it. `edge` owned one of the points still drawn and was
-        // the only consumer of the rest, so all of them go: a point left with an empty
-        // consumer list is a stub from its owner to nothing, which is what somebody
-        // disconnecting a line asks for and not what deleting the far end means.
-        const left = await page.locator("#links > *").count();
-        check(left === 0,
-              `taking with it every connect point that ran to or from it (${left} left)`);
+        const left = (await page.locator("#links [data-link]").evaluateAll(
+            (groups) => groups.map((group) => group.dataset.link))).sort();
+        // `upstream` is the api entity: a step above renamed it from `feeds`, and this is
+        // the same drawing further along rather than a fresh one.
+        check(left.join(" ") === "recent upstream",
+              `taking with it every point that only ran to or from it (${
+                  left.join(" ") || "none"} left)`);
+        // And no further: a point with another consumer is a point that still has somebody
+        // to serve. This is the case the old four-entity drawing could not put: every point
+        // in it touched the edge, so "delete the edge" and "delete everything" were the same
+        // answer and a rule that took too much would have passed.
+        const kept = await page.locator("#links [data-link='recent']").evaluateAll(
+            (groups) => groups.map((group) => group.dataset.consumer));
+        check(kept.join(" ") === "upstream",
+              `and the shared point kept its other consumer (${kept.join(" ") || "none"})`);
 
         check(refused.length === 0,
               `the policy refuses nothing on the page (${refused.join(" | ") || "no errors"})`);
@@ -1359,7 +1372,7 @@ async function typingIntoTheProject() {
     try {
         await page.goto(`${origin}/index.html#example=demo`);
         await page.waitForFunction(
-            () => document.querySelectorAll("#nodes [data-entity]").length === 4);
+            () => document.querySelectorAll("#nodes [data-entity]").length === 8);
 
         // Declaring on an entity, from the panel. This is the pool every connect point the
         // entity owns ticks its contract from, and it used to be reachable only by typing the
@@ -1405,12 +1418,21 @@ async function typingIntoTheProject() {
         check(await page.locator("#revert").isVisible(),
               "the way back is offered before the first keystroke, not after it");
         await clickIntoSource(page);
+        // Into the end of `connect_points:`, which is not the end of the file: `monitoring:`
+        // is written after it, where `synqt add entity --type monitor` writes it. So the
+        // cursor goes to the start of that line and the new point is typed in above it.
+        // Control+End first, and not for the cursor: CodeMirror only renders the lines it is
+        // showing, so the line to click on does not exist until the view is scrolled to it.
         await page.keyboard.press("Control+End");
+        const monitoring = page.locator(".cm-line").filter({ hasText: "monitoring:" }).first();
+        await monitoring.waitFor();
+        await monitoring.click();
+        await page.keyboard.press("Home");
         // A second point on an owner that already exports one: drawn, because it is what the
         // file says, and marked, because an entity has one connect point and the later entry
         // would quietly replace the first.
         const before = await page.locator("[data-link='store']").count();
-        await page.keyboard.type("\n  - owner: store\n    consumers: [edge]\n");
+        await page.keyboard.type("  - owner: store\n    consumers: [edge]\n");
         await page.waitForFunction(
             (was) => document.querySelectorAll("[data-link='store']").length > was, before);
         check(true, "a connect point typed into the configuration is drawn on the canvas");
@@ -1422,8 +1444,14 @@ async function typingIntoTheProject() {
         await page.keyboard.press("Control+End");
         await page.keyboard.type("  - owner:\n");
         await waitForHint(page, "synqt.yaml, line");
-        check(await page.locator("[data-entity]").count() === 4,
-              "a line that does not read leaves the canvas on the last one that did");
+        // Nine, not the eight that were drawn: the configuration names the console client
+        // the monitor implies, and reading that text back is what turns it from a derived
+        // entity into an ordinary one on the canvas. `synqt design` arrives at the same
+        // nine, one step later, when the scaffolder writes it on Apply.
+        const standing = await page.locator("#nodes [data-entity]").count();
+        check(standing === 9,
+              `a line that does not read leaves the canvas on the last one that did `
+              + `(${standing} entities still drawn)`);
 
         await page.locator("#revert").click();
         await waitForHint(page, "Back to the last version");

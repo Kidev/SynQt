@@ -624,6 +624,35 @@ def test_a_drawn_monitor_downloads_as_a_project_that_can_be_finished():
     assert ok, messages
 
 
+
+def test_a_monitor_reads_back_as_what_it_was_written_as():
+    """Writing the configuration, reading it back, and writing it again.
+
+    The console is derived from the monitor rather than drawn, and a reader who opens the
+    configuration in the file pane and edits it hands the whole thing back through the
+    parser, at which point the derived entity is an ordinary drawn one. Deriving it a
+    second time from the monitor still beside it wrote `ops-console` twice, and a project
+    with two entities of one name does not build. It is the same clause `synqt design`
+    needs at the other end, for the same reason.
+    """
+    def render(document):
+        return _node(f"""
+            import {{ renderYaml }} from {_module('project.js')};
+            process.stdout.write(renderYaml({json.dumps(document)}));
+        """, raw=True)
+
+    drawn = {"version": 1, "project": "p",
+             "entities": [{"name": "ops", "type": "monitor"}], "links": []}
+    once = yaml.safe_load(render(drawn))
+    assert [entity["name"] for entity in once["entities"]] == ["ops", "ops-console"]
+
+    # What the editor holds after somebody edits that text and it parses: the console is
+    # now one of the entities, so the writer must not add it again.
+    twice = yaml.safe_load(render({**drawn, "entities": once["entities"]}))
+    assert [entity["name"] for entity in twice["entities"]] == ["ops", "ops-console"]
+    assert twice == once, "a second pass changed the project"
+
+
 def test_a_project_with_no_monitor_says_nothing_about_monitoring():
     document = {
         "version": 1, "project": "p",
@@ -716,10 +745,18 @@ def test_the_example_carries_the_home_pages_own_files():
     files = {entity["name"]: entity for entity in demo["entities"]}
     notice = ("// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux\n"
               "// SPDX-License-Identifier: Apache-2.0\n\n")
-    for name, block in {"app": "client", "edge": "web",
-                        "store": "database", "feeds": "api"}.items():
+    # The pane a reader opens is the entity's own QML out of the example, so a page
+    # showing anything else is a page showing code the button does not hand over.
+    panes = {"gate": "gate", "app": "client", "edge": "web", "store": "database",
+             "recent": "cache", "feeds": "api", "refresh": "jobs"}
+    for name, block in panes.items():
         assert files[name]["qml"] == notice + shown[block], name
     assert files["store"]["schema"] == shown["schema"]
+    # And every entity that has a file, not a sample of them, so an entity added to the
+    # example is an entity the page has to show rather than one it can quietly omit.
+    # `ops` is the one with none: a monitor's behaviour is the framework's, down to the
+    # connect point it owns, so there is nothing there for an author to have written.
+    assert {name for name, entity in files.items() if entity.get("qml")} == set(panes)
 
 
 def test_every_example_downloads_as_a_project_the_real_check_passes(tmp_path):

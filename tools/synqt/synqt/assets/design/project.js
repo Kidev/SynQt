@@ -88,26 +88,45 @@ function entityLines(entity) {
     // Everything else a monitor is, taken from the scaffolder rather than restated here
     // (monitor.js, generated from synqt/monitorscaffold.py). Loopback, because a console
     // that shows every request a system has served is not something to put on a public
-    // interface because nobody chose otherwise; a retention bound, because a store without
-    // one fills the disk of the machine it is watching; and the bundle map, which is the
-    // whole delivery gate: an anonymous visitor is handed a sign-in page and the console is
-    // not addressable at all until a session holds the operator scope.
+    // interface because nobody chose otherwise, and a retention bound, because a store
+    // without one fills the disk of the machine it is watching.
     if (entityType(entity) === "monitor") {
         lines.push("    public:",
                    "      host: 127.0.0.1",
                    `      port: ${MONITOR_SCAFFOLD.port}`,
                    "    retention:",
                    `      max_age_days: ${MONITOR_SCAFFOLD.retention.max_age_days}`,
-                   `      max_bytes: ${MONITOR_SCAFFOLD.retention.max_bytes}`,
-                   "    bundles:");
-        for (const [scope, bundle] of Object.entries(MONITOR_SCAFFOLD.bundles)) {
-            lines.push(`      ${scope}: ${scalar(forMonitor(bundle, entity.name))}`);
+                   `      max_bytes: ${MONITOR_SCAFFOLD.retention.max_bytes}`);
+    }
+    // Which scope is served which bundle, which is the delivery gate. A caller is served
+    // the bundle their scope maps to and no file of any other, so an unauthorized visitor
+    // does not have the privileged bundle on their disk to read. A monitor's is the
+    // scaffolder's, because hiding a console behind a sign-in page is not a choice anybody
+    // makes per project. Every other entity writes what the drawing says.
+    //
+    // This wrote nothing at all until a project needed it, which the panel did not know:
+    // it read `bundles` and showed the mapping, so an edge with a gate displayed one here
+    // and downloaded without one, and the gate is the whole point of having drawn it.
+    const bundles = Object.entries(bundlesOf(entity));
+    if (bundles.length) {
+        lines.push("    bundles:");
+        for (const [scope, bundle] of bundles) {
+            lines.push(`      ${scope}: ${scalar(bundle)}`);
         }
     }
     return lines;
 }
 
-// One of the scaffolder's templates, with the name of the monitor somebody actually drew in
+// The bundle map an entity is written with.
+export function bundlesOf(entity) {
+    if (entityType(entity) === "monitor") {
+        return Object.fromEntries(Object.entries(MONITOR_SCAFFOLD.bundles)
+            .map(([scope, bundle]) => [scope, forMonitor(bundle, entity.name)]));
+    }
+    return entity.bundles && typeof entity.bundles === "object" ? entity.bundles : {};
+}
+
+// One of the scaffolder's templates, with the name of the monitor somebody drew in
 // place of the token it was published with.
 function forMonitor(text, name) {
     return String(text).split(MONITOR_SCAFFOLD.name_token).join(String(name || ""));
@@ -128,6 +147,21 @@ export function consoleFor(entity) {
 
 function monitors(design) {
     return (design.entities || []).filter((entity) => entityType(entity) === "monitor");
+}
+
+// Every entity the project holds. The ones somebody drew, and the console each monitor
+// implies that the drawing does not already carry.
+//
+// That second clause is the whole of it. A configuration this writes can be read back, and
+// reading it back turns the derived console into an ordinary drawn entity. Deriving it
+// again from the monitor beside it would then write the same entity twice, and a project
+// with two entities of one name does not build. `synqt design` reaches the same answer from
+// the other end, and for the same reason (designplan._with_scaffolded_monitors).
+function allEntities(design) {
+    const drawn = (design.entities || []);
+    const taken = new Set(drawn.map((entity) => String(entity.name || "")));
+    return [...drawn, ...monitors(design).map(consoleFor)
+        .filter((entity) => !taken.has(entity.name))];
 }
 
 // The monitor every service reports to, or "" for a project with none. The first one drawn:
@@ -222,8 +256,7 @@ export function renderYaml(design) {
         "check:",
         "  qml_format: true",
         "",
-        ...block("entities", [...(design.entities || []),
-                              ...monitors(design).map(consoleFor)], entityLines),
+        ...block("entities", allEntities(design), entityLines),
         "",
         ...block("connect_points", design.links || [],
                  (link) => linkLines(design, link)),
@@ -391,10 +424,19 @@ export function entityFiles(design, entity) {
         (one) => one.owner === entity.name && contractOf(one));
     const files = [];
     if (entityType(entity) === "monitor") {
-        // No file of its own, and the scaffolder writes none either: what a monitor does is
+        // No file of its own, and the scaffolder writes none either. What a monitor does is
         // the framework's, down to the connect point it owns, so there is nothing here for
-        // an author to have written. Its two files are the console's and the gate's, below.
-        return monitorFiles(entity);
+        // an author to have written. What it does have is the gate an anonymous visitor is
+        // handed instead of the console.
+        return [{name: `${entityDir(entity)}/signin/index.html`, owner: entity.name,
+                 text: forMonitor(MONITOR_SCAFFOLD.signin_html, entity.name)}];
+    }
+    if (entity.console) {
+        // The console client, which is a client whose window nobody writes: it reads the
+        // framework's own `Console` contract, so it is the same three hundred lines for
+        // every project and the scaffolder is what has them (monitor.js).
+        return [{name: entityQmlPath(entity), owner: entity.name,
+                 text: MONITOR_SCAFFOLD.console_qml}];
     }
     if (!link) {
         files.push({name: entityQmlPath(entity), own: true, owner: entity.name,
@@ -420,26 +462,12 @@ export function entityFiles(design, entity) {
     return files;
 }
 
-// The two halves of a monitor that are files rather than configuration, written from the
-// scaffolder's own templates (monitor.js). Without them a downloaded project holds a
-// monitor whose console does not exist and whose gate lets nobody in, with no way to finish
-// it either, because `synqt add entity` refuses to complete an entity already declared.
-// This is what lets the row be dragged at all.
-function monitorFiles(entity) {
-    const console = consoleFor(entity);
-    return [
-        {name: `${entityDir(entity)}/signin/index.html`, owner: entity.name,
-         text: forMonitor(MONITOR_SCAFFOLD.signin_html, entity.name)},
-        {name: entityQmlPath(console), owner: console.name,
-         text: forMonitor(MONITOR_SCAFFOLD.console_qml, entity.name)},
-    ];
-}
 
-// An entity's own file once it exports nothing: what its author already wrote, kept.
+// An entity's own file once it exports nothing. What its author already wrote, kept.
 //
 // Only two things change, and neither is theirs. `pragma Shared` goes on, because there is
 // one of an entity and this file is now the entity rather than a caller's surface. The root
-// keeps the entity's own name: `synqt build` retypes a self-named root that resolves to
+// keeps the entity's own name. `synqt build` retypes a self-named root that resolves to
 // nothing (synqt/qmlrewrite.py), so `Store { }` loads either way and the file goes on
 // reading as the thing it is.
 //
@@ -527,7 +555,7 @@ QtObject {
 export function projectFiles(design) {
     const root = String(design.project || "app");
     const files = [{name: `${root}/synqt.yaml`, text: renderYaml(design)}];
-    for (const entity of design.entities || []) {
+    for (const entity of allEntities(design)) {
         for (const file of entityFiles(design, entity)) {
             files.push({name: `${root}/${file.name}`, text: file.text,
                         owner: file.owner, link: file.link, own: file.own});
