@@ -569,10 +569,59 @@ def test_a_drawn_monitor_is_written_the_way_the_scaffolder_writes_one():
     """, raw=True))
     assert rendered["monitoring"] == {"entity": "ops"}
     monitor = next(entity for entity in rendered["entities"] if entity["name"] == "ops")
-    scaffolded = monitorscaffold.monitor_block("ops")
+    # Asked of the scaffolder for the same project, because the answer depends on it: an
+    # edge that has written no `public.port` is still an edge bound to the default one, and
+    # the monitor has to step past it.
+    scaffolded = monitorscaffold.monitor_block("ops", document)
     assert monitor["type"] == "monitor"
     assert monitor["public"] == scaffolded["public"]
     assert monitor["retention"] == scaffolded["retention"]
+    assert monitor["bundles"] == monitorscaffold.bundles_block("ops-console")
+    # And the console client, which is the other entity a monitor is. Derived here rather
+    # than drawn, the same way `monitoring.entity` is. What somebody puts on the canvas is
+    # one monitor, and a monitor is four things.
+    console = next(entity for entity in rendered["entities"]
+                   if entity["name"] == "ops-console")
+    assert console == monitorscaffold.console_block("ops-console", "ops")
+
+
+
+def test_a_drawn_monitor_downloads_as_a_project_that_can_be_finished():
+    """The whole reason the row is drawable. The download holds all four things.
+
+    A monitor is the entity, the console client, the sign-in gate an anonymous visitor gets
+    instead of that console, and `monitoring.entity`. Three of those are files, and a
+    download carrying the entity without them is a dead end rather than a head start:
+    `synqt add entity` refuses to complete an entity that already exists, so there is no
+    command that finishes it. The two files are compared against the scaffolder's own
+    output, because the page writing something else is exactly the drift this whole
+    arrangement exists to make impossible.
+    """
+    document = {
+        "version": 1, "project": "p",
+        "entities": [
+            {"name": "app", "type": "client"},
+            {"name": "edge", "type": "web_edge"},
+            {"name": "ops", "type": "monitor"},
+        ],
+        "links": [{"owner": "edge", "consumers": ["app"], "members": []}],
+    }
+    files = {file["name"]: file["text"] for file in _node(f"""
+        import {{ projectFiles }} from {_module('project.js')};
+        process.stdout.write(JSON.stringify(projectFiles({json.dumps(document)})));
+    """)}
+
+    assert files["p/monitor/ops/signin/index.html"] == monitorscaffold.signin_page("ops")
+    assert files["p/client/ops-console/Main.qml"] == monitorscaffold.console_qml("ops")
+    # And nothing else under the monitor. `synqt add entity --type monitor` writes the
+    # entity no file of its own, because what a monitor does is the framework's down to the
+    # connect point it owns, and a page writing one would be a page whose project differs
+    # from itself the moment `synqt design` opens it.
+    assert [name for name in files if name.startswith("p/monitor/")] \
+        == ["p/monitor/ops/signin/index.html"]
+
+    ok, messages = checkmod.validate(yaml.safe_load(files["p/synqt.yaml"]))
+    assert ok, messages
 
 
 def test_a_project_with_no_monitor_says_nothing_about_monitoring():
@@ -597,9 +646,8 @@ def _palette():
     of literals is readable as text."""
     source = _text("design.js")
     block = re.search(r"const PALETTE = \[(.*?)^\]", source, re.S | re.M).group(1)
-    return {match.group("type"): "needsCli: true" in match.group(0)
-            for match in re.finditer(
-                r'\{label:.*?make: \(\) => \(\{type: "(?P<type>\w+)"', block, re.S)}
+    return {match.group("type"): match.group(0) for match in re.finditer(
+        r'\{label:.*?make: \(\) => \(\{type: "(?P<type>\w+)"', block, re.S)}
 
 
 def test_every_type_a_project_can_hold_is_on_the_rail():
@@ -607,15 +655,20 @@ def test_every_type_a_project_can_hold_is_on_the_rail():
     assert set(_palette()) == set(addentity.TYPES) | {"client", "web_edge"}
 
 
-def test_the_drawing_board_does_not_offer_what_it_cannot_finish():
-    """A monitor is four things, three of them files, and the console's is three hundred
-    lines of QML. The hosted page has no scaffolder behind it, so the row says which
-    command draws one rather than handing over a monitor with no console."""
-    palette = _palette()
-    assert palette["monitor"] is True
-    assert {kind for kind, cli in palette.items() if cli} == {"monitor"}
-    # And the reason is said in the page, not only in a comment about the page.
-    assert "synqt add entity ops --type monitor" in _text("design.js")
+def test_the_drawing_board_can_finish_every_row_it_offers():
+    """No row is dimmed, and none may be again without the thing that makes it drawable.
+
+    The monitor row is the one at risk, because a monitor is four things and three of them are
+    files. A hosted page with no scaffolder would hand out a zip carrying a monitor with no console,
+    which nothing can finish, since `synqt add entity` refuses an entity already declared.
+    It is drawable because the scaffolder publishes those files (monitor.js) instead of
+    the page carrying a second copy of them, so what is asserted here is the absence of the
+    machinery that would dim it, rather than only the absence of the flag.
+    """
+    assert not any("needsCli" in row for row in _palette().values())
+    for name in ("needsCli", "CLI_ONLY", "is-unavailable"):
+        assert name not in _text("design.js"), \
+            f"design.js still carries {name}, so some row is still refused"
 
 
 def test_the_home_pages_project_is_the_one_the_home_page_reads():

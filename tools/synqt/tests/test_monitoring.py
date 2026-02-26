@@ -170,6 +170,34 @@ def test_a_reporting_entity_is_told_where_it_may_spool():
     assert spool == f"{Path('/p').resolve().as_posix()}/build/web/state"
 
 
+
+# What the design editor is handed, so it can draw one with no SynQt behind the page.
+
+
+def test_the_editors_monitor_asset_is_the_scaffolders_own_answer():
+    """The committed asset and the module that owns it, byte for byte.
+
+    The editor writes a console client, a sign-in page and a bundle map into a downloaded
+    project. Those belong to monitorscaffold, and the only reason a static page can write
+    them is that the scaffolder publishes them. A second copy maintained by hand is the
+    failure this guards, because it fails silently and ships a console nobody has looked
+    at since it drifted.
+    """
+    import importlib.util
+
+    repo = Path(__file__).resolve().parents[3]
+    writer_path = repo / "tools" / "gen-design-assets.py"
+    spec = importlib.util.spec_from_file_location("gen_design_assets", writer_path)
+    writer = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(writer)
+
+    for relative, (name, answer) in writer.ASSETS.items():
+        committed = repo / relative
+        assert committed.exists(), f"{relative} is missing; run `python tools/gen-design-assets.py`"
+        assert committed.read_text(encoding="utf-8") == writer.rendered(name, answer()), (
+            f"{relative} is out of date; run `python tools/gen-design-assets.py`")
+
+
 def test_the_monitor_itself_gets_no_spool():
     assert "monitoring" not in _topology("ops")
 
@@ -402,6 +430,40 @@ def test_two_browser_facing_entities_cannot_share_a_port():
 
     entities["ops"]["public"]["port"] = 8444
     assert check._public_port_messages(entities) == []
+
+
+def test_a_port_nobody_wrote_down_is_still_a_port_both_of_them_bind():
+    """The commonest collision there is, and the one this check could not see.
+
+    An edge has no reason to write `public.port`, so most do not, and the entity resolves
+    the default at runtime like every other reader of a topology does. Skipping an entity
+    that had not written the line read as caution and was the opposite. It made the pair
+    that had both left it out the one pair that passed.
+    """
+    entities = {
+        "web": {"name": "web", "type": "web_edge"},
+        "ops": {"name": "ops", "type": "monitor", "public": {"host": "127.0.0.1"}},
+    }
+    findings = check._public_port_messages(entities)
+    assert len(findings) == 1
+    assert f"both serve browsers on 127.0.0.1:{appmodel.DEFAULT_PUBLIC_PORT}" in findings[0]
+
+
+def test_the_scaffolder_steps_past_the_default_the_edge_never_wrote_down(tmp_path):
+    """And the scaffolder had the same hole, from the same question asked the same way."""
+    from synqt import addentity, monitorscaffold
+    import yaml
+
+    (tmp_path / "synqt.yaml").write_text(
+        "entities:\n"
+        "  - name: web\n"
+        "    type: web_edge\n")
+    addentity.scaffold(tmp_path, "ops", "monitor")
+    config = yaml.safe_load((tmp_path / "synqt.yaml").read_text())
+    monitor = next(e for e in config["entities"] if e["name"] == "ops")
+    assert monitor["public"]["port"] == appmodel.DEFAULT_PUBLIC_PORT + 1
+    assert check._public_port_messages(
+        {e["name"]: e for e in config["entities"]}) == []
 
 
 def test_the_scaffolder_steps_past_a_port_the_edge_already_has(tmp_path):

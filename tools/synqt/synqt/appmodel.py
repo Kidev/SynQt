@@ -888,6 +888,27 @@ def public_settings(entity: Dict[str, Any]) -> Dict[str, Any]:
     return dict(settings) if isinstance(settings, dict) else {}
 
 
+#: What a browser-facing entity binds when it declares no ``public.port``.
+#:
+#: The generated main resolves it (``maingen``), and so does every other reader of a
+#: topology, so a project that never wrote the line is not a project with no port: it is a
+#: project with this one. Anything reasoning about which ports are taken has to say so,
+#: because the collision that matters is between two entities that both left it out.
+DEFAULT_PUBLIC_PORT = 8443
+
+
+def public_port(entity: Dict[str, Any]) -> int:
+    """The port this entity binds, declared or defaulted.
+
+    Not ``public_settings(entity).get("port")``, which answers None for the commonest case
+    there is. Two functions asked the question that way and both had the same hole: a
+    project whose edge and monitor had each left the line out passed `synqt check` and then
+    failed to bind on the first `synqt dev`, which is the exact failure the check exists to
+    report.
+    """
+    return int(public_settings(entity).get("port") or DEFAULT_PUBLIC_PORT)
+
+
 def trusted_proxies(entity: Dict[str, Any]) -> List[str]:
     """``public.trusted_proxies``: the hops whose ``X-Forwarded-For`` this edge believes.
 

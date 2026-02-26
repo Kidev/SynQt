@@ -1143,12 +1143,16 @@ def _monitor_entity_messages(config: Dict[str, Any],
 def _public_port_messages(entities: Dict[str, Any]) -> List[str]:
     """Two browser-facing entities cannot both have the port.
 
-    A project gains a second one the moment it gains a monitor: the edge serves the
+    A project gains a second one the moment it gains a monitor. The edge serves the
     application and the monitor serves its console, each on its own server. Both default to
     8443, because neither scaffolder knows the other ran, so the first `synqt dev` after
-    adding a monitor fails to bind and the entity that lost the race is simply missing.
+    adding a monitor fails to bind and the entity that lost the race is missing.
     Said here, where the whole topology is in view, rather than left to a bind error naming
     one process.
+
+    The default counts. Skipping any entity that has not written `public.port`
+    reads as caution and is the opposite. Two entities that have both left it out are
+    the collision, and they would be the one pair this could not see.
     """
     seen: Dict[Tuple[str, int], str] = {}
     messages: List[str] = []
@@ -1157,9 +1161,7 @@ def _public_port_messages(entities: Dict[str, Any]) -> List[str]:
         if not appmodel.serves_browser(entity):
             continue
         public = appmodel.public_settings(entity)
-        port = int(public.get("port") or 0)
-        if port == 0:
-            continue
+        port = appmodel.public_port(entity)
         host = str(public.get("host") or "127.0.0.1")
         taken = seen.get((host, port))
         if taken is not None:

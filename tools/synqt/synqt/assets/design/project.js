@@ -30,6 +30,7 @@ import { withoutCommentary } from "./commentary.js";
 import { declarationsFor, reroot, rootTypeSpan, withShared, withoutShared }
     from "./source.js";
 import { entityType, isFront } from "./rules.js";
+import { MONITOR_SCAFFOLD } from "./monitor.js";
 
 // The Qt this project pins, matching synqt/toolchain.py. The suite asserts the two agree,
 // because a browser with no CLI behind it has nothing to ask.
@@ -55,6 +56,17 @@ function entityLines(entity) {
     if (entity.identity) {
         lines.push("    identity: true");
     }
+    // The two a console client carries and nothing drawn on the canvas does. They are not
+    // shades of configuration. `console` is what makes the monitor deliver this client
+    // instead of the application's, and `edge` is which monitor delivers it. A console
+    // written without them is an ordinary client sitting in a bundle map that promises an
+    // operator console.
+    if (entity.console) {
+        lines.push("    console: true");
+    }
+    if (entity.edge) {
+        lines.push(`    edge: ${scalar(entity.edge)}`);
+    }
     if (!isShared(entity) && entityType(entity) !== "client") {
         lines.push("    shared: false");
     }
@@ -73,26 +85,50 @@ function entityLines(entity) {
                    "      cert_file: certs/web/fullchain.pem",
                    "      key_file: certs/web/privkey.pem");
     }
-    // The same block monitorscaffold.monitor_block writes, loopback included. A console
+    // Everything else a monitor is, taken from the scaffolder rather than restated here
+    // (monitor.js, generated from synqt/monitorscaffold.py). Loopback, because a console
     // that shows every request a system has served is not something to put on a public
-    // interface because nobody chose otherwise, so reaching it means reaching the machine
-    // first. The retention pair is here for the same reason: a store with no bound is a
-    // monitor that fills the disk of the machine it is watching.
+    // interface because nobody chose otherwise; a retention bound, because a store without
+    // one fills the disk of the machine it is watching; and the bundle map, which is the
+    // whole delivery gate: an anonymous visitor is handed a sign-in page and the console is
+    // not addressable at all until a session holds the operator scope.
     if (entityType(entity) === "monitor") {
         lines.push("    public:",
                    "      host: 127.0.0.1",
-                   `      port: ${MONITOR_PORT}`,
+                   `      port: ${MONITOR_SCAFFOLD.port}`,
                    "    retention:",
-                   "      max_age_days: 14",
-                   "      max_bytes: 536870912");
+                   `      max_age_days: ${MONITOR_SCAFFOLD.retention.max_age_days}`,
+                   `      max_bytes: ${MONITOR_SCAFFOLD.retention.max_bytes}`,
+                   "    bundles:");
+        for (const [scope, bundle] of Object.entries(MONITOR_SCAFFOLD.bundles)) {
+            lines.push(`      ${scope}: ${scalar(forMonitor(bundle, entity.name))}`);
+        }
     }
     return lines;
 }
 
-// Where the monitor serves its console, matching monitorscaffold.free_port on a project
-// whose other browser-facing entity has taken no port of its own, which is every project
-// this writer produces.
-const MONITOR_PORT = 8443;
+// One of the scaffolder's templates, with the name of the monitor somebody actually drew in
+// place of the token it was published with.
+function forMonitor(text, name) {
+    return String(text).split(MONITOR_SCAFFOLD.name_token).join(String(name || ""));
+}
+
+// The console client a drawn monitor implies. A client like any other, marked as the
+// console, whose edge is the monitor. It is derived rather than drawn, the same way
+// `monitoring.entity` below is, because what somebody puts on the canvas is one monitor and
+// what a monitor is made of is four things. `synqt design` reaches the same place from the
+// other end. There the real scaffolder writes it on Apply, and it is a node on the canvas
+// the next time the project is read.
+export function consoleFor(entity) {
+    return Object.fromEntries(
+        Object.entries(MONITOR_SCAFFOLD.console_block)
+            .map(([key, value]) => [key, typeof value === "string"
+                ? forMonitor(value, entity.name) : value]));
+}
+
+function monitors(design) {
+    return (design.entities || []).filter((entity) => entityType(entity) === "monitor");
+}
 
 // The monitor every service reports to, or "" for a project with none. The first one drawn:
 // `monitoring.entity` names a single entity, and rules.js paints every monitor after it.
@@ -186,7 +222,8 @@ export function renderYaml(design) {
         "check:",
         "  qml_format: true",
         "",
-        ...block("entities", design.entities || [], entityLines),
+        ...block("entities", [...(design.entities || []),
+                              ...monitors(design).map(consoleFor)], entityLines),
         "",
         ...block("connect_points", design.links || [],
                  (link) => linkLines(design, link)),
@@ -353,6 +390,12 @@ export function entityFiles(design, entity) {
     const link = (design.links || []).find(
         (one) => one.owner === entity.name && contractOf(one));
     const files = [];
+    if (entityType(entity) === "monitor") {
+        // No file of its own, and the scaffolder writes none either: what a monitor does is
+        // the framework's, down to the connect point it owns, so there is nothing here for
+        // an author to have written. Its two files are the console's and the gate's, below.
+        return monitorFiles(entity);
+    }
     if (!link) {
         files.push({name: entityQmlPath(entity), own: true, owner: entity.name,
                     text: withoutAPoint(entity, entity.qml)});
@@ -375,6 +418,21 @@ export function entityFiles(design, entity) {
                     text: entity.schema || schemaSql()});
     }
     return files;
+}
+
+// The two halves of a monitor that are files rather than configuration, written from the
+// scaffolder's own templates (monitor.js). Without them a downloaded project holds a
+// monitor whose console does not exist and whose gate lets nobody in, with no way to finish
+// it either, because `synqt add entity` refuses to complete an entity already declared.
+// This is what lets the row be dragged at all.
+function monitorFiles(entity) {
+    const console = consoleFor(entity);
+    return [
+        {name: `${entityDir(entity)}/signin/index.html`, owner: entity.name,
+         text: forMonitor(MONITOR_SCAFFOLD.signin_html, entity.name)},
+        {name: entityQmlPath(console), owner: console.name,
+         text: forMonitor(MONITOR_SCAFFOLD.console_qml, entity.name)},
+    ];
 }
 
 // An entity's own file once it exports nothing: what its author already wrote, kept.

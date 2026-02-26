@@ -52,11 +52,15 @@ def free_port(config: Dict[str, Any]) -> int:
     edge serves the application, the monitor serves its console. Both would default to 8443
     and the first `synqt dev` afterwards would fail to bind one of them, so the scaffolder
     steps past what is taken rather than writing a collision for `synqt check` to report.
+
+    Taken means bound, not written down. This read only declared ports, so on the commonest
+    project there is -- one whose edge never wrote a `public:` block, because it had no
+    reason to -- it saw nothing taken and handed the monitor the very port that edge was
+    about to bind.
     """
-    taken = {int(appmodel.public_settings(entity).get("port") or 0)
-             for entity in appmodel.entities(config)
+    taken = {appmodel.public_port(entity) for entity in appmodel.entities(config)
              if appmodel.serves_browser(entity)}
-    port = 8443
+    port = appmodel.DEFAULT_PUBLIC_PORT
     while port in taken:
         port += 1
     return port
@@ -484,6 +488,48 @@ ApplicationWindow {{
     }}
 }}
 '''
+
+
+#: Where a monitor's own name goes in the templates :func:`design_asset` publishes.
+#:
+#: Only the sign-in page has one. The console's QML is the same text for every project,
+#: which is not a coincidence to be relied on quietly. It reads the framework's own
+#: `Console` contract, so it has nothing in it to name.
+DESIGN_NAME_TOKEN = "__MONITOR_NAME__"
+
+
+def design_asset() -> Dict[str, Any]:
+    """Everything the design editor needs to draw a monitor with no SynQt behind the page.
+
+    The hosted editor has no scaffolder. It could not offer a monitor at all, because three
+    of the four things one is made of are files rather than configuration, and a project
+    downloaded with a monitor and no console is a project that cannot be finished: the CLI
+    refuses to complete an entity that already exists. So the row was dimmed and the page
+    told the reader to go and use the CLI.
+
+    This is the other way of answering that, and the one that does not cost a second copy of
+    anything: the scaffolder publishes what it would have written, the editor writes the
+    same bytes, and `tests/test_monitoring.py` fails the build when the two stop matching.
+    The functions below are the ones :func:`scaffold` itself calls, so there is one writer
+    and one answer, read twice.
+
+    The name is left as :data:`DESIGN_NAME_TOKEN` for the editor to substitute, because the
+    editor is what knows what the reader called the thing.
+    """
+    console = f"{DESIGN_NAME_TOKEN}-console"
+    return {
+        "name_token": DESIGN_NAME_TOKEN,
+        "console_suffix": "-console",
+        # free_port() beside one web edge that has not written a port, which is what the
+        # editor's output looks like: it writes a `public:` block for a monitor and none for
+        # an edge, so the edge is on the default and the monitor has to step past it.
+        "port": free_port({"entities": [{"name": "web", "type": "web_edge"}]}),
+        "retention": monitor_block(DESIGN_NAME_TOKEN)["retention"],
+        "bundles": bundles_block(console),
+        "console_block": console_block(console, DESIGN_NAME_TOKEN),
+        "signin_html": signin_page(DESIGN_NAME_TOKEN),
+        "console_qml": console_qml(DESIGN_NAME_TOKEN),
+    }
 
 
 def scaffold(project_dir: os.PathLike[str] | str, name: str) -> str:

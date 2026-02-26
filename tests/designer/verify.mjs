@@ -713,6 +713,29 @@ async function theCopyOnTheSite() {
         check(await page.locator("#verdict").count() === 0,
               "and the bar carries no verdict of its own");
 
+        // A monitor, drawn on the copy with no scaffolder behind it. One node goes on the
+        // canvas and four things come out: the entity, the console client, the sign-in gate
+        // the console is hidden behind, and `monitoring.entity`. Three of those are files,
+        // which is why this could not be done here at all until the scaffolder started
+        // publishing them. A download carrying the entity and not them is one nothing can
+        // finish, because `synqt add entity` refuses an entity that already exists.
+        await dropEntity(page, "Monitor", { x: 620, y: 200 });
+        await page.waitForSelector('[data-entity="ops"]');
+        check(await page.locator('[data-entity="ops"]').count() === 1,
+              "a monitor can be drawn here, which is the whole of what a monitor needs");
+        const monitorDownload = await Promise.all([
+            page.waitForEvent("download"),
+            page.locator("#apply").click(),
+        ]);
+        const written = fs.readFileSync(await monitorDownload[0].path()).toString("latin1");
+        for (const wanted of ["monitor/ops/signin/index.html",
+                              "client/ops-console/Main.qml"]) {
+            check(written.includes(wanted), `and the download carries ${wanted}`);
+        }
+        // The console it carries is the console, not a placeholder standing in for one.
+        check(written.includes("ApplicationWindow") && written.length > 12000,
+              `and the console in it is the real one (${written.length} bytes)`);
+
         // Both side panels fold to a tab against the edge of the window, and the drawing gets
         // the width. On a phone a rail, a sliver of canvas and a panel is a page showing no
         // design at all, and on a wide window it is still the way to give a big drawing the
@@ -833,13 +856,14 @@ async function theProjectALinkHandsYou() {
         const rows = await page.locator(".palette__item").count();
         check(rows > 0 && await page.locator(".palette__glyph svg").count() === rows,
               "every palette row carries the glyph the canvas draws that entity with");
-        // With nothing behind the page there is no scaffolder, and a monitor is mostly
-        // files: the row stays on the rail so the rail is still the list of what SynQt has,
-        // and it says which command draws one instead of handing over half a monitor.
-        const monitor = page.locator('.palette__item[data-role="monitor"]');
-        check(await monitor.count() === 1
-              && (await monitor.getAttribute("class")).includes("is-unavailable"),
-              "and the monitor is on it, dimmed, because this copy cannot scaffold one");
+        // Every row on the rail can be drawn here, the monitor included. It could not be:
+        // a monitor is four things and three of them are files, the console's being three
+        // hundred lines of QML, and this copy has no scaffolder. It carries the
+        // scaffolder's own templates now (assets/design/monitor.js, generated from
+        // synqt/monitorscaffold.py), so drawing one is proven by drawing one rather than by
+        // reading the class on a row.
+        const dimmed = await page.locator(".palette__item.is-unavailable").count();
+        check(dimmed === 0, `no row on the rail is refused (${dimmed} dimmed)`);
         // In the page's own tooltip, not the browser's `title`: it opens at once and can
         // hold the glyph and the paragraph, where a native one arrives a second late with
         // one line of unstyled text.

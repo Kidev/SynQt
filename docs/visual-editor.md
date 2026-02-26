@@ -53,16 +53,15 @@ one file is the entity: what it exports and the state behind it. An entity that 
 per caller and still needs something shared between them writes a `pragma Shared` file of its
 own beside it, under a name it chooses.
 
-The monitor is the one row the copy on this site cannot hand you. It is not one entity: it
-is the entity that keeps the history, a console client, the sign-in page an anonymous visitor
-is handed instead of that console, and the bundle map that decides which of the two anybody
-gets. Three of those are files, and the console's is three hundred lines of QML, so
-`synqt design` runs the real scaffolder for them and a zip from a page with nothing behind it
-cannot. The row is there, dimmed, and it says the command that draws one:
-`synqt add entity ops --type monitor`. Draw the rest of the system here, then add the monitor
-to the project you unzipped.
+The monitor is the row where one node is worth four things. It is not one entity: it is the
+entity that keeps the history, a console client, the sign-in page an anonymous visitor is
+handed instead of that console, and the `monitoring.entity` line that makes every other
+entity report at all. Three of those are files, and the console's is three hundred lines of
+QML, so drawing one here writes all of them: the copy on this site carries the same
+templates [`synqt add entity ops --type monitor`](monitoring.md) uses, and the project you
+download runs without being finished by hand.
 
-A monitor already in a project is drawn like any other entity, and the canvas leaves it
+A monitor is drawn like any other entity, and the canvas leaves it
 unwired on purpose: the link every service opens to it comes from the one `monitoring.entity`
 line rather than from a line anybody draws. A second monitor beside it is marked, because
 that line names one entity and nothing would ever report to the other.

@@ -191,10 +191,10 @@ export const ROLE_HELP = {
     jobs: "Work on a timer or a queue, with nothing listening on a port. Use it for what "
         + "should not happen while somebody waits: nightly rollups, retries, cleanup, "
         + "anything that would otherwise sit inside a request.",
-    monitor: "The operations record. Every other entity reports to this one, so one "
-        + "click becomes one trace running through every entity it touched. It keeps the "
-        + "history, serves an operator console on its own loopback port, and records no "
-        + "credential and no call argument that a member did not ask it to.",
+    monitor: "The operations record. Every other entity reports to it, so one click "
+        + "becomes one trace running through every entity it touched. It serves an operator "
+        + "console on its own loopback port, and logs no credential a member did not ask "
+        + "it to.",
     service: "An entity with no engine: your own logic, its own binary, reachable only "
         + "by the entities you list. Use it when a piece of the system deserves to fail, "
         + "scale and be deployed on its own.",
