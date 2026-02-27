@@ -260,7 +260,16 @@ body {
     background-color: var(--synqt-page-bg-color);
     background-image: var(--synqt-page-bg-image);
     background-attachment: fixed;
-    box-shadow: none;
+    /* Cast downwards onto the list rather than haloed all round in the page's colour,
+       which is what Material does and what a gradient makes impossible to match. This is
+       the same thing the halo was for, said the way a pinned heading says it: the label
+       is above the list, and the list runs under it. */
+    box-shadow: 0 .3rem .45rem -.2rem rgba(0, 0, 0, .55);
+    /* Room between the label and the first entry, carried by the label so it survives
+       scrolling. The gap used to be a margin on the list, which is inside the scroller:
+       at rest it looked right and the moment anything scrolled it was gone, leaving an
+       entry pressed against the underside of the heading. */
+    padding-bottom: .55rem;
   }
 
   /* Both labels are inset a few pixels further than the entries they cover, which is
@@ -283,7 +292,7 @@ body {
   .md-nav--lifted > .md-nav__list > .md-nav__item--active > .md-nav__link
     + .md-nav > .md-nav__list,
   .md-nav--secondary > .md-nav__title ~ .md-nav__list {
-    margin-top: 1rem;
+    margin-top: .45rem;
   }
 }
 
@@ -445,6 +454,24 @@ body {
     overflow-y: auto;
     max-height: calc(100vh - var(--synqt-sidebar-top) - 2.4rem) !important;
     margin: 0;
+  }
+
+  /* And the sidebar itself is that tall, which is what makes it stop above the footer.
+
+     A sticky box is released when its own bottom edge reaches the bottom of the element
+     it sits in, and Material gives `.md-sidebar` a height of zero and lets the pane hang
+     out of it. Measured at the foot of a page it was a 53px box holding a 330px pane. So
+     the browser released it 277px too late and the last entries of both menus were drawn
+     over the footer.
+
+     `fit-content` rather than the window's height, so the box is exactly what it looks
+     like. A menu shorter than the window then releases at its own last entry instead of
+     at a fixed height, which is the difference between the menu ending above the footer
+     and the menu ending a hundred and forty pixels above the footer with nothing in
+     between. The cap is the same one the pane has, plus the padding the pane sits in. */
+  .md-container .md-sidebar {
+    height: fit-content;
+    max-height: calc(100vh - var(--synqt-sidebar-top));
   }
 }
 
