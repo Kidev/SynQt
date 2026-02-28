@@ -241,30 +241,29 @@ body {
    first entry and dimmed it, and mid-scroll the entries behind the label were smeared
    rather than hidden.
 
-   Paint the page's own background on them instead. It is the identical declaration to the
-   root's, `background-attachment: fixed` and all, and that is what makes it exact rather
-   than close: a fixed background is positioned against the viewport, so the label resolves
-   the same pixels of the same gradient as the page immediately behind it, at any scroll
-   position and any window size. The label becomes invisible as an object, an entry
-   scrolling under it disappears cleanly at its edge, and the halo is no longer hiding
-   anything, so it goes.
+   Draw each one as a plate instead: a surface a shade lighter than the page, with rounded
+   corners and a soft shadow under it. That is what the generated C++ reference does with
+   its own outline label (tools/docs-hooks/doxygen-synqt.css), and it is what these two
+   should have looked like all along -- the reference and the guide are one site, and a
+   reader moving between the two tabs was seeing two different answers to the same pinned
+   heading.
 
-   The gap below each label stays. It was put there to keep the halo off the first entry
-   and is now simply room to breathe between a heading and its list.
+   Painting the page's own gradient on them was the previous answer, and it was wrong for a
+   reason worth writing down: `background-attachment: fixed` did resolve the same pixels as
+   the page behind, so the label became invisible as an object -- and an invisible object
+   casting a shadow reads as a stray hairline over the list rather than as a heading with
+   the list running under it. A pinned label wants to be seen. Being opaque is what hides
+   the entries scrolling behind it, and that is the only part of the job the colour has to do.
 
    Desktop only, which is where the labels are pinned; in the mobile drawer they are
    ordinary bars that scroll with everything else. */
 @media screen and (min-width: 76.25em) {
   .md-nav--lifted > .md-nav__list > .md-nav__item--active > .md-nav__link,
   .md-nav--secondary > .md-nav__title {
-    background-color: var(--synqt-page-bg-color);
-    background-image: var(--synqt-page-bg-image);
-    background-attachment: fixed;
-    /* Cast downwards onto the list rather than haloed all round in the page's colour,
-       which is what Material does and what a gradient makes impossible to match. This is
-       the same thing the halo was for, said the way a pinned heading says it: the label
-       is above the list, and the list runs under it. */
-    box-shadow: 0 .3rem .45rem -.2rem rgba(0, 0, 0, .55);
+    background-color: var(--synqt-pinned-plate);
+    background-image: none;
+    border-radius: .2rem;
+    box-shadow: 0 .2rem .55rem -.1rem rgba(0, 0, 0, .5);
     /* Room between the label and the first entry, carried by the label so it survives
        scrolling. The gap used to be a margin on the list, which is inside the scroller:
        at rest it looked right and the moment anything scrolled it was gone, leaving an
@@ -426,6 +425,10 @@ body {
    it. */
 :root {
   --synqt-sidebar-top: 5.5rem;
+  /* The surface a pinned sidebar label is drawn on: a shade lighter than the page, so the
+     label reads as a plate over the list rather than as part of it, and opaque, which is
+     what hides the entries scrolling behind it. */
+  --synqt-pinned-plate: #262c56;
 }
 
 .md-container .md-sidebar {
