@@ -747,15 +747,12 @@ def test_the_example_carries_the_home_pages_own_files():
               "// SPDX-License-Identifier: Apache-2.0\n\n")
     # The pane a reader opens is the entity's own QML out of the example, so a page
     # showing anything else is a page showing code the button does not hand over.
-    panes = {"gate": "gate", "app": "client", "edge": "web", "store": "database",
-             "recent": "cache", "feeds": "api", "refresh": "jobs"}
+    panes = {"gate": "gate", "app": "client", "edge": "web", "store": "database"}
     for name, block in panes.items():
         assert files[name]["qml"] == notice + shown[block], name
     assert files["store"]["schema"] == shown["schema"]
     # And every entity that has a file, not a sample of them, so an entity added to the
     # example is an entity the page has to show rather than one it can quietly omit.
-    # `ops` is the one with none: a monitor's behaviour is the framework's, down to the
-    # connect point it owns, so there is nothing there for an author to have written.
     assert {name for name, entity in files.items() if entity.get("qml")} == set(panes)
 
 

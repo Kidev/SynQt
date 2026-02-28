@@ -28,7 +28,7 @@
      "edge": "edge",
      "x": 64,
      "y": 64,
-     "qml": "// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux\n// SPDX-License-Identifier: Apache-2.0\n\nimport SynQt\nimport QtQuick\nimport QtQuick.Controls\n\nApplicationWindow {\n    id: window\n\n    visible: true\n    title: qsTr(\"Feed\")\n\n    // This bundle is the whole of what an anonymous visitor downloads. The reader's\n    // app is a different bundle on the same edge, and a session without `user` cannot\n    // fetch a file of it: not a redirect, not a 403, simply not there.\n    Column {\n        anchors.centerIn: parent\n        spacing: 16\n\n        Label {\n            text: qsTr(\"Sign in to read the feed.\")\n        }\n\n        Button {\n            text: qsTr(\"Sign in\")\n            onClicked: Session.login()\n        }\n    }\n}\n"
+     "qml": "// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux\n// SPDX-License-Identifier: Apache-2.0\n\nimport SynQt\nimport QtQuick\nimport QtQuick.Controls\n\nApplicationWindow {\n    id: window\n\n    visible: true\n    title: qsTr(\"Sign in\")\n\n    // This bundle is the whole of what a signed-out visitor downloads. The room's own\n    // client is a different bundle on the same edge, and a session without `user` cannot\n    // fetch a file of it: not a redirect, not a 403, simply not there.\n    Column {\n        anchors.centerIn: parent\n        spacing: 16\n\n        Label {\n            text: qsTr(\"Sign in to join the room.\")\n        }\n\n        Button {\n            text: qsTr(\"Sign in\")\n            onClicked: Session.login()\n        }\n    }\n}\n"
     },
     {
      "name": "app",
@@ -39,7 +39,7 @@
      "edge": "edge",
      "x": 64,
      "y": 256,
-     "qml": "// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux\n// SPDX-License-Identifier: Apache-2.0\n\nimport SynQt\nimport QtQuick\nimport QtQuick.Controls\n\nApplicationWindow {\n    id: window\n\n    property string notice: qsTr(\"Loading...\")\n    readonly property bool feedReady: Server.ready\n\n    visible: true\n    title: qsTr(\"Feed\")\n\n    Edge.onDenied: reason => window.notice = reason\n    onFeedReadyChanged: {\n        if (window.feedReady) {\n            Server.load();\n        }\n    }\n\n    Label {\n        id: banner\n\n        text: Server.loaded ? \"\" : window.notice\n    }\n\n    ListView {\n        anchors.fill: parent\n        anchors.topMargin: banner.height\n        model: Server.rows\n\n        delegate: Text {\n            required property var model\n\n            text: model.title\n        }\n    }\n}\n"
+     "qml": "// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux\n// SPDX-License-Identifier: Apache-2.0\n\nimport SynQt\nimport QtQuick\nimport QtQuick.Controls\nimport QtQuick.Layouts\n\nApplicationWindow {\n    id: window\n\n    property string notice: \"\"\n\n    visible: true\n    // A property the edge pushes. Change it there and every window open on this room\n    // retitles itself, with nothing here asking and nothing polling.\n    title: Server.topic\n\n    Edge.onRefused: reason => window.notice = reason\n\n    ColumnLayout {\n        anchors.fill: parent\n\n        ListView {\n            Layout.fillHeight: true\n            Layout.fillWidth: true\n            model: Server.messages\n\n            delegate: Text {\n                required property var model\n\n                text: `${model.who}: ${model.body}`\n            }\n        }\n\n        TextField {\n            id: line\n\n            Layout.fillWidth: true\n            placeholderText: window.notice || qsTr(\"Say something\")\n            onAccepted: {\n                Server.say(line.text);\n                line.clear();\n            }\n        }\n    }\n}\n"
     },
     {
      "name": "edge",
@@ -50,44 +50,16 @@
       "anonymous": "gate",
       "user": "app"
      },
-     "qml": "// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux\n// SPDX-License-Identifier: Apache-2.0\n\nimport SynQt\n\nEdge {\n    id: feed\n\n    loaded: false\n\n    function load() {\n        if (!Caller.hasScope(\"user\")) {\n            Caller.emitDenied(qsTr(\"Please sign in.\"));\n            return;\n        }\n        Store.allows(Caller.identity.sub).then(ok => {\n            if (!ok) {\n                Caller.emitDenied(qsTr(\"Not allowed.\"));\n                return;\n            }\n            Recent.items().then(rows => {\n                feed.setRows(rows);\n                feed.loaded = true;\n            });\n        });\n    }\n}\n"
+     "qml": "// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux\n// SPDX-License-Identifier: Apache-2.0\n\nimport SynQt\n\nEdge {\n    id: room\n\n    property var said: []\n\n    function say(body) {\n        if (!Caller.hasScope(\"user\")) {\n            Caller.emitRefused(\"Sign in to say something.\");\n            return;\n        }\n        Store.append(Caller.identity.login, body).then(rows => room.said = rows);\n    }\n\n    topic: \"Anything goes\"\n    // There is one of this entity, so there is one of this list: it is the room. Every\n    // browser holds a mirror of this Source, so one person saying something redraws all\n    // of them, and the only thing anybody wrote is the line below.\n    messagesRows: room.said\n\n    Component.onCompleted: Store.recent().then(rows => room.said = rows)\n}\n"
     },
     {
      "name": "store",
      "type": "relational",
      "provider": "sqlite",
      "x": 704,
-     "y": 64,
-     "qml": "// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux\n// SPDX-License-Identifier: Apache-2.0\n\nimport SynQt\n\nStore {\n    id: access\n\n    // Nothing here asks who is calling: this point lists one consumer, so nothing\n    // else can acquire it.\n    function allows(sub) {\n        const rows = Db.query(\n            \"SELECT 1 FROM grants WHERE sub = ?\", [sub]);\n        return rows.length > 0;\n    }\n}\n",
-     "schema": "CREATE TABLE IF NOT EXISTS grants (\n    sub        TEXT PRIMARY KEY,\n    granted_at TEXT NOT NULL\n);\n\nCREATE INDEX IF NOT EXISTS grants_by_date\n    ON grants (granted_at);\n"
-    },
-    {
-     "name": "recent",
-     "type": "cache",
-     "provider": "memory",
-     "x": 704,
-     "y": 256,
-     "qml": "// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux\n// SPDX-License-Identifier: Apache-2.0\n\nimport SynQt\n\nRecent {\n    id: kept\n\n    // A cache forgets, and here that is the arrangement rather than a risk. A miss\n    // answers empty and the reader sees the feed when the job next runs, which is why\n    // nobody's page ever waits on somebody else's server.\n    function items() {\n        return Cache.get(\"feed.rows\") || [];\n    }\n\n    function keep(rows) {\n        Cache.set(\"feed.rows\", rows, 300);\n    }\n}\n"
-    },
-    {
-     "name": "feeds",
-     "type": "api",
-     "x": 704,
-     "y": 448,
-     "qml": "// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux\n// SPDX-License-Identifier: Apache-2.0\n\nimport SynQt\n\nFeeds {\n    id: upstream\n\n    // The only entity with a route off this machine, and the only one holding the\n    // credentials for one. An upstream that changes is this file and nothing else.\n    function pull() {\n        Http.get(\"https://data.example/feed\")\n            .then(res => Recent.keep(res.body.rows));\n    }\n}\n"
-    },
-    {
-     "name": "refresh",
-     "type": "jobs",
-     "x": 704,
-     "y": 640,
-     "qml": "// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux\n// SPDX-License-Identifier: Apache-2.0\n\nimport SynQt\n\nRefresh {\n    id: schedule\n\n    // Off the request path, which is what a jobs entity is for: nobody is waiting\n    // while this runs, so a slow upstream costs a reader nothing.\n    Component.onCompleted: Jobs.every(30000, () => Feeds.pull())\n}\n"
-    },
-    {
-     "name": "ops",
-     "type": "monitor",
-     "x": 704,
-     "y": 832
+     "y": 160,
+     "qml": "// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux\n// SPDX-License-Identifier: Apache-2.0\n\nimport SynQt\n\nStore {\n    id: log\n\n    // Nothing here asks who is calling. This point lists one consumer, so the edge is\n    // the only entity that can acquire it at all, and a browser is on no list anywhere.\n    function recent() {\n        return Db.query(\n            \"SELECT id, who, body FROM messages ORDER BY id DESC LIMIT 50\");\n    }\n\n    function append(who, body) {\n        Db.exec(\"INSERT INTO messages (who, body, said_at) VALUES (?, ?, datetime('now'))\",\n                [who, body]);\n        return log.recent();\n    }\n}\n",
+     "schema": "CREATE TABLE IF NOT EXISTS messages (\n    id      INTEGER PRIMARY KEY AUTOINCREMENT,\n    who     TEXT NOT NULL,\n    body    TEXT NOT NULL,\n    said_at TEXT NOT NULL\n);\n\nCREATE INDEX IF NOT EXISTS messages_by_time\n    ON messages (said_at);\n"
     }
    ],
    "links": [
@@ -99,14 +71,14 @@
      "members": [
       {
        "kind": "prop",
-       "name": "loaded",
-       "type": "bool",
+       "name": "topic",
+       "type": "string[60]",
        "params": [],
        "roles": []
       },
       {
        "kind": "model",
-       "name": "rows",
+       "name": "messages",
        "type": "",
        "params": [],
        "roles": [
@@ -115,21 +87,30 @@
          "name": "id"
         },
         {
-         "type": "string[120]",
-         "name": "title"
+         "type": "string[40]",
+         "name": "who"
+        },
+        {
+         "type": "string[280]",
+         "name": "body"
         }
        ]
       },
       {
        "kind": "slot",
-       "name": "load",
+       "name": "say",
        "type": "",
-       "params": [],
+       "params": [
+        {
+         "type": "string[280]",
+         "name": "body"
+        }
+       ],
        "roles": []
       },
       {
        "kind": "signal",
-       "name": "denied",
+       "name": "refused",
        "type": "",
        "params": [
         {
@@ -149,57 +130,25 @@
      "members": [
       {
        "kind": "slot",
-       "name": "allows",
-       "type": "bool",
-       "params": [
-        {
-         "type": "string[64]",
-         "name": "sub"
-        }
-       ],
-       "roles": []
-      }
-     ]
-    },
-    {
-     "owner": "recent",
-     "consumers": [
-      "edge",
-      "feeds"
-     ],
-     "members": [
-      {
-       "kind": "slot",
-       "name": "items",
+       "name": "recent",
        "type": "var",
        "params": [],
        "roles": []
       },
       {
        "kind": "slot",
-       "name": "keep",
-       "type": "",
+       "name": "append",
+       "type": "var",
        "params": [
         {
-         "type": "var",
-         "name": "rows"
+         "type": "string[40]",
+         "name": "who"
+        },
+        {
+         "type": "string[280]",
+         "name": "body"
         }
        ],
-       "roles": []
-      }
-     ]
-    },
-    {
-     "owner": "feeds",
-     "consumers": [
-      "refresh"
-     ],
-     "members": [
-      {
-       "kind": "slot",
-       "name": "pull",
-       "type": "",
-       "params": [],
        "roles": []
       }
      ]
