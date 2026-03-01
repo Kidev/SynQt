@@ -7,9 +7,19 @@
    to the right of that. Same palette as synqt.org (docs/stylesheets/home.css), so a reader
    arriving from the guide recognises what they are looking at.
 
-   Dark is the default because that is what the site is; light follows the reader's own
+   Dark is the default because that is what the site is. Light follows the reader's own
    setting rather than a control on the page, since this window belongs to a terminal
-   session and holds nothing worth a preference of its own. */
+   session and holds nothing that needs a preference of its own. */
+
+/* `hidden` means hidden, whatever else an element is. The attribute's whole effect is one UA
+   rule at the weakest specificity there is, so any rule in this file that sets `display` on a
+   class beats it -- and every control in the bar is `.button--icon { display: inline-flex }`.
+   The result was a Clear button that was never taken off the page: the attribute was set, the
+   element stayed, and the tests looked at the attribute rather than at the pixels. Said once,
+   here, rather than remembered at every element that carries the attribute. */
+[hidden] {
+  display: none !important;
+}
 
 :root {
   color-scheme: dark;
@@ -1305,7 +1315,9 @@ h2 {
 }
 
 .node.is-owner .node__role--owner,
-.node.is-consumer .node__role--consumer {
+.node.is-consumer .node__role--consumer,
+.node.is-lit-owner .node__role--owner,
+.node.is-lit-consumer .node__role--consumer {
   opacity: 1;
 }
 
@@ -1467,7 +1479,11 @@ h2 {
   pointer-events: none;
 }
 
-.link.is-hover .link__flow {
+/* And on the one that is selected, which is the line somebody is working on rather than the
+   one the pointer is crossing. It runs while the panel beside it is being read, which is
+   where the pointer has gone and is exactly when which-way-round is worth still saying. */
+.link.is-hover .link__flow,
+.link.is-selected .link__flow {
   stroke: var(--consumer);
   animation: link-flow 900ms linear infinite;
 }
@@ -1480,7 +1496,8 @@ h2 {
 /* Somebody who asked their system for less motion gets the dash standing still: it still says
    which way round the link is by sitting between the cap and the head, and nothing moves. */
 @media (prefers-reduced-motion: reduce) {
-  .link.is-hover .link__flow {
+  .link.is-hover .link__flow,
+  .link.is-selected .link__flow {
     animation: none;
   }
 }
@@ -2216,8 +2233,9 @@ select:focus {
    that eight times in a drop-down is eight ways to miss the ninth. */
 .tick__summary {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
-  gap: .35rem;
+  gap: .1rem .35rem;
   margin-left: 1.45rem;
   padding: .05rem .3rem;
   border: none;
@@ -2246,6 +2264,33 @@ select:focus {
 .tick__default,
 .tick__dot {
   color: var(--ink-dim);
+}
+
+/* What this member costs on the wire. Dim, like the other things about it that were not
+   chosen: it is a consequence of the type beside it, not a setting, and it belongs on the
+   same line because it is the answer to the question that type raises. It sits at the end of
+   the line, so a column of members reads down its names first and its sizes second. */
+.tick__bytes {
+  color: var(--ink-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The whole contract's size, beside the heading that says what the contract carries. Pushed
+   to the far end of the head, which is the width of the panel, so it lines up with the sizes
+   down the column under it. */
+.block__bytes {
+  margin-left: auto;
+  color: var(--ink-dim);
+  font-family: var(--mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* A contract with a member nobody put a limit on has no ceiling, and the number beside it is
+   a floor. Marked, because a floor read as a ceiling is the one way this can mislead. */
+.block__bytes--open {
+  color: var(--warn);
 }
 
 /* Everything the point adds sits under a member that is on it, so the ones that are on it
@@ -3137,6 +3182,17 @@ select:focus {
 
 .menu__item:hover {
   background: var(--panel-high);
+}
+
+/* The line under a row's name, where the name is not the whole of what the row is. Dim and
+   smaller, so a list of them reads down the names first and the explanations second. */
+.menu__note {
+  display: block;
+  margin-top: .1rem;
+  max-width: 22rem;
+  color: var(--ink-dim);
+  font-size: 11px;
+  line-height: 1.35;
 }
 
 .menu__item--danger {

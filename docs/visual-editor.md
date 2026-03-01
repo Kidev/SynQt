@@ -4,17 +4,17 @@
 # The designer
 
 A SynQt system is a handful of entities and the connect points between them. The designer
-draws it live: entities as nodes, connect points as the lines between them, and a panel
+draws it live, with entities as nodes, connect points as the lines between them, and a panel
 for what each one carries.
 
 There are two ways to open it, and both are the same page.
 
 - **In a project.** `synqt design` serves it on this machine and opens it. What you draw
-  is that project: Apply writes `synqt.yaml` and the QML files a new entity or connect
+  is that project. Apply writes `synqt.yaml` and the QML files a new entity or connect
   point needs.
 - **[On this site](/designer/).** The same editor with nothing behind it. Draw a system,
-  press Download, and you get the project as a zip. Nothing is installed and nothing is
-  read off your machine, because there is no machine on the other end of the page.
+  press Export and take it as a project, and you get a zip. Nothing is installed and nothing
+  is read off your machine, because there is no machine on the other end of the page.
 
 The second is the one to open first if you have not installed anything yet. Unzip what it
 gives you over a project made with `synqt new`, or keep it as a sketch and open the real
@@ -26,13 +26,23 @@ A link can hand you a system rather than an empty canvas: the button under
 apart. It opens with that project's own files, the ones the page reads out underneath it,
 not with an empty entity per node.
 
+**Examples** in the bar is the same list without the link: every project the tutorials
+build, each one opening the way this one does. Over a real project it is not offered, since
+the project on disk is what that page is editing.
+
 It is a starting point, not a page: once it is open it is an ordinary project. Move things,
 add things, edit the files, and what you left is what comes back the next time you follow the
-same link. Download takes it with you and Clear starts over.
+same link. Clear starts over.
 
-**Export** hands you the drawing as a PNG: the whole design at its own size with a margin
-round it, over the page colour or over nothing, which is the picture to paste into a document
-or an issue. It is the canvas as it is drawn, so it says what the project says.
+**Export** is how a design leaves this page, in either of the two forms it has.
+
+- **Export as image** hands you the drawing as a PNG: the whole design at its own size with
+  a margin round it, over the page colour or over nothing, which is the picture to paste
+  into a document or an issue. It is the canvas as it is drawn, so it says what the project
+  says.
+- **Export as project** hands you the files: a zip of the `synqt.yaml` and the QML the
+  design describes, ready to unzip over a project made with `synqt new`. On the copy on this
+  site this is the way to keep what you drew, because nothing here is written to a disk.
 
 ## What you can draw
 
@@ -59,7 +69,7 @@ handed instead of that console, and the `monitoring.entity` line that makes ever
 entity report at all. Three of those are files, and the console's is three hundred lines of
 QML, so drawing one here writes all of them: the copy on this site carries the same
 templates [`synqt add entity ops --type monitor`](monitoring.md) uses, and the project you
-download runs without being finished by hand.
+export runs without being finished by hand.
 
 A monitor is drawn like any other entity, and the canvas leaves it
 unwired on purpose: the link every service opens to it comes from the one `monitoring.entity`
@@ -322,9 +332,10 @@ command prints, which a browser never sends to a server, so it stays out of ever
 worth nothing once you press Ctrl-C. A page from anywhere else is refused, by name and by
 origin, and the editor answers no request that arrives without the token.
 
-The copy on this site has none of that to do. It talks to no server, so it holds nothing:
-close the tab and the drawing is gone. Download it first. Leaving asks before it goes, and
-the mark in the corner is the way back to the rest of the site.
+The copy on this site has none of that to do. It talks to no server, so it holds nothing.
+Close the tab and the drawing is gone. Export it as a project first. The browser asks on
+the way out, once, whichever way you leave. The mark in the corner is the way back to the
+rest of the site.
 
 See [build system and CLI](build-system-and-cli.md#the-synqt-command-line-tool) for the
 command, [project layout and config](project-layout-and-config.md) for what the file it

@@ -162,8 +162,8 @@ a gate nobody tests.
 ## Or draw it first
 
 If you would rather see the shape of a system before typing anything, open the
-[designer](/designer/). Draw the entities and the links between them, press Download, and
-unzip the result over a project made with `synqt new`. Nothing is installed and nothing
+[designer](/designer/). Draw the entities and the links between them, press Export and take
+it as a project, and unzip the result over a project made with `synqt new`. Nothing is installed and nothing
 leaves the page. The [guide to the designer](visual-editor.md) covers what it can do.
 
 ## Where to go next

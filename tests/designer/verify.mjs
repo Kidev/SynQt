@@ -14,9 +14,10 @@
 //
 // Case 2 is the copy the documentation site publishes, which has no server behind it. The
 // assets are served as static files under the policy the CLI's own server sends, which is
-// the policy that copy has to live under, and the page has to come up as a drawing board with
-// Apply offering a download. Nothing may be fetched from another origin and nothing may be
-// refused by the policy; the CLI has a server sending that header on every response, and the
+// the policy that copy has to live under, and the page has to come up as a drawing board:
+// Apply and the rest of what writes to a project gone, and Export offering both ways of
+// taking the design away. Nothing may be fetched from another origin and nothing may be
+// refused by the policy. The CLI has a server sending that header on every response, and the
 // hosted copy has nobody, so this is where it is measured.
 //
 // Chromium only. What is being proven here is this page's own behaviour rather than
@@ -209,6 +210,21 @@ async function openAndWaitFor(page, file, wanted) {
 // A connect point is drawn from one of the owner's handles to the consumer's disc, and the
 // direction is its meaning, so this is the one interaction the page has that a keyboard cannot
 // reach. `handle` picks a side: right, left, top, bottom, in that order.
+// The drawing board's two ways of keeping a design, both behind one button in the bar.
+// Waiting on the button being there is how these cases know the page found no server behind
+// it: Apply goes away with the rest of the controls that write to a project.
+async function waitForDrawingBoard(page) {
+    await page.waitForFunction(
+        () => document.getElementById("apply").hidden
+              && !document.getElementById("examples").hidden);
+}
+
+async function exportProject(page) {
+    await page.locator("#export").click();
+    await page.waitForSelector("#menu:not([hidden])");
+    return page.locator(".menu__item", { hasText: "Export as project" }).click();
+}
+
 async function dragLink(page, fromEntity, toEntity, handle = 0) {
     const rim = await page.locator(`[data-rim="${fromEntity}"]`).nth(handle).boundingBox();
     const target = await discCentre(page, toEntity);
@@ -518,8 +534,7 @@ async function theFrontThatSplitsCallers() {
     });
     try {
         await page.goto(`${origin}/index.html`);
-        await page.waitForFunction(
-            () => document.getElementById("apply").textContent === "Download");
+        await waitForDrawingBoard(page);
         await dropEntity(page, "Client", { x: 80, y: 110 });
         await page.waitForSelector('[data-entity="client"]');
         await dropEntity(page, "Web edge", { x: 330, y: 110 });
@@ -693,15 +708,17 @@ async function theCopyOnTheSite() {
     });
     try {
         await page.goto(`${origin}/index.html`);
-        await page.waitForFunction(
-            () => document.getElementById("apply").textContent === "Download");
+        await waitForDrawingBoard(page);
         check(await page.locator("#review").isHidden(),
               "with no project to write to, Review is not offered");
         check(await page.locator("#infer").isHidden(),
               "and neither is reading contracts back out of a project that is not there");
-        check(await page.locator("#apply").isEnabled(), "Apply became the download");
+        check(await page.locator("#apply").isHidden(),
+              "and with nothing to apply a change set to, neither is Apply");
+        check(!(await page.locator("#export").isHidden()),
+              "taking the design away is Export's, which is the same button either way");
 
-        // It is still an editor: the palette works and the rules paint.
+        // It is still an editor. The palette works and the rules paint.
         await dropEntity(page, "Client", { x: 300, y: 200 });
         await page.waitForSelector('[data-entity="client"]');
         // Under Review in the rail, which is the only place a finding is said: the bar
@@ -725,7 +742,7 @@ async function theCopyOnTheSite() {
               "a monitor can be drawn here, which is the whole of what a monitor needs");
         const monitorDownload = await Promise.all([
             page.waitForEvent("download"),
-            page.locator("#apply").click(),
+            exportProject(page),
         ]);
         const written = fs.readFileSync(await monitorDownload[0].path()).toString("latin1");
         for (const wanted of ["monitor/ops/signin/index.html",
@@ -803,6 +820,8 @@ async function theCopyOnTheSite() {
         // back as a PNG. Every step of that is something a strict policy can refuse, which is
         // why it is proven on the copy that has to live under one.
         await page.locator("#export").click();
+        await page.waitForSelector("#menu:not([hidden])");
+        await page.locator(".menu__item", { hasText: "Export as image" }).click();
         await page.waitForSelector("#modal[open]");
         const [picture] = await Promise.all([
             page.waitForEvent("download"),
@@ -845,7 +864,10 @@ async function theProjectALinkHandsYou() {
         await page.goto(`${origin}/index.html#example=demo`);
         await page.waitForFunction(
             () => document.querySelectorAll("#nodes [data-entity]").length === 4);
-        check(await page.locator("#project").textContent() === "demo",
+        // The fragment names the example; the project it opens is called what it is. The
+        // two are deliberately not the same word: `#example=demo` is the link the front
+        // page publishes, and `chat` is the project under examples/ that link opens.
+        check(await page.locator("#project").textContent() === "chat",
               "the fragment named a project and the page opened it");
         // One line per consumer, so the cache's point, which two entities consume, is two
         // of these and one contract icon below.
@@ -1218,8 +1240,11 @@ async function theProjectALinkHandsYou() {
         // reached for when the last thing pressed was wrong.
         const stepBox = await page.locator("#undo").boundingBox();
         const namedBox = await page.locator("#project").boundingBox();
-        const applyBox = await page.locator("#apply").boundingBox();
-        check(stepBox.x > namedBox.x + namedBox.width && stepBox.x < applyBox.x,
+        // Measured against Export rather than Apply, because this is the drawing board and
+        // Apply is not on it: Export is the button at that end here, and the two steps are
+        // still meant to come before it.
+        const exportBox = await page.locator("#export").boundingBox();
+        check(stepBox.x > namedBox.x + namedBox.width && stepBox.x < exportBox.x,
               "and it sits with the buttons at that end of the bar, at the head of them");
         await page.locator("#undo").click();
         await page.waitForSelector("#nodes [data-entity='cache']");
@@ -1443,8 +1468,8 @@ async function typingIntoTheProject() {
         await page.keyboard.press("End");
         await page.keyboard.type("ing");
         await page.waitForFunction(
-            () => document.getElementById("project").textContent === "demoing");
-        check((await page.title()) === "SynQt - demoing",
+            () => document.getElementById("project").textContent === "chating");
+        check((await page.title()) === "SynQt - chating",
               `and the tab it is open in says so too (${await page.title()})`);
 
         // Clearing a design that grew out of an example leaves the example as well. The
@@ -1463,8 +1488,7 @@ async function typingIntoTheProject() {
         check(!page.url().includes("example="),
               `Clear takes the example out of the address with it (${page.url()})`);
         await page.reload();
-        await page.waitForFunction(
-            () => document.getElementById("apply").textContent === "Download");
+        await waitForDrawingBoard(page);
         check(await page.locator("#nodes [data-entity]").count() === 0,
               "so a reload finds the canvas it was cleared to, not the example again");
 

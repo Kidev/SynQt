@@ -26,10 +26,11 @@
   </head>
   <body>
     <header class="bar">
-      <!-- The way out, where a logo in the corner of a page always goes. It asks before it
-           goes anywhere: a design lives in this tab, and leaving by mistake is how an
-           afternoon is lost. design.js attaches that question; the href is what makes it a
-           link a browser can open in a new tab, and what it falls back to. -->
+      <!-- The way out, where a logo in the corner of a page always goes. A design lives in
+           this tab, and leaving by mistake is how an afternoon is lost, so the browser asks
+           on the way out -- once, from the one listener design.js puts on the window, which
+           every way out of this page runs through. It used to ask twice here: our own box
+           first and the browser's straight after it. -->
       <a class="bar__home" id="home" href="/" title="Back to synqt.org">
         <img class="bar__mark" src="synqt.svg" alt="SynQt" width="284" height="150">
         <span class="bar__wordmark">Designer</span>
@@ -54,11 +55,20 @@
         <button type="button" class="button button--step" id="redo" disabled
                 aria-label="Redo" title="Redo the change undone (Ctrl-Shift-Z)"></button>
       </span>
-      <!-- Take the drawing away as a picture: the canvas as it is drawn, with a margin round
-           it so it can be dropped into a document or a message and read there. It sits with
-           the two steps because it does nothing to the project either -- it makes a file out
-           of what is on screen. -->
-      <button type="button" class="button button--icon" id="export">
+      <!-- A system to start from rather than an empty canvas. The projects the guide is
+           written about, each one an ordinary design once it is open. It sits beside Export
+           because the two are the ways in and out of this page that leave the project on
+           disk alone. -->
+      <button type="button" class="button button--icon" id="examples" aria-haspopup="menu">
+        <span class="button__word">Examples</span>
+      </button>
+      <!-- Take the design away, in either of the two forms it has. The drawing as a picture,
+           to be dropped into a document or a message, or the project itself as a zip of the
+           files it would be written as. One button, because both answers to "let me keep
+           this" belong in the same place. As the Apply button wearing a
+           different word on the drawing board, the zip would sit at the far end of the bar under
+           a name the rest of the page never uses. -->
+      <button type="button" class="button button--icon" id="export" aria-haspopup="menu">
         <span class="button__word">Export</span>
       </button>
       <button type="button" class="button button--danger button--icon" id="restart" hidden>

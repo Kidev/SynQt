@@ -19,7 +19,7 @@
 // Run with no server behind it (the copy on synqt.org) the page still edits, and Apply
 // becomes a download of the project it would have written.
 
-import { entityType, findings as ruleFindings, frontsOf } from "./rules.js";
+import { entityType, findings as ruleFindings, frontsOf, gatesOf } from "./rules.js";
 import { MEMBER_KINDS, NODE_RADIUS, ROLE_HELP, accessorName, describe, draw, element,
          endsOfPoint, entityAt, extent, glyphSvg, linkTitleNode, memberCode, memberMarkSvg,
          memberParts, nearestFreeSlot, roleOf, seatAt, seatsOfFront, slotIndex,
@@ -164,7 +164,8 @@ const page = {
     project: document.getElementById("project"),
     hint: document.getElementById("hint"),
     restart: document.getElementById("restart"),
-    exportPng: document.getElementById("export"),
+    exportAs: document.getElementById("export"),
+    examples: document.getElementById("examples"),
     undo: document.getElementById("undo"),
     redo: document.getElementById("redo"),
     infer: document.getElementById("infer"),
@@ -267,6 +268,34 @@ function forgetInHash(key) {
     window.history.replaceState(null, "", rest ? `#${rest}` : window.location.pathname);
 }
 
+// The other half of the pair: an example opened from the bar is written into the address,
+// so the link in it is the link that hands somebody the thing on screen, and a reload comes
+// back to it. replaceState for the same reason forgetInHash uses it -- opening an example is
+// not a navigation, and it should not fill the back button with them.
+function keepInHash(key, value) {
+    const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+    hash.set(key, value);
+    window.history.replaceState(null, "", `#${hash.toString()}`);
+}
+
+// Everything examples.json holds, read once and kept. The projects themselves and the line
+// of prose that names each one in the menu. One request, because the menu wants the whole
+// list and opening one of them wants the document beside it.
+let examplesFile = null;
+
+async function examplesIndex() {
+    if (examplesFile) {
+        return examplesFile;
+    }
+    try {
+        const response = await fetch("examples.json");
+        examplesFile = response.ok ? await response.json() : {examples: {}, about: {}};
+    } catch (error) {
+        examplesFile = {examples: {}, about: {}};
+    }
+    return examplesFile;
+}
+
 // A project named in the fragment, for a link that wants to hand somebody a system to look
 // at rather than an empty canvas. Only ever consulted with nothing behind the page: over a
 // real project the document is that project's, and a fragment must not quietly replace it.
@@ -274,16 +303,8 @@ async function exampleNamed(name) {
     if (!name) {
         return null;
     }
-    try {
-        const response = await fetch("examples.json");
-        if (!response.ok) {
-            return null;
-        }
-        const found = (await response.json()).examples[name];
-        return found || null;
-    } catch (error) {
-        return null;
-    }
+    const found = (await examplesIndex()).examples[name];
+    return found || null;
 }
 
 // Saying things
@@ -414,9 +435,27 @@ function redraw() {
     if (state.pointer && !drag) {
         showSlotsNear(state.pointer);
     }
+    litSelection();
     renderFindings();
     if (state.files) {
         renderProject();
+    }
+}
+
+// What is selected keeps saying the two things hovering it says: which entity owns the point
+// and which ones consume it, and which way round the line runs.
+//
+// A selection is what somebody is working on, and it is the state they are in while they read
+// the panel beside it, add a member to it or change who gets it. Saying "owner" and "consumer"
+// only under the pointer meant the two ends of the thing in hand went dark the moment the
+// pointer left the line to reach the panel, which is every time. Its own classes rather than
+// the hover ones, because clearHighlight() takes those off whenever the pointer leaves the
+// canvas -- which, again, is what reaching for the panel is.
+function litSelection() {
+    const wanted = hoverSet(state.selected);
+    for (const node of page.nodes.querySelectorAll("[data-entity]")) {
+        node.classList.toggle("is-lit-owner", wanted.owners.has(node.dataset.entity));
+        node.classList.toggle("is-lit-consumer", wanted.consumers.has(node.dataset.entity));
     }
 }
 
@@ -769,18 +808,19 @@ function stepArrow(forward) {
 
 // The mark on a button that does something to the whole project, or to what is on screen.
 // Each is the plainest drawing of the thing it does, in the button's own colour: a bin for
-// Clear, a picture for Export, a tray with an arrow going into it for Download. They sit
-// beside the word rather than instead of it, because a row of six unlabelled marks is a
+// Clear, a tray with an arrow going into it for Export, a stack of cards for Examples. They
+// sit beside the word rather than instead of it, because a row of six unlabelled marks is a
 // puzzle, and the mark is what the eye finds once the word has been read once.
 const MARKS = {
     // A bin: the lid, the handle above it, and the body under it.
     clear: ["M 3,5 H 13", "M 6.5,5 V 3.5 H 9.5 V 5",
             "M 4.5,5 L 5.2,13.5 H 10.8 L 11.5,5", "M 6.8,7.5 V 11", "M 9.2,7.5 V 11"],
-    // A picture: a frame with a horizon and a sun in it.
-    picture: ["M 2,3.5 H 14 V 12.5 H 2 Z", "M 2,10 L 6,6.5 L 9.5,10",
-              "M 8.5,9 L 10.5,7.2 L 14,10.2", "M 11,5.8 A 0.9,0.9 0 1 1 11,5.79"],
     // Into a tray: the arrow, its head, and the tray it lands in.
     download: ["M 8,2.5 V 9.5", "M 5,7 L 8,10 L 11,7", "M 3,12.5 H 13"],
+    // A stack of cards, the front one square on and the two behind it offset: more than one
+    // of a thing, which is what a list of examples is.
+    stack: ["M 2.5,6 H 10 V 13.5 H 2.5 Z", "M 5,6 V 4 H 12.5 V 11.5 H 10",
+            "M 7.5,4 V 2 H 15 V 9.5 H 12.5"],
 };
 
 function markSvg(name) {
@@ -1524,9 +1564,12 @@ function tipFor(what) {
             return null;
         }
         const role = roleOf(entity);
+        // A gate keeps a client's colour and takes the barrier's glyph, exactly as the node
+        // on the canvas does, so the card that opens over it is the thing that was pointed at.
+        const gate = gatesOf(state.design).get(entity.name) || "";
         const head = document.createElement("div");
         head.className = `tip__head tip__head--${role}`;
-        head.append(glyphSvg(role));
+        head.append(glyphSvg(gate ? "gate" : role));
         const title = document.createElement("span");
         title.textContent = entity.name;
         head.append(title);
@@ -1537,6 +1580,12 @@ function tipFor(what) {
         // capitals should read as.
         kind.textContent = describe(entity).replace(/_/g, " ");
         head.append(kind);
+        if (gate) {
+            box.append(tipRow("the gate", `What '${gate}' serves a session that has signed `
+                                          + "in as nobody. A signed-in session is served a "
+                                          + "different bundle, and cannot fetch a file of "
+                                          + "this one."));
+        }
         box.append(tipRow("reachable from",
                           role === "client" ? "The person using it"
                           : (role === "edge" ? "The internet, and only over TLS"
@@ -1936,12 +1985,21 @@ function closeMenu() {
     page.menu.replaceChildren();
 }
 
-function menuItem(label, act, danger) {
+function menuItem(label, act, danger, note) {
     const row = document.createElement("li");
     const button = document.createElement("button");
     button.type = "button";
     button.className = `menu__item${danger ? " menu__item--danger" : ""}`;
-    button.textContent = label;
+    button.append(label);
+    // A second line, for a row whose name is not the whole of what it is. The examples are
+    // the only rows that carry one: a list of four project names says nothing about which
+    // of them to open, and the alternative was four names and a paragraph above them.
+    if (note) {
+        const said = document.createElement("span");
+        said.className = "menu__note";
+        said.textContent = note;
+        button.append(said);
+    }
     button.addEventListener("click", () => {
         closeMenu();
         act();
@@ -1959,7 +2017,7 @@ function openMenu(at, what, items) {
         page.menu.append(heading);
     }
     for (const item of items) {
-        page.menu.append(menuItem(item.label, item.act, item.danger));
+        page.menu.append(menuItem(item.label, item.act, item.danger, item.note));
     }
     page.menu.hidden = false;
     // Placed after it is shown, so its measured size is the size it will have. Nudged back
@@ -2609,6 +2667,10 @@ function adopt(design) {
     state.design = {
         version: design.version || 1,
         project: design.project || "",
+        // The scopes this project names, which is the four a scaffold starts with for a
+        // project that never said otherwise. Carried, because a project may name its own and
+        // a document that dropped them wrote them out of the file on the way back.
+        scopes: design.scopes || [],
         sourceHash: design.sourceHash || "",
         entities: design.entities || [],
         // Without a `contract:` on any of them: it is the framework's own field, for the
@@ -3515,6 +3577,102 @@ function download() {
         + "edit it in place.");
 }
 
+// What the two buttons in the bar open
+
+// A menu hung under the button that opened it, left edges aligned, rather than at the
+// pointer the way a right click's is. A button that opens a list is the one place on this
+// page where the list belongs to a thing on screen and not to where the pointer happened to
+// be when it was pressed.
+function menuUnder(button) {
+    const box = button.getBoundingClientRect();
+    return {x: box.left, y: box.bottom + 6};
+}
+
+// Both ways of taking a design away, in one list. Neither touches the project on disk, which
+// is why they are together and why neither one is Apply.
+function openExportMenu() {
+    openMenu(menuUnder(page.exportAs), "Take it away", [
+        {label: "Export as image", act: () => exportAsPicture()},
+        {label: "Export as project", act: () => download()},
+    ]);
+}
+
+// The drawing as a picture, and the one thing worth asking about it. What is behind it. A
+// page colour is what somebody dropping it into a document wants. Transparency is what
+// somebody dropping it onto a slide of their own wants, and neither guess is safe.
+async function exportAsPicture() {
+    const clear = modalCheck("Transparent background", false);
+    const go = await askPage({
+        title: "Export the drawing",
+        text: "The whole design as a PNG, at twice its drawn size, with a margin round it.",
+        confirm: "Export",
+        extra: clear.wrap,
+    });
+    if (!go) {
+        return;
+    }
+    try {
+        await exportPicture(clear.box.checked);
+    } catch (error) {
+        say(`${error.message}`, "error");
+    }
+}
+
+// The projects the guide is written about, offered as somewhere to start. Each one is an
+// ordinary design the moment it is open: move anything, add anything, export it.
+//
+// Only on the drawing board. Over a real project the document is that project's, and a menu
+// that replaced it with an example would be the editor throwing away the thing it was opened
+// to edit.
+async function openExamplesMenu() {
+    const file = await examplesIndex();
+    const about = file.about || {};
+    const names = Object.keys(file.examples || {});
+    if (!names.length) {
+        say("No examples were published with this copy of the editor.", "error");
+        return;
+    }
+    openMenu(menuUnder(page.examples), "Start from a project", names.map((name) => ({
+        label: (about[name] && about[name].title) || name,
+        note: about[name] && about[name].note,
+        act: () => openExample(name),
+    })));
+}
+
+// One example, opened over whatever is on the canvas. What is there now is what the question
+// is about: an empty canvas has nothing to lose, and anything else is somebody's drawing,
+// which this is about to replace.
+async function openExample(name) {
+    const file = await examplesIndex();
+    const example = (file.examples || {})[name];
+    if (!example) {
+        say(`There is no ${name} example in this copy of the editor.`, "error");
+        return;
+    }
+    if ((state.design.entities || []).length) {
+        const sure = await askPage({
+            title: `Open the ${name} example?`,
+            text: "It replaces what is on the canvas, and the copy kept in this browser goes "
+                  + "with it. Export what is drawn as a project first to keep it.",
+            confirm: "Open it",
+            danger: true,
+        });
+        if (!sure) {
+            return;
+        }
+    }
+    state.seed = name;
+    // The address names what is on screen, so the link in the bar is the link that hands
+    // somebody this, and a reload comes back to it rather than to the last thing drawn.
+    keepInHash("example", name);
+    adopt(example);
+    fit();
+    page.restart.hidden = false;
+    const said = (file.about || {})[name];
+    say(`The ${name} example${said ? `: ${said.note}` : ""}. It is an ordinary project now: `
+        + "move anything, add anything, and it is still here when you come back.");
+}
+
 // Asking, in this page's own face
 
 // One question, over the drawing it is about, answered yes or no. A real `dialog`, so Escape
@@ -3806,8 +3964,11 @@ async function goOffline(reason) {
     // no project on the other end of this page.
     page.infer.hidden = true;
     page.review.hidden = true;
-    dress(page.apply, "download", "Download");
-    page.apply.disabled = false;
+    // And nothing to apply a change set to. The button used to stay in the bar wearing the
+    // word "Download", which put the one way of keeping a design at the far end of a row of
+    // controls that were all hidden or disabled beside it; taking a design away is Export's
+    // job now, and it is the same button on a project and on the drawing board.
+    page.apply.hidden = true;
     // What was being drawn last time comes back first. An example named in the address is a
     // *preset*: it is where a drawing starts, not a page that replaces one. So a design already
     // in this browser wins even then, as long as it grew out of the same example -- somebody
@@ -3823,10 +3984,10 @@ async function goOffline(reason) {
         fit();
         say(kept.seed
             ? `Picked up where you left off with the ${kept.seed} example. It is an ordinary `
-              + "project now: this copy is kept in this browser and nowhere else, so press "
-              + "Download to take it with you, or Clear to start over."
+              + "project now: this copy is kept in this browser and nowhere else, so Export "
+              + "it as a project to take it with you, or Clear to start over."
             : "Picked up where you left off. This is kept in this browser and nowhere else; "
-              + "press Download to take it with you, or Clear to start over.");
+              + "Export it as a project to take it with you, or Clear to start over.");
         page.restart.hidden = false;
         return;
     }
@@ -3835,9 +3996,9 @@ async function goOffline(reason) {
     adopt(example || {version: 1, project: "", entities: [], links: []});
     if (example) {
         fit();
-        say("This is the project the home page reads, and it is yours to edit: move anything, "
-            + "add anything, and it is still here when you come back. Press Download to take "
-            + "it with you, or Clear to start over.");
+        say(`The ${wanted} example, and it is yours to edit: move anything, add anything, `
+            + "and it is still here when you come back. Export it as a project to take it "
+            + "with you, or Clear to start over.");
         return;
     }
     say(reason);
@@ -3848,6 +4009,9 @@ async function load() {
     try {
         const answer = await request("GET", "api/project");
         state.backend = true;
+        // Over a real project there is nothing to start from. The project on disk is what
+        // this page is editing, and an example opened over it would throw that away.
+        page.examples.hidden = true;
         adopt(answer.document);
         fit();
         say(answer.ok ? "Editing this project. Nothing is written until you apply a change "
@@ -3868,16 +4032,6 @@ async function load() {
     }
 }
 
-// Whether to go, asked once. An empty canvas has nothing to lose, so it goes without a
-// question: a page somebody opened, looked at and closed should not argue with them.
-function leaving() {
-    if (!(state.design.entities || []).length) {
-        return true;
-    }
-    return window.confirm("Leave the editor? This design lives in this tab, so anything not "
-                          + "applied or downloaded goes with it.");
-}
-
 function wire() {
     // Only ever on the drawing board, where it is the way out of a design this browser is
     // holding. It clears the stored copy first, so a reload does not bring it straight back.
@@ -3885,7 +4039,7 @@ function wire() {
         const sure = await askPage({
             title: "Clear this design?",
             text: "The canvas goes back to empty and the copy kept in this browser goes with "
-                  + "it. Press Download first to keep what is drawn.",
+                  + "it. Export it as a project first to keep what is drawn.",
             confirm: "Clear",
             danger: true,
         });
@@ -3902,20 +4056,12 @@ function wire() {
         fit();
         say("Cleared. Drag an entity out of the rail to begin.");
     });
-    // The mark in the corner goes home, and asks first. Anything drawn here lives in this
-    // tab (the copy on the site has no disk behind it, and `synqt design` has written
-    // nothing until Apply), so leaving is a decision rather than a click.
-    page.home.addEventListener("click", (event) => {
-        if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) {
-            return;                 // opening it elsewhere leaves this tab where it is
-        }
-        if (!leaving()) {
-            event.preventDefault();
-        }
-    });
-    // And the same question for every other way out: a reload, the back button, the tab
-    // being closed. The browser writes the words here, not us; what it takes from this is
-    // whether to ask at all.
+    // Leaving is asked about once, and the browser is the one that asks. Every way out of
+    // this page fires this -- the mark in the corner, a reload, the back button, the tab
+    // being closed -- so a question of our own on top of it meant the mark in the corner
+    // asked twice: our box, and then the browser's. What this decides is whether to ask at
+    // all; the words are the browser's, and an empty canvas has nothing to lose, so a page
+    // somebody opened, looked at and closed goes without an argument.
     window.addEventListener("beforeunload", (event) => {
         if ((state.design.entities || []).length) {
             event.preventDefault();
@@ -3941,27 +4087,8 @@ function wire() {
         page.stage.classList.remove("is-target");
     });
     page.canvas.addEventListener("drop", onDrop);
-    // The drawing as a picture, and the one thing worth asking about it: what is behind it.
-    // A page colour is what somebody dropping it into a document wants; transparency is what
-    // somebody dropping it onto a slide of their own wants, and neither guess is safe.
-    page.exportPng.addEventListener("click", async () => {
-        const clear = modalCheck("Transparent background", false);
-        const go = await askPage({
-            title: "Export the drawing",
-            text: "The whole design as a PNG, at twice its drawn size, with a margin round "
-                  + "it.",
-            confirm: "Export",
-            extra: clear.wrap,
-        });
-        if (!go) {
-            return;
-        }
-        try {
-            await exportPicture(clear.box.checked);
-        } catch (error) {
-            say(`${error.message}`, "error");
-        }
-    });
+    page.exportAs.addEventListener("click", () => openExportMenu());
+    page.examples.addEventListener("click", () => openExamplesMenu());
     page.revert.addEventListener("click", () => revertToLastGood());
     page.undo.addEventListener("click", () => undo());
     page.redo.addEventListener("click", () => redo());
@@ -4045,7 +4172,8 @@ wire();
 page.dockToggle.replaceChildren(chevron());
 page.undo.replaceChildren(stepArrow(false));
 page.redo.replaceChildren(stepArrow(true));
-dress(page.exportPng, "picture", "Export");
+dress(page.exportAs, "download", "Export");
+dress(page.examples, "stack", "Examples");
 dress(page.restart, "clear", "Clear");
 // The same arrow on both panel handles, turned by CSS to point at the edge each one folds
 // to, and turned back once it is folded.
