@@ -35,12 +35,38 @@
   var PYPI_URL = "https://pypi.org/project/synqt/";
 
   var API_LATEST = "https://api.github.com/repos/" + OWNER + "/" + REPO + "/releases/latest";
+  // Every published release, newest first, for the "More versions" panel. Capped: the
+  // panel is for picking last week's build or the one before a regression, not for
+  // browsing a project's whole history, and GitHub's own releases page is one click away
+  // inside the panel for that.
+  var API_RELEASES = "https://api.github.com/repos/" + OWNER + "/" + REPO
+    + "/releases?per_page=20";
+
+  // Every platform a release carries a binary for, in the order the panel lists them. The
+  // label is what a reader recognises. The pair behind it is what names the asset.
+  var TARGETS = [
+    { key: "linux-x86_64", os: "linux", arch: "x86_64", label: "Linux (x86_64)" },
+    { key: "linux-arm64", os: "linux", arch: "arm64", label: "Linux (arm64)" },
+    { key: "macos-arm64", os: "macos", arch: "arm64", label: "macOS (Apple silicon)" },
+    { key: "macos-x86_64", os: "macos", arch: "x86_64", label: "macOS (Intel)" },
+    { key: "windows-x86_64", os: "windows", arch: "x86_64", label: "Windows (x86_64)" },
+    { key: "windows-arm64", os: "windows", arch: "arm64", label: "Windows (arm64)" }
+  ];
   // Written by source-facts.js from the header's repository facts (see that file).
   var FACTS_KEY = "synqt-source-facts";
 
   var modal = null;
   var lastFocused = null;
   var version = null;
+  // What the buttons currently resolve to: a target key from TARGETS, and a release tag,
+  // where the empty string means "whatever latest is when this is clicked". Both start as
+  // what was detected and only move when somebody moves them.
+  var target = "linux-x86_64";
+  var release = "";
+  var releasesAsked = false;
+  // Whether somebody picked the platform themselves. Detection runs on every open, and it
+  // must not undo a choice made a moment earlier in the panel.
+  var chosen = false;
 
   function el(tag, attrs, html) {
     var node = document.createElement(tag);
@@ -67,15 +93,41 @@
     return "synqt-" + os + "-" + arch + "." + ext;
   }
 
-  function setDownload(os, arch) {
-    var label = { linux: "Linux", macos: "macOS", windows: "Windows" }[os] || os;
-    modal.querySelector("#synqt-dl-platform").textContent = label + " (" + arch + ")";
-    var a = modal.querySelector("#synqt-dl-download");
-    a.href = DL + "/" + assetFor(os, arch);
-    a.textContent = "Download for " + label + " (" + arch + ")";
+  function targetOptions() {
+    return TARGETS.map(function (one) {
+      return '<option value="' + one.key + '">' + one.label + "</option>";
+    }).join("");
   }
 
-  /* Which release the buttons above actually resolve to. The header already carries
+  function targetNamed(key) {
+    for (var i = 0; i < TARGETS.length; i++) {
+      if (TARGETS[i].key === key) return TARGETS[i];
+    }
+    return TARGETS[0];
+  }
+
+  /* Everything the two choices decide, applied at once: which asset the button fetches,
+   * what the button and the facts row say, and which of the two shell commands is the one
+   * on screen. One function, because the choices are not independent of each other on the
+   * page -- picking Windows in the panel and being left looking at the `curl` line was the
+   * whole reason the old "On Windows instead?" link existed. */
+  function apply() {
+    var one = targetNamed(target);
+    // A named release is fetched from its own tag; "latest" keeps the self-updating path,
+    // so a bookmarked link to it goes on resolving to whatever the newest release is.
+    var base = release ? "https://github.com/" + OWNER + "/" + REPO + "/releases/download/"
+                         + encodeURIComponent(release)
+                       : DL;
+    var a = modal.querySelector("#synqt-dl-download");
+    a.href = base + "/" + assetFor(one.os, one.arch);
+    a.textContent = "Download for " + one.label;
+    modal.querySelector("#synqt-dl-platform").textContent = one.label;
+    var windows = one.os === "windows";
+    modal.querySelector("#synqt-dl-windows").hidden = !windows;
+    modal.querySelector("#synqt-dl-posix").hidden = windows;
+  }
+
+  /* Which release the buttons above resolve to. The header already carries
    * it: Material draws the latest release tag as a repository fact on every page, and
    * source-facts.js keeps the last one this browser received. Read those two first, so
    * the common case costs no request at all, and only ask GitHub directly when neither
@@ -111,10 +163,10 @@
     version = text || null;
     var node = modal && modal.querySelector("#synqt-dl-version");
     if (!node) return;
-    // No version rather than a wrong one: the row simply drops the release it could
+    // No version rather than a wrong one: the row drops the release it could
     // not name, and the buttons still point at whatever "latest" is when clicked.
-    node.parentNode.hidden = !version;
-    node.textContent = version || "";
+    node.parentNode.hidden = !(version || release);
+    node.textContent = release || version || "";
   }
 
   function resolveVersion() {
@@ -133,30 +185,53 @@
       .catch(function () { showVersion(""); });
   }
 
-  /* Show the shell command for `os` and hide the other one. */
-  function showInstallFor(os) {
-    var windows = os === "windows";
-    modal.querySelector("#synqt-dl-windows").hidden = !windows;
-    modal.querySelector("#synqt-dl-posix").hidden = windows;
-  }
-
+  /* What this browser is running on, as one of the keys in TARGETS. Only ever the starting
+   * point. The panel is what settles it, and a detection that guesses wrong (a Mac
+   * fetching for a Windows box) costs one drop-down rather than a wrong file. */
   function detectAndSet() {
     var os = detectOs();
-    showInstallFor(os);
     // Architecture is not reliably exposed to JavaScript. Ask for high entropy
     // values where supported (Chromium), otherwise default to x86_64.
+    var settle = function (arch) {
+      if (!chosen) {
+        target = os + "-" + arch;
+        var picker = modal.querySelector("#synqt-dl-target");
+        if (picker) picker.value = target;
+      }
+      apply();
+    };
     if (navigator.userAgentData && navigator.userAgentData.getHighEntropyValues) {
       navigator.userAgentData
         .getHighEntropyValues(["architecture"])
-        .then(function (v) {
-          setDownload(os, v.architecture === "arm" ? "arm64" : "x86_64");
-        })
-        .catch(function () {
-          setDownload(os, "x86_64");
-        });
+        .then(function (v) { settle(v.architecture === "arm" ? "arm64" : "x86_64"); })
+        .catch(function () { settle("x86_64"); });
     } else {
-      setDownload(os, "x86_64");
+      settle("x86_64");
     }
+  }
+
+  /* The releases, fetched the first time the panel is opened and not before: a modal that
+   * asked GitHub for a list nobody had asked to see would spend somebody's rate limit on
+   * the common case, which is downloading the newest build. Asked once per visit, and a
+   * refusal leaves the drop-down holding the one entry it starts with, which is still the
+   * right answer. */
+  function loadReleases() {
+    if (releasesAsked || !window.fetch) return;
+    releasesAsked = true;
+    fetch(API_RELEASES)
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (list) {
+        if (!(list instanceof Array) || !list.length) return;
+        var picker = modal.querySelector("#synqt-dl-release");
+        if (!picker) return;
+        list.forEach(function (one) {
+          if (!one || !one.tag_name) return;
+          var option = el("option", { value: one.tag_name });
+          option.textContent = one.tag_name + (one.prerelease ? " (pre-release)" : "");
+          picker.appendChild(option);
+        });
+      })
+      .catch(function () { /* the one entry already in it is the honest fallback */ });
   }
 
   function build() {
@@ -170,28 +245,44 @@
       '  <p class="synqt-dl__sub">Install the latest release of the SynQt command line tool. It installs and pins the rest of the toolchain for you.</p>' +
       '  <p class="synqt-dl__platform">' +
       '    <span class="synqt-dl__fact" hidden>Release: <strong id="synqt-dl-version"></strong></span>' +
-      '    <span class="synqt-dl__fact">Detected platform: <strong id="synqt-dl-platform">checking&hellip;</strong></span>' +
+      '    <span class="synqt-dl__fact">Platform: <strong id="synqt-dl-platform">checking&hellip;</strong></span>' +
       '  </p>' +
       '  <div class="synqt-dl__row">' +
       '    <a class="synqt-dl__btn" id="synqt-dl-download" href="#" rel="noopener">Download latest</a>' +
-      '    <a class="synqt-dl__btn synqt-dl__btn--secondary" id="synqt-dl-releases" href="' + LATEST + '" rel="noopener" target="_blank">All releases and platforms</a>' +
+      '    <button class="synqt-dl__btn synqt-dl__btn--secondary" id="synqt-dl-more" type="button" aria-expanded="false" aria-controls="synqt-dl-versions">More versions</button>' +
+      '  </div>' +
+      // Folded away, because the answer almost everybody wants is the newest build for the
+      // machine they are on, and that is the button above. Opened, it is the whole matrix:
+      // any published release, any platform a release carries a binary for. Picking either
+      // one moves the button, the facts row and the shell command together, so what is on
+      // screen is one answer rather than three.
+      '  <div class="synqt-dl__versions" id="synqt-dl-versions" hidden>' +
+      '    <label class="synqt-dl__pick">Release' +
+      '      <select id="synqt-dl-release"><option value="">Latest</option></select>' +
+      '    </label>' +
+      '    <label class="synqt-dl__pick">Platform' +
+      '      <select id="synqt-dl-target">' + targetOptions() + '</select>' +
+      '    </label>' +
+      '    <p class="synqt-dl__sublabel synqt-dl__last">Release notes and checksums are on ' +
+      '      <a href="' + LATEST + '" target="_blank" rel="noopener">the releases page</a>.</p>' +
       '  </div>' +
       '  <p class="synqt-dl__label">Or install from your terminal.</p>' +
       // One shell line, the one for the platform this browser is on: the other is a
       // command the visitor cannot run, and printing both means everybody reads two
       // lines to find theirs. Detection can be wrong (a Mac browsing for a Windows box),
       // so the other one is a click away rather than gone.
+      // The command for the platform above and no other. The warning sits against the
+      // bottom of the block it is about rather than a paragraph away from it: it is about
+      // that line, and a caution with air around it reads as a caution about the page.
       '  <div class="synqt-dl__install" id="synqt-dl-posix" hidden>' +
       '    <p class="synqt-dl__sublabel">Linux and macOS:</p>' +
       '    <pre class="synqt-dl__pre"><button class="synqt-dl__copy" type="button">copy</button><code>' + ONELINER_SH + "</code></pre>" +
-      '    <p class="synqt-dl__warn"><strong>Read a script before you pipe it to a shell.</strong> This one downloads a release, extracts it, and copies one binary into a bin directory, and nothing else. Read <a href="' + INSTALL_SH_URL + '" target="_blank" rel="noopener">install.sh</a> yourself before you run it.</p>' +
-      '    <p class="synqt-dl__sublabel"><button class="synqt-dl__swap" id="synqt-dl-to-windows" type="button">On Windows instead?</button></p>' +
+      '    <p class="synqt-dl__warn"><strong>Read it before you run it.</strong> This one downloads a release, unpacks it, and copies one binary into a bin directory. Nothing else: <a href="' + INSTALL_SH_URL + '" target="_blank" rel="noopener">install.sh</a>.</p>' +
       '  </div>' +
       '  <div class="synqt-dl__install" id="synqt-dl-windows" hidden>' +
       '    <p class="synqt-dl__sublabel">Windows (PowerShell):</p>' +
       '    <pre class="synqt-dl__pre"><button class="synqt-dl__copy" type="button">copy</button><code>' + ONELINER_PS + "</code></pre>" +
-      '    <p class="synqt-dl__warn"><strong>Read a script before you pipe it to a shell.</strong> This one downloads a release, extracts it, and copies one binary into a bin directory, and nothing else. Read <a href="' + INSTALL_PS_URL + '" target="_blank" rel="noopener">install.ps1</a> yourself before you run it.</p>' +
-      '    <p class="synqt-dl__sublabel"><button class="synqt-dl__swap" id="synqt-dl-to-posix" type="button">On Linux or macOS instead?</button></p>' +
+      '    <p class="synqt-dl__warn"><strong>Read it before you run it.</strong> This one downloads a release, unpacks it, and copies one binary into a bin directory. Nothing else: <a href="' + INSTALL_PS_URL + '" target="_blank" rel="noopener">install.ps1</a>.</p>' +
       '  </div>' +
       '  <p class="synqt-dl__label">Or, if you already have Python, from PyPI.</p>' +
       '  <pre class="synqt-dl__pre"><button class="synqt-dl__copy" type="button">copy</button><code>' + ONELINER_PIP + "</code></pre>" +
@@ -207,11 +298,24 @@
       if (e.target === modal) close();
     });
 
-    modal.querySelector("#synqt-dl-to-windows").addEventListener("click", function () {
-      showInstallFor("windows");
+    var more = modal.querySelector("#synqt-dl-more");
+    more.addEventListener("click", function () {
+      var panel = modal.querySelector("#synqt-dl-versions");
+      panel.hidden = !panel.hidden;
+      more.setAttribute("aria-expanded", String(!panel.hidden));
+      if (!panel.hidden) loadReleases();
     });
-    modal.querySelector("#synqt-dl-to-posix").addEventListener("click", function () {
-      showInstallFor("linux");
+
+    modal.querySelector("#synqt-dl-target").addEventListener("change", function (e) {
+      chosen = true;
+      target = e.target.value;
+      apply();
+    });
+
+    modal.querySelector("#synqt-dl-release").addEventListener("change", function (e) {
+      release = e.target.value;
+      apply();
+      showVersion(version);
     });
 
     // Each copy button copies the command in its own <pre>.

@@ -193,21 +193,59 @@
   margin-top: 1.5rem;
 }
 
-/* The way to the command for the other platform. A button, because it changes what is on
-   screen rather than going anywhere, and it reads as the link it behaves like. */
-.synqt-dl__swap {
-  padding: 0;
-  border: 0;
-  background: none;
-  color: inherit;
+/* The panel behind "More versions": any published release, any platform one carries a
+   binary for. Folded away by default, because the answer almost everybody wants is the
+   newest build for the machine they are on, and that is the button it opens from. Set as a
+   panel rather than as two loose controls, so opening it reads as a place rather than as
+   the card growing two widgets. */
+.synqt-dl__versions[hidden] {
+  display: none;
+}
+
+.synqt-dl__versions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.25rem;
+  margin: -0.75rem 0 1.5rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 0.5rem;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.synqt-dl__pick {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.8rem;
+  opacity: 0.78;
+}
+
+/* The two drop-downs are the controls this panel exists for, so they are set at the card's
+   own size rather than at the size of the label above them, and painted in the card's own
+   colours: a stock `select` on a dark card arrives white. */
+.synqt-dl__pick select {
+  min-width: 12rem;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 0.4rem;
+  background: rgba(0, 0, 0, 0.35);
+  color: #e6e1ef;
   font: inherit;
-  text-decoration: underline;
-  text-underline-offset: 0.2em;
+  font-size: 0.9rem;
   cursor: pointer;
 }
 
-.synqt-dl__swap:hover {
-  color: var(--md-accent-fg-color, #00a6ed);
+.synqt-dl__pick select:focus-visible {
+  outline: 2px solid var(--md-accent-fg-color, #00a6ed);
+  outline-offset: 1px;
+}
+
+/* The two are one thing: the line and the caution about that line. Joined rather than
+   spaced, so the caution reads as part of the block it is about instead of as a notice
+   about the card. */
+.synqt-dl__versions .synqt-dl__last {
+  align-self: flex-end;
 }
 
 .synqt-dl__pre {
@@ -249,12 +287,26 @@
   outline: none;
 }
 
-/* The one thing in this modal a reader should not skim: it is asking them to run a
-   script from the internet. It used to be set in the same dimmed grey as the rest of
-   the small print, which is exactly how a caution goes unread. It keeps that size
-   (0.85rem, no taller than before) and earns its attention another way: full contrast
+/* The one thing in this modal a reader should not skim. It is asking them to run a
+   script from the internet. Set in the same dimmed grey as the rest of
+   the small print it would go unread. It keeps that size
+   (0.85rem) and earns its attention another way, with full contrast
    text on a warm panel with a thick left edge and a marker in the margin, and the
    instruction itself first and in the amber. */
+/* Inside an install block the command and its caution are one stack. The pre loses the gap
+   under it and its bottom corners, and the panel below picks up where it stops. */
+.synqt-dl__install .synqt-dl__pre {
+  margin-bottom: 0;
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.synqt-dl__install .synqt-dl__warn {
+  margin-top: 0;
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+
 .synqt-dl__warn {
   position: relative;
   margin: 0.75rem 0 0;
