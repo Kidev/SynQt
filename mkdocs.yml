@@ -179,6 +179,7 @@ nav:
   - Tutorials:
       - Quick start: quick-start.md
       - Getting started: getting-started.md
+      - The simple chat: tutorial-chat.md
       - The auction:
           - Overview: tutorial.md
           - The base case: tutorial-base-auction.md

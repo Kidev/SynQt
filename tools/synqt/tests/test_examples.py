@@ -35,6 +35,30 @@ def _add_client_consumer(config, owner):
     return mutated
 
 
+class ChatCheckTest(unittest.TestCase):
+    def setUp(self):
+        self.config = _load("chat")
+
+    def test_the_finished_chat_validates(self):
+        ok, messages = check.validate(self.config)
+        self.assertTrue(ok, messages)
+
+    def test_client_consuming_the_store_is_refused(self):
+        # The chat tutorial's hands-on check, and the same one every tutorial ends on: the
+        # browser reaches only the edge, so consuming the store entity's point must fail.
+        ok, messages = check.validate(_add_client_consumer(self.config, "store"))
+        self.assertFalse(ok)
+        self.assertTrue(any("store" in m and "web_edge" in m and m.startswith("error:")
+                            for m in messages),
+                        messages)
+
+    def test_the_gate_is_what_a_signed_out_visitor_is_served(self):
+        # The one thing this example exists to show that the others do not: two bundles on
+        # one edge, so the room's client is a file a signed-out session cannot fetch.
+        edge = next(one for one in self.config["entities"] if one["name"] == "edge")
+        self.assertEqual(edge["bundles"], {"anonymous": "gate", "user": "app"})
+
+
 class GavelCheckTest(unittest.TestCase):
     def setUp(self):
         self.config = _load("gavel")
@@ -104,7 +128,7 @@ class ExampleClientRootTest(unittest.TestCase):
     """
 
     def test_every_example_client_root_is_a_window(self):
-        for project in ("gavel", "arena", "stall"):
+        for project in ("chat", "gavel", "arena", "stall"):
             with self.subTest(project=project):
                 self.assertEqual(check.lint_client_root(EXAMPLES / project), [])
 

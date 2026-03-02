@@ -1,0 +1,89 @@
+# SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+# SPDX-License-Identifier: Apache-2.0
+
+# chat: a room everybody in it sees at once. The shortest complete SynQt system there is,
+# and the one the front page of synqt.org reads out file by file.
+#
+# Two client bundles rather than one, because who may download what is a decision this
+# framework makes at the edge: a session that has signed in as nobody gets `gate`, which is
+# a sign-in button and nothing else, and a session holding `user` gets `app`, which is the
+# room. The room's bundle is not hidden from a signed-out visitor, it is not there.
+project:
+  name: chat
+  version: 0.1.0
+  qt_version: 6.11.1
+
+scopes:
+  order: [anonymous, user, admin]
+  hierarchical: true
+  default: anonymous
+
+security:
+  allowed_origins: [self]
+  cross_origin_isolation: false
+
+build:
+  client_threads: single
+
+# Signing in is the whole of what the gate is for, so this is not an optional extra here:
+# without it nobody can ever leave `anonymous`, and the room's bundle is a file no session
+# can fetch. Register an OAuth app with the provider, put its secret in .env, and the edge
+# runs the whole flow -- the browser ends up holding a session cookie and nothing else.
+identity:
+  providers:
+    - name: github
+      client_id: your-client-id-from-github
+      client_secret: env:GITHUB_CLIENT_SECRET
+  mapping: web/edge/identity/map.qml
+
+entities:
+  - name: gate
+    type: client
+    targets: [wasm]
+
+  - name: app
+    type: client
+    targets: [wasm]
+
+  - name: edge
+    type: web_edge
+    identity: true
+    public:
+      port: 8443
+      sync_route: /sync
+    # Which bundle each session is served. Not a redirect and not a 403: a session without
+    # `user` cannot fetch a file of `app` at all.
+    bundles:
+      anonymous: gate
+      user: app
+    # Serving the browser over TLS in a release build. `synqt dev` ignores this and runs
+    # plaintext on localhost; `synqt build --release` and `synqt serve` require either this
+    # block or public.tls_terminated_upstream, so that nothing ships reachable over http://
+    # with nobody named as the one who was meant to stop it.
+    tls:
+      cert_file: certs/edge/fullchain.pem
+      key_file: certs/edge/privkey.pem
+
+  - name: store
+    type: relational
+    provider:
+      name: sqlite
+
+connect_points:
+  # The room, as the browser sees it. One property the edge pushes, one model every window
+  # mirrors, one slot to say something, and one signal for when the edge says no.
+  - owner: edge
+    consumers: [app]
+    export: |
+      prop string[60] topic
+      model messages(int id, string[40] who, string[280] body)
+      slot say(string[280] body)
+      signal refused(string[120] reason)
+
+  # The log, which only the edge may ask. The browser is on no consumer list anywhere, so
+  # there is no reachable path from a tab to this entity at all.
+  - owner: store
+    consumers: [edge]
+    export: |
+      slot var recent()
+      slot var append(string[40] who, string[280] body)
