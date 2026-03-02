@@ -10,12 +10,13 @@
 // with it, because leaving either behind would leave the project naming an entity that is
 // not there.
 
-import { SCOPES, behindOf, entityType } from "./rules.js";
+import { behindOf, entityType, scopesOf } from "./rules.js";
 import { ROLE_HELP, accessorName, codeLine, codeParts, codeWord, contractSvg,
          glyphSvg, linkTitleNode, memberCode, memberMarkSvg,
          roleOf } from "./canvas.js";
 import { linkTitle } from "./project.js";
 import { baseType, declarations } from "./source.js";
+import { contractBytes, memberSizeText, sizeText } from "./wire.js";
 
 // The contract type vocabulary, from synqtc/types.py: QML's own built-in value types, and
 // nothing invented beside them. A value crossing a connect point is read from QML on the
@@ -882,13 +883,19 @@ function partsPanel(member, key, label, actions, sized) {
 // same one, which is what the drawing says too: every line leaves the one icon.
 function ticksPanel(design, link, actions) {
     const box = tag("div", {class: "block members"});
-    blockHead(box, "What crosses it",
+    const head = blockHead(box, "What crosses it",
               [`Everything ticked here is what '${link.owner || "the owner"}' says to `
                + `whoever consumes this point, and it is what the generated replica carries. `
                + `Nothing else ever crosses.`,
                "The list is what the owner entity declares, so a member reaches a consumer "
                + "because somebody ticked it here, and the file that implements it already "
                + "has the line."]);
+    // And how much of it. The contract says what crosses. The one thing it did not say was
+    // how big that is, which is what decides whether a property is pushed on a keystroke or
+    // on a timer. The number is a ceiling worked out from the sizes in the contract itself
+    // (a `string[60]` is four bytes of length and at most sixty UTF-16 characters), never a
+    // measurement of anything running, and it says so.
+    head.append(wireSize(link));
     const owner = (design.entities || []).find((one) => one.name === link.owner);
     if (!owner) {
         box.append(note("No owner yet, so there is nothing to carry.", true));
@@ -958,7 +965,7 @@ function ticksPanel(design, link, actions) {
             }
             // The scope raises the bar for this member alone, so nothing about it crosses to
             // a caller the rest of the point reaches.
-            extras.append(field("Scope", choice(["", ...SCOPES], carried.scope || "",
+            extras.append(field("Scope", choice(["", ...scopesOf(design)], carried.scope || "",
                                                 (value) => {
                 carried.scope = value;
                 actions.changed();
@@ -970,7 +977,7 @@ function ticksPanel(design, link, actions) {
                                        + "connect point."}));
             row.append(extras);
         } else {
-            row.append(tickSummary(carried, sized, () => {
+            row.append(tickSummary(carried, sized, link, () => {
                 opened.add(key);
                 actions.rebuild();
             }));
@@ -995,13 +1002,13 @@ function ticksPanel(design, link, actions) {
     return box;
 }
 
-// What the connect point adds to one ticked member, in a line: the gate it is behind and the
+// What the connect point adds to one ticked member, in a line. The gate it is behind and the
 // limit the owner-side boundary holds it to. Pressing it offers the two controls.
 //
 // A value that is set is coloured and a default is not, so the exceptions are what the eye
-// finds down the column: most members are gated on the point's own scope and have no limit,
+// finds down the column. Most members are gated on the point's own scope and have no limit,
 // and saying that eight times in a drop-down is eight ways to miss the ninth.
-function tickSummary(carried, sized, onOpen) {
+function tickSummary(carried, sized, link, onOpen) {
     const line = tag("button", {type: "button", class: "tick__summary",
                                 title: "Set the scope and the limit for this member"});
     const gate = tag("span", {class: carried.scope ? "tick__set" : "tick__default"},
@@ -1013,16 +1020,43 @@ function tickSummary(carried, sized, onOpen) {
         line.append(tag("span", {class: found ? "tick__set" : "tick__default"},
                         found ? `at most ${found[1]}` : "no limit"));
     }
+    line.append(tag("span", {class: "tick__dot"}, "\u00b7"));
+    line.append(tag("span", {class: "tick__bytes"}, memberSizeText(carried, link)));
     line.addEventListener("click", onOpen);
     return line;
 }
 
+// What the whole contract costs, beside the heading that says what it carries.
+//
+// One crossing of each member, with a model counted as one row. Not a rate, because how often
+// anything crosses is the application's business, but the size of the wire, which is what
+// somebody sizing one is asking. A contract holding one member with no limit on it has no
+// ceiling at all, and the chip says that rather than printing the bounded part as if it were
+// the answer.
+function wireSize(link) {
+    const cost = contractBytes(link);
+    if (!(link.members || []).length) {
+        return tag("span", {class: "block__bytes"}, "");
+    }
+    return tag("span", {class: `block__bytes${cost.bounded ? "" : " block__bytes--open"}`,
+                        title: cost.bounded
+                            ? `At most ${sizeText(cost.bytes)} crosses this link when every `
+                              + "member crosses once and the model carries one row. Worked "
+                              + "out from the sizes written into the contract, so it is a "
+                              + "ceiling and not a measurement."
+                            : "One member here has no limit written on it, so nothing bounds "
+                              + `what crosses. The rest of the contract comes to `
+                              + `${sizeText(cost.bytes)}; give the open member a size and `
+                              + "this becomes a ceiling."},
+               cost.bounded ? `\u2264 ${sizeText(cost.bytes)}` : `> ${sizeText(cost.bytes)}`);
+}
+
 // Whether this edge hands its callers on, and where each scope currently goes.
 //
-// On the edge, with the rest of what an edge is: it sits beside "runs the sign-in flow"
+// On the edge, with the rest of what an edge is. It sits beside "runs the sign-in flow"
 // because it is the same kind of fact about the same entity, and an edge is where a reader
 // goes to ask what the edge does. It was on the connect point, which is where the flag is
-// written in synqt.yaml but not where anybody looks for it: the point's panel is about what
+// written in synqt.yaml but not where anybody looks for it. The point's panel is about what
 // crosses the link, and an entity's whole job was one panel further away than the smallest
 // thing about it.
 //
@@ -1036,13 +1070,13 @@ function frontPanel(design, entity, actions) {
         .filter((one) => entityType(one) === "client").map((one) => one.name));
     const link = (design.links || []).find((one) => one.owner === entity.name);
     if (!link || !(link.consumers || []).some((consumer) => clients.has(consumer))) {
-        // Nothing to split yet: an edge no browser consumes has no callers to hand on.
+        // Nothing to split yet. An edge no browser consumes has no callers to hand on.
         return box;
     }
     const tiers = behindOf(link);
     const isFront = Boolean(link.behind);
-    const wired = SCOPES.filter((scope) => tiers[scope]);
-    // What the switch means, on the switch: turned on, this edge stops answering its own
+    const wired = scopesOf(design).filter((scope) => tiers[scope]);
+    // What the switch means, on the switch. Turned on, this edge stops answering its own
     // connect point and every caller is served by whichever entity their scope is wired to.
     // The rules paint the two halves of that a drawing can decide on its own (a front with
     // nothing behind it, and a slot that answers a value, which a front cannot). The third is
@@ -1191,7 +1225,7 @@ function contractPanel(design, link, actions) {
     const reach = tag("div");
     // `rebuild`, because this is the default every member below inherits and the list of
     // members says what each one is gated on.
-    reach.append(field("Scope", choice(["", ...SCOPES], link.scope || "", (value) => {
+    reach.append(field("Scope", choice(["", ...scopesOf(design)], link.scope || "", (value) => {
         link.scope = value;
         actions.rebuild();
     }, "any session, anonymous included"),
