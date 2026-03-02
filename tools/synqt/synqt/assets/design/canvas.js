@@ -29,7 +29,7 @@
 // mesh is tens of nodes, not thousands, and a drawing that is a function of the document
 // cannot fall out of step with it.
 
-import { SCOPES, entityType, frontsOf } from "./rules.js";
+import { SCOPES, entityType, frontsOf, gatesOf } from "./rules.js";
 import { linkEnds } from "./project.js";
 
 const SVG = "http://www.w3.org/2000/svg";
@@ -103,6 +103,22 @@ const GLYPHS = {
     client: [
         {tag: "circle", cx: 0, cy: -3.2, r: 3.2, fill: "currentColor"},
         {tag: "path", d: "M -6,7.5 a 6,6.5 0 0 1 12,0 z", fill: "currentColor"},
+    ],
+    // The client an edge hands to a session that has signed in as nobody: a field gate,
+    // shut. Two posts, a braced leaf hung between them, and no way through. Not the
+    // client's own glyph, because the whole of what a gate is, is what a visitor cannot get
+    // past, and a person-shaped disc says the opposite.
+    //
+    // A boom barrier was drawn here first and read as a flag on a pole at the size a disc
+    // gives a glyph. This one is symmetrical, which is what stops it looking like a thing
+    // pointing sideways, and the brace is what says "shut" rather than "a box".
+    gate: [
+        {tag: "path", d: "M -7,-5.5 V 6.5 M 7,-5.5 V 6.5", fill: "none",
+         stroke: "currentColor", "stroke-width": 1.5, "stroke-linecap": "round"},
+        {tag: "rect", x: -5, y: -3.6, width: 10, height: 8, rx: 0.8, fill: "none",
+         stroke: "currentColor", "stroke-width": 1.3},
+        {tag: "path", d: "M -5,4.4 L 5,-3.6 M -5,0.4 H 5", fill: "none",
+         stroke: "currentColor", "stroke-width": 1.1},
     ],
     edge: [
         {tag: "circle", cx: 0, cy: 0, r: 7, fill: "none", stroke: "currentColor",
@@ -212,7 +228,7 @@ export function roleOf(entity) {
     return GLYPHS[type] ? type : "service";
 }
 
-function glyph(entity, front) {
+function glyph(entity, front, gate) {
     // A front's glyph rides in its nose at a smaller size: the scope column holds the rest of
     // the shape, and at a disc's size the glyph reached out through the sloped edges.
     const group = element("g", {
@@ -220,7 +236,11 @@ function glyph(entity, front) {
         transform: front ? `translate(${FRONT_GLYPH.at},0) scale(${FRONT_GLYPH.scale})`
                          : "scale(1.45)",
     });
-    for (const shape of GLYPHS[roleOf(entity)]) {
+    // A gate is a client, and keeps a client's colour and a client's place in the browser
+    // box; what it does not keep is the client's glyph. `roleOf` is left alone for both of
+    // those reasons -- it answers which column an entity belongs in and which colour it takes,
+    // and neither changes because a bundle is the one a signed-out visitor gets.
+    for (const shape of GLYPHS[gate ? "gate" : roleOf(entity)]) {
         const {tag, ...attributes} = shape;
         group.append(element(tag, attributes));
     }
@@ -786,12 +806,12 @@ function frontSeats(entity, front) {
 }
 
 
-function node(entity, {selected, level, files, taken, front}) {
+function node(entity, {selected, level, files, taken, front, gate}) {
     const group = element("g", {
         // The role is a class as well as a glyph, so a client disc is the green a client
         // is everywhere else on this page and in the guide's drawing.
         class: `${classes("node", {selected, level})} node--${roleOf(entity)}`
-               + (front ? " node--front" : ""),
+               + (front ? " node--front" : "") + (gate ? " node--gate" : ""),
         transform: `translate(${entity.x || 0},${entity.y || 0})`,
     });
     group.dataset.entity = entity.name;
@@ -800,7 +820,7 @@ function node(entity, {selected, level, files, taken, front}) {
     } else {
         group.append(element("circle", {class: "node__disc", r: NODE_RADIUS}));
     }
-    group.append(glyph(entity, front));
+    group.append(glyph(entity, front, gate));
     nameNode(group, entity, files, front);
     roleLabels(group, front);
     if (level) {
@@ -1445,6 +1465,7 @@ export function draw(layers, design, {problems, selected, filesOf}) {
     const entities = design.entities || [];
     const byName = new Map(entities.map((entity) => [entity.name, entity]));
     const slots = slotIndex(design);
+    const gates = gatesOf(design);
 
     for (const shape of ZONES) {
         const inside = entities.filter((entity) => shape.of(roleOf(entity)));
@@ -1557,6 +1578,7 @@ export function draw(layers, design, {problems, selected, filesOf}) {
             taken: (design.links || []).filter((link) => link.owner === entity.name)
                 .map((link) => slots.get(link.name)),
             front: fronts.get(entity.name) || null,
+            gate: gates.has(entity.name),
         }));
     }
 }

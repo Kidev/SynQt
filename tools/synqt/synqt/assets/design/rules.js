@@ -30,6 +30,16 @@ export function entityType(entity) {
 // and the order the member gate reads against.
 export const SCOPES = ["anonymous", "user", "moderator", "admin"];
 
+// The scopes one design names, which is the four above for a project that never said
+// otherwise and the project's own where it did. A project may name its own (the arena
+// tutorial gates its whole connect point on `player`), and a picker offering four words
+// none of which the project uses is a picker that can only make the file wrong.
+export function scopesOf(design) {
+    const declared = design && design.scopes;
+    const named = Array.isArray(declared) ? declared.map(String).filter(Boolean) : [];
+    return named.length ? named : SCOPES;
+}
+
 // Which entity serves each scope on a point that is a front, `{}` when it is not one. The
 // same reading appmodel.behind does, kept here so the canvas, the panel and the checker
 // all decide what a front is the same way.
@@ -60,6 +70,34 @@ export function frontsOf(design) {
         // than a state to hide.
         if (isFront(link)) {
             found.set(String(link.owner || ""), {link, tiers: behindOf(link)});
+        }
+    }
+    return found;
+}
+
+// Every client an edge hands to a session that has signed in as nobody, keyed by the client
+// and naming the edge that serves it. That client is the gate. It is what every visitor
+// downloads before they are anybody, and the bundle behind it is a file their session cannot
+// fetch at all. The drawing says so with a shape of its own, because a gate drawn as one more
+// client disc is the one thing on the canvas whose whole job is invisible.
+//
+// Read from the edge's `bundles:`, which is where the fact is written, so an entity cannot be
+// a gate by being named one.
+export function gatesOf(design) {
+    const found = new Map();
+    for (const entity of entitiesOf(design)) {
+        if (!isWebEdge(entity)) {
+            continue;
+        }
+        const bundles = entity.bundles;
+        if (!bundles || typeof bundles !== "object" || Array.isArray(bundles)) {
+            continue;
+        }
+        const served = String(bundles.anonymous || "");
+        // One bundle for everybody is the ordinary case and no gate at all. A gate is a
+        // bundle that exists *because* a signed-in session gets a different one.
+        if (served && Object.keys(bundles).length > 1) {
+            found.set(served, nameOf(entity));
         }
     }
     return found;
