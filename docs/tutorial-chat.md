@@ -213,7 +213,6 @@ Open `client/app/Main.qml`:
 
 ```qml
 import SynQt
-import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 
@@ -270,7 +269,6 @@ Give them a different application instead. Create `client/gate/Main.qml`:
 
 ```qml
 import SynQt
-import QtQuick
 import QtQuick.Controls
 
 ApplicationWindow {

@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import SynQt
-import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 

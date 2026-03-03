@@ -279,7 +279,6 @@ connect_points:
 
 ```qml
 import SynQt
-import QtQuick
 import QtQuick.Controls
 
 ApplicationWindow {
@@ -319,7 +318,6 @@ ApplicationWindow {
 
 ```qml
 import SynQt
-import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 
