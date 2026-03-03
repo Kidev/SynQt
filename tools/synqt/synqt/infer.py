@@ -1,19 +1,15 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-"""What a folder of QML says about the contract crossing between two entities.
+"""Read the contract between two entities back out of their QML.
 
-A contract is written once and read from both ends, so a project that already works
-carries its own answer. The owner's Source assigns the properties, answers the calls and
-pushes the models, and every consumer names the members it reads. This module reads that
-evidence back out, so a `.syn` file can be offered rather than typed, and so `synqt check`
-can say when the file and the code have drifted apart.
+The owner Source assigns properties, answers calls and pushes models; each consumer names
+the members it reads. This module reads that back, so `synqt infer` can offer an `export:`
+block and `synqt check` can report drift.
 
-It is evidence, not proof. QML is a dynamic language and the scan is a shape match over
-`qmlscan`'s token stream, never a compile, so every member carries the file and line it
-came from and a `certain` flag that is false the moment something was guessed. A guess is
-a starting point for a person to correct, and the flag is what stops it from being quietly
-presented as fact.
+The scan is a shape match over the `qmlscan` token stream, not a compile. Every member
+carries the file and line it came from and a `certain` flag that is false when a type was
+guessed.
 """
 
 from __future__ import annotations
@@ -26,11 +22,8 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 from . import appmodel, contractgen, designdoc, qmlscan, typebackend, yamledit
 
-#: How an owner file is told from every other QML file in an entity, without reading the
-#: configuration. Its root type is the type its own name declares.
-#: `web/edge/Edge.qml` opens `Edge { ... }`, the contract it implements. Nothing else in a
-#: project does that. An entity that exports nothing opens `QtObject`, a view opens an
-#: `Item`, a component opens whatever it draws with.
+#: An owner file opens with the type its own name declares (`web/edge/Edge.qml` opens `Edge
+#: { ... }`). No other QML file does.
 
 #: `Caller.emitBidRejected(...)` raises the `bidRejected` signal at one caller.
 _EMIT_PREFIX = "emit"
@@ -38,13 +31,12 @@ _EMIT_PREFIX = "emit"
 #: `auction.setWinners(rows)` replaces the `winners` model, the owner side model API.
 _SET_PREFIX = "set"
 
-#: `winnersRows: Edge.winners` publishes the `winners` model, and is the form the docs and
-#: every example use. The generated Source carries `<model>Rows` for declared models and
-#: nothing else, so a binding to one is a model being published rather than a property.
+#: `winnersRows: Edge.winners` publishes the `winners` model. The generated Source has
+#: `<model>Rows` for declared models only.
 _ROWS_SUFFIX = "Rows"
 
-#: `function onEaten(...)` handles the `eaten` signal, and `onClicked:` handles nothing
-#: that belongs to a contract. The same prefix answers both questions.
+#: `function onEaten(...)` handles the `eaten` signal; `onClicked:` is not a contract
+#: member.
 _HANDLER_PREFIX = "on"
 
 _LITERAL_KINDS = ("string", "int", "real", "bool")
@@ -52,11 +44,8 @@ _LITERAL_KINDS = ("string", "int", "real", "bool")
 #: What a view offers every delegate whatever its model holds, so never a contract role.
 _VIEW_ROLES = ("index", "model", "modelData")
 
-#: What the framework itself puts on every consumer facade, so never a contract member.
-#: `ready` is ConsumerBase's own (true once the replica has finished its handshake, false
-#: again on a disconnect), and it is the documented way to wait for a point to come live.
-#: Read as a use, it reported every project written that way as reaching for a member its
-#: contract does not declare, and `synqt check` refused it.
+#: Names the framework puts on every consumer facade, never contract members. `ready` is
+#: ConsumerBase's (true once the replica has finished its handshake).
 _FACADE_MEMBERS = ("ready",)
 
 
@@ -66,11 +55,7 @@ class InferError(Exception):
 
 @dataclasses.dataclass(frozen=True)
 class Param:
-    """A type and a name, the pair a `.syn` file is written in.
-
-    A model role is the same pair as a slot parameter, so both are this, and neither end
-    of the scan has to remember which one it is looking at.
-    """
+    """A type and a name. Used for both slot parameters and model roles."""
 
     type: str
     name: str
@@ -80,10 +65,8 @@ class Param:
 class Member:
     """One line of a contract, and where the scan found it.
 
-    `kind` is "prop", "model", "signal" or "slot", the four a `.syn` contract holds.
-    `evidence` entries read "web/edge/Edge.qml:43", so anything the scan reports can be
-    opened at the line that produced it, and `certain` is false when a type was inferred
-    from a shape rather than read from a declaration.
+    `kind` is "prop", "model", "signal" or "slot". `evidence` entries read
+    "web/edge/Edge.qml:43". `certain` is false when a type was inferred from a shape.
     """
 
     kind: str
@@ -98,26 +81,19 @@ class Member:
 #: The column the prose in a report and in a rendered header wraps at.
 _WIDTH = 76
 
-#: What a model gets when nothing showed its roles. A contract needs one to be a contract,
-#: and this one is spelled so that nobody mistakes it for a role somebody meant.
+#: The placeholder role of a model whose roles nothing showed.
 _UNKNOWN_ROLE = Param("var", "role")
 
 
 @dataclasses.dataclass(frozen=True)
 class _Reading:
-    """One file being read, and where to ask what an expression inside it is.
-
-    The scan matches shapes in a token stream, so a value built anywhere but at the call
-    is beyond it. This carries the source the tokens came from and whoever is answering
-    that question, and every reader takes it in place of a bare path.
-    """
+    """One file being read, with its source and the backend that answers expression types."""
 
     path: str
     source: str
     types: Optional["_Types"] = None
-    #: What each QML type in this entity declares: `{"Edge": {"itemName": "string"}}`.
-    #: A Source binds most of its properties to the entity's own singleton, so the type
-    #: it means is written down one file away, and reading it there beats guessing.
+    #: What each QML type in this entity declares: `{"Edge": {"itemName": "string"}}`. A
+    #: Source usually binds to the entity singleton, so its declarations give the type.
     declared: Mapping[str, Mapping[str, str]] = dataclasses.field(default_factory=dict)
 
     def type_of(self, span: Sequence[qmlscan.Token]) -> str:
@@ -127,11 +103,8 @@ class _Reading:
         return self.types.of(self.path, _expression(self.source, span), span[0].line)
 
     def declared_type(self, tokens: Sequence[qmlscan.Token], index: int) -> str:
-        """`Edge.itemName` read as the type `Edge.qml` declares for it, or "".
-
-        One hop and no further. `Edge.itemName` is the shape nearly every Source uses to
-        publish entity state, and the answer is a declaration rather than a guess, so it
-        is worth reading. Anything longer is an expression and belongs to the backend.
+        """`Edge.itemName` read as the type `Edge.qml` declares for it, or "". One hop only;
+        anything longer is an expression for the backend.
         """
         holder = _at(tokens, index)
         name = _at(tokens, index + 2)
@@ -144,12 +117,8 @@ class _Reading:
 
 
 class _Types:
-    """The types a backend answered for the expressions the scan could not read.
-
-    The scan is run twice. Once to find out which expressions it cannot type, and once
-    with the answers to those in hand. It is a token match over a few files, so running it
-    again costs nothing next to starting a type checker, and it keeps every call site
-    asking one question rather than carrying a second, half-typed result around.
+    """The types a backend answered for the expressions the scan could not read. The scan runs
+    twice: once to collect those expressions, once with the answers.
     """
 
     def __init__(self, backend: Any) -> None:
@@ -190,12 +159,8 @@ def _expression(source: str, span: Sequence[qmlscan.Token]) -> str:
 
 @dataclasses.dataclass(frozen=True)
 class Use:
-    """One member of one connect point, as a consumer names it.
-
-    `dynamic` is set when the accessor was reached by a name computed at run time
-    (`Server[whichever]`), which is legal QML the scan cannot follow. The point is then
-    unknown rather than absent, and saying so is the difference between a list that is
-    short and a list that is wrong.
+    """One member of one connect point, as a consumer names it. `dynamic` is set when the
+    accessor name is computed at run time (`Server[whichever]`), so the point is unknown.
     """
 
     owner: str
@@ -218,14 +183,10 @@ class Edge:
 
 @dataclasses.dataclass(frozen=True)
 class Survey:
-    """One reading of a project's QML: the links, and every reach across one.
+    """One reading of a project QML: the links, and every use across one.
 
-    `edges` is what a contract would be written from, both ends of a link folded into the
-    one line per member a `.syn` file holds. `uses` is the consumer end left unfolded, one
-    entry per place the QML reached across a link, which is what a question about a single
-    call site needs. Once folded, an argument the owner also declares no longer says which
-    end typed it, and "the contract says int" and "this call hands it a string" are the
-    two halves of the only question worth asking about a call.
+    `edges` folds both ends into one line per member, as in a contract. `uses` keeps each
+    consumer use apart, which a question about one call site needs.
     """
 
     edges: Tuple[Edge, ...] = ()
@@ -234,33 +195,23 @@ class Survey:
 
 def survey(project_dir: os.PathLike[str] | str, config: Dict[str, Any], *,
            backend: Any = None) -> Survey:
-    """Everything one read of the project's QML found, links and call sites both.
-
-    :func:`collect` is this with the call sites dropped, and is what writing a contract
-    wants. Comparing a contract against the QML wants both.
-    """
+    """Everything one read of the project QML found. :func:`collect` drops the call sites."""
     types = _Types(backend) if backend is not None else None
     found = _scan(project_dir, config, types)
     if types is not None and types.settle(project_dir):
-        # The first pass was what found the expressions worth asking about. Now that they
-        # are answered, the same pass over the same files produces the typed contract.
+        # Second pass, with the backend answers.
         found = _scan(project_dir, config, types)
     return found
 
 
 def collect(project_dir: os.PathLike[str] | str, config: Dict[str, Any], *,
             backend: Any = None) -> List[Edge]:
-    """Every connect point the project's QML shows, as both of its ends describe it.
+    """Every connect point the project QML shows, as both of its ends describe it.
 
-    The owner files are read first and the consumers after, so a declaration is always the
-    first thing recorded about a member and a guess can only fill in what it left open.
-    A file is read as both when it is both, which is the ordinary shape of a web edge: it
-    owns what the browser sees and consumes what the database holds.
-
-    `backend` answers what type an expression has where the scan can only read a literal
-    (`typebackend`). Passing none and passing a `HeuristicBackend` come to the same
-    contract, because a lone literal is exactly what that one reads too. Passing the
-    TypeScript one is what follows a value back to where it was built.
+    Owner files are read first, so a declaration is recorded before any guess. A file that
+    is both (a web edge) is read as both. `backend` answers expression types
+    (`typebackend`); none and `HeuristicBackend` give the same result, TypeScript follows
+    values back to where they were built.
     """
     return list(survey(project_dir, config, backend=backend).edges)
 
@@ -276,8 +227,7 @@ def _scan(project_dir: os.PathLike[str] | str, config: Dict[str, Any],
 
     for entity in entities:
         name = str(entity.get("name") or "")
-        # What this entity's own files declare, read once. A Source publishes the
-        # singleton's state, so the type it means is written down beside it.
+        # What this entity own files declare, read once.
         declared = declared_properties(root, entity)
         for path in _entity_files(root, entity):
             relative = path.relative_to(root).as_posix()
@@ -321,11 +271,9 @@ def _scan(project_dir: os.PathLike[str] | str, config: Dict[str, Any],
 
 
 def accessors_for(config: Dict[str, Any], entity_name: str) -> Dict[str, str]:
-    """The names this entity's QML reaches other entities by, and who each one is.
-
-    A service names the owner it consumes from, capitalized (`database` is `Database`),
-    which is what `EntityRuntime::accessorName` installs. A client names its edge `Server`
-    whatever the edge is called, because the browser can reach nothing else.
+    """The names this entity QML reaches other entities by, and who each one is. A service uses
+    the capitalized owner (`Database`, as `EntityRuntime::accessorName` installs). A client
+    uses `Server` for its edge.
     """
     entities = list(config.get("entities") or [])
     points = list(config.get("connect_points") or [])
@@ -352,11 +300,8 @@ def contract_name(edge: Edge) -> str:
 
 
 def render_export(edge: Edge) -> str:
-    """The `export:` block this link's evidence adds up to.
-
-    Every member carries the lines it was found on, so the first thing a reader can do
-    with a guess is go and look at what produced it, and a member the scan had to guess at
-    says so on its own line rather than in a note at the top nobody reads twice.
+    """The `export:` block this link's evidence adds up to. Each member carries the lines it
+    was found on, and a guessed member says so on its own line.
     """
     lines = list(_preamble(edge))
     for member in edge.members:
@@ -368,9 +313,7 @@ def render_export(edge: Edge) -> str:
 
 def report(edges: Sequence[Edge], *, typed_by: str = "") -> str:
     """What `synqt infer` prints: every link, every member, and what is still a guess.
-
-    `typed_by` names the backend that answered what a literal could not, so a report full
-    of `var` says whether TypeScript looked and found nothing or was never asked.
+    `typed_by` names the backend that answered.
     """
     if not edges:
         return ("No connect point was found in this project's QML.\n"
@@ -398,11 +341,11 @@ def report(edges: Sequence[Edge], *, typed_by: str = "") -> str:
 
 
 def to_document(edges: Sequence[Edge], config: Dict[str, Any]) -> Dict[str, Any]:
-    """The same links as a design document, the shape the editor draws and the planner
-    takes, so what the scan found can be looked at rather than only read."""
+    """The same links as a design document, for the editor and the planner."""
     return {
         "version": designdoc.VERSION,
         "project": designdoc.project_name(config, ""),
+        "scopes": designdoc.scopes_of(config),
         "entities": designdoc.entities_of(config),
         "links": [_link_of(edge, config) for edge in edges],
     }
@@ -412,9 +355,7 @@ def write(project_dir: os.PathLike[str] | str, edges: Sequence[Edge],
           config: Dict[str, Any], *, force: bool = False) -> List[str]:
     """Write each link's `export:` onto its connect point, and return which points got one.
 
-    A point that already says what crosses it is somebody's own writing, and this is a
-    guess, so the whole command stops rather than overwriting any of them. Nothing is
-    written when one would be refused. A half-applied scaffold is worse to unpick than none.
+    A point that already has an `export:` stops the whole command; nothing is written.
     """
     root = Path(project_dir)
     points = {appmodel.point_name(point): point
@@ -486,11 +427,8 @@ def _rendered_member(member: Member) -> List[str]:
 
 
 def _record_of(member: Member) -> Dict[str, Any]:
-    """A member as the flat record `designdoc` renders and the editor draws.
-
-    A model must declare a role to be a contract at all, so one whose roles nothing showed
-    gets a placeholder rather than being dropped. A contract short a model is wrong in a
-    way a contract with a name to fill in is not.
+    """A member as the flat record `designdoc` renders. A model with no known roles gets the
+    placeholder role.
     """
     roles = member.roles or ((_UNKNOWN_ROLE,) if member.kind == "model" else ())
     return {
@@ -565,14 +503,9 @@ def owner_members(project_dir: os.PathLike[str] | str, config: Dict[str, Any],
                   point: Dict[str, Any]) -> Dict[str, Member]:
     """What the owner of this connect point implements, by member name.
 
-    The one reading behind both halves of "say it once": `synqt check` holds a point's
-    `export:` to it, and a line that is nothing but a name is written out from it. It is
-    the same shape match the rest of this module does, so the same caveat applies, and it
-    is why a member's `certain` flag decides whether a type it produced may be written
-    into a contract rather than only reported.
-
-    Empty for a point whose Source is missing or is not rooted at its own type;
-    `check.lint_connect_point_sources` reports both in their own words.
+    `synqt check` holds `export:` to it, and a bare-name line is expanded from it. A type is
+    written into a contract only when `certain`. Empty when the Source is missing or not
+    rooted at its own type (`check.lint_connect_point_sources` reports both).
     """
     root = Path(project_dir)
     relative = server_path(config, point)
@@ -589,12 +522,8 @@ def owner_members(project_dir: os.PathLike[str] | str, config: Dict[str, Any],
 
 
 def declared_properties(root: Path, entity: Dict[str, Any]) -> Dict[str, Dict[str, str]]:
-    """What each of an entity's QML types declares: `{"Edge": {"itemName": "string"}}`.
-
-    A file is a QML type named after itself, so the map is keyed by file stem, which is
-    exactly the name a Source in the same entity writes to reach it. Only `property <type>
-    <name>` counts. A declaration is a fact, and the point of reading this is to answer
-    with one where the alternative was a guess.
+    """What each entity QML type declares: `{"Edge": {"itemName": "string"}}`, keyed by file
+    stem. Only `property <type> <name>` counts.
     """
     found: Dict[str, Dict[str, str]] = {}
     for path in _entity_files(root, entity):
@@ -619,10 +548,7 @@ def _entity_files(root: Path, entity: Dict[str, Any]) -> List[Path]:
     directory = root / appmodel.entity_dir(entity)
     if not directory.is_dir():
         return []
-    # Relative to the entity, because what is skipped is a directory *inside* the project.
-    # Asked of the absolute path, a project that happens to live under one called `build`
-    # had every one of its own files skipped, and the scan then answered `var` to
-    # everything rather than saying it had read nothing.
+    # Relative to the entity, so only a `build` directory inside the project is skipped.
     return [path for path in sorted(directory.rglob("*.qml"))
             if not ({"build", "node_modules"}
                     & set(path.relative_to(directory).parts))]
@@ -649,10 +575,8 @@ def scan_owner(relative_path: str, source: str,
                types: Optional["_Types"] = None,
                declared: Optional[Mapping[str, Mapping[str, str]]] = None,
                ) -> Tuple[str, List[Member]]:
-    """The contract an owner file implements, and the members it shows.
-
-    The root type names the contract, so a file whose root does not name the file is not an
-    owner and comes back empty rather than half read.
+    """The contract an owner file implements, and the members it shows. A file whose root does
+    not name the file is not an owner and comes back empty.
     """
     root = qmlscan.root_type(source) or ""
     if not root or root != PurePosixPath(relative_path).stem:
@@ -673,9 +597,8 @@ def scan_owner(relative_path: str, source: str,
             continue
         consumed = 0
         if depth >= 1:
-            # A signal is raised, a model pushed and a property written from inside a
-            # function body, so these are looked for at any depth under the root object
-            # rather than only beside it.
+            # Signals, model pushes and property writes happen inside functions, so look at
+            # any depth.
             consumed = (_read_emitted_signal(reading, tokens, index, members)
                         or _read_pushed_model(reading, tokens, index, members)
                         or _read_raised_signal(reading, tokens, index, identifier, raised)
@@ -688,9 +611,8 @@ def scan_owner(relative_path: str, source: str,
                         or _read_assignment(reading, tokens, index, members))
         index += consumed or 1
 
-    # `ledger.winnerRecorded(...)` raises a signal, and `ledger.recordWinner(...)` calls
-    # the file's own slot. They are the same shape, so the ones that turned out to be
-    # functions declared here are dropped and the rest are signals.
+    # `ledger.winnerRecorded(...)` and `ledger.recordWinner(...)` look alike. Names declared
+    # as functions here are dropped; the rest are signals.
     slots = {member.name for member in members if member.kind == "slot"}
     for member in raised:
         if member.name not in slots:
@@ -712,15 +634,10 @@ def scan_consumer(relative_path: str, source: str, accessors: Dict[str, str],
                   attached: Optional[Dict[str, Tuple[str, str]]] = None) -> List[Use]:
     """Every connect point member a consumer file names, and how it named it.
 
-    `accessors` maps the name a file writes to the entity behind it: `Server` is the
-    client's edge, and a service reaches `database` as `Database`. Nothing outside that
-    map is a connect point, so an entity's own ids and Qt's own types are passed over
-    without having to be listed.
-
-    `attached` maps a contract name to the link it carries, for the attached handler form
-    (`Ledger.onWinnerRecorded: ...`). That form names the contract rather than the
-    accessor, so it cannot be read through `accessors` at all, and it is the form every
-    consumer is written in now.
+    `accessors` maps a written name to the entity behind it (`Server` is the client edge,
+    `Database` a consumed database). Anything else is not a connect point. `attached` maps a
+    contract name to its link, for the attached handler form (`Ledger.onWinnerRecorded:
+    ...`).
     """
     reading = _Reading(relative_path, source, types)
     tokens = qmlscan.tokenize(source)
@@ -736,12 +653,8 @@ def scan_consumer(relative_path: str, source: str, accessors: Dict[str, str],
 
 def _read_attached_handlers(reading: "_Reading", tokens: Sequence[qmlscan.Token],
                             attached: Dict[str, Tuple[str, str]], uses: List[Use]) -> None:
-    """`Ledger.onWinnerRecorded: (item, winner) => ...`: a signal, received.
-
-    The contract's own name is the attached type, so a file handles a signal without ever
-    naming the accessor it arrives through. Parameters are read from the arrow function
-    when the handler is written as one, and left unknown otherwise. A handler that ignores
-    its arguments says nothing about them.
+    """`Ledger.onWinnerRecorded: (item, winner) => ...`: a received signal. Parameters are read
+    from an arrow function, and unknown otherwise.
     """
     for index, token in enumerate(tokens):
         if not _is_ident(token) or token.text not in attached:
@@ -770,17 +683,11 @@ def _read_attached_handlers(reading: "_Reading", tokens: Sequence[qmlscan.Token]
 def _read_reference(reading: "_Reading", tokens: Sequence[qmlscan.Token], index: int,
                     accessors: Dict[str, str], uses: List[Use],
                     attached: Optional[Dict[str, Tuple[str, str]]] = None) -> int:
-    """`Server.steer(1.5, 2.5)`: the owner reached, and the member being used.
+    """`Server.steer(1.5, 2.5)`: the owner reached, and the member used.
 
-    An entity has one connect point, so the accessor is the whole address and what
-    follows it is a member. `Server[whichever]` names one the scan cannot resolve, and that
-    is recorded as a link it did not see the whole of rather than as a member called
-    nothing.
-
-    An entity is one name, so the accessor and the attached type are the same word, and
-    `Records.onStandingsChanged:` is both shapes at once. It is the handler,
-    :func:`_read_attached_handlers` has already read it, and reading it again here would
-    report a member called `onStandingsChanged` that no contract declares.
+    `Server[whichever]` records a link seen only in part. `Records.onStandingsChanged:` is
+    an attached handler, already read by :func:`_read_attached_handlers`, and is skipped
+    here.
     """
     token = _at(tokens, index)
     if not _is_ident(token) or token.text not in accessors:
@@ -814,11 +721,8 @@ def _read_reference(reading: "_Reading", tokens: Sequence[qmlscan.Token], index:
 
 def _read_used_member(reading: "_Reading", tokens: Sequence[qmlscan.Token], position: int,
                       member_token: qmlscan.Token, start: int) -> Tuple[int, Member]:
-    """What the member is, read from what the file does with it.
-
-    A call is a slot and a `model:` binding is a model. Everything else a consumer can do
-    with a member is read it, which is a property. Nothing here proves a type, so what a
-    consumer contributes is names and shapes, and the owner end supplies the rest.
+    """What the member is, from how the file uses it: a call is a slot, a `model:` binding is a
+    model, anything else is a property. A consumer gives names and shapes, never types.
     """
     where = (_where(reading, member_token),)
     if _is_punct(_at(tokens, position), "("):
@@ -826,8 +730,7 @@ def _read_used_member(reading: "_Reading", tokens: Sequence[qmlscan.Token], posi
         if close < 0:
             return position, Member("slot", member_token.text, evidence=where)
         params = _argument_types(reading, tokens, position + 1, close)
-        # `.then(...)` is how the consumer facade hands back a return value, so a call
-        # written that way is a slot that returns something rather than a void one.
+        # `.then(...)` means the slot returns a value.
         returns = "var" if (_is_punct(_at(tokens, close + 1), ".")
                             and _is_keyword(_at(tokens, close + 2), "then")) else ""
         return close + 1, Member("slot", member_token.text, returns, params=params,
@@ -839,13 +742,8 @@ def _read_used_member(reading: "_Reading", tokens: Sequence[qmlscan.Token], posi
 
 
 def _delegate_roles(tokens: Sequence[qmlscan.Token], index: int) -> Tuple[Param, ...]:
-    """The roles a delegate names, from the two ways QML lets it name them.
-
-    `required property string winner` is a declaration and carries its type, so a role read
-    that way is as good as the owner's own. `model.winner` says only that the role exists.
-    The declared ones come first and the read ones fill in what they left out, so a delegate
-    written the way the documentation recommends produces a typed model rather than a list
-    of names somebody still has to type over.
+    """The roles a delegate names. `required property string winner` carries a type;
+    `model.winner` only a name. Declared roles come first.
     """
     opening, closing = _enclosing_block(tokens, index)
     if opening < 0:
@@ -868,8 +766,7 @@ def _required_role(tokens: Sequence[qmlscan.Token], index: int) -> Optional[Para
     if not (_is_ident(type_token) and _is_ident(name_token)):
         return None
     if name_token.text in _VIEW_ROLES:
-        # `index`, `model` and `modelData` are the view's own, offered to every delegate
-        # whatever the model holds. They belong to no contract.
+        # `index`, `model` and `modelData` belong to the view, not the contract.
         return None
     return Param(type_token.text, name_token.text)
 
@@ -931,11 +828,7 @@ def _read_connections(reading: "_Reading", tokens: Sequence[qmlscan.Token],
 
 def _connections_target(tokens: Sequence[qmlscan.Token], start: int, end: int,
                         accessors: Dict[str, str]) -> Tuple[str, str]:
-    """The owner a `Connections` block is bound to, twice, or two empty strings.
-
-    The accessor is the whole target, because an entity has one connect point, so the owner
-    is both who is reached and what the point is called.
-    """
+    """The owner a `Connections` block targets, twice, or two empty strings."""
     for position in range(start, end):
         if not (_is_keyword(tokens[position], "target")
                 and _is_punct(_at(tokens, position + 1), ":")):
@@ -957,8 +850,7 @@ def _read_declared_property(reading: "_Reading", tokens: Sequence[qmlscan.Token]
     name_token = _at(tokens, index + 2)
     if not (_is_ident(type_token) and _is_ident(name_token)):
         return 0
-    # `property var` is a declaration that declares nothing about what would cross the
-    # wire, so it leaves the type an open question and `_record` says so.
+    # `property var` leaves the type open.
     _record(members, Member("prop", name_token.text, type_token.text,
                             evidence=(_where(reading, tokens[index]),)))
     return 3
@@ -994,9 +886,8 @@ def _read_function(reading: "_Reading", tokens: Sequence[qmlscan.Token], index: 
     if not (_is_ident(name_token) and _is_punct(_at(tokens, index + 2), "(")):
         return 0
     if _is_handler_name(name_token.text):
-        # `function onWinnerRecorded(...)` is how QML spells a handler for a signal this
-        # entity consumes. It answers somebody else's contract, so it is not a slot on
-        # this one, and reading it as one would publish an entity's private wiring.
+        # `function onWinnerRecorded(...)` handles a consumed signal; it is not a slot of
+        # this contract.
         return 0
     close = _matching(tokens, index + 2)
     if close < 0:
@@ -1007,8 +898,7 @@ def _read_function(reading: "_Reading", tokens: Sequence[qmlscan.Token], index: 
         returns = tokens[close + 2].text
         if returns == "void":
             returns = ""
-    # An untyped parameter is the ordinary way to write QML and says nothing about what
-    # crosses the wire, so such a slot is offered as a starting point, not as a fact.
+    # An untyped parameter says nothing about the wire type, so the slot is uncertain.
     _record(members, Member("slot", name_token.text, returns, params=params,
                             evidence=(_where(reading, tokens[index]),)))
     return close + 1 - index
@@ -1026,17 +916,14 @@ def _read_assignment(reading: "_Reading", tokens: Sequence[qmlscan.Token], index
         return 0
     published = _model_published(name_token.text)
     if published:
-        # The roles are in the rows, which are built somewhere else. The model is real and
-        # its shape is an open question, which is what a role-less model records.
+        # Rows built elsewhere: the model exists, its roles are unknown.
         _record(members, Member("model", published,
                                 evidence=(_where(reading, name_token),)))
         return 2
     value = _at(tokens, index + 2)
     type_name = qmlscan.literal_type(value) if value else "var"
     if type_name == "var":
-        # Not a literal, so the type is somewhere else. `Edge.itemName` is one file away
-        # and written down. Anything longer than that is an expression, and the backend is
-        # who answers those.
+        # Not a literal. Try the one-hop declaration, then the backend.
         type_name = (reading.declared_type(tokens, index + 2)
                      or reading.type_of(_binding_span(tokens, index + 2))
                      or "var")
@@ -1067,11 +954,8 @@ def _read_emitted_signal(reading: "_Reading", tokens: Sequence[qmlscan.Token], i
 
 def _read_pushed_model(reading: "_Reading", tokens: Sequence[qmlscan.Token], index: int,
                        members: List[Member]) -> int:
-    """`auction.setWinners([{ ... }])`: the model, and the roles the row literal shows.
-
-    Rows built somewhere else are the common case, and they carry no roles at all. That is
-    a model with an unknown shape rather than a model with none, so it is recorded
-    uncertain and the roles are left for the other end of the scan, or for a person.
+    """`auction.setWinners([{ ... }])`: the model, and the roles the row literal shows. Rows
+    built elsewhere leave the model uncertain.
     """
     if not (_is_ident(_at(tokens, index)) and _is_punct(_at(tokens, index + 1), ".")):
         return 0
@@ -1092,10 +976,8 @@ def _read_pushed_model(reading: "_Reading", tokens: Sequence[qmlscan.Token], ind
 
 def _read_raised_signal(reading: "_Reading", tokens: Sequence[qmlscan.Token], index: int,
                         identifier: str, raised: List[Member]) -> int:
-    """`ledger.winnerRecorded(item, winner, amount)`: the owner announcing to consumers.
-
-    Calling one of its own functions looks exactly like this, so the caller sorts the two
-    out once the file has been read and it knows which names are functions.
+    """`ledger.winnerRecorded(item, winner, amount)`: a raised signal. A call to the file's own
+    function looks the same; the caller sorts them out.
     """
     if not identifier or not _is_keyword(_at(tokens, index), identifier):
         return 0
@@ -1107,9 +989,8 @@ def _read_raised_signal(reading: "_Reading", tokens: Sequence[qmlscan.Token], in
     close = _matching(tokens, index + 3)
     if close < 0:
         return 0
-    # `scouting.emitFound(...)` and `scouting.found(...)` raise the same signal. The first
-    # is the generated helper's method and the documented way to write it. Read as spelled
-    # it would report a contract member called `emitFound` that no `.syn` will ever declare.
+    # `scouting.emitFound(...)` (the generated helper) and `scouting.found(...)` raise the
+    # same signal.
     name = _suffix_after(call.text, _EMIT_PREFIX) or call.text
     raised.append(Member("signal", name,
                          params=_argument_types(reading, tokens, index + 4, close),
@@ -1119,10 +1000,8 @@ def _read_raised_signal(reading: "_Reading", tokens: Sequence[qmlscan.Token], in
 
 def _read_written_property(reading: "_Reading", tokens: Sequence[qmlscan.Token], index: int,
                            identifier: str, members: List[Member]) -> int:
-    """`ledger.count = ledger.store.length`: a property of the contract, written to.
-
-    QML refuses an assignment to a property that does not exist, so the name is real even
-    when the value on the right says nothing about the type.
+    """`ledger.count = ledger.store.length`: a contract property, written. QML refuses an
+    assignment to a missing property, so the name is real.
     """
     if not identifier or not _is_keyword(_at(tokens, index), identifier):
         return 0
@@ -1148,10 +1027,8 @@ def _read_written_property(reading: "_Reading", tokens: Sequence[qmlscan.Token],
 
 def _declared_parameters(tokens: Sequence[qmlscan.Token], start: int,
                          end: int) -> Tuple[Param, ...]:
-    """The parameters between two parentheses, in either QML spelling.
-
-    `(amount)` and `(amount: real)` are both ordinary. The first says nothing about the
-    type, so it comes back `var` and the caller decides what that means.
+    """The parameters between two parentheses: `(amount)` or `(amount: real)`. Untyped comes
+    back `var`.
     """
     params: List[Param] = []
     for span in _split_on_commas(tokens, start, end):
@@ -1176,12 +1053,8 @@ def _model_published(name: str) -> str:
 
 def _binding_span(tokens: Sequence[qmlscan.Token],
                   start: int) -> Sequence[qmlscan.Token]:
-    """The tokens of a binding's value. What is on its line, brackets kept whole.
-
-    QML ends a binding at the end of the line unless the line cannot have ended, and this
-    reads the ordinary case rather than that whole rule. A value spread over several lines
-    is an expression the backend has to be asked about anyway, and the one line is enough
-    to ask it with.
+    """The tokens of a binding value: its line, brackets kept whole. A multi-line value goes to
+    the backend anyway.
     """
     if start >= len(tokens):
         return ()
@@ -1208,11 +1081,8 @@ def _argument_types(reading: "_Reading", tokens: Sequence[qmlscan.Token], start:
                     end: int) -> Tuple[Param, ...]:
     """What a call's arguments say about the parameters they are passed to.
 
-    A literal proves its own type. Anything else is a value built somewhere else, and what
-    the scan can say about it is nothing, so the backend is asked. With none, that stays
-    `var`, and with TypeScript behind it the value is followed back to where it was built.
-    An argument passed as a plain variable lends its name, which is the one the person who
-    wrote the call chose for that value and reads better than a position.
+    A literal proves its type; anything else goes to the backend, and stays `var` without
+    one. A plain variable argument lends its name to the parameter.
     """
     params: List[Param] = []
     for position, span in enumerate(_split_on_commas(tokens, start, end), start=1):
@@ -1288,12 +1158,7 @@ def _matching(tokens: Sequence[qmlscan.Token], index: int) -> int:
 
 
 def _record(members: List[Member], member: Member) -> None:
-    """Add a member, or fold it into the one already found under the same name.
-
-    A contract has one member per name, so two sightings of a name are two views of one
-    thing however differently they looked, and folding them is what turns both ends of a
-    link into the single line a `.syn` file would hold.
-    """
+    """Add a member, or fold it into the one already found under the same name."""
     for position, existing in enumerate(members):
         if existing.name == member.name:
             members[position] = _settled(_merged(existing, member))
@@ -1302,11 +1167,8 @@ def _record(members: List[Member], member: Member) -> None:
 
 
 def _merged(first: Member, second: Member) -> Member:
-    """One member from two sightings of it, keeping whichever end knew more.
-
-    Neither sighting is authoritative and neither is discarded. A file that assigns a
-    property proves its type, and a later line that writes an expression into the same
-    property proves nothing, so silence never overrules evidence.
+    """One member from two sightings, keeping whichever end knew more. Silence never overrules
+    evidence.
     """
     return dataclasses.replace(
         first,
@@ -1319,30 +1181,21 @@ def _merged(first: Member, second: Member) -> Member:
 
 
 def _settled(member: Member) -> Member:
-    """The member with `certain` answered. Is anything about it still an open question?
-
-    One rule, asked of the result rather than of each sighting, so a member is certain
-    exactly when a person reading the contract it produces would have nothing left to
-    fill in.
-    """
+    """The member with `certain` set: true when nothing about it is left to fill in."""
     if member.kind == "prop":
         certain = member.type not in ("", "var")
     elif member.kind == "model":
         certain = bool(member.roles) and all(role.type != "var" for role in member.roles)
     else:
-        # A slot with no return type is complete. One whose return type is still a guess
-        # is not, and the two are spelled differently.
+        # A slot without a return type is complete; one with a guessed return type is not.
         certain = (member.type != "var"
                    and all(param.type != "var" for param in member.params))
     return dataclasses.replace(member, certain=certain)
 
 
 def _better_kind(first: str, second: str) -> str:
-    """The more specific of two readings of a member.
-
-    A consumer reading a member in a binding cannot tell a property from a model, so
-    "prop" is the reading anything else replaces. Every other pair is two sightings that
-    agree, and the first one is kept.
+    """The more specific of two readings. "prop" yields to any other kind; otherwise the first
+    is kept.
     """
     return second if first == "prop" else first
 
@@ -1358,9 +1211,7 @@ def _better_params(first: Tuple[Param, ...],
                    second: Tuple[Param, ...]) -> Tuple[Param, ...]:
     """Two parameter lists as one, by position, because that is what a call fixes."""
     if len(first) != len(second):
-        # One end saw a call with defaults left out, or a shape this scan misread. The
-        # longer list is the one with more in it, and mixing the two by position would
-        # pair arguments that were never each other's.
+        # Take the longer argument list rather than mixing the two by position.
         return first if len(first) > len(second) else second
     return tuple(_better_param(one, other) for one, other in zip(first, second))
 
@@ -1392,7 +1243,7 @@ def _better_name(first: str, second: str) -> str:
 
 
 def _is_positional(name: str) -> bool:
-    """`arg2` is what an unnamed argument was called here, not what it is called."""
+    """Whether `name` is a placeholder like `arg2`, given to an unnamed argument."""
     return name.startswith("arg") and name[3:].isdigit()
 
 

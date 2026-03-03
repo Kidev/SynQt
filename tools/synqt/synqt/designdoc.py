@@ -175,6 +175,20 @@ def _entity(entity: Dict[str, Any]) -> Dict[str, Any]:
         "provider": str(provider or ""),
         "targets": [str(target) for target in (entity.get("targets") or [])],
         "identity": bool(entity.get("identity")),
+        # Which bundle this edge serves each scope. Read out, because it is the difference
+        # between a client and a gate, and the drawing says which is which: a client an edge
+        # hands to a session that has signed in as nobody is drawn as a barrier. Left out of
+        # the document, the editor could write this key and never show it, so a project
+        # opened in the editor was drawn as though every visitor got the same bundle.
+        "bundles": {str(scope): str(name)
+                    for scope, name in (entity.get("bundles") or {}).items()
+                    if scope and name},
+        # The two a monitor's console client carries: `console` is what makes the monitor
+        # deliver this client instead of the application's, and `edge` is which monitor
+        # delivers it. Same reason as `bundles` -- the editor writes both, so it has to read
+        # both, or opening a project turns its console back into an ordinary client.
+        "console": bool(entity.get("console")),
+        "edge": str(entity.get("edge") or ""),
         # One of this entity for everybody, or one per caller. Carried as the resolved
         # answer rather than as "what the file happened to write", so the drawing shows
         # what runs.
@@ -323,6 +337,20 @@ def _link(point: Dict[str, Any], root: Path, seats: Dict[str, Dict[str, Any]],
     return record
 
 
+def scopes_of(config: Dict[str, Any]) -> List[str]:
+    """The scope names this project declares, in the order it declares them.
+
+    Carried on the document because a project may name scopes of its own: the arena
+    tutorial gates its whole connect point on `player`, which is not one of the four a
+    scaffolded project starts with. Without this the editor drew that project against a
+    vocabulary it does not use, and a design exported from it wrote a synqt.yaml whose
+    `scopes.order` had no `player` in it -- a project `synqt check` refuses.
+    """
+    declared = config.get("scopes")
+    order = declared.get("order") if isinstance(declared, dict) else None
+    return [str(scope) for scope in order if str(scope)] if isinstance(order, list) else []
+
+
 def entities_of(config: Dict[str, Any], *,
                 places: Optional[Dict[str, Dict[str, Any]]] = None) -> List[Dict[str, Any]]:
     """The entity records a configuration describes, each with a place on the canvas.
@@ -367,6 +395,7 @@ def read(project_dir: os.PathLike[str] | str, *,
     return {
         "version": VERSION,
         "project": name,
+        "scopes": scopes_of(config),
         "sourceHash": source_hash(root),
         "entities": entities,
         "links": [_link(point, root, seats, by_name, config)
@@ -442,6 +471,23 @@ def _entity_config(entity: Dict[str, Any], base: Dict[str, Any]) -> Dict[str, An
         written["shared"] = declared
     else:
         written.pop("shared", None)
+    # The three the document reads out of the file and can change, which bundle each scope
+    # is served, and the pair that makes a client a monitor's console. Written from the
+    # document rather than left to `base`, or taking a bundle mapping off in the panel would
+    # leave the file saying what it said before.
+    if entity.get("bundles"):
+        written["bundles"] = {str(scope): str(name)
+                              for scope, name in entity["bundles"].items() if scope and name}
+    else:
+        written.pop("bundles", None)
+    if entity.get("console"):
+        written["console"] = True
+    else:
+        written.pop("console", None)
+    if entity.get("edge"):
+        written["edge"] = str(entity["edge"])
+    else:
+        written.pop("edge", None)
     return written
 
 

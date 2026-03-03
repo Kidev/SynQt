@@ -484,6 +484,49 @@ def examples():
     return json.loads(_text("examples.json"))["examples"]
 
 
+def test_the_examples_are_the_example_projects_themselves():
+    """examples.json is written from `examples/`, so a link cannot hand somebody a fiction.
+
+    Every example the editor opens is one of the projects under `examples/`, read by the
+    same code `synqt design` reads a project on disk with. A hand-maintained copy would be
+    a second answer to what the auction is, and the two would part company the first time
+    one of them changed -- silently, because nothing else compares them.
+    """
+    import importlib.util
+
+    repo = Path(__file__).resolve().parents[3]
+    writer_path = repo / "tools" / "gen-design-examples.py"
+    spec = importlib.util.spec_from_file_location("gen_design_examples", writer_path)
+    writer = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(writer)
+
+    committed = repo / writer.OUT
+    assert committed.read_text(encoding="utf-8") == writer.rendered(), (
+        f"{writer.OUT} is out of date; run `python tools/gen-design-examples.py`")
+
+
+def test_every_tutorial_project_is_one_of_them():
+    """Every example project has a session in the editor, and every session has a project.
+
+    This is what makes "open this in the designer" a link a tutorial can carry: the page
+    names an example, and the example is the project the page is about.
+    """
+    repo = Path(__file__).resolve().parents[3]
+    on_disk = {path.name for path in (repo / "examples").iterdir()
+               if (path / "synqt.yaml").exists()}
+    published = {document["project"]
+                 for document in json.loads(_text("examples.json"))["examples"].values()}
+    assert published == on_disk, f"published {sorted(published)}, on disk {sorted(on_disk)}"
+
+
+def test_every_example_is_named_where_it_is_offered():
+    """The Examples menu names each one, so a row is a sentence rather than a key."""
+    file = json.loads(_text("examples.json"))
+    for name in file["examples"]:
+        said = file["about"].get(name)
+        assert said and said.get("title") and said.get("note"), name
+
+
 def test_every_example_is_a_project_the_real_check_passes(examples):
     """An example is opened, edited and downloaded exactly like something drawn by hand,
     so one that does not pass `synqt check` is a broken canvas handed to a first-time

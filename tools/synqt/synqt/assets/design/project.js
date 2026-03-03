@@ -29,7 +29,7 @@
 import { withoutCommentary } from "./commentary.js";
 import { declarationsFor, reroot, rootTypeSpan, withShared, withoutShared }
     from "./source.js";
-import { entityType, isFront } from "./rules.js";
+import { entityType, isFront, scopesOf } from "./rules.js";
 import { MONITOR_SCAFFOLD } from "./monitor.js";
 
 // The Qt this project pins, matching synqt/toolchain.py. The suite asserts the two agree,
@@ -242,9 +242,13 @@ export function renderYaml(design) {
         `  qt_version: ${QT_VERSION}`,
         "",
         "scopes:",
-        "  order: [anonymous, user, moderator, admin]",
+        // The project's own, where it has any. A project may name scopes of its own (the
+        // arena tutorial gates everything on `player`), and writing the four a scaffold
+        // starts with would hand back a file `synqt check` refuses, on a member that was
+        // drawn correctly.
+        `  order: ${listing(scopesOf(design))}`,
         "  hierarchical: true",
-        "  default: anonymous",
+        `  default: ${scalar(scopesOf(design)[0] || "anonymous")}`,
         "",
         "security:",
         "  allowed_origins: [self]",
