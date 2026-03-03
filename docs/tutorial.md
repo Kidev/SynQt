@@ -42,6 +42,11 @@ flowchart LR
   style db fill:#def,stroke:#39c,color:#1a1a2e
 ```
 
+[Open it in the designer](/designer/#example=gavel) to see the finished shape
+before you build it, the entities, the links, and beside each line the contract that
+crosses it. Nothing is installed, and pulling it apart there changes nothing on your
+disk.
+
 ## What you will learn
 
 - What a contract is, and why both ends of a live value are generated from one

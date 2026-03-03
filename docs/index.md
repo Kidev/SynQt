@@ -164,197 +164,48 @@ A chat room, because everyone already knows what one does. Somebody types a line
 appears in every window that has the room open, including the ones on other machines.
 That is the part SynQt is for, and below is all of it.
 
-A finished system is a small mesh of entities. Only the web edge faces the internet;
-everything else is private and reachable only by the entities you allow. Here a signed-out
-visitor is served a sign-in page and nothing else, a signed-in reader is served the room,
-and the room's one request goes to the web edge, which decides whether that caller may
-speak and hands the line to the database. The reply is a model, so every browser holding
-the room redraws itself; nobody wrote any of that.
+A finished system is a small mesh of entities. The drawing below is that mesh, drawn by the
+design editor from this very project: three boxes saying which side of the wire each entity
+is on, a disc per entity, and on every line the contract the two ends share. Only the web
+edge faces the internet; everything else sits in the mesh box and is reachable only by the
+entities you allow. A signed-out visitor is served the gate and nothing else, a signed-in
+reader is served the room, and the room's one request goes to the web edge, which decides
+whether that caller may speak and hands the line to the database. The reply is a model, so
+every browser holding the room redraws itself; nobody wrote any of that.
 
 Six files are the whole system: one configuration file, which says what crosses each link,
 one QML file per entity, and the table the database keeps the messages in. Hover (or focus)
-any part of the diagram to read the file behind it, or pick the file out of the project tree
-beside it; it stays open until you move to another one. The database opens two, its QML and
-the table that QML queries, since neither says much without the other, and a directory in
-the tree opens everything in it. Hover any line of a file to see what that line does, and a
-line that ends in an arrow opens the page covering it, whether that is a page of this guide
-or the class in the C++ reference.
+an entity to read the file it is, or the mark on a line to read the block that says what
+crosses it; the project tree beside the drawing opens the same files, and one stays open
+until you move to another. The database opens two, its QML and the table that QML queries,
+since neither says much without the other, and a directory in the tree opens everything in
+it. Hover any line of a file to see what that line does, and a line that ends in an arrow
+opens the page covering it, whether that is a page of this guide or the class in the C++
+reference.
 
-The button under the tree opens this same system in the
-[online designer](visual-editor.md), which runs in the browser with nothing installed. Pull
-the mesh apart there, add an entity, and download the result as a project.
+The button under the tree opens this same drawing in the
+[online designer](visual-editor.md), which runs in the browser with nothing installed. It is
+the same code that drew it here, so nothing is lost on the way: pull the mesh apart there,
+add an entity, and export the result as a project.
 
 <div class="synqt-explorer">
 
 <div class="synqt-mesh">
 
 <div class="synqt-flow">
-<div class="synqt-flow__stage">
-<svg viewBox="0 32 460 232" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-  <defs>
-    <filter id="synqt-flow-glow" x="-100%" y="-100%" width="300%" height="300%">
-      <feGaussianBlur stdDeviation="5" result="blur"/>
-      <feMerge>
-        <feMergeNode in="blur"/>
-        <feMergeNode in="SourceGraphic"/>
-      </feMerge>
-    </filter>
-  </defs>
+<!-- Drawn by the design editor's own code, from the same project the editor opens at
+     /designer/#example=demo: docs/javascripts/home-flow.js imports /designer/canvas.js,
+     reads the document out of /designer/examples.json and hands the two to `draw`. A
+     second, hand-kept picture of the same system would drift the first time the demo
+     changed.
 
-  <!-- Delivery, not a link. The edge hands a signed-out visitor this bundle and that
-       browser holds no connect point at all, which is the difference the gate is here to
-       show, so it is drawn as a different kind of line. -->
-  <g class="synqt-flow__lines synqt-flow__lines--served">
-    <line x1="75.9" y1="84.1" x2="195.8" y2="130.6"/>
-  </g>
-
-  <g class="synqt-flow__lines">
-    <line x1="78.6" y1="194.8" x2="195.8" y2="149.4"/>
-    <line x1="246.0" y1="140.0" x2="372.0" y2="140.0"/>
-  </g>
-
-  <g class="synqt-flow__edges">
-    <text x="140" y="98" text-anchor="middle">served the gate</text>
-    <text x="140" y="200" text-anchor="middle">the room</text>
-    <text x="305" y="158" text-anchor="middle">the messages</text>
-  </g>
-
-  <!-- Both links are encrypted and authenticated: wss for the browser, mutual TLS
-       against a private CA between entities (docs/security.md). Static rather than tied
-       to the packet, because it is true between requests too. -->
-  <g class="synqt-flow__locks">
-    <g transform="translate(159.2,163.6) scale(0.5)" fill="none" stroke="#9a94c4" stroke-width="1.6">
-      <title>wss (TLS)</title>
-      <path d="M -4,-1 v -3 a 4,4 0 0 1 8,0 v 3"/>
-      <rect x="-6" y="-1" width="12" height="9" rx="1.5" fill="#9a94c4" stroke="none"/>
-    </g>
-    <g transform="translate(305.0,140.0) scale(0.5)" fill="none" stroke="#9a94c4" stroke-width="1.6">
-      <title>mutual TLS</title>
-      <path d="M -4,-1 v -3 a 4,4 0 0 1 8,0 v 3"/>
-      <rect x="-6" y="-1" width="12" height="9" rx="1.5" fill="#9a94c4" stroke="none"/>
-    </g>
-  </g>
-
-  <!-- One contract per connect point, drawn on the link it is shared across, because
-       that is what a connect point is. The gate's line carries none: it is served a
-       bundle and consumes nothing. Both open the configuration, which is where a link's
-       shape is written. -->
-  <g transform="translate(186,172) scale(1.5)" fill="none" stroke="#e5e7ff" stroke-width="0.9">
-    <rect x="-4" y="-5" width="8" height="10" rx="1"/>
-    <line x1="-2" y1="-1.5" x2="2" y2="-1.5"/>
-    <line x1="-2" y1="1" x2="2" y2="1"/>
-  </g>
-  <g transform="translate(305,118) scale(1.5)" fill="none" stroke="#e5e7ff" stroke-width="0.9">
-    <rect x="-4" y="-5" width="8" height="10" rx="1"/>
-    <line x1="-2" y1="-1.5" x2="2" y2="-1.5"/>
-    <line x1="-2" y1="1" x2="2" y2="1"/>
-  </g>
-
-  <!-- The configuration, drawn and named the way the entities are. It sits beside the
-       mesh rather than in it, because it is the file the whole drawing is generated
-       from rather than a member of it. -->
-  <g transform="translate(300,216) scale(0.62) translate(-12,-12)" fill="#e5e7ff">
-    <g class="synqt-flow__cog">
-    <path d="M12,15.5A3.5,3.5 0 0,1 8.5,12A3.5,3.5 0 0,1 12,8.5A3.5,3.5 0 0,1 15.5,12A3.5,3.5 0 0,1 12,15.5M19.43,12.97C19.47,12.65 19.5,12.33 19.5,12C19.5,11.67 19.47,11.34 19.43,11L21.54,9.37C21.73,9.22 21.78,8.95 21.66,8.73L19.66,5.27C19.54,5.05 19.27,4.96 19.05,5.05L16.56,6.05C16.04,5.66 15.5,5.32 14.87,5.07L14.5,2.42C14.46,2.18 14.25,2 14,2H10C9.75,2 9.54,2.18 9.5,2.42L9.13,5.07C8.5,5.32 7.96,5.66 7.44,6.05L4.95,5.05C4.73,4.96 4.46,5.05 4.34,5.27L2.34,8.73C2.21,8.95 2.27,9.22 2.46,9.37L4.57,11C4.53,11.34 4.5,11.67 4.5,12C4.5,12.33 4.53,12.65 4.57,12.97L2.46,14.63C2.27,14.78 2.21,15.05 2.34,15.27L4.34,18.73C4.46,18.95 4.73,19.03 4.95,18.95L7.44,17.94C7.96,18.34 8.5,18.68 9.13,18.93L9.5,21.58C9.54,21.82 9.75,22 10,22H14C14.25,22 14.46,21.82 14.5,21.58L14.87,18.93C15.5,18.67 16.04,18.34 16.56,17.94L19.05,18.95C19.27,19.03 19.54,18.95 19.66,18.73L21.66,15.27C21.78,15.05 21.73,14.78 21.54,14.63L19.43,12.97Z"/>
-    </g>
-  </g>
-
-  <!-- One trip: somebody says something, the edge decides whether they may, the database
-       keeps it, and the answer goes back. The ball travels behind the entities (this
-       group comes before .synqt-flow__nodes, and SVG paints in document order), so it
-       passes under each circle instead of over it. -->
-  <g class="synqt-flow__packets">
-    <circle r="4.5" fill="#46f477">
-      <animateMotion dur="7s" begin="0s" repeatCount="indefinite" calcMode="linear"
-        keyPoints="0;1;1" keyTimes="0;0.86;1"
-        path="M60,202 L220,140 L390,140 L220,140 L60,202"/>
-      <animate attributeName="fill" dur="7s" begin="0s" repeatCount="indefinite"
-        values="#46f477;#46f477;#8890c0;#8890c0;#46f477;#46f477"
-        keyTimes="0;0.216;0.216;0.644;0.644;1"/>
-    </circle>
-  </g>
-
-  <g class="synqt-flow__nodes">
-    <circle cx="60" cy="78" r="17" class="synqt-flow__node synqt-flow__node--user" filter="url(#synqt-flow-glow)"/>
-    <circle cx="60" cy="202" r="20" class="synqt-flow__node synqt-flow__node--user" filter="url(#synqt-flow-glow)"/>
-    <circle cx="220" cy="140" r="26" class="synqt-flow__node synqt-flow__node--hub" filter="url(#synqt-flow-glow)"/>
-    <circle cx="390" cy="140" r="18" class="synqt-flow__node synqt-flow__node--service" filter="url(#synqt-flow-glow)"/>
-  </g>
-
-  <!-- Each entity's own permanent glyph: what it is, wherever the request happens to be.
-       Explicit fill/stroke on every shape rather than inherited from a class on the
-       wrapping <g>: an SVG presentation attribute loses to a CSS rule targeting that same
-       element, so a parent <g fill="none"> does not reliably keep a styled child
-       transparent. -->
-  <g class="synqt-flow__static-icons">
-    <g transform="translate(60,78)" fill="#46f477">
-      <circle cx="0" cy="-3.2" r="3.2"/>
-      <path d="M -6,7.5 a 6,6.5 0 0 1 12,0 z"/>
-    </g>
-    <g transform="translate(60,202)" fill="#46f477">
-      <circle cx="0" cy="-3.2" r="3.2"/>
-      <path d="M -6,7.5 a 6,6.5 0 0 1 12,0 z"/>
-    </g>
-    <g transform="translate(390,140)" fill="none" stroke="#8890c0" stroke-width="1.4">
-      <ellipse cx="0" cy="-4.5" rx="6.5" ry="2.2" fill="#8890c0" stroke="none"/>
-      <path d="M -6.5,-4.5 V 4.5 A 6.5,2.2 0 0 0 6.5,4.5 V -4.5"/>
-      <path d="M -6.5,0 A 6.5,2.2 0 0 0 6.5,0"/>
-    </g>
-  </g>
-
-  <!-- The edge's own state through one trip: nothing at rest, a caller once the request
-       arrives, a tick once it has decided that caller may, and the message once the
-       database has kept it. Every timing is a fraction of the packet's own path length
-       above, so each change happens as the packet lands. -->
-  <g class="synqt-flow__hub-icons">
-    <g transform="translate(215,138)" fill="#46f477" opacity="0">
-      <circle cx="0" cy="-3.2" r="3.2"/>
-      <path d="M -6,7.5 a 6,6.5 0 0 1 12,0 z"/>
-      <animate attributeName="opacity" dur="7s" begin="0s" repeatCount="indefinite"
-        values="0;0;1;1;0" keyTimes="0;0.216;0.216;0.86;1"/>
-    </g>
-    <g transform="translate(229,132)" fill="none" stroke="#e6b450" stroke-width="1.6" stroke-linecap="round" opacity="0">
-      <path d="M -2,-2.6 A 2.6,2.6 0 1 1 0,1.4"/>
-      <path d="M 0,4 v 0.6"/>
-      <animate attributeName="opacity" dur="7s" begin="0s" repeatCount="indefinite"
-        values="0;0;1;1;0;0" keyTimes="0;0.216;0.216;0.43;0.43;1"/>
-    </g>
-    <g transform="translate(229,132)" fill="none" stroke="#46f477" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" opacity="0">
-      <path d="M -3,0.4 L -0.8,2.6 L 3.4,-2.4"/>
-      <animate attributeName="opacity" dur="7s" begin="0s" repeatCount="indefinite"
-        values="0;0;1;1;0" keyTimes="0;0.43;0.43;0.86;1"/>
-    </g>
-    <g transform="translate(229,150)" fill="none" stroke="#e5e7ff" stroke-width="1.3" opacity="0">
-      <rect x="-5" y="-3.5" width="10" height="7" rx="1"/>
-      <path d="M -5,-3.5 L 0,0.6 L 5,-3.5"/>
-      <animate attributeName="opacity" dur="7s" begin="0s" repeatCount="indefinite"
-        values="0;0;1;1;0" keyTimes="0;0.644;0.644;0.86;1"/>
-    </g>
-  </g>
-
-  <g class="synqt-flow__labels">
-    <text x="60" y="110" text-anchor="middle">gate</text>
-    <text x="60" y="238" text-anchor="middle">app</text>
-    <text x="220" y="182" text-anchor="middle">edge</text>
-    <text x="390" y="174" text-anchor="middle">store</text>
-    <text x="300" y="240" text-anchor="middle">configuration</text>
-  </g>
-
-  <g class="synqt-flow__kinds">
-    <text x="60" y="123" text-anchor="middle">client</text>
-    <text x="60" y="251" text-anchor="middle">client</text>
-    <text x="220" y="195" text-anchor="middle">web edge</text>
-    <text x="390" y="187" text-anchor="middle">relational</text>
-  </g>
-</svg>
-
-<div class="synqt-flow__hotspot synqt-flow__hotspot--gate" data-file="gate" tabindex="0" role="button" aria-label="Show client/gate/Main.qml"></div>
-<div class="synqt-flow__hotspot synqt-flow__hotspot--app" data-file="client" tabindex="0" role="button" aria-label="Show client/app/Main.qml"></div>
-<div class="synqt-flow__hotspot synqt-flow__hotspot--edge" data-file="web" tabindex="0" role="button" aria-label="Show web/edge/Edge.qml"></div>
-<div class="synqt-flow__hotspot synqt-flow__hotspot--store" data-file="database schema" tabindex="0" role="button" aria-label="Show the store entity's two files"></div>
-<div class="synqt-flow__hotspot synqt-flow__hotspot--config" data-file="config" tabindex="0" role="button" aria-label="Show synqt.yaml"></div>
-<div class="synqt-flow__hotspot synqt-flow__hotspot--edge-contract" data-file="config" tabindex="0" role="button" aria-label="Show what the edge connect point carries"></div>
-<div class="synqt-flow__hotspot synqt-flow__hotspot--store-contract" data-file="config" tabindex="0" role="button" aria-label="Show what the store connect point carries"></div>
+     `data-files` is the one thing this page adds: which file each part of the drawing
+     opens. It is written here rather than in the script because it names the files below,
+     and the drawing's own names (an entity, a connect point) are what it keys on. -->
+<div class="synqt-flow__stage" id="synqt-flow-stage" data-example="demo"
+     data-files='{"entity:gate": "gate", "entity:app": "client", "entity:edge": "web",
+                  "entity:store": "database schema", "contract:edge": "config",
+                  "contract:store": "config"}'>
 </div>
 </div>
 
@@ -369,19 +220,24 @@ the mesh apart there, add an entity, and download the result as a project.
 
 ```yaml
 project:
-  name: demo
+  name: chat
   qt_version: 6.11.1
 
 scopes: { order: [anonymous, user, admin], default: anonymous }
 
+identity:
+  providers: [{ name: github, client_id: ..., client_secret: env:SECRET }]
+  mapping: web/edge/identity/map.qml
+
 entities:
-  - { name: gate, type: client, edge: edge }
-  - { name: app, type: client, edge: edge }
+  - { name: gate, type: client }
+  - { name: app, type: client }
   - name: edge
     type: web_edge
+    identity: true
     public: { port: 8443, sync_route: /sync }
     bundles: { anonymous: gate, user: app }
-  - { name: store, type: relational }
+  - { name: store, type: relational, provider: { name: sqlite } }
 
 connect_points:
   - owner: edge

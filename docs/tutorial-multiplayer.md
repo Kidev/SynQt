@@ -56,19 +56,24 @@ The whole live arena lives in the edge's memory, which is all a fast game needs.
 the permanent leaderboard is durable, so it gets a database, reached by the edge and
 never by the browser, exactly as in [the Hall of Fame](tutorial-hall-of-fame.md).
 
+[Open it in the designer](/designer/#example=arena) to see the finished shape
+before you build it, the entities, the links, and beside each line the contract that
+crosses it. Nothing is installed, and pulling it apart there changes nothing on your
+disk.
+
 ## What you will learn
 
-- How an owner runs a simulation rather than storing values: a fixed tick that
+- How an owner runs a simulation rather than storing values, with a fixed tick that
   integrates the whole world, and consumers that see the result instead of driving it.
 - Why a server authoritative position is enforced by the shape of the contract rather
   than by a rule. The client sends an aim point, never a position, so there is no
   position to forge.
-- Client-side prediction: moving your own blob the instant you point, without ever
+- Client-side prediction, moving your own blob the instant you point, without ever
   letting your guess become the truth.
-- Entity interpolation: drawing everyone else smoothly between snapshots that arrive
+- Entity interpolation, drawing everyone else smoothly between snapshots that arrive
   ten times a second, rather than teleporting them on each one.
 - Interest management with `shared: false` on the edge, so one simulation serves everybody
-  while each browser is sent only the slice it can actually see.
+  while each browser is sent only the slice it can see.
 - What it costs to publish to N consumers, and where a single edge stops scaling.
 - How a round, a clock, and a permanent leaderboard sit behind the edge in a database
   entity the browser never reaches.

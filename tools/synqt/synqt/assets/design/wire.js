@@ -148,7 +148,7 @@ export function memberBytes(member, link) {
 // The whole contract, as the one number worth putting at the top of it: what crosses when
 // every member crosses once, with a model counted as one row. Not a rate and not a total --
 // a system's traffic is how often each of these happens, which is the application's business
-// -- but it is the size of the wire, which is what somebody sizing one wants.
+// but it is the size of the wire, which is what somebody sizing one wants.
 export function contractBytes(link) {
     return (link && link.members || []).reduce(
         (into, member) => add(into, memberBytes(member, link)),

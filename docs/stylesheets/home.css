@@ -598,143 +598,26 @@
   width: 100%;
 }
 
-/* The hotspots below are positioned by percentage, matching the SVG's own
-   viewBox coordinates (0 0 440 300) converted to %, so they line up with the
-   nodes underneath regardless of how wide the diagram is actually rendered;
-   that only works if this stage is exactly the SVG's own box, hence the
-   separate wrapper from .synqt-flow (which centers the stage, and could in
-   principle be wider than its max-width on a very wide screen). */
+/* Where the drawing goes. It is drawn into a shadow root by home-flow.js, out of the
+   design editor's own code and the same project the editor opens, so nothing about how it
+   looks is written here: the editor's stylesheet is adopted whole inside the shadow, and
+   the two pictures cannot part company. What is left on this side is the box.
+
+   There are no hotspots any more. The parts of the drawing answer for themselves -- an
+   entity's disc, a connect point's mark -- so the layer of percentage-positioned divs that
+   used to sit over the old hand-drawn SVG, each one a coordinate copied out of it by hand,
+   is gone with the drawing it was tracing. */
 .synqt-flow__stage {
-  position: relative;
   width: 100%;
-  /* The cap is what stops the drawing growing without limit on a very wide
-     screen; below it the column decides. Set so the diagram is a little under
-     half the row, which is the share that reads as the subject of the section
-     rather than as an illustration beside the file. */
-  max-width: 38rem;
-}
-
-.synqt-flow__stage svg {
-  display: block;
-  width: 100%;
-  height: auto;
-}
-
-/* Hover/focus targets over each node, sized a little larger than the node itself
-   so they're easy to hit. Position and size are both in %, derived from the SVG's
-   own cx/cy against the SVG's window, which is `viewBox="0 32 460 232"` and not the whole
-   coordinate space: the drawing is cropped top and bottom to what is actually in it, so a
-   percentage is of that window (the edge at 220,140 -> 47.83%, 46.55%). The stage takes
-   the SVG's own ratio, so the two stay lined up at any width. */
-.synqt-flow__hotspot {
-  position: absolute;
-  width: 12%;
-  height: 17%;
-  transform: translate(-50%, -50%);
-  cursor: pointer;
-}
-
-/* The file is drawn in the other column now, so the diagram has to say which of
-   its parts that file belongs to. A glow around the node does it for both states
-   at once: under the pointer, and left on for whichever part is being read. */
-.synqt-flow__hotspot::before {
-  content: "";
-  position: absolute;
-  inset: -30%;
-  border-radius: 50%;
-  background: radial-gradient(circle, rgba(0, 166, 237, .38) 0%, rgba(0, 166, 237, 0) 68%);
-  opacity: 0;
-  transition: opacity .2s ease;
-}
-
-/* Only the part whose file is open, for the reason given on `.synqt-tree__file`
-   above: one light at a time, across the drawing and the tree together. */
-.synqt-flow__hotspot.synqt-trigger--on::before {
-  opacity: 1;
-}
-
-/* One box per entity, placed at that entity's own centre in the SVG's coordinates
-   (520 by 400) expressed as a percentage of the stage, so the two move together
-   when the drawing does. The edge is given a larger box because its circle is
-   larger; everything else takes the shared size above. */
-/* One box per entity, placed at that entity's own centre in the SVG's coordinates
-   (460 by 280) expressed as a percentage of the stage, so the two move together when the
-   drawing does. The edge is given a larger box because its circle is larger; everything
-   else takes the shared size above. */
-.synqt-flow__hotspot--gate {
-  left: 13.04%;
-  top: 19.83%;
-}
-
-.synqt-flow__hotspot--app {
-  left: 13.04%;
-  top: 73.28%;
-}
-
-.synqt-flow__hotspot--edge {
-  left: 47.83%;
-  top: 46.55%;
-}
-
-.synqt-flow__hotspot--store {
-  left: 84.78%;
-  top: 46.55%;
-}
-
-.synqt-flow__hotspot--edge {
-  width: 15%;
-  height: 20%;
-}
-
-/* One box over each contract glyph, the size of the glyph it covers and no larger: neither
-   carries a name under it, and each has to stop short of what is beside it. Both open the
-   configuration, which is where a link's shape is written. */
-.synqt-flow__hotspot--edge-contract {
-  left: 40.43%;
-  top: 60.34%;
-  width: 7%;
-  height: 13%;
-}
-
-.synqt-flow__hotspot--store-contract {
-  left: 66.30%;
-  top: 37.07%;
-  width: 7%;
-  height: 13%;
-}
-
-/* The configuration. It is a trigger like the ones over the drawing, and the only one that
-   is not a part of the mesh: the configuration is the file the mesh is generated from,
-   which is why it sits beside the drawing rather than on any node of it.
-
-   It used to be a cog in a disc above the diagram, which made the one trigger that is not
-   an entity the only one that did not look like the rest, and left a reader to work out
-   that a pill, a disc and a circle all mean the same thing. Now it is drawn exactly as the
-   contract is: one glyph at the same size, its name under it in the diagram's own label
-   row, and nothing around it. */
-.synqt-flow__hotspot--config {
-  left: 65.22%;
-  top: 79.31%;
-  width: 10%;
-  height: 16%;
-}
-
-/* The one part of the drawing that turns as well as lighting up, which it kept
-   from the cog it replaced: a configuration is a thing you set, not a thing that
-   runs. It is a group of its own inside the placed one, because in SVG the
-   `transform` attribute and the CSS `transform` property are the same property,
-   so rotating the placed group here would throw away the translate and scale that
-   put it on the drawing. The origin is the middle of the 24-unit glyph box.
-
-   The state lives on the hotspot, which comes after the drawing (it has to, to
-   sit over it), so this reads it back up through the stage they share. */
-.synqt-flow__cog {
-  transform-origin: 12px 12px;
-  transition: transform .5s ease;
-}
-
-.synqt-flow__stage:has(.synqt-flow__hotspot--config.synqt-trigger--on) .synqt-flow__cog {
-  transform: rotate(90deg);
+  /* The cap is what stops the drawing growing without limit on a very wide screen; below
+     it the column decides. Wider than the hand-drawn diagram's, because this one carries
+     more: the three boxes that say what can reach what, and beside each line the contract
+     that crosses it. Under the cap it renders below its own drawn size, and the names on
+     it stop being readable well before it gets small. */
+  max-width: 46rem;
+  /* Before the drawing arrives, so the section does not jump when it does. The ratio is
+     the arrangement's, near enough: three columns of entities and two rows. */
+  aspect-ratio: 2 / 1;
 }
 
 /* --- The file view --------------------------------------------------------
@@ -1070,10 +953,11 @@
     width: 100%;
   }
 
-  /* A row of its own is far more width than the drawing needs, and taken it
-     would push the file it explains most of a screen further down. */
+  /* On its own row the drawing has the whole width, and taking all of it would push the
+     file it explains most of a screen further down. It keeps more than the hand-drawn
+     diagram did, because there is more written on it and it is what shrinks first. */
   .synqt-flow__stage {
-    max-width: 30rem;
+    max-width: 36rem;
   }
 }
 
@@ -1146,76 +1030,6 @@
     height: 44rem;
   }
 }
-.synqt-flow__lines line {
-  stroke: #6a5b99;
-  stroke-opacity: .35;
-  stroke-width: 1.5;
-  stroke-dasharray: 3 5;
-}
-
-/* Delivery rather than a link: the edge hands that browser a bundle, and the browser
-   holds no connect point at all. Fainter and finer than the lines that carry one,
-   because the difference between the two is the whole of what the gate is there to
-   show. */
-.synqt-flow__lines--served line {
-  stroke-opacity: .18;
-  stroke-dasharray: 1 4;
-}
-
-.synqt-flow__node {
-  fill: #1a1033;
-  stroke: #6a5b99;
-  stroke-width: 1.5;
-}
-
-.synqt-flow__node--user {
-  stroke: #46f477;
-}
-
-.synqt-flow__node--hub {
-  fill: #241848;
-  stroke: #e5e7ff;
-}
-
-.synqt-flow__node--service {
-  stroke: #8890c0;
-}
-
-/* Not one of the system's entities: the third party the api entity calls. Drawn in the
-   paper's own line colour, with no glow, so it reads as the edge of the drawing rather
-   than as another thing this project deploys. */
-.synqt-flow__node--outside {
-  fill: none;
-  stroke: #6a5b99;
-  stroke-width: 1.2;
-  stroke-dasharray: 2 3;
-}
-
-.synqt-flow__labels text {
-  fill: #9a94c4;
-  font-family: var(--md-code-font-family, "Roboto Mono", monospace);
-  font-size: 11px;
-  letter-spacing: .06em;
-  text-transform: uppercase;
-}
-
-.synqt-flow__edges text {
-  fill: #6a5b99;
-  font-family: var(--md-code-font-family, "Roboto Mono", monospace);
-  font-size: 9.5px;
-}
-
-/* What kind of entity each one is, under the name it was given. The drawing labels nodes
-   by their names, because two of the four are clients and a reader needs to tell `gate`
-   from `app`; this line puts the kind back without taking the name away. Dimmer and
-   smaller than the name, so a reader takes the two in that order. */
-.synqt-flow__kinds text {
-  fill: #6a5b99;
-  font-family: var(--md-code-font-family, "Roboto Mono", monospace);
-  font-size: 8.5px;
-  letter-spacing: .04em;
-}
-
 /* --- Sections ------------------------------------------------------------- */
 
 .synqt-section {

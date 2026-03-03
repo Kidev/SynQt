@@ -146,7 +146,141 @@
     list.parentNode.removeChild(list);
   }
 
-  function prepare(explorer) {
+  /* The drawing.
+   *
+   * Not a picture of the system: the system, drawn by the design editor's own `draw` from
+   * the same document the editor opens at /designer/#example=demo. This page adds two
+   * things and no more -- where the drawing goes, and which file each part of it opens.
+   *
+   * It lives in a shadow root because the editor's stylesheet is the editor's whole look,
+   * `html`, `body` and `*` included, and this page has a look of its own. Inside a shadow
+   * root none of those match, so the file can be adopted whole rather than picked over: the
+   * one edit is `:root` to `:host`, since `:root` is the document element and there is no
+   * document element in here. Adopted whole is the point -- a hand-picked subset of it is a
+   * second answer to what an entity looks like, and the drawing this replaced was exactly
+   * that, kept by hand, and it had already drifted.
+   */
+  var DESIGNER = "/designer/";
+
+  /* What this page puts on top of the editor's stylesheet: the drawing is a picture here
+   * rather than a canvas somebody is dragging on, and the trigger states are this section's
+   * (`show` below puts the class on) rather than the editor's. */
+  var MESH_CSS = [
+    ":host { display: block; }",
+    ".canvas { width: 100%; height: auto; background: none; cursor: default;",
+    "          touch-action: auto; }",
+    ".node, .link__doc { cursor: pointer; }",
+    ".node:hover .node__disc { stroke: var(--hover); stroke-width: 2.2; }",
+    ".node:hover .node__name { fill: var(--hover); }",
+    ".synqt-trigger--on.node .node__disc { stroke: var(--accent); stroke-width: 2.5;",
+    "  filter: drop-shadow(0 0 3px currentColor) drop-shadow(0 0 9px currentColor); }",
+    ".synqt-trigger--on.link__doc { stroke: var(--accent); }",
+    ".synqt-trigger--on.link__doc .link__doc-box { stroke-width: 1.8; }",
+    ".node:focus-visible, .link__doc:focus-visible { outline: 2px solid var(--accent); }"
+  ].join("\n");
+
+  /* How much room is left round the drawing, in the units it is drawn in. The same margin
+   * the editor's own picture export leaves, and for the same reason: a name written under a
+   * node reaches past the node. */
+  var MESH_MARGIN = 28;
+
+  function svgNode(tag, attrs) {
+    var node = document.createElementNS("http://www.w3.org/2000/svg", tag);
+    Object.keys(attrs || {}).forEach(function (key) {
+      node.setAttribute(key, attrs[key]);
+    });
+    return node;
+  }
+
+  /* Draw the stage, and hand back every part of it that opens a file.
+   *
+   * Nothing here throws outward. A refused fetch or a browser with no shadow DOM leaves the
+   * stage empty and the rest of the section working, because the project tree beside it
+   * opens the same files and is the reason this is not the only way in.
+   */
+  function drawMesh(stage) {
+    // Already drawn: Material's instant navigation reuses the document, and a second
+    // attachShadow on one element throws. Nothing to redo either way, since what is in
+    // there is a function of a document that does not change.
+    if (!stage || !stage.attachShadow || !window.fetch || stage.shadowRoot) {
+      return Promise.resolve([]);
+    }
+    var wanted = stage.getAttribute("data-example") || "demo";
+    var opens = {};
+    try {
+      opens = JSON.parse(stage.getAttribute("data-files") || "{}");
+    } catch (e) {
+      return Promise.resolve([]);
+    }
+    return Promise.all([
+      import(DESIGNER + "canvas.js"),
+      import(DESIGNER + "project.js"),
+      fetch(DESIGNER + "examples.json").then(function (r) { return r.json(); }),
+      fetch(DESIGNER + "design.css").then(function (r) { return r.text(); })
+    ]).then(function (parts) {
+      var canvas = parts[0];
+      var project = parts[1];
+      var design = (parts[2].examples || {})[wanted];
+      if (!design) {
+        return [];
+      }
+      var shadow = stage.attachShadow({ mode: "open" });
+      var style = document.createElement("style");
+      style.textContent = parts[3].split(":root").join(":host") + "\n" + MESH_CSS;
+      shadow.appendChild(style);
+
+      var svg = svgNode("svg", { "class": "canvas", "aria-hidden": "true" });
+      var viewport = svgNode("g", { id: "viewport" });
+      var layers = {
+        zones: svgNode("g", { id: "zones" }),
+        links: svgNode("g", { id: "links" }),
+        nodes: svgNode("g", { id: "nodes" })
+      };
+      viewport.appendChild(layers.zones);
+      viewport.appendChild(layers.links);
+      viewport.appendChild(layers.nodes);
+      svg.appendChild(viewport);
+      shadow.appendChild(svg);
+
+      canvas.draw(layers, design, {
+        problems: { entities: new Map(), links: new Map() },
+        selected: null,
+        // The caption under each node is the file somebody opens next, which is the same
+        // question this section is about. Asked of the editor's own reader, so the drawing
+        // and the tree name one set of files.
+        filesOf: function (entity) { return project.entityFiles(design, entity); }
+      });
+
+      // Measured after it is drawn, so the box is what is on screen rather than what the
+      // entity coordinates alone would suggest: a name under a node and a contract written
+      // beside a line both reach past the shapes.
+      var box = viewport.getBBox();
+      svg.setAttribute("viewBox", [box.x - MESH_MARGIN, box.y - MESH_MARGIN,
+                                   box.width + (MESH_MARGIN * 2),
+                                   box.height + (MESH_MARGIN * 2)].join(" "));
+
+      var found = [];
+      ["entity", "contract"].forEach(function (kind) {
+        var parts = shadow.querySelectorAll("[data-" + kind + "]");
+        for (var at = 0; at < parts.length; at++) {
+          var name = parts[at].getAttribute("data-" + kind);
+          var file = opens[kind + ":" + name];
+          if (!file) {
+            continue;
+          }
+          parts[at].setAttribute("data-file", file);
+          parts[at].setAttribute("tabindex", "0");
+          parts[at].setAttribute("role", "button");
+          found.push(parts[at]);
+        }
+      });
+      return found;
+    }).catch(function () {
+      return [];
+    });
+  }
+
+  function prepare(explorer, drawn) {
     if (explorer.getAttribute("data-synqt-flow") === "ready") {
       return;
     }
@@ -158,7 +292,8 @@
     var triggers = Array.prototype.slice.call(explorer.querySelectorAll("[data-file]"))
       .filter(function (element) {
         return files.indexOf(element) === -1;
-      });
+      })
+      .concat(drawn || []);
     if (!view || !hint || files.length === 0) {
       return;
     }
@@ -307,7 +442,14 @@
   function setup() {
     var all = document.querySelectorAll(".synqt-explorer");
     for (var index = 0; index < all.length; index++) {
-      prepare(all[index]);
+      (function (explorer) {
+        // The drawing is fetched, so the section is wired once it is there: the parts of
+        // the drawing are triggers like the rows of the tree, and a list of triggers
+        // gathered before it exists is a drawing nothing answers.
+        drawMesh(explorer.querySelector(".synqt-flow__stage")).then(function (drawn) {
+          prepare(explorer, drawn);
+        });
+      })(all[index]);
     }
   }
 

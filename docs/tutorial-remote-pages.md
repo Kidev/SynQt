@@ -40,6 +40,11 @@ The finished app is
 [`examples/stall`](https://github.com/Kidev/SynQt/tree/main/examples/stall), so you can
 read the whole thing at any point, or run it if a step goes sideways.
 
+[Open it in the designer](/designer/#example=stall) to see the finished shape
+before you build it, the entities, the links, and beside each line the contract that
+crosses it. Nothing is installed, and pulling it apart there changes nothing on your
+disk.
+
 ## What you will learn
 
 - How a route table splits into pages the bundle carries (`view:`) and pages the edge
