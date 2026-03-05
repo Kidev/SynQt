@@ -233,65 +233,50 @@ body {
 }
 
 /* Material pins two labels in place while the list under them scrolls: the active section
-   in the left sidebar ("Framework") and "Table of contents" on the right. Each is meant to
-   hide the entries passing behind it, and each does it by painting
-   `var(--md-default-bg-color)` plus a .4rem box-shadow of the same colour. That colour is
-   the flat near-black of the stock slate scheme, and this page is a gradient, so what the
-   reader got was a grey pill with a black halo round it: at rest the halo lay over the
-   first entry and dimmed it, and mid-scroll the entries behind the label were smeared
-   rather than hidden.
+   in the left sidebar ("Framework") and "Table of contents" on the right. The generated
+   C++ reference pins one of its own the same way ("Table of contents" over the page
+   outline, tools/docs-hooks/doxygen-synqt.css), and the three are one object seen on
+   three pages. A reader moving between the guide and the reference should not meet two
+   answers to the same heading.
 
-   Draw each one as a plate instead: a surface a shade lighter than the page, with rounded
-   corners and a soft shadow under it. That is what the generated C++ reference does with
-   its own outline label (tools/docs-hooks/doxygen-synqt.css), and it is what these two
-   should have looked like all along -- the reference and the guide are one site, and a
-   reader moving between the two tabs was seeing two different answers to the same pinned
-   heading.
+   The reference's is the one to match, down to the pixels: a flat #1e2129 plate with the
+   same colour fading out of it over .4rem all round, quiet bold text on top. Both of
+   those are Material's own -- #1e2129 is its dark background and .4rem its own spread --
+   so this is the stock treatment with the colour pinned flat rather than left to resolve
+   against a page that is a gradient. The reference writes the same two out as 8.8px,
+   which is what .4rem measures on either page.
 
-   Painting the page's own gradient on them was the previous answer, and it was wrong for a
-   reason worth writing down: `background-attachment: fixed` did resolve the same pixels as
-   the page behind, so the label became invisible as an object -- and an invisible object
-   casting a shadow reads as a stray hairline over the list rather than as a heading with
-   the list running under it. A pinned label wants to be seen. Being opaque is what hides
-   the entries scrolling behind it, and that is the only part of the job the colour has to do.
+   The plate is deliberately not the colour of the page behind it, on any of the three.
+   A pinned label has one job -- hide the entries passing behind it -- and no flat colour
+   can match a gradient anyway. An earlier attempt painted the page's own gradient here
+   with `background-attachment: fixed`, which did resolve the same pixels and so made the
+   label invisible as an object: an invisible object with a shadow reads as a stray
+   hairline over the list, not as a heading with the list running under it. The soft edge
+   is what keeps it from reading as a pill, which is what a hard border-radius and a drop
+   shadow underneath it made of it.
 
-   Desktop only, which is where the labels are pinned; in the mobile drawer they are
+   Desktop only, which is where the labels are pinned. In the mobile drawer they are
    ordinary bars that scroll with everything else. */
 @media screen and (min-width: 76.25em) {
   .md-nav--lifted > .md-nav__list > .md-nav__item--active > .md-nav__link,
   .md-nav--secondary > .md-nav__title {
     background-color: var(--synqt-pinned-plate);
     background-image: none;
-    border-radius: .2rem;
-    box-shadow: 0 .2rem .55rem -.1rem rgba(0, 0, 0, .5);
-    /* Room between the label and the first entry, carried by the label so it survives
-       scrolling. The gap used to be a margin on the list, which is inside the scroller:
-       at rest it looked right and the moment anything scrolled it was gone, leaving an
-       entry pressed against the underside of the heading. */
-    padding-bottom: .55rem;
+    border-radius: 0;
+    box-shadow: 0 0 .4rem .4rem var(--synqt-pinned-plate);
+    color: var(--synqt-pinned-label);
+    font-weight: 700;
   }
 
-  /* Both labels are inset a few pixels further than the entries they cover, which is
-     invisible until something scrolls through the gap: the tail of the Q in "Quick start"
-     came up the left of "Tutorials" and stayed there. Widen the painted box to the edge of
-     the scrolling area without moving the text, which the padding pays back. Only the left
-     side needs it; on the right the entries stop where the label does. */
-  [dir="ltr"] .md-nav--lifted > .md-nav__list > .md-nav__item--active > .md-nav__link,
-  [dir="ltr"] .md-nav--secondary > .md-nav__title {
-    margin-left: -.5rem;
-    padding-left: .5rem;
-  }
-
-  [dir="rtl"] .md-nav--lifted > .md-nav__list > .md-nav__item--active > .md-nav__link,
-  [dir="rtl"] .md-nav--secondary > .md-nav__title {
-    margin-right: -.5rem;
-    padding-right: .5rem;
-  }
-
+  /* Room between the label and the first entry, enough to clear the edge fading out of
+     the label as well as the label itself. It is carried by the list rather than by the
+     label because the label is what is held still. As padding it would have travelled
+     with the plate and pushed the soft edge that much further down the list. The
+     reference makes the same trade for the same reason, on its own list. */
   .md-nav--lifted > .md-nav__list > .md-nav__item--active > .md-nav__link
     + .md-nav > .md-nav__list,
   .md-nav--secondary > .md-nav__title ~ .md-nav__list {
-    margin-top: .45rem;
+    margin-top: .6rem;
   }
 }
 
@@ -425,10 +410,13 @@ body {
    it. */
 :root {
   --synqt-sidebar-top: 5.5rem;
-  /* The surface a pinned sidebar label is drawn on: a shade lighter than the page, so the
-     label reads as a plate over the list rather than as part of it, and opaque, which is
-     what hides the entries scrolling behind it. */
-  --synqt-pinned-plate: #262c56;
+  /* What a pinned sidebar label is drawn in, both of them, and the C++ reference's own
+     (tools/docs-hooks/doxygen-synqt.css, #page-nav-title). The plate is Material's dark
+     background, opaque, which is what hides the entries scrolling behind it. The text is
+     quiet on it, because a label held still over a list is a marker and not a heading to
+     read twice. */
+  --synqt-pinned-plate: #1e2129;
+  --synqt-pinned-label: rgba(226, 228, 233, .56);
 }
 
 .md-container .md-sidebar {
