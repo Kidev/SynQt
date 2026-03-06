@@ -104,21 +104,29 @@ const GLYPHS = {
         {tag: "circle", cx: 0, cy: -3.2, r: 3.2, fill: "currentColor"},
         {tag: "path", d: "M -6,7.5 a 6,6.5 0 0 1 12,0 z", fill: "currentColor"},
     ],
-    // The client an edge hands to a session that has signed in as nobody: a field gate,
-    // shut. Two posts, a braced leaf hung between them, and no way through. Not the
-    // client's own glyph, because the whole of what a gate is, is what a visitor cannot get
-    // past, and a person-shaped disc says the opposite.
+    // The client an edge hands to a session that has signed in as nobody: a lock standing
+    // in the way, with the way running up to it on both sides and missing where it stands.
+    // Not the client's own glyph, because the whole of what a gate is, is what a visitor
+    // cannot get past, and a person-shaped disc says the opposite.
     //
-    // A boom barrier was drawn here first and read as a flag on a pole at the size a disc
-    // gives a glyph. This one is symmetrical, which is what stops it looking like a thing
-    // pointing sideways, and the brace is what says "shut" rather than "a box".
+    // Two things have to be in it, and both are. That it is on the way somewhere: the line
+    // arrives, stops, and goes on out the other side, so this is a place a visitor is
+    // already travelling through rather than an object beside the road. And what it opens
+    // for. A keyhole, which is the one mark that reads as "sign in" with no word next to it.
+    //
+    // Drawn twice before. A boom barrier read as a flag on a pole at the size a disc gives
+    // a glyph, and a shut field gate read as a crate. Both said "a thing", and neither said
+    // what the thing is doing there or what gets somebody past it.
     gate: [
-        {tag: "path", d: "M -7,-5.5 V 6.5 M 7,-5.5 V 6.5", fill: "none",
+        {tag: "path", d: "M -9,1.6 H -5.6 M 5.6,1.6 H 9", fill: "none",
          stroke: "currentColor", "stroke-width": 1.5, "stroke-linecap": "round"},
-        {tag: "rect", x: -5, y: -3.6, width: 10, height: 8, rx: 0.8, fill: "none",
-         stroke: "currentColor", "stroke-width": 1.3},
-        {tag: "path", d: "M -5,4.4 L 5,-3.6 M -5,0.4 H 5", fill: "none",
-         stroke: "currentColor", "stroke-width": 1.1},
+        {tag: "path", d: "M -2.6,-2 V -3.6 A 2.6,2.6 0 0 1 2.6,-3.6 V -2", fill: "none",
+         stroke: "currentColor", "stroke-width": 1.4, "stroke-linecap": "round"},
+        {tag: "rect", x: -5.6, y: -2, width: 11.2, height: 7.2, rx: 1.3, fill: "none",
+         stroke: "currentColor", "stroke-width": 1.5},
+        {tag: "circle", cx: 0, cy: 0.9, r: 1, fill: "currentColor"},
+        {tag: "path", d: "M 0,1.5 V 3.3", fill: "none", stroke: "currentColor",
+         "stroke-width": 1.2, "stroke-linecap": "round"},
     ],
     edge: [
         {tag: "circle", cx: 0, cy: 0, r: 7, fill: "none", stroke: "currentColor",
