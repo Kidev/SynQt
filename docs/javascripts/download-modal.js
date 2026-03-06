@@ -119,8 +119,12 @@
                          + encodeURIComponent(release)
                        : DL;
     var a = modal.querySelector("#synqt-dl-download");
+    var picking = !modal.querySelector("#synqt-dl-versions").hidden;
     a.href = base + "/" + assetFor(one.os, one.arch);
-    a.textContent = "Download for " + one.label;
+    // With the drop-downs open the platform is written in one of them, and a button
+    // repeating it is both the widest thing on the row and the second answer to a
+    // question nobody asked twice.
+    a.textContent = picking ? "Download" : "Download for " + one.label;
     modal.querySelector("#synqt-dl-platform").textContent = one.label;
     var windows = one.os === "windows";
     modal.querySelector("#synqt-dl-windows").hidden = !windows;
@@ -167,6 +171,13 @@
     // not name, and the buttons still point at whatever "latest" is when clicked.
     node.parentNode.hidden = !(version || release);
     node.textContent = release || version || "";
+    // Named on the row, and reached from it. The notes and the checksums for the release
+    // being fetched are behind the tag written here. A picked release has its own page;
+    // "latest" keeps the self-updating link, which is the same release the button holds.
+    node.href = release
+      ? "https://github.com/" + OWNER + "/" + REPO + "/releases/tag/"
+        + encodeURIComponent(release)
+      : LATEST;
   }
 
   function resolveVersion() {
@@ -244,30 +255,24 @@
       '  <h2 class="synqt-dl__title" id="synqt-dl-title">Get SynQt</h2>' +
       '  <p class="synqt-dl__sub">Install the latest release of the SynQt command line tool. It installs and pins the rest of the toolchain for you.</p>' +
       '  <p class="synqt-dl__platform">' +
-      '    <span class="synqt-dl__fact" hidden>Release: <strong id="synqt-dl-version"></strong></span>' +
+      '    <span class="synqt-dl__fact" hidden>Release: <a class="synqt-dl__release" id="synqt-dl-version" href="' + LATEST + '" target="_blank" rel="noopener" title="Release notes and checksums"></a></span>' +
       '    <span class="synqt-dl__fact">Platform: <strong id="synqt-dl-platform">checking&hellip;</strong></span>' +
       '  </p>' +
+      // One line, whichever it is showing. "More versions" gives up its own place on the
+      // row to the two drop-downs, so opening them moves nothing. The card is the same
+      // height and the same width open as shut, and the two choices sit where the button
+      // that asked for them was. The download button shortens at the same moment, since
+      // the platform it was naming is now written in the drop-down beside it.
       '  <div class="synqt-dl__row">' +
       '    <a class="synqt-dl__btn" id="synqt-dl-download" href="#" rel="noopener">Download latest</a>' +
       '    <button class="synqt-dl__btn synqt-dl__btn--secondary" id="synqt-dl-more" type="button" aria-expanded="false" aria-controls="synqt-dl-versions">More versions</button>' +
-      '  </div>' +
-      // Folded away, because the answer almost everybody wants is the newest build for the
-      // machine they are on, and that is the button above. Opened, it is the whole matrix:
-      // any published release, any platform a release carries a binary for. Picking either
-      // one moves the button, the facts row and the shell command together, so what is on
-      // screen is one answer rather than three.
-      '  <div class="synqt-dl__versions" id="synqt-dl-versions" hidden>' +
-      '    <label class="synqt-dl__pick">Release' +
-      '      <select id="synqt-dl-release"><option value="">Latest</option></select>' +
-      '    </label>' +
-      '    <label class="synqt-dl__pick">Platform' +
-      '      <select id="synqt-dl-target">' + targetOptions() + '</select>' +
-      '    </label>' +
-      '    <p class="synqt-dl__sublabel synqt-dl__last">Release notes and checksums are on ' +
-      '      <a href="' + LATEST + '" target="_blank" rel="noopener">the releases page</a>.</p>' +
+      '    <span class="synqt-dl__picks" id="synqt-dl-versions" hidden>' +
+      '      <select class="synqt-dl__pick" id="synqt-dl-release" aria-label="Release"><option value="">Latest</option></select>' +
+      '      <select class="synqt-dl__pick" id="synqt-dl-target" aria-label="Platform">' + targetOptions() + '</select>' +
+      '    </span>' +
       '  </div>' +
       '  <p class="synqt-dl__label">Or install from your terminal.</p>' +
-      // One shell line, the one for the platform this browser is on: the other is a
+      // One shell line, the one for the platform this browser is on. The other is a
       // command the visitor cannot run, and printing both means everybody reads two
       // lines to find theirs. Detection can be wrong (a Mac browsing for a Windows box),
       // so the other one is a click away rather than gone.
@@ -277,12 +282,12 @@
       '  <div class="synqt-dl__install" id="synqt-dl-posix" hidden>' +
       '    <p class="synqt-dl__sublabel">Linux and macOS:</p>' +
       '    <pre class="synqt-dl__pre"><button class="synqt-dl__copy" type="button">copy</button><code>' + ONELINER_SH + "</code></pre>" +
-      '    <p class="synqt-dl__warn"><strong>Read it before you run it.</strong> This one downloads a release, unpacks it, and copies one binary into a bin directory. Nothing else: <a href="' + INSTALL_SH_URL + '" target="_blank" rel="noopener">install.sh</a>.</p>' +
+      '    <p class="synqt-dl__warn"><strong>Always read a script before you run it.</strong> This one downloads a release, unpacks it, and copies one binary into a bin directory. Nothing else: <a href="' + INSTALL_SH_URL + '" target="_blank" rel="noopener">install.sh</a>.</p>' +
       '  </div>' +
       '  <div class="synqt-dl__install" id="synqt-dl-windows" hidden>' +
       '    <p class="synqt-dl__sublabel">Windows (PowerShell):</p>' +
       '    <pre class="synqt-dl__pre"><button class="synqt-dl__copy" type="button">copy</button><code>' + ONELINER_PS + "</code></pre>" +
-      '    <p class="synqt-dl__warn"><strong>Read it before you run it.</strong> This one downloads a release, unpacks it, and copies one binary into a bin directory. Nothing else: <a href="' + INSTALL_PS_URL + '" target="_blank" rel="noopener">install.ps1</a>.</p>' +
+      '    <p class="synqt-dl__warn"><strong>Always read a script before you run it.</strong> This one downloads a release, unpacks it, and copies one binary into a bin directory. Nothing else: <a href="' + INSTALL_PS_URL + '" target="_blank" rel="noopener">install.ps1</a>.</p>' +
       '  </div>' +
       '  <p class="synqt-dl__label">Or, if you already have Python, from PyPI.</p>' +
       '  <pre class="synqt-dl__pre"><button class="synqt-dl__copy" type="button">copy</button><code>' + ONELINER_PIP + "</code></pre>" +
@@ -298,12 +303,19 @@
       if (e.target === modal) close();
     });
 
+    // One way, not a toggle. The button is the question and the drop-downs are where it
+    // is answered, so once they are on the row there is nothing left for it to ask. Going
+    // back is picking Latest and the platform you are on, which is what it would have
+    // restored anyway.
     var more = modal.querySelector("#synqt-dl-more");
     more.addEventListener("click", function () {
-      var panel = modal.querySelector("#synqt-dl-versions");
-      panel.hidden = !panel.hidden;
-      more.setAttribute("aria-expanded", String(!panel.hidden));
-      if (!panel.hidden) loadReleases();
+      var picks = modal.querySelector("#synqt-dl-versions");
+      picks.hidden = false;
+      more.hidden = true;
+      more.setAttribute("aria-expanded", "true");
+      loadReleases();
+      apply();
+      modal.querySelector("#synqt-dl-release").focus();
     });
 
     modal.querySelector("#synqt-dl-target").addEventListener("change", function (e) {

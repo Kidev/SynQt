@@ -10,8 +10,13 @@
    fallback. Colors follow the brand custom properties set in extra.css
    (--md-primary-fg-color #201335, --md-accent-fg-color #00a6ed). */
 
+/* `hidden` means hidden, everywhere in this card. Every control in here carries a
+   `display` of its own, and a `display` on the element beats the user-agent rule that
+   `[hidden]` relies on: the button that opens the drop-downs sets `inline-block`, so
+   hiding it did nothing at all until this rule existed. */
+.synqt-dl [hidden],
 .synqt-dl[hidden] {
-  display: none;
+  display: none !important;
 }
 
 .synqt-dl {
@@ -106,13 +111,6 @@
   font-weight: 700;
 }
 
-/* The release the buttons resolve to, beside the platform they resolve for. The
-   release fact starts hidden and is shown once it is known (download-modal.js), so
-   a reader never sees a placeholder where a version number should be. */
-.synqt-dl__fact[hidden] {
-  display: none;
-}
-
 .synqt-dl__row {
   display: flex;
   flex-wrap: wrap;
@@ -121,10 +119,15 @@
   margin: 1rem 0 1.5rem;
 }
 
+/* The card hangs off `body`, whose font size is Material's own 0.5rem, and every piece
+   of prose in here states its size rather than taking that. The controls have to as
+   well: left inherited, the download button came out at one size (it is a link, and the
+   small-print rule further down was reaching it) and the button beside it at another. */
 .synqt-dl__btn {
   display: inline-block;
   padding: 0.65rem 1.1rem;
   border-radius: 0.5rem;
+  font-size: 0.75rem;
   font-weight: 600;
   text-decoration: none;
   cursor: pointer;
@@ -193,59 +196,69 @@
   margin-top: 1.5rem;
 }
 
-/* The panel behind "More versions": any published release, any platform one carries a
-   binary for. Folded away by default, because the answer almost everybody wants is the
-   newest build for the machine they are on, and that is the button it opens from. Set as a
-   panel rather than as two loose controls, so opening it reads as a place rather than as
-   the card growing two widgets. */
-.synqt-dl__versions[hidden] {
-  display: none;
-}
+/* The two drop-downs behind "More versions": any published release, any platform one
+   carries a binary for. They sit on the download row itself, in the place the button that
+   asked for them gives up, so the card is the same size open as shut -- a panel unfolding
+   under the row moved everything below it down the moment somebody asked a question about
+   versions, which is the one moment they are reading the row.
 
-.synqt-dl__versions {
+   Sized to the button beside them, not to a stock `select`: the row's height is the
+   button's, and a control half a line taller than it on the same row is what the card
+   would have grown by. A stock select on a dark card also arrives white, so the colours
+   are the card's too. */
+.synqt-dl__picks {
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.75rem 1.25rem;
-  margin: -0.75rem 0 1.5rem;
-  padding: 0.9rem 1rem;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 0.5rem;
-  background: rgba(255, 255, 255, 0.04);
+  gap: 0.6rem;
+  min-width: 0;
 }
 
 .synqt-dl__pick {
-  display: flex;
-  flex-direction: column;
-  gap: 0.3rem;
-  font-size: 0.8rem;
-  opacity: 0.78;
-}
-
-/* The two drop-downs are the controls this panel exists for, so they are set at the card's
-   own size rather than at the size of the label above them, and painted in the card's own
-   colours: a stock `select` on a dark card arrives white. */
-.synqt-dl__pick select {
-  min-width: 12rem;
-  padding: 0.45rem 0.6rem;
-  border: 1px solid rgba(255, 255, 255, 0.22);
-  border-radius: 0.4rem;
-  background: rgba(0, 0, 0, 0.35);
-  color: #e6e1ef;
-  font: inherit;
-  font-size: 0.9rem;
+  min-width: 0;
+  padding: 0.65rem 1.9rem 0.65rem 0.7rem;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 0.5rem;
+  background-color: rgba(255, 255, 255, 0.06);
+  color: inherit;
+  font-family: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: inherit;
   cursor: pointer;
+  /* The browser's own arrow is drawn in the browser's own colours, and on a dark card the
+     Windows one is a black mark on a black control. Drawn here instead, which is also what
+     `appearance: none` costs: it takes the whole control's paint, arrow included. */
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url('data:image/svg+xml;charset=utf-8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12"><path d="M2.5 4.5 6 8l3.5-3.5" fill="none" stroke="%23e6e1ef" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>');
+  background-repeat: no-repeat;
+  background-position: right 0.6rem center;
+  background-size: 0.7rem;
+  /* The platform names are the long ones and the release tags the short ones, so the two
+     are allowed to take the width they need and to give it up together when the row runs
+     out: an ellipsis on a platform name still names the platform. */
+  text-overflow: ellipsis;
 }
 
-.synqt-dl__pick select:focus-visible {
+.synqt-dl__pick:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+.synqt-dl__pick:focus-visible {
   outline: 2px solid var(--md-accent-fg-color, #00a6ed);
   outline-offset: 1px;
 }
 
-/* The two are one thing: the line and the caution about that line. Joined rather than
-   spaced, so the caution reads as part of the block it is about instead of as a notice
-   about the card. */
-.synqt-dl__versions .synqt-dl__last {
-  align-self: flex-end;
+/* The list itself is drawn by the platform, which does not take the card's colours: on a
+   dark control an unstyled popup is white text on white in some engines. */
+.synqt-dl__pick option {
+  background: #1a1430;
+  color: #e6e1ef;
+}
+
+/* Bold, because it is one of the two facts the row states, and a link because the notes
+   and the checksums for exactly this release are behind it. */
+.synqt-dl__release {
+  font-weight: 700;
 }
 
 .synqt-dl__pre {
@@ -365,9 +378,10 @@
   color: var(--md-accent-fg-color, #00a6ed);
 }
 
-/* The prose links (install.sh, install.ps1, all releases) sit inside small print, so
-   they are set at its size rather than the modal's. */
-.synqt-dl a {
+/* The prose links (install.sh, install.ps1) sit inside small print, so they are set at
+   its size rather than the modal's. The release on the facts row is not one of them: it is
+   a fact the row states, at the size the row states its other one. */
+.synqt-dl a:not(.synqt-dl__release) {
   font-size: 0.75rem;
 }
 
