@@ -176,14 +176,14 @@ every browser holding the room redraws itself; nobody wrote any of that.
 Six files are the whole system: one configuration file, which says what crosses each link,
 one QML file per entity, and the table the database keeps the messages in. Hover (or focus)
 an entity to read the file it is, or the mark on a line to read the block that says what
-crosses it; the project tree beside the drawing opens the same files, and one stays open
-until you move to another. The database opens two, its QML and the table that QML queries,
+crosses it, and the card that opens says the rest. The project tree under the drawing opens
+the same files, and one stays open until you move to another. The database opens two, its QML and the table that QML queries,
 since neither says much without the other, and a directory in the tree opens everything in
 it. Hover any line of a file to see what that line does, and a line that ends in an arrow
 opens the page covering it, whether that is a page of this guide or the class in the C++
 reference.
 
-The button under the tree opens this same drawing in the
+The button under it opens this same drawing in the
 [online designer](visual-editor.md), which runs in the browser with nothing installed. It is
 the same code that drew it here, so nothing is lost on the way: pull the mesh apart there,
 add an entity, and export the result as a project.
@@ -212,6 +212,25 @@ add an entity, and export the result as a project.
 </div>
 
 <div class="synqt-explorer__view">
+<div class="synqt-tree">
+<span class="synqt-tree__title">Project tree</span>
+<ul class="synqt-tree__list">
+<li class="synqt-tree__leaf"><span class="synqt-tree__file" data-file="config" tabindex="0" role="button" aria-label="Show synqt.yaml">synqt.yaml</span></li>
+<li class="synqt-tree__dir"><span class="synqt-tree__folder" data-file="gate client" tabindex="0" role="button" aria-label="Show both client entities">client</span></li>
+<li class="synqt-tree__dir synqt-tree__dir--nested"><span class="synqt-tree__folder" data-file="gate" tabindex="0" role="button" aria-label="Show client/gate/Main.qml">gate</span></li>
+<li class="synqt-tree__leaf synqt-tree__leaf--deep"><span class="synqt-tree__file" data-file="gate" tabindex="0" role="button" aria-label="Show client/gate/Main.qml">Main.qml</span></li>
+<li class="synqt-tree__dir synqt-tree__dir--nested"><span class="synqt-tree__folder" data-file="client" tabindex="0" role="button" aria-label="Show client/app/Main.qml">app</span></li>
+<li class="synqt-tree__leaf synqt-tree__leaf--deep"><span class="synqt-tree__file" data-file="client" tabindex="0" role="button" aria-label="Show client/app/Main.qml">Main.qml</span></li>
+<li class="synqt-tree__dir"><span class="synqt-tree__folder" data-file="web" tabindex="0" role="button" aria-label="Show the web edge entity">web</span></li>
+<li class="synqt-tree__dir synqt-tree__dir--nested"><span class="synqt-tree__folder" data-file="web" tabindex="0" role="button" aria-label="Show the edge's files">edge</span></li>
+<li class="synqt-tree__leaf synqt-tree__leaf--deep"><span class="synqt-tree__file" data-file="web" tabindex="0" role="button" aria-label="Show web/edge/Edge.qml">Edge.qml</span></li>
+<li class="synqt-tree__dir"><span class="synqt-tree__folder" data-file="database schema" tabindex="0" role="button" aria-label="Show the relational entities">db/relational</span></li>
+<li class="synqt-tree__dir synqt-tree__dir--nested"><span class="synqt-tree__folder" data-file="database schema" tabindex="0" role="button" aria-label="Show the store entity's files">store</span></li>
+<li class="synqt-tree__leaf synqt-tree__leaf--deep"><span class="synqt-tree__file" data-file="database schema" tabindex="0" role="button" aria-label="Show db/relational/store/Store.qml and db/relational/store/schema.sql">Store.qml</span></li>
+<li class="synqt-tree__leaf synqt-tree__leaf--deep"><span class="synqt-tree__file" data-file="database schema" tabindex="0" role="button" aria-label="Show db/relational/store/Store.qml and db/relational/store/schema.sql">schema.sql</span></li>
+</ul>
+</div>
+
 
 <div class="synqt-explorer__files">
 
@@ -470,24 +489,6 @@ CREATE INDEX IF NOT EXISTS messages_by_time
 
 </div>
 
-<div class="synqt-tree">
-<span class="synqt-tree__title">Project tree</span>
-<ul class="synqt-tree__list">
-<li class="synqt-tree__leaf"><span class="synqt-tree__file" data-file="config" tabindex="0" role="button" aria-label="Show synqt.yaml">synqt.yaml</span></li>
-<li class="synqt-tree__dir"><span class="synqt-tree__folder" data-file="gate client" tabindex="0" role="button" aria-label="Show both client entities">client</span></li>
-<li class="synqt-tree__dir synqt-tree__dir--nested"><span class="synqt-tree__folder" data-file="gate" tabindex="0" role="button" aria-label="Show client/gate/Main.qml">gate</span></li>
-<li class="synqt-tree__leaf synqt-tree__leaf--deep"><span class="synqt-tree__file" data-file="gate" tabindex="0" role="button" aria-label="Show client/gate/Main.qml">Main.qml</span></li>
-<li class="synqt-tree__dir synqt-tree__dir--nested"><span class="synqt-tree__folder" data-file="client" tabindex="0" role="button" aria-label="Show client/app/Main.qml">app</span></li>
-<li class="synqt-tree__leaf synqt-tree__leaf--deep"><span class="synqt-tree__file" data-file="client" tabindex="0" role="button" aria-label="Show client/app/Main.qml">Main.qml</span></li>
-<li class="synqt-tree__dir"><span class="synqt-tree__folder" data-file="web" tabindex="0" role="button" aria-label="Show the web edge entity">web</span></li>
-<li class="synqt-tree__dir synqt-tree__dir--nested"><span class="synqt-tree__folder" data-file="web" tabindex="0" role="button" aria-label="Show the edge's files">edge</span></li>
-<li class="synqt-tree__leaf synqt-tree__leaf--deep"><span class="synqt-tree__file" data-file="web" tabindex="0" role="button" aria-label="Show web/edge/Edge.qml">Edge.qml</span></li>
-<li class="synqt-tree__dir"><span class="synqt-tree__folder" data-file="database schema" tabindex="0" role="button" aria-label="Show the relational entities">db/relational</span></li>
-<li class="synqt-tree__dir synqt-tree__dir--nested"><span class="synqt-tree__folder" data-file="database schema" tabindex="0" role="button" aria-label="Show the store entity's files">store</span></li>
-<li class="synqt-tree__leaf synqt-tree__leaf--deep"><span class="synqt-tree__file" data-file="database schema" tabindex="0" role="button" aria-label="Show db/relational/store/Store.qml and db/relational/store/schema.sql">Store.qml</span></li>
-<li class="synqt-tree__leaf synqt-tree__leaf--deep"><span class="synqt-tree__file" data-file="database schema" tabindex="0" role="button" aria-label="Show db/relational/store/Store.qml and db/relational/store/schema.sql">schema.sql</span></li>
-</ul>
-</div>
 
 </div>
 

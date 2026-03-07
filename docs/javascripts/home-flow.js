@@ -3,12 +3,12 @@
 
 /* The home page's "What it looks like" project.
  *
- * The section is one small system, drawn three times: a project tree of its nine files,
- * a diagram of the mesh those files build, with a file behind every part of it (the
- * configuration behind the cog, one contract behind each of the three links, one QML
- * file behind each entity), and a file view showing exactly one of those
- * files at a time. Pointing at a file in either the tree or the diagram opens it, and
- * lights it in the other, so the two are one set of triggers over the same nine files.
+ * The section is one small system, seen the way the design editor sees it: the mesh drawn
+ * across the top, a project tree of its six files under it, and beside the tree the one
+ * file being read. Every part of the drawing has a file behind it -- one QML file per
+ * entity, and the configuration behind each contract mark, since what crosses a link is
+ * written there. Pointing at a file in either the tree or the drawing opens it, and lights
+ * it in the other, so the two are one set of triggers over the same six files.
  * A file stays until another is pointed at, so the reader can move the pointer into the
  * file and read it, and it takes a moment's dwell to open, so a pointer crossing the
  * section on its way elsewhere does not leaf through every file behind it. The
@@ -176,11 +176,16 @@
     "  filter: drop-shadow(0 0 3px currentColor) drop-shadow(0 0 9px currentColor); }",
     ".synqt-trigger--on.link__doc { stroke: var(--accent); }",
     ".synqt-trigger--on.link__doc .link__doc-box { stroke-width: 1.8; }",
-    ".node:focus-visible, .link__doc:focus-visible { outline: 2px solid var(--accent); }"
+    ".node:focus-visible, .link__doc:focus-visible { outline: 2px solid var(--accent); }",
+    // The card the editor opens over whatever the pointer is on, opening here over the same
+    // drawing. It is `position: fixed` in the editor's own stylesheet, which is the viewport
+    // either way, so all this page owes it is a place in the stack. Above the section, below
+    // the header it can never reach from down here.
+    ".tip { z-index: 60; }"
   ].join("\n");
 
   /* How much room is left round the drawing, in the units it is drawn in. The same margin
-   * the editor's own picture export leaves, and for the same reason: a name written under a
+   * the editor's own picture export leaves, and for the same reason. A name written under a
    * node reaches past the node. */
   var MESH_MARGIN = 28;
 
@@ -216,7 +221,8 @@
       import(DESIGNER + "canvas.js"),
       import(DESIGNER + "project.js"),
       fetch(DESIGNER + "examples.json").then(function (r) { return r.json(); }),
-      fetch(DESIGNER + "design.css").then(function (r) { return r.text(); })
+      fetch(DESIGNER + "design.css").then(function (r) { return r.text(); }),
+      import(DESIGNER + "tip.js")
     ]).then(function (parts) {
       var canvas = parts[0];
       var project = parts[1];
@@ -259,6 +265,8 @@
                                    box.width + (MESH_MARGIN * 2),
                                    box.height + (MESH_MARGIN * 2)].join(" "));
 
+      explain(shadow, svg, design, parts[4]);
+
       var found = [];
       ["entity", "contract"].forEach(function (kind) {
         var parts = shadow.querySelectorAll("[data-" + kind + "]");
@@ -278,6 +286,79 @@
     }).catch(function () {
       return [];
     });
+  }
+
+  /* The editor's own card, over the editor's own drawing.
+   *
+   * Everything the card says is a function of the design document, so it is the editor's
+   * `tipFor` rather than a shorter one written for this page: a second answer to what an
+   * entity is would drift from the first the week either changed, and this section exists to
+   * show the real thing. What is this page's is where the card goes -- in the shadow root,
+   * where the editor's stylesheet is, so it is painted without a line of CSS here.
+   *
+   * Pointer only. A card that opened on focus would fight the file this page opens on focus,
+   * and the file is the better answer for somebody moving through by keyboard: it is the same
+   * facts, in a panel that stays.
+   */
+  function explain(shadow, svg, design, tip) {
+    var card = document.createElement("div");
+    var showing = null;
+    card.className = "tip";
+    card.hidden = true;
+    shadow.appendChild(card);
+
+    function hide() {
+      showing = null;
+      card.hidden = true;
+      card.replaceChildren();
+    }
+
+    // Instant navigation replaces the page, and with it this drawing; the window it was
+    // listening to survives. Each drawing takes its own listener off the moment its card
+    // is no longer in a document, so leaving the home page and coming back does not leave
+    // a scroll handler behind per visit.
+    function hideWhileHere() {
+      if (!card.isConnected) {
+        window.removeEventListener("scroll", hideWhileHere);
+        return;
+      }
+      hide();
+    }
+
+    svg.addEventListener("pointermove", function (event) {
+      var what = tip.whatIsUnder(event.target);
+      var key = what ? [what.kind, what.name, what.link, what.consumer].join("\n") : "";
+      if (!what) {
+        hide();
+        return;
+      }
+      // Rebuilt only when the answer changes, so the card does not flicker while the
+      // pointer travels across the thing it is already describing.
+      if (key !== showing) {
+        var body = tip.tipFor(design, what);
+        if (!body) {
+          hide();
+          return;
+        }
+        showing = key;
+        card.replaceChildren(body);
+        card.hidden = false;
+      }
+      // Measured after it is shown, so what is flipped is the size it has, and it
+      // opens on the other side of the pointer rather than off the edge of the window.
+      var box = card.getBoundingClientRect();
+      var x = event.clientX + 18 + box.width > window.innerWidth
+        ? event.clientX - 18 - box.width : event.clientX + 18;
+      var y = Math.min(event.clientY + 12, window.innerHeight - box.height - 8);
+      card.style.left = Math.max(8, x) + "px";
+      card.style.top = Math.max(8, y) + "px";
+    });
+
+    svg.addEventListener("pointerleave", hide);
+    // A pointer that leaves by scrolling never fires `pointerleave`, and a card left
+    // hanging over the page after the drawing has gone past is the one way this can be
+    // worse than no card at all.
+    window.addEventListener("scroll", hideWhileHere, { passive: true });
   }
 
   function prepare(explorer, drawn) {

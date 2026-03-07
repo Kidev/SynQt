@@ -413,35 +413,36 @@
   }
 }
 
-/* --- "What it looks like": the diagram, and the file behind the part of it you
+/* --- "What it looks like": the drawing, and the file behind the part of it you
        are pointing at ---------------------------------------------------------
 
-   Two columns: the mesh those files build, drawn and animated, and the editor
-   beside it, which is the file being read with the project tree down its right
-   edge. Pointing at a file in the tree, or at the part of the diagram it is
-   behind, opens it and lights it in the other, and it stays until another is
-   pointed at, so the pointer is free to move into the file and read it.
+   The design editor's own arrangement, with the editing taken out: the mesh
+   across the top, the project under it, the tree in a column on the left and
+   whichever file is open beside it. Same code drawing the same project, and now
+   in the same places, so a reader who opens the designer from the button below
+   is looking at what they were reading rather than at a rearrangement of it.
+   Pointing at a file in the tree, or at the part of the drawing it is behind,
+   opens it and lights it in the other, and it stays until another is pointed at,
+   so the pointer is free to move into the file and read it.
 
-   The editor takes exactly what it needs: as wide as the longest line in these
-   nine files, plus the tree's longest file name, and no wider. Everything left
-   over goes to the drawing, which is the part of this that can use it, and which
-   is where a reader looks first.
+   One column rather than two. The drawing beside the file would put the drawing
+   in half the width and give the other half to a panel of code the drawing is
+   supposed to be explaining. In one column each of them has the width it wants.
 
-   The file used to be a popover hanging off the part it belonged to, which is
-   what forced the pin: a popover closes the moment the pointer leaves the node,
+   The file is a pane of its own rather than a popover hanging off the part it
+   belongs to. A popover closes the moment the pointer leaves the node,
    which is no use for reading forty lines of YAML and impossible on a touch
-   screen. With the file in a column of its own there is nothing to open and
-   nothing to close, so there is no pin either, and the card can no longer cover
-   the diagram it came from. */
+   screen, and it would force a pin. With the file in a pane of its own there is nothing to open and
+   nothing to close, so there is no pin either, and nothing can cover the drawing
+   it came from. */
 
 .synqt-explorer {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 1.75rem;
-  align-items: center;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
   margin-top: 1.5rem;
-  /* The size the files are set at, in one place: the file view is sized in
-     columns of this font (`ch`), so the two cannot drift apart. */
+  /* The size the files are set at, in one place, so the panel's fixed height and
+     the lines that have to fit inside it cannot drift apart. */
   --synqt-code-size: .54rem;
 }
 
@@ -450,24 +451,32 @@
   flex-direction: column;
   align-items: center;
   gap: .9rem;
+  width: 100%;
   min-width: 0;
 }
 
 /* --- The project tree -----------------------------------------------------
-   The nine files as they would sit on disk, in a panel down the right edge of the
-   file view, the way an editor keeps its project beside the file it has open. It
-   is the same set of triggers as the diagram, in the shape a reader already knows,
-   so a file whose place in the mesh is not obvious (the contracts, on the lines
-   between entities) is still one click away. A directory is a trigger too, for
-   whatever is under it.
+   The six files as they would sit on disk, in a column down the left of the file
+   view, where the design editor keeps its own. It is the same set of triggers as
+   the drawing above it, in the shape a reader already knows, so a file whose place
+   in the mesh is not obvious (the contracts, on the lines between entities) is
+   still one click away. A directory in the tree is a trigger too, for whatever is
+   under it.
 
    Inside the editor rather than beside it, so it has no box of its own: a rule
    between the two panes is what separates them, exactly as in the editor this is
    borrowed from. */
 .synqt-tree {
-  flex: none;
-  padding-left: .55rem;
-  border-left: 1px solid rgba(255, 255, 255, .12);
+  min-width: 0;
+  overflow: hidden;
+  /* A lit row paints .3rem wider than its text on each side, which is outside this box
+     and would be clipped by the `overflow` above. Take that much back on the left and
+     pay it in padding, so the text sits where it did and the light around it is inside
+     the box that clips. */
+  margin-left: -.3rem;
+  padding-left: .3rem;
+  padding-right: .55rem;
+  border-right: 1px solid rgba(255, 255, 255, .12);
   font-family: var(--md-code-font-family, "Roboto Mono", monospace);
   font-size: .58rem;
   line-height: 1.55;
@@ -621,24 +630,33 @@
 }
 
 /* --- The file view --------------------------------------------------------
-   One editor: the file being read, and the project it is part of down its right
-   edge. One box, one size, whichever file is in it, so moving from the six line
-   contract to the twenty line configuration changes what is written here and
-   nothing else. */
+   One editor: the project down the left, the file being read beside it. The
+   arrangement is the design editor's own -- the drawing across the top and the
+   files under it, the tree in a fixed column and whichever file is open taking
+   the rest -- because this section is that editor with the editing taken out,
+   and a reader who opens the designer from the button under it should recognise
+   what they are looking at rather than have to find it again.
+
+   One box, one size, whichever file is in it, so moving from the six line
+   contract to the forty line client changes what is written here and nothing
+   else. */
 
 .synqt-explorer__view {
-  display: flex;
-  /* With the rule the tree hangs off, this and the tree's own padding are the
-     whole gutter between the file and the project beside it. Narrow, because
-     every pixel of it is a pixel the drawing in the other column does not get:
-     the editor asks for exactly what it needs and the grid hands the rest over. */
+  display: grid;
+  /* The tree's own column, at the width of the deepest path in it, and the file
+     takes everything left over. Fixed rather than sized to its contents so that
+     the file beside it does not move an inch when the tree's rows light up. */
+  grid-template-columns: 10.5rem minmax(0, 1fr);
   gap: .6rem;
-  width: max-content;
-  max-width: 100%;
-  /* Fixed, and the same for every file: it is the height of the longest of the
-     nine, the configuration, so no file scrolls. A panel sized to the file being
-     read would be a different height for each of them, and would move the diagram
-     beside it under the pointer that is still pointing at the diagram. */
+  width: 100%;
+  /* The drawing's own width, so the two stack as one column rather than as a
+     picture with a wider panel under it. */
+  max-width: 46rem;
+  margin-inline: auto;
+  /* Fixed, and the same for every file: the tallest of the six is the client's
+     forty four lines, and a panel sized to the file being read would be a
+     different height for each of them, which moves the whole page under a
+     pointer that is still pointing at the tree. */
   height: 37.75rem;
   min-width: 0;
   background: #0d1224;
@@ -652,23 +670,14 @@
   display: flex;
   flex-direction: column;
   flex: 1 1 auto;
-  /* Wide enough for the longest line in these nine files and no wider: this is a
-     column of code, so any width past its longest line is width the drawing next
-     to it could have had.
-     Sixty six columns is that longest line (the database's caller check) and two
-     more are the arrow a linked line grows on hover, which takes its width whether
-     it is showing or not. They are measured in `ch`, the width of a digit in the
-     font the files are actually set in, rather than in a length that assumes one.
-     A monospaced face's own metrics decide how wide sixty eight columns are, they
-     differ from face to face, and which face a reader gets depends on what their
-     machine has and whether the web font arrived at all; a width in rem is right
-     for one of those cases and clips the end of a line in the rest. The padding
-     each line carries, its accent rule, and a pixel or two of rounding are added
-     on top. It shrinks below this only where the row stacks (`max-width`). */
+  /* Whatever the tree leaves, with the code set flush left inside it, which is
+     what a source pane is. The lines are the file's own length and the panel is
+     the panel's. The drawing is above it and
+     the two are the same width, so there is nothing to take the width from.
+     `min-width: 0` because a grid column will otherwise refuse to shrink below
+     the widest unbreakable thing in it, and every line of a file is one. */
   font-family: var(--md-code-font-family, "Roboto Mono", monospace);
   font-size: var(--synqt-code-size);
-  width: calc(68ch + 1.2rem);
-  max-width: 100%;
   min-width: 0;
 }
 
@@ -742,7 +751,7 @@
 }
 
 /* Every file starts at the top of the panel. Centering a short one in the space
-   instead reads better standing still, but the nine files are read one after
+   instead reads better standing still, but the six files are read one after
    another: each change of file would then slide the code up or down by half the
    difference in their lengths, under a pointer that is on its way to a line.
    The file ends where the file ends: a short one leaves the rest of the panel
@@ -759,11 +768,11 @@
 }
 
 /* Body code blocks wrap as a backstop against a long line (extra.css). A file
-   here must not: its lines are the file's, and the glossary hands its
+   here must not. Its lines are the file's, and the glossary hands its
    explanations out one line at a time, so a wrapped line would be one entry
-   spread over two rows. The panel is sized for the longest line these nine files
-   have, so there is nothing to wrap; below the width where that stops being true
-   the media query at the end of this section turns wrapping back on. Written as
+   spread over two rows. At the width this section gets on a desktop there is
+   nothing to wrap anyway. Below the width where that stops being true the media
+   query at the end of this section turns wrapping back on. Written as
    `pre > code` to match the specificity of the rule it is overriding. */
 .synqt-file pre > code {
   white-space: pre;
@@ -934,49 +943,28 @@
   line-height: 1.4;
 }
 
-/* The row needs the editor's own width (the longest line of these nine files, plus
-   the tree beside it) and enough left over for the drawing to still be a drawing.
-   Below that the drawing takes a row of its own and the editor follows it, which
-   keeps the editor at exactly the width it was and spends the lost width on the
-   only thing that can give it up. */
-@media screen and (max-width: 88em) {
-  .synqt-explorer {
-    grid-template-columns: minmax(0, 1fr);
-    justify-items: center;
-    gap: 1.5rem;
-  }
-
-  /* `justify-items: center` stops a grid item stretching, and the drawing is the
-     one of the two that was living off that stretch: left to its content it
-     collapses to half the width of its own cap. */
-  .synqt-mesh {
-    width: 100%;
-  }
-
-  /* On its own row the drawing has the whole width, and taking all of it would push the
-     file it explains most of a screen further down. It keeps more than the hand-drawn
-     diagram did, because there is more written on it and it is what shrinks first. */
-  .synqt-flow__stage {
-    max-width: 36rem;
-  }
-}
-
 /* Too narrow for a file and a tree side by side. The tree keeps its job and
-   loses its shape: the nine files as a wrapped row of names above the file, with
+   loses its shape: the six files as a wrapped row of names above the file, with
    the directories dropped, since a path is not worth two lines of a phone
-   screen. */
-@media screen and (max-width: 50em) {
+   screen.
+
+   The width is where the tree's column stops being affordable rather than where
+   it stops fitting: the longest line of these files is 74 columns, and below
+   about this the file's own column is narrower than that, so the file would
+   scroll sideways while a fixed tree column sat beside it holding names half
+   its width. The tree gives its column up first. */
+@media screen and (max-width: 60em) {
   .synqt-explorer__view {
-    flex-direction: column;
+    grid-template-columns: minmax(0, 1fr);
     height: 41.5rem;
   }
 
   .synqt-tree {
-    order: -1;
     padding: 0 0 .5rem;
-    border-left: 0;
+    border-right: 0;
     border-bottom: 1px solid rgba(255, 255, 255, .12);
     margin-bottom: .5rem;
+    overflow: visible;
   }
 
   .synqt-tree__title,
@@ -987,7 +975,7 @@
 
   /* `:not([hidden])` only to reach the specificity of Material's own
      `.md-typeset ul:not([hidden]){display:flow-root}`, which otherwise wins and
-     leaves the nine names stacked one per line. */
+     leaves the file names stacked one per line. */
   .md-typeset .synqt-tree__list:not([hidden]),
   .synqt-tree__list {
     display: flex;
