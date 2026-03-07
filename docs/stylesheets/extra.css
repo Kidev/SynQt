@@ -443,8 +443,15 @@ body {
 @media screen and (min-width: 76.25em) {
   .md-sidebar__scrollwrap {
     overflow-y: auto;
-    max-height: calc(100vh - var(--synqt-sidebar-top) - 2.4rem) !important;
-    margin: 0;
+    /* The .4rem is the room the pinned label's halo needs above and beside it (see the
+       pinned-label rules): this is a scroll container, so it clips at its own padding
+       edge, and with the label sitting exactly in the corner the halo was cut square on
+       the two sides it had nothing to spare. The padding is given back on the same two
+       sides as negative margin and added to the height, so the box the reader sees --
+       where the first entry starts, how far down the list runs -- is where it was. */
+    max-height: calc(100vh - var(--synqt-sidebar-top) - 2rem) !important;
+    margin: -.4rem -.4rem 0;
+    padding: .4rem .4rem 0;
   }
 
   /* And the sidebar itself is that tall, which is what makes it stop above the footer.
