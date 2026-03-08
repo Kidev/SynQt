@@ -69,7 +69,12 @@ export function frontsOf(design) {
         // nothing under it yet is a front nobody has wired, which is a state to draw rather
         // than a state to hide.
         if (isFront(link)) {
-            found.set(String(link.owner || ""), {link, tiers: behindOf(link)});
+            // The project's own scopes travel with the front, because the seats on its back
+            // are one per scope and a seat for a word the project does not use is a seat
+            // that can only write a `behind:` line `synqt check` refuses. `seatsOfFront` is
+            // read from three files and takes only the front, so this is where they arrive.
+            found.set(String(link.owner || ""),
+                      {link, tiers: behindOf(link), scopes: scopesOf(design)});
         }
     }
     return found;

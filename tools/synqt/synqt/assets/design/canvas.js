@@ -653,10 +653,14 @@ function frontOutline() {
 // hiding it would make the wiring something a reader has to know to look for.
 export function seatsOfFront(front) {
     const tiers = (front && front.tiers) || {};
-    return SCOPES.map((scope, index) => ({
+    // The project's scopes, which `frontsOf` reads out of the document and hands over here.
+    // The four defaults are the fallback for a front built without them, never the answer
+    // for a project that named its own.
+    const scopes = (front && front.scopes && front.scopes.length) ? front.scopes : SCOPES;
+    return scopes.map((scope, index) => ({
         scope,
         tier: tiers[scope] || "",
-        at: seatPoint(index, SCOPES.length),
+        at: seatPoint(index, scopes.length),
     }));
 }
 
