@@ -106,6 +106,29 @@ PROFILE = "docker"
 DOCKER_DIR = "docker"
 CLIENT_MODES = ("image", "host")
 
+# Where the image assembles the checkout it builds with, and the four directories that make
+# one. They mirror `_FRAMEWORK_DIRS` in tools/synqt/_build_backend.py plus the CLI itself,
+# because that backend is what runs when pip installs the CLI out of this tree: it vendors
+# `src/`, `cmake/` and `tools/synqtc/` from beside the package, so those three have to be
+# there, at those paths, or the install produces a CLI that cannot build anything.
+#
+# Named build contexts rather than one context at the top of the checkout: a working
+# checkout also holds `build/`, `site/` and `node_modules/`, and a context is transferred
+# whole before a single COPY is read. Measured at 17 GB against 14 MB for these four.
+SYNQT_SRC_DIR = "/opt/synqt"
+SYNQT_CONTEXTS = (
+    ("synqt-cmake", "cmake", f"{SYNQT_SRC_DIR}/cmake"),
+    ("synqt-src", "src", f"{SYNQT_SRC_DIR}/src"),
+    ("synqtc", "tools/synqtc", f"{SYNQT_SRC_DIR}/tools/synqtc"),
+    ("synqt-cli", "tools/synqt", f"{SYNQT_SRC_DIR}/tools/synqt"),
+)
+
+#: What the image installs when it is handed a checkout. The CLI out of it, path and all.
+LOCAL_PIP_SPEC = f"{SYNQT_SRC_DIR}/tools/synqt"
+
+#: And what it installs when there is no checkout to hand it. The published distribution.
+PUBLISHED_PIP_SPEC = "synqt"
+
 # Where the project lives inside the image. Absolute and fixed, because every path in a
 # topology is resolved relative to the directory an entity is started from.
 APP_DIR = "/app"
@@ -160,6 +183,27 @@ _ENGINES: Dict[str, Dict[str, Any]] = {
 
 
 # reading the project
+
+def checkout_source() -> Optional[Path]:
+    """The SynQt checkout this CLI is running out of, or None if it is not running from one.
+
+    What the generated image builds with. `synqt` is not on PyPI yet, so an image that
+    reached for the published distribution would stop at `pip install` before it compiled a
+    line, and even once it is published, a developer running `synqt docker up` out of a
+    checkout means the checkout, not last month's release.
+
+    None is the installed case. A wheel or the frozen binary carries the framework under
+    `synqt/framework/` but not the CLI's own sources, so there is nothing here to build
+    from, and the published distribution is the right answer.
+    """
+    try:
+        root = appmodel.framework_root()
+    except Exception:                    # noqa: BLE001 -- no checkout is an answer, not an error
+        return None
+    if all((root / where).is_dir() for _, where, _ in SYNQT_CONTEXTS):
+        return root
+    return None
+
 
 def service_entities(config: Dict[str, Any]) -> List[Dict[str, Any]]:
     """Every entity that becomes a container: all of them except the client.
@@ -428,7 +472,8 @@ def _provider_loopback(engine: str, entity: str) -> List[str]:
 
 # the generated Dockerfile
 
-def render_dockerfile(config: Dict[str, Any], *, client: str = "image") -> str:
+def render_dockerfile(config: Dict[str, Any], *, client: str = "image",
+                      from_checkout: bool = True) -> str:
     """The image every entity container runs.
 
     Three stages. ``toolchain`` provisions the pinned Qt and Emscripten: it is the slow one
@@ -438,8 +483,13 @@ def render_dockerfile(config: Dict[str, Any], *, client: str = "image") -> str:
     with none of the compilers.
 
     `client`: ``image`` builds the WebAssembly bundle in here too, which is what makes the
-    quick start need nothing installed; ``host`` leaves it out, and the compose file mounts
+    quick start need nothing installed. ``host`` leaves it out, and the compose file mounts
     the bundle ``synqt build`` produced outside, which is much faster to iterate on.
+
+    `from_checkout`: whether the ``build`` stage installs the CLI out of the checkout this
+    command is running from, handed to it as named build contexts, or reaches for the
+    published distribution. :func:`checkout_source` is what answers that, and it is passed
+    in rather than asked for here so this stays a function of its arguments.
     """
     wasm = client == "image"
     threads = (config.get("build") or {}).get("client_threads") or "single"
@@ -549,6 +599,32 @@ def render_dockerfile(config: Dict[str, Any], *, client: str = "image") -> str:
         f"WORKDIR {APP_DIR}",
         "COPY . .",
         "",
+    ]
+    lines += ([
+        "# Which synqt to build with: the checkout `synqt docker init` was run out of.",
+        "#",
+        "# It arrives as four named build contexts rather than as part of the project, so",
+        "# every build reads the checkout as it is now. A copy taken at init would be a",
+        "# second SynQt on the machine, going stale from the moment it was written, and the",
+        "# failure that follows is an image built from last week's framework with nothing",
+        "# saying so. The compose file is where the four are pointed at a path.",
+        "#",
+        "# All four, because installing the CLI runs tools/synqt/_build_backend.py, which",
+        "# vendors src/, cmake/ and tools/synqtc/ from beside the package into the wheel. A",
+        "# CLI installed without them scaffolds and builds nothing.",
+    ] + [f"COPY --from={name} . {into}" for name, _, into in SYNQT_CONTEXTS] + [
+        "",
+        "# Overridable all the same: a name, a wheel or a git URL, for the day `pip install",
+        "# synqt` is a thing that works. In the environment rather than as a --build-arg,",
+        "# because `up --build` takes no build arguments; the compose file passes this",
+        "# variable through to here.",
+        "#",
+        "# After the COPY rather than before it, so a spec naming a path is actually in the",
+        "# image by the time pip looks for it. That does mean an edit to the app invalidates",
+        "# this layer, which is what the pip cache mount is for: the reinstall is a copy.",
+        f"ARG SYNQT_PIP_SPEC={LOCAL_PIP_SPEC}",
+        "RUN --mount=type=cache,target=/root/.cache/pip pip install \"$SYNQT_PIP_SPEC\"",
+    ] if from_checkout else [
         "# Which synqt to build with. The default is the published CLI, which carries the",
         "# framework's own sources, so nothing outside this file is needed. Point it at a",
         "# path inside the project, or at a git URL, to build against a checkout instead:",
@@ -560,8 +636,10 @@ def render_dockerfile(config: Dict[str, Any], *, client: str = "image") -> str:
         "# After the COPY rather than before it, so a path spec is actually in the image by",
         "# the time pip looks for it. That does mean an edit to the app invalidates this",
         "# layer, which is what the pip cache mount is for: the reinstall is a local copy.",
-        "ARG SYNQT_PIP_SPEC=synqt",
+        f"ARG SYNQT_PIP_SPEC={PUBLISHED_PIP_SPEC}",
         "RUN --mount=type=cache,target=/root/.cache/pip pip install \"$SYNQT_PIP_SPEC\"",
+    ])
+    lines += [
         "",
         "# QTDIR names the kit installed above, which is how the toolchain resolver finds it",
         "# without a provisioned synqt/toolchain directory in the project.",
@@ -767,10 +845,35 @@ def render_dockerignore() -> str:
 
 # the generated compose file
 
+def _build_contexts(checkout: Optional[Path], indent: str) -> List[str]:
+    """The `additional_contexts:` block that hands a build the checkout, or nothing.
+
+    Four narrow contexts and not one at the top of the checkout. A build context is
+    transferred whole before the first COPY is read, and a working checkout carries a build
+    tree, a built docs site and a node_modules beside the four directories that are wanted.
+    """
+    if not checkout:
+        return []
+    root = checkout.as_posix()
+    lines = [f"{indent}# Where the SynQt this image installs is read from, every build, so it",
+             f"{indent}# is the checkout as it is now rather than a copy that went stale.",
+             f"{indent}# Set SYNQT_SRC to build against a different one.",
+             f"{indent}additional_contexts:"]
+    for name, where, _ in SYNQT_CONTEXTS:
+        lines.append(f"{indent}  {name}: ${{SYNQT_SRC:-{root}}}/{where}")
+    return lines
+
+
 def render_compose(config: Dict[str, Any], addresses: Dict[str, str], *,
                    subnet: str = DEFAULT_SUBNET, client: str = "image",
-                   port: Optional[int] = None) -> str:
-    """``docker-compose.yml``: the containers, the network they share, and the start order."""
+                   port: Optional[int] = None,
+                   checkout: Optional[Path] = None) -> str:
+    """``docker-compose.yml``: the containers, the network they share, and the start order.
+
+    `checkout` is the SynQt the image builds with, from :func:`checkout_source`. It is
+    written as the default of an environment variable rather than as a bare path, so a
+    checkout that moves is one `SYNQT_SRC=...` away rather than a regeneration.
+    """
     project = (config.get("project") or {}).get("name") or "synqt-app"
     edge = edge_entity(config)
     edge_name = edge.get("name") if edge else None
@@ -779,6 +882,7 @@ def render_compose(config: Dict[str, Any], addresses: Dict[str, str], *,
     engine_of = {entity["name"]: (name, spec) for entity, name, spec in engines(config)}
     data_dirs = embedded_data_dirs(config)
     image = f"{project}-synqt:latest"
+    pip_spec = LOCAL_PIP_SPEC if checkout else PUBLISHED_PIP_SPEC
 
     lines = [
         "# SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux",
@@ -806,11 +910,11 @@ def render_compose(config: Dict[str, Any], addresses: Dict[str, str], *,
         "  build:",
         "    context: .",
         f"    dockerfile: {DOCKER_DIR}/Dockerfile",
+    ] + _build_contexts(checkout, "    ") + [
         "    args:",
-        "      # Which synqt the image builds with. The default is the published CLI; set",
-        "      # SYNQT_PIP_SPEC in the environment to build against a checkout or a local",
-        "      # wheel instead, e.g. SYNQT_PIP_SPEC=./vendor/synqt synqt docker up",
-        "      SYNQT_PIP_SPEC: ${SYNQT_PIP_SPEC:-synqt}",
+        "      # Which synqt the image builds with. Set SYNQT_PIP_SPEC in the environment to",
+        "      # install something else: a name, a wheel, a git URL, or a path in the project.",
+        f"      SYNQT_PIP_SPEC: ${{SYNQT_PIP_SPEC:-{pip_spec}}}",
         "  restart: unless-stopped",
         "  depends_on:",
         "    mesh-init:",
@@ -826,8 +930,9 @@ def render_compose(config: Dict[str, Any], addresses: Dict[str, str], *,
         "    build:",
         "      context: .",
         f"      dockerfile: {DOCKER_DIR}/Dockerfile",
+    ] + _build_contexts(checkout, "      ") + [
         "      args:",
-        "        SYNQT_PIP_SPEC: ${SYNQT_PIP_SPEC:-synqt}",
+        f"        SYNQT_PIP_SPEC: ${{SYNQT_PIP_SPEC:-{pip_spec}}}",
         '    command: ["mesh-init"]',
         "    volumes:",
         f"      - mesh:{APP_DIR}/synqt/mesh",
@@ -1279,11 +1384,15 @@ def init(project_dir: os.PathLike[str] | str, config: Dict[str, Any], *,
             "it belongs regardless (see https://synqt.org/entities/).")
 
     addresses = mesh_addresses(config, subnet)
+    # The SynQt the image will build with, decided once and written into both files, so the
+    # Dockerfile cannot expect a context the compose file does not hand it.
+    checkout = checkout_source()
     files = {
         f"synqt.{PROFILE}.yaml": render_profile(config, addresses, subnet),
         COMPOSE_FILE: render_compose(config, addresses, subnet=subnet,
-                                     client=client, port=port),
-        f"{DOCKER_DIR}/Dockerfile": render_dockerfile(config, client=client),
+                                     client=client, port=port, checkout=checkout),
+        f"{DOCKER_DIR}/Dockerfile": render_dockerfile(config, client=client,
+                                                      from_checkout=bool(checkout)),
         f"{DOCKER_DIR}/entrypoint.sh": render_entrypoint(edge.get("name") or "web"),
         ".dockerignore": render_dockerignore(),
     }
@@ -1418,8 +1527,18 @@ def down_command(project_dir: os.PathLike[str] | str, *,
 def run(project_dir: os.PathLike[str] | str, command: List[str]) -> int:
     """Run a compose command in the project directory, streaming its output.
 
-    Not captured: `docker compose up` is a long-running foreground process whose output is
+    Not captured. `docker compose up` is a long-running foreground process whose output is
     the point, and swallowing it to reprint at the end would make the first build, which
     downloads a Qt kit, look like a hang.
+
+    `SYNQT_SRC` is passed through from wherever this command is running, so the image is
+    built against the checkout answering `synqt` right now. The compose file carries the
+    path it was generated with as the default, which is what a bare `docker compose up`
+    uses; a checkout that has since moved would fail there on a directory that is not
+    around any more, and this is what keeps that from being a regeneration.
     """
-    return subprocess.call(command, cwd=str(project_dir))
+    environment = dict(os.environ)
+    checkout = checkout_source()
+    if checkout and "SYNQT_SRC" not in environment:
+        environment["SYNQT_SRC"] = str(checkout)
+    return subprocess.call(command, cwd=str(project_dir), env=environment)

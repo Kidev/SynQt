@@ -376,6 +376,56 @@ class DockerfileTest(unittest.TestCase):
         self.assertLess(dockerfile.index("COPY . ."),
                         dockerfile.index("ARG SYNQT_PIP_SPEC"))
 
+    def test_the_image_installs_the_checkout_and_not_the_published_name(self):
+        # `pip install synqt` reaches PyPI, where synqt is not published yet, so an image
+        # that defaulted to it stopped at that line before it compiled anything.
+        dockerfile = docker.render_dockerfile(_config(), from_checkout=True)
+        self.assertIn(f"ARG SYNQT_PIP_SPEC={docker.LOCAL_PIP_SPEC}", dockerfile)
+        self.assertNotIn("ARG SYNQT_PIP_SPEC=synqt", dockerfile)
+
+    def test_every_directory_the_install_needs_is_copied_before_pip_runs(self):
+        # Installing the CLI runs tools/synqt/_build_backend.py, which vendors src/, cmake/
+        # and tools/synqtc/ from beside the package. A COPY missing one of them produces a
+        # CLI that installs and then cannot build a contract.
+        dockerfile = docker.render_dockerfile(_config(), from_checkout=True)
+        for name, _, into in docker.SYNQT_CONTEXTS:
+            line = f"COPY --from={name} . {into}"
+            self.assertIn(line, dockerfile)
+            self.assertLess(dockerfile.index(line),
+                            dockerfile.index('pip install "$SYNQT_PIP_SPEC"'))
+
+    def test_without_a_checkout_it_reaches_for_the_published_distribution(self):
+        dockerfile = docker.render_dockerfile(_config(), from_checkout=False)
+        self.assertIn(f"ARG SYNQT_PIP_SPEC={docker.PUBLISHED_PIP_SPEC}", dockerfile)
+        self.assertNotIn("COPY --from=synqt-cli", dockerfile)
+
+
+class CheckoutContextTest(unittest.TestCase):
+    """The checkout the image is built from reaches every build that needs it."""
+
+    def test_each_build_is_handed_the_directories_the_dockerfile_copies(self):
+        # The two have to agree. A COPY --from naming a context the compose file does not
+        # declare fails the build with "could not find" and nothing about which file is
+        # wrong. Both build blocks, because mesh-init builds the same image.
+        config = _config()
+        compose = docker.render_compose(config, docker.mesh_addresses(config),
+                                        checkout=Path("/checkout"))
+        for name, where, _ in docker.SYNQT_CONTEXTS:
+            self.assertEqual(compose.count(f"{name}: ${{SYNQT_SRC:-/checkout}}/{where}"), 2)
+
+    def test_no_context_is_the_whole_checkout(self):
+        # A build context is transferred whole before the first COPY is read, and the top
+        # of a working checkout carries build/, site/ and node_modules/ as well: measured
+        # at 17 GB against 14 MB for the four directories that are wanted.
+        self.assertTrue(all(where for _, where, _ in docker.SYNQT_CONTEXTS))
+
+    def test_a_project_with_no_checkout_declares_no_contexts(self):
+        config = _config()
+        compose = docker.render_compose(config, docker.mesh_addresses(config),
+                                        checkout=None)
+        self.assertNotIn("additional_contexts", compose)
+        self.assertIn(f"SYNQT_PIP_SPEC:-{docker.PUBLISHED_PIP_SPEC}", compose)
+
 
 class InitTest(unittest.TestCase):
     def _project(self, tmp, config):
