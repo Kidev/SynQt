@@ -103,6 +103,18 @@ export function gatesOf(design) {
     return found;
 }
 
+// Does this entity run the sign-in flow? A web edge that says so, and nothing else can.
+//
+// It is the one switch in a project that decides whether anybody is ever anything but
+// anonymous: the login, callback and logout routes are served by the edges that carry it,
+// so `Session.login()` in a client reaches a route that exists only where this is on, and
+// every scope, member gate and bundle mapping in the project hangs off that. The canvas
+// draws a mark for it, the panel switches it, and the card says what it means. All three
+// read it here, so they cannot disagree about which edge signs people in.
+export function runsSignIn(entity) {
+    return isWebEdge(entity || {}) && Boolean(entity && entity.identity);
+}
+
 // Is this point answered by entities behind it? The key being there is the answer.
 export function isFront(link) {
     const declared = link && link.behind;

@@ -15,7 +15,7 @@
 // detached element and hands it back. Where it is put and how it is placed belong to
 // whoever asked.
 
-import { frontsOf, gatesOf } from "./rules.js";
+import { frontsOf, gatesOf, runsSignIn } from "./rules.js";
 import { MEMBER_KINDS, ROLE_HELP, accessorName, describe, endsOfPoint, glyphSvg,
          linkTitleNode, memberCode, memberMarkSvg, memberParts, roleOf,
          seatsOfFront } from "./canvas.js";
@@ -315,6 +315,15 @@ export function tipFor(design, what, {problems = NO_PROBLEMS, palette = []} = {}
                           : (role === "edge" ? "The internet, and only over TLS"
                                              : "The entities on its consumer lists, and "
                                                + "nothing else")));
+        // The mark the canvas draws on this node, said in words. It is the switch a whole
+        // project hangs off: without it nobody ever leaves the default scope, so every
+        // member gate refuses everybody and every bundle above the first is unreachable.
+        if (runsSignIn(entity)) {
+            box.append(tipRow("signs people in",
+                              "It runs the OAuth exchange, keeps the tokens and the "
+                              + "sessions, and hands the browser a cookie. This is what "
+                              + "makes Session.login() in a client reach anything."));
+        }
         // How many of it there are, which is the entity's own answer and decides whether a
         // Source holds one caller's state or everybody's. It is a setting on this node, so it
         // is a fact about this node.

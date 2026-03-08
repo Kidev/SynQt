@@ -29,7 +29,7 @@
 // mesh is tens of nodes, not thousands, and a drawing that is a function of the document
 // cannot fall out of step with it.
 
-import { SCOPES, entityType, frontsOf, gatesOf } from "./rules.js";
+import { SCOPES, entityType, frontsOf, gatesOf, runsSignIn } from "./rules.js";
 import { linkEnds } from "./project.js";
 
 const SVG = "http://www.w3.org/2000/svg";
@@ -718,16 +718,59 @@ function alertMark(at, size) {
     return group;
 }
 
-// Where that mark sits on a node: the top right of a disc, or the top of a wedge's back edge.
+// Where that mark sits on a node. The top right of a disc, or the top of a wedge's back edge.
 function alertAt(front) {
     return front ? {x: FRONT_BACK - 4, y: -FRONT_HALF + 2}
                  : {x: NODE_RADIUS * 0.72, y: -NODE_RADIUS * 0.72};
 }
 
-// Where it sits on a contract badge: on the far side of the badge from the entity the badge
-// is pinned to. The badge sits on its owner's rim, so the corner that used to carry this was
-// the top right whichever side of the disc that was, and on a point drawn off the left of an
-// entity that put the mark between the badge and the disc, in the busiest few pixels on the
+// The mark on a web edge that runs the sign-in flow. The one entity in a project that turns
+// a visitor into somebody, and therefore the one that makes `Session.login()` in the client
+// do anything at all.
+//
+// It is on the drawing because it is the thing about an edge a reader most needs and could
+// least see: every scope in the project, every member gate, and which bundle each visitor is
+// served all hang off it, and until now the only way to find out which edge ran it was to
+// select one and read a checkbox. An arrow going in through a door rather than a key or a
+// padlock. A lock says "shut", and what this says is "this is the way through".
+//
+// Quiet, because it is a permanent fact and not an interrupt. The disc is the page punched
+// through the rim rather than a colour of its own, and everything in it is the entity's.
+// The alert rides the opposite corner, so an edge with a finding against it shows both
+// without either sitting on the other.
+function signInMark(at, size) {
+    const group = element("g", {class: "signin", transform: `translate(${at.x},${at.y})`});
+    group.append(element("circle", {class: "signin__disc", r: size}));
+    // The drawing is written in a box of 4.2 either way, and the disc has to hold its
+    // corners. At size/6.6 the door frame sat on the rim rather than inside it.
+    const unit = size / 7.6;
+    const path = (d) => group.append(element("path", {class: "signin__mark",
+                                                      d: scalePath(d, unit)}));
+    path("M -4.2,0 H 1");
+    path("M -0.8,-2.1 L 1.3,0 L -0.8,2.1");
+    path("M 2.4,-3.8 H 4.2 V 3.8 H 2.4");
+    return group;
+}
+
+// Where the sign-in mark sits on a node. The top left of a disc, or the bottom of a wedge's
+// back edge. Opposite `alertAt` in both cases, which is the whole placement rule.
+function signInAt(front) {
+    return front ? {x: FRONT_BACK - 4, y: FRONT_HALF - 2}
+                 : {x: -NODE_RADIUS * 0.72, y: -NODE_RADIUS * 0.72};
+}
+
+// One path drawn at another size. The sign-in mark is written at the size it was drawn at
+// and used at whatever a disc or a wedge gives it, and a `transform: scale()` on the group
+// would scale the stroke with it, which is what turns a 1.3 stroke into a hairline.
+function scalePath(d, unit) {
+    return d.replace(/-?[0-9]+(?:\.[0-9]+)?/g,
+                     (number) => String(round(Number(number) * unit)));
+}
+
+// Where it sits on a contract badge. On the far side of the badge from the entity the badge
+// is pinned to. The badge sits on its owner's rim, so a fixed corner (the top right,
+// whichever side of the disc that is) would put the mark on a point drawn off the left of an
+// entity between the badge and the disc, in the busiest few pixels on the
 // canvas. Pushed outward it is always over open space.
 const BADGE_ALERT_REACH = 9.5;
 
@@ -814,7 +857,7 @@ function frontSeats(entity, front) {
 }
 
 
-function node(entity, {selected, level, files, taken, front, gate}) {
+function node(entity, {selected, level, files, taken, front, gate, signsIn}) {
     const group = element("g", {
         // The role is a class as well as a glyph, so a client disc is the green a client
         // is everywhere else on this page and in the guide's drawing.
@@ -831,6 +874,9 @@ function node(entity, {selected, level, files, taken, front, gate}) {
     group.append(glyph(entity, front, gate));
     nameNode(group, entity, files, front);
     roleLabels(group, front);
+    if (signsIn) {
+        group.append(signInMark(signInAt(front), 6.6));
+    }
     if (level) {
         group.append(alertMark(alertAt(front), 6.5));
     }
@@ -1587,6 +1633,7 @@ export function draw(layers, design, {problems, selected, filesOf}) {
                 .map((link) => slots.get(link.name)),
             front: fronts.get(entity.name) || null,
             gate: gates.has(entity.name),
+            signsIn: runsSignIn(entity),
         }));
     }
 }

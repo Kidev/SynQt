@@ -904,6 +904,24 @@ async function theProjectALinkHandsYou() {
               === "Faces the internet",
               "and the one that faces the internet says so");
 
+        // The one switch a whole project hangs off: whether this edge runs the sign-in. It
+        // decides whether anybody ever leaves the default scope, so every member gate and
+        // every bundle above the first depends on it, so it is readable on the canvas rather
+        // than only by selecting the edge and finding a checkbox.
+        check(await page.locator('[data-entity="edge"] .signin').count() === 1,
+              "the edge that signs people in says so on the canvas");
+        check(await page.locator('[data-entity="store"] .signin').count() === 0,
+              "and nothing else carries the mark");
+        // The mark takes no pointer of its own: it rides the ring of handles a link is
+        // pulled out of, and one that answered for a handle would be a mark you could not
+        // draw a line from. What it means is on the entity's own card.
+        await page.locator("#nodes [data-entity='edge']").hover();
+        await page.waitForSelector("#tip:not([hidden])");
+        const signin = await page.locator("#tip").textContent();
+        check(signin.includes("Session.login()"),
+              `and the edge's card says what it means (${
+                  (signin.match(/signs people in.{0,34}/s) || [""])[0].trim()})`);
+
         // Every link is a curve, so that two entities talking both ways, or one owning
         // several points another consumes, are lines somebody can tell apart.
         check(await page.locator("#links path.link__line").count() === 2,
