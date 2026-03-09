@@ -619,14 +619,17 @@
 .synqt-flow__stage {
   width: 100%;
   /* The cap is what stops the drawing growing without limit on a very wide screen; below
-     it the column decides. Wider than the hand-drawn diagram's, because this one carries
-     more: the three boxes that say what can reach what, and beside each line the contract
+     it the column decides. Wider than the files under it, and wider again than the
+     hand-drawn diagram this replaced, because this one carries more: four columns of
+     entities, the boxes that say what can reach what, and beside every line the contract
      that crosses it. Under the cap it renders below its own drawn size, and the names on
      it stop being readable well before it gets small. */
-  max-width: 46rem;
-  /* Before the drawing arrives, so the section does not jump when it does. The ratio is
-     the arrangement's, near enough: three columns of entities and two rows. */
-  aspect-ratio: 2 / 1;
+  max-width: 58rem;
+  /* Before the drawing arrives, so the section does not jump when it does. The drawing
+     replaces it with its own measured shape the moment it is on screen
+     (docs/javascripts/home-flow.js), so this is a guess with a short life and not a
+     number anything depends on. */
+  aspect-ratio: 5 / 2;
 }
 
 /* --- The file view --------------------------------------------------------

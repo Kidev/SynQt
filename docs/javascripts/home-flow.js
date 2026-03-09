@@ -258,12 +258,19 @@
       });
 
       // Measured after it is drawn, so the box is what is on screen rather than what the
-      // entity coordinates alone would suggest: a name under a node and a contract written
+      // entity coordinates alone would suggest. A name under a node and a contract written
       // beside a line both reach past the shapes.
       var box = viewport.getBBox();
+      var wide = box.width + (MESH_MARGIN * 2);
+      var tall = box.height + (MESH_MARGIN * 2);
       svg.setAttribute("viewBox", [box.x - MESH_MARGIN, box.y - MESH_MARGIN,
-                                   box.width + (MESH_MARGIN * 2),
-                                   box.height + (MESH_MARGIN * 2)].join(" "));
+                                   wide, tall].join(" "));
+      /* And the box is that shape. The stylesheet gives the stage a ratio to hold before
+         the drawing arrives, so the section does not jump when it does. From here on the
+         drawing is what knows, and a stage still holding the guess is a stage with a strip
+         of empty page under the picture. Measured rather than written down, so the next
+         arrangement of the example does not need this file edited too. */
+      stage.style.aspectRatio = wide + " / " + tall;
 
       explain(shadow, svg, design, parts[4]);
 
