@@ -1,13 +1,15 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-# chat: a room everybody in it sees at once. The shortest complete SynQt system there is,
-# and the one the front page of synqt.org reads out file by file.
+# chat: a room everybody in it sees at once, with a landing page in front of it and a
+# moderator's surface that runs in its own binary.
 #
-# Two client bundles rather than one, because who may download what is a decision this
-# framework makes at the edge: a session that has signed in as nobody gets `gate`, which is
-# a sign-in button and nothing else, and a session holding `user` gets `app`, which is the
-# room. The room's bundle is not hidden from a signed-out visitor, it is not there.
+# The shape is the point. A visitor who has signed in as nobody is served `home`, which is a
+# landing page and a sign-in button; the room's client is not hidden from them, it is a file
+# their session cannot fetch. Once they have signed in, the edge stops answering for itself
+# and hands them to the entity that serves people of their scope: `room` for a user,
+# `moderation` for a moderator. Neither of those holds the room -- `store` does, and both
+# mirror it -- so there is one conversation however many surfaces are in front of it.
 project:
   name: chat
   version: 0.1.0
@@ -25,10 +27,11 @@ security:
 build:
   client_threads: single
 
-# Signing in is the whole of what the gate is for, so this is not an optional extra here:
-# without it nobody can ever leave `anonymous`, and the room's bundle is a file no session
-# can fetch. Register an OAuth app with the provider, put its secret in .env, and the edge
-# runs the whole flow -- the browser ends up holding a session cookie and nothing else.
+# Signing in is the whole of what the landing page is for, so this is not an optional extra
+# here: without it nobody can ever leave `anonymous`, the room's bundle is a file no session
+# can fetch, and the front behind the edge hands nobody anywhere. Register an OAuth app with
+# the provider, put its secret in .env, and the edge runs the whole flow -- the browser ends
+# up holding a session cookie and nothing else.
 identity:
   providers:
     - name: github
@@ -37,10 +40,15 @@ identity:
   mapping: web/edge/identity/map.qml
 
 entities:
-  - name: gate
+  # The landing page. It consumes nothing: there is no connect point a signed-out visitor
+  # could reach, so the only thing this bundle can do is start the sign-in.
+  - name: home
     type: client
     targets: [wasm]
 
+  # The room, for everybody who has signed in. One client for users and moderators both:
+  # what a moderator gets extra is decided at the edge and on the entity behind it, never
+  # by which files the browser was given.
   - name: app
     type: client
     targets: [wasm]
@@ -52,9 +60,11 @@ entities:
       port: 8443
       sync_route: /sync
     # Which bundle each session is served. Not a redirect and not a 403: a session without
-    # `user` cannot fetch a file of `app` at all.
+    # `user` cannot fetch a file of `app` at all. `admin` has no line of its own because
+    # scopes rank here, so a moderator is served the nearest bundle at or below what they
+    # hold, which is the room.
     bundles:
-      anonymous: gate
+      anonymous: home
       user: app
     # Serving the browser over TLS in a release build. `synqt dev` ignores this and runs
     # plaintext on localhost; `synqt build --release` and `synqt serve` require either this
@@ -64,26 +74,78 @@ entities:
       cert_file: certs/edge/fullchain.pem
       key_file: certs/edge/privkey.pem
 
+  # What a signed-in user is handed to. A cache entity, because the one thing it keeps of
+  # its own is how much each person has said lately, which is worth having fast and worth
+  # nothing after a minute.
+  - name: room
+    type: cache
+    provider:
+      name: memory
+
+  # What a moderator is handed to. Its own entity and its own binary: `erase` exists here
+  # and nowhere else, and neither does the line that marks a message as staff.
+  - name: moderation
+    type: service
+
+  # The conversation itself, and the only thing in this project that survives a restart.
   - name: store
     type: relational
     provider:
       name: sqlite
 
 connect_points:
-  # The room, as the browser sees it. One property the edge pushes, one model every window
-  # mirrors, one slot to say something, and one signal for when the edge says no.
+  # The room, as the browser sees it -- and the edge answers none of it. `behind:` makes
+  # this a front: the edge keeps what only it can keep, the session and the sign-in, and
+  # each caller is served by the entity wired to their scope. The browser writes `Server`
+  # whichever one answered, and has no way to find out which did.
+  #
+  # `scope: user` is the gate on the whole point, so a session that has signed in as nobody
+  # never acquires it at all. `anonymous` is wired to nothing for the same reason.
   - owner: edge
     consumers: [app]
+    scope: user
+    behind:
+      user: room
+      admin: moderation
     export: |
       prop string[60] topic
-      model messages(int id, string[40] who, string[280] body)
+      model messages(int id, string[40] who, string[280] body, bool staff)
+      slot say(string[280] body)
+      <admin> slot erase(int id)
+      signal refused(string[120] reason)
+
+  # What a user reaches, and the whole of it. There is no `erase` here, so a caller handed
+  # to this entity has no way to ask for one: the member does not exist on the surface they
+  # acquired. `synqt check` holds this list to exactly what the front offers a user.
+  - owner: room
+    consumers: [edge]
+    export: |
+      prop string[60] topic
+      model messages(int id, string[40] who, string[280] body, bool staff)
       slot say(string[280] body)
       signal refused(string[120] reason)
 
-  # The log, which only the edge may ask. The browser is on no consumer list anywhere, so
-  # there is no reachable path from a tab to this entity at all.
-  - owner: store
+  # The same, plus what only a moderator reaches. An admin satisfies `user`, so callers of
+  # that scope land here and this entity answers everything either of them can ask for.
+  - owner: moderation
     consumers: [edge]
     export: |
-      slot var recent()
-      slot var append(string[40] who, string[280] body)
+      prop string[60] topic
+      model messages(int id, string[40] who, string[280] body, bool staff)
+      slot say(string[280] body)
+      slot erase(int id)
+      signal refused(string[120] reason)
+
+  # The log, which only the two surfaces in front of it may ask. The browser is on no
+  # consumer list anywhere in this file, so there is no reachable path from a tab to this
+  # entity at all -- not a firewall rule, a list.
+  #
+  # `lines` is the room as it stands. Both surfaces mirror this one property, which is what
+  # makes them two views of one conversation rather than two conversations.
+  - owner: store
+    consumers: [room, moderation]
+    export: |
+      prop string[60] topic
+      prop var[24000] lines
+      slot say(string[40] who, string[280] body, bool staff)
+      slot erase(int id)

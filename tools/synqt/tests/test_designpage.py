@@ -19,6 +19,7 @@ uses.
 from __future__ import annotations
 
 import base64
+import html
 import io
 import json
 import re
@@ -31,8 +32,8 @@ import pytest
 import yaml
 
 from synqt import check as checkmod
-from synqt import (addcontract, addentity, appmodel, designdoc, monitorscaffold,
-                   newproject, qmlcomments, toolchain)
+from synqt import (addcontract, addentity, appmodel, contractgen, designdoc,
+                   monitorscaffold, newproject, qmlcomments, toolchain)
 
 DESIGN = Path(checkmod.__file__).parent / "assets" / "design"
 
@@ -766,8 +767,14 @@ def test_the_home_pages_project_is_the_one_the_home_page_reads():
         assert point["owner"] == link["owner"]
         assert point["consumers"] == link["consumers"]
         # And what crosses it, which the page now shows on the point rather than in a
-        # contract file of its own.
-        assert designdoc.parse_export(appmodel.contract_of(point), point) == link["members"]
+        # contract file of its own. Through the same reading the document was written by,
+        # `inherit` included: a point with a `scope:` of its own puts it on every member,
+        # and comparing an uninherited parse against an inherited one is comparing two
+        # different questions.
+        parsed = designdoc.parse_from_text(
+            contractgen.contract_source(appmodel.contract_of(point), point),
+            appmodel.contract_of(point))
+        assert parsed == link["members"]
 
 
 def test_the_example_carries_the_home_pages_own_files():
@@ -790,7 +797,10 @@ def test_the_example_carries_the_home_pages_own_files():
               "// SPDX-License-Identifier: Apache-2.0\n\n")
     # The pane a reader opens is the entity's own QML out of the example, so a page
     # showing anything else is a page showing code the button does not hand over.
-    panes = {"gate": "gate", "app": "client", "edge": "web", "store": "database"}
+    # The edge is not in here and that is the point of the example: it owns the point the
+    # browser consumes and implements none of it, so there is no file for it to have.
+    panes = {"home": "home", "app": "client", "room": "room",
+             "moderation": "moderation", "store": "database"}
     for name, block in panes.items():
         assert files[name]["qml"] == notice + shown[block], name
     assert files["store"]["schema"] == shown["schema"]
@@ -799,8 +809,29 @@ def test_the_example_carries_the_home_pages_own_files():
     assert {name for name, entity in files.items() if entity.get("qml")} == set(panes)
 
 
+def test_every_line_the_home_page_explains_is_a_line_it_shows():
+    """A glossary entry names a fragment of the file it sits under, or it explains nothing.
+
+    The page hangs each explanation on the first line of that pane containing the fragment
+    (docs/javascripts/home-flow.js, applyGlossary). A fragment that matches no line is
+    dropped in silence, so an explanation of a line that has since been reworded reads as
+    an explanation nobody wrote rather than as a mistake.
+    """
+    home = Path(__file__).resolve().parents[3] / "docs" / "index.md"
+    if not home.is_file():                       # the tests, without the repository
+        pytest.skip("the documentation is not beside these tests")
+    page = home.read_text(encoding="utf-8")
+    panes = re.findall(r'<div class="synqt-file" data-file="([a-z]+)" markdown>(.*?)\n</div>',
+                       page, re.S)
+    assert panes, "the page shows no files at all"
+    for name, body in panes:
+        code = re.search(r"```[a-z]*\n(.*?)```", body, re.S).group(1)
+        for fragment in re.findall(r'data-code="(.*?)"', body):
+            assert html.unescape(fragment) in code, f"{name}: {fragment}"
+
+
 def test_every_example_downloads_as_a_project_the_real_check_passes(tmp_path):
-    """The whole of `synqt check` over the files a download actually holds.
+    """The whole of `synqt check` over the files a download holds.
 
     The rule above reads the configuration alone, which is what the page could always
     write. This one writes every file the page would and asks the command line the

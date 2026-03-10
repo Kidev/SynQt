@@ -47,9 +47,10 @@ EXAMPLES = {
     "demo": {
         "project": "chat",
         "title": "The chat room",
-        "note": "Four entities, every kind of contract member, and a gate.",
-        "places": {"gate": (64, 64), "app": (64, 256), "edge": (384, 160),
-                   "store": (704, 160)},
+        "note": "Every kind of contract member, a landing page, and an edge that hands "
+                "each caller on.",
+        "places": {"home": (64, 64), "app": (64, 288), "edge": (416, 176),
+                   "room": (768, 48), "moderation": (768, 304), "store": (1088, 176)},
     },
     "gavel": {
         "project": "gavel",

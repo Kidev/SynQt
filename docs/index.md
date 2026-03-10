@@ -166,18 +166,26 @@ That is the part SynQt is for, and below is all of it.
 
 A finished system is a small mesh of entities. The drawing below is that mesh, drawn by the
 design editor from this very project: three boxes saying which side of the wire each entity
-is on, a disc per entity, and on every line the contract the two ends share. Only the web
+is on, a shape per entity, and on every line the contract the two ends share. Only the web
 edge faces the internet; everything else sits in the mesh box and is reachable only by the
-entities you allow. A signed-out visitor is served the gate and nothing else, a signed-in
-reader is served the room, and the room's one request goes to the web edge, which decides
-whether that caller may speak and hands the line to the database. The reply is a model, so
-every browser holding the room redraws itself; nobody wrote any of that.
+entities you allow.
 
-Six files are the whole system: one configuration file, which says what crosses each link,
-one QML file per entity, and the table the database keeps the messages in. Hover (or focus)
-an entity to read the file it is, or the mark on a line to read the block that says what
-crosses it, and the card that opens says the rest. The project tree under the drawing opens
-the same files, and one stays open until you move to another. The database opens two, its QML and the table that QML queries,
+A visitor who has signed in as nobody is served the landing page, and the room's client is
+not hidden from them so much as absent: it is a file their session cannot fetch. Once they
+have signed in, the edge stops answering for itself. It is drawn as a wedge because it is a
+front: it keeps the session and the sign-in, and hands each caller to the entity that serves
+people of their scope, which is why there are two surfaces behind it and a seat on its back
+for each. A moderator lands on the one where `erase` exists, and an ordinary user lands on
+the one where it does not exist at all. Neither of them holds the room: the database does,
+and both mirror it, so there is one conversation however many surfaces stand in front of it.
+
+Seven files are the whole system: one configuration file, which says what crosses each link,
+one QML file per entity that implements something, and the table the database keeps the
+messages in. The edge has none, and that is the example rather than an omission: it
+implements no part of the point it owns. Hover (or focus) an entity to read the file it is,
+or the mark on a line to read the block that says what crosses it, and the card that opens
+says the rest. The project tree under the drawing opens the same files, and one stays open
+until you move to another. The database opens two, its QML and the table that QML queries,
 since neither says much without the other, and a directory in the tree opens everything in
 it. Hover any line of a file to see what that line does, and a line that ends in an arrow
 opens the page covering it, whether that is a page of this guide or the class in the C++
@@ -203,8 +211,12 @@ add an entity, and export the result as a project.
      opens. It is written here rather than in the script because it names the files below,
      and the drawing's own names (an entity, a connect point) are what it keys on. -->
 <div class="synqt-flow__stage" id="synqt-flow-stage" data-example="demo"
-     data-files='{"entity:gate": "gate", "entity:app": "client", "entity:edge": "web",
-                  "entity:store": "database schema", "contract:edge": "config",
+     data-files='{"entity:home": "home", "entity:app": "client",
+                  "entity:edge": "config", "entity:room": "room",
+                  "entity:moderation": "moderation",
+                  "entity:store": "database schema",
+                  "contract:edge": "config", "contract:room": "config",
+                  "contract:moderation": "config",
                   "contract:store": "config"}'>
 </div>
 </div>
@@ -216,14 +228,17 @@ add an entity, and export the result as a project.
 <span class="synqt-tree__title">Project tree</span>
 <ul class="synqt-tree__list">
 <li class="synqt-tree__leaf"><span class="synqt-tree__file" data-file="config" tabindex="0" role="button" aria-label="Show synqt.yaml">synqt.yaml</span></li>
-<li class="synqt-tree__dir"><span class="synqt-tree__folder" data-file="gate client" tabindex="0" role="button" aria-label="Show both client entities">client</span></li>
-<li class="synqt-tree__dir synqt-tree__dir--nested"><span class="synqt-tree__folder" data-file="gate" tabindex="0" role="button" aria-label="Show client/gate/Main.qml">gate</span></li>
-<li class="synqt-tree__leaf synqt-tree__leaf--deep"><span class="synqt-tree__file" data-file="gate" tabindex="0" role="button" aria-label="Show client/gate/Main.qml">Main.qml</span></li>
+<li class="synqt-tree__dir"><span class="synqt-tree__folder" data-file="home client" tabindex="0" role="button" aria-label="Show both client entities">client</span></li>
+<li class="synqt-tree__dir synqt-tree__dir--nested"><span class="synqt-tree__folder" data-file="home" tabindex="0" role="button" aria-label="Show client/home/Main.qml">home</span></li>
+<li class="synqt-tree__leaf synqt-tree__leaf--deep"><span class="synqt-tree__file" data-file="home" tabindex="0" role="button" aria-label="Show client/home/Main.qml">Main.qml</span></li>
 <li class="synqt-tree__dir synqt-tree__dir--nested"><span class="synqt-tree__folder" data-file="client" tabindex="0" role="button" aria-label="Show client/app/Main.qml">app</span></li>
 <li class="synqt-tree__leaf synqt-tree__leaf--deep"><span class="synqt-tree__file" data-file="client" tabindex="0" role="button" aria-label="Show client/app/Main.qml">Main.qml</span></li>
-<li class="synqt-tree__dir"><span class="synqt-tree__folder" data-file="web" tabindex="0" role="button" aria-label="Show the web edge entity">web</span></li>
-<li class="synqt-tree__dir synqt-tree__dir--nested"><span class="synqt-tree__folder" data-file="web" tabindex="0" role="button" aria-label="Show the edge's files">edge</span></li>
-<li class="synqt-tree__leaf synqt-tree__leaf--deep"><span class="synqt-tree__file" data-file="web" tabindex="0" role="button" aria-label="Show web/edge/Edge.qml">Edge.qml</span></li>
+<li class="synqt-tree__dir"><span class="synqt-tree__folder" data-file="room" tabindex="0" role="button" aria-label="Show the cache entity">cache</span></li>
+<li class="synqt-tree__dir synqt-tree__dir--nested"><span class="synqt-tree__folder" data-file="room" tabindex="0" role="button" aria-label="Show cache/room/Room.qml">room</span></li>
+<li class="synqt-tree__leaf synqt-tree__leaf--deep"><span class="synqt-tree__file" data-file="room" tabindex="0" role="button" aria-label="Show cache/room/Room.qml">Room.qml</span></li>
+<li class="synqt-tree__dir"><span class="synqt-tree__folder" data-file="moderation" tabindex="0" role="button" aria-label="Show the service entity">service</span></li>
+<li class="synqt-tree__dir synqt-tree__dir--nested"><span class="synqt-tree__folder" data-file="moderation" tabindex="0" role="button" aria-label="Show service/moderation/Moderation.qml">moderation</span></li>
+<li class="synqt-tree__leaf synqt-tree__leaf--deep"><span class="synqt-tree__file" data-file="moderation" tabindex="0" role="button" aria-label="Show service/moderation/Moderation.qml">Moderation.qml</span></li>
 <li class="synqt-tree__dir"><span class="synqt-tree__folder" data-file="database schema" tabindex="0" role="button" aria-label="Show the relational entities">db/relational</span></li>
 <li class="synqt-tree__dir synqt-tree__dir--nested"><span class="synqt-tree__folder" data-file="database schema" tabindex="0" role="button" aria-label="Show the store entity's files">store</span></li>
 <li class="synqt-tree__leaf synqt-tree__leaf--deep"><span class="synqt-tree__file" data-file="database schema" tabindex="0" role="button" aria-label="Show db/relational/store/Store.qml and db/relational/store/schema.sql">Store.qml</span></li>
@@ -249,76 +264,121 @@ identity:
   mapping: web/edge/identity/map.qml
 
 entities:
-  - { name: gate, type: client }
+  - { name: home, type: client }
   - { name: app, type: client }
   - name: edge
     type: web_edge
     identity: true
     public: { port: 8443, sync_route: /sync }
-    bundles: { anonymous: gate, user: app }
+    bundles: { anonymous: home, user: app }
+  - { name: room, type: cache, provider: { name: memory } }
+  - { name: moderation, type: service }
   - { name: store, type: relational, provider: { name: sqlite } }
 
 connect_points:
   - owner: edge
     consumers: [app]
+    scope: user
+    behind: { user: room, admin: moderation }
     export: |
       prop string[60] topic
-      model messages(int id, string[40] who, string[280] body)
+      model messages(int id, string[40] who, string[280] body, bool staff)
       slot say(string[280] body)
+      <admin> slot erase(int id)
       signal refused(string[120] reason)
-  - owner: store
+  - owner: room
     consumers: [edge]
     export: |
-      slot var recent()
-      slot var append(string[40] who, string[280] body)
+      prop string[60] topic
+      model messages(int id, string[40] who, string[280] body, bool staff)
+      slot say(string[280] body)
+      signal refused(string[120] reason)
+  - owner: moderation
+    consumers: [edge]
+    export: |
+      prop string[60] topic
+      model messages(int id, string[40] who, string[280] body, bool staff)
+      slot say(string[280] body)
+      slot erase(int id)
+      signal refused(string[120] reason)
+  - owner: store
+    consumers: [room, moderation]
+    export: |
+      prop string[60] topic
+      prop var[24000] lines
+      slot say(string[40] who, string[280] body, bool staff)
+      slot erase(int id)
 ```
 
 <ul class="synqt-flow__glossary" hidden>
 <li data-code="qt_version" data-href="build-system-and-cli/">One version pins the whole toolchain: Qt, the Emscripten it is built against, and every entity built from them.</li>
 <li data-code="order: [anonymous" data-href="security/">The scope ladder. Every session sits on one rung, and a connect point can demand a minimum.</li>
-<li data-code="name: gate" data-href="security/">A second client, and the only one a signed-out visitor is ever sent. It consumes nothing, so there is nothing on it to attack.</li>
+<li data-code="mapping: web/edge/identity/map.qml" data-href="authentication/">The one place anybody is decided to be a moderator. It turns a verified login into a scope, and everything else in the system reads that answer rather than making it.</li>
+<li data-code="name: home" data-href="security/">The landing page, and the only bundle a signed-out visitor is ever sent. It consumes nothing, so there is nothing on it to attack.</li>
 <li data-code="name: app" data-href="desktop/">The room itself, built to WebAssembly. The same QML also builds as a native app for Windows, macOS, and Linux, against this same edge.</li>
 <li data-code="type: web_edge" data-href="entities/">The one entity allowed to face the internet, on the one public port. Nothing else gets one.</li>
-<li data-code="bundles: { anonymous: gate" data-href="security/">The delivery gate. A visitor is served the bundle their scope maps to and no file of any other, so the room's client is not on a signed-out visitor's disk at all: not a redirect, not a 403, simply not there.</li>
+<li data-code="identity: true" data-href="authentication/">The switch the whole project hangs off: this edge runs the OAuth exchange and keeps the sessions, which is what makes `Session.login()` in a client reach anything at all.</li>
+<li data-code="bundles: { anonymous: home" data-href="security/">The delivery gate. A visitor is served the bundle their scope maps to and no file of any other, so the room's client is not on a signed-out visitor's disk at all: not a redirect, not a 403, simply not there.</li>
+<li data-code="name: room, type: cache" data-href="providers/">A bounded key-value store that forgets. It serves signed-in users, and the one thing it keeps of its own is how much each of them has said lately.</li>
+<li data-code="name: moderation" data-href="entities/">An entity with no engine: its own logic, its own binary. It is what a moderator is handed to, and `erase` is compiled into it and into nothing else.</li>
 <li data-code="type: relational" data-href="providers/">A database entity: embedded SQLite by default, PostgreSQL or MySQL behind the same interface with one config value.</li>
+<li data-code="scope: user" data-href="programming-model/">The gate on the whole point. A session that has signed in as nobody never acquires it, so there is no surface for them to reach.</li>
+<li data-code="behind: { user: room" data-href="programming-model/">The edge answers none of this point. It keeps the session and the sign-in and hands each caller to the entity that serves people of their scope; the browser writes `Server` whichever one answered.</li>
 <li data-code="consumers: [app]" data-href="project-layout-and-config/">The browser's one way in, and deny by default: an entity that is not on this list cannot open this connect point at all.</li>
-<li data-code="consumers: [edge]" data-href="entities/">The database is reachable by the edge, over mutual TLS, and by nothing else. The browser is on no list here, so there is no request it can make.</li>
-<li data-code="export: |" data-href="programming-model/">What may cross the link, and the whole of it. The owner names the type it exports: `edge` exports `Edge`, which is what both sides compile against.</li>
-<li data-code="prop string[60] topic" data-href="programming-model/">Owner to consumers, pushed. Every window on this room retitles itself when it changes, and a consumer can read it but never set it.</li>
+<li data-code="&lt;admin&gt; slot erase(int id)" data-href="security/">The gate is on the member. A caller without the scope does not have the slot, so it is refused before it runs and there is no check to write, or forget, in the QML behind it.</li>
 <li data-code="model messages(int id" data-href="programming-model/">The roles listed here are the whole of what a message may carry to a browser. `said_at` is in the table and not in this line, so it never leaves the mesh.</li>
-<li data-code="slot say(string[280] body)" data-href="programming-model/">Consumer to owner: the one direction a request travels. The 280 is enforced by the owner at the boundary, not by the field that typed it.</li>
-<li data-code="signal refused(string[120] reason)" data-href="programming-model/">The owner's answer when it says no, addressed to the caller that asked and to nobody else in the room.</li>
-<li data-code="slot var recent()" data-href="programming-model/">A slot with a return type. The caller gets a promise, so the edge can wait on the answer without blocking anything else it is serving.</li>
+<li data-code="consumers: [room, moderation]" data-href="entities/">The database is reachable by the two surfaces in front of it and by nothing else. The browser is on no list here, so there is no request it can make.</li>
+<li data-code="prop var[24000] lines" data-href="programming-model/">The room, held in one place and mirrored by both surfaces. The bracketed number is the limit the owner holds it to at the boundary, in bytes on the wire.</li>
 </ul>
 
 </div>
 
-<div class="synqt-file" data-file="gate" markdown>
-<span class="synqt-file__name"><strong>gate</strong><span class="synqt-flow__path">client/gate/Main.qml</span></span>
+<div class="synqt-file" data-file="home" markdown>
+<span class="synqt-file__name"><strong>home</strong><span class="synqt-flow__path">client/home/Main.qml</span></span>
 
 ```qml
 import SynQt
 import QtQuick.Controls
+import QtQuick.Layouts
 
+// The landing page, and the whole of what a visitor who has signed in as nobody downloads.
+// The room's client is a different bundle on the same edge, and a session without `user`
+// cannot fetch a file of it: not a redirect, not a 403, simply not there.
+//
+// There is no `Server` here and nothing to reach for. This entity consumes no connect point,
+// so the only thing this application can do is start the sign-in, which is the only thing
+// somebody who is nobody yet has any business doing.
 ApplicationWindow {
     id: window
 
     visible: true
-    title: qsTr("Sign in")
+    title: qsTr("The chat room")
 
-    // This bundle is the whole of what a signed-out visitor downloads. The room's own
-    // client is a different bundle on the same edge, and a session without `user` cannot
-    // fetch a file of it: not a redirect, not a 403, simply not there.
-    Column {
+    ColumnLayout {
         anchors.centerIn: parent
-        spacing: 16
+        spacing: 24
 
         Label {
-            text: qsTr("Sign in to join the room.")
+            Layout.alignment: Qt.AlignHCenter
+            font.pixelSize: 32
+            text: qsTr("One room. Everybody in it sees the same thing.")
+        }
+
+        Label {
+            Layout.alignment: Qt.AlignHCenter
+            Layout.maximumWidth: 480
+            horizontalAlignment: Text.AlignHCenter
+            wrapMode: Text.WordWrap
+            text: qsTr("Somebody types a line and it is on every screen that has the room "
+                       + "open, including the ones on other machines. Sign in to join.")
         }
 
         Button {
-            text: qsTr("Sign in")
+            Layout.alignment: Qt.AlignHCenter
+            // The edge runs the whole exchange. This browser never sees a token and never
+            // holds a secret; what it ends up with is a session cookie, and the next page
+            // it is served is the room.
+            text: qsTr("Sign in with GitHub")
             onClicked: Session.login()
         }
     }
@@ -327,7 +387,7 @@ ApplicationWindow {
 
 <ul class="synqt-flow__glossary" hidden>
 <li data-code="ApplicationWindow" data-href="project-layout-and-config/">A client's Main.qml is the window. A root that is not a window builds fine and renders nothing.</li>
-<li data-code="Session.login()" data-href="authentication/">The whole of the gate. The flow runs on the edge, and this browser ends up holding a session cookie and nothing else.</li>
+<li data-code="Session.login()" data-href="authentication/">The whole of what this bundle can do. The flow runs on the edge, and this browser ends up holding a session cookie and nothing else.</li>
 </ul>
 
 </div>
@@ -340,41 +400,93 @@ import SynQt
 import QtQuick.Controls
 import QtQuick.Layouts
 
+// The room. One client for users and moderators both: what a moderator can do extra is
+// decided at the edge and by the entity behind it, never by which files a browser was given.
+// The Erase button below is a courtesy, not a gate -- an ordinary user's session was handed
+// to an entity whose surface has no `erase` on it at all.
 ApplicationWindow {
     id: window
 
     property string notice: ""
 
     visible: true
-    // A property the edge pushes. Change it there and every window open on this room
-    // retitles itself, with nothing here asking and nothing polling.
+    // A property the owner pushes. It is set once, on the database, and arrives here through
+    // the entity serving this caller and then the edge: three hops, no polling, one value.
     title: Server.topic
 
+    // What the owner says back when it says no, to the caller that asked and to nobody else
+    // in the room.
     Edge.onRefused: reason => window.notice = reason
 
     ColumnLayout {
         anchors.fill: parent
 
         ListView {
+            id: messages
+
             Layout.fillHeight: true
             Layout.fillWidth: true
+            clip: true
             model: Server.messages
 
-            delegate: Text {
+            // Simple x/width bindings rather than a layout, which is what a delegate wants:
+            // it is created and destroyed as the view scrolls, and `model` is read through a
+            // required property because a role called `id` cannot be one of its own.
+            delegate: Item {
+                id: line
+
                 required property var model
 
-                text: `${model.who}: ${model.body}`
+                width: messages.width
+                height: 26
+
+                Label {
+                    x: 8
+                    width: 132
+                    height: parent.height
+                    verticalAlignment: Text.AlignVCenter
+                    elide: Text.ElideRight
+                    // A moderator's name is red, and nothing in this browser decided that.
+                    // `staff` is stamped on the row by the entity a moderator is handed to,
+                    // which is the only place in the system that can set it.
+                    color: line.model.staff ? "#d0342c" : window.palette.windowText
+                    font.bold: line.model.staff
+                    text: line.model.who
+                }
+
+                Label {
+                    x: 148
+                    width: parent.width - 148 - 88
+                    height: parent.height
+                    verticalAlignment: Text.AlignVCenter
+                    elide: Text.ElideRight
+                    text: line.model.body
+                }
+
+                Button {
+                    x: parent.width - 84
+                    y: 1
+                    width: 76
+                    height: parent.height - 2
+                    // Shown to a moderator because there is no sense offering it to anybody
+                    // else. It is not what stops anybody else: `erase` is not a member of the
+                    // surface an ordinary session acquired, so a console call finds nothing.
+                    visible: Session.hasScope("admin")
+                    text: qsTr("Erase")
+                    onClicked: Server.erase(line.model.id)
+                }
             }
         }
 
         TextField {
-            id: line
+            id: draft
 
             Layout.fillWidth: true
             placeholderText: window.notice || qsTr("Say something")
             onAccepted: {
-                Server.say(line.text);
-                line.clear();
+                Server.say(draft.text);
+                window.notice = "";
+                draft.clear();
             }
         }
     }
@@ -383,49 +495,107 @@ ApplicationWindow {
 
 <ul class="synqt-flow__glossary" hidden>
 <li data-code="import SynQt" data-href="runtime-api/">Brings in the runtime accessors: Server, Session, Router, and the contracts this entity consumes.</li>
-<li data-code="title: Server.topic" data-href="programming-model/">The contract's property, pushed by the edge. Read-only here, and live: change it on the edge and every window open on this room retitles itself.</li>
-<li data-code="Edge.onRefused" data-href="api/?p=classSynQt_1_1ConsumerBase.html">The contract's signal, handled where it arrives. The edge names its own point, so `Edge` is what the handler attaches to. No Connections block, no target to wire up.</li>
-<li data-code="model: Server.messages" data-href="programming-model/">A live model, and the whole of the sync. Somebody says something, the edge replaces the rows, and every open tab redraws itself. Nothing here polls.</li>
-<li data-code="Server.say(line.text)" data-href="api/?p=classSynQt_1_1ServerAccessor.html">A request, not a command. It runs in the edge, which is free to refuse it.</li>
+<li data-code="title: Server.topic" data-href="programming-model/">The contract's property, arriving from the entity that answered this caller. Read-only here, and live.</li>
+<li data-code="Edge.onRefused" data-href="api/?p=classSynQt_1_1ConsumerBase.html">The contract's signal, handled where it arrives. The edge names its own point, so `Edge` is what the handler attaches to, whichever entity behind it raised the signal.</li>
+<li data-code="model: Server.messages" data-href="programming-model/">A live model, and the whole of the sync. Somebody says something, the owner replaces the rows, and every open tab redraws itself. Nothing here polls.</li>
+<li data-code="required property var model" data-href="programming-model/">A delegate is recycled, so it holds no state of its own. `var model` rather than a property per role, because one of the roles is called `id`, which is a QML keyword.</li>
+<li data-code="line.model.staff" data-href="security/">Not a decision this browser made. `staff` is stamped on the row by the entity a moderator is handed to, and it is the only thing in the system that can set it.</li>
+<li data-code="Session.hasScope" data-href="runtime-api/">A courtesy, not a gate: `erase` is not a member of the surface an ordinary session acquired, so hiding the button is only about not offering it.</li>
+<li data-code="Server.say(draft.text)" data-href="api/?p=classSynQt_1_1ServerAccessor.html">A request, not a command. It runs on the owner, which is free to refuse it.</li>
 </ul>
 
 </div>
 
-<div class="synqt-file" data-file="web" markdown>
-<span class="synqt-file__name"><strong>web edge</strong><span class="synqt-flow__path">web/edge/Edge.qml</span></span>
+<div class="synqt-file" data-file="room" markdown>
+<span class="synqt-file__name"><strong>room</strong><span class="synqt-flow__path">cache/room/Room.qml</span></span>
 
 ```qml
 import SynQt
 
-Edge {
+// What a signed-in user is handed to. Nothing here asks about scope, and that is not an
+// omission: the edge in front of it hands nobody but a `user` here, so `Caller` is the only
+// question there is to ask, and the members a moderator reaches are not on this surface for
+// anybody to call.
+//
+// The room itself is not here either. `store` holds it, this mirrors it, and the moderator's
+// entity mirrors the same one, which is what makes them two views of one conversation.
+Room {
     id: room
 
-    property var said: []
-
     function say(body) {
-        if (!Caller.hasScope("user")) {
-            Caller.emitRefused("Sign in to say something.");
+        const who = Caller.identity.login;
+        // How much this person has said in the last minute, kept in the one place worth
+        // keeping it: a bounded store that forgets. The window starts when the first message
+        // of it lands, so this is a fixed minute rather than a minute from the last thing
+        // said, which would never expire for somebody typing steadily.
+        const said = Cache.incr("said:" + who);
+        if (said === 1) {
+            Cache.expire("said:" + who, 60);
+        }
+        if (said > 20) {
+            Caller.emitRefused("Twenty lines a minute is the limit. Give it a moment.");
             return;
         }
-        Store.append(Caller.identity.login, body).then(rows => room.said = rows);
+        Store.say(who, body, false);
     }
 
-    topic: "Anything goes"
-    // There is one of this entity, so there is one of this list: it is the room. Every
-    // browser holds a mirror of this Source, so one person saying something redraws all
-    // of them, and the only thing anybody wrote is the line below.
-    messagesRows: room.said
-
-    Component.onCompleted: Store.recent().then(rows => room.said = rows)
+    topic: Store.topic
+    messagesRows: Store.lines
 }
 ```
 
 <ul class="synqt-flow__glossary" hidden>
-<li data-code="Edge {" data-href="programming-model/">The Source of the point this entity owns. The type is the entity's own name capitalised, and there is one of it, because there is one of this entity.</li>
-<li data-code="Caller.hasScope" data-href="api/?p=classSynQt_1_1Caller.html">Who is asking, decided by the edge from the session it holds. A browser cannot read this value, let alone set it.</li>
+<li data-code="Room {" data-href="programming-model/">The Source of the point this entity owns. The type is the entity's own name capitalised.</li>
+<li data-code="topic: Store.topic" data-href="programming-model/">One value, three hops. The database sets it, this mirrors it, and the edge relays it to the browser, with nothing polling anywhere along the way.</li>
+<li data-code="messagesRows: Store.lines" data-href="programming-model/">Bind the model once and the room is live. Every browser handed to this entity holds a mirror of it, so reassigning the list on the database redraws all of them.</li>
+<li data-code="Caller.identity.login" data-href="api/?p=classSynQt_1_1Caller.html">Who is asking, taken from the session the edge verified and handed down with the call. A browser cannot read this value, let alone set it.</li>
+<li data-code="Cache.incr" data-href="providers/">A bounded store that forgets, which is exactly what a rate counter wants. In process by default, Redis behind the same interface with one config value.</li>
 <li data-code="Caller.emitRefused" data-href="runtime-api/">The contract's signal, emitted to this caller alone. Everybody else in the room sees nothing.</li>
-<li data-code="Store.append" data-href="programming-model/">The database, over mutual TLS, by name. The promise is the answer coming back; nothing blocks while it does.</li>
-<li data-code="messagesRows: room.said" data-href="programming-model/">Bind the model once and the room is live. Every browser holds a mirror of this one Source, so assigning this list is what redraws all of them.</li>
+</ul>
+
+</div>
+
+<div class="synqt-file" data-file="moderation" markdown>
+<span class="synqt-file__name"><strong>moderation</strong><span class="synqt-flow__path">service/moderation/Moderation.qml</span></span>
+
+```qml
+import SynQt
+
+// What a moderator is handed to, in a binary of its own. `erase` is compiled into this
+// entity and into nothing else, and neither is the line below that marks a message as staff:
+// the process serving ordinary users does not contain either of them.
+//
+// Like the entity next door, it never asks about scope. The edge decides who arrives here.
+Moderation {
+    id: desk
+
+    // A moderator is not rate limited, which is why this entity has no cache and the one
+    // serving users does. What is different about the two surfaces is what each of them
+    // holds, not a flag either of them reads.
+    function say(body) {
+        Store.say(Caller.identity.login, body, true);
+    }
+
+    // Read against the room as it stands rather than against a query of its own: the caller
+    // is looking at these rows, so this is the question they think they are asking. The
+    // answer goes back to the one caller who asked it and to nobody else in the room.
+    function erase(id) {
+        if (!Store.lines.some(line => line.id === id)) {
+            Caller.emitRefused("That message is not in the room any more.");
+            return;
+        }
+        Store.erase(id);
+    }
+
+    topic: Store.topic
+    messagesRows: Store.lines
+}
+```
+
+<ul class="synqt-flow__glossary" hidden>
+<li data-code="Moderation {" data-href="programming-model/">The other half of the front: the same surface a user reaches, plus what only a moderator does. Its own entity, so its own binary.</li>
+<li data-code="Store.say(Caller.identity.login, body, true)" data-href="security/">The `true` is what marks a message as staff, and this line is compiled into this entity and nowhere else. The process serving ordinary users does not contain it.</li>
+<li data-code="function erase(id)" data-href="programming-model/">Not on the surface a user acquired at all. There is no check here refusing them, because there is nothing for them to call.</li>
 </ul>
 
 </div>
@@ -436,28 +606,50 @@ Edge {
 ```qml
 import SynQt
 
+// The conversation, and the only thing here that survives a restart. Nothing in this file
+// asks who is calling: this point lists two consumers, so those two entities are the only
+// ones that can acquire it at all, and a browser is on no consumer list anywhere.
 Store {
     id: log
 
-    // Nothing here asks who is calling. This point lists one consumer, so the edge is
-    // the only entity that can acquire it at all, and a browser is on no list anywhere.
-    function recent() {
-        return Db.query(
-            "SELECT id, who, body FROM messages ORDER BY id DESC LIMIT 50");
+    function say(who, body, staff) {
+        Db.exec("INSERT INTO messages (who, body, staff, said_at) "
+                + "VALUES (?, ?, ?, datetime('now'))",
+                [who, body, staff ? 1 : 0]);
+        log.refresh();
     }
 
-    function append(who, body) {
-        Db.exec("INSERT INTO messages (who, body, said_at) VALUES (?, ?, datetime('now'))",
-                [who, body]);
-        return log.recent();
+    function erase(id) {
+        Db.exec("DELETE FROM messages WHERE id = ?", [id]);
+        log.refresh();
     }
+
+    // The room as it stands, reassigned in one go. Every surface in front of this mirrors
+    // the property, so one line typed anywhere redraws every window open on the room and
+    // nobody wrote a broadcast.
+    //
+    // `said_at` is in the table and not in the SELECT, and not in the contract either. A
+    // column the browser is never told about is a column it cannot receive: the boundary
+    // keeps the declared roles and drops the rest, so it could not cross even by accident.
+    function refresh() {
+        const rows = Db.query("SELECT id, who, body, staff FROM messages "
+                              + "ORDER BY id DESC LIMIT 50");
+        log.lines = rows.map(row => ({ id: row.id, who: row.who, body: row.body,
+                                       staff: row.staff !== 0 }));
+    }
+
+    topic: "Anything goes"
+    lines: []
+
+    Component.onCompleted: log.refresh()
 }
 ```
 
 <ul class="synqt-flow__glossary" hidden>
 <li data-code="Store {" data-href="programming-model/">The Source of the point the database owns, and the only surface it has. There is no other way in.</li>
-<li data-code="Db.query" data-href="providers/">Parameterized, always. The values travel beside the statement, so an apostrophe in a message is an apostrophe and never a second statement.</li>
-<li data-code="Db.exec" data-href="providers/">Writes are serialized on this entity's own event loop, so concurrent callers queue rather than collide.</li>
+<li data-code="lines: []" data-href="programming-model/">The room as it stands, held once. Both surfaces in front of it mirror this one property, which is what makes them two views of one conversation.</li>
+<li data-code="Db.exec" data-href="providers/">Parameterized, always. The values travel beside the statement, so an apostrophe in a message is an apostrophe and never a second statement. Writes are serialized on this entity's own event loop.</li>
+<li data-code="Db.query" data-href="providers/">`said_at` is in the table and not in this SELECT, and not in the contract either: the boundary keeps the declared roles and drops the rest.</li>
 </ul>
 
 </div>
@@ -470,6 +662,7 @@ CREATE TABLE IF NOT EXISTS messages (
     id      INTEGER PRIMARY KEY AUTOINCREMENT,
     who     TEXT NOT NULL,
     body    TEXT NOT NULL,
+    staff   INTEGER NOT NULL DEFAULT 0,
     said_at TEXT NOT NULL
 );
 

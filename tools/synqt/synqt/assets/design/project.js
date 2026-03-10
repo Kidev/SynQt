@@ -435,6 +435,14 @@ export function entityFiles(design, entity) {
         return [{name: `${entityDir(entity)}/signin/index.html`, owner: entity.name,
                  text: forMonitor(MONITOR_SCAFFOLD.signin_html, entity.name)}];
     }
+    if (isFront(link)) {
+        // A front owns a connect point it does not implement: it keeps the session and the
+        // sign-in, and every caller is answered by the entity wired to their scope. So there
+        // is no Source to write here, and writing one anyway is not harmless -- `synqt
+        // check` refuses a point whose owner publishes none of what it exports, which is
+        // exactly what an empty Source beside a `behind:` block is.
+        return [];
+    }
     if (entity.console) {
         // The console client, which is a client whose window nobody writes: it reads the
         // framework's own `Console` contract, so it is the same three hundred lines for
