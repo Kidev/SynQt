@@ -284,12 +284,19 @@ side, the mesh (service to service) side, the public TLS, and its env file:
       #   ranges. Empty (the default) means the connecting peer IS the visitor, which is
       #   true of an edge facing the internet directly and false of every connection at
       #   once as soon as a proxy or balancer sits in front. Nothing is trusted
-      #   implicitly: a header from a peer not on this list is ignored, because otherwise
+      #   implicitly. A header from a peer not on this list is ignored, because otherwise
       #   the per-IP connection cap and rate limits become a bucket each client picks.
       # origin: https://app.example.com
-      #   The origin browsers reach this edge at, which is not the bind address above
-      #   when a proxy or a load balancer sits in front. Required with
-      #   serve_client: false, because the app is then delivered from somewhere else
+      #   The origin browsers reach this edge at, which is a different question from the
+      #   bind above and has a different answer whenever a proxy, a load balancer or a
+      #   published container port sits in front. Three things are built out of it and
+      #   every one is matched whole: the OAuth redirect_uri the provider compares
+      #   character for character, what `self` expands to in security.allowed_origins
+      #   when the upgrade checks the browser's Origin header, and the sync endpoint the
+      #   CSP names. Write the scheme, host and port a visitor types, and nothing after
+      #   them. Absent, the edge derives it from the bind, and a wildcard bind derives to
+      #   localhost, which is right for a development run and for nothing else. Required
+      #   with serve_client: false, because the app is then delivered from somewhere else
       #   and cannot read its edge off its own page.
       client_route: /
       sync_route: /sync       # the WebSocket upgrade path

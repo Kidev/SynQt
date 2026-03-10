@@ -253,6 +253,12 @@ def _edge_policy_lines(config: Dict[str, Any], edge: Dict[str, Any]) -> List[str
         string_line("syncRoute", public["sync_route"])
     if "host" in public:
         string_line("host", public["host"])
+    # Where a browser reaches this edge, which is not where it binds. Everything the edge
+    # says about itself is built from this. The OAuth redirect_uri, what `self` means in
+    # allowed_origins, and the sync endpoint in the CSP. Absent, the edge derives it, and
+    # a wildcard bind derives to localhost (src/edge/webedge.cpp).
+    if "origin" in public:
+        string_line("origin", str(public["origin"]).rstrip("/"))
     if "serve_client" in public:
         lines.append("    config.serveClient = %s;"
                      % _bool_literal("public.serve_client", public["serve_client"]))
@@ -1213,6 +1219,11 @@ int main(int argc, char *argv[])
         config.host = QStringLiteral("127.0.0.1");
         config.certFile.clear();
         config.keyFile.clear();
+        // The declared public origin goes with them. It names the deployed host over
+        // https, and a development run is neither, so leaving it standing would build the
+        // OAuth redirect_uri and the upgrade's origin check against an address this
+        // process is not the one answering at.
+        config.origin.clear();
     }}
 
 {cp_section}{pages_block}

@@ -117,6 +117,20 @@ struct WebEdgeConfig
     QString certFile;
     QString keyFile;
 
+    /// The origin browsers reach this edge at (`public.origin`), or empty to derive it
+    /// from the bind above.
+    ///
+    /// These are two different questions and only one of them has `host` for an answer.
+    /// `host` is what to bind, and its default says every interface. The origin is what a
+    /// browser typed, and it is what the OAuth `redirect_uri` is built from, what `self`
+    /// expands to in `allowedOrigins`, and what the CSP names as the sync endpoint. An
+    /// edge that answers on every interface has no address to read those off, and a
+    /// deployment behind a proxy binds something private and is reached at something
+    /// public, so neither case can be inferred. A project that has a public name says it
+    /// here. Derived, a wildcard bind resolves to `localhost`, which is the one host a
+    /// browser on the same machine can be at.
+    QString origin;
+
     /// Whether this edge delivers the client bundle, or only the sync endpoint and the
     /// login routes while a CDN delivers the bundle from another origin
     /// (`public.serve_client: false`, which only makes sense with

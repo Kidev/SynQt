@@ -157,6 +157,66 @@ class CdnValidation(unittest.TestCase):
         self.assertEqual([m for m in messages if "serve_client" in m], [])
 
 
+class DeclaredOriginIsAnOrigin(unittest.TestCase):
+    """`public.origin` is matched whole in three places, so a near miss is a total miss.
+
+    The provider compares the OAuth `redirect_uri` character for character, the upgrade
+    compares the browser's `Origin` header against what `self` expanded to, and the CSP
+    names the sync endpoint. None of the three degrades. They refuse, at the moment
+    somebody tries to sign in, with nothing in the log that names the value.
+    """
+
+    def with_origin(self, origin, tls=True):
+        config = cdn_config()
+        config["entities"][1]["public"]["origin"] = origin
+        if tls:
+            config["entities"][1]["tls"] = {"cert_file": "c.pem", "key_file": "k.pem"}
+        return config
+
+    def test_a_value_that_is_not_an_origin_is_refused(self):
+        ok, messages = check.validate(self.with_origin("localhost:8443"))
+        self.assertFalse(ok)
+        self.assertTrue(any("which is not an origin" in m for m in messages), messages)
+
+    def test_an_origin_carrying_a_path_is_refused(self):
+        ok, messages = check.validate(self.with_origin("https://app.example.com/live"))
+        self.assertFalse(ok)
+        self.assertTrue(any("carries a path" in m for m in messages), messages)
+
+    def test_http_on_an_edge_that_terminates_tls_is_refused(self):
+        # The session cookie is issued Secure on a TLS edge, and a browser drops a Secure
+        # cookie on an http origin, so nobody stays signed in.
+        ok, messages = check.validate(self.with_origin("http://app.example.com"))
+        self.assertFalse(ok)
+        self.assertTrue(any("declares public.origin over" in m for m in messages), messages)
+
+    def test_a_plain_origin_passes(self):
+        ok, messages = check.validate(self.with_origin("https://app.example.com"))
+        self.assertTrue(ok, messages)
+
+    def test_a_project_that_names_no_origin_hears_nothing_about_one(self):
+        config = cdn_config()
+        config["entities"][1]["public"] = {"port": 8443, "serve_client": False}
+        messages = check._public_origin_messages(config)
+        self.assertEqual(messages, [])
+
+    def test_a_release_edge_that_signs_people_in_is_asked_where_it_lives(self):
+        # Derived, the origin is localhost, and that would be the redirect_uri handed to
+        # the identity provider. The browser is sent somewhere it cannot come back from.
+        config = cdn_config()
+        config["entities"][1]["public"] = {"port": 8443}
+        config["identity"] = {"providers": [{"name": "github", "client_id": "x"}]}
+        release = check._public_origin_messages(config, release=True)
+        self.assertTrue(any("declares no public.origin" in m for m in release), release)
+        # Not a development concern. The same file is what `synqt serve` runs here.
+        self.assertEqual(check._public_origin_messages(config), [])
+
+    def test_a_release_edge_with_no_login_is_left_alone(self):
+        config = cdn_config()
+        config["entities"][1]["public"] = {"port": 8443}
+        self.assertEqual(check._public_origin_messages(config, release=True), [])
+
+
 class SplitOriginIsNotOffered(unittest.TestCase):
     """Reaching split-origin takes a hand edit, and that is the feature, not an oversight.
 

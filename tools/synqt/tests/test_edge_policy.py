@@ -319,14 +319,33 @@ class TestPublicBindAndTls(unittest.TestCase):
         self.assertIn('QStringLiteral("certs/web/fullchain.pem")', source)
         self.assertIn('QStringLiteral("certs/web/privkey.pem")', source)
 
+    def test_where_a_browser_reaches_the_edge_is_carried_separately_from_the_bind(self):
+        # Two different questions, and only one of them has the bind for an answer. This
+        # one is the OAuth redirect_uri, what `self` expands to at the upgrade's origin
+        # check, and the sync endpoint in the CSP, so an edge that inferred it from a
+        # wildcard bind would refuse every visitor there can be.
+        source = render(self.with_public(host="0.0.0.0",
+                                         origin="https://arena.example.com/"))
+        self.assertIn('config.host = QStringLiteral("0.0.0.0");', source)
+        # Written without the trailing slash, because it is compared whole.
+        self.assertIn('config.origin = QStringLiteral("https://arena.example.com");',
+                      source)
+
+    def test_an_edge_that_names_no_origin_emits_none(self):
+        # The edge derives it then (src/edge/webedge.cpp), and a wildcard bind derives to
+        # localhost. Emitting a guess here would put it in generated source, where the
+        # deployment that has a real answer could not tell it from one.
+        self.assertNotIn("config.origin =", render(base_config()))
+
     def test_dev_overrides_the_public_tls_with_plaintext_loopback(self):
-        # The configured certificate is valid on the deployed host and nowhere else.
+        # The configured certificate is valid on the deployed host and nowhere else, and
+        # the public origin names that host, so both go.
         source = render(base_config())
         self.assertIn("    if (parser.isSet(devOption)) {\n"
                       '        config.host = QStringLiteral("127.0.0.1");\n'
                       "        config.certFile.clear();\n"
-                      "        config.keyFile.clear();\n"
-                      "    }", source)
+                      "        config.keyFile.clear();\n", source)
+        self.assertIn("        config.origin.clear();\n    }", source)
 
 
 class TestEnvFile(unittest.TestCase):

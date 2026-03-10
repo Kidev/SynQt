@@ -23,6 +23,13 @@
       "test": "disallowedOriginRejectedBeforeSocket"
     },
     {
+      "id": "origin-gate-refuses-everyone",
+      "what": "The origin gate is set against an origin no browser can arrive with, so it refuses every visitor and the app loops at the sign-in screen. It shipped that way: an edge built its own origin out of its bind address, and the default bind is 0.0.0.0.",
+      "defended_by": "The edge derives its origin from public.origin, and a wildcard bind resolves to localhost rather than to itself. The test arrives the way a browser has to, at an address the edge did not name.",
+      "file": "tests/m5-webedge/tst_m5.cpp",
+      "test": "wildcardBoundEdgeAcceptsTheBrowserThatCanReachIt"
+    },
+    {
       "id": "forged-session-at-upgrade",
       "what": "A hand-written client presents a session cookie it made up, or none at all.",
       "defended_by": "The verifier looks the credential up in the session manager and denies 401 before a socket exists.",

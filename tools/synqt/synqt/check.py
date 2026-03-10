@@ -559,6 +559,7 @@ def validate(config: Dict[str, Any], *, release: bool = False,
     messages += lint_member_scopes(config)
     messages += lint_fronts(config)
     messages += _browser_policy_messages(config, scope_order)
+    messages += _public_origin_messages(config, release)
     messages += _cdn_delivery_messages(config)
     messages += _loading_messages(config)
     for name in sorted(entities):
@@ -1369,6 +1370,70 @@ def _is_loopback_url(url: str) -> bool:
     # as the port separator and decides that `http://[::1]:4318` is remote.
     host = (urllib.parse.urlsplit(url).hostname or "").lower()
     return host in ("127.0.0.1", "localhost", "::1")
+
+
+def _public_origin_messages(config: Dict[str, Any], release: bool = False) -> List[str]:
+    """`public.origin` has to be an origin, because that is what it is compared against.
+
+    Three things are built out of it and every one of them is matched whole: the OAuth
+    `redirect_uri` the provider checks character for character, what `self` expands to in
+    `security.allowed_origins` when the upgrade compares the browser's `Origin` header, and
+    the sync endpoint in the CSP. A value carrying a path, or naming http where the edge
+    terminates TLS, is not a near miss in any of the three -- it refuses every visitor, and
+    it does it at the moment somebody tries to sign in rather than at startup.
+    """
+    messages: List[str] = []
+    for entity in appmodel.web_edges(config):
+        declared = appmodel.public_settings(entity).get("origin")
+        if not isinstance(declared, str) or not declared.strip():
+            continue
+        name = entity.get("name", "<unnamed>")
+        origin = declared.strip().rstrip("/")
+        parts = urllib.parse.urlsplit(origin)
+        if parts.scheme not in ("http", "https") or not parts.netloc:
+            messages.append(
+                f"error: edge '{name}' declares public.origin: {declared!r}, which is not "
+                "an origin; write the scheme, the host and the port a browser types, as in "
+                "'https://example.com' or 'https://localhost:8443'")
+            continue
+        if parts.path or parts.query or parts.fragment:
+            messages.append(
+                f"error: edge '{name}' declares public.origin: {declared!r}, which carries "
+                "a path; an origin is the scheme, host and port and nothing after them, "
+                f"so write '{parts.scheme}://{parts.netloc}'")
+        if parts.scheme == "http" and appmodel.tls_settings(entity):
+            messages.append(
+                f"error: edge '{name}' terminates TLS but declares public.origin over "
+                "http; the session cookie is issued Secure on a TLS edge and a browser "
+                "drops it on an http origin, so nobody could stay signed in")
+    return messages + _derived_origin_messages(config, release)
+
+
+def _derived_origin_messages(config: Dict[str, Any], release: bool) -> List[str]:
+    """A release edge that signs people in and never says where it is reached.
+
+    Derived, the origin comes out as localhost, which is right for a development run and
+    for nothing a deployment does. It would then be the `redirect_uri` handed to the
+    identity provider, and a provider compares that whole: the browser is sent to an
+    address it cannot come back from, and the app sits on its sign-in screen. A warning
+    rather than an error, because the same file is what `synqt serve` runs on this machine.
+    """
+    if not release:
+        return []
+    messages: List[str] = []
+    for entity in appmodel.web_edges(config):
+        if not appmodel.identity_enabled(config, entity):
+            continue
+        declared = appmodel.public_settings(entity).get("origin")
+        if isinstance(declared, str) and declared.strip():
+            continue
+        name = entity.get("name", "<unnamed>")
+        messages.append(
+            f"warn: edge '{name}' signs people in but declares no public.origin, so it "
+            "derives one from its bind address and a release build would tell the identity "
+            "provider to send the browser back to localhost; declare the origin visitors "
+            "reach it at")
+    return messages
 
 
 def _cdn_delivery_messages(config: Dict[str, Any]) -> List[str]:

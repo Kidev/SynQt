@@ -870,6 +870,72 @@ private slots:
         QCOMPARE(connectedSpy.count(), 0);
     }
 
+    // The other half of the origin gate, and the half a refusal test cannot see. Every
+    // test above hands the edge back the origin the edge itself computed, so all of them
+    // pass an edge that is wrong about where it lives. The browser that then arrives at
+    // the address it was reachable on is refused, and the app loops at the sign-in
+    // screen with nothing in the log. So: bind the wildcard, the way a container and every
+    // unconfigured deployment does, and arrive the way a browser has to.
+    void wildcardBoundEdgeAcceptsTheBrowserThatCanReachIt()
+    {
+        WebEdgeConfig config{makeConfig(false)};
+        config.host = QStringLiteral("0.0.0.0");   // the default: every interface
+        QQmlEngine engine;
+        WebEdge edge{config, &engine};
+        QVERIFY2(edge.start(), qPrintable(edge.errorString()));
+
+        // "0.0.0.0" is an instruction to a socket, not a name anything can be at.
+        QVERIFY(!edge.httpOrigin().contains(QStringLiteral("0.0.0.0")));
+        QCOMPARE(edge.httpOrigin(),
+                 QStringLiteral("https://localhost:%1").arg(edge.serverPort()));
+
+        const QString reachable{QStringLiteral("https://127.0.0.1:%1").arg(edge.serverPort())};
+        QNetworkReply *reply{httpGet(reachable + QStringLiteral("/"))};
+        QVERIFY(reply != nullptr);
+        const QByteArray cookie{sessionCookie(reply)};
+        reply->deleteLater();
+
+        QSignalSpy rejectedSpy{&edge, &WebEdge::upgradeRejected};
+        QWebSocket socket;
+        socket.setSslConfiguration(insecureClientConfig());
+        QSignalSpy connectedSpy{&socket, &QWebSocket::connected};
+
+        QNetworkRequest request{QUrl{QStringLiteral("wss://127.0.0.1:%1/sync")
+                                     .arg(edge.serverPort())}};
+        // What the browser sends. The origin it loaded the page from, which it will not
+        // let anyone change.
+        request.setRawHeader("Origin", edge.httpOrigin().toUtf8());
+        request.setRawHeader("Cookie", cookie);
+        request.setSslConfiguration(insecureClientConfig());
+        socket.open(request);
+
+        QTRY_VERIFY(connectedSpy.count() == 1);
+        QCOMPARE(rejectedSpy.count(), 0);
+    }
+
+    // An edge behind a proxy binds something private and is reached at something public,
+    // so neither the bind nor a guess from it can be the answer. `public.origin` is.
+    void declaredOriginOutranksTheBindAddress()
+    {
+        WebEdgeConfig config{makeConfig(false)};
+        config.origin = QStringLiteral("https://arena.example.com");
+        QQmlEngine engine;
+        WebEdge edge{config, &engine};
+        QVERIFY2(edge.start(), qPrintable(edge.errorString()));
+
+        QCOMPARE(edge.httpOrigin(), QStringLiteral("https://arena.example.com"));
+        // One origin, said once. The sync endpoint is the same place with another scheme.
+        QCOMPARE(edge.wssOrigin(), QStringLiteral("wss://arena.example.com"));
+
+        QNetworkReply *reply{httpGet(QStringLiteral("https://127.0.0.1:%1/")
+                                     .arg(edge.serverPort()))};
+        QVERIFY(reply != nullptr);
+        // The CSP names that origin's sync endpoint, not the interface it was served on.
+        QVERIFY(reply->rawHeader("content-security-policy")
+                .contains("wss://arena.example.com"));
+        reply->deleteLater();
+    }
+
     // The verifier has four gates and the suite proved one of them. These are the other
     // two that a configuration can turn on (the session-credential gate is exercised by
     // every accepting test, which has to present a live cookie to get in at all).

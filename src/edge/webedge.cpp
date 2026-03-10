@@ -436,16 +436,48 @@ quint16 WebEdge::serverPort() const
     return m_port;
 }
 
+QString WebEdge::originHost() const
+{
+    // A bind address is not a name. "0.0.0.0" and "::" mean every interface, which is an
+    // instruction to the socket and not somewhere a browser can be. An edge that took its
+    // default bind for its identity would build "https://0.0.0.0:8443" and then refuse the
+    // only origin a visitor can arrive with. localhost is the answer that is true of a
+    // wildcard bind on the machine the browser is on, which is what a development run is.
+    // A deployment reached at a name says so in `public.origin`, and never gets here.
+    static const QStringList wildcards{QStringLiteral("0.0.0.0"), QStringLiteral("::"),
+                                       QStringLiteral("0:0:0:0:0:0:0:0")};
+    if (m_config.host.isEmpty() || wildcards.contains(m_config.host)) {
+        return QStringLiteral("localhost");
+    }
+    // A literal IPv6 address is bracketed in a URL, and only there. The same string is a
+    // bare address everywhere else, so the brackets are added here rather than stored.
+    if (m_config.host.contains(QLatin1Char(':'))) {
+        return QLatin1Char('[') + m_config.host + QLatin1Char(']');
+    }
+    return m_config.host;
+}
+
 QString WebEdge::httpOrigin() const
 {
+    if (!m_config.origin.isEmpty()) {
+        return m_config.origin;
+    }
     const QString scheme{m_config.usesTls() ? QStringLiteral("https") : QStringLiteral("http")};
-    return QStringLiteral("%1://%2:%3").arg(scheme, m_config.host).arg(m_port);
+    return QStringLiteral("%1://%2:%3").arg(scheme, originHost()).arg(m_port);
 }
 
 QString WebEdge::wssOrigin() const
 {
     const QString scheme{m_config.usesTls() ? QStringLiteral("wss") : QStringLiteral("ws")};
-    return QStringLiteral("%1://%2:%3").arg(scheme, m_config.host).arg(m_port);
+    if (!m_config.origin.isEmpty()) {
+        // One origin, said once. The sync endpoint is the same host and port as the page,
+        // so the WebSocket origin is the declared one with its scheme swapped rather than
+        // a second value that can disagree with it.
+        QString sync{m_config.origin};
+        const qsizetype separator{sync.indexOf(QLatin1String("://"))};
+        return separator < 0 ? sync : scheme + sync.mid(separator);
+    }
+    return QStringLiteral("%1://%2:%3").arg(scheme, originHost()).arg(m_port);
 }
 
 QString WebEdge::peerKey(const QString &address, quint16 port)

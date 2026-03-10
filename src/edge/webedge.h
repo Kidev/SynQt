@@ -109,6 +109,10 @@ private:
     void trackPendingUpgrade(QAbstractSocket *socket);
     void stampResponse(const QHttpServerRequest &request, QHttpServerResponse &response);
 
+    /// The host part of this edge's own origin. `public.origin` decides it when the
+    /// project named one, and a wildcard bind resolves to localhost rather than to itself.
+    QString originHost() const;
+
     QByteArray computeCsp() const;
     void computeScriptHashes();
     /// Add one index.html's inline-script hashes to the policy's set.
