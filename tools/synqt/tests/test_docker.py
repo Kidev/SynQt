@@ -103,7 +103,7 @@ class ProfileTest(unittest.TestCase):
         profile = self._profile(_config())
         self.assertEqual(set(profile), {"entities"})
         for entity in profile["entities"]:
-            self.assertTrue(set(entity) - {"name"} <= {"mesh", "tls", "provider"},
+            self.assertTrue(set(entity) - {"name"} <= {"mesh", "public", "tls", "provider"},
                             entity)
 
     def test_the_edge_gets_a_certificate_it_will_actually_have(self):
@@ -114,6 +114,60 @@ class ProfileTest(unittest.TestCase):
         web = next(e for e in profile["entities"] if e["name"] == "web")
         self.assertEqual(web["tls"]["cert_file"], docker.EDGE_CERT)
         self.assertEqual(web["tls"]["key_file"], docker.EDGE_KEY)
+
+    def test_the_edge_is_told_where_a_browser_reaches_it(self):
+        # Without this the edge takes its bind address for its identity, and a container
+        # binds every interface. Everything the edge says about itself is built from that
+        # one string -- the OAuth redirect_uri, what `self` means at the upgrade's origin
+        # check, the sync endpoint in the CSP -- so an edge answering as "0.0.0.0" refuses
+        # the only visitor there can be and never says why.
+        profile = self._profile(_config())
+        web = next(e for e in profile["entities"] if e["name"] == "web")
+        self.assertEqual(web["public"]["origin"], "https://localhost:8443")
+
+    def test_the_declared_origin_follows_the_port_that_is_published(self):
+        # `synqt docker init --port` republishes the edge somewhere else, and the origin is
+        # the address a browser types, so it moves with it.
+        config = _config()
+        profile = yaml.safe_load(
+            docker.render_profile(config, docker.mesh_addresses(config), port=9443))
+        web = next(e for e in profile["entities"] if e["name"] == "web")
+        self.assertEqual(web["public"]["origin"], "https://localhost:9443")
+
+    def test_the_callback_to_register_is_written_next_to_it(self):
+        # The one step that cannot be done from inside the project: the provider compares
+        # the redirect_uri character for character against what was registered with it.
+        config = _config(identity={"providers": [{"name": "github", "client_id": "x"}]})
+        rendered = docker.render_profile(config, docker.mesh_addresses(config))
+        self.assertIn("https://localhost:8443/auth/callback", rendered)
+
+    def test_a_project_with_no_login_is_not_told_about_a_callback(self):
+        rendered = docker.render_profile(_config(), docker.mesh_addresses(_config()))
+        self.assertNotIn("/auth/callback", rendered)
+
+    def test_the_browser_certificate_cannot_be_a_mesh_certificate(self):
+        # It was, for every project whose edge was named `edge`. `synqt mesh cert --all`
+        # writes `synqt/mesh/<entity>.crt`, the entrypoint then issued the localhost
+        # certificate behind an "unless it exists" guard at that same path, and so it never
+        # issued it. The browser was handed a mesh identity whose only name is the entity's,
+        # which no browser opening https://localhost:8443 can match. A directory of its own
+        # collides with nothing, whatever the entities are called.
+        for entity in ("edge", "web", "browser", "localhost"):
+            self.assertNotEqual(docker.EDGE_CERT, f"synqt/mesh/{entity}.crt")
+            self.assertNotEqual(docker.EDGE_KEY, f"synqt/mesh/{entity}.key")
+        self.assertEqual(Path(docker.EDGE_CERT).parent, Path(docker.BROWSER_CERT_DIR))
+        self.assertNotEqual(Path(docker.BROWSER_CERT_DIR), Path("synqt/mesh"))
+
+    def test_the_entrypoint_issues_the_browser_certificate_where_it_is_read_from(self):
+        # The two halves are generated from the same constants, and the directory is made
+        # before anything is written into it. `set -eu` turns a missing one into a container
+        # that exits before an entity ever starts.
+        script = docker.render_entrypoint("web")
+        self.assertIn(f"mkdir -p {docker.BROWSER_CERT_DIR}", script)
+        self.assertIn(f"-out {docker.EDGE_CERT}", script)
+        self.assertIn(f"-keyout {docker.EDGE_KEY}", script)
+        self.assertLess(script.index(f"mkdir -p {docker.BROWSER_CERT_DIR}"),
+                        script.index(f"-keyout {docker.EDGE_KEY}"))
 
     def test_only_the_edge_gets_a_browser_certificate(self):
         profile = self._profile(_config())

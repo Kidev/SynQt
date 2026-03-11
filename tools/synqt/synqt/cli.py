@@ -252,7 +252,9 @@ def build_parser() -> argparse.ArgumentParser:
     dd = docker_sub.add_parser("down", help="stop every container")
     dd.add_argument("--volumes", action="store_true",
                     help="also remove the mesh CA and any engine data (a clean slate)")
-    for dp in (di, du, dd):
+    dca = docker_sub.add_parser(
+        "ca", help="copy out the development authority the browser link is signed by")
+    for dp in (di, du, dd, dca):
         dp.add_argument("--project-dir", default=".")
     dockerp.set_defaults(project_dir=".")
 
@@ -366,6 +368,9 @@ def _run_docker(args: argparse.Namespace) -> int:
         print(dockermod.init(args.project_dir, config, force=args.force,
                              subnet=args.subnet, client=args.client, port=args.port,
                              source=None if args.no_input else sys.stdin))
+        return 0
+    if args.docker_command == "ca":
+        print(dockermod.export_ca(args.project_dir))
         return 0
     if args.docker_command == "up":
         command = dockermod.up_command(args.project_dir, detach=args.detach,

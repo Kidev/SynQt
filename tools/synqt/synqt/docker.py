@@ -306,6 +306,11 @@ def container_names(config: Dict[str, Any]) -> List[str]:
 
 FRONT_SERVICE = "front"
 
+#: The one-shot service that issues the development authority and every entity's
+#: certificate into the mesh volume. Named here because `synqt docker ca` runs a container
+#: from it to read that authority back out.
+MESH_SERVICE = "mesh-init"
+
 
 def front_name(config: Dict[str, Any]) -> str:
     """The balancer's service name, or empty when this project needs none.
@@ -397,8 +402,37 @@ def secret_names(config: Dict[str, Any]) -> Dict[str, List[str]]:
 
 # the generated profile
 
+#: The OAuth callback's yaml key and its default, from `src/identity/identityconfig.h`.
+#: The origin in front of it is this project's. The path is the edge's own route.
+CALLBACK_KEY = "callback"
+CALLBACK_ROUTE = "/auth/callback"
+
+
+def edge_origin(config: Dict[str, Any], port: Optional[int] = None) -> str:
+    """Where a browser reaches the edge once compose has published its port.
+
+    Not the bind address, and this is the difference that decides whether anyone can sign
+    in. A container binds every interface, so the edge has no name to read off itself. The
+    published port is on the machine running docker, so localhost is that name. It becomes
+    the OAuth ``redirect_uri``, what ``self`` expands to in ``security.allowed_origins``,
+    and the sync endpoint in the CSP, all three of which a browser is compared against.
+    """
+    edge = edge_entity(config)
+    public = appmodel.public_settings(edge) if edge else {}
+    return f"https://localhost:{int(port or public.get('port') or 8443)}"
+
+
+def callback_url(config: Dict[str, Any], port: Optional[int] = None) -> str:
+    """The full URL an identity provider redirects back to, to register with it."""
+    identity = config.get("identity")
+    route = CALLBACK_ROUTE
+    if isinstance(identity, dict):
+        route = str(identity.get(CALLBACK_KEY, CALLBACK_ROUTE))
+    return edge_origin(config, port) + route
+
+
 def render_profile(config: Dict[str, Any], addresses: Dict[str, str],
-                   subnet: str = DEFAULT_SUBNET) -> str:
+                   subnet: str = DEFAULT_SUBNET, port: Optional[int] = None) -> str:
     """``synqt.docker.yaml``: what changes about the topology when it runs in containers.
 
     A profile changes and adds, never removes (``config.merge``), so this file is only the
@@ -432,6 +466,18 @@ def render_profile(config: Dict[str, Any], addresses: Dict[str, str],
         lines.append(f"  - name: {name}")
         lines.append(f"    mesh: {{ host: {addresses[name]} }}")
         if name == edge_name:
+            lines.append("    # Where a browser reaches this edge, which is not where it")
+            lines.append("    # binds: a container listens on every interface, and compose")
+            lines.append("    # publishes that port on the machine you are sitting at, so")
+            lines.append("    # this is the one address a visitor can arrive with. The")
+            lines.append("    # upgrade's origin check compares against it, and it is what")
+            lines.append("    # the CSP names as the sync endpoint.")
+            if appmodel.identity_enabled(config, entity):
+                lines.append("    # It is also where signing in comes back to, which makes")
+                lines.append("    # this the callback URL to register with the provider:")
+                lines.append(f"    #     {callback_url(config, port)}")
+            lines.append("    public:")
+            lines.append(f"      origin: {edge_origin(config, port)}")
             lines.append("    # The browser link, over a certificate the mesh-init container")
             lines.append("    # issues for localhost from the same development authority. A")
             lines.append("    # scaffolded synqt.yaml points `tls:` at a deployment")
@@ -724,8 +770,24 @@ def render_dockerfile(config: Dict[str, Any], *, client: str = "image",
     return "\n".join(lines)
 
 
-EDGE_CERT = "synqt/mesh/edge.crt"
-EDGE_KEY = "synqt/mesh/edge.key"
+#: The edge's browser-facing certificate, in a directory of its own.
+#:
+#: Not `synqt/mesh/<edge>.crt`, and the difference is the whole point. `synqt mesh cert
+#: --all` writes one file per entity flat into `synqt/mesh/`, so an edge named `edge` has
+#: a mesh identity at exactly that path already -- and the browser certificate, issued
+#: after it behind an "if it does not exist yet" guard, was never issued at all. What the
+#: browser then got handed was the mesh identity: subject `CN=edge`, its only name `edge`,
+#: which no browser opening `https://localhost:8443` can match. A subdirectory cannot
+#: collide with an entity name, whatever anybody calls their entities.
+BROWSER_CERT_DIR = "synqt/mesh/browser"
+EDGE_CERT = f"{BROWSER_CERT_DIR}/localhost.crt"
+EDGE_KEY = f"{BROWSER_CERT_DIR}/localhost.key"
+
+#: The development authority inside the volume, and where `synqt docker ca` copies it to.
+#: The certificate only. The key beside it in the volume stays there: it signs every
+#: entity's identity on this mesh, and a copy of it in the project is a copy to leak.
+CA_CERT = "synqt/mesh/ca.crt"
+CA_COPY = "synqt/mesh/docker-ca.crt"
 
 
 def render_entrypoint(edge_name: str = "web") -> str:
@@ -772,13 +834,18 @@ def render_entrypoint(edge_name: str = "web") -> str:
         f"    synqt mesh cert --all --profile {PROFILE}",
         "    synqt mesh status",
         "",
-        f"    # The browser-facing certificate for '{edge_name}'. Not a mesh identity: it",
-        "    # names localhost, because that is what the person opening the page types.",
+        f"    # The browser-facing certificate for '{edge_name}'. Not a mesh identity, and",
+        "    # not beside them either: `synqt mesh cert --all` above has already written",
+        "    # one file per entity into synqt/mesh/, so an edge whose name matched this",
+        "    # file's would leave the browser holding a mesh identity it cannot match a",
+        "    # hostname against. This one names localhost, which is what a person opening",
+        "    # the page types.",
         "    # The extensions go in a file rather than through -addext, which has been",
         "    # observed to emit a second, malformed basicConstraints that Secure Transport",
         "    # on macOS then rejects outright.",
         f"    if [ ! -f {EDGE_CERT} ]; then",
         '        echo "mesh: issuing a development certificate for the browser link"',
+        f"        mkdir -p {BROWSER_CERT_DIR}",
         "        cat > /tmp/edge.ext <<'EXT'",
         "basicConstraints=critical,CA:FALSE",
         "keyUsage=critical,digitalSignature,keyEncipherment",
@@ -925,7 +992,7 @@ def render_compose(config: Dict[str, Any], addresses: Dict[str, str], *,
         "  # One shot, before anything else: the development certificate authority and one",
         "  # certificate per entity, into the shared volume. It exits, and the entities wait",
         "  # for it to have exited successfully rather than merely started.",
-        "  mesh-init:",
+        f"  {MESH_SERVICE}:",
         f"    image: {image}",
         "    build:",
         "      context: .",
@@ -1388,7 +1455,7 @@ def init(project_dir: os.PathLike[str] | str, config: Dict[str, Any], *,
     # Dockerfile cannot expect a context the compose file does not hand it.
     checkout = checkout_source()
     files = {
-        f"synqt.{PROFILE}.yaml": render_profile(config, addresses, subnet),
+        f"synqt.{PROFILE}.yaml": render_profile(config, addresses, subnet, port),
         COMPOSE_FILE: render_compose(config, addresses, subnet=subnet,
                                      client=client, port=port, checkout=checkout),
         f"{DOCKER_DIR}/Dockerfile": render_dockerfile(config, client=client,
@@ -1425,8 +1492,6 @@ def _summary(config: Dict[str, Any], written: List[str], env_files: List[str],
              generated: List[str], addresses: Dict[str, str], client: str,
              port: Optional[int]) -> str:
     edge = edge_entity(config)
-    public = appmodel.public_settings(edge) if edge else {}
-    edge_port = int(port or public.get("port") or 8443)
     lines = ["Wrote:"] + [f"  {name}" for name in sorted(written)]
     if env_files:
         lines += ["", "Secrets (never committed):"] + [f"  {name}"
@@ -1451,7 +1516,17 @@ def _summary(config: Dict[str, Any], written: List[str], env_files: List[str],
         lines.append("  synqt docker up")
         lines.append("  The first build provisions Qt and Emscripten inside the image and")
         lines.append("  takes a while; every build after it reuses that layer.")
-    lines.append(f"  then open https://localhost:{edge_port}")
+    lines.append(f"  then open {edge_origin(config, port)}")
+    lines.append("  Your browser warns once about the issuer: the certificate is real TLS")
+    lines.append("  from the development authority in the volume, and not one it knows.")
+    if edge and appmodel.identity_enabled(config, edge):
+        lines += [
+            "",
+            "Signing in needs one thing done outside this project. Register this exact",
+            "callback URL with the identity provider, because it is where the provider",
+            "sends the browser back and it is compared character for character:",
+            f"  {callback_url(config, port)}",
+        ]
     lines += [
         "",
         "This is a development system. The mesh links between entities are real mutual TLS,",
@@ -1524,6 +1599,71 @@ def down_command(project_dir: os.PathLike[str] | str, *,
     return command
 
 
+def export_ca(project_dir: os.PathLike[str] | str) -> str:
+    """Copy the development authority's certificate out of the volume, and say how to
+    trust it.
+
+    Why this exists at all: the edge serves the browser over TLS from a certificate that
+    authority signed, and a browser has never heard of it. The interstitial is the visible
+    half and the smaller one -- an origin with a certificate error also gets no service
+    worker, so a bundle that installs one runs a degraded copy of itself all through
+    development and only on this transport. Trusting the authority once fixes both, and
+    trusting an authority is not something a tool should do to a machine on its own, so
+    this hands over the file and the command rather than running it.
+    """
+    root = Path(project_dir)
+    _require_generated(root)
+    destination = root / CA_COPY
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    command = compose_command() + ["run", "--rm", "--no-deps", "--entrypoint", "cat",
+                                   MESH_SERVICE, "/" + APP_DIR.strip("/") + "/" + CA_CERT]
+    probe = subprocess.run(command, cwd=str(root), capture_output=True, text=True,
+                           env=_environment())
+    certificate = probe.stdout.strip()
+    if probe.returncode != 0 or not certificate.startswith("-----BEGIN CERTIFICATE-----"):
+        raise DockerError(
+            "could not read the development authority out of the mesh volume. It is "
+            "created by the first `synqt docker up`, so run that first.\n"
+            + (probe.stderr.strip() or probe.stdout.strip()))
+    destination.write_text(certificate + "\n", encoding="utf-8")
+    return "\n".join([
+        f"Wrote {CA_COPY}",
+        "",
+        "This is the development authority behind the certificate the edge serves the",
+        "browser with. Trust it once and the warning goes away, and so does the service",
+        "worker being refused. Pick the line for this machine:",
+        "",
+        "  Linux, for Chrome and anything else using the NSS store:",
+        "    certutil -d sql:$HOME/.pki/nssdb -A -t 'C,,' -n 'SynQt development CA' \\",
+        f"             -i {CA_COPY}",
+        "  Linux, system-wide (curl, and Firefox where it follows the system store):",
+        f"    sudo cp {CA_COPY} /usr/local/share/ca-certificates/synqt-development.crt",
+        "    sudo update-ca-certificates",
+        "  macOS:",
+        "    sudo security add-trusted-cert -d -r trustRoot \\",
+        f"         -k /Library/Keychains/System.keychain {CA_COPY}",
+        "  Windows (PowerShell as administrator):",
+        f"    Import-Certificate -FilePath {CA_COPY} -CertStoreLocation Cert:\\LocalMachine\\Root",
+        "  Firefox keeps its own store: Settings -> Privacy & Security -> Certificates ->",
+        f"    View Certificates -> Authorities -> Import, and tick websites.",
+        "",
+        "What you are agreeing to: until you remove it, this authority can vouch for any",
+        "name to your browser. Its key is in a docker volume on this machine and nowhere",
+        "else, and `synqt docker down --volumes` destroys it -- after which remove this",
+        "from your store too, because the next `up` issues a different one.",
+    ])
+
+
+def _environment() -> Dict[str, str]:
+    """The environment a compose command runs with. `SYNQT_SRC` pointed at the checkout
+    answering `synqt` right now, unless the caller already said which one."""
+    environment = dict(os.environ)
+    checkout = checkout_source()
+    if checkout and "SYNQT_SRC" not in environment:
+        environment["SYNQT_SRC"] = str(checkout)
+    return environment
+
+
 def run(project_dir: os.PathLike[str] | str, command: List[str]) -> int:
     """Run a compose command in the project directory, streaming its output.
 
@@ -1534,11 +1674,7 @@ def run(project_dir: os.PathLike[str] | str, command: List[str]) -> int:
     `SYNQT_SRC` is passed through from wherever this command is running, so the image is
     built against the checkout answering `synqt` right now. The compose file carries the
     path it was generated with as the default, which is what a bare `docker compose up`
-    uses; a checkout that has since moved would fail there on a directory that is not
+    uses. A checkout that has since moved would fail there on a directory that is not
     around any more, and this is what keeps that from being a regeneration.
     """
-    environment = dict(os.environ)
-    checkout = checkout_source()
-    if checkout and "SYNQT_SRC" not in environment:
-        environment["SYNQT_SRC"] = str(checkout)
-    return subprocess.call(command, cwd=str(project_dir), env=environment)
+    return subprocess.call(command, cwd=str(project_dir), env=_environment())

@@ -151,6 +151,7 @@ synqt monitor operator add <name>
 synqt docker init       # Generate the Dockerfile, compose file, and container profile.
 synqt docker up         # Build the images and start one container per entity.
 synqt docker down       # Stop them (--volumes also discards the CA and engine data).
+synqt docker ca         # Copy out the development CA, to trust the browser link.
 ```
 
 The two `add` commands that produce QML both write the same one file, because an entity is

@@ -47,17 +47,18 @@ synqt docker up              # build the images and start every container
 synqt docker up --detach     # the same, in the background
 synqt docker down            # stop everything, keep the certificates and the data
 synqt docker down --volumes  # and throw those away too, for a clean slate
+synqt docker ca              # copy out the authority behind the browser certificate
 ```
 
-`up` and `down` are `docker compose` with the two checks worth making first, so neither has
-to be remembered. Everything they do is in the generated compose file, so plain `docker
+`up` and `down` are `docker compose` with the two checks worth making first, so you do not
+have to remember them. Everything they do is in the generated compose file, so plain `docker
 compose` works if you would rather use it directly.
 
 Options on `init`:
 
 - `--client image` (the default) builds the browser bundle inside the image, so the machine
   needs no Qt and no Emscripten. `--client host` leaves it out and mounts the bundle
-  `synqt build` produced locally, read-only. The first is the one to hand somebody; the
+  `synqt build` produced locally, read-only. The first is the one to hand somebody. The
   second is much faster to iterate on, because a change to the client's QML is a `synqt
   build --client wasm` rather than an image rebuild.
 - `--port` publishes the edge somewhere other than the port in `synqt.yaml`, for when
@@ -96,21 +97,59 @@ changes nothing about who it is allowed to be.
 
 A one-shot `mesh-init` container runs before anything else and issues a development
 certificate authority plus one certificate per entity into a shared volume. Every entity
-waits for it to have exited successfully, not merely started, so nothing comes up holding a
-certificate signed by an authority the others do not trust.
+waits for it to have exited successfully rather than merely started, so nothing comes up
+holding a certificate signed by an authority the others do not trust.
 
-It issues one more, of a different kind: the edge's browser-facing certificate, for
+It issues one more, of a different kind, the edge's browser-facing certificate, for
 `localhost`, from the same authority. That is not a mesh identity and it is not what a
-deployment would use; it exists because a scaffolded `synqt.yaml` points `tls:` at a
+deployment would use. It exists because a scaffolded `synqt.yaml` points `tls:` at a
 certificate you have not obtained yet, and an edge with no certificate listens on a port
 whose handshake can never complete. So `https://localhost:8443` works, and your browser
-warns once that it does not know the issuer, which is the honest state of affairs rather
-than a plaintext port pretending to be something else. Click through it, or trust
-`synqt/mesh/ca.crt` out of the volume if the warning gets tiresome.
+warns once that it does not know the issuer, which is the true state of affairs rather
+than a plaintext port pretending to be something else.
+
+Clicking through the warning is enough to look at the app, and not enough to develop
+against it, because a browser gives an origin whose certificate it distrusts no service
+worker, so a bundle that installs one runs a degraded copy of itself for as long as you
+leave it. `synqt docker ca` writes the authority to `synqt/mesh/docker-ca.crt` and prints
+the one command that trusts it on this machine. Trusting it is a decision about your
+machine, so the command is printed rather than run. Until you remove it, that authority can vouch for any name to
+your browser.
 
 The authority is created on the first `up` and reused after, so no key is in the image and
 none is in the repository. `synqt docker down --volumes` removes it, and the next `up`
-issues a fresh one.
+issues a fresh one. If you trusted the old one, remove it from your store then, because the
+new one is a different authority.
+
+### Where a browser reaches the edge
+
+A container binds every interface, and compose publishes one port on the machine you are
+sitting at, so `synqt.docker.yaml` writes down the address a visitor types:
+
+```yaml
+entities:
+  - name: edge
+    public:
+      origin: https://localhost:8443
+```
+
+This is not a duplicate of the bind. Three things are built out of it and every one of them
+is matched whole. They are the OAuth `redirect_uri` an identity provider compares character for
+character, what `self` expands to in `security.allowed_origins` when the upgrade checks the
+browser's `Origin` header, and the sync endpoint the [CSP](csp.md) names. An edge that took
+its bind address for its identity would call itself `https://0.0.0.0:8443` and then refuse
+the only origin a browser can arrive with.
+
+It is also the callback URL to register with the identity provider, which is the one step in
+signing in that cannot be done from inside the project. `synqt docker init` prints it:
+
+```
+https://localhost:8443/auth/callback
+```
+
+Register that exact string. A provider that was given anything else sends the browser
+somewhere it cannot come back from, and the app sits on its sign-in screen with nothing in
+the log.
 
 ### Engines
 

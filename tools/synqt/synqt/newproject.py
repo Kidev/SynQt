@@ -266,7 +266,10 @@ def scaffold(parent_dir: os.PathLike[str] | str, name: str, *,
         "# the presets beside it are regenerated with the toolchain they point at.\n"
         f"{appmodel.GENERATED_DIR}/\nbuild/\n/CMakePresets.json\n/CMakeUserPresets.json\n"
         "synqt/toolchain/\nsynqt/mesh/*.key\n"
-        "synqt/mesh/dev/\n.env\n")
+        # A copy of the container authority's certificate, written by `synqt docker ca`
+        # for you to trust on this machine. Public, so not a secret; issued into a volume
+        # on this machine, so not the same file on anybody else's.
+        "synqt/mesh/dev/\nsynqt/mesh/docker-ca.crt\n.env\n")
     (root / ".env.example").write_text("# Entity secrets (env: references), never committed\n")
     _write_qmlformat_settings(root)
 

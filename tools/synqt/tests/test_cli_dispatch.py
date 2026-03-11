@@ -555,6 +555,17 @@ class TestDocker:
         monkeypatch.setattr(dockermod, "run", lambda project_dir, command: 7)
         assert _run(["docker", "down", "--project-dir", _project(tmp_path)])[0] == 7
 
+    def test_ca_prints_what_it_wrote_and_runs_no_compose_command(self, tmp_path,
+                                                                  monkeypatch):
+        """It reads one file out of the volume and hands over a command to run by hand.
+        Trusting an authority is a decision about the machine, so nothing here makes it."""
+        monkeypatch.setattr(dockermod, "export_ca",
+                            lambda project_dir: "Wrote synqt/mesh/docker-ca.crt")
+        monkeypatch.setattr(dockermod, "run", lambda project_dir, command: 99)
+        code, out, _ = _run(["docker", "ca", "--project-dir", _project(tmp_path)])
+        assert code == 0
+        assert "synqt/mesh/docker-ca.crt" in out
+
     def test_a_docker_error_is_a_message_rather_than_a_traceback(self, tmp_path,
                                                                  monkeypatch):
         def refused(*a, **k):
