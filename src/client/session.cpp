@@ -94,4 +94,19 @@ void Session::setIdentity(const QVariant &identity)
     }
 }
 
+void Session::setSession(const QVariant &scope, const QVariant &identity)
+{
+    const bool scopeMoved{m_scope != scope};
+    const bool identityMoved{m_identity != identity};
+    m_scope = scope;
+    m_identity = identity;
+    // After both, never between them (see the header).
+    if (scopeMoved) {
+        emit scopeChanged();
+    }
+    if (identityMoved) {
+        emit identityChanged();
+    }
+}
+
 } // namespace SynQt

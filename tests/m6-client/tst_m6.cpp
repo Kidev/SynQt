@@ -273,6 +273,131 @@ private slots:
                      .value(QStringLiteral("token")).toString().toLatin1() == token, false);
     }
 
+    // Signing in has to reach the client.
+    //
+    // The edge holds the whole truth about a session. The scope it was granted and the
+    // identity behind it. `Session.identity` and `Session.hasScope()` are how QML asks,
+    // and for a long time nothing ever answered. No code path in the runtime called
+    // Session::setScope or Session::setIdentity, so a client stayed anonymous with a null
+    // identity for its whole life however the visitor signed in. An app that gates its UI
+    // on either one (every app that has a sign-in does) showed the sign-in screen again
+    // the moment the successful login came back, which is a loop with no way out of it.
+    //
+    // Nothing here signs anybody in. Whether the OAuth flow works is tests/m8-auth's
+    // subject. What is under test is the step after it, that the session the edge accepted
+    // this connection for is the session the client reports holding.
+    void theSessionTheEdgeAcceptedIsTheOneTheClientReports()
+    {
+        QQmlEngine engine;
+        WebEdgeConfig config{edgeConfig(0)};
+        config.scopeOrder = {QStringLiteral("anonymous"), QStringLiteral("user"),
+                             QStringLiteral("moderator"), QStringLiteral("admin")};
+        WebEdge edge{config, &engine};
+        QVERIFY2(edge.start(), qPrintable(edge.errorString()));
+
+        // A session the way the callback route leaves one: elevated, with the normalized
+        // identity the mapping hook was handed.
+        QVariantMap identity;
+        identity.insert(QStringLiteral("sub"), QStringLiteral("12345"));
+        identity.insert(QStringLiteral("login"), QStringLiteral("kidev"));
+        identity.insert(QStringLiteral("name"), QStringLiteral("A Person"));
+        const QByteArray token{edge.sessionManager()->createSession(
+            QStringLiteral("moderator"), identity)};
+        QVERIFY(!token.isEmpty());
+
+        SynClientConfig clientSettings{clientConfig(edge.serverPort())};
+        clientSettings.sessionCookie = QByteArrayLiteral("synqt_session=") + token;
+        SynClient client{clientSettings, &engine};
+        client.start();
+        QTRY_COMPARE_WITH_TIMEOUT(client.session()->state(), QStringLiteral("connected"),
+                                  8000);
+
+        Session *session{client.session()};
+        QTRY_VERIFY2_WITH_TIMEOUT(session->isAuthenticated(),
+                                  "a signed-in session reached the client as anonymous",
+                                  8000);
+        QCOMPARE(session->identity().toMap().value(QStringLiteral("login")).toString(),
+                 QStringLiteral("kidev"));
+        QCOMPARE(session->identity().toMap().value(QStringLiteral("sub")).toString(),
+                 QStringLiteral("12345"));
+        QCOMPARE(session->scope().toString(), QStringLiteral("moderator"));
+        QVERIFY(session->hasScope(QStringLiteral("moderator")));
+        QVERIFY(session->hasScope(QStringLiteral("user")));      // hierarchical
+        QVERIFY(!session->hasScope(QStringLiteral("admin")));
+    }
+
+    // And it keeps reaching it. A scope change rotates the credential under a live
+    // connection (Caller.setScope in a slot is the ordinary way one happens), so the
+    // client's idea of what it may do has to move with it rather than being read once at
+    // the handshake and never again.
+    void aScopeChangeUnderALiveConnectionReachesTheClient()
+    {
+        QQmlEngine engine;
+        WebEdgeConfig config{edgeConfig(0)};
+        config.scopeOrder = {QStringLiteral("anonymous"), QStringLiteral("user"),
+                             QStringLiteral("moderator"), QStringLiteral("admin")};
+        WebEdge edge{config, &engine};
+        QVERIFY2(edge.start(), qPrintable(edge.errorString()));
+
+        QVariantMap identity;
+        identity.insert(QStringLiteral("sub"), QStringLiteral("12345"));
+        identity.insert(QStringLiteral("login"), QStringLiteral("kidev"));
+        const QByteArray token{edge.sessionManager()->createSession(
+            QStringLiteral("user"), identity)};
+
+        SynClientConfig clientSettings{clientConfig(edge.serverPort())};
+        clientSettings.sessionCookie = QByteArrayLiteral("synqt_session=") + token;
+        SynClient client{clientSettings, &engine};
+        client.start();
+        QTRY_COMPARE_WITH_TIMEOUT(client.session()->state(), QStringLiteral("connected"),
+                                  8000);
+        QTRY_COMPARE_WITH_TIMEOUT(client.session()->scope().toString(),
+                                  QStringLiteral("user"), 8000);
+
+        // The elevation, and with it the rotation every Caller on this session follows.
+        const QByteArray elevated{edge.sessionManager()->setScope(
+            token, QStringLiteral("admin"), identity)};
+        QVERIFY(!elevated.isEmpty());
+
+        QTRY_COMPARE_WITH_TIMEOUT(client.session()->scope().toString(),
+                                  QStringLiteral("admin"), 8000);
+        QVERIFY(client.session()->hasScope(QStringLiteral("admin")));
+    }
+
+    // The same, driven the way an app drives it. A slot on the owner calling
+    // Caller.setScope. That is the only elevation path an application has (the session
+    // manager is not reachable from QML), so proving the channel against a direct
+    // setScope call proves only half of it.
+    void anElevationAskedForFromQmlReachesTheClient()
+    {
+        QQmlEngine engine;
+        WebEdgeConfig config{edgeConfig(0)};
+        config.scopeOrder = {QStringLiteral("anonymous"), QStringLiteral("user"),
+                             QStringLiteral("moderator"), QStringLiteral("admin")};
+        WebEdge edge{config, &engine};
+        QVERIFY2(edge.start(), qPrintable(edge.errorString()));
+
+        SynClient client{clientConfig(edge.serverPort()), &engine};
+        client.start();
+        QTRY_COMPARE_WITH_TIMEOUT(client.session()->state(), QStringLiteral("connected"),
+                                  8000);
+
+        QObject *replica{counterReplica(&client)};
+        QVERIFY(replica != nullptr);
+        auto *base{qobject_cast<QRemoteObjectReplica *>(replica)};
+        QVERIFY(base != nullptr);
+        QTRY_VERIFY_WITH_TIMEOUT(base->isInitialized(), 8000);
+
+        QVERIFY(QMetaObject::invokeMethod(replica, "signIn"));
+
+        QTRY_COMPARE_WITH_TIMEOUT(client.session()->scope().toString(),
+                                  QStringLiteral("user"), 8000);
+        QTRY_VERIFY(client.session()->isAuthenticated());
+        QCOMPARE(client.session()->identity().toMap()
+                     .value(QStringLiteral("login")).toString(),
+                 QStringLiteral("kidev"));
+    }
+
     // A project that configures no sign-in has no route for either action to reach, and
     // says so rather than sending a visitor to a URL the edge answers with a 404.
     void loginAndLogoutSaySoWhenThereIsNoIdentity()

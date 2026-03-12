@@ -10,6 +10,7 @@
 #include "pagesservice.h"
 #include "pagestore.h"
 #include "sessionmanager.h"
+#include "sessionstatesource.h"
 #include "sourcefactory.h"
 #include "topology.h"           // loadCertificate / loadPrivateKey
 #include "tracer.h"
@@ -1718,8 +1719,26 @@ void WebEdge::hostConnection(QWebSocket *socket)
         }
     }
 
+    // The framework's own SessionState connect point: who this connection's visitor is.
+    // Hosted on every accepted connection, unconditionally, and that is deliberate. It is
+    // not a feature a project turns on: `Session.scope` and `Session.identity` are what
+    // the runtime API says a client may always ask, and every app with a sign-in gates its
+    // UI on them. Hosting it only where identity is configured would leave the two of them
+    // answering "anonymous, nobody" on exactly the projects that are about to ask.
+    {
+        Caller *stateCaller{Caller::forUser(QStringLiteral("SessionState"), m_sessionManager,
+                                            sessionId, nullptr, connection)};
+        stateCaller->setScopeOrder(m_config.scopeOrder, m_config.scopesHierarchical);
+        SessionStateSource *stateSource{new SessionStateSource{stateCaller, connection}};
+        stateCaller->setParent(stateSource);
+        stateCaller->setSource(stateSource);
+        if (!node->enableRemoting(stateSource, QStringLiteral("SessionState"))) {
+            emit upgradeRejected(QStringLiteral("enableRemoting failed for SessionState"));
+        }
+    }
+
     // The framework's own Pages connect point, hosted the same way as every
-    // application connect point above: a fresh Source per connection, carrying this
+    // application connect point above. A fresh Source per connection, carrying this
     // connection's own Caller, over the PageStore/PagesService shared by every
     // connection. Page-level scope gating happens inside PagesService, per request,
     // so there is no single connect-point-level scope to check here.

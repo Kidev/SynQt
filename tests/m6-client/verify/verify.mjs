@@ -188,6 +188,7 @@ function dumpEvidence(name, logs) {
 async function runCase(browserType, name) {
     const logsA = [];
     const logsB = [];
+    const signedIn = [];
     const fatalsA = [];
     const fatalsB = [];
     const { proc: edge, port } = await startEdge();
@@ -251,9 +252,40 @@ async function runCase(browserType, name) {
                                                           && !l.includes("route=/about")),
                       20000, "tab A back on / after the browser back button", fatalsA);
         console.log("  back returned the client to /");
-        return { name, pass: true, logsA, logsB };
+
+        // Who the edge says this visitor is, and that the answer can change under a
+        // connection that is already up. The client asks for the elevation itself once its
+        // connect point is live (Main.qml), the edge grants it with Caller.setScope, which
+        // rotates the credential, and what has to arrive here is the new scope and the
+        // identity behind it. Nothing in the client can work either of them out on its own:
+        // the edge holds the whole session and the browser holds an opaque cookie it cannot
+        // read, so a client with no channel for this reports "anonymous, nobody" forever and
+        // every app that gates its UI on Session.identity shows its sign-in screen to
+        // somebody who has signed in.
+        //
+        // Asserted in a browser and not only natively because the channel is a Replica, and
+        // a Replica arriving at all is what single-threaded WebAssembly is fussy about.
+        //
+        // In a browser of its own, because signing in rotates the credential and the cookie
+        // the other two tabs are holding is a step behind it until their next page load.
+        // That is the framework working as designed, and it is also why the sign-in does not
+        // belong in a context shared with tabs that are still asserting on their sockets.
+        const signedInFatals = [];
+        const ownContext = await browser.newContext();
+        const tabC = await openTab(ownContext, `${name}/tabC`, signedIn, signedInFatals);
+        console.log("  a third tab, in its own browser, signing in");
+        await tabC.goto(url + "?signin=1", { waitUntil: "load", timeout: 60000 });
+        // Only the elevated line is asserted. The anonymous one is printed by the first
+        // evaluation of the binding, before anything has arrived, so its presence would
+        // prove nothing. It is what a client with no channel at all prints too.
+        await waitFor(() => signedIn.some((l) => l.includes("scope=user login=kidev")),
+                      30000, "the third tab was told who it is after signing in",
+                      signedInFatals);
+        console.log("  the elevated scope and the identity reached the client");
+
+        return { name, pass: true, logsA, logsB, signedIn };
     } catch (err) {
-        return { name, pass: false, error: err.message, logsA, logsB };
+        return { name, pass: false, error: err.message, logsA, logsB, signedIn };
     } finally {
         await browser.close();
         edge.kill("SIGKILL");
@@ -464,6 +496,9 @@ async function main() {
             if (!result.pass) {
                 dumpEvidence("tabA", result.logsA);
                 dumpEvidence("tabB", result.logsB);
+                if (result.signedIn && result.signedIn.length > 0) {
+                    dumpEvidence("tabC (signing in)", result.signedIn);
+                }
             }
         }
     }

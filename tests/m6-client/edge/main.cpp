@@ -54,6 +54,10 @@ int main(int argc, char *argv[])
     // Plaintext for the local browser test (no cert). The cookie is issued without the
     // Secure attribute so it works over http on localhost.
 
+    // Two scopes, so there is somewhere for Counter.qml's signIn() to elevate a caller to
+    // and the browser proof can watch the change arrive.
+    config.scopeOrder = {QStringLiteral("anonymous"), QStringLiteral("user")};
+
     WebEdgeConnectPoint counter;
     counter.name = QStringLiteral("counter");
     counter.contract = QStringLiteral("Counter");

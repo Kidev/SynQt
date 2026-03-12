@@ -18,6 +18,9 @@
 # out of this static library, because nothing on that side references it.
 find_package(Qt6 6.11 REQUIRED COMPONENTS Core Gui Network WebSockets Qml RemoteObjects GLOBAL)
 
+# synqt_add_contract, for the SessionState connect point below.
+include("${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/SynQtContracts.cmake")
+
 # The shared transport adapter (guarded so several entities can pull it in once).
 if(NOT TARGET SynQtTransport)
     add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../transport" "${CMAKE_BINARY_DIR}/SynQtTransport")
@@ -106,6 +109,17 @@ elseif(UNIX AND NOT EMSCRIPTEN)
 endif()
 
 target_include_directories(SynQtClient PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
+
+# The framework's own SessionState connect point, at the consumer role: the edge owns it
+# (src/edge/contracts/) and this is the side that acquires it, so what the client compiles
+# is a Replica and never a Source. One file, read by both libraries, because an owner and a
+# consumer that disagree about a contract are a link that silently carries nothing.
+#
+# Built into the runtime rather than generated per app, which is the whole point: every
+# client has a session whatever its topology says, so `Session.scope` and
+# `Session.identity` must arrive in a project that declares no connect points at all.
+synqt_add_contract(SynQtClient ROLE replica
+    SYN "${CMAKE_CURRENT_SOURCE_DIR}/../edge/contracts/SessionState.syn")
 
 target_link_libraries(SynQtClient PUBLIC
     SynQtTransport

@@ -1,0 +1,25 @@
+// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+// SPDX-License-Identifier: Apache-2.0
+
+// The framework's own connect point for who the visitor is. The edge holds the whole
+// truth about a session, the browser holds only an opaque cookie, and this is how the
+// first reaches the second. An ordinary contract, so session state rides the same
+// authenticated wss link as everything else and inherits the upgrade verifier rather
+// than opening a second path that would have to re-implement it.
+//
+// It is hosted on every accepted connection, not only where a project configures a
+// sign-in. `Session.scope` and `Session.identity` are not a feature an app turns on. They
+// are what the runtime API says a client can always ask, and a channel that exists only
+// sometimes is a channel an app finds out about in production.
+
+contract SessionState {
+    // Scope and identity together, as JSON:
+    //
+    //     {"scope": "player", "identity": {"sub": "...", "login": "...", ...}}
+    //
+    // with `identity` null while anonymous. One property rather than two because QML
+    // reads them together (an app gates on `hasScope` and then names the visitor), and
+    // two properties would push in two steps with a frame in between where the client is
+    // elevated and nameless. The same reason `Pages.routeTable` carries JSON.
+    prop string session
+}

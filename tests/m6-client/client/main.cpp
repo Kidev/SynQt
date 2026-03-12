@@ -14,7 +14,8 @@
 #include "synclient.h"
 #include "synclientconfig.h"
 
-#include "counter_replica.h"  // synqtRegisterCounterReplicas() -> typed CounterReplica
+#include "counter_consumer.h"  // synqtRegisterCounterConsumers() -> the facade
+#include "counter_replica.h"   // synqtRegisterCounterReplicas() -> typed CounterReplica
 
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
@@ -33,6 +34,24 @@
 using namespace SynQt;
 
 namespace {
+
+// Whether this page was asked for with ?signin=1, which is how the browser proof marks
+// the one tab that should sign in.
+//
+// Read here rather than through Router.query, because the query of a route this fixture
+// cannot resolve to a component does not survive the first navigation, and because a flag
+// captured once at startup cannot be lost to a later navigation the way a binding on the
+// router can. False on desktop, which has no address bar to have been asked through.
+bool signInWanted()
+{
+#ifdef Q_OS_WASM
+    const emscripten::val location{emscripten::val::global("window")["location"]};
+    const QString search{QString::fromStdString(location["search"].as<std::string>())};
+    return search.contains(QLatin1String("signin=1"));
+#else
+    return false;
+#endif
+}
 
 QUrl resolveEdgeUrl()
 {
@@ -57,13 +76,18 @@ QUrl resolveEdgeUrl()
 
 int main(int argc, char *argv[])
 {
-    // What a generated client does before its application: a browser with no WebGL gets
+    // What a generated client does before its application. A browser with no WebGL gets
     // the raster adaptation instead of a qFatal that also kills its posted-event queue.
     SynQt::GraphicsProbe::selectBackend();
 
     QGuiApplication app{argc, argv};
 
-    synqtRegisterCounterReplicas();  // register the typed CounterReplica factory
+    // Both halves, in the order a generated main does them. The typed Replica factory
+    // and the consumer facade the accessor exposes. Registering only the
+    // first left this fixture a shape no real client has, where `Server.counter` is a
+    // raw Replica with none of the facade's surface on it.
+    synqtRegisterCounterReplicas();
+    synqtRegisterCounterConsumers();
 
     SynClientConfig config;
     config.edgeUrl = resolveEdgeUrl();
@@ -103,6 +127,8 @@ int main(int argc, char *argv[])
     SynQt::Graphics graphics;
     graphics.installWatcher();
     engine.rootContext()->setContextProperty(QStringLiteral("Graphics"), &graphics);
+    // Test-only, and only ever true in the browser proof's own tab.
+    engine.rootContext()->setContextProperty(QStringLiteral("SignInWanted"), signInWanted());
 
     engine.loadFromModule("CounterClient", "Main");
     if (engine.rootObjects().isEmpty()) {

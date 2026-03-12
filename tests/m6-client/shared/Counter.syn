@@ -1,10 +1,16 @@
 // SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 // SPDX-License-Identifier: Apache-2.0
 
-// The shared live counter contract: an edge-owned value every client reads, and two
+// The shared live counter contract. An edge-owned value every client reads, and two
 // requests the edge performs.
 contract Counter {
-    prop int value          // edge owned; clients read, edge writes
-    slot increment()        // a request; the edge performs the change
+    prop int value          // edge owned. Clients read, edge writes
+    slot increment()        // a request. The edge performs the change
     slot decrement()
+    // Elevating the caller, which is how a live connection's scope changes in an ordinary
+    // app (Caller.setScope inside a slot). Here so the browser proof can watch scope and
+    // identity reach a client that is already connected, which is the step no native test
+    // can speak for. The session channel is a Replica, and a Replica arriving is exactly
+    // what single-threaded WebAssembly is fussy about.
+    slot signIn()
 }

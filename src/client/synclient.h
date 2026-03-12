@@ -63,7 +63,7 @@ signals:
     void stateChanged();
 
 private slots:
-    // Old-style string connects (SIGNAL/SLOT macros), the Pages facade's concrete type
+    // Old-style string connects (SIGNAL/SLOT macros): the Pages facade's concrete type
     // is generated per app, so this class only ever holds it through the generic
     // ConsumerBase/QObject surface, and a runtime-resolved signal can only be wired to a
     // real, moc-registered slot, not a lambda.
@@ -72,12 +72,9 @@ private slots:
 
 private:
     void connectToEdge();
-    /// Start a sign-in at the edge's login route.
-    ///
-    /// A browser leaves the page for it and comes back signed in, because the session is a
-    /// cookie only the edge's own origin can set. A native build has no page to leave, so
-    /// it opens the system browser and listens on a loopback port for the answer. See
-    /// beginDesktopLogin().
+    /// Start a sign-in at the edge's login route. A browser leaves the page and comes back signed
+    /// in; a native build opens the system browser and listens on a loopback port (see
+    /// beginDesktopLogin()).
     void beginLogin(const QString &provider);
 
 #ifndef Q_OS_WASM
@@ -98,35 +95,23 @@ private:
     /// one and this attempt needs one, otherwise bootstrap an anonymous session over GET /.
     /// Both end in connectToEdge().
     void openSession();
-    /// Spend the stored credential for a fresh session and the next credential.
-    ///
-    /// What is stored is dropped on the edge's own refusal of the credential, and on that
-    /// alone. It has said the credential is no longer redeemable, and keeping it would mean
-    /// trying it again at every launch forever. A network failure, a rate limit, a proxy's
-    /// bad gateway and anything else that is not that answer all keep it, because none of
-    /// them is the edge saying no to the credential, and deleting it on one of those signs
-    /// the visitor out for good over something that will be over in a minute.
+    /// Spend the stored credential for a fresh session and the next credential. The stored
+    /// credential is dropped only when the edge refuses it; a network failure, a rate limit or a
+    /// proxy error keeps it.
     void redeemDeviceCredential();
     /// The anonymous path. Ask the edge for a session and connect with it.
     void bootstrapAnonymousSession();
     /// The credential store, built on the first launch that could use one. Null when the
     /// project does not persist desktop sessions.
     DeviceCredential *deviceStore();
-    /// The network manager for this client's own requests to the edge, built on first use.
-    ///
-    /// One accessor rather than four places creating it, because it is where the transfer
-    /// timeout is set, and a request that went out through a manager without one waits
-    /// forever on an edge that answers nothing (see `requestTimeoutMs`).
+    /// The network manager for this client's own requests to the edge, built on first use. It
+    /// sets the transfer timeout (see `requestTimeoutMs`).
     QNetworkAccessManager *network();
 #endif
 
-    /// End the session at the edge, not only in this client.
-    ///
-    /// The two targets end it differently because they hold the credential differently. A
-    /// browser holds it in a cookie nothing in this process can clear, so the only way to
-    /// be rid of it is to visit the route that expires it. The app is torn down and comes
-    /// back anonymous. A native client holds the cookie itself, so it calls the same route
-    /// over HTTP, drops what it was holding, and reconnects as nobody.
+    /// End the session at the edge, not only in this client. A browser visits the route that
+    /// expires its cookie and comes back anonymous; a native client calls the same route over
+    /// HTTP, drops its cookie and reconnects as nobody.
     void endSession();
     void teardown();
     void scheduleReconnect();
@@ -140,6 +125,12 @@ private:
     /// routeTableChanged pushes feed back through the router's public seams.
     void bindPagesConnectPoint();
 
+    /// Acquire the framework's SessionState connect point on the node built and feed it into
+    /// Session: only the edge knows the session's scope and identity. Re-acquired on every
+    /// connect, because the replica belongs to the node teardown() retires.
+    void bindSessionState();
+    void applySessionState();
+
     SynClientConfig m_config;
     ServerAccessor *m_server;
     Session *m_session;
@@ -147,6 +138,9 @@ private:
     ClientUpdate *m_update;
     RemotePageLoader *m_pageLoader{nullptr};
     QObject *m_pagesFacade{nullptr};
+    /// The framework's own session channel for the current connection, parented to the
+    /// node and therefore gone with it on every reconnect.
+    QObject *m_sessionState{nullptr};
     QQmlEngine *m_engine;
     QNetworkAccessManager *m_network{nullptr};
 
@@ -154,12 +148,8 @@ private:
     QWebSocket *m_socket{nullptr};
     WebSocketTransport *m_transport{nullptr};
     QTimer *m_reconnectTimer;
-    /// How long an opened socket has to become a connection before it is given up on.
-    ///
-    /// The other half of `requestTimeoutMs`, and needed for the same reason: a far side
-    /// that accepts the TCP connection and never answers the upgrade leaves the socket in
-    /// "connecting" with nothing to report, on the browser as much as on the desktop.
-    /// Neither QWebSocket nor a browser bounds that wait, so this does.
+    /// How long an opened socket has to become a connection before it is given up on. Neither
+    /// QWebSocket nor a browser bounds a far side that accepts TCP and never answers the upgrade.
     QTimer *m_handshakeTimer;
     QByteArray m_sessionCookie;
 
@@ -184,13 +174,9 @@ private:
     bool m_sessionAccepted{false};
     bool m_redeeming{false};
     /// Whether the credential in hand has already bought the session this client is trying.
-    ///
-    /// A credential buys a session, not a connection. Once it has bought one, spending it
-    /// again before that session has been accepted only mints a second session exactly as
-    /// good as the first, and retires a generation to do it. A client whose socket keeps
-    /// failing would rotate at every reconnect, spend the edge's per-address rate window,
-    /// and be told no. So this is set when a session is obtained (at a sign-in, or at a
-    /// redemption) and cleared when one is accepted, and a redemption needs it clear.
+    /// Spending it again before that session is accepted would mint a duplicate and rotate at
+    /// every reconnect, so it is set when a session is obtained and cleared when one is
+    /// accepted; a redemption needs it clear.
     bool m_credentialSpent{false};
     /// When the credential may next be spent. Only ever moved by an edge that answered
     /// something other than a session. It said no to the request rather than to the

@@ -133,6 +133,16 @@ app's to clear; a native client holds its own credential and ends the session wi
 leaving the window. A project that configures no `identity` has no route for either
 action, and calling one says so rather than requesting a URL the edge does not serve.
 
+Both `Session.scope` and `Session.identity` are told to the client by the edge,
+over the same authenticated `wss` link everything else rides: the edge holds the
+whole session and the browser holds an opaque cookie it cannot read, so nothing in
+the client could work either of them out on its own. They arrive as soon as the
+connection is accepted, and again whenever the scope changes under a live
+connection, which is what `Caller.setScope` in a slot does. While the link is down
+they hold their last value rather than falling back to anonymous, so a reconnect
+does not flash a signed-in visitor through a sign-in screen; a session that has
+really ended comes back anonymous on the next connection.
+
 !!! note "Client-side scope checks are UX only"
     Hiding a button with `Session.hasScope(...)` is a convenience, never the
     security boundary. Every privileged action is checked again on the owner,

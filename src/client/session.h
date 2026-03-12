@@ -45,6 +45,16 @@ public:
     void setScope(const QVariant &scope);
     void setIdentity(const QVariant &identity);
 
+    /// Both at once, which is how the edge says them.
+    ///
+    /// Scope and identity change together and QML reads them together: an app asks
+    /// `hasScope` and then names the visitor, usually in one expression. Setting them one
+    /// after the other gives every such binding an evaluation in between where the scope
+    /// has moved and the identity has not, so a sign-in paints once as "elevated and
+    /// nobody" before it paints correctly. Both members are written before either signal
+    /// goes out, so whichever one a binding wakes on, it reads a consistent pair.
+    void setSession(const QVariant &scope, const QVariant &identity);
+
 signals:
     void stateChanged();
     void scopeChanged();

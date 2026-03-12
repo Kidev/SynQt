@@ -4,7 +4,8 @@
 # The SynQt web edge: the one entity a browser can reach. It serves the client bundle with
 # the header policy, runs the WebSocket upgrade pipeline (origin, session, scope, rate and
 # size checks before a socket exists), carries the login routes that drive the identity
-# engine in ../identity, and owns the framework's own Pages connect point.
+# engine in ../identity, and owns the framework's own connect points (Pages and
+# SessionState).
 #
 # Its own library because Qt HTTP Server is GPLv3-only: an entity that links this is GPLv3.
 # Only a `type: web_edge` entity does. A service that merely consumes the edge's connect
@@ -35,6 +36,8 @@ qt_add_library(SynQtEdge STATIC
     pagesservice.h
     pagesedgesource.cpp
     pagesedgesource.h
+    sessionstatesource.cpp
+    sessionstatesource.h
     clientaddress.cpp
     clientaddress.h
     webedgeconfig.h
@@ -46,7 +49,8 @@ set_target_properties(SynQtEdge PROPERTIES AUTOMOC ON)
 
 target_include_directories(SynQtEdge PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 
-# The framework's own Pages connect point (edge-delivered pages): PagesService's
+# The framework's own connect points, generated the same way an app's are: Pages
+# (edge-delivered pages) and SessionState (who this connection's visitor is). PagesService's
 # fetchPageFor returns the generated PageResponse record, so the library needs the
 # owner-side generated code for its own compile, exactly as an app entity would for its
 # own connect points. The generated header is exposed PUBLIC (unlike a normal
@@ -54,7 +58,8 @@ target_include_directories(SynQtEdge PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 # (e.g. a test constructing a PageResponse) finds it without generating and linking its
 # own duplicate copy of PagesSourceHelper/PagesCaller alongside this static library's.
 synqt_add_contract(SynQtEdge ROLE source
-    SYN "${CMAKE_CURRENT_SOURCE_DIR}/contracts/Pages.syn")
+    SYN "${CMAKE_CURRENT_SOURCE_DIR}/contracts/Pages.syn"
+        "${CMAKE_CURRENT_SOURCE_DIR}/contracts/SessionState.syn")
 target_include_directories(SynQtEdge PUBLIC
     "${CMAKE_CURRENT_BINARY_DIR}/synqt_generated/SynQtEdge"
     "${CMAKE_CURRENT_BINARY_DIR}")

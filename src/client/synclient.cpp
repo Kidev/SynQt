@@ -13,11 +13,15 @@
 #include "router.h"
 #include "serveraccessor.h"
 #include "session.h"
+#include "sessionstate_rep.h"  // the generated SessionStateReplica
 #include "websockettransport.h"
 
 #include <QJSEngine>
 #include <QJSValue>
 #include <QJSValueList>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonValue>
 #include <QMetaObject>
 #include <QQmlEngine>
 #include <QRemoteObjectNode>
@@ -32,8 +36,6 @@
 
 #  include <QCryptographicHash>
 #  include <QDesktopServices>
-#  include <QJsonDocument>
-#  include <QJsonObject>
 #  include <QNetworkAccessManager>
 #  include <QNetworkCookie>
 #  include <QNetworkCookieJar>
@@ -750,6 +752,7 @@ void SynClient::connectToEdge()
 #endif
 
     m_server->bindNode(m_node);
+    bindSessionState();
     if (m_pageLoader) {
         bindPagesConnectPoint();
     }
@@ -806,6 +809,8 @@ void SynClient::teardown()
         deleteSoon(m_node);  // deletes the replicas it parents
         m_node = nullptr;
     }
+    // Parented to the node just retired, so this is a name for something already gone.
+    m_sessionState = nullptr;
 }
 
 void SynClient::bindPagesConnectPoint()
@@ -908,6 +913,48 @@ void SynClient::handlePagesRouteTableChanged()
         return;
     }
     m_router->applyRemoteRouteTable(m_pagesFacade->property("routeTable").toString());
+}
+
+void SynClient::bindSessionState()
+{
+    if (!m_node) {
+        return;
+    }
+    // A compile-time Replica, and not the dynamic one: it carries its API rather than
+    // exchanging a description, which is what makes it arrive at all under single-threaded
+    // WebAssembly. The contract is compiled into this library, so this needs nothing from
+    // the app's own generated code and works the same in a project that declares no
+    // connect points at all.
+    auto *replica{m_node->acquire<SessionStateReplica>(QStringLiteral("SessionState"))};
+    m_sessionState = replica;
+    connect(replica, &SessionStateReplica::sessionChanged, this,
+            [this]() { applySessionState(); });
+    // A property that is already at its published value when the replica initializes emits
+    // no change, and that is the ordinary case here. The edge publishes once, on the
+    // connection being accepted, before this client has anything to hear it with.
+    connect(replica, &QRemoteObjectReplica::initialized, this,
+            [this]() { applySessionState(); });
+}
+
+void SynClient::applySessionState()
+{
+    if (!m_sessionState) {
+        return;
+    }
+    const QByteArray published{
+        m_sessionState->property("session").toString().toUtf8()};
+    if (published.isEmpty()) {
+        // Not yet said, which is not the same as "anonymous". Leaving Session alone here
+        // is what keeps a reconnect from blanking a signed-in visitor for the moment
+        // between the socket coming up and the edge saying who they are.
+        return;
+    }
+    const QJsonObject state{QJsonDocument::fromJson(published).object()};
+    const QJsonValue identity{state.value(QLatin1String{"identity"})};
+    m_session->setSession(state.value(QLatin1String{"scope"}).toString(),
+                          identity.isObject()
+                              ? QVariant{identity.toObject().toVariantMap()}
+                              : QVariant{});
 }
 
 void SynClient::setState(const QString &state)

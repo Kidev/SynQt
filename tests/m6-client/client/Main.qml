@@ -42,6 +42,33 @@ ApplicationWindow {
         onStatusChanged: console.log("M6 " + status)
     }
 
+    // Who the edge says the visitor is. An app that signs people in gates its whole UI on
+    // these two, and for a while they answered "anonymous, nobody" in a browser however
+    // the visitor signed in, because nothing on the edge ever told the client. The proof
+    // asks for the elevation itself, once connected, and watches the answer change.
+    Item {
+        id: visitor
+
+        // Asked when the connect point is live, not when the socket is: a slot called
+        // before the Replica has finished its QtRO handshake is dropped with
+        // "connectionToSource is null" and nothing retries it.
+        property bool live: Server.counter ? Server.counter.ready : false
+        property string who: "scope=" + Session.scope + " login="
+                             + (Session.identity ? Session.identity.login : "none")
+
+        onWhoChanged: console.log("M6 " + visitor.who)
+        onLiveChanged: {
+            // Only when the page was asked for with ?signin=1 (main.cpp reads it once, at
+            // startup). An elevation rotates the credential, which leaves the cookie every
+            // other tab of this browser is holding a step behind until its next page load,
+            // so a tab that signs in takes the whole browser with it. The proof gives the
+            // sign-in a browser of its own and this is what keeps the other tabs out of it.
+            if (visitor.live && SignInWanted) {
+                Server.counter.signIn();
+            }
+        }
+    }
+
     // The same for the router's current path, plus one SPA navigation driven by the
     // counter, so the browser test has a real history entry to press Back on and can
     // prove the popstate listener reaches the router. The browser's back and forward

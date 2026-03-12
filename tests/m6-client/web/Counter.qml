@@ -11,4 +11,11 @@ Counter {
 
     function increment() { Edge.bump(1) }
     function decrement() { Edge.bump(-1) }
+
+    // Nobody is signed in here. Whether an OAuth round trip works is tests/m8-auth's
+    // subject. What this stands for is the moment after one, when the edge knows who the
+    // caller is and the caller does not yet.
+    function signIn() {
+        Caller.setScope("user", { sub: "u-1", login: "kidev", name: "A Person" });
+    }
 }
