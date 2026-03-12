@@ -72,7 +72,12 @@ public:
 
     /// Elevate a session after login and rotate its credential (defeats fixation).
     /// Returns the new id; an empty return means the old id was unknown.
-    QByteArray setScope(const QByteArray &id, const QString &scope,
+    ///
+    /// Named `wasId` because it usually stops being that caller's session while this runs:
+    /// it is normally a `Caller`'s own `m_sessionId`, and the rotation this raises moves
+    /// that member to the new credential. The implementation copies it first for exactly
+    /// that reason.
+    QByteArray setScope(const QByteArray &wasId, const QString &scope,
                         const QVariantMap &identity = QVariantMap());
 
     /// The id a rotated-away credential became, while that is still worth knowing.

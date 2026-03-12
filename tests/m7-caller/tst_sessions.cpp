@@ -243,6 +243,56 @@ private slots:
                  QStringLiteral("u1"));
     }
 
+    // The same rotation, with more than two Callers on the session and the elevation asked
+    // for by the one that was made first.
+    //
+    // A Caller elevates by handing its own `m_sessionId` to setScope, and the rotation
+    // that raises is what sets that member to the new credential. While the parameter was
+    // a reference to it, the first receiver to run changed the value every later receiver
+    // was about to be handed. They were told the session had rotated from itself, matched
+    // nothing, and were left naming a credential that had been erased. What the edge
+    // was then told is worse than that. `sessionRemoved` is emitted from the same value, so
+    // it named the session that had this moment been issued rather than the one being
+    // replaced, and the edge acts on that by closing the connections of the session it just
+    // created. On a browser that is a visitor signed out one instant after signing in.
+    //
+    // Two Callers could not see it. The aliased one is also a receiver, and with two it is
+    // the last one, so nothing runs after it has spoiled the value.
+    void setScopeReachesCallersMadeAfterTheOneThatAsked()
+    {
+        SessionManager sessions{QStringLiteral("anonymous"), OneMinuteTtl};
+        const QByteArray anonymous{sessions.createSession()};
+        const QStringList order{QStringLiteral("anonymous"), QStringLiteral("user")};
+
+        // In creation order, which is receiver order. The one that asks, and two that only
+        // have to keep up. An edge has several per connection (the gate, each connect
+        // point's Source, the framework's own).
+        Caller *asks{Caller::forUser(QString{}, &sessions, anonymous, nullptr, this)};
+        Caller *first{Caller::forUser(QString{}, &sessions, anonymous, nullptr, this)};
+        Caller *second{Caller::forUser(QString{}, &sessions, anonymous, nullptr, this)};
+        for (Caller *caller : {asks, first, second}) {
+            caller->setScopeOrder(order, true);
+        }
+
+        QSignalSpy removed{&sessions, &SessionManager::sessionRemoved};
+        asks->setScope(QStringLiteral("user"),
+                       {{QStringLiteral("sub"), QStringLiteral("u1")}});
+
+        const QByteArray elevated{sessions.snapshot().first().toMap()
+                                      .value(QStringLiteral("token")).toString().toLatin1()};
+        QVERIFY(elevated != anonymous);
+
+        for (Caller *caller : {asks, first, second}) {
+            QVERIFY2(caller->hasSession(),
+                     "a caller was left naming the credential the rotation replaced");
+            QCOMPARE(caller->scope(), QStringLiteral("user"));
+        }
+
+        // And the removal names the credential that was replaced, never the one issued.
+        QCOMPARE(removed.size(), 1);
+        QCOMPARE(removed.first().first().toString().toLatin1(), anonymous);
+    }
+
     void setScopeOnAnUnknownCredentialChangesNothing()
     {
         SessionManager sessions{QStringLiteral("anonymous"), OneMinuteTtl};

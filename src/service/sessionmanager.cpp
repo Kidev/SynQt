@@ -120,10 +120,21 @@ bool SessionManager::isLive(const QByteArray &id) const
     return lookup(id) != nullptr;
 }
 
-QByteArray SessionManager::setScope(const QByteArray &id, const QString &scope,
+QByteArray SessionManager::setScope(const QByteArray &wasId, const QString &scope,
                                     const QVariantMap &identity)
 {
-    const auto it{m_sessions.find(id)};
+    // Copied before anything is emitted, and the whole function reads the copy.
+    //
+    // The id an elevation names is almost always a Caller's own `m_sessionId`, passed here
+    // by reference, and the first thing `sessionRotated` does is set that member to the new
+    // credential. A parameter still referring to it changes underneath the signals that
+    // come after. Every Caller past the first was told the session had rotated from itself
+    // and so left its own id behind, and `sessionRemoved` named the credential that had
+    // been issued rather than the one being replaced, which is the edge being told to
+    // end the session it had this moment created. `Caller.setScope` in a slot is the one
+    // way an application elevates anybody, so this was on the path of every sign-in.
+    const QByteArray previous{wasId};
+    const auto it{m_sessions.find(previous)};
     if (it == m_sessions.end()) {
         return QByteArray{};
     }
@@ -139,15 +150,15 @@ QByteArray SessionManager::setScope(const QByteArray &id, const QString &scope,
     // live connection can rewrite. Remember what it became, so the next page load hands
     // the visitor their new credential instead of a fresh anonymous session, and remember
     // it on the record too so that reclaiming the record reclaims the hand-off with it.
-    record.rotatedFrom = id;
+    record.rotatedFrom = previous;
     m_sessions.insert(record.id, record);
     trackExpiry(record);
-    m_rotations.insert(id, Rotation{record.id, record.createdMs});
+    m_rotations.insert(previous, Rotation{record.id, record.createdMs});
     emitUpsert(record);
     // First, so that everything still naming the old credential is holding the new one
     // before anybody acts on the removal below.
-    emit sessionRotated(id, record.id);
-    emit sessionRemoved(QString::fromLatin1(id));
+    emit sessionRotated(previous, record.id);
+    emit sessionRemoved(QString::fromLatin1(previous));
     if (m_remote) {
         QMetaObject::invokeMethod(m_remote, "putSession",
                                   Q_ARG(QString, QString::fromLatin1(record.id)),
@@ -155,13 +166,13 @@ QByteArray SessionManager::setScope(const QByteArray &id, const QString &scope,
                                   Q_ARG(QString, identityToJson(record.identity)),
                                   Q_ARG(double, static_cast<double>(record.createdMs)));
         QMetaObject::invokeMethod(m_remote, "removeSession",
-                                  Q_ARG(QString, QString::fromLatin1(id)));
+                                  Q_ARG(QString, QString::fromLatin1(previous)));
     }
     // An elevation is the one session event worth finding in a hurry, so it names both
-    // handles: what an operator is chasing is which session became which, and when.
+    // handles. What an operator is chasing is which session became which, and when.
     trace(Category::Authorization, Severity::Info, QStringLiteral("session scope changed"),
           {{QStringLiteral("session"), keyFor(record.id)},
-           {QStringLiteral("previousSession"), keyFor(id)},
+           {QStringLiteral("previousSession"), keyFor(previous)},
            {QStringLiteral("scope"), record.scope}});
     return record.id;
 }
