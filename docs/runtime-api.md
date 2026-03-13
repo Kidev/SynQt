@@ -77,7 +77,7 @@ and "are we connected."
 | Member | Type | Description |
 |--------|------|-------------|
 | `Session.state` | string | the connection/authorization state. One of the values in the table below. |
-| `Session.scope` | string \| list | the session's granted scope. A single name with hierarchical scopes (the default); the set of granted names with set-based scopes. Prefer `hasScope` for checks. |
+| `Session.scope` | string | the one scope name the session holds. With hierarchical scopes (the default) a name higher in `order` satisfies a lower one; with set-based scopes a check succeeds only on the name itself. Prefer `hasScope` for checks. |
 | `Session.hasScope(name)` | bool | whether the session holds `name`. With hierarchical scopes a higher scope satisfies a lower one (`hasScope("user")` is true for a moderator). |
 | `Session.identity` | object \| null | the normalized identity when authenticated, `null` when anonymous. Fields below. |
 | `Session.isAuthenticated` | bool | convenience for `Session.identity !== null`. |
@@ -358,7 +358,7 @@ ambient global.
 | `Caller.hasSession` | always | bool | whether there is a person behind this call: the browser's own session when `isUser`, or the session the calling entity is acting for (see [down the chain](#the-session-down-the-chain)). |
 | `Caller.session` | `hasSession` | object | the session: `key`, `scope`, `identity`, and on the edge that authenticated it, `id`. |
 | `Caller.identity` | `hasSession` | object \| null | the caller's normalized identity (same fields as [`Session.identity`](#client-session)), or `null` if anonymous. |
-| `Caller.scope` | `hasSession` | string \| list | the caller's scope. |
+| `Caller.scope` | `hasSession` | string | the one scope name the caller's session holds. |
 | `Caller.hasScope(name)` | `hasSession` | bool | whether the caller holds `name` (hierarchical where configured). |
 | `Caller.setScope(scope)` | `isUser` | action | set the session's scope. Used by the identity flow after login; rotates the session id on privilege change. The live connection carries on with the new id, and the browser is handed it on its next page load, so a refresh keeps the raised scope rather than starting over. |
 | `Caller.emit<Signal>(...)` | `isUser` | action | emit a contract signal back to **this one caller** (see [targeting](#emitting-a-signal-to-one-caller-versus-all)). |

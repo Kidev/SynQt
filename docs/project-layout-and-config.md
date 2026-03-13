@@ -201,9 +201,9 @@ scopes:
 
 `order` lists the scopes from least to most privileged. `hierarchical: true` (the
 default) makes a check like `hasScope("user")` succeed for any scope at or above
-`user` in `order`; set it to `false` for set based scopes where each session holds
-an explicit set and no scope implies another. `default` is the scope a brand new,
-unauthenticated browser session runs at.
+`user` in `order`. Set it to `false` for set based scopes, where no scope implies
+another and a check succeeds only on the name the session holds. `default` is the
+scope a brand new, unauthenticated browser session runs at.
 
 ### `entities` (the topology)
 

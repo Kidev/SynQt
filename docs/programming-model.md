@@ -575,8 +575,9 @@ scopes:
 ```
 
 Hierarchical scopes let `hasScope("user")` be true for a higher scope. Projects
-that want set based scopes set `hierarchical: false` and assign explicit scope
-sets. Hierarchical is the default because it is the least surprising.
+that want set based scopes set `hierarchical: false`, and every check is then an
+exact match on the one scope the session holds. Hierarchical is the default
+because it is the least surprising.
 
 On the client, session state is read only through `Session`:
 
