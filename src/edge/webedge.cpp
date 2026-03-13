@@ -56,6 +56,7 @@
 
 #include <chrono>
 #include <functional>
+#include <memory>
 #include <optional>
 #include <utility>
 
@@ -1570,6 +1571,31 @@ void WebEdge::dropSession(const QByteArray &sessionId)
     }
 }
 
+void WebEdge::followRotation(const QByteArray &from, const QByteArray &to,
+                             WebSocketTransport *transport)
+{
+    // The socket, which belongs to this connection alone.
+    m_sessionSockets.remove(from, transport);
+    m_sessionSockets.insert(to, transport);
+
+    // The Sources, which belong to the session and are therefore moved once however many
+    // tabs it has open. The first connection told finds the old key and moves it, and every
+    // other one finds nothing left to move. Copied out before the insert below, because
+    // inserting can rehash and leave the iterator pointing at nothing.
+    const auto entry{m_sessionSources.find(from)};
+    if (entry == m_sessionSources.end()) {
+        return;
+    }
+    const SessionSources leaving{*entry};
+    m_sessionSources.erase(entry);
+    SessionSources &arriving{m_sessionSources[to]};
+    arriving.connections += leaving.connections;
+    for (auto point{leaving.byConnectPoint.cbegin()};
+         point != leaving.byConnectPoint.cend(); ++point) {
+        arriving.byConnectPoint.insert(point.key(), point.value());
+    }
+}
+
 void WebEdge::releaseSessionSources(const QByteArray &sessionId)
 {
     const auto entry{m_sessionSources.find(sessionId)};
@@ -1761,20 +1787,35 @@ void WebEdge::hostConnection(QWebSocket *socket)
     transport->open(QIODevice::ReadWrite);
     node->addHostSideConnection(transport);
 
+    // The session this connection is bound to, which is not the constant it looks like:
+    // an elevation rotates the credential underneath (SessionManager::setScope, which
+    // Caller.setScope calls), and every key the edge keeps this connection under has to
+    // move with it. Shared rather than captured by value, so the rotation handler and the
+    // disconnect handler below are reading one answer instead of two.
+    const auto liveSession{std::make_shared<QByteArray>(sessionId)};
     if (!sessionId.isEmpty()) {
         m_sessionSockets.insert(sessionId, transport);
+        // Received on `connection`, so it goes when the connection does.
+        connect(m_sessionManager, &SessionManager::sessionRotated, connection,
+                [this, liveSession, transport](const QByteArray &from, const QByteArray &to) {
+            if (*liveSession != from) {
+                return;
+            }
+            followRotation(from, to, transport);
+            *liveSession = to;
+        });
     }
     // Watched on the device rather than the socket: the device is on this thread whatever
     // the socket is doing, and it relays the socket's disconnect either way.
     connect(transport, &WebSocketTransport::disconnected, this,
-            [this, transport, connection, ip, sessionId]() {
+            [this, transport, connection, ip, liveSession]() {
         --m_activeGlobal;
         if (--m_activePerIp[ip] <= 0) {
             m_activePerIp.remove(ip);
         }
-        if (!sessionId.isEmpty()) {
-            m_sessionSockets.remove(sessionId, transport);
-            releaseSessionSources(sessionId);
+        if (!liveSession->isEmpty()) {
+            m_sessionSockets.remove(*liveSession, transport);
+            releaseSessionSources(*liveSession);
         }
         // Takes the node, the Sources, the Callers and the device with it, and the device
         // in turn puts the socket down on whichever thread the socket is on.

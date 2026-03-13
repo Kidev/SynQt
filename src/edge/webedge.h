@@ -189,13 +189,23 @@ private:
     /// Drop this connection's claim on its session's Sources, and destroy them when it was
     /// the last one. Called from the socket's disconnected handler.
     void releaseSessionSources(const QByteArray &sessionId);
+
+    /// Move everything the edge keeps a session under from one credential to the next.
+    ///
+    /// A scope change rotates the credential under a live connection (Caller.setScope in a
+    /// slot), and the edge keys both its socket table and its per-session Sources by the id
+    /// the handshake presented. Without this they stay under a credential that no longer
+    /// exists. Ending the session then closes nothing, and a second tab arriving with the
+    /// new id is given a second set of Sources instead of joining the first.
+    void followRotation(const QByteArray &from, const QByteArray &to,
+                        WebSocketTransport *transport);
     /// Close every browser connection still open on `sessionId`, because that session has
     /// ended: signed out, revoked, or run past its TTL.
     ///
     /// The connect points a connection hosts are chosen once, when it is accepted, from the
     /// scope the session held then. Every property and model on them then replicates for as
     /// long as the socket is open. Without this, signing out took the credential away and
-    /// left the data flowing: a tab that had acquired a scoped connect point went on
+    /// left the data flowing. A tab that had acquired a scoped connect point went on
     /// receiving everything the owner pushed to it, and only a *new* call was refused. What
     /// ends a session has to end the connections it authorized.
     void dropSession(const QByteArray &sessionId);

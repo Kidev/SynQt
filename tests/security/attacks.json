@@ -51,6 +51,13 @@
       "test": "revokingASessionClosesAThreadedConnection"
     },
     {
+      "id": "read-access-outlives-an-elevated-credential",
+      "what": "The same sign-out, on a session that was elevated while it was connected. An elevation rotates the credential, and the edge went on holding the socket under the id the handshake presented, so ending the session looked for the current one, found nothing, and closed nothing. The visitor's calls failed from then on, and the tab went on receiving every push.",
+      "defended_by": "The edge follows the rotation in its own bookkeeping: the socket and the session's Sources move to the new credential, so the three ways a session ends still reach them.",
+      "file": "tests/m6-client/tst_m6.cpp",
+      "test": "revokingAnElevatedSessionClosesTheConnectionItAuthorized"
+    },
+    {
       "id": "sign-out-that-signs-nobody-out",
       "what": "Session.logout() resets the client and leaves the session alive at the edge, so the next page load signs the visitor straight back in.",
       "defended_by": "SynClient answers the request by reaching the edge's logout route; the session is gone from the edge afterwards.",

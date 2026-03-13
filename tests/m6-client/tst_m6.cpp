@@ -398,6 +398,52 @@ private slots:
                  QStringLiteral("kidev"));
     }
 
+    // Ending an elevated session has to end the connections it authorized.
+    //
+    // The edge keys a connection's bookkeeping by the session id the handshake presented,
+    // and an elevation rotates that id under the connection (SessionManager::setScope, which
+    // `Caller.setScope` in a slot calls). Nothing re-keyed it, so afterwards the edge held
+    // the socket under a credential that no longer existed: revoking, signing out, or
+    // running out the TTL looked up the current id, found no socket, and closed nothing. The
+    // visitor's calls failed from then on (no live record, so no scope), but the connection
+    // stayed up and every Replica it had already acquired went on receiving pushes. That is
+    // read access outliving the credential, on exactly the sessions that were elevated
+    // enough to be worth revoking.
+    void revokingAnElevatedSessionClosesTheConnectionItAuthorized()
+    {
+        QQmlEngine engine;
+        WebEdgeConfig config{edgeConfig(0)};
+        config.scopeOrder = {QStringLiteral("anonymous"), QStringLiteral("user"),
+                             QStringLiteral("moderator"), QStringLiteral("admin")};
+        WebEdge edge{config, &engine};
+        QVERIFY2(edge.start(), qPrintable(edge.errorString()));
+
+        const QByteArray token{edge.sessionManager()->createSession(QStringLiteral("user"))};
+        SynClientConfig clientSettings{clientConfig(edge.serverPort())};
+        clientSettings.sessionCookie = QByteArrayLiteral("synqt_session=") + token;
+        SynClient client{clientSettings, &engine};
+        client.start();
+        QTRY_COMPARE_WITH_TIMEOUT(client.session()->state(), QStringLiteral("connected"),
+                                  8000);
+
+        // The elevation, and the rotation it makes. Waited on through the client, so the
+        // connection has certainly seen it by the time the session is ended below.
+        const QByteArray elevated{edge.sessionManager()->setScope(
+            token, QStringLiteral("admin"))};
+        QVERIFY(!elevated.isEmpty());
+        QTRY_COMPARE_WITH_TIMEOUT(client.session()->scope().toString(),
+                                  QStringLiteral("admin"), 8000);
+
+        // Counted from before the revocation. What proves the edge acted is that the client
+        // left "connected", and it will come back on its own as an anonymous visitor.
+        QSignalSpy states{client.session(), &Session::stateChanged};
+        edge.sessionManager()->revoke(elevated);
+
+        QTRY_VERIFY2_WITH_TIMEOUT(states.size() >= 1,
+                                  "the connection outlived the session it was authorized by",
+                                  8000);
+    }
+
     // A project that configures no sign-in has no route for either action to reach, and
     // says so rather than sending a visitor to a URL the edge answers with a 404.
     void loginAndLogoutSaySoWhenThereIsNoIdentity()
