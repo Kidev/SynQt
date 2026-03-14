@@ -3,15 +3,52 @@
 
 #include "session.h"
 
+#include <QJSEngine>
+
 #include <utility>
 
 namespace SynQt {
 
-Session::Session(SynClientConfig config, QObject *parent)
+/// The object behind `Session.hasScope`. It exists so that the function QML calls is a
+/// plain JavaScript closure over one invokable, rather than a method value lifted off
+/// Session itself. A method value carries the object it was taken from, and calling it
+/// as `Session.hasScope(...)` would then be a call with a mismatched `this`, which Qt
+/// reports on every evaluation. Nothing reaches this type from QML but the closure.
+class ScopeCheck : public QObject
+{
+    Q_OBJECT
+
+public:
+    explicit ScopeCheck(const Session *session, QObject *parent)
+        : QObject{parent}
+        , m_session{session}
+    {
+    }
+
+    Q_INVOKABLE bool held(const QString &name) const
+    {
+        return m_session->hasScope(name);
+    }
+
+private:
+    const Session *m_session;
+};
+
+Session::Session(SynClientConfig config, QJSEngine *engine, QObject *parent)
     : QObject{parent}
     , m_config{std::move(config)}
     , m_scope{m_config.defaultScope}
 {
+    if (!engine) {
+        return;  // a C++-only Session (the routing tests build one); nothing to wire
+    }
+    // Built once, here, rather than on first read: the first read happens inside a
+    // binding evaluation, and compiling a script from in there is a re-entry into the
+    // engine that nothing about this needs.
+    m_check = new ScopeCheck{this, this};
+    const QJSValue factory{engine->evaluate(QStringLiteral(
+        "(function (check) { return function (name) { return check.held(name); }; })"))};
+    m_checkFunction = factory.call({engine->newQObject(m_check)});
 }
 
 QString Session::state() const
@@ -32,6 +69,11 @@ QVariant Session::identity() const
 bool Session::isAuthenticated() const
 {
     return !m_identity.isNull();
+}
+
+QJSValue Session::scopeCheck() const
+{
+    return m_checkFunction;
 }
 
 bool Session::hasScope(const QString &name) const
@@ -110,3 +152,5 @@ void Session::setSession(const QVariant &scope, const QVariant &identity)
 }
 
 } // namespace SynQt
+
+#include "session.moc"

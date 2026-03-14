@@ -20,6 +20,8 @@
 #include "counter_sourcehelper.h"  // synqtRegisterCounterSources()
 
 #include <QHostAddress>
+#include <QQmlComponent>
+#include <QQmlContext>
 #include <QQmlEngine>
 #include <qqml.h>
 #include <QRemoteObjectDynamicReplica>
@@ -324,6 +326,65 @@ private slots:
         QVERIFY(session->hasScope(QStringLiteral("moderator")));
         QVERIFY(session->hasScope(QStringLiteral("user")));      // hierarchical
         QVERIFY(!session->hasScope(QStringLiteral("admin")));
+    }
+
+    // And QML has to see it move.
+    //
+    // Every scope-gated app is written the way the tutorials write it, as a binding:
+    // `visible: !Session.hasScope("player")`. QML records what a binding depends on from
+    // the properties it reads and from nothing else, so with `hasScope` declared as a
+    // Q_INVOKABLE that binding had no dependencies at all: it was evaluated once, while
+    // the visitor was still anonymous, and never again. Signing in moved the scope, the
+    // edge hosted the scope-gated connect point, and the overlay the sign-in was supposed
+    // to lift stayed up -- which reads as a sign-in that failed. Only C++ ever asked
+    // `hasScope` in a test, and C++ has no bindings, so nothing here could see it.
+    //
+    // Session is wired to the engine here exactly as the generated main wires it: a
+    // context property named Session on the root context.
+    void aScopeGatedBindingReEvaluatesWhenTheScopeMoves()
+    {
+        QQmlEngine engine;
+        Session session{clientConfig(0), &engine};
+        engine.rootContext()->setContextProperty(QStringLiteral("Session"), &session);
+
+        QQmlComponent component{&engine};
+        component.setData(R"(
+            import QtQml
+            QtObject {
+                property bool gated: !Session.hasScope("moderator")
+                property string greeting: Session.hasScope("moderator")
+                                          ? "welcome " + Session.identity.login
+                                          : "please sign in"
+            }
+        )", QUrl{});
+        const std::unique_ptr<QObject> root{component.create()};
+        QVERIFY2(root != nullptr, qPrintable(component.errorString()));
+        QVERIFY(root->property("gated").toBool());
+        QCOMPARE(root->property("greeting").toString(), QStringLiteral("please sign in"));
+
+        QVariantMap identity;
+        identity.insert(QStringLiteral("login"), QStringLiteral("kidev"));
+        session.setSession(QStringLiteral("moderator"), identity);
+
+        QVERIFY2(!root->property("gated").toBool(),
+                 "a scope-gated binding never re-evaluated, so signing in changed nothing "
+                 "on screen");
+        QCOMPARE(root->property("greeting").toString(), QStringLiteral("welcome kidev"));
+
+        // Hierarchical, in a binding, the same as in C++.
+        QQmlComponent lower{&engine};
+        lower.setData(R"(
+            import QtQml
+            QtObject { property bool allowed: Session.hasScope("user") }
+        )", QUrl{});
+        const std::unique_ptr<QObject> lowerRoot{lower.create()};
+        QVERIFY2(lowerRoot != nullptr, qPrintable(lower.errorString()));
+        QVERIFY(lowerRoot->property("allowed").toBool());
+
+        // And back down again. Signing out has to close what signing in opened.
+        session.setSession(QStringLiteral("anonymous"), QVariant{});
+        QVERIFY(root->property("gated").toBool());
+        QVERIFY(!lowerRoot->property("allowed").toBool());
     }
 
     // And it keeps reaching it. A scope change rotates the credential under a live

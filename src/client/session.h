@@ -6,12 +6,19 @@
 
 #include "synclientconfig.h"
 
+#include <QJSValue>
 #include <QObject>
 #include <QString>
 #include <QStringList>
 #include <QVariant>
 
+QT_BEGIN_NAMESPACE
+class QJSEngine;
+QT_END_NAMESPACE
+
 namespace SynQt {
+
+class ScopeCheck;
 
 /// Read-only session state plus the two actions that change it (see the
 /// [runtime API reference](https://synqt.org/runtime-api/)).
@@ -27,16 +34,32 @@ class Session : public QObject
     Q_PROPERTY(QVariant scope READ scope NOTIFY scopeChanged)
     Q_PROPERTY(QVariant identity READ identity NOTIFY identityChanged)
     Q_PROPERTY(bool isAuthenticated READ isAuthenticated NOTIFY identityChanged)
+    /// The scope check, and a property rather than a Q_INVOKABLE.
+    ///
+    /// QML records a binding's dependencies from the properties it reads, and from
+    /// nothing else. A method call is invisible to it. Written as an invokable,
+    /// `visible: !Session.hasScope("player")` is evaluated once, while the visitor is
+    /// still anonymous, and never again, so signing in never lifts the gate it was
+    /// written to lift. Reading it as a property registers `scopeChanged`. The value
+    /// read is the check itself, so `Session.hasScope("player")` still spells a call
+    /// and now re-runs whenever the scope moves.
+    Q_PROPERTY(QJSValue hasScope READ scopeCheck NOTIFY scopeChanged)
 
 public:
-    explicit Session(SynClientConfig config, QObject *parent = nullptr);
+    /// \a engine is the app's own QML engine, and the only thing it is used for is
+    /// building the `hasScope` function above. A Session built without one still
+    /// answers every C++ caller. Only the QML-side check needs an engine to exist in.
+    explicit Session(SynClientConfig config, QJSEngine *engine = nullptr,
+                     QObject *parent = nullptr);
 
     QString state() const;
     QVariant scope() const;
     QVariant identity() const;
     bool isAuthenticated() const;
+    QJSValue scopeCheck() const;
 
-    Q_INVOKABLE bool hasScope(const QString &name) const;
+    bool hasScope(const QString &name) const;
+
     Q_INVOKABLE void login(const QString &provider = QString());
     Q_INVOKABLE void logout();
 
@@ -67,6 +90,8 @@ private:
     QString m_state{QStringLiteral("offline")};
     QVariant m_scope;
     QVariant m_identity; ///< null until authenticated (M8)
+    ScopeCheck *m_check{nullptr};
+    QJSValue m_checkFunction;
 };
 
 } // namespace SynQt

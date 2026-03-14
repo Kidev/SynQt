@@ -45,40 +45,40 @@ Button  { onClicked: Server.add(input.text) } // a slot call (a request)
 
 | Member | Type | Description |
 |--------|------|-------------|
-| `Server.<member>` | per the contract | each `prop`, `model`, `signal` and `slot` the edge's `export:` block declares. Properties and models are read-only mirrors of the owner's Source; slots are callable and are always requests the owner may refuse. |
-| `Server.ready` | bool | the framework's own: true once the edge is hosting this connect point for this browser. It goes false on a disconnect and true again on the reconnect. |
+| `Server.<member>` | per the contract | each `prop`, `model`, `signal` and `slot` the edge's `export:` block declares. Properties and models are read-only mirrors of the owner's Source. Slots are callable and are always requests the owner may refuse. |
+| `Server.ready` | bool | the framework's own. True once the edge is hosting this connect point for this browser. It goes false on a disconnect and true again on the reconnect. |
 
 Notes:
 
 - `Server` is the well-known alias for "the web edge this client talks to,"
-  whatever that edge entity is actually named. It is the client-side counterpart
+  whatever that edge entity is named. It is the client-side counterpart
   of addressing a service by its entity name (`Store.find(id)`) elsewhere in the
   mesh. An entity has one connect point, so the accessor is two levels and not
   three.
-- The accessor exists from the first frame, before any link is up: a binding
+- The accessor exists from the first frame, before any link is up. A binding
   written against it is evaluated immediately and holds the member's default until
   the Replica arrives, then re-evaluates. A connect point with a `scope` the
   session does not hold is never acquired at all, so its members stay at their
   defaults for an under-scoped user and `Server.ready` stays false (see
   [Availability and lifecycle](#availability-and-lifecycle) below).
 - A slot with a return type resolves asynchronously (the work happens on the
-  owner); a slot with no return type is fire-and-forget. This is a property of the
-  contract, not of `Server`.
+  owner). A slot with no return type is fire-and-forget. This is a property of the
+  contract rather than of `Server`.
 
 ---
 
 ## Client: `Session`
 
 `Session` is read-only session state plus the two actions that change it. It never
-exposes a secret: the raw session id and any token live at the edge, not in the
-client. Session state is what QML binds to for "am I signed in," "what may I do,"
-and "are we connected."
+exposes a secret. The raw session id and any token live at the edge rather than in the
+client. Session state is what QML binds to for whether the visitor is signed in, what
+they may do, and whether the client is connected.
 
 | Member | Type | Description |
 |--------|------|-------------|
 | `Session.state` | string | the connection/authorization state. One of the values in the table below. |
-| `Session.scope` | string | the one scope name the session holds. With hierarchical scopes (the default) a name higher in `order` satisfies a lower one; with set-based scopes a check succeeds only on the name itself. Prefer `hasScope` for checks. |
-| `Session.hasScope(name)` | bool | whether the session holds `name`. With hierarchical scopes a higher scope satisfies a lower one (`hasScope("user")` is true for a moderator). |
+| `Session.scope` | string | the one scope name the session holds. With hierarchical scopes (the default) a name higher in `order` satisfies a lower one. With set-based scopes a check succeeds only on the name itself. Prefer `hasScope` for checks. |
+| `Session.hasScope(name)` | bool | whether the session holds `name`. With hierarchical scopes a higher scope satisfies a lower one (`hasScope("user")` is true for a moderator). Safe to bind, because a binding that calls it re-evaluates when the scope moves. |
 | `Session.identity` | object \| null | the normalized identity when authenticated, `null` when anonymous. Fields below. |
 | `Session.isAuthenticated` | bool | convenience for `Session.identity !== null`. |
 | `Session.login(provider?)` | action | start the edge login flow. See below. |
@@ -117,31 +117,47 @@ mapping hook receives, see [authentication](authentication.md#the-identity-objec
 
 `Session.login(provider?)` starts the login flow at the edge, so the browser
 never holds the client secret (see [pitfall: OAuth cannot run in the
-browser](authentication.md)). `provider` is optional; pass it when more than one
+browser](authentication.md)). `provider` is optional. Pass it when more than one
 identity provider is configured, otherwise the default (or only) provider is used.
 In the browser this navigates to the edge's `login` route. On a
 [native desktop client](desktop.md#signing-in) it opens the system browser at that
 route and waits for the answer on a loopback port it holds for the length of the
-sign-in; the window stays where it was.
+sign-in. The window stays where it was.
 
 `Session.logout()` calls the edge's `logout` route, which clears the session
 server-side and expires the credential. The session returns to `scopes.default`
-(anonymous), and any Replica above the new scope is released: the edge closes the
+(anonymous), and any Replica above the new scope is released. The edge closes the
 connections that session authorized as it revokes it, and the client reconnects as an
 anonymous visitor. In the browser this is a navigation, because the cookie is not the
-app's to clear; a native client holds its own credential and ends the session without
+app's to clear. A native client holds its own credential and ends the session without
 leaving the window. A project that configures no `identity` has no route for either
 action, and calling one says so rather than requesting a URL the edge does not serve.
 
-Both `Session.scope` and `Session.identity` are told to the client by the edge,
-over the same authenticated `wss` link everything else rides: the edge holds the
+The edge tells the client both `Session.scope` and `Session.identity`,
+over the same authenticated `wss` link everything else rides. The edge holds the
 whole session and the browser holds an opaque cookie it cannot read, so nothing in
 the client could work either of them out on its own. They arrive as soon as the
 connection is accepted, and again whenever the scope changes under a live
 connection, which is what `Caller.setScope` in a slot does. While the link is down
 they hold their last value rather than falling back to anonymous, so a reconnect
-does not flash a signed-in visitor through a sign-in screen; a session that has
-really ended comes back anonymous on the next connection.
+does not flash a signed-in visitor through a sign-in screen. A session that has
+ended comes back anonymous on the next connection.
+
+`Session.hasScope` is meant to be used in a binding, and is built so that it can be:
+
+```qml
+Rectangle {
+    // Lifts by itself the moment the session is elevated.
+    visible: !Session.hasScope("player")
+}
+```
+
+QML works out what a binding depends on from the properties it reads, so a binding
+that only *calls* a method has no dependencies and is evaluated once and never
+again. `hasScope` is therefore a property whose value is the check, not a plain
+method: reading it is what registers the dependency on the scope, and the call
+spelling is unchanged. `Caller.hasScope` on the service side is an ordinary method,
+because a `Caller` is one call's snapshot and none of it changes under a binding.
 
 !!! note "Client-side scope checks are UX only"
     Hiding a button with `Session.hasScope(...)` is a convenience, never the

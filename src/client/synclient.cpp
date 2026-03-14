@@ -194,7 +194,7 @@ SynClient::SynClient(SynClientConfig config, QQmlEngine *engine, QObject *parent
     : QObject{parent}
     , m_config{std::move(config)}
     , m_server{new ServerAccessor{m_config.connectPoints, this}}
-    , m_session{new Session{m_config, this}}
+    , m_session{new Session{m_config, engine, this}}
     , m_router{new Router{m_config, m_session, engine, this}}
     , m_update{new ClientUpdate{this}}
     , m_engine{engine}
