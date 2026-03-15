@@ -52,40 +52,33 @@ class ChatCheckTest(unittest.TestCase):
                             for m in messages),
                         messages)
 
-    def test_a_signed_out_visitor_is_served_the_landing_page_and_no_other_file(self):
-        # One of the two things this example exists to show that the others do not: two
-        # bundles on one edge, so the room's client is a file a signed-out session cannot
-        # fetch. `admin` has no line because scopes rank: a moderator is served the nearest
-        # bundle at or below what they hold, which is the room.
-        edge = next(one for one in self.config["entities"] if one["name"] == "edge")
-        self.assertEqual(edge["bundles"], {"anonymous": "home", "user": "app"})
-
-    def test_the_edge_answers_none_of_the_point_it_owns(self):
-        # The other one: the edge is a front. It keeps the session and the sign-in and hands
-        # each caller to the entity serving people of their scope, so the room's own surface
-        # is answered by `room` and a moderator's by `moderation`.
+    def test_a_signed_out_visitor_has_nothing_to_acquire(self):
+        # The room is not hidden from a signed-out visitor so much as absent: the point
+        # that carries it is gated on the whole point, so their session never acquires it
+        # and the client's sign-in page is what is left rather than a locked door.
         front = next(one for one in self.config["connect_points"]
                      if one["owner"] == "edge")
-        self.assertEqual(front["behind"], {"user": "room", "admin": "moderation"})
+        self.assertEqual(front["scope"], "user")
 
-    def test_a_user_is_handed_to_an_entity_that_has_no_erase_on_it(self):
-        # What the split is for, and it is not a check anybody wrote: `erase` is not a
-        # member of the surface an ordinary session acquires, so there is nothing there to
-        # refuse. `synqt check` is what holds the two contracts to that.
-        served = {point["owner"]: point["export"] for point in self.config["connect_points"]}
-        self.assertNotIn("erase", served["room"])
-        self.assertIn("erase", served["moderation"])
+    def test_erase_is_not_a_member_an_ordinary_session_holds(self):
+        # What stops a user erasing a message is not a check anybody wrote: `erase` is
+        # gated on the member, so it is not on the surface their session acquired and a
+        # console call finds nothing to call.
+        front = next(one for one in self.config["connect_points"]
+                     if one["owner"] == "edge")
+        self.assertIn("<admin> slot erase", front["export"])
 
-    def test_a_user_carrying_erase_is_refused(self):
-        # And the rule is live rather than a property of how this file happens to be
-        # written: widen the user's surface by one member and the build stops.
+    def test_a_member_gated_on_a_scope_nobody_can_hold_is_refused(self):
+        # And the gate is live rather than a comment in the shape of one: name a scope
+        # that is not in the ladder and the build stops, rather than shipping a member
+        # that would reach nobody.
         mutated = copy.deepcopy(self.config)
         for point in mutated["connect_points"]:
-            if point["owner"] == "room":
-                point["export"] += "slot erase(int id)\n"
+            if point["owner"] == "edge":
+                point["export"] = point["export"].replace("<admin>", "<staff>")
         ok, messages = check.validate(mutated)
         self.assertFalse(ok)
-        self.assertTrue(any("erase" in m and "'user'" in m and m.startswith("error:")
+        self.assertTrue(any("erase" in m and "staff" in m and m.startswith("error:")
                             for m in messages), messages)
 
 

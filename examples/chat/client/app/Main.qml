@@ -5,26 +5,35 @@ import SynQt
 import QtQuick.Controls
 import QtQuick.Layouts
 
-// The room. One client for users and moderators both: what a moderator can do extra is
-// decided at the edge and by the entity behind it, never by which files a browser was given.
-// The Erase button below is a courtesy, not a gate -- an ordinary user's session was handed
-// to an entity whose surface has no `erase` on it at all.
+// One window. Signing in swaps what is in it and nothing else: the room's point is
+// gated `scope: user`, so a signed-out session has no `Server` to reach.
 ApplicationWindow {
     id: window
 
-    property string notice: ""
-
     visible: true
-    // A property the owner pushes. It is set once, on the database, and arrives here through
-    // the entity serving this caller and then the edge: three hops, no polling, one value.
-    title: Server.topic
+    title: qsTr("The chat room")
 
-    // What the owner says back when it says no, to the caller that asked and to nobody else
-    // in the room.
-    Edge.onRefused: reason => window.notice = reason
+    ColumnLayout {
+        anchors.centerIn: parent
+        visible: !Session.hasScope("user")
+        spacing: 24
+
+        Label {
+            Layout.alignment: Qt.AlignHCenter
+            font.pixelSize: 32
+            text: qsTr("One room. Everybody in it sees the same thing.")
+        }
+
+        Button {
+            Layout.alignment: Qt.AlignHCenter
+            text: qsTr("Sign in with GitHub")
+            onClicked: Session.login()
+        }
+    }
 
     ColumnLayout {
         anchors.fill: parent
+        visible: Session.hasScope("user")
 
         ListView {
             id: messages
@@ -34,12 +43,10 @@ ApplicationWindow {
             clip: true
             model: Server.messages
 
-            // Simple x/width bindings rather than a layout, which is what a delegate wants:
-            // it is created and destroyed as the view scrolls, and `model` is read through a
-            // required property because a role called `id` cannot be one of its own.
             delegate: Item {
                 id: line
 
+                // The row, not its roles: `id` cannot be a property of its own.
                 required property var model
 
                 width: messages.width
@@ -51,9 +58,6 @@ ApplicationWindow {
                     height: parent.height
                     verticalAlignment: Text.AlignVCenter
                     elide: Text.ElideRight
-                    // A moderator's name is red, and nothing in this browser decided that.
-                    // `staff` is stamped on the row by the entity a moderator is handed to,
-                    // which is the only place in the system that can set it.
                     color: line.model.staff ? "#d0342c" : window.palette.windowText
                     font.bold: line.model.staff
                     text: line.model.who
@@ -73,9 +77,6 @@ ApplicationWindow {
                     y: 1
                     width: 76
                     height: parent.height - 2
-                    // Shown to a moderator because there is no sense offering it to anybody
-                    // else. It is not what stops anybody else: `erase` is not a member of the
-                    // surface an ordinary session acquired, so a console call finds nothing.
                     visible: Session.hasScope("admin")
                     text: qsTr("Erase")
                     onClicked: Server.erase(line.model.id)
@@ -87,10 +88,9 @@ ApplicationWindow {
             id: draft
 
             Layout.fillWidth: true
-            placeholderText: window.notice || qsTr("Say something")
+            placeholderText: qsTr("Say something")
             onAccepted: {
                 Server.say(draft.text);
-                window.notice = "";
                 draft.clear();
             }
         }

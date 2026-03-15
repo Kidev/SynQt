@@ -15,7 +15,7 @@
  "about": {
   "demo": {
    "title": "The chat room",
-   "note": "Every kind of contract member, a landing page, and an edge that hands each caller on."
+   "note": "A room, a sign-in, and two gates that are not written in the client."
   },
   "gavel": {
    "title": "The auction",
@@ -39,25 +39,8 @@
     "user",
     "admin"
    ],
-   "sourceHash": "99e73d31c725d65ec80501fcb7bb142f9dee77c92381020a39d5674c58f44666",
+   "sourceHash": "8649ebbf8488d513e76c514bdafd5feb453b9874ceaee4da4c0dad9132392e84",
    "entities": [
-    {
-     "id": "home",
-     "name": "home",
-     "type": "client",
-     "provider": "",
-     "targets": [
-      "wasm"
-     ],
-     "identity": false,
-     "bundles": {},
-     "console": false,
-     "edge": "",
-     "shared": false,
-     "x": 64,
-     "y": 64,
-     "qml": "// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux\n// SPDX-License-Identifier: Apache-2.0\n\nimport SynQt\nimport QtQuick.Controls\nimport QtQuick.Layouts\n\n// The landing page, and the whole of what a visitor who has signed in as nobody downloads.\n// The room's client is a different bundle on the same edge, and a session without `user`\n// cannot fetch a file of it: not a redirect, not a 403, simply not there.\n//\n// There is no `Server` here and nothing to reach for. This entity consumes no connect point,\n// so the only thing this application can do is start the sign-in, which is the only thing\n// somebody who is nobody yet has any business doing.\nApplicationWindow {\n    id: window\n\n    visible: true\n    title: qsTr(\"The chat room\")\n\n    ColumnLayout {\n        anchors.centerIn: parent\n        spacing: 24\n\n        Label {\n            Layout.alignment: Qt.AlignHCenter\n            font.pixelSize: 32\n            text: qsTr(\"One room. Everybody in it sees the same thing.\")\n        }\n\n        Label {\n            Layout.alignment: Qt.AlignHCenter\n            Layout.maximumWidth: 480\n            horizontalAlignment: Text.AlignHCenter\n            wrapMode: Text.WordWrap\n            text: qsTr(\"Somebody types a line and it is on every screen that has the room \"\n                       + \"open, including the ones on other machines. Sign in to join.\")\n        }\n\n        Button {\n            Layout.alignment: Qt.AlignHCenter\n            // The edge runs the whole exchange. This browser never sees a token and never\n            // holds a secret; what it ends up with is a session cookie, and the next page\n            // it is served is the room.\n            text: qsTr(\"Sign in with GitHub\")\n            onClicked: Session.login()\n        }\n    }\n}\n"
-    },
     {
      "id": "app",
      "name": "app",
@@ -72,8 +55,8 @@
      "edge": "",
      "shared": false,
      "x": 64,
-     "y": 288,
-     "qml": "// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux\n// SPDX-License-Identifier: Apache-2.0\n\nimport SynQt\nimport QtQuick.Controls\nimport QtQuick.Layouts\n\n// The room. One client for users and moderators both: what a moderator can do extra is\n// decided at the edge and by the entity behind it, never by which files a browser was given.\n// The Erase button below is a courtesy, not a gate -- an ordinary user's session was handed\n// to an entity whose surface has no `erase` on it at all.\nApplicationWindow {\n    id: window\n\n    property string notice: \"\"\n\n    visible: true\n    // A property the owner pushes. It is set once, on the database, and arrives here through\n    // the entity serving this caller and then the edge: three hops, no polling, one value.\n    title: Server.topic\n\n    // What the owner says back when it says no, to the caller that asked and to nobody else\n    // in the room.\n    Edge.onRefused: reason => window.notice = reason\n\n    ColumnLayout {\n        anchors.fill: parent\n\n        ListView {\n            id: messages\n\n            Layout.fillHeight: true\n            Layout.fillWidth: true\n            clip: true\n            model: Server.messages\n\n            // Simple x/width bindings rather than a layout, which is what a delegate wants:\n            // it is created and destroyed as the view scrolls, and `model` is read through a\n            // required property because a role called `id` cannot be one of its own.\n            delegate: Item {\n                id: line\n\n                required property var model\n\n                width: messages.width\n                height: 26\n\n                Label {\n                    x: 8\n                    width: 132\n                    height: parent.height\n                    verticalAlignment: Text.AlignVCenter\n                    elide: Text.ElideRight\n                    // A moderator's name is red, and nothing in this browser decided that.\n                    // `staff` is stamped on the row by the entity a moderator is handed to,\n                    // which is the only place in the system that can set it.\n                    color: line.model.staff ? \"#d0342c\" : window.palette.windowText\n                    font.bold: line.model.staff\n                    text: line.model.who\n                }\n\n                Label {\n                    x: 148\n                    width: parent.width - 148 - 88\n                    height: parent.height\n                    verticalAlignment: Text.AlignVCenter\n                    elide: Text.ElideRight\n                    text: line.model.body\n                }\n\n                Button {\n                    x: parent.width - 84\n                    y: 1\n                    width: 76\n                    height: parent.height - 2\n                    // Shown to a moderator because there is no sense offering it to anybody\n                    // else. It is not what stops anybody else: `erase` is not a member of the\n                    // surface an ordinary session acquired, so a console call finds nothing.\n                    visible: Session.hasScope(\"admin\")\n                    text: qsTr(\"Erase\")\n                    onClicked: Server.erase(line.model.id)\n                }\n            }\n        }\n\n        TextField {\n            id: draft\n\n            Layout.fillWidth: true\n            placeholderText: window.notice || qsTr(\"Say something\")\n            onAccepted: {\n                Server.say(draft.text);\n                window.notice = \"\";\n                draft.clear();\n            }\n        }\n    }\n}\n"
+     "y": 160,
+     "qml": "// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux\n// SPDX-License-Identifier: Apache-2.0\n\nimport SynQt\nimport QtQuick.Controls\nimport QtQuick.Layouts\n\n// One window. Signing in swaps what is in it and nothing else: the room's point is\n// gated `scope: user`, so a signed-out session has no `Server` to reach.\nApplicationWindow {\n    id: window\n\n    visible: true\n    title: qsTr(\"The chat room\")\n\n    ColumnLayout {\n        anchors.centerIn: parent\n        visible: !Session.hasScope(\"user\")\n        spacing: 24\n\n        Label {\n            Layout.alignment: Qt.AlignHCenter\n            font.pixelSize: 32\n            text: qsTr(\"One room. Everybody in it sees the same thing.\")\n        }\n\n        Button {\n            Layout.alignment: Qt.AlignHCenter\n            text: qsTr(\"Sign in with GitHub\")\n            onClicked: Session.login()\n        }\n    }\n\n    ColumnLayout {\n        anchors.fill: parent\n        visible: Session.hasScope(\"user\")\n\n        ListView {\n            id: messages\n\n            Layout.fillHeight: true\n            Layout.fillWidth: true\n            clip: true\n            model: Server.messages\n\n            delegate: Item {\n                id: line\n\n                // The row, not its roles: `id` cannot be a property of its own.\n                required property var model\n\n                width: messages.width\n                height: 26\n\n                Label {\n                    x: 8\n                    width: 132\n                    height: parent.height\n                    verticalAlignment: Text.AlignVCenter\n                    elide: Text.ElideRight\n                    color: line.model.staff ? \"#d0342c\" : window.palette.windowText\n                    font.bold: line.model.staff\n                    text: line.model.who\n                }\n\n                Label {\n                    x: 148\n                    width: parent.width - 148 - 88\n                    height: parent.height\n                    verticalAlignment: Text.AlignVCenter\n                    elide: Text.ElideRight\n                    text: line.model.body\n                }\n\n                Button {\n                    x: parent.width - 84\n                    y: 1\n                    width: 76\n                    height: parent.height - 2\n                    visible: Session.hasScope(\"admin\")\n                    text: qsTr(\"Erase\")\n                    onClicked: Server.erase(line.model.id)\n                }\n            }\n        }\n\n        TextField {\n            id: draft\n\n            Layout.fillWidth: true\n            placeholderText: qsTr(\"Say something\")\n            onAccepted: {\n                Server.say(draft.text);\n                draft.clear();\n            }\n        }\n    }\n}\n"
     },
     {
      "id": "edge",
@@ -82,46 +65,13 @@
      "provider": "",
      "targets": [],
      "identity": true,
-     "bundles": {
-      "anonymous": "home",
-      "user": "app"
-     },
-     "console": false,
-     "edge": "",
-     "shared": true,
-     "x": 416,
-     "y": 176,
-     "qml": ""
-    },
-    {
-     "id": "room",
-     "name": "room",
-     "type": "cache",
-     "provider": "memory",
-     "targets": [],
-     "identity": false,
      "bundles": {},
      "console": false,
      "edge": "",
      "shared": true,
-     "x": 768,
-     "y": 48,
-     "qml": "// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux\n// SPDX-License-Identifier: Apache-2.0\n\nimport SynQt\n\n// What a signed-in user is handed to. Nothing here asks about scope, and that is not an\n// omission: the edge in front of it hands nobody but a `user` here, so `Caller` is the only\n// question there is to ask, and the members a moderator reaches are not on this surface for\n// anybody to call.\n//\n// The room itself is not here either. `store` holds it, this mirrors it, and the moderator's\n// entity mirrors the same one, which is what makes them two views of one conversation.\nRoom {\n    id: room\n\n    function say(body) {\n        const who = Caller.identity.login;\n        // How much this person has said in the last minute, kept in the one place worth\n        // keeping it: a bounded store that forgets. The window starts when the first message\n        // of it lands, so this is a fixed minute rather than a minute from the last thing\n        // said, which would never expire for somebody typing steadily.\n        const said = Cache.incr(\"said:\" + who);\n        if (said === 1) {\n            Cache.expire(\"said:\" + who, 60);\n        }\n        if (said > 20) {\n            Caller.emitRefused(\"Twenty lines a minute is the limit. Give it a moment.\");\n            return;\n        }\n        Store.say(who, body, false);\n    }\n\n    topic: Store.topic\n    messagesRows: Store.lines\n}\n"
-    },
-    {
-     "id": "moderation",
-     "name": "moderation",
-     "type": "service",
-     "provider": "",
-     "targets": [],
-     "identity": false,
-     "bundles": {},
-     "console": false,
-     "edge": "",
-     "shared": true,
-     "x": 768,
-     "y": 304,
-     "qml": "// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux\n// SPDX-License-Identifier: Apache-2.0\n\nimport SynQt\n\n// What a moderator is handed to, in a binary of its own. `erase` is compiled into this\n// entity and into nothing else, and neither is the line below that marks a message as staff:\n// the process serving ordinary users does not contain either of them.\n//\n// Like the entity next door, it never asks about scope. The edge decides who arrives here.\nModeration {\n    id: desk\n\n    // A moderator is not rate limited, which is why this entity has no cache and the one\n    // serving users does. What is different about the two surfaces is what each of them\n    // holds, not a flag either of them reads.\n    function say(body) {\n        Store.say(Caller.identity.login, body, true);\n    }\n\n    // Read against the room as it stands rather than against a query of its own: the caller\n    // is looking at these rows, so this is the question they think they are asking. The\n    // answer goes back to the one caller who asked it and to nobody else in the room.\n    function erase(id) {\n        if (!Store.lines.some(line => line.id === id)) {\n            Caller.emitRefused(\"That message is not in the room any more.\");\n            return;\n        }\n        Store.erase(id);\n    }\n\n    topic: Store.topic\n    messagesRows: Store.lines\n}\n"
+     "x": 384,
+     "y": 160,
+     "qml": "// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux\n// SPDX-License-Identifier: Apache-2.0\n\nimport SynQt\n\n// Everything about a message except its text is decided here.\nEdge {\n    messagesRows: Store.lines\n\n    function say(body) {\n        Store.say(Caller.identity.login, body, Caller.hasScope(\"admin\"));\n    }\n\n    function erase(id) {\n        Store.erase(id);\n    }\n}\n"
     },
     {
      "id": "store",
@@ -134,9 +84,9 @@
      "console": false,
      "edge": "",
      "shared": true,
-     "x": 1088,
-     "y": 176,
-     "qml": "// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux\n// SPDX-License-Identifier: Apache-2.0\n\nimport SynQt\n\n// The conversation, and the only thing here that survives a restart. Nothing in this file\n// asks who is calling: this point lists two consumers, so those two entities are the only\n// ones that can acquire it at all, and a browser is on no consumer list anywhere.\nStore {\n    id: log\n\n    function say(who, body, staff) {\n        Db.exec(\"INSERT INTO messages (who, body, staff, said_at) \"\n                + \"VALUES (?, ?, ?, datetime('now'))\",\n                [who, body, staff ? 1 : 0]);\n        log.refresh();\n    }\n\n    function erase(id) {\n        Db.exec(\"DELETE FROM messages WHERE id = ?\", [id]);\n        log.refresh();\n    }\n\n    // The room as it stands, reassigned in one go. Every surface in front of this mirrors\n    // the property, so one line typed anywhere redraws every window open on the room and\n    // nobody wrote a broadcast.\n    //\n    // `said_at` is in the table and not in the SELECT, and not in the contract either. A\n    // column the browser is never told about is a column it cannot receive: the boundary\n    // keeps the declared roles and drops the rest, so it could not cross even by accident.\n    function refresh() {\n        const rows = Db.query(\"SELECT id, who, body, staff FROM messages \"\n                              + \"ORDER BY id DESC LIMIT 50\");\n        log.lines = rows.map(row => ({ id: row.id, who: row.who, body: row.body,\n                                       staff: row.staff !== 0 }));\n    }\n\n    topic: \"Anything goes\"\n    lines: []\n\n    Component.onCompleted: log.refresh()\n}\n",
+     "x": 704,
+     "y": 160,
+     "qml": "// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux\n// SPDX-License-Identifier: Apache-2.0\n\nimport SynQt\n\n// The conversation, and the only thing here that survives a restart.\nStore {\n    id: log\n\n    function say(who, body, staff) {\n        Db.exec(\"INSERT INTO messages (who, body, staff, said_at) \"\n                + \"VALUES (?, ?, ?, datetime('now'))\",\n                [who, body, staff ? 1 : 0]);\n        log.refresh();\n    }\n\n    function erase(id) {\n        Db.exec(\"UPDATE messages SET body = 'deleted by a moderator' WHERE id = ?\",\n                [id]);\n        log.refresh();\n    }\n\n    // `said_at` is in the table and in neither the SELECT nor the contract, so it\n    // never leaves the mesh. Reassigning `lines` is the whole of the synchronisation.\n    function refresh() {\n        const rows = Db.query(\"SELECT id, who, body, staff FROM messages \"\n                              + \"ORDER BY id DESC LIMIT 50\");\n        log.lines = rows.map(row => ({ id: row.id, who: row.who, body: row.body,\n                                       staff: row.staff !== 0 }));\n    }\n\n    lines: []\n\n    Component.onCompleted: log.refresh()\n}\n",
      "schema": "CREATE TABLE IF NOT EXISTS messages (\n    id      INTEGER PRIMARY KEY AUTOINCREMENT,\n    who     TEXT NOT NULL,\n    body    TEXT NOT NULL,\n    staff   INTEGER NOT NULL DEFAULT 0,\n    said_at TEXT NOT NULL\n);\n\nCREATE INDEX IF NOT EXISTS messages_by_time\n    ON messages (said_at);\n"
     }
    ],
@@ -153,14 +103,6 @@
      "transport": "",
      "scope": "user",
      "members": [
-      {
-       "kind": "prop",
-       "name": "topic",
-       "type": "string[60]",
-       "params": [],
-       "roles": [],
-       "scope": "user"
-      },
       {
        "kind": "model",
        "name": "messages",
@@ -211,181 +153,10 @@
        ],
        "roles": [],
        "scope": "admin"
-      },
-      {
-       "kind": "signal",
-       "name": "refused",
-       "type": "",
-       "params": [
-        {
-         "type": "string[120]",
-         "name": "reason"
-        }
-       ],
-       "roles": [],
-       "scope": "user"
       }
      ],
      "server": "",
-     "qml": "",
-     "behind": {
-      "user": "room",
-      "admin": "moderation"
-     }
-    },
-    {
-     "id": "room",
-     "name": "room",
-     "slot": null,
-     "contract": "Room",
-     "owner": "room",
-     "consumers": [
-      "edge"
-     ],
-     "transport": "",
-     "scope": "",
-     "members": [
-      {
-       "kind": "prop",
-       "name": "topic",
-       "type": "string[60]",
-       "params": [],
-       "roles": []
-      },
-      {
-       "kind": "model",
-       "name": "messages",
-       "type": "",
-       "params": [],
-       "roles": [
-        {
-         "type": "int",
-         "name": "id"
-        },
-        {
-         "type": "string[40]",
-         "name": "who"
-        },
-        {
-         "type": "string[280]",
-         "name": "body"
-        },
-        {
-         "type": "bool",
-         "name": "staff"
-        }
-       ]
-      },
-      {
-       "kind": "slot",
-       "name": "say",
-       "type": "",
-       "params": [
-        {
-         "type": "string[280]",
-         "name": "body"
-        }
-       ],
-       "roles": []
-      },
-      {
-       "kind": "signal",
-       "name": "refused",
-       "type": "",
-       "params": [
-        {
-         "type": "string[120]",
-         "name": "reason"
-        }
-       ],
-       "roles": []
-      }
-     ],
-     "server": "",
-     "qml": "// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux\n// SPDX-License-Identifier: Apache-2.0\n\nimport SynQt\n\n// What a signed-in user is handed to. Nothing here asks about scope, and that is not an\n// omission: the edge in front of it hands nobody but a `user` here, so `Caller` is the only\n// question there is to ask, and the members a moderator reaches are not on this surface for\n// anybody to call.\n//\n// The room itself is not here either. `store` holds it, this mirrors it, and the moderator's\n// entity mirrors the same one, which is what makes them two views of one conversation.\nRoom {\n    id: room\n\n    function say(body) {\n        const who = Caller.identity.login;\n        // How much this person has said in the last minute, kept in the one place worth\n        // keeping it: a bounded store that forgets. The window starts when the first message\n        // of it lands, so this is a fixed minute rather than a minute from the last thing\n        // said, which would never expire for somebody typing steadily.\n        const said = Cache.incr(\"said:\" + who);\n        if (said === 1) {\n            Cache.expire(\"said:\" + who, 60);\n        }\n        if (said > 20) {\n            Caller.emitRefused(\"Twenty lines a minute is the limit. Give it a moment.\");\n            return;\n        }\n        Store.say(who, body, false);\n    }\n\n    topic: Store.topic\n    messagesRows: Store.lines\n}\n"
-    },
-    {
-     "id": "moderation",
-     "name": "moderation",
-     "slot": null,
-     "contract": "Moderation",
-     "owner": "moderation",
-     "consumers": [
-      "edge"
-     ],
-     "transport": "",
-     "scope": "",
-     "members": [
-      {
-       "kind": "prop",
-       "name": "topic",
-       "type": "string[60]",
-       "params": [],
-       "roles": []
-      },
-      {
-       "kind": "model",
-       "name": "messages",
-       "type": "",
-       "params": [],
-       "roles": [
-        {
-         "type": "int",
-         "name": "id"
-        },
-        {
-         "type": "string[40]",
-         "name": "who"
-        },
-        {
-         "type": "string[280]",
-         "name": "body"
-        },
-        {
-         "type": "bool",
-         "name": "staff"
-        }
-       ]
-      },
-      {
-       "kind": "slot",
-       "name": "say",
-       "type": "",
-       "params": [
-        {
-         "type": "string[280]",
-         "name": "body"
-        }
-       ],
-       "roles": []
-      },
-      {
-       "kind": "slot",
-       "name": "erase",
-       "type": "",
-       "params": [
-        {
-         "type": "int",
-         "name": "id"
-        }
-       ],
-       "roles": []
-      },
-      {
-       "kind": "signal",
-       "name": "refused",
-       "type": "",
-       "params": [
-        {
-         "type": "string[120]",
-         "name": "reason"
-        }
-       ],
-       "roles": []
-      }
-     ],
-     "server": "",
-     "qml": "// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux\n// SPDX-License-Identifier: Apache-2.0\n\nimport SynQt\n\n// What a moderator is handed to, in a binary of its own. `erase` is compiled into this\n// entity and into nothing else, and neither is the line below that marks a message as staff:\n// the process serving ordinary users does not contain either of them.\n//\n// Like the entity next door, it never asks about scope. The edge decides who arrives here.\nModeration {\n    id: desk\n\n    // A moderator is not rate limited, which is why this entity has no cache and the one\n    // serving users does. What is different about the two surfaces is what each of them\n    // holds, not a flag either of them reads.\n    function say(body) {\n        Store.say(Caller.identity.login, body, true);\n    }\n\n    // Read against the room as it stands rather than against a query of its own: the caller\n    // is looking at these rows, so this is the question they think they are asking. The\n    // answer goes back to the one caller who asked it and to nobody else in the room.\n    function erase(id) {\n        if (!Store.lines.some(line => line.id === id)) {\n            Caller.emitRefused(\"That message is not in the room any more.\");\n            return;\n        }\n        Store.erase(id);\n    }\n\n    topic: Store.topic\n    messagesRows: Store.lines\n}\n"
+     "qml": "// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux\n// SPDX-License-Identifier: Apache-2.0\n\nimport SynQt\n\n// Everything about a message except its text is decided here.\nEdge {\n    messagesRows: Store.lines\n\n    function say(body) {\n        Store.say(Caller.identity.login, body, Caller.hasScope(\"admin\"));\n    }\n\n    function erase(id) {\n        Store.erase(id);\n    }\n}\n"
     },
     {
      "id": "store",
@@ -394,19 +165,11 @@
      "contract": "Store",
      "owner": "store",
      "consumers": [
-      "room",
-      "moderation"
+      "edge"
      ],
      "transport": "",
      "scope": "",
      "members": [
-      {
-       "kind": "prop",
-       "name": "topic",
-       "type": "string[60]",
-       "params": [],
-       "roles": []
-      },
       {
        "kind": "prop",
        "name": "lines",
@@ -448,7 +211,7 @@
       }
      ],
      "server": "",
-     "qml": "// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux\n// SPDX-License-Identifier: Apache-2.0\n\nimport SynQt\n\n// The conversation, and the only thing here that survives a restart. Nothing in this file\n// asks who is calling: this point lists two consumers, so those two entities are the only\n// ones that can acquire it at all, and a browser is on no consumer list anywhere.\nStore {\n    id: log\n\n    function say(who, body, staff) {\n        Db.exec(\"INSERT INTO messages (who, body, staff, said_at) \"\n                + \"VALUES (?, ?, ?, datetime('now'))\",\n                [who, body, staff ? 1 : 0]);\n        log.refresh();\n    }\n\n    function erase(id) {\n        Db.exec(\"DELETE FROM messages WHERE id = ?\", [id]);\n        log.refresh();\n    }\n\n    // The room as it stands, reassigned in one go. Every surface in front of this mirrors\n    // the property, so one line typed anywhere redraws every window open on the room and\n    // nobody wrote a broadcast.\n    //\n    // `said_at` is in the table and not in the SELECT, and not in the contract either. A\n    // column the browser is never told about is a column it cannot receive: the boundary\n    // keeps the declared roles and drops the rest, so it could not cross even by accident.\n    function refresh() {\n        const rows = Db.query(\"SELECT id, who, body, staff FROM messages \"\n                              + \"ORDER BY id DESC LIMIT 50\");\n        log.lines = rows.map(row => ({ id: row.id, who: row.who, body: row.body,\n                                       staff: row.staff !== 0 }));\n    }\n\n    topic: \"Anything goes\"\n    lines: []\n\n    Component.onCompleted: log.refresh()\n}\n"
+     "qml": "// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux\n// SPDX-License-Identifier: Apache-2.0\n\nimport SynQt\n\n// The conversation, and the only thing here that survives a restart.\nStore {\n    id: log\n\n    function say(who, body, staff) {\n        Db.exec(\"INSERT INTO messages (who, body, staff, said_at) \"\n                + \"VALUES (?, ?, ?, datetime('now'))\",\n                [who, body, staff ? 1 : 0]);\n        log.refresh();\n    }\n\n    function erase(id) {\n        Db.exec(\"UPDATE messages SET body = 'deleted by a moderator' WHERE id = ?\",\n                [id]);\n        log.refresh();\n    }\n\n    // `said_at` is in the table and in neither the SELECT nor the contract, so it\n    // never leaves the mesh. Reassigning `lines` is the whole of the synchronisation.\n    function refresh() {\n        const rows = Db.query(\"SELECT id, who, body, staff FROM messages \"\n                              + \"ORDER BY id DESC LIMIT 50\");\n        log.lines = rows.map(row => ({ id: row.id, who: row.who, body: row.body,\n                                       staff: row.staff !== 0 }));\n    }\n\n    lines: []\n\n    Component.onCompleted: log.refresh()\n}\n"
     }
    ]
   },

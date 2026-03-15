@@ -797,10 +797,7 @@ def test_the_example_carries_the_home_pages_own_files():
               "// SPDX-License-Identifier: Apache-2.0\n\n")
     # The pane a reader opens is the entity's own QML out of the example, so a page
     # showing anything else is a page showing code the button does not hand over.
-    # The edge is not in here and that is the point of the example: it owns the point the
-    # browser consumes and implements none of it, so there is no file for it to have.
-    panes = {"home": "home", "app": "client", "room": "room",
-             "moderation": "moderation", "store": "database"}
+    panes = {"app": "client", "edge": "edge", "store": "database"}
     for name, block in panes.items():
         assert files[name]["qml"] == notice + shown[block], name
     assert files["store"]["schema"] == shown["schema"]
