@@ -18,13 +18,9 @@ QT_END_NAMESPACE
 
 namespace SynQt {
 
-class ScopeCheck;
-
 /// Read-only session state plus the two actions that change it (see the
-/// [runtime API reference](https://synqt.org/runtime-api/)).
-/// It never exposes a secret: the raw session id and any token live at the edge, not in
-/// the client. The framework, not app code, drives state/scope/identity. Login/logout
-/// are surfaced to QML.
+/// [runtime API reference](https://synqt.org/runtime-api/)). It holds no secret: the session
+/// id and any token stay at the edge. The framework drives state, scope and identity.
 ///
 /// \sa \ref qmlsession "the Session accessor page"
 class Session : public QObject
@@ -34,15 +30,8 @@ class Session : public QObject
     Q_PROPERTY(QVariant scope READ scope NOTIFY scopeChanged)
     Q_PROPERTY(QVariant identity READ identity NOTIFY identityChanged)
     Q_PROPERTY(bool isAuthenticated READ isAuthenticated NOTIFY identityChanged)
-    /// The scope check, and a property rather than a Q_INVOKABLE.
-    ///
-    /// QML records a binding's dependencies from the properties it reads, and from
-    /// nothing else. A method call is invisible to it. Written as an invokable,
-    /// `visible: !Session.hasScope("player")` is evaluated once, while the visitor is
-    /// still anonymous, and never again, so signing in never lifts the gate it was
-    /// written to lift. Reading it as a property registers `scopeChanged`. The value
-    /// read is the check itself, so `Session.hasScope("player")` still spells a call
-    /// and now re-runs whenever the scope moves.
+    /// The scope check, as a property rather than a Q_INVOKABLE, so a binding such as
+    /// `visible: !Session.hasScope("player")` re-evaluates whenever the scope changes.
     Q_PROPERTY(QJSValue hasScope READ scopeCheck NOTIFY scopeChanged)
 
 public:
@@ -68,14 +57,8 @@ public:
     void setScope(const QVariant &scope);
     void setIdentity(const QVariant &identity);
 
-    /// Both at once, which is how the edge says them.
-    ///
-    /// Scope and identity change together and QML reads them together: an app asks
-    /// `hasScope` and then names the visitor, usually in one expression. Setting them one
-    /// after the other gives every such binding an evaluation in between where the scope
-    /// has moved and the identity has not, so a sign-in paints once as "elevated and
-    /// nobody" before it paints correctly. Both members are written before either signal
-    /// goes out, so whichever one a binding wakes on, it reads a consistent pair.
+    /// Both at once, as the edge sends them: both members are written before either signal goes
+    /// out, so a binding never reads a new scope with an old identity.
     void setSession(const QVariant &scope, const QVariant &identity);
 
 signals:
@@ -89,9 +72,8 @@ private:
     SynClientConfig m_config;
     QString m_state{QStringLiteral("offline")};
     QVariant m_scope;
-    QVariant m_identity; ///< null until authenticated (M8)
-    ScopeCheck *m_check{nullptr};
-    QJSValue m_checkFunction;
+    QVariant m_identity; ///< null until authenticated
+    QJSValue m_checkFunction; ///< `hasScope`, built in the constructor. See the property
 };
 
 } // namespace SynQt

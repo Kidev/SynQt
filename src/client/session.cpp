@@ -9,11 +9,9 @@
 
 namespace SynQt {
 
-/// The object behind `Session.hasScope`. It exists so that the function QML calls is a
-/// plain JavaScript closure over one invokable, rather than a method value lifted off
-/// Session itself. A method value carries the object it was taken from, and calling it
-/// as `Session.hasScope(...)` would then be a call with a mismatched `this`, which Qt
-/// reports on every evaluation. Nothing reaches this type from QML but the closure.
+/// The object behind `Session.hasScope`, so QML calls a plain closure over one invokable. A
+/// method value taken from Session carries its object, and `Session.hasScope(...)` would
+/// call it with the wrong `this`, which Qt reports on every evaluation.
 class ScopeCheck : public QObject
 {
     Q_OBJECT
@@ -40,15 +38,15 @@ Session::Session(SynClientConfig config, QJSEngine *engine, QObject *parent)
     , m_scope{m_config.defaultScope}
 {
     if (!engine) {
-        return;  // a C++-only Session (the routing tests build one); nothing to wire
+        return;  // no QML to answer, so no function to build; C++ callers are unaffected
     }
-    // Built once, here, rather than on first read: the first read happens inside a
-    // binding evaluation, and compiling a script from in there is a re-entry into the
-    // engine that nothing about this needs.
-    m_check = new ScopeCheck{this, this};
+    // Built once here, not on first read: the first read happens inside a binding
+    // evaluation, and compiling a script there would re-enter the engine. The check is
+    // parented to this Session, so the closure cannot outlive it.
+    ScopeCheck *check{new ScopeCheck{this, this}};
     const QJSValue factory{engine->evaluate(QStringLiteral(
         "(function (check) { return function (name) { return check.held(name); }; })"))};
-    m_checkFunction = factory.call({engine->newQObject(m_check)});
+    m_checkFunction = factory.call({engine->newQObject(check)});
 }
 
 QString Session::state() const
@@ -100,8 +98,8 @@ bool Session::hasScope(const QString &name) const
 
 void Session::login(const QString &provider)
 {
-    // The flow runs entirely at the edge (the browser/desktop never holds the secret).
-    // SynClient handles the navigation/loopback. Identity itself arrives in M8.
+    // The flow runs entirely at the edge; the browser or desktop client never holds the
+    // secret. SynClient handles the navigation or the loopback.
     emit loginRequested(provider);
 }
 
