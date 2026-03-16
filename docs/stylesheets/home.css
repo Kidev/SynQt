@@ -682,6 +682,13 @@
   font-family: var(--md-code-font-family, "Roboto Mono", monospace);
   font-size: var(--synqt-code-size);
   min-width: 0;
+  /* And `min-height: 0` for the same reason in the other direction. A grid item's
+     default is `auto`, which means "at least as tall as what is in it", so without
+     this the longest file pushed the panel past the fixed height above and its last
+     lines were drawn below the box, on the page background, instead of scrolling
+     inside it. Every element from here down to the file already carried it. This
+     was the one that did not. */
+  min-height: 0;
 }
 
 .synqt-file {
@@ -695,14 +702,13 @@
   min-height: 0;
 }
 
-/* Some triggers open more than one file at once: the database opens its QML and the
-   schema.sql the query in it reads, and a directory row opens everything under it,
-   which for shared/ is its three contracts. None of those files is long enough to
-   need the panel to itself. They stack, so every file but the last is as tall as it
-   is (rather than
-   the panel split evenly between them) and the last keeps `flex: 1 1 auto` above,
-   which is what holds the explanation and the note at the foot of the panel instead
-   of letting them ride up under a short file. */
+/* One trigger opens two files: the database opens its QML and the schema.sql the
+   query in it reads, which are one thing to point at and neither of which says much
+   without the other. Nothing else does, because two files at once is two files to
+   read at once. They stack, so the first is as tall as it is (rather than the panel
+   split evenly between them) and the last keeps `flex: 1 1 auto` above, which is
+   what holds the explanation and the note at the foot of the panel instead of
+   letting them ride up under a short file. */
 .synqt-file--current.synqt-file--stacked {
   flex: 0 0 auto;
   margin-bottom: .9rem;

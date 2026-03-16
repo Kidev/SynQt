@@ -806,6 +806,32 @@ def test_the_example_carries_the_home_pages_own_files():
     assert {name for name, entity in files.items() if entity.get("qml")} == set(panes)
 
 
+def test_the_file_panel_can_scroll_a_file_taller_than_it_is():
+    """The panel is a fixed height, so everything between it and the file has to shrink.
+
+    A grid or flex item's `min-height` is `auto`, which means "at least as tall as what is
+    in it". One element in the chain left at that default is enough: the panel stops
+    holding its height, and the last lines of the longest file are drawn below the box, on
+    the page background, instead of scrolling inside it. That is what happened, and it
+    happened to the one pane a reader is most likely to open.
+
+    Read as a rule about the chain rather than about one selector, so a later element
+    added between the panel and the file has to answer it too.
+    """
+    css = Path(__file__).resolve().parents[3] / "docs" / "stylesheets" / "home.css"
+    if not css.is_file():                        # the tests, without the repository
+        pytest.skip("the documentation is not beside these tests")
+    text = css.read_text(encoding="utf-8")
+    # The chain: the panel with the fixed height, the column of files inside it, the one
+    # file on show, and the block the code itself scrolls in.
+    chain = (".synqt-explorer__files", ".synqt-file--current", ".synqt-file .highlight")
+    for selector in chain:
+        block = re.search(re.escape(selector) + r"[^{]*\{(.*?)\}", text, re.S)
+        assert block, f"{selector} is not in home.css any more"
+        assert "min-height: 0" in block.group(1), \
+            f"{selector} can grow past the panel, so a long file spills out of it"
+
+
 def test_every_line_the_home_page_explains_is_a_line_it_shows():
     """A glossary entry names a fragment of the file it sits under, or it explains nothing.
 
