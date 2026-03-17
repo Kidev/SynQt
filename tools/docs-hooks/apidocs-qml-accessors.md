@@ -119,17 +119,17 @@ check that matters runs on the owner, against \qmlCaller.
 
 | Member | Type | Implemented by | Description |
 |--------|------|----------------|-------------|
-| `Session.state` | string | SynQt::Session::state | The connection and authorization state: one of the values below. |
-| `Session.scope` | string \| list | SynQt::Session::scope | The granted scope: a single name under hierarchical scopes (the default), the set of granted names under set-based scopes. Prefer `hasScope` to comparing it. |
+| `Session.state` | string | SynQt::Session::state | The connection and authorization state, one of the values below. |
+| `Session.scope` | string | SynQt::Session::scope | The one scope name the session holds. Under hierarchical scopes a name higher in the order satisfies a lower one, and under set-based scopes a check succeeds only on the name itself. Prefer `hasScope` to comparing it. |
 | `Session.identity` | object \| null | SynQt::Session::identity | The normalized identity when authenticated, `null` when anonymous. |
 | `Session.isAuthenticated` | bool | SynQt::Session::isAuthenticated | Convenience for `Session.identity !== null`. |
-| `Session.hasScope(name)` | bool | SynQt::Session::hasScope | Whether the session holds `name`. Under hierarchical scopes a higher scope satisfies a lower one. |
+| `Session.hasScope(name)` | bool | SynQt::Session::hasScope | Whether the session holds `name`. Under hierarchical scopes a higher scope satisfies a lower one. Safe to bind, because a binding that calls it re-evaluates when the scope moves. |
 | `Session.login(provider)` | action | SynQt::Session::login | Start the edge login flow. `provider` is optional; pass it when more than one identity provider is configured. |
 | `Session.logout()` | action | SynQt::Session::logout | End the session. The scope returns to the anonymous default and any Replica above it is released. |
 
 `Session.state` is one of `offline` (the starting state), `connecting`, `connected`, or
 `reconnecting`. All four are transport states, including the case where the edge refused
-the upgrade: the browser does not report why a WebSocket handshake failed, so a rejected
+the upgrade. The browser does not report why a WebSocket handshake failed, so a rejected
 session credential is not distinguishable from an edge that is down. An expired or
 revoked session shows up instead as `Session.isAuthenticated` going false when the client
 reconnects anonymously, and as its scope-gated replicas being released.
@@ -138,12 +138,17 @@ reconnects anonymously, and as its scope-gated replicas being released.
 
 SynQt::Session. The setters (SynQt::Session::setState, SynQt::Session::setScope,
 SynQt::Session::setIdentity) are C++ only, called by the client runtime as the edge
-reports state; QML sees the properties as read-only. `login()` and `logout()` do not act
-directly either: they raise SynQt::Session::loginRequested and
+reports state. QML sees the properties as read-only.
+
+`hasScope` is a property whose value is the check rather than an invokable method, and
+that is what lets a scope-gated binding work. QML records what a binding depends on from
+the properties it reads and from nothing else, so a binding that only called a method
+would be evaluated once and never again. The call spelling is unchanged. `login()` and `logout()` do not act
+directly either. They raise SynQt::Session::loginRequested and
 SynQt::Session::logoutRequested for SynQt::SynClient to carry out.
 
 Links into the client only (SynQtClient). The service-side counterpart, the session store
-the edge actually keeps, is SynQt::SessionManager.
+the edge keeps, is SynQt::SessionManager.
 
 @section qmlsession_warning Client-side scope checks are for the interface only
 
