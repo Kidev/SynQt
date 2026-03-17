@@ -181,8 +181,9 @@ one QML file per entity, and the table the database keeps the messages in. Hover
 an entity to read the file it is, or the mark on a line to read the block that says what
 crosses it, and the card that opens says the rest. The project tree under the drawing opens
 the same files, and one stays open until you move to another. The database opens two, its
-QML and the table that QML queries, since neither says much without the other. Hover any
-line of a file to see what that line does, and a line that ends in an arrow opens the page
+QML and the table that QML queries, since neither says much without the other. The files
+carry no explanatory comments: a line with something to say about itself is marked down its
+left instead, and hovering it says the thing. A line that ends in an arrow opens the page
 covering it, whether that is a page of this guide or the class in the C++ reference.
 
 The button under it opens this same drawing in the
@@ -298,8 +299,6 @@ import SynQt
 import QtQuick.Controls
 import QtQuick.Layouts
 
-// One window. Signing in swaps what is in it and nothing else: the room's point is
-// gated `scope: user`, so a signed-out session has no `Server` to reach.
 ApplicationWindow {
     id: window
 
@@ -339,7 +338,6 @@ ApplicationWindow {
             delegate: Item {
                 id: line
 
-                // The row, not its roles: `id` cannot be a property of its own.
                 required property var model
 
                 width: messages.width
@@ -393,6 +391,7 @@ ApplicationWindow {
 
 <ul class="synqt-flow__glossary" hidden>
 <li data-code="import SynQt" data-href="runtime-api/">Brings in the runtime accessors: Server, Session, Router, and the contracts this entity consumes.</li>
+<li data-code="ApplicationWindow {" data-href="programming-model/">One window, and signing in swaps what is in it and nothing else. There is no second page and no redirect, because the room's point is gated `scope: user` and a signed-out session has no `Server` to reach.</li>
 <li data-code="visible: !Session.hasScope(&quot;user&quot;)" data-href="runtime-api/">The sign-in page, and the whole of what a signed-out visitor has. It is a binding, so it lifts by itself the moment the session is elevated.</li>
 <li data-code="onClicked: Session.login()" data-href="authentication/">The flow runs on the edge. This browser never sees a token and never holds a secret; what it ends up with is a session cookie.</li>
 <li data-code="model: Server.messages" data-href="programming-model/">A live model, and the whole of the sync. Somebody says something, the owner replaces the rows, and every open tab redraws itself. Nothing here polls.</li>
@@ -410,7 +409,6 @@ ApplicationWindow {
 ```qml
 import SynQt
 
-// Everything about a message except its text is decided here.
 Edge {
     messagesRows: Store.lines
 
@@ -425,11 +423,11 @@ Edge {
 ```
 
 <ul class="synqt-flow__glossary" hidden>
-<li data-code="Edge {" data-href="programming-model/">The Source of the point this entity owns. The type is the entity's own name capitalised, because a point is named by whoever owns it.</li>
+<li data-code="Edge {" data-href="programming-model/">The Source of the point this entity owns. Everything about a message except its text is decided here. The type is the entity's own name capitalised, because the owner names the point.</li>
 <li data-code="messagesRows: Store.lines" data-href="programming-model/">Bind the model once and the room is live. Every browser holds a mirror of it, so reassigning the list on the database redraws all of them, and nobody wrote a broadcast.</li>
-<li data-code="Caller.identity.login" data-href="api/?p=classSynQt_1_1Caller.html">Who is asking, taken from the session this edge verified. A browser cannot read this value, let alone set it, which is why `say` takes a line of text and no name.</li>
-<li data-code="Caller.hasScope(&quot;admin&quot;)" data-href="security/">The one place in the system that can mark a message as staff. A user cannot speak in a moderator's voice by asking to: nothing they send reaches this argument.</li>
-<li data-code="function erase(id)" data-href="programming-model/">Reached only by a caller who holds `admin`, and the contract is what says so. There is no check here refusing anybody, because nobody else has the slot.</li>
+<li data-code="Caller.identity.login" data-href="api/?p=classSynQt_1_1Caller.html">Who is asking, taken from the session this edge verified. A browser cannot read this value, let alone set it, so `say` takes a line of text and no name.</li>
+<li data-code="Caller.hasScope(&quot;admin&quot;)" data-href="security/">The one place in the system that can mark a message as staff. A user cannot speak in a moderator's voice by asking to, because nothing they send reaches this argument.</li>
+<li data-code="function erase(id)" data-href="programming-model/">Only a caller who holds `admin` reaches this, because the contract says so. There is no check here refusing anybody, because nobody else has the slot.</li>
 </ul>
 
 </div>
@@ -440,7 +438,6 @@ Edge {
 ```qml
 import SynQt
 
-// The conversation, and the only thing here that survives a restart.
 Store {
     id: log
 
@@ -457,8 +454,6 @@ Store {
         log.refresh();
     }
 
-    // `said_at` is in the table and in neither the SELECT nor the contract, so it
-    // never leaves the mesh. Reassigning `lines` is the whole of the synchronisation.
     function refresh() {
         const rows = Db.query("SELECT id, who, body, staff FROM messages "
                               + "ORDER BY id DESC LIMIT 50");
@@ -473,10 +468,11 @@ Store {
 ```
 
 <ul class="synqt-flow__glossary" hidden>
-<li data-code="Store {" data-href="programming-model/">The Source of the point the database owns, and the only surface it has. There is no other way in.</li>
+<li data-code="Store {" data-href="programming-model/">The Source of the point the database owns, and the only surface it has. The conversation lives here, and it is the only thing in the system that survives a restart.</li>
 <li data-code="Db.exec" data-href="providers/">Parameterized, always. The values travel beside the statement, so an apostrophe in a message is an apostrophe and never a second statement. Writes are serialized on this entity's own event loop.</li>
 <li data-code="UPDATE messages SET body" data-href="programming-model/">Erasing leaves the line where it was, saying who wrote it and that it is gone, rather than opening a hole in a conversation everybody is reading.</li>
-<li data-code="Db.query" data-href="providers/">`said_at` is in the table and not in this SELECT, and not in the contract either: the boundary keeps the declared roles and drops the rest.</li>
+<li data-code="function refresh()" data-href="programming-model/">Read the room and hand it over, in one go. Called after every write, and once at startup, so there is one path by which the room changes and every window on it redraws from that one path.</li>
+<li data-code="Db.query" data-href="providers/">`said_at` is in the table and not in this SELECT, and not in the contract either. The boundary keeps the declared roles and drops the rest.</li>
 <li data-code="lines: []" data-href="programming-model/">The room as it stands, held once and reassigned in one go. That reassignment is the whole of the synchronisation.</li>
 </ul>
 
@@ -506,7 +502,7 @@ CREATE INDEX IF NOT EXISTS messages_by_time
 </div>
 
 <p class="synqt-flow__hint" aria-live="polite"></p>
-<p class="synqt-flow__note">Hover a line for what it does. A line ending in an arrow opens the page covering it.</p>
+<p class="synqt-flow__note">Hover a marked line for what it does. A line ending in an arrow opens the page covering it.</p>
 
 </div>
 

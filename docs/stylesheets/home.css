@@ -456,7 +456,7 @@
 }
 
 /* --- The project tree -----------------------------------------------------
-   The six files as they would sit on disk, in a column down the left of the file
+   The five files as they would sit on disk, in a column down the left of the file
    view, where the design editor keeps its own. It is the same set of triggers as
    the drawing above it, in the shape a reader already knows, so a file whose place
    in the mesh is not obvious (the contracts, on the lines between entities) is
@@ -656,10 +656,12 @@
      picture with a wider panel under it. */
   max-width: 46rem;
   margin-inline: auto;
-  /* Fixed, and the same for every file: the tallest of the six is the client's
-     forty four lines, and a panel sized to the file being read would be a
-     different height for each of them, which moves the whole page under a
-     pointer that is still pointing at the tree. */
+  /* Fixed, and the same for every file. A panel sized to the file being read would
+     be a different height for each of them, which moves the whole page under a
+     pointer that is still pointing at the tree. It is not the height of the
+     longest file and cannot be. The client is ninety-two lines. Anything longer than
+     this scrolls inside its own page, which is what the two rules further down
+     divide between a stacked pair. */
   height: 37.75rem;
   min-width: 0;
   background: #0d1224;
@@ -702,19 +704,32 @@
   min-height: 0;
 }
 
-/* One trigger opens two files: the database opens its QML and the schema.sql the
+/* One trigger opens two files. The database opens its QML and the schema.sql the
    query in it reads, which are one thing to point at and neither of which says much
    without the other. Nothing else does, because two files at once is two files to
-   read at once. They stack, so the first is as tall as it is (rather than the panel
-   split evenly between them) and the last keeps `flex: 1 1 auto` above, which is
-   what holds the explanation and the note at the foot of the panel instead of
-   letting them ride up under a short file. */
+   read at once. They stack, so the first is as tall as it is rather than the panel
+   split evenly between them, and the last keeps the `flex-grow` it has above, which
+   is what holds the explanation and the note at the foot of the panel instead of
+   letting them ride up under a short file.
+
+   The stacked one gives way, and the one under it does not. The pair is taller than
+   the panel -- the QML is twenty-nine lines and the table is ten -- and with the
+   first refusing to shrink at all the second was handed what was left, which was
+   under four lines of a ten line file in a box the height of a paragraph. It reads as
+   a table that was cut off rather than one that scrolls, which is the wrong thing
+   for the file the whole point of opening the pair is to show. So the long one
+   scrolls inside its own page, the way the client file already does on its own, and
+   the short one is whole. */
 .synqt-file--current.synqt-file--stacked {
-  flex: 0 0 auto;
+  flex: 0 1 auto;
   margin-bottom: .9rem;
 }
 
-/* One row: what this file is, then where it would live in a project. On one line
+.synqt-file--stacked ~ .synqt-file--current {
+  flex-shrink: 0;
+}
+
+/* One row. What this file is, then where it would live in a project. On one line
    rather than two, so the code below it starts at the same height in every file
    and the panel spends its height on the file rather than on its own labels. */
 .synqt-file__name {
@@ -760,10 +775,10 @@
 }
 
 /* Every file starts at the top of the panel. Centering a short one in the space
-   instead reads better standing still, but the six files are read one after
+   instead reads better standing still, but the five files are read one after
    another: each change of file would then slide the code up or down by half the
    difference in their lengths, under a pointer that is on its way to a line.
-   The file ends where the file ends: a short one leaves the rest of the panel
+   The file ends where the file ends. A short one leaves the rest of the panel
    empty rather than being drawn on a sheet three times its length, which is a
    lot of nothing to look at and says the file is longer than it is. */
 .synqt-file pre {
@@ -866,8 +881,14 @@
   border-left: 2px solid transparent;
 }
 
+/* A line that has something to say about itself, said quietly enough that a file still
+   reads as a file: a dim rule down its left, in the same accent the explanation under the
+   panel is drawn in, so the two are visibly one thing. It is the whole of what replaced the
+   comments these snippets used to carry -- the explanations are still here, they are just
+   not in the code any more, and something has to say which lines have one. */
 .synqt-code__line--gloss {
   cursor: help;
+  border-left-color: rgba(0, 166, 237, .3);
 }
 
 .synqt-code__line--gloss:hover {
@@ -953,12 +974,12 @@
 }
 
 /* Too narrow for a file and a tree side by side. The tree keeps its job and
-   loses its shape: the six files as a wrapped row of names above the file, with
+   loses its shape. The five files as a wrapped row of names above the file, with
    the directories dropped, since a path is not worth two lines of a phone
    screen.
 
    The width is where the tree's column stops being affordable rather than where
-   it stops fitting: the longest line of these files is 74 columns, and below
+   it stops fitting. The longest line of these files is 74 columns, and below
    about this the file's own column is narrower than that, so the file would
    scroll sideways while a fixed tree column sat beside it holding names half
    its width. The tree gives its column up first. */

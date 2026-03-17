@@ -293,6 +293,35 @@ async function editorOverAProject() {
         check(await inspector.locator("input[type=text]").count() === 0,
               "and the panel offers no name for it, because there is none to give");
 
+        // OWNER and CONSUMER are about one link, and only ever one. `edge` is now the middle
+        // of a chain -- it consumes the point `service` owns and owns the point `app`
+        // consumes -- so with one of those selected and the pointer on the other it wore
+        // both words at once, of nothing in particular, because the two were about two
+        // different links. A point that is not the selection says where the pointer is and
+        // no more.
+        const roleOn = (name) => page.locator(`[data-entity="${name}"]`).evaluate(
+            (node) => [...node.classList].filter((one) => one.startsWith("is-")).join(" "));
+        // Off the drawing between the two, because the card the pointer opens is over
+        // whatever it is on, and a click aimed through it never lands.
+        const offCanvas = () => page.mouse.move(5, 5);
+        // Suppressed only where it should be. The selection's own line still names its two
+        // ends while the pointer is on it, which is the state somebody works in.
+        await page.locator('[data-contract="service"]').click();
+        await page.waitForSelector('[data-entity="edge"].is-lit-consumer');
+        await hoverAlong(page, "service", 0.5);
+        const held = await roleOn("edge");
+        check(held.includes("is-consumer"),
+              `hovering the selected point still names its two ends (${held})`);
+        await offCanvas();
+        await page.locator('[data-contract="edge"]').click();
+        await page.waitForSelector('[data-entity="edge"].is-lit-owner');
+        await hoverAlong(page, "service", 0.5);
+        const crossed = await roleOn("edge");
+        check(!crossed.includes("is-consumer"),
+              `and an entity between a selected point and a hovered one is named by the `
+              + `selected one alone (${crossed})`);
+        await offCanvas();
+
         // A member is declared on the entity, in the entity's own file, and it crosses a
         // connect point because somebody ticked it there. Those are two gestures on two
         // different things, and the panel only ever offers the one that belongs to what is
@@ -863,20 +892,20 @@ async function theProjectALinkHandsYou() {
     try {
         await page.goto(`${origin}/index.html#example=demo`);
         await page.waitForFunction(
-            () => document.querySelectorAll("#nodes [data-entity]").length === 6);
+            () => document.querySelectorAll("#nodes [data-entity]").length === 3);
         // The fragment names the example; the project it opens is called what it is. The
         // two are deliberately not the same word: `#example=demo` is the link the front
         // page publishes, and `chat` is the project under examples/ that link opens.
         check(await page.locator("#project").textContent() === "chat",
               "the fragment named a project and the page opened it");
-        // One line per consumer, so the database's point, which the two surfaces in front
-        // of it consume, is two of these and one contract icon below.
-        check(await page.locator("#links [data-link]").count() === 5,
+        // One line per consumer, and one contract icon per point, so a point two entities
+        // consume is two of these under one icon. Both points here have a single consumer,
+        // which makes the two counts equal; the case that tells them apart is drawn further
+        // down, where a second consumer is added to one of them.
+        check(await page.locator("#links [data-link]").count() === 2,
               "with the connect points it declares");
-        // One icon per point, whatever its consumer list holds: the icon is the point, and
-        // every line into it leaves from underneath that one mark.
-        check(await page.locator("#links [data-contract]").count() === 4,
-              "each drawn with a single contract icon, not one per consumer");
+        check(await page.locator("#links [data-contract]").count() === 2,
+              "each drawn with a single contract icon");
         const rows = await page.locator(".palette__item").count();
         check(rows > 0 && await page.locator(".palette__glyph svg").count() === rows,
               "every palette row carries the glyph the canvas draws that entity with");
@@ -912,12 +941,11 @@ async function theProjectALinkHandsYou() {
               "the edge that signs people in says so on the canvas");
         check(await page.locator('[data-entity="store"] .signin').count() === 0,
               "and nothing else carries the mark");
-        // The mark takes no pointer of its own: it rides the ring of handles a link is
+        // The mark takes no pointer of its own. It rides the ring of handles a link is
         // pulled out of, and one that answered for a handle would be a mark you could not
         // draw a line from. What it means is on the entity's own card.
-        // On the glyph and not on the group: this edge is a front, so it is a wedge with
-        // a column of scope seats down its back, and the middle of its bounding box is a
-        // seat rather than the shape.
+        // On the glyph and not on the group, whose box takes in the name and the kind
+        // written under it, so its middle is as often a word as the shape.
         await page.locator("#nodes [data-entity='edge'] .node__glyph").hover();
         await page.waitForSelector("#tip:not([hidden])");
         const signin = await page.locator("#tip").textContent();
@@ -927,35 +955,43 @@ async function theProjectALinkHandsYou() {
 
         // Every link is a curve, so that two entities talking both ways, or one owning
         // several points another consumes, are lines somebody can tell apart.
-        check(await page.locator("#links path.link__line").count() === 5,
+        check(await page.locator("#links path.link__line").count() === 2,
               "the links are curves, not lines laid over each other");
 
         // What a line carries, as a block rather than as a stack of centred strings: one
         // left edge for the marks, one for the names, and a ground under both so a row
         // landing on a zone edge is still a row.
-        // The browser-facing one, by the point it belongs to. Four points carry `topic`
-        // here, so picking a block by a member it holds picks whichever was drawn first.
+        // The browser-facing one, by the point it belongs to. Both points here carry `say`
+        // and `erase`, so picking a block by a member it holds picks whichever was drawn
+        // first.
         const block = page.locator("#links [data-link='edge'] .link__members").first();
         const columns = await block.locator(".link__member").evaluateAll(
             (rows) => rows.map((row) => Math.round(row.getAttribute("x") * 100)));
-        check(columns.length === 5 && new Set(columns).size === 1,
+        check(columns.length === 3 && new Set(columns).size === 1,
               `every member of a link starts in one column (${columns.join(" ")})`);
-        const marks = await block.locator(".link__mark").evaluateAll(
+        // Across both blocks, because what is being asserted is that the mark is the kind:
+        // one point carries the model and the other the property, and a single block would
+        // only ever prove it for the kinds that block happens to hold.
+        const marks = await page.locator("#links .link__mark").evaluateAll(
             (rows) => rows.map((row) => row.dataset.kind));
-        check(marks.join(" ") === "prop model slot slot signal",
+        check(marks.join(" ") === "model slot slot prop slot slot",
               `each with the mark for what it is, and the word gone (${marks.join(" ")})`);
-        check(!(await block.locator(".link__member").first().textContent()).includes("prop"),
+        // On the database's block, whose first row is the property. A row that said `prop`
+        // as well as carrying the mark for one would be saying it twice.
+        const first = page.locator("#links [data-link='store'] .link__members").first()
+                          .locator(".link__member").first();
+        check(!(await first.textContent()).includes("prop"),
               "so the row is the member and nothing else");
         check(await block.locator("rect.link__members-box").count() === 1,
               "over one ground the whole block sits on");
         // The word is off the canvas, so pointing at the shape is what has to say it.
-        await block.locator("[data-member='refused'].link__mark").hover();
+        await block.locator("[data-member='messages'].link__mark").hover();
         await page.waitForSelector("#tip:not([hidden])");
         const said = await page.locator("#tip").textContent();
-        check(said.includes("refused") && said.includes("signal"),
+        check(said.includes("messages") && said.includes("model"),
               `and hovering a mark says which of the four it is (${said.slice(0, 60)})`);
 
-        // A link, selected: the panel opens with the mark the thing was clicked on, the two
+        // A link, selected. The panel opens with the mark the thing was clicked on, the two
         // entities it runs between, and a line saying what that means in their own names. The
         // arrow between them is drawn, because a `>` typed between two names at this size is
         // punctuation a reader has to decide is an arrow.
@@ -979,27 +1015,27 @@ async function theProjectALinkHandsYou() {
         // and a chain with no fork in it is drawn folded onto one row.
         const folders = await page.locator(".tree__folder").evaluateAll(
             (rows) => rows.map((row) => row.dataset.folder));
-        // Each entity's own folder, whole: the folder its type puts it in and then its name.
-        check(["client/home", "client/app", "cache/room", "service/moderation",
-               "db/relational/store"].every((name) => folders.includes(name)),
+        // Each entity's own folder, whole. The folder its type puts it in and then its name.
+        // The database's is three segments deep and drawn as one row, which is what a chain
+        // with no fork in it looks like folded.
+        check(["client/app", "web/edge", "db/relational/store"]
+              .every((name) => folders.includes(name)),
               `the tree is entity directories, not one flat list (${folders.join(" ")})`);
         const named = await page.locator(".tree__file").allTextContents();
-        // Every entity present, with its own file. A plain service used to contribute nothing
-        // at all until somebody drew a connect point off it.
-        const wanted = ["synqt.yaml", "Main.qml", "Room.qml", "Moderation.qml", "Store.qml",
-                        "schema.sql"];
+        // Every entity present, with its own file, and the project's own configuration above
+        // them all.
+        const wanted = ["synqt.yaml", "Main.qml", "Edge.qml", "Store.qml", "schema.sql"];
         const missing = wanted.filter((name) => !named.includes(name));
         check(missing.length === 0,
               missing.length ? `the files pane is missing ${missing.join(", ")}; it names `
                                + named.join(", ")
                              : "every entity has its own file, and every file its directory");
 
-        await fileRow(page, "cache/room/Room.qml").click();
+        await fileRow(page, "web/edge/Edge.qml").click();
         const source = await sourceText(page);
-        // Rooted at its own name: `room` exports `Room`, and `Room {}` is the Source that
-        // answers it. One entity, one file, one name. The edge has no file at all here,
-        // which is this example's own lesson: it owns a point it does not implement.
-        check(source.includes("Room {"),
+        // Rooted at its own name: `edge` exports `Edge`, and `Edge {}` is the Source that
+        // answers it. One entity, one file, one name.
+        check(source.includes("Edge {"),
               "and reading one shows the Source the owner would host");
         check(!source.includes("SPDX-License-Identifier"),
               "without the licence notice, which is on every file and read by nobody");
@@ -1007,25 +1043,25 @@ async function theProjectALinkHandsYou() {
               "coloured as the QML it is");
 
         // Opening a file selects what it is on the canvas, and the reverse, so the two views
-        // never disagree about what is in hand. The entity: a file sits in an entity's folder
+        // never disagree about what is in hand. The entity. A file sits in an entity's folder
         // and is that entity's own code, whether or not a connect point is exported out of it.
-        await page.waitForSelector("[data-entity='room'].is-selected");
+        await page.waitForSelector("[data-entity='edge'].is-selected");
         check(true, "opening a file selects the entity it belongs to, out on the canvas");
-        await page.locator("#nodes [data-entity='home']").click();
+        await page.locator("#nodes [data-entity='app']").click();
         await page.waitForFunction(
             () => document.getElementById("source-name").textContent
-                === "client/home/Main.qml");
+                === "client/app/Main.qml");
         check(true, "and selecting an entity opens the file it is");
         // That click was a redraw, with the pointer still on the entity it drew. The handles
         // a link is pulled from are put on whichever entity the pointer is nearest, and the
-        // drawing is rebuilt from the document on every change: they used to go with it, so a
-        // press where a handle had been a moment ago landed on the canvas behind it and
-        // panned the view instead of starting a link.
-        check(await page.locator("[data-entity='home'].is-near").count() === 1,
+        // drawing is rebuilt from the document on every change. If they went with it, a
+        // press where a handle had been a moment ago would land on the canvas behind it and
+        // pan the view instead of starting a link.
+        check(await page.locator("[data-entity='app'].is-near").count() === 1,
               "and the handles a link is drawn from survive the redraw that click causes");
 
-        // Read-only until it is opened for editing: the pane holds the entities' own code.
-        await fileRow(page, "cache/room/Room.qml").click();
+        // Read-only until it is opened for editing. The pane holds the entities' own code.
+        await fileRow(page, "web/edge/Edge.qml").click();
         check(await sourceIsLocked(page), "a file opens read-only");
         // And what the button opens is the project, not the file that happened to be on
         // screen when it was pressed. Following a declaration from one entity into another is
@@ -1034,7 +1070,7 @@ async function theProjectALinkHandsYou() {
         await unlock(page);
         await fileRow(page, "synqt.yaml").click();
         const alsoOpen = !(await sourceIsLocked(page));
-        await fileRow(page, "cache/room/Room.qml").click();
+        await fileRow(page, "web/edge/Edge.qml").click();
         check(alsoOpen && !(await sourceIsLocked(page)),
               "and Edit files opens every one of them, not the one that was on screen");
         // Pressed again it shuts all of them, which is what makes it a mode somebody can
@@ -1043,7 +1079,7 @@ async function theProjectALinkHandsYou() {
         const shut = await sourceIsLocked(page);
         await fileRow(page, "synqt.yaml").click();
         check(shut && await sourceIsLocked(page), "and pressing it again closes them all");
-        await fileRow(page, "cache/room/Room.qml").click();
+        await fileRow(page, "web/edge/Edge.qml").click();
         await unlock(page);
         // Typing a declaration into a Source is the same gesture as adding a member in the
         // panel, which is the whole reason the pane is a textarea and not a preview. It
@@ -1051,7 +1087,7 @@ async function theProjectALinkHandsYou() {
         // say to somebody else, and writing a property on an entity is not that agreement --
         // it is also how a half-typed name used to walk onto the wire one letter at a time.
         await typeIntoRootBlock(page, "    property string headline\n");
-        await openAndWaitFor(page, "cache/room/Room.qml", "property string headline");
+        await openAndWaitFor(page, "web/edge/Edge.qml", "property string headline");
         const exported = await sourceText(page);
         await fileRow(page, "synqt.yaml").click();
         await page.waitForFunction(
@@ -1060,9 +1096,9 @@ async function theProjectALinkHandsYou() {
               && exported.includes("property string headline"),
               "a property typed into a Source is declared, and does not cross until it is "
               + "ticked");
-        // And ticking it is what puts it there. The contract icon opens the point; the list
+        // And ticking it is what puts it there. The contract icon opens the point. The list
         // under it is everything the owner declares, with what crosses ticked.
-        await page.locator("[data-contract='room']").click();
+        await page.locator("[data-contract='edge']").click();
         await page.locator(".tick label", { hasText: "prop string headline" })
                   .locator("input").check();
         await openAndWaitFor(page, "synqt.yaml", "prop string headline");
@@ -1070,13 +1106,13 @@ async function theProjectALinkHandsYou() {
 
         // Putting the caret on a line points the canvas at what that line is about, which is
         // how somebody reading a file finds the thing they are reading in the drawing.
-        await fileRow(page, "cache/room/Room.qml").click();
+        await fileRow(page, "web/edge/Edge.qml").click();
         await unlock(page);
         await clickIntoSource(page);
         await page.keyboard.press("Control+End");
         await page.keyboard.press("ArrowUp");
         await page.keyboard.press("ArrowUp");
-        await page.waitForSelector("[data-link='room'].is-selected");
+        await page.waitForSelector("[data-link='edge'].is-selected");
         check(true, "the line the caret is on selects what it declares, out on the canvas");
 
         // Undo, and undo of what was typed rather than of everything the pane has been shown.
@@ -1127,15 +1163,15 @@ async function theProjectALinkHandsYou() {
               `and the name typed to get there left nothing behind (${halves.join(" | ")})`);
 
         // A contract starts empty, and what the consumer's own code already reaches for is
-        // the exception: code that is written is somebody having said so, and asking them to
+        // the exception. Code that is written is somebody having said so, and asking them to
         // tick a box for a call they have already made is asking them to say it twice.
-        // The room's file calls `Store.say(...)`, so drawing that link back gives it back.
+        // The edge's file calls `Store.say(...)`, so drawing that link back gives it back.
         await page.locator("[data-contract='store']").click();
         await page.locator(".inspector__actions .button--danger",
                            { hasText: "Delete connect point" }).click();
         await page.waitForFunction(
             () => document.querySelectorAll("[data-contract='store']").length === 0);
-        await dragLink(page, "store", "room");
+        await dragLink(page, "store", "edge");
         await page.waitForSelector("[data-contract='store']");
         await openAndWaitFor(page, "synqt.yaml", "owner: store");
         check((await sourceText(page)).includes("slot say("),
@@ -1250,6 +1286,11 @@ async function theProjectALinkHandsYou() {
         const both = await page.locator("[data-link='store']").count();
         check(both === 2,
               `as a second consumer of the one connect point that owner exports (${both})`);
+        // Which is the case the two counts at the top of this could not tell apart: two
+        // lines now, and the one icon they both leave from underneath. The icon is the
+        // point, whatever its consumer list holds, and every line into it starts there.
+        check(await page.locator("[data-contract='store']").count() === 1,
+              "still drawn with a single contract icon, not one per consumer");
 
         // Delete removes what is selected, and a double click renames it.
         await page.locator("#nodes [data-entity='cache']").click();
@@ -1317,29 +1358,29 @@ async function theProjectALinkHandsYou() {
               "the section says what it is for, and each setting in it says what it is");
 
         // A member of a contract is a line of code, and is painted as one wherever it is
-        // written out: the same three colours the file pane uses, so the panel and the file
+        // written out. The same three colours the file pane uses, so the panel and the file
         // are one contract and not two spellings of it.
         await page.locator("#nodes [data-entity='edge']").click();
         const declared = page.locator(".members .member__summary");
         await declared.first().waitFor();
-        // Across the list rather than on its first row: what a row holds depends on what it
+        // Across the list rather than on its first row. What a row holds depends on what it
         // declares, and a function that takes nothing and answers nothing is a name and two
         // brackets. Every row has a word for what it is. A type is on whichever rows have one.
         check(await declared.locator(".code__tok--kw").count() === await declared.count()
               && await declared.locator(".code__tok--type").count() > 0,
               "what an entity declares is painted the way the file that declares it is");
 
-        // In place, over the entity, and not in a dialog: the field opens where the name was,
+        // In place, over the entity, and not in a dialog. The field opens where the name was,
         // holding it, and Enter is what commits. A prompt would cover the drawing the new
         // name is being chosen against, which is the only thing anybody is looking at.
-        await page.locator("#nodes [data-entity='home']").dblclick();
+        await page.locator("#nodes [data-entity='app']").dblclick();
         await page.waitForSelector(".rename");
-        check(await page.locator(".rename").inputValue() === "home",
+        check(await page.locator(".rename").inputValue() === "app",
               "a double click opens the name where the name is");
         await page.locator(".rename").fill("lobby");
         await page.locator(".rename").press("Enter");
         await page.waitForSelector("[data-entity='lobby']");
-        check(await page.locator("#nodes [data-entity='home']").count() === 0
+        check(await page.locator("#nodes [data-entity='app']").count() === 0
               && await page.locator(".rename").count() === 0,
               "and typing a new one there renames it");
 
@@ -1352,11 +1393,11 @@ async function theProjectALinkHandsYou() {
         await page.waitForSelector("[data-entity='store'].is-selected");
         const wired = await page.locator(".inspector__body .chips .button--chip")
                                 .allTextContents();
-        check(wired.includes("room"),
+        check(wired.includes("edge"),
               `the panel names the entities at the other end of its lines (${wired.join(", ")})`);
-        await page.locator(".inspector__body .chips .button--chip", { hasText: "room" })
+        await page.locator(".inspector__body .chips .button--chip", { hasText: "edge" })
                   .first().click();
-        await page.waitForSelector("[data-entity='room'].is-selected");
+        await page.waitForSelector("[data-entity='edge'].is-selected");
         check(true, "and pressing one of them is how you get there");
 
         // The tooltip is the page's own, so it can say what a native one cannot.
@@ -1370,21 +1411,25 @@ async function theProjectALinkHandsYou() {
         // points it owned, and the points whose one consumer it was. A point left with an
         // empty consumer list is drawn as a stub from its owner to nothing, which is what a
         // point somebody deliberately disconnected looks like and is not what deleting the
-        // thing at the other end means. `edge` owns the point the app consumes and is the
-        // only consumer of the two behind it, so three points go with it and the one the
-        // database exports, which those two still consume, stays.
-        await page.locator("#nodes [data-entity='edge'] .node__glyph")
-                  .click({ button: "right" });
+        // thing at the other end means. The browser is the only consumer of the point the
+        // edge exports, so that point goes with it.
+        //
+        // Opened with the pointer at the middle of the disc rather than through a locator:
+        // a node is drawn in layers, so every element in it but the innermost mark on the
+        // glyph has its own middle covered by the one in front, and that mark is not what
+        // anybody aims at.
+        const middle = await discCentre(page, "lobby");
+        await page.mouse.click(middle.x, middle.y, { button: "right" });
         await page.waitForSelector(".menu__item");
-        check(await page.locator(".menu__what").textContent() === "edge",
+        check(await page.locator(".menu__what").textContent() === "lobby",
               "a right click opens a menu over what it was opened on");
         await page.locator(".menu__item", { hasText: "Delete" }).click();
         await page.waitForFunction(
-            () => !document.querySelector("#nodes [data-entity='edge']"));
-        check(await page.locator("#nodes [data-entity]").count() === 5,
+            () => !document.querySelector("#nodes [data-entity='lobby']"));
+        check(await page.locator("#nodes [data-entity]").count() === 2,
               "and Delete there removes it");
-        // One line: the database's point, which `room` still consumes. It survives because
-        // it never ran to or from the front; everything that did went with it.
+        // One line. The database's point, which the edge still consumes. It survives because
+        // it never ran to or from the browser. The one that did went with it.
         const left = await page.locator("#links [data-link]").count();
         check(left === 1,
               `taking with it every connect point that ran to or from it (${left} left)`);
@@ -1417,12 +1462,12 @@ async function typingIntoTheProject() {
     try {
         await page.goto(`${origin}/index.html#example=demo`);
         await page.waitForFunction(
-            () => document.querySelectorAll("#nodes [data-entity]").length === 6);
+            () => document.querySelectorAll("#nodes [data-entity]").length === 3);
 
         // Declaring on an entity, from the panel. This is the pool every connect point the
-        // entity owns ticks its contract from, and it used to be reachable only by typing the
-        // line into the file: the panel offered a free-text prompt on a *link* and nothing at
-        // all on an entity.
+        // entity owns ticks its contract from, and it is reachable from the panel rather than only by typing the
+        // line into the file. A free-text prompt on a link and nothing at
+        // all on an entity would leave it there.
         await page.locator("#nodes [data-entity='store']").click();
         const declares = page.locator(".members").filter(
             { hasText: "What this entity declares" });
@@ -1481,7 +1526,7 @@ async function typingIntoTheProject() {
         await page.keyboard.type("  - owner:\n");
         await waitForHint(page, "synqt.yaml, line");
         const standing = await page.locator("#nodes [data-entity]").count();
-        check(standing === 6,
+        check(standing === 3,
               `a line that does not read leaves the canvas on the last one that did `
               + `(${standing} entities still drawn)`);
 
@@ -1532,15 +1577,38 @@ async function typingIntoTheProject() {
     }
 }
 
-await editorOverAProject();
-await theCopyOnTheSite();
-await theProjectALinkHandsYou();
-await theFrontThatSplitsCallers();
-await typingIntoTheProject();
+// Each part on its own, so one that stops is one failure and not the end of the run. The
+// five are five browsers over five pages and share nothing, so what the third one does says
+// nothing about the fifth, and an exception thrown out of the third must not report that as
+// though it did, or the two parts behind it go unmeasured.
+//
+// The whole error, indented, because a Playwright timeout carries its call log in the
+// message and that log is the answer to why it timed out.
+async function part(run) {
+    try {
+        await run();
+    } catch (error) {
+        const stopped = `${run.name} stopped before it finished`;
+        console.log(`  FAIL  ${stopped}`);
+        for (const line of String(error.stack || error).split("\n")) {
+            console.log(`        ${line}`);
+        }
+        failures.push(stopped);
+    }
+}
+
+await part(editorOverAProject);
+await part(theCopyOnTheSite);
+await part(theProjectALinkHandsYou);
+await part(theFrontThatSplitsCallers);
+await part(typingIntoTheProject);
 
 console.log("");
 if (failures.length) {
     console.log(`designer: ${failures.length} check(s) failed`);
+    for (const what of failures) {
+        console.log(`  FAIL  ${what}`);
+    }
     process.exit(1);
 }
 console.log("designer: the editor writes what it draws, and the hosted copy stands alone");

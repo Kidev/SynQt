@@ -5,8 +5,6 @@ import SynQt
 import QtQuick.Controls
 import QtQuick.Layouts
 
-// One window. Signing in swaps what is in it and nothing else: the room's point is
-// gated `scope: user`, so a signed-out session has no `Server` to reach.
 ApplicationWindow {
     id: window
 
@@ -46,7 +44,6 @@ ApplicationWindow {
             delegate: Item {
                 id: line
 
-                // The row, not its roles: `id` cannot be a property of its own.
                 required property var model
 
                 width: messages.width

@@ -3,7 +3,6 @@
 
 import SynQt
 
-// The conversation, and the only thing here that survives a restart.
 Store {
     id: log
 
@@ -20,8 +19,6 @@ Store {
         log.refresh();
     }
 
-    // `said_at` is in the table and in neither the SELECT nor the contract, so it
-    // never leaves the mesh. Reassigning `lines` is the whole of the synchronisation.
     function refresh() {
         const rows = Db.query("SELECT id, who, body, staff FROM messages "
                               + "ORDER BY id DESC LIMIT 50");

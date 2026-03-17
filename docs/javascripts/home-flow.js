@@ -4,15 +4,14 @@
 /* The home page's "What it looks like" project.
  *
  * The section is one small system, seen the way the design editor sees it: the mesh drawn
- * across the top, a project tree of its six files under it, and beside the tree the one
+ * across the top, a project tree of its five files under it, and beside the tree the one
  * file being read. Every part of the drawing has a file behind it -- one QML file per
  * entity, and the configuration behind each contract mark, since what crosses a link is
  * written there. Pointing at a file in either the tree or the drawing opens it, and lights
- * it in the other, so the two are one set of triggers over the same six files.
+ * it in the other, so the two are one set of triggers over the same five files.
  * A file stays until another is pointed at, so the reader can move the pointer into the
- * file and read it, and it takes a moment's dwell to open, so a pointer crossing the
- * section on its way elsewhere does not leaf through every file behind it. The
- * configuration is shown to begin with, since it is what the rest is generated from.
+ * file and read it. The configuration is shown to begin with, since it is what the rest is
+ * generated from.
  *
  * This script is the whole of that behavior, plus the glossary. Each file in
  * docs/index.md is followed by a hidden list whose entries name a fragment of it and say
@@ -33,14 +32,10 @@
   var CURRENT = "synqt-file--current";
   var STACKED = "synqt-file--stacked";
   var ON = "synqt-trigger--on";
+  // The editor's own class for the thing that is open, put on the parts of the drawing so
+  // they take the editor's own selected look rather than a copy of it written here.
+  var CHOSEN = "is-selected";
   var SHOWN = "synqt-flow__hint--on";
-  // Long enough that a pointer crossing the diagram on its way somewhere else does
-  // not open three files behind it, and short enough to read as the file opening
-  // where the pointer landed rather than a moment after it. Nothing is lit until
-  // it elapses (the light follows the open file and nothing else, see
-  // .synqt-tree__file in home.css), so a longer wait than this shows as a section
-  // that lags the pointer.
-  var DWELL = 100;
 
   /* Give every line of the highlighted block its own element, so a line can be hovered
    * and marked.
@@ -164,18 +159,26 @@
 
   /* What this page puts on top of the editor's stylesheet: the drawing is a picture here
    * rather than a canvas somebody is dragging on, and the trigger states are this section's
-   * (`show` below puts the class on) rather than the editor's. */
+   * (`show` below puts the class on) rather than the editor's.
+   *
+   * Nothing here says what a hovered part of the drawing looks like, and nothing here says
+   * what an open one looks like either. Both are the editor's own rules on the editor's own
+   * classes, adopted with the rest of its stylesheet: `is-hover` and the two role classes
+   * are put on by the editor's own `highlight` (light.js), and the file being read wears
+   * `is-selected`, because the file being read is what a selection is on a page with no
+   * panel to select into. This used to be four rules here -- two copied out of the editor's
+   * selected look and two answering `:hover` with a disc that lit and said nothing about
+   * what the line it was on connected to. Both were second answers to questions the editor
+   * had already answered, and the copied pair had the usual property of copies. */
   var MESH_CSS = [
     ":host { display: block; }",
     ".canvas { width: 100%; height: auto; background: none; cursor: default;",
     "          touch-action: auto; }",
     ".node, .link__doc { cursor: pointer; }",
-    ".node:hover .node__disc { stroke: var(--hover); stroke-width: 2.2; }",
-    ".node:hover .node__name { fill: var(--hover); }",
-    ".synqt-trigger--on.node .node__disc { stroke: var(--accent); stroke-width: 2.5;",
-    "  filter: drop-shadow(0 0 3px currentColor) drop-shadow(0 0 9px currentColor); }",
-    ".synqt-trigger--on.link__doc { stroke: var(--accent); }",
-    ".synqt-trigger--on.link__doc .link__doc-box { stroke-width: 1.8; }",
+    // The ring of handles a link is pulled out of. The editor shows them on whatever is
+    // selected. Nothing is pulled out of anything here, so a selected entity would wear a
+    // ring of dots that answer no gesture this page has.
+    ".node__slot, .node__slot-grab { display: none; }",
     ".node:focus-visible, .link__doc:focus-visible { outline: 2px solid var(--accent); }",
     // The card the editor opens over whatever the pointer is on, opening here over the same
     // drawing. It is `position: fixed` in the editor's own stylesheet, which is the viewport
@@ -222,7 +225,8 @@
       import(DESIGNER + "project.js"),
       fetch(DESIGNER + "examples.json").then(function (r) { return r.json(); }),
       fetch(DESIGNER + "design.css").then(function (r) { return r.text(); }),
-      import(DESIGNER + "tip.js")
+      import(DESIGNER + "tip.js"),
+      import(DESIGNER + "light.js")
     ]).then(function (parts) {
       var canvas = parts[0];
       var project = parts[1];
@@ -272,7 +276,7 @@
          arrangement of the example does not need this file edited too. */
       stage.style.aspectRatio = wide + " / " + tall;
 
-      explain(shadow, svg, design, parts[4]);
+      answer(shadow, svg, design, parts[4], parts[5]);
 
       var found = [];
       ["entity", "contract"].forEach(function (kind) {
@@ -284,6 +288,7 @@
             continue;
           }
           parts[at].setAttribute("data-file", file);
+          parts[at].setAttribute("data-drawn", "");
           parts[at].setAttribute("tabindex", "0");
           parts[at].setAttribute("role", "button");
           found.push(parts[at]);
@@ -295,21 +300,29 @@
     });
   }
 
-  /* The editor's own card, over the editor's own drawing.
+  /* What the drawing answers a pointer with: the editor's own card, and the editor's own
+   * lighting, over the editor's own drawing.
    *
-   * Everything the card says is a function of the design document, so it is the editor's
-   * `tipFor` rather than a shorter one written for this page: a second answer to what an
-   * entity is would drift from the first the week either changed, and this section exists to
-   * show the real thing. What is this page's is where the card goes -- in the shadow root,
-   * where the editor's stylesheet is, so it is painted without a line of CSS here.
+   * Both are functions of the design document, so both are the editor's -- `tipFor` for the
+   * words and `highlight` for the marks -- rather than shorter ones written for this page.
+   * A second answer to what an entity is, or to which end of a line it is, would drift from
+   * the first the week either changed, and this section exists to show the real thing. What
+   * is this page's is where the card goes: in the shadow root, where the editor's stylesheet
+   * is, so it is painted without a line of CSS here.
+   *
+   * One listener for the two, because both ask the same question of the same pointer. There
+   * is no selection on this drawing, so `highlight` is passed none and hovering says what it
+   * says in the editor with nothing selected: the line, the contract on it, and OWNER and
+   * CONSUMER on the two entities it runs between.
    *
    * Pointer only. A card that opened on focus would fight the file this page opens on focus,
    * and the file is the better answer for somebody moving through by keyboard: it is the same
    * facts, in a panel that stays.
    */
-  function explain(shadow, svg, design, tip) {
+  function answer(shadow, svg, design, tip, light) {
     var card = document.createElement("div");
     var showing = null;
+    var lit = "";
     card.className = "tip";
     card.hidden = true;
     shadow.appendChild(card);
@@ -320,7 +333,23 @@
       card.replaceChildren();
     }
 
-    // Instant navigation replaces the page, and with it this drawing; the window it was
+    // Lit and unlit through the same door, so there is one place that knows what the
+    // drawing is currently showing and one key guarding the work: a pointer travelling
+    // across a line it is already lighting rewrites nothing.
+    function mark(what) {
+      var key = light.hoverKey(what);
+      if (key === lit) {
+        return;
+      }
+      lit = key;
+      if (what) {
+        light.highlight(svg, design, what, null);
+      } else {
+        light.clearHighlight(svg);
+      }
+    }
+
+    // Instant navigation replaces the page, and with it this drawing. The window it was
     // listening to survives. Each drawing takes its own listener off the moment its card
     // is no longer in a document, so leaving the home page and coming back does not leave
     // a scroll handler behind per visit.
@@ -335,6 +364,7 @@
     svg.addEventListener("pointermove", function (event) {
       var what = tip.whatIsUnder(event.target);
       var key = what ? [what.kind, what.name, what.link, what.consumer].join("\n") : "";
+      mark(what);
       if (!what) {
         hide();
         return;
@@ -361,10 +391,14 @@
       card.style.top = Math.max(8, y) + "px";
     });
 
-    svg.addEventListener("pointerleave", hide);
+    svg.addEventListener("pointerleave", function () {
+      mark(null);
+      hide();
+    });
     // A pointer that leaves by scrolling never fires `pointerleave`, and a card left
     // hanging over the page after the drawing has gone past is the one way this can be
-    // worse than no card at all.
+    // worse than no card at all. What is lit on the drawing stays lit. It is on the drawing
+    // rather than over the page, and it is the answer to where the pointer still is.
     window.addEventListener("scroll", hideWhileHere, { passive: true });
   }
 
@@ -443,52 +477,40 @@
       for (var on = 0; on < triggers.length; on++) {
         var chosen = lit(wanted, nameOf(triggers[on]).split(" "));
         triggers[on].classList.toggle(ON, chosen);
+        // A part of the drawing whose file is open is that drawing's selection, so it wears
+        // the class the editor puts on a selection and takes the editor's own look: the
+        // node glows in its own colour, the contract badge draws a size up in the accent.
+        // The tree beside it is this page's own and keeps this page's class.
+        if (triggers[on].hasAttribute("data-drawn")) {
+          triggers[on].classList.toggle(CHOSEN, chosen);
+        }
         triggers[on].setAttribute("aria-pressed", chosen ? "true" : "false");
       }
       explain("");
     }
 
-    // A pointer on its way across the section passes over parts of the diagram it
-    // has no interest in, and every one of them would otherwise swap the file being
-    // read. So a part has to be pointed at rather than merely crossed: the file
-    // opens once the pointer has stayed on it, and leaving before then cancels it.
-    // Nothing is queued twice, so a pointer moving back and forth still ends on
-    // whichever part it settled on.
-    var pending = null;
-
-    function cancel() {
-      if (pending !== null) {
-        window.clearTimeout(pending);
-        pending = null;
-      }
-    }
-
+    // The file opens the moment the pointer arrives. There used to be a tenth of a second
+    // between the two, so that a pointer crossing the diagram on its way somewhere else did
+    // not leaf through every file behind it; what it actually bought was a section that
+    // lagged the pointer, since nothing at all happens during the wait and the entity under
+    // the pointer is already lit by then. A file that opens when it is not wanted costs a
+    // reader nothing -- it is one panel, and the next one they point at replaces it.
     for (var wire = 0; wire < triggers.length; wire++) {
       (function (trigger) {
         var name = nameOf(trigger);
         trigger.addEventListener("mouseenter", function () {
-          cancel();
-          pending = window.setTimeout(function () {
-            pending = null;
-            show(name);
-          }, DWELL);
+          show(name);
         });
-        trigger.addEventListener("mouseleave", cancel);
-        // Keyboard and touch are deliberate already: there is nothing to cross by
-        // accident, so they open the file with no wait.
         trigger.addEventListener("focus", function () {
-          cancel();
           show(name);
         });
         trigger.addEventListener("click", function (event) {
           event.preventDefault();
-          cancel();
           show(name);
         });
         trigger.addEventListener("keydown", function (event) {
           if (event.key === "Enter" || event.key === " " || event.key === "Spacebar") {
             event.preventDefault();
-            cancel();
             show(name);
           }
         });

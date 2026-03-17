@@ -1127,11 +1127,17 @@ h2 {
 }
 
 /* The file under the name, because that is what somebody opens next. What the entity *is*
-   the panel states and the tooltip repeats; this line is the more useful of the two here. */
+   the panel states and the tooltip repeats. This line is the more useful of the two here.
+
+   Smaller than it reads at, because it is a path, and a path is as long as the entity's
+   folders make it. At 9.5px `db/relational/store/Store` was wider than the box the entity
+   was standing in and ran out over the drawing on both sides of its own node. This is the
+   size at which the longest path any of the shipped examples produces sits under its node
+   rather than beside its neighbours. */
 .node__file {
   fill: var(--ink-dim);
   font-family: var(--mono);
-  font-size: 9.5px;
+  font-size: 8px;
 }
 
 /* The handle you pull a link out of. Invisible until the pointer is over the node, so a

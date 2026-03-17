@@ -3,7 +3,6 @@
 
 import SynQt
 
-// Everything about a message except its text is decided here.
 Edge {
     messagesRows: Store.lines
 
