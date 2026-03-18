@@ -85,69 +85,71 @@ Entities settle onto a grid as you drag them, so a drawing lines up without anyo
 it, and a box picked up by its own background carries everything in it by the same step.
 
 Hovering anything says the rest. An entity's card gives what it is, what can reach it, the
-connect points it owns and consumes, and its files; a connect point's gives its owner, its
+connect points it owns and consumes, and its files. A connect point's gives its owner, its
 consumers, how it is carried, and every member that crosses it. Anything the rules have
 against it is on the same card.
 
-A connect point is drawn from the entity that **owns** it to the one that **consumes** it.
-Bring the pointer near a node and its rim fills with handles; drag any of them and drop the
+A connect point is drawn from the entity that owns it to the one that consumes it.
+Bring the pointer near a node and its rim fills with handles. Drag any of them and drop the
 line on the consumer, so a point reaching left leaves from the left. That direction is the whole meaning of the line, so it is the thing the canvas asks
 you to say first, it is drawn as a filled cap on the owner and an arrowhead on the consumer,
-and the owner names it: dropping a line from `edge` onto `app` gives you the connect point
+and the owner names it. Dropping a line from `edge` onto `app` gives you the connect point
 `edge` exports, carrying the `Edge` type and implemented in
 `web/edge/Edge.qml`. There is nothing to name. Drawing a second line out of `edge`
 adds a consumer to the one point it already exports rather than making another.
 
-Drop the line on empty canvas instead and the palette opens there: pick a kind and that entity
+Drop the line on empty canvas instead and the palette opens there. Pick a kind and that entity
 is made where you let go, consuming the point in the same gesture.
 
 Along each line are the members that cross it, one to a row and all starting in the same
 column, inside an outlined box so a row landing on a zone edge or on another line is still
-readable. Each row is the member and nothing else: `int highest`, `placeBid(int): bool`,
-coloured the way the same contract is coloured in the file pane below, a shade back. Which of
-the four kinds it is is the small mark at the start of the row. Hover anywhere on a row, the
-mark or the prototype, and it says the rest: the kind, the full declaration with the parameter
-names the row has no room for, what a model's rows carry, what a call answers with, and which
-callers reach it. A member held above the point's own scope carries a second mark, and the same
-tooltip says which scope and what it is held back from.
+readable. Each row is the member and nothing else, `int highest` or `placeBid(int): bool`,
+coloured the way the same contract is coloured in the file pane below, a shade back. The
+small mark at the start of the row says which of the four kinds it is. Hover anywhere on a
+row, the mark or the prototype, and it says the rest, the kind, the full declaration with
+the parameter names the row has no room for, what a model's rows carry, what a call answers
+with, and which callers reach it. A member held above the point's own scope says so on the
+row, in the notation the `export:` block gates it in, `erase(int) <admin>`, after the
+declaration and in the warning colour, so which scope is a thing to read rather than a
+thing to go and ask for.
 
 Hovering anything on the canvas lights it, in a colour of its own rather than the one selection
 uses, so moving the pointer across a busy drawing never costs sight of what you are working on.
 A line lights with the contract it carries and, where it lands on a front, the scope it answers
-for: what crosses and who serves it, without tracing either by eye.
+for, so it shows what crosses and who serves it, without tracing either by eye.
 
 Where two lines run in opposite directions between the same pair of entities, they bow
 apart into separate curves so each keeps its own members and its own click.
 
 A web edge that hands its callers on is a [front](programming-model.md), and the switch for
 it is on the edge's own panel, with the rest of what an edge does. A front is drawn as a
-wedge rather than a disc: everyone arrives at the nose facing the browser, and along its
+wedge rather than a disc. Everyone arrives at the nose facing the browser, and along its
 back is a seat per scope, each named inside the shape. Drag between a seat and an entity, or
 between the name of one and an entity, either way round, to say
-which entity serves that scope's callers; the seat lights up as the line comes over it, and
+which entity serves that scope's callers. The seat lights up as the line comes over it, and
 the connect point the front needs to reach that entity is drawn at the same time. Let a line
 go anywhere else on the wedge and it asks which scope you meant. Dragging a seat onto empty
-canvas takes that scope off, and so does deleting the link it was wired along: the routing
-and the link are one declaration, so they go together.
+canvas takes that scope off, and so does deleting the link it was wired along, because the
+routing and the link are one declaration, so they go together.
 
 Throwing the switch stops the edge answering its own connect point, so every link already
 running into it now carries nobody until a scope names the entity at the other end. Those
-links stay on the canvas and are drawn as what they have become: severed three quarters of
-the way along, under a red cross and the word **broken**. Pointing anywhere along such a line
+links stay on the canvas and are drawn as what they have become, severed three quarters of
+the way along, under a red cross and the word broken. Pointing anywhere along such a line
 says the same thing the cross does, and the dash that runs along a hovered link stops at the
-break, because past it nothing travels. The cross is the fix as well as the diagnosis: drag
+break, because past it nothing travels. The cross is the fix as well as the diagnosis. Drag
 from it onto a scope on the front's back and that scope is served by the entity the line came
 from. The line you pull leaves the owner's own connect point, because what the gesture does
 is wire this link the way it would have been wired in the first place. Pressing the cross
 instead of dragging it selects the line, the same as pressing the line itself.
 
-Selecting a node or a line opens the panel on the right, which is where the rest lives: an
+Selecting a node or a line opens the panel on the right, which is where the rest lives, an
 entity's provider, a connect point's consumer list, and what crosses it. The consumer list
-is the authorization: an entity that is not on it is refused the replica.
+is the authorization. An entity that is not on it is refused the replica.
 [Security](security.md) is where that is spelled out.
 
 Both side panels fold. The chevron at the top of each one, level with the line that says what
-the panel is, puts it away: the panel goes, the drawing takes the width, and all that is left
+the panel is, puts it away. The panel goes, the drawing takes the width, and all that is left
 of it is a tab against the edge of the window. Press the tab and the panel comes back. On a
 window too narrow for three columns they start folded and open over the canvas, so a phone
 shows the design rather than two columns of furniture with a sliver between them.

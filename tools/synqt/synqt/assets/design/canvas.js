@@ -1268,9 +1268,30 @@ export function memberLabel(member) {
     return memberParts(member).map((part) => part.text).join("");
 }
 
+// The scope a caller needs to reach this member, written the way the `export:` block gates a
+// member: `<admin>`. Empty when nothing gates it, which is a point any session reaches.
+//
+// The member's own gate, or the point's where the member names none, because that is what
+// actually answers "who reaches this". The document carries what the author wrote -- a
+// `scope: user` on the point is one line on the point, not a `<user>` on each of its members
+// so a row reading the member alone would say nothing about three members out of four.
+// One spelling for the canvas, the tooltip and the file, so a reader meets the same word in
+// all three places.
+export function scopeGate(member, link) {
+    const gate = member.scope || (link && link.scope) || "";
+    return gate ? `<${gate}>` : "";
+}
+
+// Whether this member is held above the scope its whole point is behind, which is the one
+// case worth marking. On a point gated `user`, `<admin> slot erase` is the exception and the
+// three members beside it are the ordinary case.
+export function aboveTheScope(member, link) {
+    return Boolean(member.scope) && member.scope !== String((link && link.scope) || "");
+}
+
 // The mark for one kind, drawn in a 7 by 7 box whose own centre is the origin.
 //
-// Four shapes rather than four colours: the block is already carrying a colour for scoped and
+// Four shapes rather than four colours. The block is already carrying a colour for scoped and
 // another for selected, and a mark that changed with either would stop being the kind. A disc
 // for the one value, stacked rows for the many, and a filled head pointing out of the owner
 // against a hollow one pointing back into it for the two calls, which is the direction each
@@ -1317,9 +1338,20 @@ export function memberMarkSvg(kind) {
 // line was the two of them read together, and centred rows of different lengths never gave
 // the eye a left edge to come back to.
 //
-// A member that is gated above the point's own scope is marked, and hovering that mark is
-// what says which scope, because a scope on every line would put the exception's weight on
-// the ordinary case.
+// A gated member says which scope gates it, in the notation the contract writes it in:
+// `erase(int) <admin>`. It used to be an asterisk, with the scope itself only in the tooltip,
+// which meant the one thing a reader wants off a gated row -- gated behind what? -- was the
+// one thing the row would not tell them without being pointed at. It sits after the
+// declaration rather than in front of it, where the `export:` block puts it: the names stay
+// in one column that way, and the gates line up at the end where an eye going down the block
+// finds them.
+//
+// Two of them. Every row says the gate a caller has to hold to reach it, which for most rows
+// is the point's own `scope:` and is written on the row anyway, because a reader looking at
+// a row wants to know who reaches it and not to go and look somewhere else. Only a row gated
+// *above* the point's own scope is marked as the exception it is. On the room that is one
+// `<admin>` in the warning colour against three quiet `<user>`s, which is the fact the
+// drawing is for. The asterisk it replaced said neither thing.
 function memberNames(link, middle, across) {
     const group = element("g", {class: "link__members"});
     const members = link.members || [];
@@ -1327,8 +1359,10 @@ function memberNames(link, middle, across) {
     if (!shown.length) {
         return group;
     }
-    const written = shown.map((member) => (member.scope ? `${memberLabel(member)} *`
-                                                        : memberLabel(member)));
+    const written = shown.map((member) => {
+        const gate = scopeGate(member, link);
+        return gate ? `${memberLabel(member)} ${gate}` : memberLabel(member);
+    });
     const rows = shown.length + (members.length > shown.length ? 1 : 0);
     if (members.length > shown.length) {
         written.push(`+${members.length - shown.length} more`);
@@ -1361,7 +1395,7 @@ function memberNames(link, middle, across) {
         group.append(mark);
 
         const text = element("text", {
-            class: `link__member${member.scope ? " is-scoped" : ""}`,
+            class: `link__member${aboveTheScope(member, link) ? " is-scoped" : ""}`,
             x: textAt, y, "text-anchor": "start",
         });
         // One span per run, so a type reads as a type. The runs cover the whole row and are
@@ -1372,12 +1406,13 @@ function memberNames(link, middle, across) {
             run.textContent = part.text;
             text.append(run);
         }
-        // The mark on a scoped member rides on the member rather than beside it, so it is one
-        // thing to point at and the line does not grow a second column of dots.
-        if (member.scope) {
-            const gate = element("tspan", {class: "link__tok link__tok--scope"});
-            gate.textContent = " *";
-            text.append(gate);
+        // The gate rides on the member rather than beside it, so it is one thing to point at
+        // and the line does not grow a second column of its own.
+        const gate = scopeGate(member, link);
+        if (gate) {
+            const run = element("tspan", {class: "link__tok link__tok--scope"});
+            run.textContent = ` ${gate}`;
+            text.append(run);
         }
         // Answered by the whole row, not only by the mark at the start of it: pointing at
         // `placeBid` is the obvious way to ask what `placeBid` is, and for as long as only the

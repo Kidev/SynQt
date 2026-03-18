@@ -416,8 +416,93 @@ def _read(script):
     """)
 
 
+def _painted(name, text):
+    """`runsFor(name, text)` as the pane would paint it, out of the page's own module."""
+    return _node(f"""
+        import {{ runsFor }} from {_module('source.js')};
+        process.stdout.write(JSON.stringify(
+            runsFor({json.dumps(name)}, {json.dumps(text)})));
+    """)
+
+
+def _kinds(runs, wanted):
+    """Every run of kind `wanted`, as the text in it."""
+    return [run["text"] for run in runs if run["kind"] == wanted]
+
+
+@pytest.mark.parametrize("name", ["Edge.qml", "point.syn", "synqt.yaml", "schema.sql",
+                                  "signin/index.html", "page.css", "page.js", "notes.txt"])
+def test_a_painted_file_is_the_file(name):
+    """Every reader hands back every byte, in order, or the pane paints the wrong words.
+
+    The editor lays the runs down as decorations by counting along the document
+    (editor.js, `painted`), so a reader that drops a character or invents one does not
+    produce a slightly wrong colour. Everything after the mistake is shifted, and a file
+    ends up with its last line painted as its first. It is the one property every reader
+    in source.js has to have, including the one for an extension nobody colours.
+    """
+    text = ("<!doctype html>\n<p class=\"a\">hi</p>\n"
+            "<style>a:hover { color: #fff; }</style>\n"
+            "<script>const x = 1; // done\n</script>\n")
+    runs = _painted(name, text)
+    assert "".join(run["text"] for run in runs) == text
+
+
+def test_the_page_an_entity_serves_is_read_as_the_three_languages_it_is():
+    """The sign-in page is eight lines of HTML around a stylesheet and a script.
+
+    Painted as markup with text in it, the two blocks inside come back grey, which is two
+    thirds of the file: this is the one page in a scaffolded project an author edits by
+    hand, and it was the least readable thing in the pane. So `<style>` is handed to the
+    CSS reader and `<script>` to the JavaScript one, and this is what says they were.
+    """
+    page = monitorscaffold.design_asset()["signin_html"]
+    runs = _painted("signin/index.html", page)
+    assert "".join(run["text"] for run in runs) == page
+    # The markup: a tag name, an attribute name, a quoted value.
+    assert "html" in _kinds(runs, "keyword")
+    assert "charset" in _kinds(runs, "member")
+    assert '"utf-8"' in _kinds(runs, "string")
+    # The stylesheet. The name half of a declaration, and a colour.
+    assert "min-height" in _kinds(runs, "member")
+    assert "#0d1224" in _kinds(runs, "number")
+    # And the script, which is where the two would have to be read as different languages
+    # to come out right at all: `const` is a keyword and `credentials:` is a key.
+    assert "const" in _kinds(runs, "keyword")
+    assert "credentials" in _kinds(runs, "member")
+    assert '"same-origin"' in _kinds(runs, "string")
+
+
+def test_javascript_is_not_read_as_if_it_were_qml():
+    """`property`, `signal` and `on` are declaration words in QML and names in JavaScript.
+
+    A project can hold a plain script beside the page it serves, and painting somebody's
+    `property` variable as a keyword is the pane claiming something the file did not say.
+    The two share one scanner and differ only in the words each one knows.
+    """
+    text = "function property(signal) { return on; }\n"
+    coloured = lambda runs: [run["text"] for run in runs if run["kind"]]
+    # In JavaScript the three declaration words are ordinary names, so nothing is painted
+    # on them. The only two words this file says anything about are its own.
+    assert coloured(_painted("bundle.js", text)) == ["function", "return"]
+    # The same line as QML, where all five are the language's.
+    assert set(coloured(_painted("Main.qml", text))) == {"function", "property", "signal",
+                                                         "return", "on"}
+
+
+def test_a_pseudo_class_is_not_read_as_a_property_name():
+    """`color:` and `a:hover` are the same two tokens, and only one is a declaration.
+
+    What tells them apart with no parser behind it is what comes before the word: a
+    declaration follows a brace, a semicolon or the start of a line. Without that rule
+    every selector with a `:hover` on it came out painted as if it declared something.
+    """
+    runs = _painted("page.css", ".row a:hover { color: red; }\n")
+    assert _kinds(runs, "member") == ["color"]
+
+
 def test_a_source_reads_back_as_the_contract_it_was_written_from(rendered):
-    """The round trip the pane depends on: the members go into the file as declarations, and
+    """The round trip the pane depends on. The members go into the file as declarations, and
     typing in that file is how they come back. If reading a freshly written Source produced
     anything other than what was written, every keystroke in the pane would be arguing with
     the panel about what the contract says."""
@@ -768,11 +853,11 @@ def test_the_home_pages_project_is_the_one_the_home_page_reads():
         assert point["consumers"] == link["consumers"]
         # And what crosses it, which the page now shows on the point rather than in a
         # contract file of its own. Through the same reading the document was written by,
-        # `inherit` included: a point with a `scope:` of its own puts it on every member,
-        # and comparing an uninherited parse against an inherited one is comparing two
-        # different questions.
+        # `inherit` included: the document holds what the author wrote, so a point with a
+        # `scope:` of its own has that on the point and not repeated on every member of it,
+        # and comparing an inherited parse against it is comparing two different questions.
         parsed = designdoc.parse_from_text(
-            contractgen.contract_source(appmodel.contract_of(point), point),
+            contractgen.contract_source(appmodel.contract_of(point), point, inherit=False),
             appmodel.contract_of(point))
         assert parsed == link["members"]
 

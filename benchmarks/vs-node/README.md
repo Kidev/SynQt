@@ -34,15 +34,49 @@ protocol, because that is what a deployment would be running.
 | `qt-raw` | The same fan-out over a bare `QWebSocket`, no QtRemoteObjects, everything else identical | Separates what Qt's sockets cost from what the object protocol on them costs |
 | `node-bare` | `node:http` plus a hand-rolled RFC 6455 server, and the global `WebSocket` client Node 22 ships. Zero dependencies | The fastest honest Node, so SynQt cannot be accused of sandbagging |
 | `node-socketio` | Socket.IO, websocket transport pinned, compression off, binary frames | What a Node team would actually deploy |
+| `node-nextjs` | Next.js 16 App Router, a Route Handler streaming server-sent events | The framework most people mean by "a Node app", doing the only live path it has |
 
-Both Node columns exist because either alone is arguable. Bare builtins are a number
-nobody ships. Socket.IO is the easier comparison. Printed side by side, the spread
-between them is itself part of the answer.
+The three Node columns exist because any one alone is arguable. Bare builtins are a number
+nobody ships. Socket.IO is the easier comparison. Next.js is what a reader comparing
+frameworks is most likely to already be running, and it is the one column that cannot carry
+the same protocol as the others. Printed side by side, the spread between them is itself
+part of the answer.
 
 Socket.IO is given its best case rather than its default: the transport is pinned so no run
 starts on long-polling and upgrades mid-measurement, `perMessageDeflate` is off (the SynQt
 side does not compress either, and compressing a random payload spends CPU to no end), and
 the payload travels as a `Buffer` so it is a binary frame rather than base64.
+
+### What the Next.js column is, and what it is not
+
+Next.js ships no WebSocket server. What it has for "N subscribers see every change" is a
+Route Handler returning a `ReadableStream` as `text/event-stream`, and that is what
+[`nextjs/app/live/route.js`](node/nextjs/app/live/route.js) is: the framework holds the
+connections and writes the frames, so the column measures Next.js rather than something
+standing beside it.
+
+The obvious alternative is deliberately **not** a column here. Bolt `ws` onto a custom
+server and Next.js is not in the data path at all: that is `node-bare` with a Next.js
+process next to it, and printing it under this heading would be measuring one stack and
+labelling it with another's name. If that is the deployment being considered, read the
+`node-bare` column and add Next's fixed memory to it.
+
+Two things about server-sent events are stated rather than corrected for, because both are
+what the design costs a real deployment:
+
+- **SSE is text.** The same eight-byte stamp and the same payload travel base64 in one
+  `data:` line: a third more bytes on the wire, and an encode per frame per subscriber. This
+  is the one place the "held constant" list gives, and it gives because the alternative is
+  measuring a Next.js that does not exist.
+- **SSE is one direction.** There is nothing to compare on the way back. That costs this
+  table nothing, since the workload has always been one publisher and N subscribers, but it
+  is half of what the other columns' transports can do and it is not free to add.
+
+Next.js runs in production mode against a real `next build`, and every route carries
+`export const dynamic = "force-dynamic"`. That second one is load-bearing: without it Next
+prerenders a handler with no request-dependent input at build time and serves it from disk,
+so `/plaintext` and `/json` would be a static file server measured against two frameworks
+doing work.
 
 ## Running it
 
@@ -51,9 +85,10 @@ the payload travels as a `Buffer` so it is a binary frame rather than base64.
 ./benchmarks/vs-node/run-bench.sh --subscribers 10,50,100,250,500 --seconds 10 --hz 60
 ```
 
-It builds the SynQt column, installs the Node columns' dependencies on first run, runs all
-four over the same sweep, writes one baseline each under `benchmarks/results/` keyed by
-hostname, and prints the table. To re-render a table from baselines already on disk:
+It builds the SynQt column, installs the Node columns' dependencies and builds the Next.js
+app on first run, runs all five over the same sweep, writes one baseline each under
+`benchmarks/results/` keyed by hostname, and prints the table. To re-render a table from
+baselines already on disk:
 
 ```sh
 python3 benchmarks/vs-node/compare.py benchmarks/results/vs-node-*.json
@@ -163,29 +198,41 @@ attributed rather than left as a mystery in
 
 ### What each column is actually better at
 
-From the paced table, same host:
+From the paced table, same host. Every column but Next.js was recorded on 2026-08-15 and the
+Next.js one on 2026-08-29, because it was added later: same machine, same Node 22.22, same
+sweep, but not the same run, so read that pair with a little more slack than the rest.
 
-| | SynQt | vs Node (bare) | vs Socket.IO |
-|---|---|---|---|
-| Latency, N=10 | 0.150 ms | **1.5x better** | **2.4x better** |
-| Latency, N=250 | 3.236 ms | 1.67x worse | **1.2x better** |
-| CPU / 1k msgs, N=10 | 16.3 ms | **3.5x better** | **5.0x better** |
-| CPU / 1k msgs, N=250 | 13.7 ms | 1.6x worse | **1.1x better** |
-| Marginal KiB / conn, N=250 | 61.3 | **1.4x better** | **2.4x better** |
-| Users / GiB, N=250 | 17,096 | **1.4x better** | **2.4x better** |
+| | SynQt | vs Node (bare) | vs Socket.IO | vs Next.js (SSE) |
+|---|---|---|---|---|
+| Latency, N=10 | 0.150 ms | **1.5x better** | **2.4x better** | **3.5x better** |
+| Latency, N=250 | 3.236 ms | 1.67x worse | **1.2x better** | **2.2x better** |
+| CPU / 1k msgs, N=10 | 16.3 ms | **3.5x better** | **5.0x better** | **7.9x better** |
+| CPU / 1k msgs, N=250 | 13.7 ms | 1.6x worse | **1.1x better** | **2.8x better** |
+| Marginal KiB / conn, N=250 | 61.3 | **1.4x better** | **2.4x better** | **1.2x better** |
+| Users / GiB, N=250 | 17,096 | **1.4x better** | **2.4x better** | **1.2x better** |
 
-Three things this says, none of which is "SynQt is faster":
+Four things this says, none of which is "SynQt is faster":
 
 - **Against Socket.IO, which is the stack a Node team would actually deploy, SynQt is
   ahead on every row.** That is the comparison a reader choosing between frameworks is
-  making, and it is the reason both Node columns are printed.
+  making, and it is the reason more than one Node column is printed.
 - **Against bare Node, SynQt trades, and which way it trades depends on how many
   subscribers share the value.** SynQt is far cheaper at small counts and behind at large
   ones. Two cost curves cross there, rather than two noisy numbers averaging out;
   [the next section](#what-the-gap-against-node-is-made-of) separates them.
+- **Against Next.js, SynQt is ahead on every row at every size, and the CPU rows are the
+  wide ones**: 7.9x at ten subscribers, 2.8x at two hundred and fifty. Read that as a fact
+  about the path rather than about Next.js the framework, and note what it is *not*: the
+  base64 is done once per publish, not once per subscriber, so it is not where the marginal
+  cost lives. What each subscriber costs is an enqueue into a `ReadableStream`, Next's
+  Web-Streams-to-Node bridge, and a chunked HTTP write, against a WebSocket frame written
+  straight to a socket everywhere else. This harness does not split those three, so the
+  attribution stops there rather than guessing which of them dominates. Memory is the row
+  where the gap nearly closes, which is the expected shape: an HTTP response held open is a
+  cheap thing to hold.
 - **Memory per connection is the one row SynQt wins at every size**, and it wins it against
-  both columns. That is what `users / GiB` is derived from, and on this host it is the half
-  of `users / core / GiB` that binds later, so it is not the number that sizes a host.
+  all three columns. That is what `users / GiB` is derived from, and on this host it is the
+  half of `users / core / GiB` that binds later, so it is not the number that sizes a host.
   Prefer whichever half is smaller for your workload rather than the flattering one.
 
 ### Threads: the core that is not a process
@@ -325,13 +372,21 @@ why the obvious version of it corrupts the stream.
 
 The six TechEmpower test types (`/plaintext`, `/json`, `/db`, `/queries`, `/updates`,
 `/fortunes`). SynQt's column already exists in [`benchmarks/edge`](../edge); this directory
-adds the two Node ones, serving byte-identical answers from a shared
+adds the three Node ones, serving byte-identical answers from a shared
 [`techempower.mjs`](node/techempower.mjs) so a difference between columns can only be the
 framework and the driver:
 
 ```sh
 node benchmarks/vs-node/node/http-bare.mjs --port 8481      # node:http + node:sqlite
 node benchmarks/vs-node/node/http-fastify.mjs --port 8482   # Fastify + better-sqlite3
+node benchmarks/vs-node/node/http-nextjs.mjs --port 8483    # Next.js 16 + better-sqlite3
+```
+
+The Next.js one needs its build first, which `run-bench.sh` does and which is what running
+Next in production is:
+
+```sh
+(cd benchmarks/vs-node/node/nextjs && npx next build)
 ```
 
 Drive them with the loader in `benchmarks/edge`, which is what measures SynQt's column, so
@@ -341,7 +396,9 @@ the generator is not a variable between stacks.
 
 A sandbox that terminates sustained parallel load cannot produce these numbers, so the
 committed baselines come from a run on an unrestricted host. The harness itself runs
-anywhere: all three live columns complete at small sizes, and all six HTTP routes are
-verified correct on both Node servers (including the 1..500 clamp on `queries` and the
-HTML escaping of the seeded `<script>` fortune) before anything is timed. A benchmark of
-a wrong endpoint is worse than no benchmark.
+anywhere: every live column completes at small sizes, and all six HTTP routes are verified
+correct on all three Node servers (including the 1..500 clamp on `queries` and the HTML
+escaping of the seeded `<script>` fortune) before anything is timed. A benchmark of a wrong
+endpoint is worse than no benchmark. The Next.js column adds one build step and needs its
+`.next` output present; without it the harness says so and stops, rather than measuring a
+server answering 404.

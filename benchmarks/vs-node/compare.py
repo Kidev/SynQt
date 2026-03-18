@@ -4,9 +4,9 @@
 
 """Put the columns of the live-path comparison side by side.
 
-The three result files each hold the same sweep measured the same way; this turns them into
-the table a reader actually wants, and derives the one figure an operator sizes a host with:
-how many live users a core and a gigabyte hold.
+Each result file holds the same sweep measured the same way; this turns them into the table
+a reader actually wants, and derives the one figure an operator sizes a host with: how many
+live users a core and a gigabyte hold.
 
     python3 benchmarks/vs-node/compare.py benchmarks/results/vs-node-*.json
 
@@ -22,10 +22,12 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 # The order the table reads in: what SynQt does, then the same fan-out with the object
-# protocol taken off it, then the floor SynQt has to beat, then what a Node team would
-# actually deploy. `qt-raw` sits second because it is what separates "Qt's sockets are
+# protocol taken off it, then the floor SynQt has to beat, then the two stacks a Node team
+# would actually deploy. `qt-raw` sits second because it is what separates "Qt's sockets are
 # slow" from "the object protocol costs something", and those have different answers.
-STACK_ORDER = ["synqt", "qt-raw", "node-bare", "node-socketio"]
+# `node-nextjs` sits last because it is the only column not carrying WebSocket frames: Next
+# has no WebSocket server, so its live path is server-sent events. See the README.
+STACK_ORDER = ["synqt", "qt-raw", "node-bare", "node-socketio", "node-nextjs"]
 
 
 def load(paths: List[str]) -> Dict[str, Dict[str, Any]]:

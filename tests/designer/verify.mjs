@@ -969,6 +969,19 @@ async function theProjectALinkHandsYou() {
             (rows) => rows.map((row) => Math.round(row.getAttribute("x") * 100)));
         check(columns.length === 3 && new Set(columns).size === 1,
               `every member of a link starts in one column (${columns.join(" ")})`);
+        // Every member says the scope that gates it, on the row, in the notation the
+        // `export:` block gates it in. An asterisk with the scope itself only
+        // in the tooltip would make the one question a gated row raises the one thing it does
+        // not answer until it is pointed at.
+        const gates = await block.locator(".link__member").allTextContents();
+        check(gates.every((row) => / <\w+>$/.test(row)),
+              `every member names the scope that gates it (${gates.join(" | ")})`);
+        // And the one worth marking is the one held above the scope the whole point is
+        // behind: the room is `scope: user`, so three of these read `<user>` and say nothing
+        // about the member they are on, and `<admin> slot erase(int id)` is the exception.
+        const gated = await block.locator(".link__member.is-scoped").allTextContents();
+        check(gated.length === 1 && gated[0].endsWith(" <admin>"),
+              `and only a member above the point's own scope is marked (${gated.join(" ")})`);
         // Across both blocks, because what is being asserted is that the mark is the kind:
         // one point carries the model and the other the property, and a single block would
         // only ever prove it for the kinds that block happens to hold.

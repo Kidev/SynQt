@@ -278,6 +278,32 @@
   color: #e6e1ef;
 }
 
+/* The commands, coloured the way the home page colours the same three lines. The page
+   prints them through the site's own `cli` Pygments lexer. This card is built in the
+   browser, so `coloured()` in download-modal.js runs that lexer's rules there and emits
+   the classes Pygments emits. These are the colours for them.
+
+   Written out rather than taken from `--md-code-hl-*`, which is the one thing that looks
+   like it would work. Those variables follow the reader's light or dark setting, and this
+   card is dark in both. In light mode the keyword variable is a navy blue that disappears
+   into the card. The values here are Material's own slate (dark) palette, so the command
+   in the card and the command on the page are the same command in the same colours. */
+.synqt-dl__pre .k {                 /* the command, a host, a path part */
+  color: #6791e0;
+}
+
+.synqt-dl__pre .nb {                /* synqt itself */
+  color: #9383e2;
+}
+
+.synqt-dl__pre .na,                 /* a flag */
+.synqt-dl__pre .nv,                 /* <a-placeholder> */
+.synqt-dl__pre .o,                  /* the pipe */
+.synqt-dl__pre .p,
+.synqt-dl__pre .c1 {
+  color: rgba(230, 225, 239, 0.62);
+}
+
 .synqt-dl__copy {
   position: absolute;
   top: 0.5rem;
@@ -388,4 +414,81 @@
 /* Keep the page from scrolling behind the open modal. */
 body.synqt-dl-open {
   overflow: hidden;
+}
+
+/* The card on a phone.
+
+   Everything in here is one line of shell, and a phone is not wide enough for one. Measured
+   at a 360px viewport, `curl -fsSL https://get.synqt.org/install.sh | sh` ran 196px past its
+   block: what a visitor saw was `curl -fsSL https://get.synqt.or`, with the rest behind a
+   sideways scroll nothing indicates, and the copy button sitting on top of the last few
+   characters of what was visible -- the button is drawn over the code rather than beside it,
+   which is fine on a line with room to spare at the end and is two unreadable words on a
+   line with none.
+
+   So on a narrow screen the command wraps instead of scrolling, and the button comes out of
+   the corner and sits under it. Wrapping a shell line is not free -- a wrapped command is
+   one you cannot read in a single glance -- but it is whole, and the button that copies it
+   is over nothing, which is how the line is actually going to be used on a phone.
+   `overflow-wrap: anywhere` rather than `break-word`, because the longest run in all three
+   commands is a URL with no space in it and `break-word` would leave it overflowing exactly
+   as before. */
+@media screen and (max-width: 30em) {
+  .synqt-dl {
+    padding: 0.5rem;
+  }
+
+  .synqt-dl__card {
+    padding: 1.75rem 1rem 1.25rem;
+    border-radius: 0.7rem;
+    max-height: calc(100vh - 1rem);
+    /* The visual viewport on a phone, which is what `100vh` is not while the address bar
+       is on screen. The last line of the card sat under it. Second, so a browser that
+       does not know the unit keeps the line above. */
+    max-height: calc(100dvh - 1rem);
+  }
+
+  .synqt-dl__title {
+    font-size: 1.35rem;
+  }
+
+  .synqt-dl__sub {
+    margin-bottom: 1.1rem;
+    font-size: 0.9rem;
+  }
+
+  /* Column-reverse and not `order`: the button is written before the code in the markup
+     (it is the thing a pointer reaches for first on a wide screen), and reversing the
+     column is the whole of what moving it below the command takes. */
+  .synqt-dl__pre {
+    display: flex;
+    flex-direction: column-reverse;
+    align-items: stretch;
+    gap: 0.55rem;
+    padding: 0.75rem 0.8rem;
+    overflow-x: hidden;
+  }
+
+  .synqt-dl__pre code {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    font-size: 0.8rem;
+  }
+
+  .synqt-dl__copy {
+    position: static;
+    align-self: flex-end;
+  }
+
+  /* The download row. Two full-width controls rather than two half-width ones with a
+     platform name elided out of the second. */
+  .synqt-dl__btn,
+  .synqt-dl__picks {
+    width: 100%;
+    text-align: center;
+  }
+
+  .synqt-dl__pick {
+    flex: 1;
+  }
 }

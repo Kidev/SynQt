@@ -4,11 +4,15 @@
 // The page's one source reader: where the words of a file are, what a QML file declares, and
 // what it reaches for in another entity.
 //
-// A project is made of three kinds of text and the pane shows all three, so all three are
-// coloured here. Only QML is read for meaning, because only QML has any: `synqt infer` does
-// that same reading in Python, over the same two questions, and this is it brought to the
-// page, because the copy on synqt.org has no CLI behind it and the editor has to behave the
-// same in both places.
+// A project is made of a handful of kinds of text and the pane shows all of them, so all of
+// them are coloured here: the QML an entity is, the configuration, a contract, the schema
+// beside a relational entity, and the page an entity serves a browser -- markup with a
+// stylesheet and a script inside it, each read by the reader that is about it.
+//
+// Only QML is read for meaning, because only QML has any: `synqt infer` does that same
+// reading in Python, over the same two questions, and this is it brought to the page,
+// because the copy on synqt.org has no CLI behind it and the editor has to behave the same
+// in both places.
 //
 // It is deliberately a reader of declarations, not a parser of QML. A declaration is a line;
 // everything below the line is the author's and is never interpreted, never rewritten and
@@ -17,14 +21,25 @@
 // Pure functions over text, no DOM, so the suite can hand them a file with node and compare
 // what came back against what `synqt infer` says about the same file.
 
+// What a JavaScript word is. QML's script half is JavaScript, and a project can hold a plain
+// `.js` file beside a page it serves, so this set is the half the two share.
+const JS_KEYWORDS = new Set([
+    "as", "async", "await", "break", "case", "catch", "class", "const", "continue",
+    "default", "delete", "do", "else", "enum", "export", "extends", "false", "finally",
+    "for", "function", "if", "import", "in", "instanceof", "let", "new", "null", "of",
+    "return", "static", "super", "switch", "this", "throw", "true", "try", "typeof",
+    "undefined", "var", "void", "while", "yield",
+]);
+
 // What a QML word is, once the line it sits on is known. Only used to paint: nothing here
 // decides anything, so a word this gets wrong is a colour, never a member.
+//
+// The words QML adds are declaration words, and they are ordinary names in JavaScript:
+// `property`, `on` and `signal` are three things somebody will have called a variable. So
+// they are added here rather than shared, and a `.js` file is painted without them.
 const KEYWORDS = new Set([
-    "as", "break", "case", "catch", "component", "const", "continue", "default", "delete",
-    "do", "else", "enum", "false", "finally", "for", "function", "if", "import", "in",
-    "instanceof", "let", "new", "null", "of", "on", "pragma", "property", "readonly",
-    "required", "return", "signal", "switch", "this", "throw", "true", "try", "typeof",
-    "undefined", "var", "void", "while",
+    ...JS_KEYWORDS,
+    "component", "on", "pragma", "property", "readonly", "required", "signal",
 ]);
 
 // The declared types a contract and a QML property share, plus the ones QML adds. A word in
@@ -87,9 +102,20 @@ const UNKNOWN = "var";
 // The pane paints one span per run, so this is the whole of what the editor knows about how
 // QML looks.
 export function runs(text) {
+    return scriptRuns(text, KEYWORDS, true);
+}
+
+// The same scan over a plain `.js` file: no `property`, no type words, and a capital is a
+// constructor rather than a QML type. One scanner for both, because QML's script half is
+// this language and a second copy of it would be a second answer to what a string is.
+function jsRuns(text) {
+    return scriptRuns(text, JS_KEYWORDS, false);
+}
+
+function scriptRuns(text, keywords, qml) {
     const out = [];
     const source = String(text || "");
-    // Sticky and exhaustive: every alternative is anchored at the last match's end, and the
+    // Sticky and exhaustive. Every alternative is anchored at the last match's end, and the
     // final one takes a single character, so the scan cannot stall or skip.
     const scan = /(\/\/[^\n]*|\/\*[\s\S]*?\*\/)|("(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'|`(?:[^`\\]|\\.)*`)|(\b\d+(?:\.\d+)?\b)|([A-Za-z_$][\w$]*)|([\s\S])/g;
     let previous = "";
@@ -104,7 +130,7 @@ export function runs(text) {
         } else if (number !== undefined) {
             kind = "number";
         } else if (word !== undefined) {
-            kind = wordKind(word, previous, source, scan.lastIndex);
+            kind = wordKind(word, previous, source, scan.lastIndex, keywords, qml);
         }
         if (word !== undefined || comment !== undefined || string !== undefined) {
             previous = word === undefined ? "" : word;
@@ -120,16 +146,19 @@ export function runs(text) {
     return out;
 }
 
-function wordKind(word, previous, source, after) {
+function wordKind(word, previous, source, after, keywords, qml) {
     // A word straight after `property` is the type of the property being declared, whatever
-    // else that word means elsewhere: `property var rows` declares a var, not a keyword.
-    if (previous === "property") {
+    // else that word means elsewhere. `property var rows` declares a var, not a keyword.
+    if (qml && previous === "property") {
         return "type";
     }
-    if (KEYWORDS.has(word)) {
+    if (keywords.has(word)) {
         return "keyword";
     }
-    if (TYPE_WORDS.has(word)) {
+    // Only in QML. `url`, `size` and `point` are type names there and ordinary variable
+    // names in JavaScript, and painting somebody's `url` as a type is the reader claiming
+    // something the file never said.
+    if (qml && TYPE_WORDS.has(word)) {
         return "type";
     }
     const next = source.slice(after).match(/^[ \t]*(\S)/);
@@ -280,6 +309,159 @@ function sqlRuns(text) {
     return out;
 }
 
+// A stylesheet. The page an entity serves is HTML with a `<style>` block in it, and until
+// this existed that block was the largest run of grey in the whole pane. The sign-in page a
+// monitor hands an anonymous visitor is two thirds CSS.
+//
+// Small vocabulary again, because nothing here has to understand CSS: the comments, the
+// literals, the at-rules, and the name half of a declaration. That last one is the whole of
+// what makes a rule readable, and it is also the only one that takes a judgement.
+//
+// The judgement: `color:` and `a:hover` are the same three tokens, a word and a colon, and
+// telling them apart needs to know whether the word starts a declaration. What decides it
+// here is the character before the word: a declaration follows `{`, `;`, `}` or the start of
+// a line, and `a:hover` in `.row a:hover` follows a space inside a selector. It gets `a` at
+// the very start of a line wrong, which is a selector painted as a property name, and that
+// is the limit of a reader with no parser behind it.
+const CSS_STARTS = new Set(["", "{", "}", ";"]);
+
+function cssRuns(text) {
+    const out = [];
+    const source = String(text || "");
+    const scan = /(\/\*[\s\S]*?\*\/)|("(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*')|(@[A-Za-z-]+)|(#[0-9A-Fa-f]{3,8}\b|-?\d+(?:\.\d+)?(?:[A-Za-z%]+)?)|([A-Za-z_-][\w-]*)|([\s\S])/g;
+    // The last character that was not a space, and whether a newline has been crossed since
+    // it. Together they are "what comes before this word", which is what the rule above needs.
+    let before = "";
+    let fresh = true;
+    let found = scan.exec(source);
+    while (found !== null) {
+        const [whole, comment, string, at, literal, word] = found;
+        let kind = "";
+        if (comment !== undefined) {
+            kind = "comment";
+        } else if (string !== undefined) {
+            kind = "string";
+        } else if (at !== undefined) {
+            kind = "keyword";                // @media, @font-face, @import
+        } else if (literal !== undefined) {
+            kind = "number";                 // a length, a percentage, a hex colour
+        } else if (word !== undefined) {
+            const next = source.slice(scan.lastIndex).match(/^[ \t]*(\S)/);
+            if (next && next[1] === ":" && (fresh || CSS_STARTS.has(before))) {
+                kind = "member";
+            }
+        }
+        if (whole.trim()) {
+            before = whole.slice(-1);
+            fresh = false;
+        } else if (whole.indexOf("\n") !== -1) {
+            fresh = true;
+        }
+        const last = out.at(-1);
+        if (last && last.kind === kind) {
+            last.text += whole;
+        } else {
+            out.push({text: whole, kind});
+        }
+        found = scan.exec(source);
+    }
+    return out;
+}
+
+// A page. What an entity serves a browser that is not the client. The sign-in a monitor hands
+// an anonymous visitor, and whatever a project serves beside it.
+//
+// The two blocks inside it are read by the readers that are about them rather than as markup
+// with text in it. That is not a nicety. The sign-in page is a hundred lines of CSS and forty
+// of JavaScript inside eight of HTML, so a reader that painted the tags and left the rest
+// grey would be leaving the file grey.
+const HTML_SCAN = /(<!--[\s\S]*?-->)|(<![A-Za-z][^>]*>)|(<\/?)([A-Za-z][\w-]*)|([\s\S])/g;
+const HTML_INSIDE = /(>)|([A-Za-z_:][\w:.-]*)(\s*=\s*)("[^"]*"|'[^']*'|[^\s>]+)?|([\s\S])/y;
+// The two elements whose content is not markup, and the reader each one's content is in.
+const HTML_BLOCKS = new Map([["style", cssRuns], ["script", jsRuns]]);
+
+function htmlRuns(text) {
+    const source = String(text || "");
+    const out = [];
+    const push = (piece, kind) => {
+        if (!piece) {
+            return;
+        }
+        const last = out.at(-1);
+        if (last && last.kind === kind) {
+            last.text += piece;
+        } else {
+            out.push({text: piece, kind});
+        }
+    };
+    let at = 0;
+    while (at < source.length) {
+        HTML_SCAN.lastIndex = at;
+        const found = HTML_SCAN.exec(source);
+        if (!found) {
+            push(source.slice(at), "");
+            break;
+        }
+        push(source.slice(at, found.index), "");
+        const [whole, comment, doctype, open, tag] = found;
+        at = found.index + whole.length;
+        if (comment !== undefined) {
+            push(whole, "comment");
+            continue;
+        }
+        if (doctype !== undefined) {
+            push(whole, "keyword");
+            continue;
+        }
+        if (tag === undefined) {
+            push(whole, "");
+            continue;
+        }
+        push(open, "");
+        push(tag, "keyword");
+        at = htmlAttributes(source, at, push);
+        // `<style>` and `<script>` hold something that is not markup, so the reader for it
+        // takes everything up to the closing tag. An unclosed one takes the rest of the file,
+        // which is what it is. A file being typed into is unclosed for as long as it takes to
+        // type the closing tag, and the pane paints it on every keystroke.
+        const inside = open === "<" ? HTML_BLOCKS.get(tag.toLowerCase()) : null;
+        if (inside) {
+            const closes = source.toLowerCase().indexOf(`</${tag.toLowerCase()}`, at);
+            const ends = closes === -1 ? source.length : closes;
+            for (const run of inside(source.slice(at, ends))) {
+                push(run.text, run.kind);
+            }
+            at = ends;
+        }
+    }
+    return out;
+}
+
+// From just after a tag name to just after the `>` that closes it. The attribute names, the
+// quoted values, and the punctuation between them.
+function htmlAttributes(source, from, push) {
+    HTML_INSIDE.lastIndex = from;
+    let found = HTML_INSIDE.exec(source);
+    while (found !== null) {
+        const [whole, shut, name, equals, value] = found;
+        if (shut !== undefined) {
+            push(shut, "");
+            return HTML_INSIDE.lastIndex;
+        }
+        if (name !== undefined) {
+            push(name, "member");
+            push(equals, "");
+            push(value || "", "string");
+        } else if (/^[A-Za-z_:]/.test(whole)) {
+            push(whole, "member");           // a bare attribute: `required`, `autofocus`
+        } else {
+            push(whole, "");
+        }
+        found = HTML_INSIDE.exec(source);
+    }
+    return source.length;
+}
+
 // The runs for whatever kind of file `name` is. An extension nobody colours comes back as one
 // plain run, which is the file shown exactly as it is rather than shown wrong.
 export function runsFor(name, text) {
@@ -294,6 +476,15 @@ export function runsFor(name, text) {
     }
     if (/\.ya?ml$/.test(String(name))) {
         return yamlRuns(text);
+    }
+    if (/\.html?$/.test(String(name))) {
+        return htmlRuns(text);
+    }
+    if (String(name).endsWith(".css")) {
+        return cssRuns(text);
+    }
+    if (String(name).endsWith(".js") || String(name).endsWith(".mjs")) {
+        return jsRuns(text);
     }
     return [{text: String(text || ""), kind: ""}];
 }

@@ -34,6 +34,64 @@
   var ONELINER_PIP = "pipx install synqt";
   var PYPI_URL = "https://pypi.org/project/synqt/";
 
+  // The three commands, coloured. The home page prints the same lines through the site's
+  // own `cli` Pygments lexer (tools/pygments-synqt/src/synqt_pygments/lexers.py) and this
+  // modal is built in the browser, so the colouring has to be here or the same command
+  // reads as syntax in one place and as a grey run in the other. The rules below are that
+  // lexer's `root` state in the order it lists them, and the class on each run is the
+  // class Pygments emits, so the two cannot mean different things by `synqt` or by a flag.
+  //
+  // Anchored and exhaustive. The last rule takes one character, so the scan can neither
+  // stall nor skip, and every byte of the command comes back inside a run.
+  var CLI_RULES = [
+    [/^#.*/, "c1"],                   // a comment
+    [/^\s+/, "w"],                    // whitespace, which nothing colours
+    [/^\.\.\./, "o"],
+    [/^\|/, "o"],                     // the pipe, which is what these lines are made of
+    [/^[[\]]/, "p"],
+    [/^<[^>]+>/, "nv"],               // <a-placeholder>
+    [/^--?[A-Za-z][\w-]*/, "na"],     // a flag
+    [/^synqt\b/, "nb"],               // the tool itself
+    [/^[A-Za-z][\w-]*/, "k"],         // any other word: the command, a host, a path part
+    [/^[\s\S]/, ""]                   // and one character of whatever is left
+  ];
+
+  function escaped(text) {
+    return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  }
+
+  // `command` as the HTML of one `<code>`: the runs, each in a span carrying its Pygments
+  // class, with neighbours of one kind joined so a host name is one span rather than five.
+  function coloured(command) {
+    var rest = String(command);
+    var out = "";
+    var open = null;
+    var held = "";
+    while (rest.length) {
+      var found = null;
+      var kind = "";
+      for (var rule = 0; rule < CLI_RULES.length && !found; rule++) {
+        found = CLI_RULES[rule][0].exec(rest);
+        kind = CLI_RULES[rule][1];
+      }
+      if (kind !== open) {
+        out += written(open, held);
+        open = kind;
+        held = "";
+      }
+      held += found[0];
+      rest = rest.slice(found[0].length);
+    }
+    return out + written(open, held);
+  }
+
+  function written(kind, text) {
+    if (!text) {
+      return "";
+    }
+    return kind ? '<span class="' + kind + '">' + escaped(text) + "</span>" : escaped(text);
+  }
+
   var API_LATEST = "https://api.github.com/repos/" + OWNER + "/" + REPO + "/releases/latest";
   // Every published release, newest first, for the "More versions" panel. Capped: the
   // panel is for picking last week's build or the one before a regression, not for
@@ -281,16 +339,16 @@
       // that line, and a caution with air around it reads as a caution about the page.
       '  <div class="synqt-dl__install" id="synqt-dl-posix" hidden>' +
       '    <p class="synqt-dl__sublabel">Linux and macOS:</p>' +
-      '    <pre class="synqt-dl__pre"><button class="synqt-dl__copy" type="button">copy</button><code>' + ONELINER_SH + "</code></pre>" +
+      '    <pre class="synqt-dl__pre"><button class="synqt-dl__copy" type="button">copy</button><code>' + coloured(ONELINER_SH) + "</code></pre>" +
       '    <p class="synqt-dl__warn"><strong>Always read a script before you run it.</strong> This one downloads a release, unpacks it, and copies one binary into a bin directory. Nothing else: <a href="' + INSTALL_SH_URL + '" target="_blank" rel="noopener">install.sh</a>.</p>' +
       '  </div>' +
       '  <div class="synqt-dl__install" id="synqt-dl-windows" hidden>' +
       '    <p class="synqt-dl__sublabel">Windows (PowerShell):</p>' +
-      '    <pre class="synqt-dl__pre"><button class="synqt-dl__copy" type="button">copy</button><code>' + ONELINER_PS + "</code></pre>" +
+      '    <pre class="synqt-dl__pre"><button class="synqt-dl__copy" type="button">copy</button><code>' + coloured(ONELINER_PS) + "</code></pre>" +
       '    <p class="synqt-dl__warn"><strong>Always read a script before you run it.</strong> This one downloads a release, unpacks it, and copies one binary into a bin directory. Nothing else: <a href="' + INSTALL_PS_URL + '" target="_blank" rel="noopener">install.ps1</a>.</p>' +
       '  </div>' +
       '  <p class="synqt-dl__label">Or, if you already have Python, from PyPI.</p>' +
-      '  <pre class="synqt-dl__pre"><button class="synqt-dl__copy" type="button">copy</button><code>' + ONELINER_PIP + "</code></pre>" +
+      '  <pre class="synqt-dl__pre"><button class="synqt-dl__copy" type="button">copy</button><code>' + coloured(ONELINER_PIP) + "</code></pre>" +
       '  <p class="synqt-dl__sublabel synqt-dl__last">Any platform, and the same CLI: the wheel is cut from the same tag as the downloads above. <code>pip install synqt</code> works too; pipx is the suggestion only because this is an application rather than a library. See <a href="' + PYPI_URL + '" target="_blank" rel="noopener">synqt on PyPI</a>.</p>' +
       "</div>";
 

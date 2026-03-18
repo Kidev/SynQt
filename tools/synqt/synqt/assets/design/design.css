@@ -1641,9 +1641,18 @@ h2 {
   fill: var(--code-punct);
 }
 
-/* The mark on a member held above the point's own scope. The one run that is a warning rather
-   than syntax, so it keeps the warning colour whatever the row is doing. */
+/* The gate on a member, written the way the `export:` block writes it: `<admin>`, at the end
+   of the declaration. Quiet by default, because most rows are showing the point's own scope
+   and say nothing about that member in particular. */
 .link__tok--scope {
+  fill: var(--code-punct);
+}
+
+/* The one that does say something. A member held above the scope its whole point is behind.
+   The row carries `is-scoped`, so the gate on it is the warning it is, and the rows beside it
+   showing the point's own scope stay quiet. This is the run that keeps the warning colour
+   whatever else the row is doing. */
+.link__member.is-scoped .link__tok--scope {
   fill: var(--warn);
 }
 
@@ -1692,10 +1701,10 @@ h2 {
   stroke-opacity: 0.9;
 }
 
-/* A member held above the point's own scope. Marked rather than spelled out, because naming
-   every scope on the canvas would give the exception the weight of the ordinary case; hovering
-   the row is what says which scope. The mark and the member's own name carry the warning and
-   the types keep their syntax colour, so the row is still a prototype and not a highlight. */
+/* A member held above the scope its whole point is behind, which is the exception a reader
+   is looking for. Every row says its gate. This marks the row whose gate is not the one the
+   rest of the block is at. The name and the gate carry the warning and the types keep their
+   syntax colour, so the row is still a prototype and not a highlight. */
 .link__member.is-scoped .link__tok--name {
   fill: var(--warn);
 }
@@ -3143,8 +3152,13 @@ select:focus {
   color: var(--code-punct);
 }
 
-/* A member held above the point's own scope, in the warning colour on the canvas and here. */
+/* The gate on a member, quiet by default and a warning where it is above the scope the whole
+   point is behind. The same split the canvas makes, so the row and its card agree. */
 .tip__tok--scope {
+  color: var(--code-punct);
+}
+
+.tip__member.is-scoped .tip__tok--scope {
   color: var(--warn);
 }
 

@@ -2,16 +2,22 @@
   "name": "synqt-vs-node",
   "private": true,
   "type": "module",
-  "description": "The Node.js columns of the SynQt comparison. The bare column needs none of these; they are what the realistic column is.",
+  "description": "The Node.js columns of the SynQt comparison. The bare column needs none of these; they are what the two framework columns are.",
   "scripts": {
     "live:bare": "node live-bare.mjs",
     "live:socketio": "node live-socketio.mjs",
+    "live:nextjs": "node live-nextjs.mjs",
     "http:bare": "node http-bare.mjs",
-    "http:fastify": "node http-fastify.mjs"
+    "http:fastify": "node http-fastify.mjs",
+    "http:nextjs": "node http-nextjs.mjs",
+    "build:nextjs": "next build nextjs"
   },
   "dependencies": {
     "better-sqlite3": "11.10.0",
     "fastify": "5.3.2",
+    "next": "16.3.3",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
     "socket.io": "4.8.1",
     "socket.io-client": "4.8.1"
   }

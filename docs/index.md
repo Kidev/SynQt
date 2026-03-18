@@ -222,6 +222,8 @@ add an entity, and export the result as a project.
 <li class="synqt-tree__dir"><span class="synqt-tree__folder" data-file="client" tabindex="0" role="button" aria-label="Show the client entity">client</span></li>
 <li class="synqt-tree__dir synqt-tree__dir--nested"><span class="synqt-tree__folder" data-file="client" tabindex="0" role="button" aria-label="Show client/app/Main.qml">app</span></li>
 <li class="synqt-tree__leaf synqt-tree__leaf--deep"><span class="synqt-tree__file" data-file="client" tabindex="0" role="button" aria-label="Show client/app/Main.qml">Main.qml</span></li>
+<li class="synqt-tree__leaf synqt-tree__leaf--deep"><span class="synqt-tree__file" data-file="user" tabindex="0" role="button" aria-label="Show client/app/User.qml">User.qml</span></li>
+<li class="synqt-tree__leaf synqt-tree__leaf--deep"><span class="synqt-tree__file" data-file="admin" tabindex="0" role="button" aria-label="Show client/app/Admin.qml">Admin.qml</span></li>
 <li class="synqt-tree__dir"><span class="synqt-tree__folder" data-file="edge" tabindex="0" role="button" aria-label="Show the web edge entity">web</span></li>
 <li class="synqt-tree__dir synqt-tree__dir--nested"><span class="synqt-tree__folder" data-file="edge" tabindex="0" role="button" aria-label="Show web/edge/Edge.qml">edge</span></li>
 <li class="synqt-tree__leaf synqt-tree__leaf--deep"><span class="synqt-tree__file" data-file="edge" tabindex="0" role="button" aria-label="Show web/edge/Edge.qml">Edge.qml</span></li>
@@ -323,82 +325,122 @@ ApplicationWindow {
         }
     }
 
-    ColumnLayout {
+    User {
         anchors.fill: parent
         visible: Session.hasScope("user")
-
-        ListView {
-            id: messages
-
-            Layout.fillHeight: true
-            Layout.fillWidth: true
-            clip: true
-            model: Server.messages
-
-            delegate: Item {
-                id: line
-
-                required property var model
-
-                width: messages.width
-                height: 26
-
-                Label {
-                    x: 8
-                    width: 132
-                    height: parent.height
-                    verticalAlignment: Text.AlignVCenter
-                    elide: Text.ElideRight
-                    color: line.model.staff ? "#d0342c" : window.palette.windowText
-                    font.bold: line.model.staff
-                    text: line.model.who
-                }
-
-                Label {
-                    x: 148
-                    width: parent.width - 148 - 88
-                    height: parent.height
-                    verticalAlignment: Text.AlignVCenter
-                    elide: Text.ElideRight
-                    text: line.model.body
-                }
-
-                Button {
-                    x: parent.width - 84
-                    y: 1
-                    width: 76
-                    height: parent.height - 2
-                    visible: Session.hasScope("admin")
-                    text: qsTr("Erase")
-                    onClicked: Server.erase(line.model.id)
-                }
-            }
-        }
-
-        TextField {
-            id: draft
-
-            Layout.fillWidth: true
-            placeholderText: qsTr("Say something")
-            onAccepted: {
-                Server.say(draft.text);
-                draft.clear();
-            }
-        }
     }
 }
 ```
 
 <ul class="synqt-flow__glossary" hidden>
 <li data-code="import SynQt" data-href="runtime-api/">Brings in the runtime accessors: Server, Session, Router, and the contracts this entity consumes.</li>
-<li data-code="ApplicationWindow {" data-href="programming-model/">One window, and signing in swaps what is in it and nothing else. There is no second page and no redirect, because the room's point is gated `scope: user` and a signed-out session has no `Server` to reach.</li>
-<li data-code="visible: !Session.hasScope(&quot;user&quot;)" data-href="runtime-api/">The sign-in page, and the whole of what a signed-out visitor has. It is a binding, so it lifts by itself the moment the session is elevated.</li>
-<li data-code="onClicked: Session.login()" data-href="authentication/">The flow runs on the edge. This browser never sees a token and never holds a secret; what it ends up with is a session cookie.</li>
+<li data-code="ApplicationWindow {" data-href="programming-model/">One window. Signing in swaps what is in it and nothing else. There is no second page and no redirect, because the room's point is gated `scope: user` and a signed-out session has no `Server` to reach.</li>
+<li data-code="visible: !Session.hasScope(&quot;user&quot;)" data-href="runtime-api/">The sign-in page, which is all a signed-out visitor has. It is a binding, so it lifts by itself the moment the session is elevated.</li>
+<li data-code="onClicked: Session.login()" data-href="authentication/">The flow runs on the edge. This browser never sees a token and never holds a secret. It ends up with a session cookie.</li>
+<li data-code="User {" data-href="programming-model/">The room, in the file next to this one. A `*.qml` beside `Main.qml` is a type named after it. `synqt build` compiles every one of them into the entity's QML module, so there is nothing to import and nothing to register.</li>
+</ul>
+
+</div>
+
+<div class="synqt-file" data-file="user" markdown>
+<span class="synqt-file__name"><strong>the room</strong><span class="synqt-flow__path">client/app/User.qml</span></span>
+
+```qml
+import SynQt
+import QtQuick.Controls
+import QtQuick.Layouts
+
+ColumnLayout {
+    ListView {
+        id: messages
+
+        Layout.fillHeight: true
+        Layout.fillWidth: true
+        clip: true
+        model: Server.messages
+
+        delegate: Item {
+            id: line
+
+            required property var model
+
+            width: messages.width
+            height: 26
+
+            Label {
+                x: 8
+                width: 132
+                height: parent.height
+                verticalAlignment: Text.AlignVCenter
+                elide: Text.ElideRight
+                color: line.model.staff ? "#d0342c" : line.palette.windowText
+                font.bold: line.model.staff
+                text: line.model.who
+            }
+
+            Label {
+                x: 148
+                width: parent.width - 148 - 88
+                height: parent.height
+                verticalAlignment: Text.AlignVCenter
+                elide: Text.ElideRight
+                text: line.model.body
+            }
+
+            Admin {
+                x: parent.width - 84
+                y: 1
+                width: 76
+                height: parent.height - 2
+                messageId: line.model.id
+            }
+        }
+    }
+
+    TextField {
+        id: draft
+
+        Layout.fillWidth: true
+        placeholderText: qsTr("Say something")
+        onAccepted: {
+            Server.say(draft.text);
+            draft.clear();
+        }
+    }
+}
+```
+
+<ul class="synqt-flow__glossary" hidden>
 <li data-code="model: Server.messages" data-href="programming-model/">A live model, and the whole of the sync. Somebody says something, the owner replaces the rows, and every open tab redraws itself. Nothing here polls.</li>
 <li data-code="required property var model" data-href="programming-model/">A delegate is recycled, so it holds no state of its own. `var model` rather than a property per role, because one of the roles is called `id`, which is a QML keyword.</li>
 <li data-code="line.model.staff" data-href="security/">Not a decision this browser made. `staff` is stamped on the row by the edge, from the session it verified, and it is the only thing in the system that can set it.</li>
-<li data-code="visible: Session.hasScope(&quot;admin&quot;)" data-href="runtime-api/">A courtesy, not a gate: `erase` is not a member of the surface an ordinary session acquired, so hiding the button is only about not offering it.</li>
 <li data-code="Server.say(draft.text)" data-href="api/?p=classSynQt_1_1ServerAccessor.html">A request, not a command. It runs on the owner, which is free to refuse it. The browser sends the text and nothing else.</li>
+</ul>
+
+</div>
+
+<div class="synqt-file" data-file="admin" markdown>
+<span class="synqt-file__name"><strong>the moderator's button</strong><span class="synqt-flow__path">client/app/Admin.qml</span></span>
+
+```qml
+import SynQt
+import QtQuick.Controls
+
+Button {
+    id: control
+
+    required property int messageId
+
+    visible: Session.hasScope("admin")
+    text: qsTr("Erase")
+    onClicked: Server.erase(control.messageId)
+}
+```
+
+<ul class="synqt-flow__glossary" hidden>
+<li data-code="required property int messageId" data-href="programming-model/">Which message this erases, handed down by the row. A delegate is recycled, so the button holds no idea of its own about which line it is sitting on.</li>
+<li data-code="visible: Session.hasScope(&quot;admin&quot;)" data-href="runtime-api/">A courtesy, not a gate: `erase` is not a member of the surface an ordinary session acquired, so hiding the button is only about not offering it.</li>
+<li data-code="Server.erase(control.messageId)" data-href="security/">The contract writes this member `&lt;admin&gt; slot erase`. An ordinary session never acquired it, so this is not a call that gets refused, it is a call there is nothing to make.</li>
 </ul>
 
 </div>

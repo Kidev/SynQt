@@ -503,12 +503,14 @@ length, and says why the harness needs the WebAssembly kit and so belongs on a w
 Every harness above measures SynQt against itself, which catches regressions and answers
 nothing about whether it is fast. [`vs-node/`](vs-node/README.md) puts it beside Node.js on
 the workload SynQt exists for: one publisher, N live subscribers, everyone sees every
-change. Three columns, because either Node column alone is arguable: bare Node built-ins are
-the floor SynQt has to beat and nobody ships them, and Socket.IO is what people deploy and is
-the easier comparison.
+change. Five columns, because no one Node column alone is arguable: bare Node built-ins are
+the floor SynQt has to beat and nobody ships them, Socket.IO is what people deploy and is the
+easier comparison, and Next.js is what most readers are already running -- with no WebSocket
+server of its own, so its live path is a Route Handler streaming server-sent events and it is
+the one column not carrying the same protocol as the rest.
 
 ```sh
-./benchmarks/vs-node/run-bench.sh                       # the three live columns, and a table
+./benchmarks/vs-node/run-bench.sh                       # the five live columns, and a table
 python3 benchmarks/vs-node/sweep.py --processes 1,2,4,8 # throughput against process count
 ```
 

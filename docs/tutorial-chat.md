@@ -236,15 +236,17 @@ so a caller without `admin` does not have it.
 
 ## Step 4: the window
 
-Open `client/app/Main.qml`. One window, and what is in it depends on the session:
+Three files, and the split is only so each one is a page long. Open
+`client/app/Main.qml`. One window, and what is in it depends on the session:
 
 ```qml
 import SynQt
 import QtQuick.Controls
 import QtQuick.Layouts
 
-// One window. Signing in swaps what is in it and nothing else: the room's point is
-// gated `scope: user`, so a signed-out session has no `Server` to reach.
+// One window, and two things in it, the sign-in a signed-out visitor gets, and the room
+// everybody else does. Neither is a page and neither is a route, because the room's connect
+// point is gated `scope: user` and a signed-out session never acquires it.
 ApplicationWindow {
     id: window
 
@@ -269,72 +271,105 @@ ApplicationWindow {
         }
     }
 
-    ColumnLayout {
+    User {
         anchors.fill: parent
         visible: Session.hasScope("user")
+    }
+}
+```
 
-        ListView {
-            id: messages
+`User.qml` beside it is the room itself, the messages, and a line to add one.
 
-            Layout.fillHeight: true
-            Layout.fillWidth: true
-            clip: true
-            model: Server.messages
+```qml
+import SynQt
+import QtQuick.Controls
+import QtQuick.Layouts
 
-            delegate: Item {
-                id: line
+// The room, which is the whole of what a signed-in caller has, the messages and a line to
+// add one. Everything a moderator has on top of it is Admin.qml, instantiated once per row.
+ColumnLayout {
+    ListView {
+        id: messages
 
-                // The row, not its roles: `id` cannot be a property of its own.
-                required property var model
+        Layout.fillHeight: true
+        Layout.fillWidth: true
+        clip: true
+        model: Server.messages
 
-                width: messages.width
-                height: 26
+        delegate: Item {
+            id: line
 
-                Label {
-                    x: 8
-                    width: 132
-                    height: parent.height
-                    verticalAlignment: Text.AlignVCenter
-                    elide: Text.ElideRight
-                    color: line.model.staff ? "#d0342c" : window.palette.windowText
-                    font.bold: line.model.staff
-                    text: line.model.who
-                }
+            // The row rather than its roles, because `id` cannot be a property of its own.
+            required property var model
 
-                Label {
-                    x: 148
-                    width: parent.width - 148 - 88
-                    height: parent.height
-                    verticalAlignment: Text.AlignVCenter
-                    elide: Text.ElideRight
-                    text: line.model.body
-                }
+            width: messages.width
+            height: 26
 
-                Button {
-                    x: parent.width - 84
-                    y: 1
-                    width: 76
-                    height: parent.height - 2
-                    visible: Session.hasScope("admin")
-                    text: qsTr("Erase")
-                    onClicked: Server.erase(line.model.id)
-                }
+            Label {
+                x: 8
+                width: 132
+                height: parent.height
+                verticalAlignment: Text.AlignVCenter
+                elide: Text.ElideRight
+                color: line.model.staff ? "#d0342c" : line.palette.windowText
+                font.bold: line.model.staff
+                text: line.model.who
+            }
+
+            Label {
+                x: 148
+                width: parent.width - 148 - 88
+                height: parent.height
+                verticalAlignment: Text.AlignVCenter
+                elide: Text.ElideRight
+                text: line.model.body
+            }
+
+            Admin {
+                x: parent.width - 84
+                y: 1
+                width: 76
+                height: parent.height - 2
+                messageId: line.model.id
             }
         }
+    }
 
-        TextField {
-            id: draft
+    TextField {
+        id: draft
 
-            Layout.fillWidth: true
-            placeholderText: qsTr("Say something")
-            onAccepted: {
-                Server.say(draft.text);
-                draft.clear();
-            }
+        Layout.fillWidth: true
+        placeholderText: qsTr("Say something")
+        onAccepted: {
+            Server.say(draft.text);
+            draft.clear();
         }
     }
 }
 ```
+
+And `Admin.qml` is the one control a moderator has and nobody else does:
+
+```qml
+import SynQt
+import QtQuick.Controls
+
+Button {
+    id: control
+
+    // Which message this erases. The row hands it down. A delegate is recycled, so the
+    // button cannot know on its own which line it is sitting on.
+    required property int messageId
+
+    visible: Session.hasScope("admin")
+    text: qsTr("Erase")
+    onClicked: Server.erase(control.messageId)
+}
+```
+
+A file beside `Main.qml` is a type named after it, with nothing to import and nothing to
+register. `synqt build` compiles every `*.qml` under the client entity's directory into the
+one QML module, so `User` and `Admin` are in scope the moment the files exist.
 
 `Server` is the client's name for its edge. `Server.messages` is the model, handed straight
 to a `ListView`. `Session.hasScope(...)` is a binding like any other, so the sign-in half
@@ -344,10 +379,10 @@ reload and no navigation to write.
 The delegate reads its row through `required property var model` rather than a property per
 role, because one of the roles is called `id`, and `id` is a QML keyword.
 
-Both `hasScope` lines are courtesies, not gates. What stops a signed-out visitor is that the
-point was never acquired for their session, and what stops an ordinary user erasing is that
-`erase` is not a member of the surface they acquired. Delete both lines and neither of those
-facts changes.
+The two `hasScope` lines, one in `Main.qml` and one in `Admin.qml`, are courtesies rather
+than gates. What stops a signed-out visitor is that the point was never acquired for their
+session, and what stops an ordinary user erasing is that `erase` is not a member of the
+surface they acquired. Delete both lines and neither of those facts changes.
 
 Last, say who is a moderator. Open `web/edge/identity/map.qml`, which is the one place in
 the project that decides:

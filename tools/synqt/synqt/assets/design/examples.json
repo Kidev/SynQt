@@ -56,7 +56,7 @@
      "shared": false,
      "x": 64,
      "y": 160,
-     "qml": "// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux\n// SPDX-License-Identifier: Apache-2.0\n\nimport SynQt\nimport QtQuick.Controls\nimport QtQuick.Layouts\n\nApplicationWindow {\n    id: window\n\n    visible: true\n    title: qsTr(\"The chat room\")\n\n    ColumnLayout {\n        anchors.centerIn: parent\n        visible: !Session.hasScope(\"user\")\n        spacing: 24\n\n        Label {\n            Layout.alignment: Qt.AlignHCenter\n            font.pixelSize: 32\n            text: qsTr(\"One room. Everybody in it sees the same thing.\")\n        }\n\n        Button {\n            Layout.alignment: Qt.AlignHCenter\n            text: qsTr(\"Sign in with GitHub\")\n            onClicked: Session.login()\n        }\n    }\n\n    ColumnLayout {\n        anchors.fill: parent\n        visible: Session.hasScope(\"user\")\n\n        ListView {\n            id: messages\n\n            Layout.fillHeight: true\n            Layout.fillWidth: true\n            clip: true\n            model: Server.messages\n\n            delegate: Item {\n                id: line\n\n                required property var model\n\n                width: messages.width\n                height: 26\n\n                Label {\n                    x: 8\n                    width: 132\n                    height: parent.height\n                    verticalAlignment: Text.AlignVCenter\n                    elide: Text.ElideRight\n                    color: line.model.staff ? \"#d0342c\" : window.palette.windowText\n                    font.bold: line.model.staff\n                    text: line.model.who\n                }\n\n                Label {\n                    x: 148\n                    width: parent.width - 148 - 88\n                    height: parent.height\n                    verticalAlignment: Text.AlignVCenter\n                    elide: Text.ElideRight\n                    text: line.model.body\n                }\n\n                Button {\n                    x: parent.width - 84\n                    y: 1\n                    width: 76\n                    height: parent.height - 2\n                    visible: Session.hasScope(\"admin\")\n                    text: qsTr(\"Erase\")\n                    onClicked: Server.erase(line.model.id)\n                }\n            }\n        }\n\n        TextField {\n            id: draft\n\n            Layout.fillWidth: true\n            placeholderText: qsTr(\"Say something\")\n            onAccepted: {\n                Server.say(draft.text);\n                draft.clear();\n            }\n        }\n    }\n}\n"
+     "qml": "// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux\n// SPDX-License-Identifier: Apache-2.0\n\nimport SynQt\nimport QtQuick.Controls\nimport QtQuick.Layouts\n\nApplicationWindow {\n    id: window\n\n    visible: true\n    title: qsTr(\"The chat room\")\n\n    ColumnLayout {\n        anchors.centerIn: parent\n        visible: !Session.hasScope(\"user\")\n        spacing: 24\n\n        Label {\n            Layout.alignment: Qt.AlignHCenter\n            font.pixelSize: 32\n            text: qsTr(\"One room. Everybody in it sees the same thing.\")\n        }\n\n        Button {\n            Layout.alignment: Qt.AlignHCenter\n            text: qsTr(\"Sign in with GitHub\")\n            onClicked: Session.login()\n        }\n    }\n\n    User {\n        anchors.fill: parent\n        visible: Session.hasScope(\"user\")\n    }\n}\n"
     },
     {
      "id": "edge",
@@ -125,8 +125,7 @@
          "type": "bool",
          "name": "staff"
         }
-       ],
-       "scope": "user"
+       ]
       },
       {
        "kind": "slot",
@@ -138,8 +137,7 @@
          "name": "body"
         }
        ],
-       "roles": [],
-       "scope": "user"
+       "roles": []
       },
       {
        "kind": "slot",
@@ -512,8 +510,7 @@
        "name": "roundEndsAt",
        "type": "real",
        "params": [],
-       "roles": [],
-       "scope": "player"
+       "roles": []
       },
       {
        "kind": "model",
@@ -545,8 +542,7 @@
          "type": "bool",
          "name": "online"
         }
-       ],
-       "scope": "player"
+       ]
       },
       {
        "kind": "model",
@@ -562,8 +558,7 @@
          "type": "real",
          "name": "mass"
         }
-       ],
-       "scope": "player"
+       ]
       },
       {
        "kind": "model",
@@ -583,8 +578,7 @@
          "type": "real",
          "name": "y"
         }
-       ],
-       "scope": "player"
+       ]
       },
       {
        "kind": "model",
@@ -600,8 +594,7 @@
          "type": "int",
          "name": "points"
         }
-       ],
-       "scope": "player"
+       ]
       },
       {
        "kind": "slot",
@@ -617,16 +610,14 @@
          "name": "y"
         }
        ],
-       "roles": [],
-       "scope": "player"
+       "roles": []
       },
       {
        "kind": "slot",
        "name": "ping",
        "type": "real",
        "params": [],
-       "roles": [],
-       "scope": "player"
+       "roles": []
       },
       {
        "kind": "signal",
@@ -642,8 +633,7 @@
          "name": "predator"
         }
        ],
-       "roles": [],
-       "scope": "player"
+       "roles": []
       },
       {
        "kind": "signal",
@@ -655,8 +645,7 @@
          "name": "winner"
         }
        ],
-       "roles": [],
-       "scope": "player"
+       "roles": []
       }
      ],
      "server": "",

@@ -11,9 +11,10 @@
 //
 // This is CodeMirror doing that job; vendor/README.md is what is vendored and how. The
 // colouring is still ours: `runsFor` in source.js is the one description of what QML, YAML,
-// SQL and a contract look like, and this turns its runs into decorations. Nothing about the
-// syntax is written twice, so the pane and the canvas cannot drift apart -- the members
-// written along a link and the file they are declared in are coloured by one reader.
+// SQL, a contract, and a page an entity serves (HTML with CSS and JavaScript in it) look
+// like, and this turns its runs into decorations. Nothing about the syntax is written twice,
+// so the pane and the canvas cannot drift apart -- the members written along a link and the
+// file they are declared in are coloured by one reader.
 
 import { Compartment, EditorState, RangeSetBuilder } from "./vendor/codemirror-state.js";
 import { Decoration, EditorView, ViewPlugin, crosshairCursor, drawSelection,

@@ -16,8 +16,8 @@
 // whoever asked.
 
 import { frontsOf, gatesOf, runsSignIn } from "./rules.js";
-import { MEMBER_KINDS, ROLE_HELP, accessorName, describe, endsOfPoint, glyphSvg,
-         linkTitleNode, memberCode, memberMarkSvg, memberParts, roleOf,
+import { MEMBER_KINDS, ROLE_HELP, aboveTheScope, accessorName, describe, endsOfPoint,
+         glyphSvg, linkTitleNode, memberCode, memberMarkSvg, memberParts, roleOf, scopeGate,
          seatsOfFront } from "./canvas.js";
 import { entityFiles, isShared } from "./project.js";
 
@@ -93,9 +93,9 @@ function quietName(text) {
 // the four kinds it is, then the declaration in the same three syntax colours the file pane
 // uses. A list of these read as one grey block before, which is the one part of a link tip
 // somebody is following the line to find.
-function tipMember(member) {
+function tipMember(member, link) {
     const row = document.createElement("div");
-    row.className = `tip__member${member.scope ? " is-scoped" : ""}`;
+    row.className = `tip__member${aboveTheScope(member, link) ? " is-scoped" : ""}`;
     row.append(memberMarkSvg(member.kind));
     const code = document.createElement("span");
     code.className = "tip__code";
@@ -105,11 +105,12 @@ function tipMember(member) {
         run.textContent = part.text;
         code.append(run);
     }
-    if (member.scope) {
-        const gate = document.createElement("span");
-        gate.className = "tip__tok tip__tok--scope";
-        gate.textContent = ` ${member.scope}`;
-        code.append(gate);
+    const gate = scopeGate(member, link);
+    if (gate) {
+        const run = document.createElement("span");
+        run.className = "tip__tok tip__tok--scope";
+        run.textContent = ` ${gate}`;
+        code.append(run);
     }
     row.append(code);
     return row;
@@ -177,13 +178,19 @@ export function tipFor(design, what, {problems = NO_PROBLEMS, palette = []} = {}
                 ? `${member.type}, so the call resolves with a value`
                 : "Nothing, so the call is made and not waited on"));
         }
-        box.append(tipRow("reaches", member.scope
+        // What reaches this member is its own gate, or the point's where it names none. The
+        // second half is the ordinary case and is not news. A member that only inherits the
+        // point's scope is not "held back" from anything, and saying so of every member of a
+        // gated point is saying it of nothing.
+        const raised = aboveTheScope(member, link);
+        const gate = member.scope || link.scope;
+        box.append(tipRow("reaches", raised
             ? `Callers holding '${member.scope}', and nobody else`
-            : (link.scope
-                ? `Callers holding '${link.scope}', the connect point's own gate`
+            : (gate
+                ? `Callers holding '${gate}', the connect point's own gate`
                 : "Any caller, anonymous included")));
         box.append(tipHelp(said.says(ends.owner, ends.consumers)));
-        if (member.scope) {
+        if (raised) {
             box.append(tipHelp(`Raised above ${link.scope ? `'${link.scope}'`
                                                           : "the connect point's own scope"}, `
                                + "so this member alone is held back from callers the rest of "
@@ -418,7 +425,7 @@ export function tipFor(design, what, {problems = NO_PROBLEMS, palette = []} = {}
         const list = document.createElement("div");
         list.className = "tip__members";
         for (const member of members) {
-            list.append(tipMember(member));
+            list.append(tipMember(member, link));
         }
         box.append(list);
     } else {

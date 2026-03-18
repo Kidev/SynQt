@@ -1,15 +1,12 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-"""Turn a connect point's ``export:`` block into the ``.syn`` the compiler reads.
+"""Turn a connect point ``export:`` block into the ``.syn`` the compiler reads.
 
-A connect point and the shape of what crosses it are one thing, so they are written in one
-place: the point's ``export:`` in ``synqt.yaml`` holds the members, and nothing names the
-contract, because the point is already named.
+The members live on the point in ``synqt.yaml``; the owner names the contract::
 
     connect_points:
-      - name: auction
-        owner: edge
+      - owner: edge
         consumers: [app]
         export: |
           prop string itemName
@@ -17,10 +14,9 @@ contract, because the point is already named.
           slot placeBid(int amount)
           signal bidRejected(string reason)
 
-What the generator wants is a file, so one is written under ``generated/`` beside the
-entity's generated main. ``generated/web/edge/Auction.syn``. Its name is the point's,
-capitalized, which is also the QML type the point's server file is rooted at. Nobody edits
-it. Editing the ``export:`` block rewrites it.
+The file is written under ``generated/`` beside the entity generated main
+(``generated/web/edge/Edge.syn``), named after the owner, capitalized. Editing the
+``export:`` block rewrites it.
 """
 
 from __future__ import annotations
@@ -35,18 +31,13 @@ from synqt import appmodel, writer
 _HEADER = ("// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux\n"
            "// SPDX-License-Identifier: Apache-2.0\n")
 
-#: A `record` is a type, not a member, so it is written outside the contract even though it
-#: is declared inside the same block. Lifting it here is what lets one `export:` hold both.
+#: A `record` is a type, so it is lifted outside the contract.
 _RECORD = re.compile(r"^\s*record\b")
 
-#: A line that is nothing but a name. Export it as the owner already implements it. The
-#: kind and the types come from reading the owner's Source, which is where they were
-#: already written down, so the block says what crosses and not a second time what it is.
+#: A line that is only a name exports the member as the owner Source implements it.
 _BARE_NAME = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)$")
 
-#: The scope gate a member may open with. `<admin>` or `<admin, auditor>`. Held apart from
-#: the member itself everywhere below, so that writing a name-only export out and filling
-#: the point's own scope in are two things neither of which has to know about the other.
+#: The scope gate a member may open with: `<admin>` or `<admin, auditor>`.
 _GATE = re.compile(r"^(<\s*[A-Za-z_][A-Za-z0-9_]*(?:\s*,\s*[A-Za-z_][A-Za-z0-9_]*)*\s*>)\s*")
 
 
@@ -62,10 +53,8 @@ def has_export(point: Dict[str, Any]) -> bool:
 
 
 def _split_comment(line: str) -> Tuple[str, int, str]:
-    """One written line as (code, the column its comment starts in, the comment).
-
-    The column is kept so that a block whose comments line up still has them lined up
-    after a name has been written out into a longer line.
+    """One line as (code, comment column, comment). The column keeps aligned comments aligned
+    after a name is written out.
     """
     stripped = line.strip()
     head, marker, tail = stripped.partition("//")
@@ -81,10 +70,8 @@ def split_gate(code: str) -> Tuple[str, str]:
 
 
 def bare_name(line: str) -> str:
-    """The name a line exports by name alone, or "" when it spells a whole member.
-
-    A scope gate in front of the name does not change what is being named, so it is taken
-    off first. `<admin> restock` exports `restock`, gated.
+    """The name a line exports alone, or "" when it spells a whole member. `<admin> restock`
+    exports `restock`, gated.
     """
     code, _, _ = _split_comment(line)
     _, rest = split_gate(code)
@@ -108,12 +95,10 @@ def rendered(member: Any) -> str:
 
 
 def written_out(line: str, owner: Dict[str, Any]) -> str:
-    """`line`, with a name-only export replaced by the member the owner implements.
+    """`line` with a name-only export replaced by the member the owner implements.
 
-    Left exactly as written when it already spells a member, when the owner has no such
-    member, or when what the owner has was guessed rather than read. A type nobody is sure
-    of is not a type to put on a wire without being asked. `check.lint_exports` is what
-    turns each of those into a sentence. Here they are only not expanded.
+    Left as written when it already spells a member, when the owner has no such member, or
+    when the owner's type was guessed. `check.lint_exports` reports those.
     """
     name = bare_name(line)
     member = owner.get(name) if name else None
@@ -128,16 +113,11 @@ def written_out(line: str, owner: Dict[str, Any]) -> str:
 
 
 def with_inherited_gate(line: str, scope: str) -> str:
-    """`line` with the connect point's own ``scope:`` written onto it, if it named none.
+    """`line` with the connect point ``scope:`` written onto it, if it names none.
 
-    A member gates on what it says, and a member that says nothing gates on what the point
-    says, which is how `scope: moderator` on the point and `<admin>` on one member read the
-    way they look. Moderators reach everything but that one. Filled in here rather than
-    left for the compiler so a generated ``.syn`` is complete on its own terms and nothing
-    downstream has to be handed the point to understand it.
-
-    A record is a type rather than a member and takes no gate. So does a blank line and a
-    line that is only a comment.
+    `scope: moderator` on the point and `<admin>` on one member: moderators reach everything
+    but that member. Filled in so a generated ``.syn`` is complete. Records, blank lines and
+    comment lines take no gate.
     """
     if not scope:
         return line
@@ -150,21 +130,16 @@ def with_inherited_gate(line: str, scope: str) -> str:
 
 def contract_source(name: str, point: Dict[str, Any],
                     owner: Dict[str, Any] | None = None, *, inherit: bool = True) -> str:
-    """The ``.syn`` text for one connect point's contract.
+    """The ``.syn`` text for one connect point contract.
 
-    Members go inside ``contract <Name> { ... }``; a ``record`` line goes above it, because
-    a record is a type the members use rather than a member itself. Comments and blank
-    lines are kept as written. The block is the author's, and this only puts a frame
-    around it.
-
-    `owner` is what the owner's Source implements (:func:`synqt.infer.owner_members`),
-    which is what a line naming a member and nothing else is written out from.
+    Members go inside ``contract <Name> { ... }``; ``record`` lines go above it. Comments
+    and blank lines are kept. `owner` (:func:`synqt.infer.owner_members`) expands name-only
+    lines.
     """
     records: List[str] = []
     members: List[str] = []
-    # `inherit` is off for a reader that has the point in hand and will write the block back
-    # out: filling the point's own scope onto every line would turn a `scope:` written once
-    # into a gate written on each member, which is the same contract spelled longer.
+    # `inherit` is off for a reader that writes the block back out, so a `scope:` written
+    # once stays once.
     inherited = str(point.get("scope") or "").strip() if inherit else ""
     for written in export_text(point).splitlines():
         line = written_out(written, owner) if owner else written
@@ -178,10 +153,7 @@ def contract_source(name: str, point: Dict[str, Any],
     while members and not members[-1]:
         members.pop()
     lines = [_HEADER.rstrip("\n"),
-             # Named by its owner, because that is the whole of a point's name: they
-             # have had none of their own since a point became one per owner, and this
-             # line had been reading "the 'None' connect point" in every generated
-             # contract since.
+             # A point is named by its owner.
              f"// Generated by synqt from the connect point '{point.get('owner')}' owns "
              "in synqt.yaml. Do not edit.",
              ""]
@@ -193,12 +165,8 @@ def contract_source(name: str, point: Dict[str, Any],
 
 def implemented_by_owner(project_dir: os.PathLike[str] | str, config: Dict[str, Any],
                          point: Dict[str, Any]) -> Dict[str, Any]:
-    """What the owner of `point` implements, for writing a name-only export out.
-
-    A thin door onto :func:`synqt.infer.owner_members`, opened here because everything
-    that turns an ``export:`` block into a contract comes through this module and `infer`
-    reads this one at import time. Empty when the project's QML cannot be read at all,
-    which leaves every line exactly as written.
+    """What the owner of `point` implements, for expanding name-only exports
+    (:func:`synqt.infer.owner_members`). Empty when the project QML cannot be read.
     """
     from synqt import infer  # here, because infer reads this module at import time
 
@@ -209,19 +177,21 @@ def implemented_by_owner(project_dir: os.PathLike[str] | str, config: Dict[str, 
 
 
 def resolved_source(project_dir: os.PathLike[str] | str, config: Dict[str, Any],
-                    point: Dict[str, Any]) -> str:
-    """The ``.syn`` text for `point`, with every name-only export written out."""
+                    point: Dict[str, Any], *, inherit: bool = True) -> str:
+    """The ``.syn`` text for `point`, with every name-only export written out.
+
+    With `inherit` (the build) the point ``scope:`` is filled onto every member. Without it
+    (the design editor) the block keeps what the author wrote.
+    """
     return contract_source(appmodel.contract_of(point), point,
-                           implemented_by_owner(project_dir, config, point))
+                           implemented_by_owner(project_dir, config, point),
+                           inherit=inherit)
 
 
 def write_contracts(project_dir: os.PathLike[str] | str,
                     config: Dict[str, Any]) -> List[str]:
-    """Write every app connect point's contract under ``generated/``.
-
-    Returns the project-relative paths this owns, written or already current. A framework
-    connect point is skipped. Its contract ships in the runtime library that owns it, and
-    the project has no ``export:`` to write it from.
+    """Write every app connect point contract under ``generated/``. Returns the
+    project-relative paths, written or current. Framework points are skipped.
     """
     root = Path(project_dir)
     owners = {str(entity.get("name") or ""): entity

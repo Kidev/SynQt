@@ -1114,9 +1114,9 @@ def _check_vs_node_live(document: Mapping[str, Any], checks: List[Check]) -> Non
     """One column of the live-path comparison, gated on the things that make a column
     comparable at all rather than on how fast it was.
 
-    Speed is deliberately not gated. Three stacks are recorded here, two of them not ours,
-    and a gate on absolute numbers would fail the moment the host changed or would quietly
-    become a gate on the machine. What has to hold for the table to mean anything is that
+    Speed is deliberately not gated. Several stacks are recorded here, most of them not
+    ours, and a gate on absolute numbers would fail the moment the host changed or would
+    quietly become a gate on the machine. What has to hold for the table to mean anything is that
     every column carried the whole workload, and that the harness knows which stack it was
     measuring: a column that dropped a third of its frames posts an excellent latency over
     the survivors, and it is exactly the failure that reads as a win.

@@ -288,7 +288,7 @@ def _link(point: Dict[str, Any], root: Path, seats: Dict[str, Dict[str, Any]],
     if contract and contractgen.has_export(point):
         try:
             members = parse_from_text(
-                contractgen.resolved_source(root, config, point), contract)
+                contractgen.resolved_source(root, config, point, inherit=False), contract)
         except DesignDocError as error:
             raise DesignDocError(f"connect point '{name}': {error}") from error
     # The owner-side QML, carried in the document because the editor's files pane shows the

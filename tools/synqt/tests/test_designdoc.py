@@ -206,6 +206,35 @@ def test_to_config_keeps_what_the_document_does_not_model():
     assert config["scopes"]["order"] == ["anonymous", "player"]
 
 
+def test_a_points_own_scope_stays_on_the_point_through_a_round_trip():
+    """Opening a project in the editor and applying a change must give back the file.
+
+    The build fills a point's own `scope:` onto every member of its generated contract,
+    because a generated `.syn` has to be complete on its own terms. The editor read its
+    document through that same filling, and `to_config` writes the members back out: one
+    `scope: user` on the point came back as a `<user>` in front of every member of it. The
+    same contract, spelled longer, in the author's file, on any edit -- which is exactly
+    what `contract_source`'s `inherit` flag exists to prevent.
+
+    The room is the case worth pinning: `scope: user` on the point and `<admin>` on one
+    member, so the answer has to keep one gate and drop three.
+    """
+    project = EXAMPLES / "chat"
+    document = designdoc.read(project)
+    room = next(link for link in document["links"] if link["owner"] == "edge")
+    assert room["scope"] == "user"
+    # What the document holds is what the author wrote. The exception, and nothing on the
+    # three members that only inherit the point's gate.
+    assert [(member["name"], member.get("scope")) for member in room["members"]] == \
+        [("messages", None), ("say", None), ("erase", "admin")]
+
+    written = designdoc.to_config(document, base=configmod.load(project))
+    point = next(one for one in written["connect_points"] if one["owner"] == "edge")
+    assert point["scope"] == "user"
+    assert "<user>" not in point["export"]
+    assert "<admin> slot erase(int id)" in point["export"]
+
+
 def test_a_document_is_json_and_says_which_version_it_is():
     document = designdoc.read(EXAMPLES / "gavel")
     assert document["version"] == designdoc.VERSION
