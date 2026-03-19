@@ -123,7 +123,7 @@ connect_points:
 ```
 
 ```qml
-// db/relational/store/Store.qml (owner of the "items" connect point)
+// db/relational/store/Store.qml (the store entity, and the Source of the point it owns)
 import SynQt
 
 Store {

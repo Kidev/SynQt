@@ -168,22 +168,22 @@ folder it may not be one of the names SynQt already puts in scope there: `Caller
 helper the entity's own type installs (`Db` in a relational entity, `Cache` in a cache
 entity, `Docs`, `Http`, `Jobs`). Only that one, so `synqt add entity cache --type cache` is
 refused for its own `Cache` helper while `synqt add entity cache --type relational` is
-fine: the runtime builds exactly one helper per entity, and reserving all five everywhere
-would ban five perfectly good words across the whole project to prevent a collision that
-exists in one entity. `synqt check` holds the same
-line from the other end: every connect point must have its Source file, and that file must
-be rooted at the contract, which is the owner capitalized plus `Contract`.
+fine. The runtime builds exactly one helper per entity, and reserving all five everywhere
+would ban five ordinary words across the whole project to prevent a collision that
+exists in one entity. `synqt check` holds the same line from the other end. Every connect
+point must have its Source file, and that file must be rooted at the contract, which is
+the owner capitalized.
 
 `synqt design` opens the same project as a graph: entities as nodes, connect points as
 the links between them, and a panel for what each one carries. It is the visual half of
-the commands above it, not a separate model of the project, so drawing a connect point
-runs the same scaffolder `synqt add connect-point` runs. Nothing is written while you
-draw. When you are ready, the editor shows the whole change set as a diff, file by file
-with a reason on each, and only then does Apply write it. The topology rules are live as
-you work, so a link the deployment would refuse goes red on the canvas rather than in a
-build four steps later. A project that does not check out still opens: an invalid
-topology is what you came to fix. "Infer from the sources" is `synqt infer` on the canvas:
-it fills every link with the members both ends of it already use, so a contract you have
+the commands above it rather than a separate model of the project, so drawing a connect
+point runs the same scaffolder `synqt add connect-point` runs. It writes nothing while
+you draw. When you are ready, the editor shows the whole change set as a diff, file by
+file with a reason on each, and only then does Apply write it. The topology rules are
+live as you work, so a link the deployment would refuse goes red on the canvas rather
+than in a build four steps later. A project that does not check out still opens, since an
+invalid topology is what you came to fix. "Infer from the sources" is `synqt infer` on the
+canvas. It fills every link with the members both ends of it already use, so a contract you have
 not written yet arrives drawn rather than typed out, and it is a document like any other
 until you review and apply it.
 

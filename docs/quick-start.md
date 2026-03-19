@@ -17,7 +17,7 @@ On Windows, in PowerShell, it is `irm https://get.synqt.org/install.ps1 | iex`. 
 already have Python, `pipx install synqt` gets you the same CLI from PyPI.
 
 ```cli
-synqt --version
+synqt version
 ```
 
 That single binary is everything you install by hand. The first build downloads the rest of

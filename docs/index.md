@@ -176,8 +176,9 @@ never acquires it and there is nothing on their side to get past. Signing in fil
 window with the room. A moderator gets one member more than everybody else, `erase`, and
 gets it because the contract says so and not because the client decided to offer it.
 
-Five files are the whole system: one configuration file, which says what crosses each link,
-one QML file per entity, and the table the database keeps the messages in. Hover (or focus)
+Seven files are the whole system: one configuration file, which says what crosses each link,
+one QML file per entity, two more the client's window opens, and the table the database keeps
+the messages in. Hover (or focus)
 an entity to read the file it is, or the mark on a line to read the block that says what
 crosses it, and the card that opens says the rest. The project tree under the drawing opens
 the same files, and one stays open until you move to another. The database opens two, its

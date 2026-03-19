@@ -176,9 +176,9 @@ directory for inspection.
 
 ## Connect points: owned by one entity, consumed by others
 
-An entity has one connect point: the surface it exports, with an owner and a set of
-consumers. It has no name of its own, because the owner is its name: consumers reach it as
-the owner capitalized, the contract it carries is that plus `Contract`, and the file that
+An entity has one connect point, the surface it exports, with an owner and a set of
+consumers. It has no name of its own, because the owner is its name. Consumers reach it as
+the owner capitalized, that name is the contract it carries, and the file that
 implements it is that plus `.qml`. It is declared in `synqt.yaml` (full schema in
 [project layout and configuration](project-layout-and-config.md#the-synqtyaml-schema)):
 

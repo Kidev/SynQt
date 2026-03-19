@@ -18,7 +18,7 @@ irm https://get.synqt.org/install.ps1 | iex
 The installer drops a single `synqt` binary on your `PATH`. Confirm it is there:
 
 ```cli
-synqt --version
+synqt version
 ```
 
 > [!TIP]
@@ -67,11 +67,14 @@ project from the answers:
 - Starting entities beyond the client and edge (a database, a cache, a document
   store, a gateway, a jobs runner)? `synqt add entity` adds one later.
 
-Every one of those is also a flag on [`synqt new`](build-system-and-cli.md#scaffolding-a-project-synqt-new-and-synqt-create),
-which is the same scaffolder without the questions and the one to use in a script:
+[`synqt new`](build-system-and-cli.md#scaffolding-a-project-synqt-new-and-synqt-create) is the
+same scaffolder without the questions, and the one to use in a script. The name and the
+provider are flags on it; each starting entity is a `synqt add entity` after it:
 
 ```cli
 synqt new my-app --auth github
+cd my-app
+synqt add entity orders --type relational
 ```
 
 > [!NOTE]

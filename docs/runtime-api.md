@@ -24,6 +24,7 @@ in an owned connect point's implementation.
 | generated Source | an owned connect point's implementation | the owner-side write surface (`set<Model>`, property setters, signals) |
 | `Db`, `Docs`, `Cache`, `Jobs` | a typed entity's QML | the helper that type provides, one per entity (see [the type helpers](#service-the-type-helpers)) |
 | `Http`, `Api` | an entity with a `network:` block | outbound calls within its allowlist, and the inbound surface it serves |
+| `Log` | every service entity's QML | what this entity records about what it did |
 
 `<Owner>.on<Signal>` attached handlers (for reacting to a connect point's
 signals) are covered in [Handling a connect point's signals](programming-model.md#handling-a-connect-points-signals);
@@ -404,35 +405,35 @@ function insert(row) {
     `Caller.isUser` (a browser session, identified by login and scope) and
     `Caller.isEntity` (a service, identified by certificate) are separate systems.
     `Caller.entity` is certificate-authenticated on every mesh link, which is what
-    makes the one check above complete: the framework, not the caller, decides the
-    name. A user-supplied value is never an entity identity. The single exception is
-    a link the project explicitly moved to `transport: local`; `isEntityVerified` is
-    how a slot refuses that. See [security](security.md).
+    makes the one check above complete. The framework decides the name, and the
+    caller does not. A user-supplied value is never an entity identity. The single
+    exception is a link the project explicitly moved to `transport: local`, and
+    `isEntityVerified` is how a slot refuses that. See [security](security.md).
 
 ### The session down the chain
 
 Only the first link of a chain authenticates a person. The browser reaches
 the web edge, the edge reaches a service, that service reaches another. The database in
 the example above is two links from the browser and can never be reached by it, so the
-call it answers is the edge's; without help, all it would know is that the edge called.
+call it answers is the edge's. Without help, all it would know is that the edge called.
 
 So a connect point that a service consumes carries one thing more than its contract
-declares: the session the calling entity is acting for. It is filled in by the framework,
-not by the call site, and it travels for as long as the chain does, so a service four
+declares, the session the calling entity is acting for. The framework fills it in,
+rather than the call site, and it travels for as long as the chain does, so a service four
 entities deep still answers a named person.
 
 ```qml
 // db/relational/store/Store.qml, reached only by the edge
 function insert(row) {
-    if (Caller.entity !== "edge") return    // the certificate: this is the authorization
-    // And this is who the edge is answering. `Caller.isUser` is still false: the caller is
-    // the edge. It simply has somebody behind it.
-    Log.write(Caller.session.key, Caller.identity.sub, row.text)
+    if (Caller.entity !== "edge") return    // the certificate is the authorization
+    // And this is who the edge is answering. `Caller.isUser` is still false, because the
+    // caller is the edge. It has somebody behind it.
+    Log.info("stored an item", { session: Caller.session.key, sub: Caller.identity.sub })
 }
 ```
 
 What travels is the session's `key`, its `scope` and its `identity`. Never the browser's
-credential, which stays at the edge: `key` is derived from it, is the same string for the
+credential, which stays at the edge. `key` is derived from it, is the same string for the
 same session on every entity that sees it, and cannot be replayed at the edge. It is what
 a downstream service keys its own per-session state on. It changes when the credential
 rotates, which happens on a scope change, because an elevated session is a different
@@ -539,7 +540,7 @@ rather than an import. An entity whose type has none (client, web_edge, service)
 
 | Helper | Injected into | Backed by |
 |--------|---------------|-----------|
-| `Db` | a `persistence` entity | the selected `IPersistenceProvider` (`sqlite`, `postgres`, `mysql`, ...) |
+| `Db` | a `relational` entity | the selected `IPersistenceProvider` (`sqlite`, `postgres`, `mysql`, ...) |
 | `Docs` | a `document` entity | the selected `IDocumentProvider` (`memory`, `mongodb`, ...) |
 | `Cache` | a `cache` entity | the selected `ICacheProvider` (`memory`, `redis`, ...) |
 | `Jobs` | a `jobs` entity | Qt timers and a bounded work queue |
@@ -723,6 +724,28 @@ the body size in that order, answering the request itself when any of them fails
 
 Work runs on the entity's own event loop, so a job that blocks blocks that entity.
 A jobs entity is internal only: nothing on it is ever reachable from a browser.
+
+### `Log`: what an entity records about itself
+
+Not one of the helpers above. Those exist because a type has an engine behind it, and each
+is in scope only where that engine is; every entity has something to say about what it did,
+so every service entity has this one whatever its type.
+
+| Member | Returns | Description |
+|--------|---------|-------------|
+| `Log.debug(message, attributes?)` | - | the detail worth having while chasing something, off in a normal deployment. |
+| `Log.info(message, attributes?)` | - | a fact about what the entity did. |
+| `Log.warn(message, attributes?)` | - | something recoverable that someone should see. |
+| `Log.error(message, attributes?)` | - | the entity could not do what it was asked. |
+
+`attributes` is a plain map, and the values belong in it rather than in the message:
+whoever reads the record filters and searches it, and `Log.info("saved " + count + " rows")`
+makes both a substring hunt where `Log.info("saved rows", { rows: count })` does not.
+
+Which entity said it is stamped by the runtime, past anything QML can reach, so an entity
+cannot record itself under another entity's name. Where the records go and who may read
+them is [monitoring](monitoring.md); with no monitor configured nothing is recorded and the
+level check is all a call site costs.
 
 ---
 
