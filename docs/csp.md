@@ -73,7 +73,7 @@ bundle change without you hand-editing the string:
     [multi threaded proof](https://github.com/Kidev/SynQt/blob/main/tests/m0-transport/verify/verify-mt.mjs)
     serves its threaded bundle under this exact policy, `worker-src 'self'` with no
     `blob:`, on every run and in every engine it can launch, reporting each engine's
-    security-policy violations by directive. All three engines version 1 targets have
+    security-policy violations by directive. All three supported engines have
     now been measured under it and none needs `blob:`: Chromium and Firefox since
     2026-07-15, and WebKit, the last one open, on 2026-07-31 on macOS 15.7.8 (WebKit
     26.5). Each reached cross-origin isolation, got `SharedArrayBuffer`, started its whole

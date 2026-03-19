@@ -15,6 +15,8 @@ and a web edge) and room to add more:
 my-app/
   synqt.yaml              # project, topology, and security config
   CMakeLists.txt          # four lines, yours to extend; hands the build to generated/
+  .env.example            # the env: references each entity expects, never the values
+  .qmlformat.ini          # what check.qml_format holds the project's QML to
   .gitignore
 
   client/                 # every client entity
@@ -28,8 +30,7 @@ my-app/
       Edge.qml            # the edge: what it exports, and its state (synqt.yaml says what
                           #   may cross)
       identity/           # optional identity hooks
-      .env                # secrets for this entity only
-      .env.example
+      .env                # secrets for this entity only, read by its process alone
 
   db/relational/          # every relational entity
     store/                # added with: synqt add entity store --type relational
@@ -209,18 +210,19 @@ scope a brand new, unauthenticated browser session runs at.
 
 A block sequence with one entry per entity. The list of entities, and through each
 entity's owned and consumed connect points the whole mesh topology, is defined here.
-Each entry is a map; the two keys every entity has are `name` and `type`, and the
+Each entry is a map. The two keys every entity has are `name` and `type`, and the
 rest depend on the type of entity.
 
 `name` is also the entity's directory, and its QML module, and the name other
-entities address it by. There is no separate path key: `name: web` means the entity's
-QML lives in `web/`, its secrets in `web/edge/.env`, and its build output in `build/web/`.
-A client entity's window is `<name>/Main.qml`, always, which is why nothing declares
-an entry point either.
+entities address it by. There is no separate path key. An entity sits under its own name
+inside the folder its type shares, so `name: edge` on a `web_edge` puts its QML in
+`web/edge/`, its secrets in `web/edge/.env`, and its build output in `build/edge/`.
+A client entity's window is `client/<name>/Main.qml`, always, which is why nothing
+declares an entry point either.
 
-Every other entity's own file is `<name>/<Name>.qml`, written when the entity is
+Every other entity's own file is `<type>/<name>/<Name>.qml`, written when the entity is
 created and rooted at the type the entity exports. It is the entity and the surface
-it exports at once: the connect point's `server` file defaults to it, and on a shared
+it exports at once. The connect point's `server` file defaults to it, and on a shared
 entity (the default) there is one of it for the whole process.
 
 State that has to outlive any one caller goes in a `pragma Shared` file beside it,
@@ -336,14 +338,14 @@ the type's own settings go under `settings`:
       host: 127.0.0.1         # same host as the edge in this example
       port: 9444
       # For a cross host database, keep transport: mtls with host/port on a private
-      # interface. transport: local (with socket: synqt/mesh/database.sock) swaps
-      # this link to a permission protected local socket: faster, but the calling
-      # entity is then trusted by colocation, not authenticated by certificate. Opt
+      # interface. transport: local (with socket: synqt/mesh/store.sock) swaps
+      # this link to a permission protected local socket, which is faster, but the calling
+      # entity is then trusted by colocation rather than authenticated by certificate. Opt
       # in only on a host where every process running as this user is trusted (see
       # security).
 
     env:
-      file: database/.env
+      file: db/relational/store/.env
 
     settings:                 # type specific settings (see docs/entities.md)
       file: db/relational/store/data/app.db
@@ -499,10 +501,10 @@ Declared on the edge entity, because delivery is that entity's job:
 
 ```yaml
 entities:
-  - name: web
+  - name: edge
     type: web_edge
     bundles:
-      anonymous: landing/     # a directory under web/web/
+      anonymous: landing/     # a directory under web/edge/
       user: app               # a client entity
       moderator: app
 ```
@@ -890,10 +892,10 @@ while `session` and `mapping` are nested maps:
 identity:
   required: false                 # if true, an unauthenticated browser acquires
                                   # no scoped connect point at all
-  provider_entity: ""             # empty: identity handled in process at the edge (default)
-                                  # or an entity name: a dedicated auth entity owns identity
+  provider_entity: ""             # empty means identity handled in process at the edge (default)
+                                  # or an entity name, and a dedicated auth entity owns identity
   flow: authorization_code        # server side OAuth2 with PKCE, and the only flow
-                                  # version 1 implements; anything else is refused
+                                  # SynQt implements, anything else is refused
   callback: /auth/callback
   login: /auth/login
   logout: /auth/logout
@@ -1115,7 +1117,7 @@ for a refused route and over the page otherwise, so write it to work in either.
 ### Edge-delivered pages (`remote:`)
 
 A `remote:` route is not compiled into the client. Its file lives under the web edge
-entity's `pages/` directory, flat under the project root: for an edge named `web`,
+entity's `pages/` directory, flat under the project root. For an edge named `edge`,
 `remote: Campaign.qml` names `web/edge/pages/Campaign.qml` (there is no `entities/`
 prefix). The edge holds these files and delivers one over the same authenticated
 `wss` link the moment a visitor navigates to its route, so a delivered page never
@@ -1399,12 +1401,14 @@ fast. Non negotiable checks:
 
 - A production build (or `synqt serve`) with a web edge that neither carries a
   `tls` block (`cert_file` and `key_file`) nor declares
-  `public.tls_terminated_upstream: true` is rejected: something has to terminate
+  `public.tls_terminated_upstream: true` is rejected, because something has to terminate
   TLS to the browser, and the configuration has to name which end. Likewise
   `require_mtls_cross_host` cannot be off in release.
-- A connect point whose `contract`, `owner`, or `server` file does not exist is
-  rejected. An `owner` or `consumer` that is not a declared entity is rejected. The
-  `server` file (`<owner>/<Owner>.qml` when the point does not name one) must also
+- A connect point whose `owner` or `server` file does not exist is rejected, as is an
+  `owner` or `consumer` that is not a declared entity. So is a point that writes a
+  `contract:`, because what crosses is the point's own `export:` block and the type it
+  becomes is the owner's name. The `server` file
+  (`<type>/<owner>/<Owner>.qml` when the point does not name one) must also
   be rooted at `<Owner>`: it is the owner-side half of the point, and an
   owner with nothing to host it with fails at start-up rather than at build time.
   `synqt add connect-point` writes that file, empty, along with the point, so the
