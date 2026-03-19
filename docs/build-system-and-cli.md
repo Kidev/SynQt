@@ -293,11 +293,18 @@ project follows, and a
 `MaxColumnWidth` makes qmlformat wrap wherever the limit lands rather than where the
 expression means something.
 
-Common flags: `--release` / `--debug`, `--client wasm|desktop|all` (which client
-target(s) to build or run; see [desktop clients](desktop.md)), `--verbose` (echo every
+Common flags: `--release` / `--debug`, `--client wasm|desktop|all|none` (which client
+target to build or run; see [desktop clients](desktop.md)), `--verbose` (echo every
 build command and stream its output, instead of the one line summary), and
 `--project-dir <path>` (act on a project other than the working directory; accepted by
-every command that reads a project, which is all of them except `new` and `providers`).
+every command that reads a project, so every one except `new` and `create`, which take
+`--parent-dir` instead, and `providers` and `version`, which read no project at all).
+
+`--client none` builds the service entities and no client. It is what a container image
+wants when the browser bundle comes from somewhere else
+([`synqt docker init --client host`](docker.md)), and it is the difference between a build
+that needs an Emscripten kit and one that does not. With no WebAssembly target asked for,
+the toolchain step stops resolving one.
 
 `--profile <name>` layers `synqt.<name>.yaml` over `synqt.yaml` for that invocation, so
 one topology carries its production differences (the public port, the TLS files, a
@@ -309,10 +316,13 @@ synqt build --release --profile production
 synqt serve --profile production
 ```
 
-`synqt dev`, `build`, `serve`, `check`, `doctor`, and the `synqt mesh` commands take it;
-`clean`, `test`, and the scaffolders do not, because they read no configuration or,
-in the scaffolders' case, write `synqt.yaml` back and would otherwise bake an overlay
-into the base file. `synqt dev` watches the profile file along with `synqt.yaml`, so
+`synqt dev`, `design`, `build`, `serve`, `check`, `infer`, `doctor`, and
+`synqt mesh init` / `cert` / `rotate` take it. `clean`, `test`, `mesh status` and the
+scaffolders do not, because they read no configuration or, in the scaffolders' case, write
+`synqt.yaml` back and would otherwise bake an overlay into the base file. `mesh cert --all`
+takes it because a profile may add an entity, and an entity with no certificate cannot join
+the mesh. `mesh status` reports the certificate files themselves, which no profile
+changes. `synqt dev` watches the profile file along with `synqt.yaml`, so
 editing it hot reloads like any other source. Above the profile sit the
 `SYNQT_<SECTION>_<KEY>` environment variables for CI and containers. The full order,
 what merges and what replaces, and the two limits that keep a layer from becoming a
@@ -400,9 +410,8 @@ than a menu item offered to someone who has not.
 - It builds and starts every entity. The first run provisions a throwaway
   development CA and issues per entity certificates automatically, so service to
   service links keep mutual TLS in development with no setup and no certificate
-  friction; `dev.mesh_tls: false` exists only for debugging transport issues and
-  never applies to a release build. The edge serves the client bundle over
-  plaintext HTTP bound to localhost.
+  friction, and there is no key that turns it off. The edge serves the client
+  bundle over plaintext HTTP bound to localhost.
 - It runs a dev only stub identity provider that can mint a session at any
   configured scope for testing, gated behind dev mode so it can never ship.
 - It watches every entity folder. A change to client QML triggers an
@@ -585,9 +594,9 @@ build/
                           #   <client>.wasm/.js (.br/.gz), THIRD-PARTY-LICENSES, assets
   client-desktop/         # native desktop apps in windows/ macos/ linux/, when the
                           #   client declares a "desktop" target (see desktop.md)
-  web/                    # the web edge binary and its runtime files
-  database/               # the database entity binary, its schema, its data dir
-  ...                     # one per service entity
+  edge/                   # the web edge binary and its runtime files
+  store/                  # a relational entity's binary, its schema, its data dir
+  ...                     # one directory per service entity, named after the entity
 ```
 
 Alongside them the build writes `build/process-manifest.json`, the start plan for

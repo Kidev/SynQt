@@ -1504,9 +1504,9 @@ reaches them. Each rule below fails the check, with the message quoted:
 | A parameter name is not an identifier | `error: route path '/c/:2campaign' has a malformed parameter ':2campaign'; a parameter name must be a letter or underscore, then letters, digits, or underscores` |
 | One path uses a parameter name twice | `error: route path '/c/:id/:id' repeats the parameter name 'id'` |
 | A non-remote route declares no `view` | `error: route '/admin' declares no view; there is nothing for the router to show there` |
-| A `view` names a file that is not there | `error: route '/admin' names view 'Admin.qml': no such file 'client/Admin.qml'` |
-| A `view` is written with the entity directory in it | `error: route '/admin' names view 'client/Admin.qml': no such file 'client/client/Admin.qml'; a view is named relative to the client entity's directory, so write it as 'Admin.qml'` |
-| A `view` points outside the client entity's directory | `error: route '/admin' names view '../web/Admin.qml': a view is named relative to the client entity's directory ('client/'), so it cannot be an absolute or parent path` |
+| A `view` names a file that is not there | `error: route '/admin' names view 'Admin.qml': no such file 'client/app/Admin.qml'` |
+| A `view` is written with the entity directory in it | `error: route '/admin' names view 'client/app/Admin.qml': no such file 'client/app/client/app/Admin.qml'; a view is named relative to the client entity's directory, so write it as 'Admin.qml'` |
+| A `view` points outside the client entity's directory | `error: route '/admin' names view '../web/Admin.qml': a view is named relative to the client entity's directory ('client/app/'), so it cannot be an absolute or parent path` |
 | `router.fallback` names no declared route | `error: router.fallback '/home' is not a declared route; a redirect to it would go nowhere` |
 | `router.base` is not rooted | `error: router.base 'shop' must start with '/'` |
 | `router.mode` is not `history` | `warn: router.mode 'hash' is not a mode SynQt has; the router always drives the History API ('history') and ignores this key` |

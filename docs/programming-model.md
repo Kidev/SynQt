@@ -393,7 +393,7 @@ From the browser client, the connect points it consumes appear under `Server`,
 which is an alias for the web edge this client is attached to:
 
 ```qml
-// client/TodoView.qml
+// client/app/TodoView.qml
 Label { text: "Items: " + Server.count }          // live property
 ListView { model: Server.items }                  // live model
 Button { onClicked: Server.add(input.text) }      // a request
