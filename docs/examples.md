@@ -588,7 +588,7 @@ not know a database exists; it only ever talks to the edge.
   entity's embedded store and survive restarts. No separate database product is run,
   configured, or secured; it is a SynQt entity in the same toolchain and security
   model.
-- The same connect point mechanism carries both links. `Server.todo` (browser to
+- The same connect point mechanism carries both links. `Server` (browser to
   edge over wss) and `Store.items` (edge to database over the mesh) are the same
   programming model with different transports underneath.
 

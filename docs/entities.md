@@ -64,19 +64,24 @@ entity that names no type is a `service`.
 
 - Compiled to WebAssembly, runs in the browser, untrusted, connect only.
 - Reaches exactly one web edge over wss. Never participates in the mesh.
-- A project has at least one. Multiple client entities (for example a separate
-  admin app) are a later version feature; the model already allows naming more
-  than one.
+- A project has at least one, and may have several. A separate admin app is an
+  ordinary second client entity. Each gets its own QML module and its own bundle
+  directory (`build/client-<name>/`), and
+  [`bundles:`](project-layout-and-config.md#bundles-which-scope-is-served-which-client)
+  on an edge decides which scope is served which of them.
 
 `type: web_edge`:
 
-- A native binary that serves the client bundle and accepts that client's wss
-  connection. It is the only entity exposed to the internet, and a project has one.
+- A native binary that serves a client bundle and accepts that client's wss
+  connection. It is the type that faces the internet, and most projects have one.
+  A project may declare several, each on its own public port, and `replicas:` runs
+  one of them as several interchangeable processes (see
+  [deploying](deploying.md#8-running-more-than-one-edge)).
 
 Every other type is a native binary that listens and connects on the mesh only, reachable
 by the entities the topology allows and by nobody else. `relational`, `document` and
-`cache` each come with an engine behind a provider; `api` and `jobs` come with a helper and
-no engine; `service` is the plain one, with neither.
+`cache` each come with an engine behind a provider. `api` and `jobs` come with a helper and
+no engine. `service` is the plain one, with neither.
 
 A typical system: one `client`, one `web_edge`, and one or more internal entities
 (database, cache, document store, api, jobs, auth).
@@ -405,7 +410,7 @@ Entities are independent binaries, so deployment is flexible:
 
 Each entity is supervised by your process manager. Every build writes
 `build/process-manifest.json` for it: the binaries, the order to start them in, the
-certificate and key each expects, and which single entity binds to a public interface.
+certificate and key each expects, and which of them bind to a public interface.
 The order is owners before the consumers that need them, though a consumer retries until
 its owner is ready either way. [Deploying a SynQt system](deploying.md) walks the rest of
 the path.

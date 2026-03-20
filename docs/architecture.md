@@ -16,16 +16,20 @@ binary, its own identity, and its own place in the topology. There are two kinds
   clients](desktop.md)). It is untrusted. Because the browser sandbox is the
   tightest target it is written against, it can only connect out, never listen,
   and a native build keeps exactly that shape. A project has at least one (the
-  user facing app); it may have more (for example a separate admin app) in later
-  versions.
+  user facing app) and may have more, with a separate admin app the usual second
+  one. Each gets its own bundle, and an edge's
+  [`bundles:`](project-layout-and-config.md#bundles-which-scope-is-served-which-client)
+  decides which scope is served which.
 - A service entity is a native binary. It can listen and connect. Services carry
-  types. The most important one is the web edge: an entity of `type: web_edge`
-  serves a client bundle and accepts that client's connection. It
-  is the only kind of entity exposed to the internet. Other services (a database,
-  a cache, a gateway, a jobs runner, an auth service, or anything custom) have no
-  public exposure and are reachable only by the entities the topology allows.
+  types. The most important one is the web edge. An entity of `type: web_edge`
+  serves a client bundle and accepts that client's connection, and it is the only
+  type a browser can reach. Other services (a database, a cache, a gateway, a jobs
+  runner, an auth service, or anything custom) have no public exposure and are
+  reachable only by the entities the topology allows, unless one deliberately opens
+  an HTTP surface with
+  [`network.inbound`](project-layout-and-config.md#network-what-an-entity-may-reach-and-who-may-reach-it).
 
-A familiar client and server pair maps onto this model directly: the process that
+A familiar client and server pair maps onto this model directly. The process that
 serves the app and faces the internet is the service entity holding the web edge
 type, and the browser app is the client entity. Everything else is a
 service entity you add as needed.
@@ -127,17 +131,17 @@ code without hiding that it is asynchronous.
 flowchart LR
   subgraph browser["client entity (browser, WASM), untrusted"]
     ui["QML UI"]
-    rtodo["Server.todo<br/>Replica"]
+    rtodo["Server<br/>(the Edge replica)"]
     ui --- rtodo
   end
 
   subgraph edge["web edge entity (native), the only internet-facing entity"]
-    stodo["<span style='color:#1a1a2e'>edge Source<br/>authoritative owner</span>"]
-    rusers["<span style='color:#1a1a2e'>Store.users<br/>Replica</span>"]
+    stodo["<span style='color:#1a1a2e'>Edge Source<br/>authoritative owner</span>"]
+    rusers["<span style='color:#1a1a2e'>Store<br/>replica</span>"]
   end
 
   subgraph db["store entity (native), internal only"]
-    susers["<span style='color:#1a1a2e'>Users Source<br/>authoritative owner</span>"]
+    susers["<span style='color:#1a1a2e'>Store Source<br/>authoritative owner</span>"]
   end
 
   edge -.->|"plane A: HTTPS bundle + isolation headers"| ui
@@ -152,17 +156,16 @@ flowchart LR
   style susers fill:#def,stroke:#39c,color:#1a1a2e
 ```
 
-In the graph: thick arrows are owner to consumer (properties and signals), thin
-arrows are consumer to owner (slots). The browser's `Server.todo` Replica mirrors
-the edge's Source over wss; the edge's `Store.users` Replica mirrors the
-database's `Users` Source over mutual TLS. Only the edge faces the internet; the
-database is internal only.
+In the graph, thick arrows are owner to consumer (properties and signals) and thin
+arrows are consumer to owner (slots). The browser's `Server` mirrors the edge's
+`Edge` Source over wss, and the edge's `Store` mirrors the store entity's own Source
+over mutual TLS. Only the edge faces the internet. The store is internal only.
 
 ## Runtime components
 
 The framework ships a client runtime (linked into the WebAssembly client), a
 service runtime (linked into every native entity), and a thin generated layer.
-The names below are the actual C++ class names; the
+The names below are the C++ class names, and the
 [C++ API reference](api-reference.md) documents their members.
 
 Client runtime (WebAssembly, and the same runtime linked into a native desktop
@@ -252,7 +255,7 @@ sequenceDiagram
     Note over E: upgrade verifier: origin, session, scope, limits
     E-->>B: upgrade accepted, QtRO node connected
     Note over B,E: plane B (wss + QtRO)
-    B->>E: acquire Replica of Server.todo
+    B->>E: acquire the Edge replica (reached as Server)
     E-->>B: items model populates (plane C)
     B->>E: Server.add("buy milk")  [slot: Replica to Source]
     Note over E: edge authorizes the user (Caller.hasScope), validates input
