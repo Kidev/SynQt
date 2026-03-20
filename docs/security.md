@@ -386,14 +386,6 @@ read them.
   read memory. A drained buffer also returns its allocation instead of keeping it
   for the life of the connection.
 
-These four are browser link controls, and only the browser link has them. A mesh
-link has no connection cap, no message size cap, and no read buffer ceiling: its
-peer has already presented a certificate this project's own CA issued, so a peer in
-a position to exhaust an entity's memory is a peer that is already inside the trust
-boundary, and the answer to one is revocation and rotation rather than a quota. What
-does bound a mesh link is the topology itself, since an entity accepts connections
-only from the consumers its connect points name. If you run entities you do not
-fully trust in one mesh, that is the assumption to revisit first.
 - Heartbeat and reconnection. The QtRO heartbeat detects dead connections so their
   resources are reclaimed, and capped exponential backoff avoids hammering a
   recovering entity.
@@ -406,7 +398,16 @@ fully trust in one mesh, that is the assumption to revisit first.
   refuse a megabyte.
 - Database specifics. The relational entity type serializes writes and sets a busy
   timeout, so concurrent transactions cannot deadlock the entity (SQLite blocks
-  under concurrent writers); see [entities](entities.md).
+  under concurrent writers). See [entities](entities.md).
+
+The caps above are browser link controls, and only the browser link has them. A mesh
+link has no connection cap, no message size cap, and no read buffer ceiling, because its
+peer has already presented a certificate this project's own CA issued, so a peer in
+a position to exhaust an entity's memory is a peer that is already inside the trust
+boundary, and the answer to one is revocation and rotation rather than a quota. What
+does bound a mesh link is the topology itself, since an entity accepts connections
+only from the consumers its connect points name. If you run entities you do not
+fully trust in one mesh, that is the assumption to revisit first.
 
 Of the limits in this section, only the QtRO heartbeat and the per socket message
 size cap come from Qt APIs. The handshake timeout, the connection caps, and the read
@@ -661,8 +662,11 @@ Mesh links:
 - The mesh CA private key is not on any running entity and not committed; entity
   keys have restrictive permissions.
 - Certs are within their validity window; rotation is scheduled before expiry.
-- Only the web edge has `type: web_edge` and a public bind; every other
-  entity binds private or local only.
+- The only entities bound where the internet can reach them are the web edges and
+  any entity that deliberately declares [`network.inbound`](project-layout-and-config.md#network-what-an-entity-may-reach-and-who-may-reach-it);
+  every other entity binds private or local only. An `inbound` surface sits behind its
+  API key, its origin list and its rate limit, and `synqt check` refuses one that names
+  no keys unless it also says `public: true`.
 
 Authorization and data:
 
@@ -688,7 +692,9 @@ Authorization and data:
 
 System wide:
 
-- Resource limits set on both link types: message size, connection caps, handshake
-  timeout, heartbeat, database busy timeout.
+- The browser link's limits are set: message size, the two connection caps, the
+  handshake timeout, and the request body cap. A mesh link carries none of these, and
+  the consumer list is what bounds it. The QtRO heartbeat runs on every link, and a
+  relational entity has its busy timeout.
 - Secrets only via `env:`, never referenced by a client target, never logged.
 - Toolchain, dependencies, and entity types pinned and reviewed.
