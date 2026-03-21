@@ -333,8 +333,8 @@ close to linearly to about 1.0M and 862k at eight processes, while SynQt threads
 shared value.](assets/scaling-cores.svg){ width="100%" }
 
 One publisher, 100 subscribers, saturating, 256 byte payload; 32 core Linux host, Qt
-6.11.1, Node 22. Reproduce it with `benchmarks/vs-node/run-bench.sh` and
-`benchmarks/vs-node/sweep.py`.
+6.11.1, Node 22. Reproduce it with [`benchmarks/vs-node/run-bench.sh`](https://github.com/Kidev/SynQt/blob/main/benchmarks/vs-node/run-bench.sh)
+and [`benchmarks/vs-node/sweep.py`](https://github.com/Kidev/SynQt/blob/main/benchmarks/vs-node/sweep.py).
 
 | cores | `replicas: N` | Node `cluster` | `threads: N` |
 |---|---|---|---|

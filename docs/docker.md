@@ -186,7 +186,8 @@ a while.
 
 **`build`** installs `synqt` and compiles every entity with `--profile docker` applied. The
 synqt it installs is the checkout the CLI itself is running out of, handed to the build as
-four named contexts (`cmake/`, `src/`, `tools/synqtc/` and `tools/synqt/`, which is what
+four named contexts ([`cmake/`](https://github.com/Kidev/SynQt/tree/main/cmake), [`src/`](https://github.com/Kidev/SynQt/tree/main/src), [`tools/synqtc/`](https://github.com/Kidev/SynQt/tree/main/tools/synqtc)
+and [`tools/synqt/`](https://github.com/Kidev/SynQt/tree/main/tools/synqt), which is what
 installing the CLI needs beside it) and read fresh on every build, so an image is never
 built from a copy of the framework that has gone stale. `synqt docker init` writes the path
 into the compose file and `synqt docker up` passes the live one through, so a checkout that

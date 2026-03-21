@@ -150,8 +150,9 @@ symbols. SynQt cannot use that plugin, on two counts at once:
 
 So a `mysql` provider needs the QMYSQL plugin rebuilt against MariaDB Connector/C
 (LGPLv2.1), which is the licensing correct client and the one a SynQt deployment may
-ship. `synqt build` does not do this for you; it is a one time step per machine, and
-`tools/qmysql-plugin/build-qmysql-plugin.sh` in the SynQt repository does it:
+ship. `synqt build` does not do this for you. It is a one time step per machine, and
+[`tools/qmysql-plugin/build-qmysql-plugin.sh`](https://github.com/Kidev/SynQt/blob/main/tools/qmysql-plugin/build-qmysql-plugin.sh)
+in the SynQt repository does it:
 
 ```console
 $ tools/qmysql-plugin/build-qmysql-plugin.sh

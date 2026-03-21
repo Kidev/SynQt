@@ -718,7 +718,7 @@ real edge, Chromium 149 closes the connection (code 1006, `Sent non-empty
 'Sec-WebSocket-Protocol' header but no response was received`) while Firefox 151 opens it.
 An edge that worked in one engine and not the other is worse than one that says no, so the
 word is refused at `synqt check`. The Qt half of that measurement is kept as a test
-(`tests/m5-webedge`), and it fails the day a Qt release makes the transport buildable.
+([`tests/m5-webedge`](https://github.com/Kidev/SynQt/tree/main/tests/m5-webedge)), and it fails the day a Qt release makes the transport buildable.
 
 Nothing needs it today. A browser holds the httpOnly cookie, and a native desktop client,
 which terminates its own TLS, presents its stored session on the handshake directly.

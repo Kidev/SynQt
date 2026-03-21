@@ -526,44 +526,44 @@ for the published CLI and its installer, and `[CONTRIB]` for the contributor boo
   Firefox, and WebKit through every QtRemoteObjects over WebSockets direction and a
   reconnect, on Ubuntu and on macOS. It runs on dispatch and when the spike changes, and it
   records the engine versions each run drove, because the engines it drives move on their
-  own schedule while the spike does not: dispatch it before leaning on its result.
+  own schedule while the spike does not. Dispatch it before leaning on its result.
 - [`wasm-proofs.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/wasm-proofs.yml) runs what needs a WebAssembly kit the other workflows do not install:
-  the multi threaded client actually receiving SharedArrayBuffer under cross origin
+  the multi threaded client receiving SharedArrayBuffer under cross origin
   isolation (and provably losing it without the headers), Qt Quick 3D Physics building and
   booting on both kits, and a real `synqt build` of the arena producing a servable client
   bundle. That last one is the only job that drives the CLI through an Emscripten client
-  build, so it asserts the artifacts rather than the exit code: a build that skips
+  build, so it asserts the artifacts rather than the exit code, because a build that skips
   compilation still succeeds and says so in its summary.
 - [`leaks.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/leaks.yml) asks every suite in the tree what it left behind, in the two ways a
   leak shows itself: a soak pass that runs each suite at two repeat counts and compares the
   peak resident set, and an AddressSanitizer pass that charges every leak LeakSanitizer
   reports to whoever allocated it and fails when a record belongs to `src/`. The cheap half
-  of that story is not here: `tests/memory` is an ordinary ctest suite and runs on every
+  is elsewhere. [`tests/memory`](https://github.com/Kidev/SynQt/tree/main/tests/memory) is an ordinary ctest suite and runs on every
   push, and it is the gate that matters, because it measures the leak class this framework
-  actually has (memory still reachable at exit, which a leak checker never reports).
+  has (memory still reachable at exit, which a leak checker never reports).
 - [`benchmarks.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/benchmarks.yml) runs the performance harnesses on dispatch and on a change under
   `benchmarks/`, and holds their output to the ratios and orderings [`benchmarks/README.md`](https://github.com/Kidev/SynQt/blob/main/benchmarks/README.md) claims, never to absolute numbers
   measured on another machine.
 - [`docs.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/docs.yml) builds and publishes this documentation site on a push to `main`.
 
-Neither WebAssembly workflow runs on every push: each builds a Qt module from source, which
-is too slow for that. Both run on dispatch and when what they cover changes. Keep in mind
-for the browser matrix that a browser engine can break it without anything here changing,
-so its last green run is only evidence about the day it ran.
+Neither WebAssembly workflow runs on every push. Each builds a Qt module from source, which
+is too slow for that. Both run on dispatch and when what they cover changes. A browser
+engine can break the browser matrix without anything here changing, so its last green
+run is only evidence about the day it ran.
 
 The suites run locally exactly as CI runs them, through each test's `run-*.sh` with
 `QT_HOST` pointing at your host kit (see the [developer guide](development.md)).
 
 Those are SynQt's own tests. Your application's are a separate thing with a separate
-command: `synqt test` builds and runs the QML tests under your project's `tests/`, and
+command. `synqt test` builds and runs the QML tests under your project's `tests/`, and
 [testing your app](testing.md) is how to write one. `synqt check` is its counterpart on
-the configuration side, and the two answer different questions: `check` reads the
-topology, `test` runs your slots.
+the configuration side, and the two answer different questions. `check` reads the
+topology, and `test` runs your slots.
 
 ## Releasing
 
 [`release.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/release.yml) is a manual workflow that cuts a release of the `synqt` CLI. The person
-running it does not type a version: they choose whether to bump the patch, minor, or
+running it does not type a version. They choose whether to bump the patch, minor, or
 major component of the most recent tag, and may add an optional pre release suffix such
 as `-alpha` or `-rc.1` (a non empty suffix marks the release as a pre release, so the
 installer keeps resolving to the last stable build). The workflow freezes the CLI into a

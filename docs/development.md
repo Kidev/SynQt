@@ -150,7 +150,7 @@ directories at all, so those modules need not even be installed.
   appends them once at each entry point that reads the whole topology (generation, the
   topology writer, validation), so the auth entity hosts them, each edge opens the consumer
   link, and `synqt check` holds both to the same mesh rules as any declared link. Their
-  contracts live in `src/identity/contracts/` and compile into `SynQtIdentity`, which is why
+  contracts live in [`src/identity/contracts/`](https://github.com/Kidev/SynQt/tree/main/src/identity/contracts) and compile into `SynQtIdentity`, which is why
   they are marked `framework` and filtered back out wherever an app side
   `export:` block would otherwise be read.
 - The edge's browser-facing policy (the `security` block, `project.origin_model`, the
@@ -375,11 +375,11 @@ suites against it, and reports both halves of the framework:
 - C++, the runtime libraries under `src/`. `--coverage` puts a counter file beside
   every object file, and
   [`tools/coverage/report.py`](https://github.com/Kidev/SynQt/blob/main/tools/coverage/report.py)
-  reads them back through `gcov -t -j`. Only `src/` is instrumented: counting the suites
-  themselves would add thousands of lines that are executed by definition, and the number
+  reads them back through `gcov -t -j`. Only `src/` is instrumented, because counting the
+  suites themselves would add thousands of lines that are executed by definition, and the number
   would then climb every time a test was written rather than every time one reached
   somewhere new.
-- Python, the CLI under `tools/synqt/`, through `coverage.py` with branch coverage on
+- Python, the CLI under [`tools/synqt/`](https://github.com/Kidev/SynQt/tree/main/tools/synqt), through `coverage.py` with branch coverage on
   (configured in
   [`tools/synqt/pyproject.toml`](https://github.com/Kidev/SynQt/blob/main/tools/synqt/pyproject.toml)).
   Branch coverage rather than lines alone because most of that tool is decisions about a
@@ -422,13 +422,13 @@ export SYNQT_TEST_MONGO_URI=mongodb://127.0.0.1:27017 SYNQT_TEST_MONGO_DB=synqt
 ```
 
 The Linux column of `ctest.yml` starts the same three containers, so this is measured in CI
-too. It does it best-effort: an engine that does not come up leaves the suite skipping
+too. It does it best-effort. An engine that does not come up leaves the suite skipping
 exactly as it would have, because a coverage number is not worth a build that fails over
 infrastructure. Two things gate the redis and mongodb halves further, and both are why that
-column installs `libhiredis-dev` and `libmongoc-dev`: without those headers at configure
-time, `src/providers/CMakeLists.txt` leaves the wrapper out of the build entirely, so the
+column installs `libhiredis-dev` and `libmongoc-dev`. Without those headers at configure
+time, [`src/providers/CMakeLists.txt`](https://github.com/Kidev/SynQt/blob/main/src/providers/CMakeLists.txt) leaves the wrapper out of the build entirely, so the
 file is absent from the build rather than present but uncovered. Faking the wire
-protocols instead was considered and rejected: satisfying libpq or the MongoDB driver
+protocols instead was considered and rejected. Satisfying libpq or the MongoDB driver
 well enough to be useful is a large surface, and a green test against a fake proves the
 provider talks to the fake.
 
