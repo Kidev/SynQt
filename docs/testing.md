@@ -114,6 +114,7 @@ anywhere else. The only SynQt-specific type is `EntityTest`.
 | `setScopeOrder(order, hierarchical?)` | the project's scope vocabulary. Defaults to `["anonymous", "user", "moderator", "admin"]`, hierarchical, which is what `synqt new` writes. |
 | `dbQuery(sql, params?)` | read the in-memory database directly, to assert on what a slot wrote rather than on what it returned. |
 | `cacheValue(key)` | read the in-memory cache directly. |
+| `recorded()` | what the entity recorded while this test ran, oldest first. One object per event, carrying `severity` and `category` as numbers, `severityName` and `categoryName` as the words, plus `message` and `attributes`. Drained on every `load()`. |
 
 ## What is real and what is substituted
 

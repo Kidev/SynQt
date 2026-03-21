@@ -137,10 +137,12 @@ same component, and the router hands back the same instance rather than rebuildi
 has to react to that binds `Router.params` rather than doing work in
 `Component.onCompleted`, which will not run a second time.
 
-`Router.pageStatus` says why the page on screen is the one showing: `Ready`, `Loading`
+`Router.pageStatus` says why the page on screen is the one showing, one of `Ready`, `Loading`
 (only reachable for a remote page, while the edge is being asked for it), `Forbidden`,
-`NotFound`, or `Error`. The [table in the runtime API](runtime-api.md#client-router)
-spells out what each one leaves `path` set to.
+`NotFound`, `Unsupported` (the route needs an accelerated scene graph this browser did
+not give Qt, so the notice shows in the page's place), or `Error`. The
+[table in the runtime API](runtime-api.md#client-router) spells out what each one leaves
+`path` set to.
 
 ## A deep link is a cold start
 

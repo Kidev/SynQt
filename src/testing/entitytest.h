@@ -33,10 +33,6 @@ class SessionManager;
 /// The QML type `EntityTest`, in the import `SynQt.Test`: an owned connect point's Source,
 /// loaded on its own, with a caller the test chooses.
 ///
-/// An owner slot is where authorization lives, so it is the thing most worth testing, and
-/// until now testing one meant writing C++ against Caller::forUser. This is the same
-/// machinery driven from QML, so a slot written in QML is tested in QML:
-///
 /// \code
 /// EntityTest {
 ///     id: harness
@@ -52,13 +48,10 @@ class SessionManager;
 /// }
 /// \endcode
 ///
-/// It is the real Caller, minted through the same factory the runtime uses, so a slot
-/// cannot pass here and fail in production because the test stubbed the check. What is
-/// substituted is only what an engine would otherwise be. The type helpers are backed
-/// by in-memory providers, so a test needs no database, no server, and no certificates.
-///
-/// This class ships in a library a production entity never links and registers into an
-/// import a production entity never writes, so nothing here can widen the runtime.
+/// The Caller is real, minted through the runtime's own factory. Only the engines are
+/// substituted: the type helpers use in-memory providers, so a test needs no database,
+/// server or certificates. The class ships in a library and an import a production entity
+/// never uses.
 class EntityTest : public QObject
 {
     Q_OBJECT
@@ -113,13 +106,9 @@ public:
     /// Read the in-memory cache directly.
     Q_INVOKABLE QVariant cacheValue(const QString &key);
 
-    /// What the entity recorded while this test ran, oldest first, one map per event
-    /// carrying `severity`, `category`, `message` and `attributes`.
-    ///
-    /// A `Log.info(...)` in an entity's QML is a fact about how it behaves, so it is
-    /// testable like any other. The events come from the real pipeline, which the harness
-    /// switches on for the entity under test alone and drains on each `load()`, so one
-    /// test never reads what an earlier one said.
+    /// What the entity recorded while this test ran, oldest first: one map per event with
+    /// `severity` and `category` (wire numbers), `severityName` and `categoryName`, `message` and
+    /// `attributes`. Drained on each `load()`, so one test never reads another's events.
     Q_INVOKABLE QVariantList recorded() const;
 
 signals:
