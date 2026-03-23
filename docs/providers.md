@@ -307,8 +307,8 @@ implement the family interface yourself.
 > [An identity service of your own](tutorial-advanced-identity.md) covers the one
 > customization that is not a provider.
 
-`synqt add provider MyEngine --family persistence` writes the whole shape below into
-`providers/custom/myengineprovider.cpp`; the three steps are what it wrote and why.
+`synqt add provider MyEngine --family relational` writes the whole shape below into
+`providers/custom/myengineprovider.cpp`. The three steps are what it wrote and why.
 
 1. Implement the family interface (for example `IPersistenceProvider`) in a small
    native module in the entity, including the lifecycle (connect, disconnect,
@@ -322,24 +322,25 @@ implement the family interface yourself.
    ```
 
    (`SYNQT_REGISTER_CACHE_PROVIDER` and `SYNQT_REGISTER_DOCUMENT_PROVIDER` for the
-   other two families.) The name here is the bare one: no `custom:` prefix.
-3. Select it: `provider.name: custom:MyEngine`, with the rest of the `provider` section
+   other two families.) The name here is the bare one, with no `custom:` prefix.
+3. Select it with `provider.name: custom:MyEngine`, with the rest of the `provider` section
    carrying settings your provider reads from its `ProviderConfig`. That selection is
    also what compiles `providers/custom/` into the entity, so the registration above
-   runs. There is no CMake to edit, and editing it would not last: the build regenerates
-   the project's `CMakeLists.txt` from the topology every time.
+   runs. There is no CMake to edit. The build writes `generated/synqt.cmake` from the
+   topology every time, and the project's own root `CMakeLists.txt` does nothing but
+   include it.
 
 `custom:` is a namespace. Only a name carrying it is looked up among
-your registrations, so a custom provider can never shadow a bundled one: `sqlite`
+your registrations, so a custom provider can never shadow a bundled one. `sqlite`
 always means the bundled SQLite provider, whatever you register. If the name selects
 nothing, the entity refuses to start and says which providers the family does have,
 rather than starting with a connect point whose every call would fail.
 
-The contract your provider must honor is documented with the interface: parameters
+The contract your provider must honor is documented with the interface. Parameters
 are passed separately (never concatenate), errors are reported through the
-interface's error type (not thrown across the boundary), and `health()` reports
+interface's error type (never thrown across the boundary), and `health()` reports
 readiness so the entity can report not ready and retry rather than crash. A custom
-provider is your code, so it is reviewed like any entity code; the framework does
+provider is your code, so it is reviewed like any entity code. The framework does
 not weaken its boundary for it.
 
 ## CLI support

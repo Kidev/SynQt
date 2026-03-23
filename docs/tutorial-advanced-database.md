@@ -3,24 +3,23 @@
 
 # A database of your own
 
-Goal: put a relational entity in front of Microsoft SQL Server, which SynQt does not
-bundle a provider for, without changing one line of the entity's QML or of any consumer.
-By the end, `provider.name: custom:SqlServer` will be all that separates the entity from
-the SQLite it started on.
+Goal: put a relational entity in front of Microsoft SQL Server, which has no bundled
+provider, without changing a line of the entity's QML or of any consumer. At the end,
+`provider.name: custom:SqlServer` is the only difference from the SQLite it started on.
 
-SQL Server is a good first adaptor because Qt does most of the work. It has no native Qt
-driver, but it is reachable through
+SQL Server makes a good first adaptor because Qt does most of the work. It has no native Qt
+driver, but Qt reaches it through
 [QODBC](https://doc.qt.io/qt-6/sql-driver.html#qodbc-for-open-database-connectivity-odbc),
-so the statements, the binding, and the result handling are the Qt SQL API you may
-already know. What is yours is the connection, the dialect, and the security position.
-[The next page](tutorial-advanced-cache.md) does the harder shape, an engine Qt cannot
+so statements, binding and results use the Qt SQL API you may know. You handle the
+connection, the SQL dialect and the security rules.
+[The next page](tutorial-advanced-cache.md) covers the harder case: an engine Qt cannot
 reach at all.
 
 ## Step 1: Know what you are signing up for
 
-The persistence family is `IPersistenceProvider`, and it is ten functions. Three are
-lifecycle, two are statements, three are transactions, one is migrations, and one names
-the provider:
+The persistence family is `IPersistenceProvider`, with ten functions: three for
+lifecycle, two for statements, three for transactions, one for migrations, and one that
+names the provider:
 
 ```cpp
 bool connect(QString *error);
@@ -39,40 +38,38 @@ bool migrate(const QStringList &steps, QString *error);
 QString name() const;
 ```
 
-Two things in that list are the reason the interface looks the way it does.
+Two rules shape the interface.
 
-The SQL and its parameters arrive separately, and there is no overload that takes
-them together. A provider is never handed a finished statement with a value already
-pasted into it, so there is no place in your adaptor where an injection could be
-introduced even by accident. Whatever your engine's binding syntax is, it is your job to
-bind, never to concatenate.
+**The SQL and its parameters arrive separately.** Every overload keeps them apart, so a
+provider never receives a statement with a value already pasted in, and your adaptor has
+no place where an injection could slip in. Whatever your engine's binding syntax, bind;
+never concatenate.
 
-Errors come back in the return value. `DbResult` carries `ok`, `error`, and the data,
-and the three-state functions take a `QString *error`. Nothing is thrown across this
-boundary, because the thing on the other side of it is an entity's event loop, and an
-exception unwinding through that would take the entity down over a failed `SELECT`.
+**Errors come back in the return value.** `DbResult` carries `ok`, `error` and the data,
+and the functions with three outcomes take a `QString *error`. Errors never cross this
+boundary as exceptions: the caller is an entity's event loop, and an exception unwinding through it
+would take the entity down over a failed `SELECT`.
 
 ## Step 2: Scaffold it
 
 ```cli
-synqt add provider SqlServer --family persistence
+synqt add provider SqlServer --family relational
 ```
 
-That writes `providers/custom/sqlserverprovider.cpp`: the class, the registration, and
-every operation stubbed to report that it is not written yet. It compiles and registers
-as it stands, so you can select it immediately and watch it fail honestly rather than
-quietly. The rest of this page fills it in.
+This writes `providers/custom/sqlserverprovider.cpp`, with the class, the registration,
+and every operation stubbed to report that it is not implemented. It compiles and
+registers as is, so you can select it at once and see it fail with a clear message. The
+rest of this page fills it in.
 
-The file is compiled into any entity whose config selects `custom:SqlServer`, and that
-selection is the only wiring there is. There is no CMake to edit, and you should not try:
-the root `CMakeLists.txt` is regenerated from your topology on every build.
+The file is compiled into every entity whose config selects `custom:SqlServer`; that
+selection is the only wiring. Every build writes `generated/synqt.cmake` from your
+topology, and your root `CMakeLists.txt` only includes it, so there is no CMake to edit.
 
 ## Step 3: Open the connection, or refuse to
 
-This is the part that is genuinely yours. Everything about how the engine is reached
-lives here and nowhere else: the driver, the address, the credentials, and the answer to
-the one question SynQt does not let a provider dodge, which is whether the connection is
-verified.
+Everything about reaching the engine lives here and nowhere else: the driver, the
+address, the credentials, and the one question SynQt makes every provider answer: is the
+connection verified?
 
 ```cpp
 #include "ipersistenceprovider.h"
@@ -203,30 +200,28 @@ public:
     }
 ```
 
-Three rules are being obeyed here, and none of them is optional.
+This code follows three mandatory rules:
 
-The credentials never leave. `m_config.password` came from the entity's own
-environment, through an `env:` reference the build refuses to resolve in a client target.
-It is written into the connection and into nothing else, so never a log line, an error
-message, or a property on a connect point. The error above names the host rather than
-the string the host was reached with.
-
-An unverified connection is refused in release. `refusesInsecure()`, two steps below,
-is the whole of that policy. Development on loopback stays easy, and a release build
-pointed at a real address with verification off does not start. An adaptor inherits this
-rule rather than deciding it. See
-[security of third party backends](providers.md#security-of-third-party-backends).
-
-The connection belongs to one thread. Qt SQL requires that a `QSqlDatabase` be used
-only on the thread that created it, and `SqlConnectionPool` is built around that. The
-entity's event loop is that thread. Do not hand a lease to a worker.
+- **The credentials never leave.** `m_config.password` comes from the entity's own
+  environment, through an `env:` reference the build refuses to resolve in a client
+  target. It goes into the connection and nowhere else: never a log line, an error
+  message or a connect point property. The error above names the host, not the
+  connection string.
+- **An unverified connection is refused in release.** `refusesInsecure()`, two steps
+  below, is that whole policy. Development on loopback stays easy, and a release build
+  pointed at a real address with verification off does not start. Every adaptor inherits
+  this rule. See
+  [security of third party backends](providers.md#security-of-third-party-backends).
+- **The connection belongs to one thread.** Qt SQL requires that a `QSqlDatabase` be used
+  only on the thread that created it, and `SqlConnectionPool` is built for that. That
+  thread is the entity's event loop. Never hand a lease to a worker.
 
 ## Step 4: Run a statement
 
-Everything the entity asks for comes through two functions, and both are the
-same function with a flag. From here the class is shown in the order the story goes, so
-`public:` and `private:` alternate more than they would in a file you sat down and wrote.
-The concatenation is valid C++, and sorting it afterwards changes nothing.
+Every request from the entity arrives through two functions, which are the same function
+with a flag. From here on the class appears in the order of the explanation, so
+`public:` and `private:` alternate more than in a normal file. Joined together the pieces
+are valid C++, and reordering them changes nothing.
 
 ```cpp
     DbResult query(const QString &sql, const QVariantList &params) override
@@ -240,10 +235,10 @@ The concatenation is valid C++, and sorting it afterwards changes nothing.
     }
 ```
 
-The shared half is short because `runStatement()`, from the framework's SQL support,
-already does the prepare, the bind, and the row collection for any Qt SQL driver. Reuse
-it, because it is where the "bind, never concatenate" rule is enforced, and writing your
-own version is how a provider grows a hole.
+The shared part is short because `runStatement()`, from the framework's SQL support,
+already prepares, binds and collects rows for any Qt SQL driver. Reuse it: it enforces the
+"bind, never concatenate" rule, and a provider that writes its own version risks a
+hole.
 
 ```cpp
 private:
@@ -267,11 +262,11 @@ private:
     }
 ```
 
-That branch on `m_inTransaction` is an easy thing to leave out of a hand-written
-relational provider. A pool hands out whichever connection is free, and a transaction
-lives on one connection. Take a fresh lease inside a transaction and the statement is
-committed independently while the transaction it was supposed to be part of rolls back
-around it. The symptom is half-written data that no test reproduces.
+The branch on `m_inTransaction` is easy to forget in a hand-written relational provider.
+A pool hands out whichever connection is free, but a transaction lives on one connection.
+Take a fresh lease inside a transaction, and the statement commits on its own while the
+transaction it belonged to rolls back. The symptom is half-written data that no test
+reproduces.
 
 ## Step 5: Transactions
 
@@ -305,8 +300,8 @@ public:
     bool rollback(QString *error) override { return finish(error, false); }
 ```
 
-with the two endings sharing their bookkeeping, since the only difference between them is
-which function they call and everything after that is identical:
+The two endings share their bookkeeping, since they differ only in the function they
+call:
 
 ```cpp
 private:
@@ -338,11 +333,10 @@ private:
 
 ## Step 6: Migrations, forward only
 
-A migration list is the schema's history, and `migrate()` is handed all of it every time
-the entity starts. Its job is to apply the steps that have not been applied yet, in order,
-and to be a no-op when there are none. It never goes backwards. There is no `down`,
-because a rollback that runs against production data destroys data while looking like a
-safety measure.
+A migration list is the schema's history, and `migrate()` receives all of it every time
+the entity starts. It applies the steps not yet applied, in order, and does nothing when
+there are none. It never goes backwards, and has no `down`, because a rollback run
+against production data destroys data while looking like a safety measure.
 
 ```cpp
 public:
@@ -360,9 +354,9 @@ public:
 ```
 
 `applyMigrations()` reads the applied count from `synqt_migrations`, runs the remaining
-steps inside one transaction, and records the new version. The table is portable ANSI
-SQL, which is why the only dialect-specific line in this whole adaptor is the
-`IF OBJECT_ID(...)` that created it back in `connect()`.
+steps in one transaction, and records the new version. The table is portable ANSI SQL, so
+the only dialect-specific line in this adaptor is the `IF OBJECT_ID(...)` in `connect()`
+that created it.
 
 ## Step 7: Close the file
 
@@ -389,11 +383,11 @@ SYNQT_REGISTER_PERSISTENCE_PROVIDER("SqlServer", SqlServerProvider)
 } // namespace SynQt
 ```
 
-Read the chunks from Step 3 onward in order and you have the file.
+The pieces from step 3 onward, in order, make the whole file.
 
 ## Step 8: Select it
 
-One block in `synqt.yaml`, and nothing else in the project changes:
+Add one block to `synqt.yaml`; nothing else in the project changes:
 
 ```yaml
 entities:
@@ -410,61 +404,57 @@ entities:
       pool_size: 8
 ```
 
-and the secret's name, never its value, in `.env.example`:
+and put the secret's name, never its value, in `.env.example`:
 
 ```text
 MSSQL_PASSWORD=
 ```
 
-The entity's connect point Source, `db/relational/books/Books.qml` or whatever you called it, is
-untouched. It called `Db.query(...)` before and it calls `Db.query(...)` now. That is the
-masking working. The engine changed and the contract did not, so no consumer had anything
-to notice.
+The entity's connect point Source (`db/relational/books/Books.qml`, or whatever you named
+it) is unchanged: it called `Db.query(...)` before and still does. The engine changed and
+the contract did not, so no consumer notices anything.
 
 ## Try it, then think
 
 > [!QUESTION]
-> Set `provider.name: custom:SqlSever` (note the typo) and start the entity. Then put the
-> `s` back but set `sslmode: prefer` in a release build and start it again. What happens
-> each time, and why is it that rather than a warning?
+> Set `provider.name: custom:SqlSever` (note the typo) and start the entity. Then fix the
+> typo, set `sslmode: prefer` in a release build, and start it again. What happens each
+> time, and why is it not a warning?
 
 <details class="solution" markdown>
 <summary>Solution</summary>
 
-The typo does not start. The family factory sends any `custom:` name to the registry,
-finds nothing registered under `SqlSever`, and the entity refuses to start, naming the
-providers the persistence family does have. The alternative would be an entity that comes
-up with a connect point whose every call fails at run time, which is a worse outcome
-discovered later, by a user.
+With the typo, the family factory sends any `custom:` name to the registry, finds nothing
+under `SqlSever`, and the entity refuses to start, listing the providers the persistence
+family does have. Otherwise the entity would come up with a connect point whose every call
+fails at run time, a worse problem that a user would find later.
 
-`sslmode: prefer` does not start either, and the message says so. `connect()` returns
-false from `refusesInsecure()` before a socket is opened. A warning would be the wrong
-shape, because a warning is a thing you can ship past. The connection this refuses to
-open is one that would hand the engine's credentials, and every row that follows, to
-whoever answered that address.
+With `sslmode: prefer`, it refuses to start too, and the message says why: `connect()`
+returns false from `refusesInsecure()` before opening a socket. A warning would be wrong,
+because you can ship past a warning. The refused connection would hand the engine's
+credentials, and every row after them, to whoever answered at that address.
 
-Both are the same principle. A misconfiguration that would produce a working-looking
-system with a hole in it fails at startup instead.
+Both follow one principle: a misconfiguration that would produce a system that looks fine
+but has a hole fails at startup instead.
 
 </details>
 
 ## What you learned
 
-- A provider is the one part of an entity that knows the engine, and implementing a
-  family interface is the whole of what makes an engine reachable.
-- SQL and parameters arrive separately, always. Bind them. There is no code path in a
-  correct adaptor that concatenates a value into a statement.
+- A provider is the only part of an entity that knows the engine. Implementing a family
+  interface is all it takes to reach a new engine.
+- SQL and parameters always arrive separately. Bind them; a correct adaptor never
+  concatenates a value into a statement.
 - Errors are returned, never thrown, because the caller is an entity's event loop.
-- A pooled provider must pin its transaction to one connection, or a transaction will
-  silently not contain the statements it appears to.
+- A pooled provider must pin a transaction to one connection, or the transaction silently
+  misses statements it appears to contain.
 - Credentials come from the entity environment, go into the connection, and appear
   nowhere else.
-- An unverified connection to a real address is refused in a release build, by the
-  adaptor, at startup.
-- `custom:` is a namespace. A lookup carrying it reaches your registrations only, so
-  nothing you register can shadow `sqlite`, and a name that selects nothing stops the
-  entity rather than degrading it.
+- The adaptor refuses an unverified connection to a real address in a release build, at
+  startup.
+- `custom:` is a namespace. A lookup with it reaches only your registrations, so nothing
+  you register can shadow `sqlite`, and a name that selects nothing stops the entity.
 
 If you write one of these for a real engine, please
-[send it](tutorial-advanced.md#when-yours-works-send-it). A provider that works is one
-somebody else does not have to write.
+[send it](tutorial-advanced.md#when-yours-works-send-it), so nobody else has to write
+it.
