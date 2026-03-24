@@ -198,7 +198,7 @@ import SynQt
 IdentityMapping {
     // Return the scope a freshly authenticated identity should hold.
     function scopeFor(identity) {
-        const admins      = ["hello@iamki.dev"]
+        const admins      = ["owner@example.com"]
         const moderators  = ["mod@example.com"]
         if (admins.indexOf(identity.email) !== -1)     return "admin"
         if (moderators.indexOf(identity.email) !== -1) return "moderator"

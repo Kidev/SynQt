@@ -88,8 +88,8 @@ entity:
 ```text
 build/
   client/                 # the WebAssembly bundle, precompressed, plus its licenses
-  web/                    # the edge binary, its topology.json, its licenses
-  database/               # the database binary, its topology.json, its licenses
+  edge/                   # the edge binary, its topology.json, its licenses
+  store/                  # the database binary, its topology.json, its licenses
   process-manifest.json   # the start plan (see below)
 ```
 
@@ -127,20 +127,20 @@ myapp/
 
 The entity source directories travel too, but only for what an entity reads at run time.
 A relational entity's folder on a deployed host means its `.env`, its `schema.sql` and
-its `data/`, not the QML, which is inside the binary. `synqt.yaml` travels because
-the paths the entities use are the paths it spells.
+its `data/`. The QML is inside the binary. `synqt.yaml` travels because the paths the
+entities use are the paths it spells.
 
-**Service binaries do not carry Qt.** `synqt build` does not run a deployment step for
+Service binaries do not carry Qt. `synqt build` does not run a deployment step for
 them, so a service host needs the pinned Qt kit present, either baked into a container
-image or installed at the same path the build used. (The desktop *client* is the
-exception: see step 8.) A container image built from the same base as your build machine
+image or installed at the same path the build used. (The desktop client is the
+exception. See step 9.) A container image built from the same base as your build machine
 is the least surprising way to get this right.
 
 ## 5. Place the secrets
 
 No secret is written into `synqt.yaml`. A configuration value that is one is declared as
 a reference, `password: env:DB_PASSWORD`, and resolved at start from the entity's own env
-file and then the project's. This is enforced where it would hurt most: a provider
+file and then the project's. This is enforced where it would hurt most. A provider
 password or connection URI and an identity provider's `client_secret` are rejected unless
 they are `env:` references, and any `env:` reference reachable from a client target is
 rejected outright, so a secret cannot reach the browser by being named in the wrong
@@ -184,10 +184,10 @@ orchestrator's secret mechanism covers the rest.
 It answers the three questions a supervisor has. `start_order` is owners before
 consumers, so an entity's owner is up before it tries to acquire a replica (a consumer
 retries, so the order is not a hard requirement, but starting out of order turns a clean
-boot into a wait). `bind` says which single entity faces
-the public interface: exactly one, the web edge. And each entry names the material that
-entity expects, which is what to check before you conclude a start failure is a code
-problem.
+boot into a wait). `bind` says which entities face the public interface and which stay
+on loopback; the ones that face it are the web edges, and everything else is `loopback`.
+And each entry names the material that entity expects, which is what to check before you
+conclude a start failure is a code problem.
 
 For a quick run on one host:
 
@@ -204,8 +204,8 @@ provider out of a running deployment.
 
 ## 7. The public edge
 
-Exactly one entity is reachable from the internet, and the database is not it. Two things
-have to be true of the edge, and validation enforces the first:
+The web edge is what the internet reaches, and the database is not. Two things have to be
+true of it, and validation enforces the first:
 
 - **TLS is terminated somewhere and the configuration says where.** Either the edge
   carries `tls.cert_file` and `tls.key_file` and terminates it itself, or it declares
