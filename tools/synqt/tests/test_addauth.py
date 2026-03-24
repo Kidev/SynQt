@@ -20,10 +20,7 @@ class AddAuthTest(unittest.TestCase):
         return root
 
     def test_the_scaffold_keeps_the_comments_already_in_the_file(self):
-        """The file belongs to whoever wrote it. Adding the identity section is not
-        permission to reformat the rest of it, and a scaffold command that silently drops
-        the comments explaining a topology is worse than one that refuses to run.
-        """
+        """The scaffold keeps the existing comments in synqt.yaml."""
         root = Path(tempfile.mkdtemp())
         written_by_hand = ("# Hand written, and it stays.\n"
                            "project:\n"
@@ -68,7 +65,8 @@ class AddAuthTest(unittest.TestCase):
         self.assertEqual(session["cookie_name"], "synqt_session")
         self.assertEqual(session["same_site"], "lax")
         self.assertTrue(session["rotate"])
-        self.assertEqual(identity["mapping"]["hook"], "web/identity/map.qml")
+        # The hook is edge code, so it sits inside the edge entity's own folder.
+        self.assertEqual(identity["mapping"]["hook"], "web/edge/identity/map.qml")
 
         # No plaintext secret is written anywhere in the config.
         self.assertNotIn("client_secret: '", (root / "synqt.yaml").read_text())
@@ -77,7 +75,7 @@ class AddAuthTest(unittest.TestCase):
 
         # The required secret is documented but unset, and the mapping hook is scaffolded.
         self.assertIn("GITHUB_CLIENT_SECRET=", (root / ".env.example").read_text())
-        hook = (root / "web" / "identity" / "map.qml").read_text()
+        hook = (root / "web" / "edge" / "identity" / "map.qml").read_text()
         self.assertIn("IdentityMapping", hook)
         self.assertIn("scopeFor", hook)
 
@@ -86,6 +84,20 @@ class AddAuthTest(unittest.TestCase):
         self.assertIn("GITHUB_CLIENT_SECRET", message)
         self.assertIn("secure by default", message)
         self.assertNotIn("add the", message.lower())  # no "remember to add" hardening steps
+
+    def test_the_hook_lands_in_the_edge_entitys_own_folder(self):
+        """The mapping hook lands in the edge entity's folder, whatever it is called."""
+        root = Path(tempfile.mkdtemp())
+        (root / "synqt.yaml").write_text(yaml.safe_dump(
+            {"project": {"name": "app"},
+             "entities": [{"name": "front", "type": "web_edge"}]}, sort_keys=False))
+
+        message = addauth.scaffold(root, "github")
+
+        identity = yaml.safe_load((root / "synqt.yaml").read_text())["identity"]
+        self.assertEqual(identity["mapping"]["hook"], "web/front/identity/map.qml")
+        self.assertTrue((root / "web" / "front" / "identity" / "map.qml").is_file())
+        self.assertIn("web/front/identity/map.qml", message)
 
     def test_required_flag(self):
         root = self._fresh_project()
@@ -108,8 +120,7 @@ class AddAuthTest(unittest.TestCase):
         message = addauth.scaffold(root, "github", provider_entity="auth")
         identity = yaml.safe_load((root / "synqt.yaml").read_text())["identity"]
         self.assertEqual(identity["provider_entity"], "auth")
-        # Centralized: the secret lives on the auth entity (where the OAuth engine runs),
-        # never on the edge. The manual steps must say so.
+        # With provider_entity the secret belongs to the auth entity; the steps say so.
         self.assertIn("'auth' auth entity's .env", message)
         self.assertIn("never on the edge", message)
 

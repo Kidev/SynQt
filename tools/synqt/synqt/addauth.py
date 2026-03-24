@@ -92,7 +92,31 @@ def provider_template(provider: str) -> Dict[str, Any]:
     }
 
 
-def identity_section(provider: str, required: bool, provider_entity: str) -> Dict[str, Any]:
+#: Where the mapping hook goes when no web edge is declared yet. The scaffolder writes
+#: one called `edge`, so this is what a project made by `synqt new` resolves to anyway;
+#: it exists so that adding auth to a project with no edge still names a real path.
+DEFAULT_HOOK = "web/edge/identity/map.qml"
+
+
+def hook_path(config: Dict[str, Any]) -> str:
+    """Where this project's identity mapping hook belongs: inside its edge's folder.
+
+    The hook runs on the edge, so it is that entity's own code and lives with the rest
+    of it. Derived rather than fixed, because the folder is the entity's name and two
+    projects do not have to call their edge the same thing.
+    """
+    # Local, because appmodel imports this module for its provider table: a module-level
+    # import here would close the cycle. By the time anything calls this, both are loaded.
+    from . import appmodel
+
+    for entity in appmodel.entities(config):
+        if appmodel.is_edge(entity) and entity.get("name"):
+            return f"{appmodel.entity_dir(entity)}/identity/map.qml"
+    return DEFAULT_HOOK
+
+
+def identity_section(provider: str, required: bool, provider_entity: str,
+                     hook: str = DEFAULT_HOOK) -> Dict[str, Any]:
     """The full ``identity`` section, hardened by default."""
     return {
         "required": required,
@@ -108,7 +132,7 @@ def identity_section(provider: str, required: bool, provider_entity: str) -> Dic
             "ttl_minutes": 720,
             "rotate": True,  # rotate the session id on privilege change
         },
-        "mapping": {"hook": "web/identity/map.qml"},
+        "mapping": {"hook": hook},
     }
 
 
@@ -135,7 +159,8 @@ IdentityMapping {
 """
 
 
-def manual_steps(provider: str, provider_entity: str = "") -> str:
+def manual_steps(provider: str, provider_entity: str = "",
+                 hook: str = DEFAULT_HOOK) -> str:
     # `secret_env` is the NAME of the variable to set, which is the whole point of the step:
     # it tells the reader where to put a value this process never sees.
     secret_env = _secret_env(provider)
@@ -159,7 +184,7 @@ def manual_steps(provider: str, provider_entity: str = "") -> str:
         f"  1. Register an OAuth app with {provider}.\n"
         "  2. Set its redirect URL to your edge callback: <edge-origin>/auth/callback\n"
         + secret_step
-        + "  4. Edit web/identity/map.qml to grant higher scopes to specific identities."
+        + f"  4. Edit {hook} to grant higher scopes to specific identities."
     )
 
 
@@ -187,9 +212,10 @@ def scaffold(project_dir: os.PathLike[str] | str, provider: str, *, required: bo
             "an 'identity' section already exists; edit it by hand rather than re-running "
             "'synqt add auth'")
 
-    # Spliced into the text rather than dumped over it: the file is the author's, and one
+    # Spliced into the text rather than dumped over it. The file is the author's, and one
     # added section is not a reason to lose their comments and their formatting.
-    section = identity_section(provider, required, provider_entity)
+    hook_relative = hook_path(config)
+    section = identity_section(provider, required, provider_entity, hook_relative)
     existing = config_path.read_text() if config_path.exists() else ""
     config_path.write_text(yamledit.set_scalar(existing, "identity", section))
 
@@ -205,9 +231,9 @@ def scaffold(project_dir: os.PathLike[str] | str, provider: str, *, required: bo
         env_example.write_text("\n".join(lines) + "\n")
 
     # Scaffold the mapping hook (never overwrite an edited one).
-    hook = root / "web" / "identity" / "map.qml"
+    hook = root / hook_relative
     if not hook.exists():
         hook.parent.mkdir(parents=True, exist_ok=True)
         hook.write_text(MAP_HOOK)
 
-    return manual_steps(provider, provider_entity)
+    return manual_steps(provider, provider_entity, hook_relative)
