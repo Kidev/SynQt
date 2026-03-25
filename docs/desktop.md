@@ -249,13 +249,15 @@ delivery here too.
 
 ## Building for desktop
 
-`synqt build` builds whichever targets the client entity declares (see
-[configuration](#configuration)). Select or narrow them with `--client`:
+`--client` selects which of the client entity's declared targets (see
+[configuration](#configuration)) this build produces. It defaults to `wasm`, so a bare
+`synqt build` produces the browser bundle even for a client that also declares `desktop`:
 
 ```cli
-synqt build --client wasm          # the browser bundle only
+synqt build                        # the browser bundle (the default)
 synqt build --client desktop       # the native desktop app only
-synqt build --client all           # both (the default when both are declared)
+synqt build --client all           # every target the entity declares
+synqt build --client none          # the service entities and no client at all
 ```
 
 The desktop client uses the host desktop Qt kit, the same kit the service
@@ -271,7 +273,7 @@ build/
     windows/              # the .exe, plus its Qt runtime once deployed
     macos/                # <client>.app, plus its Qt runtime once deployed
     linux/                # the binary, plus its Qt runtime once deployed
-  web/                    # the web edge, unchanged
+  edge/                   # the web edge, unchanged
   ...
 ```
 
