@@ -50,20 +50,20 @@ client's QML branches on where a page came from.
 ## Where the files live
 
 A remote page lives under the web edge entity's directory, in a `pages/` subdirectory. For
-an edge entity named `web`, that is `web/edge/pages/`. The `remote:` value is the file's path
+an edge entity named `edge`, that is `web/edge/pages/`. The `remote:` value is the file's path
 relative to that directory, so `remote: Campaign.qml` names `web/edge/pages/Campaign.qml`.
 
-This directory is edge code, not client code. It is never compiled into the bundle and
+This directory is edge code rather than client code. It is never compiled into the bundle and
 never reaches a visitor who does not navigate to a route that delivers it. `synqt check`
 resolves each `remote:` file under `<edge>/pages/` and refuses a route whose page is not
 on disk.
 
 ## The palette: what a delivered page may import
 
-A compiled-in view is trusted by construction: it went through `synqt build` with the rest
-of your code. A delivered page is different. It arrives at run time and is interpreted by
-the client's QML engine on the visitor's machine, so the client has to decide what a
-delivered page is allowed to reach.
+A compiled-in view is trusted by construction, because it went through `synqt build` with
+the rest of your code. A delivered page is different. It arrives at run time and the
+client's QML engine interprets it on the visitor's machine, so the client has to decide
+what a delivered page is allowed to reach.
 
 `router.palette` is that decision. It is the list of QML modules a delivered page may
 import, and it is the whole of what a delivered page may import.
