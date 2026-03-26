@@ -47,9 +47,9 @@ same link. Clear starts over.
 ## What you can draw
 
 The rail on the left is the entity palette, and it is the list from
-[entities](entities.md): a client, a web edge, the four types that come with an engine
-behind them (relational, cache, document, api), the jobs type, the
-[monitor](monitoring.md), and a plain service you write yourself. Each row carries the glyph
+[entities](entities.md): a client, a web edge, the three types that come with an engine
+behind them (relational, cache, document), the api and jobs types, which come with a helper
+and no engine, the [monitor](monitoring.md), and a plain service you write yourself. Each row carries the glyph
 the canvas draws that entity with, and hovering one says what that kind of entity is for and
 when you would reach for it; the same line appears in the panel once one is on the canvas.
 
@@ -259,7 +259,8 @@ reached for -- because code that is already written is somebody having said so:
 property int score: Server.score
 ```
 
-draws `game`, owned by the web edge, consumed by the client, carrying `prop var score`. This
+draws the connect point the web edge owns, with the client on its consumer list and
+`prop var score` crossing it. This
 is [`synqt infer`](#reading-the-contracts-back) as you type, and it works on the copy on this
 site too, where there is no CLI behind the page at all. A member nothing gave a type to comes
 back `var` for you to name.
