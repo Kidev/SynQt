@@ -1,3 +1,6 @@
+<!-- SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+
 # Runtime API reference
 
 The framework injects a small set of objects into your QML. This page is the

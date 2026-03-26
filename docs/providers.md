@@ -1,9 +1,12 @@
+<!-- SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+
 # Providers (backing entities with first party or third party engines)
 
-An entity already hides its backend behind a typed connect point: consumers call
+An entity already hides its backend behind a typed connect point. Consumers call
 `Store.insert(...)` and never know or touch what stores the data. This
 document makes that backend pluggable. An entity type defines a small backend facing
-interface; a provider implements it for a specific engine. The default provider is
+interface, and a provider implements it for a specific engine. The default provider is
 SynQt's own embedded engine and needs no configuration. A third party engine
 (PostgreSQL, MySQL, MongoDB, Redis, or your own) is selected by one config value
 and masked behind the same entity, so the rest of the system, and its security

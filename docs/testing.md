@@ -1,3 +1,6 @@
+<!-- SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+
 # Testing your app
 
 A connect point's slot is where authorization lives. It is the piece of an application

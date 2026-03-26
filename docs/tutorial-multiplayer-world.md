@@ -1,3 +1,6 @@
+<!-- SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+
 # The arena the edge owns
 
 With the [empty scene running](tutorial-multiplayer.md), it is time to give the edge

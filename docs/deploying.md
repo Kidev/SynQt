@@ -1,3 +1,6 @@
+<!-- SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+
 # Deploying a SynQt system
 
 `synqt dev` runs everything on one machine with a throwaway CA and plaintext HTTP on

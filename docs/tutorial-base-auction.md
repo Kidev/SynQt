@@ -1,14 +1,16 @@
+<!-- SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+
 # The base case
 
-Goal: one item up for auction, with a current high bid that everyone sees update
-live. Anyone can place a bid.
+Goal: one item up for auction, with a high bid that everyone sees update live. Anyone
+can bid.
 
 ## Step 1: Declare what crosses the wire (a connect point)
 
-In SynQt, two entities talk through a connect point, a named live object that one
-entity owns and others see a live copy of. You declare it once, in `synqt.yaml`, with who
-owns it, who may use it, and the shape of what crosses it. Both sides agree on that shape and
-the compiler checks it.
+Two entities talk through a connect point: a live object that one entity owns and the
+others mirror. You declare it once, in `synqt.yaml`: who owns it, who may use it, and the
+shape of what crosses it. Both sides share that shape, and the compiler checks it.
 
 Open `synqt.yaml` and add:
 
@@ -28,27 +30,26 @@ connect_points:
       signal bidRejected(string[120] reason)
 ```
 
-The owner is `edge`, so the type it exports is `Edge`. That is the name you will
-write in QML in a moment, and nothing else names it.
+The owner is `edge`, so the type it exports is `Edge`. You write that name in QML in a
+moment.
 
 > [!NOTE]
-> Properties flow from the owner out to everyone watching.
-> Slots flow the other way. A consumer asks, and the owner decides. Step 4 shows why
-> that direction matters. The
-> full contract format, and the sizes in those brackets, are in
+> Properties flow from the owner to everyone watching. Slots flow the other way: a
+> consumer asks, and the owner decides. The exercise after step 4 shows why that direction
+> matters. The full contract format, and the sizes in the brackets, are in
 > [the programming model](programming-model.md#the-types-a-contract-can-name).
 
-Once the edge implements this, in step 3, those three properties can be exported by name
-alone. `synqt` reads what they are from the owner, and `synqt check` refuses a name the
-owner does not have. Written out is never wrong, and it is the only way to narrow a type
-with a bound, which is why the tutorial writes them out here. See
+Once the edge implements these properties (step 2), you could export them by name alone:
+`synqt` reads their types from the owner, and `synqt check` refuses a name the owner does
+not have. Writing the type out is never wrong, and it is the only way to bound a type,
+so the tutorial writes them out. See
 [exporting by name](programming-model.md#exporting-by-name).
 
 ## Step 2: Implement the owner side
 
-The web edge owns the connect point, which means it answers for the auction. There is one
-lot under the hammer however many people are watching, and one file that holds it. `synqt
-new` already wrote `web/edge/Edge.qml`, the edge itself. Open it and give it the auction.
+The web edge owns the connect point, so it runs the auction. There is one lot, however
+many people watch, and one file holds it: `web/edge/Edge.qml`, which `synqt new` already
+wrote. Open it and add the auction.
 
 ```qml
 import SynQt
@@ -63,24 +64,24 @@ Edge {
     // A consumer (a browser) is asking to bid. The edge decides whether to accept.
     function placeBid(bidder, amount) {
         if (amount <= auction.highBid) {
-            Caller.emitBidRejected("Your bid must beat " + auction.highBid + ".")
-            return
+            Caller.emitBidRejected("Your bid must beat " + auction.highBid + ".");
+            return;
         }
-        auction.highBid = amount
-        auction.highBidder = bidder
+        auction.highBid = amount;
+        auction.highBidder = bidder;
     }
 }
 ```
 
-The three properties are the ones the `export:` block declared, so setting them here is
-what publishes them. Every browser watching sees the new value without another line.
+The `export:` block declared these three properties, so setting them here publishes
+them. Every browser watching sees the new value; you write nothing else.
 
 `Caller` is whoever made this request. `Caller.emitBidRejected(...)` sends the
-`bidRejected` signal back to that one caller rather than to everyone.
+`bidRejected` signal to that caller only, not to everyone.
 
-The edge is shared, so there is one of these holding one lot. Each caller still arrives
-with their own `Caller`, which is what lets the rejection go back to the one browser that
-bid too low.
+The edge is shared (the default for every entity but the client), so one Source holds the
+one lot. Each caller still arrives with their own `Caller`, so the rejection goes back
+only to the browser that bid too low.
 
 ## Step 3: Build the UI
 
@@ -127,8 +128,8 @@ ApplicationWindow {
             Button {
                 text: "Place bid"
                 onClicked: {
-                    Server.placeBid(nameField.text, parseInt(amountField.text))
-                    amountField.clear()
+                    Server.placeBid(nameField.text, parseInt(amountField.text));
+                    amountField.clear();
                 }
             }
         }
@@ -145,16 +146,16 @@ ApplicationWindow {
 }
 ```
 
-`Server` is how the browser reaches the edge's connect point. `Server.itemName`,
-`Server.highBid` and `Server.highBidder` are the live copies of what the edge owns.
+`Server` is the browser's handle on the edge's connect point. `Server.itemName`,
+`Server.highBid` and `Server.highBidder` are live copies of what the edge owns.
 
 ## Step 4: Run it
 
-Save everything and look at the browser. You should see the lasagna and a current
-bid of 0. Place a bid of 50. The current bid jumps to 50 with your name.
+Save everything and look at the browser. You see the lasagna and a current bid of 0.
+Bid 50: the current bid jumps to 50, with your name.
 
-Open the same URL in a second browser tab. Bid 75 in tab two, and watch tab one
-update to 75 instantly, with no refresh and no code from you to make that happen.
+Open the same URL in a second tab and bid 75 there. Tab one shows 75 at once, with no
+refresh and no code of yours.
 
 > [!TIP]
 > If the page is blank, check the terminal running `synqt dev` for a QML error
@@ -170,28 +171,27 @@ update to 75 instantly, with no refresh and no code from you to make that happen
 <details class="solution" markdown>
 <summary>Solution</summary>
 
-With the check in place, the bid of 10 is rejected and you see the message,
-because the edge refuses any bid that does not beat the current high bid.
+With the check in place, the edge rejects the bid of 10 and you see the message: the
+edge refuses any bid that does not beat the high bid.
 
-Delete the check, save, and bid 10 against a standing 50. It wins. The high bid
-drops to 10 for everyone.
+Delete the check, save, and bid 10 against a standing 50. It wins, and the high bid drops
+to 10 for everyone.
 
-The rule lives on the owner (the edge), and only there. The browser
-never enforced it. If the only check were in the client, anyone could remove it
-(it is their browser) and send any bid they liked. This is why in SynQt the owner
-of a connect point is the single authority, and every rule that matters lives in
-the owner's slot. Put the check back before continuing.
+The rule lives on the owner (the edge) and nowhere else; the browser never enforced it.
+If the only check were in the client, anyone could remove it (it is their browser) and
+send any bid. So the owner of a connect point is the single authority, and every rule
+that matters lives in the owner's slot. Put the check back before you continue.
 
 </details>
 
 > [!IMPORTANT]
-> Carry this with you for the rest of the tutorial. A consumer asks, and the owner
-> decides. Anything you must be able to trust is enforced by the owner, never by
-> the consumer. Checks in the UI are only there to be friendly.
+> Remember this for the rest of the tutorial: a consumer asks, and the owner decides.
+> The owner enforces anything you must be able to trust, never the consumer. Checks in
+> the UI only make it friendlier.
 
 ## What you learned
 
 - A contract declares the shape of what crosses between two entities.
-- A connect point is an owned, named live object, and consumers see a live copy.
+- A connect point is a live object with one owner, and consumers see a live copy.
 - Properties flow owner to consumer, and slots flow consumer to owner.
 - The owner is the only authority. Rules live in the owner's slots.

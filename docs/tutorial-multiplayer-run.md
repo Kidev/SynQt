@@ -1,3 +1,6 @@
+<!-- SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+
 # Only what you can see
 
 The game from [part four](tutorial-multiplayer-rounds.md) is complete and persistent,

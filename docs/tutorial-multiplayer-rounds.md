@@ -1,3 +1,6 @@
+<!-- SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+
 # The round and the Hall of Fame
 
 You can already sign in, grow, and see others move smoothly, but the game never ends

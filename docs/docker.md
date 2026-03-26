@@ -1,3 +1,6 @@
+<!-- SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+
 # Running a project in containers
 
 `synqt docker` turns a project into a Dockerfile, a compose file, and the configuration

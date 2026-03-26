@@ -1,3 +1,6 @@
+<!-- SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+
 # Native desktop clients
 
 A SynQt client is a Qt Quick application. WebAssembly is one way to package it, the

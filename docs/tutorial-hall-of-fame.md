@@ -1,13 +1,16 @@
+<!-- SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+
 # A permanent Hall of Fame
 
-Try this: stop `synqt dev`, start it again, and look at the auction. Every closed
+Stop `synqt dev`, start it again, and look at the auction. Every closed
 lot and its winner is gone. The auction lives only in the edge's memory, so a
 restart forgets everything.
 
 Goal: when the auctioneer closes a lot, record the winner permanently, and show
 everyone a Hall of Fame of past winners that survives restarts.
 
-For permanent storage we add a third entity: a database. It is its own folder and
+Permanent storage needs a third entity, a database. It is its own folder and
 its own process, and it owns the durable data.
 
 ## Step 1: Add a database entity
