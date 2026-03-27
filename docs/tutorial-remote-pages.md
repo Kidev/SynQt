@@ -76,9 +76,10 @@ Then create this tutorial's project and leave it running:
 synqt new stall
 ```
 
-Answer no to authentication and no to starting entities. You will write the route
-table, the campaign page, and the seed yourself, and you can lift the catalog and the
-`stock` entity straight from
+`synqt new` asks nothing and scaffolds the defaults: a client, a web edge, no
+authentication and no other entities ([`synqt create`](build-system-and-cli.md#scaffolding-a-project-synqt-new-and-synqt-create) is the twin that asks these as questions).
+You will write the route table, the campaign page, and the seed yourself, and you can lift
+the catalog and the `stock` entity straight from
 [`examples/stall`](https://github.com/Kidev/SynQt/tree/main/examples/stall) when you
 want them.
 

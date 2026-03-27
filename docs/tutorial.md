@@ -40,7 +40,7 @@ flowchart LR
   subgraph private["private network"]
     db["<span style='color:#1a1a2e'>database<br/>(Hall of Fame)</span>"]
   end
-  web -->|"Ledger.recordWinner / recentWinners"| db
+  web -->|"Books.recordWinner / recentWinners"| db
   style web fill:#fde,stroke:#c39,color:#1a1a2e
   style db fill:#def,stroke:#39c,color:#1a1a2e
 ```
@@ -84,9 +84,11 @@ tutorial:
 synqt new gavel
 ```
 
-Answer no to authentication and no to starting entities; you will add both
-yourself, in [Real bidders](tutorial-sign-in.md) and
-[A permanent Hall of Fame](tutorial-hall-of-fame.md).
+`synqt new` asks nothing and scaffolds the defaults: a client, a web edge, no
+authentication and no other entities. You add both yourself, in
+[Real bidders](tutorial-sign-in.md) and
+[A permanent Hall of Fame](tutorial-hall-of-fame.md). ([`synqt create`](build-system-and-cli.md#scaffolding-a-project-synqt-new-and-synqt-create) is the twin that asks
+these as questions instead.)
 
 ```cli
 cd gavel
