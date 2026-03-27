@@ -6,7 +6,7 @@
 # Build it on its own:      doxygen Doxyfile        (output in build/apidocs/html)
 # Build it with the site:   mkdocs build            (output under the site's /api/)
 #
-# The MkDocs hook in tools/docs-hooks/doxygen_hook.py overrides OUTPUT_DIRECTORY so the
+# The MkDocs hook in tools/docs-hooks/doxygen.py overrides OUTPUT_DIRECTORY so the
 # generated HTML lands inside the documentation site. Everything else comes from here.
 
 PROJECT_NAME           = "SynQt"
@@ -120,7 +120,7 @@ TOC_INCLUDE_HEADINGS   = 5
 # The QML accessor names are pages here, not classes, and Doxygen only auto-links a word
 # that matches a documented symbol. `Cache` and `Caller` link themselves because classes
 # carry those names. `App`, `Server`, and `Client` are QML names with no class of their
-# own behind them, so without these they were the only accessors that read as plain text
+# own behind them, so without these they would be the only accessors that read as plain text
 # in a list of briefs. Write \qmlApp (and so on) in a comment to get the same link.
 ALIASES                = "qmlApp=@ref qmlapp \"App\"" \
                          "qmlServer=@ref qmlserver \"Server\"" \
