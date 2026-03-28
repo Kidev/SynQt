@@ -39,42 +39,46 @@ The finished app is
 the whole thing at any point, or run it if a step goes sideways. It is also the project the
 [front page](index.md) reads out file by file.
 
-**[Open it in the designer](/designer/#example=demo)** to see the finished shape before you
-build it: the three entities, the lines between them, and beside each line the contract that
+[Open it in the designer](/designer/#example=demo) to see the finished shape before you
+build it, the three entities, the lines between them, and beside each line the contract that
 crosses it. Nothing is installed, and pulling it apart there changes nothing on your disk.
 
 ## What you will learn
 
-- What a contract carries and what it therefore refuses: a model every consumer mirrors, a
+- What a contract carries and what it therefore refuses, a model every consumer mirrors, a
   slot a consumer calls, and a size on every value the owner holds callers to.
-- Why a model is the whole of the synchronisation: reassign the rows on the owner and every
+- Why a model is the whole of the synchronisation. Reassign the rows on the owner and every
   browser holding the room redraws itself.
 - What `Caller` is, and why the two facts a message needs besides its text (who said it, and
   whether they said it as staff) are decided on the edge and never sent by the browser.
-- The two gates that are not written in the client: a scope on the whole connect point, and
+- The two gates that are not written in the client, a scope on the whole connect point, and
   a scope on one member of it.
 - Why a column in the table that is not in the contract never leaves the mesh.
 
 ## Before you start
 
-Install the toolchain if you have not: [quick start](quick-start.md) takes about a minute.
-Then create the project:
+Install the CLI and the toolchain if you have not. The [quick start](quick-start.md)
+walks through both. Then create the project:
 
 ```cli
 synqt new chat --auth github
 ```
 
-`--auth github` primes the sign-in flow, which this tutorial needs: the room is behind a
-scope, and a scope comes from signing in. It writes the `identity:` block, the mapping hook
-at `web/edge/identity/map.qml`, and a `.env.example`. Register an OAuth app with GitHub, put
-its client id in `synqt.yaml` and its secret in `.env`, and see
-[authentication](authentication.md) if any of that is unfamiliar.
+`--auth github` marks the edge as the entity that signs people in. This tutorial needs
+that, because the room is behind a scope, and a scope comes from signing in.
 
 ```cli
 cd chat
+synqt add auth github
 synqt add entity store --type relational
 synqt dev
 ```
+
+`synqt add auth` writes the flow, the `identity:` block, the mapping hook at
+`web/edge/identity/map.qml`, and the `.env.example` entry. It then prints the three things
+only you can do. Register an OAuth app with GitHub, put its client id in `synqt.yaml` and
+its secret in `web/edge/.env`, and see [authentication](authentication.md) if any of that
+is unfamiliar.
 
 > [!IMPORTANT]
 > Keep `synqt dev` running in this terminal for the whole tutorial. It watches your files,

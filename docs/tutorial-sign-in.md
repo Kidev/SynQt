@@ -50,7 +50,7 @@ it goes in `synqt.yaml`, in the provider entry `synqt add auth` created:
 The Client secret is a secret, so it goes only in `web/edge/.env`, which is read only by
 the edge and is git ignored:
 
-```cli
+```text
 GITHUB_CLIENT_SECRET=your-generated-secret
 ```
 

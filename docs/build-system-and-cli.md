@@ -370,11 +370,16 @@ so it behaves identically in a shell, in a Makefile and in CI:
 
 ```cli
 synqt new shop                       # client and web edge
-synqt new shop --auth github         # and an identity provider
+synqt new shop --auth github         # and marks the edge as the one that signs people in
 cd shop
+synqt add auth github                        # writes the login flow itself
 synqt add entity orders --type relational    # each further entity, named
 synqt add entity sessions --type cache
 ```
+
+`--auth` on `synqt new` records which provider you mean and marks the edge accordingly;
+`synqt add auth` is what writes the `identity:` section, the mapping hook and the
+`.env.example` entry, and it prints the steps only you can do.
 
 There is no flag on `synqt new` for a starting entity. An entity is something somebody
 named, so such a flag has to carry a name and a type at once, and the pair it took

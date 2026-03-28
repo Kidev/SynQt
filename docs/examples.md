@@ -186,7 +186,7 @@ connect_points:
 
 `web/edge/.env` (edge only, never shipped):
 
-```cli
+```text
 GITHUB_CLIENT_SECRET=the-real-secret-value
 ```
 
