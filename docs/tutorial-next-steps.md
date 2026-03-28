@@ -261,8 +261,10 @@ TestCase {
     function test_a_signed_out_visitor_cannot_bid() {
         harness.callerIsUser("anonymous");
         harness.subject.placeBid(500);
+        // The `<user>` gate on the member refuses the call before the function runs,
+        // so the bid does not land and there is no rejection to hear either.
         compare(harness.subject.highBid, 0);
-        compare(rejections.signalArguments[0][0], "Please sign in to bid.");
+        compare(rejections.count, 0);
     }
 
     function test_a_lower_bid_is_refused() {
