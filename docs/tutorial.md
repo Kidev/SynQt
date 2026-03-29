@@ -87,8 +87,9 @@ synqt new gavel
 `synqt new` asks nothing and scaffolds the defaults: a client, a web edge, no
 authentication and no other entities. You add both yourself, in
 [Real bidders](tutorial-sign-in.md) and
-[A permanent Hall of Fame](tutorial-hall-of-fame.md). ([`synqt create`](build-system-and-cli.md#scaffolding-a-project-synqt-new-and-synqt-create) is the twin that asks
-these as questions instead.)
+[A permanent Hall of Fame](tutorial-hall-of-fame.md).
+([`synqt create`](build-system-and-cli.md#scaffolding-a-project-synqt-new-and-synqt-create)
+is the twin that asks these as questions instead.)
 
 ```cli
 cd gavel

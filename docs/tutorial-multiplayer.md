@@ -3,38 +3,39 @@
 
 # A multiplayer game
 
-In [the auction](tutorial.md) you shared a few live values between a browser and a
-web edge. A multiplayer game is the same idea at a larger scale, with many browsers, one
-shared world, and everyone seeing everyone else move in real time. You already know the pieces
-(a contract, a connect point, `Caller`, sign in, scopes, a database). This tutorial
-puts them under a live arena.
+In [the auction](tutorial.md) you shared a few live values between a browser and a web
+edge. A multiplayer game is the same idea at a larger scale: many browsers, one shared
+world, and everyone sees everyone else move in real time. You already know the pieces (a
+contract, a connect point, `Caller`, sign-in, scopes, a database). This tutorial puts
+them under a live arena.
 
-Goal: build a small [agar.io](https://agar.io)-style game. Every signed in player is
-a blob on a shared map. You drift around eating scattered pellets to grow, and you
-can swallow any player smaller than you. A live scoreboard shows the biggest blobs on
-the map right now. Every ten minutes the round resets, and whoever was biggest earns
-one permanent point in an all-time Hall of Fame that survives restarts. And you
-cannot cheat your way across the map, because the edge owns every blob's position and
-moves it itself, so a hostile client can neither teleport nor outrun its own size.
+Goal: a small [agar.io](https://agar.io) style game. Every signed-in player is a blob on a
+shared map. You move around eating pellets to grow, and you can swallow any player smaller
+than you. A live scoreboard shows the biggest blobs on the map. Every ten minutes the
+round resets, and the biggest player earns one point in an all-time Hall of Fame that
+survives restarts. The edge owns every blob's position and moves it itself, so a hostile
+client can neither teleport nor move faster than its size allows.
 
 > [!NOTE]
-> A 2D blob world is simple enough that the edge can be the real authority over
-> movement rather than an approximation. The client never sends its position. It sends
-> only where it would like to go, and the edge advances every blob itself at the
-> speed that blob's mass allows. That rules out an entire category of cheats, because
-> there is no position to forge, since the client never reports one. And because the
-> view is a window onto the arena rather than the whole map, this tutorial builds the
-> three techniques that make a networked game feel right and scale, client-side
-> prediction so your own blob tracks your cursor instantly, entity interpolation
-> so everyone else moves smoothly between snapshots, and interest management so the
-> edge sends each player only what they can see. The owner stays the sole authority
-> throughout. What remains after all three (input replay reconciliation, lag
-> compensation, splitting) is in the
-> [further reading](tutorial-multiplayer-run.md#netcode-gets-hard-fast). It is the
-> auction's rule with more players. A consumer asks, and the owner decides.
+> A 2D blob world is simple enough for the edge to own movement completely. The client
+> sends where it wants to go, never its position, and the edge moves every blob at the
+> speed its mass allows. With no position to report, the client has none to forge, which
+> rules out a whole class of cheats.
+>
+> The view shows a window of the arena, not the whole map, so this tutorial builds three
+> techniques that make a networked game feel right and scale:
+>
+> - **Client side prediction:** your own blob follows your cursor at once.
+> - **Entity interpolation:** everyone else moves smoothly between snapshots.
+> - **Interest management:** the edge sends each player only what they can see.
+>
+> The owner stays the only authority throughout. What these three leave out (input
+> replay reconciliation, lag compensation, splitting) is in the
+> [further reading](tutorial-multiplayer-run.md#netcode-gets-hard-fast). This is the
+> auction's rule with more players: a consumer asks, and the owner decides.
 
-The shape of it is many players against one edge, with a database behind the
-edge holding the permanent scores.
+Many players connect to one edge, and a database behind the edge keeps the permanent
+scores.
 
 ```mermaid
 flowchart LR
@@ -55,47 +56,48 @@ flowchart LR
   style db fill:#def,stroke:#39c,color:#1a1a2e
 ```
 
-The whole live arena lives in the edge's memory, which is all a fast game needs. Only
-the permanent leaderboard is durable, so it gets a database, reached by the edge and
-never by the browser, exactly as in [the Hall of Fame](tutorial-hall-of-fame.md).
+The live arena lives in the edge's memory, which is all a fast game needs. Only the
+permanent leaderboard must last, so it goes in a database that the edge reaches and the
+browser never does, as in [the Hall of Fame](tutorial-hall-of-fame.md).
 
-[Open it in the designer](/designer/#example=arena) to see the finished shape
-before you build it, the entities, the links, and beside each line the contract that
-crosses it. Nothing is installed, and pulling it apart there changes nothing on your
-disk.
+[Open it in the designer](/designer/#example=arena) to see the finished system before you
+build it: the entities, the links, and the contract on each line. The designer runs in
+the browser and changes nothing on your disk.
 
 ## What you will learn
 
-- How an owner runs a simulation rather than storing values, with a fixed tick that
-  integrates the whole world, and consumers that see the result instead of driving it.
-- Why a server authoritative position is enforced by the shape of the contract rather
-  than by a rule. The client sends an aim point, never a position, so there is no
-  position to forge.
-- Client-side prediction, moving your own blob the instant you point, without ever
-  letting your guess become the truth.
-- Entity interpolation, drawing everyone else smoothly between snapshots that arrive
-  ten times a second, rather than teleporting them on each one.
-- Interest management with `shared: false` on the edge, so one simulation serves everybody
-  while each browser is sent only the slice it can see.
-- What it costs to publish to N consumers, and where a single edge stops scaling.
-- How a round, a clock, and a permanent leaderboard sit behind the edge in a database
-  entity the browser never reaches.
+- **A simulation on the owner:** a fixed tick advances the whole world, and consumers
+  see the result instead of driving it.
+- **Authority by contract shape:** the client sends an aim point, never a position, so the
+  client has no position to forge, and no rule is needed.
+- **Client side prediction:** your blob moves the moment you point, and your guess never
+  becomes the truth.
+- **Entity interpolation:** everyone else moves smoothly between snapshots that arrive
+  ten times a second, instead of jumping on each one.
+- **Interest management:** with `shared: false` on the edge, one simulation serves
+  everybody while each browser gets only the slice it can see.
+- **Fan-out cost:** what it costs to publish to N consumers, and where one edge stops
+  scaling.
+- **Rounds and a leaderboard:** a round clock on the edge, and a permanent leaderboard in
+  a database entity the browser never reaches.
 
-This tutorial is in five parts: this overview and the starting scene, then
-[the arena the edge owns](tutorial-multiplayer-world.md) (the edge side),
-[see the others](tutorial-multiplayer-client.md) (the client: camera, prediction, and
-smoothing), [the round and the Hall of Fame](tutorial-multiplayer-rounds.md) (a ten
-minute round and a database), and finally
-[only what you can see](tutorial-multiplayer-run.md) (interest management, and where to
-go next).
+The tutorial has five parts:
+
+1. This overview and the starting scene.
+2. [The arena the edge owns](tutorial-multiplayer-world.md): the edge side.
+3. [See the others](tutorial-multiplayer-client.md): the client's camera, prediction and
+   smoothing.
+4. [The round and the Hall of Fame](tutorial-multiplayer-rounds.md): a ten minute round
+   and a database.
+5. [Only what you can see](tutorial-multiplayer-run.md): interest management, and where to
+   go next.
 
 ## Before you start
 
-Do [Getting started](getting-started.md) first. It helps a lot to have done at least
-[the base auction](tutorial-base-auction.md) so connect points and `Caller` are
-familiar, and [the Hall of Fame](tutorial-hall-of-fame.md) so the database entity is
-not new when it arrives in part four. You will need a GitHub account, and a second
-GitHub account (or a willing friend) to see two blobs at once.
+Do [Getting started](getting-started.md) first. It also helps to have done
+[the base auction](tutorial-base-auction.md), for connect points and `Caller`, and
+[the Hall of Fame](tutorial-hall-of-fame.md), for the database entity in part four. You
+need a GitHub account, plus a second account (or a friend) to see two blobs at once.
 
 Create the project and leave `synqt dev` running for the whole tutorial:
 
@@ -106,17 +108,18 @@ synqt dev
 ```
 
 `synqt new` asks nothing and scaffolds the defaults: a client, a web edge, no
-authentication and no other entities. You add GitHub sign in yourself in part two and the
-database in part four. ([`synqt create`](build-system-and-cli.md#scaffolding-a-project-synqt-new-and-synqt-create) is the twin that asks these as questions instead.)
+authentication and no other entities. You add GitHub sign-in in part two and the database
+in part four.
+([`synqt create`](build-system-and-cli.md#scaffolding-a-project-synqt-new-and-synqt-create)
+does the same but asks these as questions.)
 
 ## Start from an empty arena
 
-The client is a square view onto the world, and, like agar.io, it is a camera. It
-shows only a window of the map, centered on your own blob, rather than the whole thing. The
-world point at the middle of the view is `(myX, myY)`, and every other point is placed by
-offsetting from it and scaling by a zoom that grows a little with your size. For now
-the camera sits still at the middle of the map with a single blob. The next parts make
-it move and fill it with players.
+The client is a square view onto the world. As in agar.io, it is a camera: it shows a
+window of the map centered on your blob, not the whole map. The world point at the middle
+of the view is `(myX, myY)`. Every other point is offset from it and scaled by a zoom that
+grows a little with your size. For now the camera stays at the middle of the map with one
+blob; the next parts make it move and add players.
 
 Replace `client/app/Main.qml` with this starting scene:
 
@@ -144,8 +147,8 @@ ApplicationWindow {
 
     // How much world the view shows across, and smaller is more zoomed in. It grows with
     // your mass, so a bigger blob sees more of the map, the way agar.io does.
-    function viewWorld(mass) { return 900 + Math.sqrt(mass) * 90 }
-    function radiusFor(mass) { return 6 + Math.sqrt(mass) * 3 }
+    function viewWorld(mass) { return 900 + Math.sqrt(mass) * 90; }
+    function radiusFor(mass) { return 6 + Math.sqrt(mass) * 3; }
 
     Rectangle {
         id: view
@@ -157,8 +160,8 @@ ApplicationWindow {
 
         // world units -> pixels at the current zoom, with (myX,myY) at the centre.
         readonly property real zoom: width / root.viewWorld(root.myMass)
-        function sx(wx) { return (wx - root.myX) * zoom + width / 2 }
-        function sy(wy) { return (wy - root.myY) * zoom + height / 2 }
+        function sx(wx) { return (wx - root.myX) * zoom + width / 2; }
+        function sy(wy) { return (wy - root.myY) * zoom + height / 2; }
 
         // A grid that scrolls under the camera, so your motion is visible even alone.
         Canvas {
@@ -173,13 +176,13 @@ ApplicationWindow {
             onOriginChanged: grid.requestPaint()
             onStepChanged: grid.requestPaint()
             onPaint: {
-                const ctx = getContext("2d"); ctx.reset()
-                ctx.strokeStyle = "#182042"; ctx.lineWidth = 1
-                const mod = (a, n) => ((a % n) + n) % n
+                const ctx = getContext("2d"); ctx.reset();
+                ctx.strokeStyle = "#182042"; ctx.lineWidth = 1;
+                const mod = (a, n) => ((a % n) + n) % n;
                 for (let x = mod(grid.origin.x, grid.step); x < width; x += grid.step) {
-                    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, height); ctx.stroke() }
+                    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, height); ctx.stroke(); }
                 for (let y = mod(grid.origin.y, grid.step); y < height; y += grid.step) {
-                    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(width, y); ctx.stroke() }
+                    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(width, y); ctx.stroke(); }
             }
         }
 
@@ -196,7 +199,6 @@ ApplicationWindow {
 }
 ```
 
-Save the file and the browser reloads to a dark square with a scrolling grid and a
-green blob at the centre. That is your starting point, and your own blob's home. It
-stays centered while the world moves around it. In the next part the edge grows a real
-arena behind it.
+Save the file. The browser reloads to a dark square with a grid and a green blob in the
+middle. That is your blob, and it stays centered while the world moves around it. In the
+next part the edge builds a real arena behind it.

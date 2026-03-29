@@ -48,10 +48,11 @@ same link. Clear starts over.
 
 The rail on the left is the entity palette, and it is the list from
 [entities](entities.md): a client, a web edge, the three types that come with an engine
-behind them (relational, cache, document), the api and jobs types, which come with a helper
-and no engine, the [monitor](monitoring.md), and a plain service you write yourself. Each row carries the glyph
-the canvas draws that entity with, and hovering one says what that kind of entity is for and
-when you would reach for it; the same line appears in the panel once one is on the canvas.
+behind them (relational, cache, document), the api and jobs types, which come with a
+helper and no engine, the [monitor](monitoring.md), and a plain service you write
+yourself. Each row carries the glyph the canvas draws that entity with, and hovering one
+says what that kind of entity is for and when you would reach for it. The same line
+appears in the panel once one is on the canvas.
 
 Drag a row onto the canvas to put an entity where you dropped it. Dragging is the only way
 one arrives, so an entity is always somewhere you chose rather than somewhere a column had

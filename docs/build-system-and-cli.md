@@ -611,8 +611,8 @@ Alongside them the build writes `build/process-manifest.json`, the start plan fo
 whatever runs these binaries in production: the entities in dependency order (owners
 before consumers, so a consumer's owner is up before it tries to acquire it), the
 certificate and key each one expects, and which of them bind to a public
-interface rather than to loopback. `synqt serve` follows the same order itself, so a local run and an
-orchestrated one agree on it.
+interface rather than to loopback. `synqt serve` follows the same order itself, so a
+local run and an orchestrated one agree on it.
 
 Taking that from a build directory to a running system, on hosts that are not this one,
 is [deploying a SynQt system](deploying.md).

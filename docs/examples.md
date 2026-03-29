@@ -564,8 +564,8 @@ Edge {
 ### The client, `client/app/Main.qml`
 
 Identical in spirit to Example 2: it reads `Server.items`, calls
-`Server.add(...)` and `Server.remove(index)`, and shows
-`Server.rejected` reasons. The client does
+`Server.add(...)` and `Server.remove(index)`, and shows the reason a refusal
+carries through `Edge.onRejected`. The client does
 not know a database exists; it only ever talks to the edge.
 
 ### What this example demonstrates

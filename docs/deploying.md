@@ -188,9 +188,9 @@ It answers the three questions a supervisor has. `start_order` is owners before
 consumers, so an entity's owner is up before it tries to acquire a replica (a consumer
 retries, so the order is not a hard requirement, but starting out of order turns a clean
 boot into a wait). `bind` says which entities face the public interface and which stay
-on loopback; the ones that face it are the web edges, and everything else is `loopback`.
-And each entry names the material that entity expects, which is what to check before you
-conclude a start failure is a code problem.
+on loopback: the ones that face it are the web edges, and the rest are `loopback`.
+And each entry names the material that entity expects, which is what to check before
+you conclude a start failure is a code problem.
 
 For a quick run on one host:
 
