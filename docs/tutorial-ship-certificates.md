@@ -174,19 +174,22 @@ synqt serve --profile production
 ```
 
 ```text
-error: entity "books" is configured for transport: mtls but has no certificate
-       at synqt/mesh/books.crt
-       issue one with: synqt mesh cert books
+error: entity 'books' is on a mutual-TLS link with no certificate in synqt/mesh/;
+run 'synqt mesh cert books' (synqt dev issues development certificates itself)
+synqt: refusing to continue with an invalid configuration (run 'synqt check' for the
+full report).
 ```
 
-Put it back. That message carries the design: the failure names the entity, the file and
-the command, and it happens before anything listens on a port.
+Put it back. That message carries the design. The failure names the entity, the directory
+and the command, and it happens before anything listens on a port. Plain `synqt check`
+reports the same thing as a warning, because a development run has its own certificates.
+`synqt serve` starting a deployment is what makes it an error.
 
 ## Try it, then think
 
 > [!QUESTION]
 > The edge and the database will run on the same host at first, to keep the first deploy
-> simple. Mutual TLS on a loopback link seems like ceremony: nothing untrusted can reach
+> simple. Mutual TLS on a loopback link seems like ceremony, since nothing untrusted can reach
 > `127.0.0.1`. Is there a way to turn it off, and should you?
 
 <details class="solution" markdown>
