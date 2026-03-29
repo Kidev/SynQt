@@ -182,7 +182,22 @@ its consumer list:
       slot var verify(string[64] username, string[128] secret)
 ```
 
-The edge's Source is where the session is actually issued:
+The edge that answers this says `shared: false`:
+
+```yaml
+entities:
+  - name: edge
+    type: web_edge
+    shared: false     # one Source per session
+```
+
+That matters more here than anywhere else in these tutorials. On a shared entity `Caller`
+is whoever is calling at that moment, and the answer below arrives on a later turn, after
+a mesh round trip. Two sign-ins overlapping would then raise the scope of whichever
+session happened to be calling when the reply landed. One Source per session gives the
+callback a `Caller` that cannot move under it.
+
+The edge's Source is where the session is issued:
 
 ```qml
 import SynQt
