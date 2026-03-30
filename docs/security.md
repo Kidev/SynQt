@@ -334,27 +334,28 @@ read them.
   that class is used only in the transport spike, never on the edge.) The
   verifier's early rejection compounds this.
 
-  What the window covers is a socket that connects and then says nothing. It is
-  armed when the socket is accepted and cancelled by the first byte the peer sends,
-  whether that byte starts an upgrade request or an ordinary page request. The
-  distinction is not academic: a browser fetches the page, the loader and the bundle
-  over the connection it goes on to upgrade, so a deadline that outlived that first
-  byte would cut an ordinary transfer on a slow link and record refused upgrades
-  nobody attempted. It used to do both.
+    What the window covers is a socket that connects and then says nothing. It is
+    armed when the socket is accepted and cancelled by the first byte the peer sends,
+    whether that byte starts an upgrade request or an ordinary page request. The
+    distinction is not academic: a browser fetches the page, the loader and the bundle
+    over the connection it goes on to upgrade, so a deadline that outlived that first
+    byte would cut an ordinary transfer on a slow link and record refused upgrades
+    nobody attempted. It used to do both.
 
-  What this window no longer bounds is a peer that sends part of a request and never
-  finishes it, and the honest account of that case is worth having. If it goes quiet,
-  QHttpServer's own keep-alive timeout closes it (15 seconds by default; measured at
-  about 21 from the first byte), so it is covered, by Qt rather than by this window.
-  If it keeps dribbling bytes it never goes idle, and then nothing here closes it:
-  measured, such a connection is still open after a minute, and the only remaining
-  bound is the 64 KiB header limit it would take days to reach at that rate. The
-  connection caps below do not apply to it, because they are counted when a
-  connection is hosted and one that never completes a request is never hosted. What
-  the edge spends on it is a socket and a parse buffer rather than a worker, since
-  QHttpServer is event driven and not thread per connection, so the ceiling is the
-  process file descriptor limit. Put a reverse proxy in front of an edge that faces
-  the internet directly if that ceiling matters to you.
+    What this window no longer bounds is a peer that sends part of a request and never
+    finishes it, and the honest account of that case is worth having. If it goes quiet,
+    QHttpServer's own keep-alive timeout closes it (15 seconds by default; measured at
+    about 21 from the first byte), so it is covered, by Qt rather than by this window.
+    If it keeps dribbling bytes it never goes idle, and then nothing here closes it:
+    measured, such a connection is still open after a minute, and the only remaining
+    bound is the 64 KiB header limit it would take days to reach at that rate. The
+    connection caps below do not apply to it, because they are counted when a
+    connection is hosted and one that never completes a request is never hosted. What
+    the edge spends on it is a socket and a parse buffer rather than a worker, since
+    QHttpServer is event driven and not thread per connection, so the ceiling is the
+    process file descriptor limit. Put a reverse proxy in front of an edge that faces
+    the internet directly if that ceiling matters to you.
+
 - Connection caps. `security.max_connections_per_ip` (20) and
   `security.max_connections_global` (1000), applied inside the upgrade verifier, so
   a connection over the cap is refused before a socket exists.
