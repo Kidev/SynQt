@@ -730,9 +730,9 @@ A jobs entity is internal only: nothing on it is ever reachable from a browser.
 
 ### `Log`: what an entity records about itself
 
-Not one of the helpers above. Those exist because a type has an engine behind it, and each
-is in scope only where that engine is; every entity has something to say about what it did,
-so every service entity has this one whatever its type.
+Every service entity has this one, whatever its type. The helpers above are in scope only
+where the engine behind their type is; an entity always has something to say about what it
+did, so this one is everywhere.
 
 | Member | Returns | Description |
 |--------|---------|-------------|

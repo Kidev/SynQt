@@ -191,9 +191,8 @@ entities:
     shared: false     # one Source per session
 ```
 
-That matters more here than anywhere else in these tutorials. On a shared entity `Caller`
-is whoever is calling at that moment, and the answer below arrives on a later turn, after
-a mesh round trip. Two sign-ins overlapping would then raise the scope of whichever
+On a shared entity `Caller` is whoever is calling at that moment, and the answer below
+arrives on a later turn, after a mesh round trip. Two sign-ins overlapping would then raise the scope of whichever
 session happened to be calling when the reply landed. One Source per session gives the
 callback a `Caller` that cannot move under it.
 
