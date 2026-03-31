@@ -1055,9 +1055,130 @@ private slots:
         }
     }
 
+    /// A redirect is where the allowlisted call ends up, so it is checked like the first hop.
+    ///
+    /// Qt follows redirects by default (NoLessSafeRedirectPolicy), to any host, carrying the
+    /// original request's headers -- which here are the endpoint's own credential headers,
+    /// declared in `network.outbound` so a call site never holds the key. So an allowlisted
+    /// third party answering 302 (or a path under the prefix that an application composes
+    /// from a caller's input, where the target is somebody else's to choose) was a way to
+    /// both send the deployment's API key to a host nobody named and reach that host from
+    /// inside the mesh. Two servers here. One is on the allowlist and redirects, the other
+    /// is not on it and records anything that arrives.
+    void aRedirectOutOfTheAllowlistIsRefused()
+    {
+        QJSEngine engine;
+        QNetworkAccessManager network;
+        Probe probe;
+        engine.globalObject().setProperty(QStringLiteral("probe"), engine.newQObject(&probe));
+
+        // Somewhere the allowlist does not name. It answers, and it remembers, so a leak
+        // shows up as a request arriving rather than only as a promise resolving.
+        QTcpServer elsewhere;
+        QVERIFY(elsewhere.listen(QHostAddress::LocalHost, 0));
+        QByteArray reached;
+        connect(&elsewhere, &QTcpServer::newConnection, this, [&elsewhere, &reached]() {
+            QTcpSocket *socket{elsewhere.nextPendingConnection()};
+            connect(socket, &QTcpSocket::readyRead, socket, [socket, &reached]() {
+                reached += socket->readAll();
+                if (!reached.contains("\r\n\r\n")) {
+                    return;
+                }
+                socket->write("HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nhi");
+                socket->flush();
+                socket->disconnectFromHost();
+            });
+        });
+
+        // The declared endpoint, which sends every caller on to the other one.
+        QTcpServer declared;
+        QVERIFY(declared.listen(QHostAddress::LocalHost, 0));
+        const QString away{QStringLiteral("http://127.0.0.1:%1/taken")
+                               .arg(elsewhere.serverPort())};
+        connect(&declared, &QTcpServer::newConnection, this, [&declared, away]() {
+            QTcpSocket *socket{declared.nextPendingConnection()};
+            connect(socket, &QTcpSocket::readyRead, socket, [socket, away]() {
+                if (!socket->readAll().contains("\r\n\r\n")) {
+                    return;
+                }
+                socket->write("HTTP/1.1 302 Found\r\nLocation: " + away.toUtf8()
+                              + "\r\nContent-Length: 0\r\n\r\n");
+                socket->flush();
+                socket->disconnectFromHost();
+            });
+        });
+
+        HttpEndpointConfig endpoint;
+        endpoint.name = QStringLiteral("upstream");
+        endpoint.url = QStringLiteral("http://127.0.0.1:%1/v1/").arg(declared.serverPort());
+        endpoint.headers.insert(QStringLiteral("x-api-key"), QStringLiteral("s3cret"));
+        Http http{&network, &engine, /*release*/ false, {endpoint}};
+
+        http.api(QStringLiteral("upstream"))->get(QStringLiteral("thing"))
+            ->then(engine.evaluate(QStringLiteral("(function(r){ probe.record('followed'); })")),
+                   engine.evaluate(QStringLiteral("(function(m){ probe.record(m); })")));
+
+        QTRY_VERIFY(probe.last.isValid());
+        QVERIFY2(probe.last.toString().contains(QStringLiteral("refusing a redirect")),
+                 qPrintable(QStringLiteral("the call was answered with '%1' rather than "
+                                           "refused").arg(probe.last.toString())));
+
+        // And the decisive half. Nothing reached the host the allowlist never named, so
+        // neither did the key. Given a moment, in case a request is still in flight.
+        QTest::qWait(200);
+        QVERIFY2(reached.isEmpty(), reached.constData());
+    }
+
+    /// The other half of the same gate: a redirect that stays inside the allowlist is
+    /// followed, so the check above is not satisfied by refusing every redirect there is.
+    void aRedirectInsideTheAllowlistIsFollowed()
+    {
+        QJSEngine engine;
+        QNetworkAccessManager network;
+        Probe probe;
+        engine.globalObject().setProperty(QStringLiteral("probe"), engine.newQObject(&probe));
+
+        QTcpServer server;
+        QVERIFY(server.listen(QHostAddress::LocalHost, 0));
+        const quint16 port{server.serverPort()};
+        connect(&server, &QTcpServer::newConnection, this, [&server, port]() {
+            QTcpSocket *socket{server.nextPendingConnection()};
+            auto *seen{new QByteArray};
+            connect(socket, &QTcpSocket::destroyed, socket, [seen]() { delete seen; });
+            connect(socket, &QTcpSocket::readyRead, socket, [socket, seen, port]() {
+                *seen += socket->readAll();
+                if (!seen->contains("\r\n\r\n")) {
+                    return;
+                }
+                if (seen->startsWith("GET /v1/thing ")) {
+                    socket->write("HTTP/1.1 302 Found\r\nLocation: "
+                                  "http://127.0.0.1:" + QByteArray::number(port)
+                                  + "/v1/moved\r\nContent-Length: 0\r\n\r\n");
+                } else {
+                    const QByteArray body{"{\"ok\":true}"};
+                    socket->write("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"
+                                  "Content-Length: " + QByteArray::number(body.size())
+                                  + "\r\n\r\n" + body);
+                }
+                socket->flush();
+                socket->disconnectFromHost();
+            });
+        });
+
+        HttpEndpointConfig endpoint;
+        endpoint.name = QStringLiteral("upstream");
+        endpoint.url = QStringLiteral("http://127.0.0.1:%1/v1/").arg(port);
+        Http http{&network, &engine, /*release*/ false, {endpoint}};
+
+        http.api(QStringLiteral("upstream"))->get(QStringLiteral("thing"))
+            ->then(engine.evaluate(QStringLiteral("(function(r){ probe.record(r.json.ok); })")),
+                   engine.evaluate(QStringLiteral("(function(m){ probe.record(m); })")));
+        QTRY_COMPARE(probe.last.toBool(), true);
+    }
+
     void aNamedEndpointResolvesPathsAndSendsItsDeclaredHeaders()
     {
-        // The `network.outbound` preset: a base URL and the headers the runtime attaches.
+        // The `network.outbound` preset. A base URL and the headers the runtime attaches.
         // What is under test is that a call site writes a path and nothing else, and that
         // the credential it never mentioned is on the wire anyway.
         QJSEngine engine;

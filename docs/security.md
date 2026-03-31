@@ -690,9 +690,17 @@ Authorization and data:
   and all, because the headers on that entry travel with every call under it. The
   runtime compares scheme, host, port and path segments rather than the text of the
   URL, so a prefix cannot be escaped by spelling; a prefix that is wider than it needs
-  to be is still a wider place for those headers to reach.
+  to be is still a wider place for those headers to reach. Every redirect is compared
+  the same way, so an allowlisted host cannot send those headers elsewhere by
+  answering `302`.
 - Signing out is a server side end to a session, and it takes the browser's live
-  connections with it. Nothing on the client is trusted to stop reading.
+  connections with it. Nothing on the client is trusted to stop reading. It is reached
+  by a navigation, so the edge refuses one that another site started: the browser says
+  which it was in `Sec-Fetch-Site`, and a caller that is not a browser sends none.
+- The console's password gate has a per address budget. The check behind it is a slow
+  key derivation on purpose, which makes an unauthenticated request both a guess and a
+  way to occupy the edge; the budget is spent before the password is read, so the
+  refusal says nothing about it and carries `Retry-After`.
 
 System wide:
 

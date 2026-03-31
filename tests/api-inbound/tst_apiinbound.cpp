@@ -228,6 +228,39 @@ private slots:
         QCOMPARE(send(QStringLiteral("POST"), QStringLiteral("/lots"), big).status, 413);
     }
 
+    /// The declared body limit is the transport's limit, not a check made after the fact.
+    ///
+    /// `refuse()` reads `request.body()`, which is a body QHttpServer has already read into
+    /// memory. On its own it bounds what a handler is handed and not what the process
+    /// allocates. Qt's own ceiling is 32 MiB, so before this an unauthenticated caller could
+    /// spend 32 MiB per connection whatever `network.inbound.max_body_bytes` said, and could
+    /// keep doing it. Four megabytes here because that is the shape of the gap: far past the
+    /// declared limit, far short of Qt's default, so only a limit the transport knows about
+    /// refuses it.
+    ///
+    /// Proved by where the refusal comes from rather than by its status, which is 413 either
+    /// way. A request Qt turns away never reaches ApiServer, so nothing of SynQt's has anything
+    /// to say about it.
+    void aBodyPastTheLimitIsRefusedByTheTransportAndNotByTheHandler()
+    {
+        QSignalSpy refused{m_server.get(), &ApiServer::requestRefused};
+        const QByteArray huge{QByteArrayLiteral(R"({"name":")")
+                              + QByteArray(4 * 1024 * 1024, 'x') + QByteArrayLiteral(R"("})")};
+        // Refused, and by whichever of the two shapes a transport refusal takes: an early
+        // 413, or the connection ended part way through the upload, which reaches the
+        // client as no status at all. Both are the server declining to read the rest. What
+        // matters is that neither of them is 200 and neither of them comes from ApiServer.
+        const int status{send(QStringLiteral("POST"), QStringLiteral("/lots"), huge).status};
+        QVERIFY2(status == 413 || status == 0,
+                 qPrintable(QStringLiteral("a 4 MiB body was answered with %1").arg(status)));
+        QVERIFY2(refused.isEmpty(),
+                 "the body reached ApiServer, so the transport was still buffering it");
+
+        // And the surface is still serving afterwards, so the refusal ends one request
+        // rather than the connection's usefulness.
+        QCOMPARE(send(QStringLiteral("GET"), QStringLiteral("/lots")).status, 200);
+    }
+
     void theRateLimitAnswers429WithoutReachingAHandler()
     {
         // Its own server, because the limit is a property of the surface and turning it on

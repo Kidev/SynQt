@@ -23,36 +23,17 @@ PageResponse refusal(const QString &status)
     return response;
 }
 
+} // namespace
+
 /// A declared route paired with its compiled pattern, so match precedence is
 /// decided once (by literalSegmentCount(), most literal first) rather than left
 /// to PageStore::declaredRoutes()'s QHash order, which is unspecified and
 /// unstable. Mirrors Router::compiledRoutes()/applyRoutes() on the client side.
-struct Candidate
+struct PagesService::Candidate
 {
     QString route;
     RoutePattern pattern;
 };
-
-QList<Candidate> orderedCandidates(const QStringList &declared)
-{
-    QList<Candidate> candidates{};
-    for (const QString &route : declared) {
-        RoutePattern pattern{route};
-        if (!pattern.isValid()) {
-            qWarning("SynQt: ignoring malformed declared route pattern %s",
-                     qUtf8Printable(route));
-            continue;
-        }
-        candidates.append(Candidate{route, std::move(pattern)});
-    }
-    std::stable_sort(candidates.begin(), candidates.end(),
-                     [](const Candidate &a, const Candidate &b) {
-        return a.pattern.literalSegmentCount() > b.pattern.literalSegmentCount();
-    });
-    return candidates;
-}
-
-} // namespace
 
 PagesService::PagesService(PageStore *store, QObject *parent)
     : QObject{parent}
@@ -61,6 +42,34 @@ PagesService::PagesService(PageStore *store, QObject *parent)
 }
 
 PagesService::~PagesService() = default;
+
+const QList<PagesService::Candidate> &PagesService::candidates() const
+{
+    // Keyed on the count because the table only ever grows: PageStore::addPage() is the
+    // one thing that writes it, and a hot reload rewrites a page's bytes rather than its
+    // route. So a size that has not moved is a table that has not moved.
+    const QStringList declared{m_store->declaredRoutes()};
+    if (m_compiledRoutes == declared.size()) {
+        return m_candidates;
+    }
+    m_candidates.clear();
+    m_candidates.reserve(declared.size());
+    for (const QString &route : declared) {
+        RoutePattern pattern{route};
+        if (!pattern.isValid()) {
+            qWarning("SynQt: ignoring malformed declared route pattern %s",
+                     qUtf8Printable(route));
+            continue;
+        }
+        m_candidates.append(Candidate{route, std::move(pattern)});
+    }
+    std::stable_sort(m_candidates.begin(), m_candidates.end(),
+                     [](const Candidate &a, const Candidate &b) {
+        return a.pattern.literalSegmentCount() > b.pattern.literalSegmentCount();
+    });
+    m_compiledRoutes = declared.size();
+    return m_candidates;
+}
 
 void PagesService::setSeedProvider(SeedProvider provider)
 {
@@ -74,13 +83,12 @@ PageResponse PagesService::fetchPageFor(const QString &requestPath,
     const QString path{RoutePattern::splitQuery(requestPath, &query)};
 
     // Match against what was declared, most literal segments first (see
-    // orderedCandidates() above), so "/c/summary" beats "/c/:campaign" whatever
+    // candidates() above), so "/c/summary" beats "/c/:campaign" whatever
     // order PageStore::declaredRoutes() happened to return them in. A route the
     // table does not contain does not exist, whatever the caller sent.
     QString matched{};
     QVariantMap parameters{};
-    const QList<Candidate> candidates{orderedCandidates(m_store->declaredRoutes())};
-    for (const Candidate &candidate : candidates) {
+    for (const Candidate &candidate : candidates()) {
         QVariantMap captured{};
         if (candidate.pattern.matches(path, &captured)) {
             matched = candidate.route;

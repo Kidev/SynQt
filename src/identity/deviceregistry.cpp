@@ -322,6 +322,10 @@ void DeviceRegistry::forget(const QString &family)
     if (!isOpen() || family.isEmpty()) {
         return;
     }
+    // The rows naming it are deliberately left where they are: reuse detection forgets the
+    // family and then asks sessionsOfFamily() which sessions it opened, so deleting them
+    // here would answer "none" at the one moment the answer matters. They are reclaimed by
+    // purgeExpired() instead, which is where an orphan belongs.
     m_store->exec(QStringLiteral("DELETE FROM synqt_devices WHERE family = ?"), {family});
 }
 
@@ -330,6 +334,8 @@ void DeviceRegistry::forgetSub(const QString &sub)
     if (!isOpen() || sub.isEmpty()) {
         return;
     }
+    // As in forget(): the rows naming these families are reclaimed by purgeExpired(), not
+    // here, so nothing that wants to walk them loses them out from under it.
     m_store->exec(QStringLiteral("DELETE FROM synqt_devices WHERE sub = ?"), {sub});
 }
 
@@ -401,9 +407,25 @@ void DeviceRegistry::purgeExpired()
     // this is about not keeping a visitor's sub and identity on disk for years after the
     // credential naming them stopped working.
     const qint64 now{QDateTime::currentMSecsSinceEpoch()};
+    const qint64 idleBefore{now - daysToMs(m_config.inactivityDays)};
     m_store->exec(QStringLiteral("DELETE FROM synqt_devices WHERE expires_ms <= ? "
                                  "OR last_used_ms < ?"),
-                  {now, now - daysToMs(m_config.inactivityDays)});
+                  {now, idleBefore});
+    // Then whatever is left pointing at a family that is no longer there. A row here is
+    // written once per stored sign-in and deleted by a sign-out or a session expiring, so
+    // the ones that survive are the sign-ins nobody ever ended -- which, on a store shared
+    // by a replicated edge, is most of them. Without this the table grows for the life of
+    // the store, and it is the table a sign-out reads to find the family it must end.
+    //
+    // Only rows old enough that nothing can still be writing them, and that is not
+    // fastidiousness. Reuse detection forgets a family and then asks which sessions it
+    // opened, and a caller may bind a session a moment after the family it names was
+    // created. A day is far past either, and a row that waits one more day to be reclaimed
+    // costs nothing. Written as NOT IN rather than a join, because the same statement has
+    // to be accepted by every persistence provider a deployment may point this at.
+    m_store->exec(QStringLiteral(
+        "DELETE FROM synqt_session_family WHERE created_ms < ? AND family NOT IN "
+        "(SELECT family FROM synqt_devices)"), {now - daysToMs(1)});
 }
 
 } // namespace SynQt

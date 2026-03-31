@@ -6,6 +6,7 @@
 
 #include "rep_pages_source.h"
 
+#include <QList>
 #include <QObject>
 #include <QString>
 #include <QVariantMap>
@@ -50,8 +51,23 @@ public:
                               Caller *caller);
 
 private:
+    /// A declared route paired with its compiled pattern, in match order.
+    struct Candidate;
+
+    /// The route table, compiled once and kept, in the order matching wants it.
+    ///
+    /// Built lazily rather than in the constructor because pages are added to the store
+    /// after this service exists, and rebuilt when the declared set changes. It used to be
+    /// rebuilt per request, which meant every fetch a browser made compiled every route
+    /// pattern in the project and sorted the result -- work a caller could ask for as fast
+    /// as it could send, on the edge's own event loop, to reach a table that is the same
+    /// on every request.
+    const QList<Candidate> &candidates() const;
+
     PageStore *m_store;
     SeedProvider m_seedProvider;
+    mutable QList<Candidate> m_candidates;
+    mutable qsizetype m_compiledRoutes{-1};
 };
 
 } // namespace SynQt

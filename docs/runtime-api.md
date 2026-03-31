@@ -670,6 +670,14 @@ mistake is nearly always a prefix that does not cover the path being composed. T
 comparison is against the normalized URL, so a traversal or a percent-encoded one
 cannot spell its way out of a prefix.
 
+The allowlist is a check on where a call ends up, not only on where it starts, so a
+redirect is put through it too. A third party that answers `302` to somewhere the
+entity may not go has its redirect refused and the call rejected, naming the place it
+tried to reach. This matters because the headers on a named endpoint are the
+deployment's credential: without the check, an allowlisted host could send that key
+anywhere simply by redirecting, and the entity would follow. A redirect that stays
+inside the allowlist is followed as normal.
+
 ### `Api`: the inbound HTTP surface
 
 | Member | Returns | Description |

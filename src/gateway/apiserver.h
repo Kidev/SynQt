@@ -83,6 +83,9 @@ private:
     /// minute and a long-lived process does not accumulate an entry per address ever seen.
     QHash<QString, int> m_rateWindow;
     qint64 m_rateWindowStartMs{0};
+    /// Said once, not once per request. A missing reply deadline is a configuration
+    /// mistake, and a caller decides how often it is reached.
+    bool m_warnedAboutDeadline{false};
 };
 
 } // namespace SynQt

@@ -57,6 +57,14 @@ QString insecureEndpoint(const IdentityProviderConfig &provider)
     return QString{};
 }
 
+// How many logins may be in flight at once, waiting for a browser to come back from the
+// provider. Each one holds a QOAuth2AuthorizationCodeFlow for the five minutes a login is
+// given, and the route that creates them is open to anybody who can reach the edge, so
+// without a ceiling a stream of GETs to /auth/login is a way to make the edge allocate
+// until it stops. Far above any real concurrency. A thousand people signing in within the
+// same five minutes is a busy day, not an attack.
+constexpr int kMaxPendingLogins{1024};
+
 } // namespace
 
 OAuthBackend::OAuthBackend(IdentityConfig config, QObject *parent)
@@ -136,6 +144,27 @@ OAuthBackend::BeginResult OAuthBackend::begin(const QString &providerName,
                  "login rather than sending the secret, the code or the signing keys over "
                  "http", qUtf8Printable(providerName), qUtf8Printable(endpoint));
         result.error = QStringLiteral("insecure provider endpoint");
+        return result;
+    }
+    // An ID token is checked against the issuer the provider was configured with, and a
+    // provider that names none skips that check entirely. Refused here rather than left to
+    // pass silently, because "the iss claim is not compared" is not a thing anybody chooses
+    // on purpose, and the same place already refuses the other configuration that would
+    // send a login somewhere it should not go.
+    if (provider->useIdToken && provider->issuer.isEmpty()) {
+        qWarning("SynQt: identity provider '%s' verifies ID tokens but names no issuer, so "
+                 "the iss claim would not be checked at all; set identity.providers.%s."
+                 "issuer", qUtf8Printable(providerName), qUtf8Printable(providerName));
+        result.error = QStringLiteral("provider names no issuer");
+        return result;
+    }
+    // Bounded before the flow is built, so a refused login costs one comparison rather than
+    // an object held for five minutes. Sweeping first (expirePending, above) means this is
+    // reached only when that many logins are in flight.
+    if (m_pending.size() >= kMaxPendingLogins) {
+        qWarning("SynQt: %d logins are already in flight and none has completed; refusing "
+                 "this one rather than growing further", kMaxPendingLogins);
+        result.error = QStringLiteral("too many logins in flight");
         return result;
     }
 
@@ -379,6 +408,14 @@ bool OAuthBackend::refreshOne(const QString &key)
     QTimer::singleShot(15000, &loop, &QEventLoop::quit);
     loop.exec();
 
+    // See httpGet: an unfinished reply has no error on it, and a partial token response
+    // would otherwise be parsed as an answer. Keeping the old entry is the right outcome
+    // either way, since it may still have time left on it.
+    if (!reply->isFinished()) {
+        reply->abort();
+        reply->deleteLater();
+        return false;
+    }
     if (reply->error() != QNetworkReply::NoError) {
         reply->deleteLater();
         return false;
@@ -424,6 +461,18 @@ QByteArray OAuthBackend::httpGet(const QUrl &url, const QString &bearer, QString
     QTimer::singleShot(15000, &loop, &QEventLoop::quit);
     loop.exec();
 
+    // The deadline, read the only way it can be read. A reply the timer walked out on
+    // carries no error yet, so asking error() alone takes a half-arrived body for a whole
+    // one -- here, a truncated profile that parses into an identity missing fields.
+    if (!reply->isFinished()) {
+        reply->abort();
+        if (error) {
+            *error = QStringLiteral("the request to %1 timed out")
+                         .arg(url.toString(QUrl::RemoveUserInfo | QUrl::RemoveQuery));
+        }
+        reply->deleteLater();
+        return {};
+    }
     if (reply->error() != QNetworkReply::NoError) {
         if (error) {
             *error = reply->errorString();
@@ -477,8 +526,21 @@ QVariantMap OAuthBackend::normalizeIdentity(const IdentityProviderConfig &provid
     }
     const QVariantMap profile{document.object().toVariantMap()};
 
+    // The subject, first and required. Everything downstream keys on it: the scope mapping
+    // reads it, a device credential is enrolled against it, and an application tells one
+    // user from another by it. A profile that carries none (a misspelled `sub_field`, a
+    // provider that answered something else) would otherwise sign every such visitor in as
+    // the same empty subject, which is one shared account rather than a failed login.
+    const QString subject{profile.value(provider.subField).toString()};
+    if (subject.isEmpty()) {
+        if (error) {
+            *error = QStringLiteral("userinfo response carried no '%1'").arg(provider.subField);
+        }
+        return {};
+    }
+
     QVariantMap identity;
-    identity.insert(QStringLiteral("sub"), profile.value(provider.subField).toString());
+    identity.insert(QStringLiteral("sub"), subject);
     identity.insert(QStringLiteral("login"), profile.value(provider.loginField));
     identity.insert(QStringLiteral("name"), profile.value(provider.nameField));
 

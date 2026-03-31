@@ -539,6 +539,48 @@
       "defended_by": "`synqt check` reads the resolved bundle map of every browser-facing entity, the monitor included, and refuses a `console: true` client mapped to any scope but `operator`, on a monitor or on an application edge. It refuses a monitor whose default scope resolves to a client at all, which is what a monitor with no map falls back to: the project's first client, baked into the generated main as what that port serves.",
       "file": "tools/synqt/tests/test_check_monitoring.py",
       "test": "test_the_console_served_to_anonymous_is_refused"
+    },
+    {
+      "id": "outbound-allowlist-escaped-by-a-redirect",
+      "what": "An allowlisted third party answers a redirect to a host network.outbound never named. Qt follows it by default and carries the request's headers, which on this path are the endpoint's own credential headers, so the deployment's API key leaves and the entity reaches somewhere it may not.",
+      "defended_by": "Http sends every call under UserVerifiedRedirectPolicy and puts each hop through the same allowlist the first one passed; a target it does not cover is never allowed and the reply is abandoned.",
+      "file": "tests/m9-providers/tst_m9.cpp",
+      "test": "aRedirectOutOfTheAllowlistIsRefused"
+    },
+    {
+      "id": "id-token-with-no-expiry",
+      "what": "A provider signs an ID token carrying no exp claim, so a copy of it opens a session for as long as the signing key lives. The same token with no sub signs every visitor in as one empty subject.",
+      "defended_by": "JwksVerifier requires exp and sub rather than checking exp only when it is present.",
+      "file": "tests/m8-auth/tst_m8.cpp",
+      "test": "anIdTokenMissingARequiredClaimIsRefused"
+    },
+    {
+      "id": "logout-csrf",
+      "what": "Another site navigates a visitor to the logout route, which is a GET, and ends their session and the device credential that would have kept them signed in. SameSite=Lax is sent on a top-level navigation, and split_origin's cookie is sent on everything.",
+      "defended_by": "The logout route refuses a request whose Sec-Fetch-Site says it came from another site. A non-browser caller sends none and is unaffected.",
+      "file": "tests/m8-auth/tst_m8.cpp",
+      "test": "logoutFromAnotherSiteIsRefused"
+    },
+    {
+      "id": "operator-enumeration-by-clock",
+      "what": "The console's sign-in answers one refusal to every failure, but returned before deriving when the operator name was unknown, so the clock said which names exist and a guesser could spend every attempt on one that does.",
+      "defended_by": "OperatorStore::verify reads the whole list and derives once either way, against the first credential's parameters when the name is unknown.",
+      "file": "tests/monitor/tst_operator.cpp",
+      "test": "anUnknownOperatorCostsWhatAKnownOneCosts"
+    },
+    {
+      "id": "sign-in-flood",
+      "what": "Unauthenticated POSTs to the password gate, each one a guess and each one a PBKDF2 at the operator store's round count on the edge's own event loop: a brute force and a way to stop the edge answering anybody else at the same time.",
+      "defended_by": "A per-address fixed window, spent before the credential is read, answering 429 with Retry-After.",
+      "file": "tests/monitor/tst_instrumentation.cpp",
+      "test": "aFloodOfSignInAttemptsIsRefusedBeforeThePasswordIsChecked"
+    },
+    {
+      "id": "inbound-body-past-the-declared-limit",
+      "what": "network.inbound.max_body_bytes was checked after QHttpServer had already read the body, so a caller could spend Qt's own 32 MiB default per connection whatever the topology declared.",
+      "defended_by": "ApiServer sets the declared limit on QHttpServerConfiguration, so the transport refuses an oversized body before a route sees it.",
+      "file": "tests/api-inbound/tst_apiinbound.cpp",
+      "test": "aBodyPastTheLimitIsRefusedByTheTransportAndNotByTheHandler"
     }
   ]
 }

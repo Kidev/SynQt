@@ -373,6 +373,28 @@ private:
         return response;
     }
 
+    /// The same GET, with the fetch-metadata header a browser would attach.
+    Response getAs(const QUrl &url, const QByteArray &fetchSite)
+    {
+        QNetworkRequest request{url};
+        request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
+                             QNetworkRequest::ManualRedirectPolicy);
+        if (!fetchSite.isEmpty()) {
+            request.setRawHeader(QByteArrayLiteral("Sec-Fetch-Site"), fetchSite);
+        }
+        QNetworkReply *reply{m_browser.get(request)};
+        QEventLoop loop;
+        connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+        loop.exec();
+        Response response;
+        response.status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        response.location = QString::fromUtf8(reply->rawHeader("Location"));
+        response.setCookie = reply->rawHeader("Set-Cookie");
+        response.body = reply->readAll();
+        reply->deleteLater();
+        return response;
+    }
+
     /// One real ID token from the stub provider, for a nonce of our choosing.
     ///
     /// Driven over the provider's own HTTP surface (/authorize for a code, /token to
@@ -381,7 +403,13 @@ private:
     /// which the caller asserts on.
     QString mintStubIdToken(const QString &nonce)
     {
-        QUrl authorize{m_stub->baseUrl() + QStringLiteral("/authorize")};
+        return mintIdTokenFrom(m_stub.get(), nonce);
+    }
+
+    /// The same round trip against any stub, so a test can stand one up that misbehaves.
+    QString mintIdTokenFrom(StubIdentityServer *stub, const QString &nonce)
+    {
+        QUrl authorize{stub->baseUrl() + QStringLiteral("/authorize")};
         QUrlQuery query;
         query.addQueryItem(QStringLiteral("client_id"), QStringLiteral("stub-client"));
         query.addQueryItem(QStringLiteral("response_type"), QStringLiteral("code"));
@@ -405,7 +433,7 @@ private:
         form.addQueryItem(QStringLiteral("code"), code);
         form.addQueryItem(QStringLiteral("client_id"), QStringLiteral("stub-client"));
         form.addQueryItem(QStringLiteral("client_secret"), QStringLiteral("stub-secret"));
-        QNetworkRequest request{QUrl{m_stub->baseUrl() + QStringLiteral("/token")}};
+        QNetworkRequest request{QUrl{stub->baseUrl() + QStringLiteral("/token")}};
         request.setHeader(QNetworkRequest::ContentTypeHeader,
                           QStringLiteral("application/x-www-form-urlencoded"));
         QNetworkReply *reply{m_browser.post(request,
@@ -736,9 +764,100 @@ private slots:
         QVERIFY2(!verifier.verify(idToken, good, nonce, &error).isEmpty(), qPrintable(error));
     }
 
+    /// A correctly signed token that leaves out a claim the verifier depends on.
+    ///
+    /// Kept apart from idTokenRefusals because these two cannot be built by editing a good
+    /// token. The payload is what is signed, so a token with `exp` cut out of it fails on
+    /// the signature and proves nothing about the claim check. The stub signs them instead
+    /// (StubIdentityServer::omitIdTokenClaim), which is also what a real provider doing
+    /// this would look like from here.
+    ///
+    /// `exp` mattered because the check used to run only when the claim was present, so a
+    /// token with none was a sign-in that never expired: a copy taken today would still
+    /// open a session years from now. `sub` mattered because everything downstream keys on
+    /// it -- the scope mapping reads it and a device credential is enrolled against it --
+    /// so a token with none signed the visitor in as the empty subject, and every visitor
+    /// arriving that way was the same one.
+    void anIdTokenMissingARequiredClaimIsRefused()
+    {
+        const IdentityProviderConfig provider{
+            stubOidcProvider(m_stub->baseUrl(), QStringLiteral("verifier"), m_stub->baseUrl())};
+
+        for (const auto &[claim, reason] :
+             {std::pair<QString, QString>{QStringLiteral("exp"),
+                                          QStringLiteral("carries no expiry")},
+              std::pair<QString, QString>{QStringLiteral("sub"),
+                                          QStringLiteral("carries no subject")}}) {
+            StubIdentityServer stub{StubIdentityServer::DevOnly{}};
+            stub.setClientCredentials(QStringLiteral("stub-client"),
+                                      QStringLiteral("stub-secret"));
+            QVERIFY(stub.start());
+            stub.setIssuer(stub.baseUrl());
+            stub.omitIdTokenClaim(claim);
+
+            const QString nonce{QStringLiteral("nonce-for-%1").arg(claim)};
+            const QString token{mintIdTokenFrom(&stub, nonce)};
+            QVERIFY2(!token.isEmpty(), "the stub provider issued no ID token");
+
+            IdentityProviderConfig against{provider};
+            against.issuer = stub.baseUrl();
+            against.jwksUrl = QUrl{stub.baseUrl() + QStringLiteral("/jwks")};
+
+            QNetworkAccessManager network;
+            JwksVerifier verifier{&network};
+            QString why;
+            QVERIFY2(verifier.verify(token, against, nonce, &why).isEmpty(),
+                     qPrintable(QStringLiteral("a token with no %1 verified").arg(claim)));
+            QVERIFY2(why.contains(reason),
+                     qPrintable(QStringLiteral("refused with '%1', expected '%2'")
+                                    .arg(why, reason)));
+        }
+    }
+
+    /// Another site must not be able to sign a visitor out by navigating them here.
+    ///
+    /// Logout is reached by a GET, because that is what `Session.logout()` does on both
+    /// clients: the browser navigates to the route and the desktop client fetches it. That
+    /// makes it a state change any page can cause, and the cookie is no defense --
+    /// SameSite=Lax is sent on exactly this, a top-level navigation, and in `split_origin`
+    /// the cookie is SameSite=None and is sent on everything. What it costs the visitor is
+    /// not only the session: signing out is also the one thing that ends a device
+    /// credential, so a stray link would take their stored sign-in with it.
+    ///
+    /// `Sec-Fetch-Site` is what separates the app's own navigation from somebody else's,
+    /// and the browser sets it rather than the page. A caller that is not a browser sends
+    /// none, which is why the desktop client's plain GET still works.
+    void logoutFromAnotherSiteIsRefused()
+    {
+        const Response callback{completeLogin(QStringLiteral("?provider=stub"))};
+        QCOMPARE(callback.status, 302);
+        const QByteArray token{sessionToken(callback.setCookie)};
+        QVERIFY(!token.isEmpty());
+        QVERIFY(m_edge->sessionManager()->isLive(token));
+
+        // Refused, and the session is untouched. Both shapes. This edge is same-origin, so
+        // a sign-out from a sibling subdomain is not one of its own either.
+        for (const QByteArray &site : {QByteArrayLiteral("cross-site"),
+                                       QByteArrayLiteral("same-site")}) {
+            const Response hostile{getAs(QUrl{edgeUrl(QStringLiteral("/auth/logout"))}, site)};
+            QCOMPARE(hostile.status, 403);
+            QVERIFY2(m_edge->sessionManager()->isLive(token),
+                     qPrintable(QStringLiteral("a %1 request ended the visitor's session")
+                                    .arg(QString::fromUtf8(site))));
+        }
+
+        // And the app's own sign-out still works, or the check above would be satisfied by
+        // a logout route that refuses everybody.
+        const Response own{getAs(QUrl{edgeUrl(QStringLiteral("/auth/logout"))},
+                                 QByteArrayLiteral("same-origin"))};
+        QCOMPARE(own.status, 302);
+        QVERIFY2(!m_edge->sessionManager()->isLive(token),
+                 "the visitor's own sign-out did not end the session");
+    }
+
     void loginCsrfRejected()
     {
-        // Login is bound to the browser that started it: the login redirect sets a state
+        // Login is bound to the browser that started it. The login redirect sets a state
         // cookie the callback must present. A different browser cannot complete the login,
         // even with a valid state and code. The defense against login CSRF / fixation.
         const Response login{get(QUrl{edgeUrl(QStringLiteral("/auth/login?provider=stub"))})};

@@ -31,6 +31,44 @@ private slots:
                               QStringLiteral("correct horse battery")));
     }
 
+    /// An operator name that does not exist must cost what one that does costs.
+    ///
+    /// The gate answers one "no" to every failure, so that nothing learns which
+    /// half of a guess was right. Returning early on an unknown name gave that away by the
+    /// clock instead. A known name spent a 600,000-round PBKDF2 and an unknown one spent a
+    /// string comparison, which is four orders of magnitude apart and readable over the
+    /// network. Whoever was guessing could enumerate the operators and then spend every
+    /// attempt on a name that exists.
+    ///
+    /// Measured as a ratio with a wide floor rather than as a duration. What is being ruled
+    /// out is the difference between microseconds and a KDF, not a few percent of jitter.
+    void anUnknownOperatorCostsWhatAKnownOneCosts()
+    {
+        OperatorStore store;
+        QVERIFY(store.add(OperatorStore::mint(QStringLiteral("ada"),
+                                              QStringLiteral("correct horse battery"))));
+
+        // Warm first. The first derivation on a process pays for whatever the crypto
+        // backend sets up, and charging that to one of the two answers below would be
+        // measuring the warm-up rather than the gate.
+        store.verify(QStringLiteral("ada"), QStringLiteral("wrong"));
+
+        QElapsedTimer clock;
+        clock.start();
+        QVERIFY(!store.verify(QStringLiteral("ada"), QStringLiteral("wrong")));
+        const qint64 known{clock.nsecsElapsed()};
+
+        clock.restart();
+        QVERIFY(!store.verify(QStringLiteral("mallory"), QStringLiteral("wrong")));
+        const qint64 unknown{clock.nsecsElapsed()};
+
+        QVERIFY2(unknown * 2 >= known,
+                 qPrintable(QStringLiteral("an unknown operator was refused in %1 ns and a "
+                                           "known one in %2 ns, so the clock says which "
+                                           "names exist")
+                                .arg(unknown).arg(known)));
+    }
+
     void thePasswordIsNowhereInWhatIsStored()
     {
         const QString password{QStringLiteral("correct horse battery")};

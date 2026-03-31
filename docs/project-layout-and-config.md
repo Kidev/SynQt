@@ -446,7 +446,7 @@ entities:
         allowed_origins: []              # browser callers; default none
         max_body_bytes: 1048576          # default
         rate_per_minute: 600             # per IP; default
-        reply_timeout_ms: 15000          # default; 0 waits with no deadline
+        reply_timeout_ms: 15000          # default; 0 means the default, not no deadline
 ```
 
 `outbound` is a list of URL prefixes. Declaring the key is what puts the `Http` helper
@@ -469,10 +469,17 @@ singleton declares its routes on (see [the gateway](entities.md#gateway-the-api-
 Everything a caller can influence is checked before a handler exists: the rate limit,
 the API key, the origin, then the body size.
 
+`max_body_bytes` is the transport's limit and not a check made after the fact: a body
+past it is refused while it is still arriving, so an oversized request is never read
+into memory. The connection also has an idle timeout, which is what ends a caller that
+opens a socket, sends half a request and stops.
+
 A handler may answer on a later turn, which is what any handler reaching a connect point
 or an upstream does. The connection is held open for it until `reply_timeout_ms`, after
 which the request is failed with 504 and the refusal is reported, so a handler that
-never answers costs one status code rather than a socket.
+never answers costs one status code rather than a socket. `0` is not a way to wait
+forever: a handler that never answers would hold its request and its connection for the
+life of the process, so zero falls back to the default and says so once.
 
 Validation of the block:
 

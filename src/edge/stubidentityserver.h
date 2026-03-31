@@ -6,6 +6,7 @@
 
 #include <QHash>
 #include <QObject>
+#include <QSet>
 #include <QString>
 #include <QVariantMap>
 
@@ -44,6 +45,16 @@ public:
     void setUser(const QVariantMap &user);  ///< the profile /userinfo returns
     void setIssuer(const QString &issuer);   ///< iss for the ID token
 
+    /// Leave a claim out of the ID tokens this stub signs ("exp", "sub").
+    ///
+    /// A provider that omits a required claim is precisely what the ID-token verifier is
+    /// there to refuse, and the only way to produce a validly signed token that is missing
+    /// one is for the signer to leave it out: mutating the payload of a good token breaks
+    /// the signature, so the verifier would refuse it a step earlier and prove nothing.
+    /// This widens no production surface -- the stub is a fake provider that a shipped edge
+    /// already refuses to run -- it only lets the fake misbehave the way a real one can.
+    void omitIdTokenClaim(const QString &claim);
+
     bool start(quint16 port = 0);
     quint16 port() const;
     QString baseUrl() const;                  // http://127.0.0.1:<port>
@@ -77,6 +88,8 @@ private:
     std::string m_publicKeyPem;
     std::string m_privateKeyPem;
     QString m_kid;
+    /// Claims left out of a signed ID token, so the fake can misbehave (omitIdTokenClaim).
+    QSet<QString> m_omittedClaims;
     QString m_jwkModulus;  ///< base64url
     QString m_jwkExponent; ///< base64url
 };

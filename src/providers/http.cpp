@@ -95,6 +95,9 @@ void HttpPromise::then(const QJSValue &onFulfilled, const QJSValue &onRejected)
 
 void HttpPromise::resolve(const QVariantMap &response)
 {
+    if (m_settled) {
+        return;  // the first answer is the answer. See reject()
+    }
     m_response = response;
     m_ok = true;
     m_settled = true;
@@ -103,6 +106,14 @@ void HttpPromise::resolve(const QVariantMap &response)
 
 void HttpPromise::reject(const QString &message)
 {
+    // The first answer wins, and it has to. A refused redirect rejects here and then
+    // aborts the reply, whose `finished` arrives a moment later carrying Qt's own
+    // "Operation canceled". Without this guard that second answer would overwrite the
+    // reason with a generic one, and on a promise nobody attached a handler to it would
+    // also queue a second deleteLater.
+    if (m_settled) {
+        return;
+    }
     m_error = message;
     m_ok = false;
     m_settled = true;
@@ -333,6 +344,18 @@ HttpPromise *Http::send(const QString &method, const QString &url, const QVarian
     }
 
     QNetworkRequest request{target};
+    // Redirects are decided here rather than by the transport. Qt's default policy
+    // (NoLessSafeRedirectPolicy) follows a 302 to any host as long as it does not step
+    // down from https to http, and it carries the original request's headers with it --
+    // which on this path are the endpoint's own credential headers, the ones a call site
+    // never sees and cannot choose. So an allowlisted third party that answers with a
+    // redirect (or a path under the prefix that an application composes from user input,
+    // where the redirect target is somebody else's to choose) would send the deployment's
+    // API key to a host `network.outbound` never named, and would reach it besides. The
+    // allowlist is not a check on the first request, it is a check on where the call ends
+    // up, so every hop is put through `match()` below.
+    request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
+                         QNetworkRequest::UserVerifiedRedirectPolicy);
     // Every call has an end. Without this a third party that accepts the connection and
     // then answers nothing (a wedged gateway, a machine that went away mid-request) leaves
     // a promise that never settles and a reply that is never freed, one per call, for the
@@ -364,6 +387,25 @@ HttpPromise *Http::send(const QString &method, const QString &url, const QVarian
         }
         reply = m_network->post(request, bodyBytes(body));
     }
+
+    // Each hop, before it is taken. `redirectAllowed()` is the only thing that lets the
+    // transport continue under UserVerifiedRedirectPolicy, so a target the allowlist does
+    // not cover is simply never allowed: the promise is rejected with the place it tried
+    // to go, and the reply is abandoned before a single header reaches it.
+    QObject::connect(reply, &QNetworkReply::redirected, promise,
+                     [this, promise, reply](const QUrl &redirect) {
+        if (match(redirect) == nullptr) {
+            promise->reject(
+                QStringLiteral("refusing a redirect to %1, which is not in this entity's "
+                               "network.outbound allowlist (%2)")
+                    .arg(redirect.toString(QUrl::RemoveUserInfo),
+                         allowed().isEmpty() ? QStringLiteral("empty")
+                                             : allowed().join(QStringLiteral(", "))));
+            reply->abort();
+            return;
+        }
+        emit reply->redirectAllowed();
+    });
 
     QObject::connect(reply, &QNetworkReply::finished, promise, [promise, reply]() {
         if (reply->error() != QNetworkReply::NoError) {

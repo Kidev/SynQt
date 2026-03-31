@@ -129,14 +129,29 @@ bool OperatorStore::verify(const QString &name, const QString &password) const
 {
     // No operators means no operators. An empty store letting everybody in is how an
     // operations console ends up with no gate on it at all.
-    for (const Credential &credential : m_credentials) {
-        if (credential.name != name) {
-            continue;
-        }
-        return equalInConstantTime(derive(password, credential.salt, credential.iterations),
-                                   credential.hash);
+    if (m_credentials.isEmpty()) {
+        return false;
     }
-    return false;
+
+    // The whole list is read, and the first match is remembered rather than returned from.
+    // Returning early on a name that is not there is what made the gate answer an unknown
+    // operator in microseconds and a known one in a PBKDF2, which tells whoever is guessing
+    // which names exist -- the one thing the single "no" the sign-in route answers with is
+    // there to withhold.
+    const Credential *found{nullptr};
+    for (const Credential &credential : m_credentials) {
+        if (found == nullptr && credential.name == name) {
+            found = &credential;
+        }
+    }
+
+    // One derivation either way, and of the same shape: an unknown name is worked against
+    // the first credential's salt and round count, so the cost of a wrong guess does not
+    // depend on which half of it was wrong.
+    const Credential &against{found != nullptr ? *found : m_credentials.first()};
+    const QByteArray derived{derive(password, against.salt, against.iterations)};
+    const bool digestMatches{equalInConstantTime(derived, against.hash)};
+    return (found != nullptr) && digestMatches;
 }
 
 QStringList OperatorStore::names() const

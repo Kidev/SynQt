@@ -172,6 +172,16 @@ QHttpServerResponse tooManyRequests(qint64 retryAfterMs)
 // How long a delegated begin/exchange over the mesh may take before the handler gives up.
 constexpr int kRemoteTimeoutMs{20000};
 
+/// How many delegated answers this edge may be waiting on at once.
+///
+/// Each wait is a nested QEventLoop, which keeps serving requests while it spins, so a
+/// second request that also waits nests inside the first. The routes that do this are open
+/// (a GET to the login route is enough), so without a ceiling the nesting depth is whatever
+/// a caller opens connections for, and the stack is what runs out. Far above the number of
+/// logins any real deployment has in flight at one instant, because each of these lasts a
+/// round trip over the mesh and not a browser's visit to a provider.
+constexpr int kMaxConcurrentWaits{64};
+
 } // namespace
 
 IdentityProvider::IdentityProvider(IdentityConfig config, SessionManager *sessions,
@@ -349,6 +359,11 @@ IdentityProvider::BeginOutcome IdentityProvider::beginLogin(const QString &provi
     if (!m_remote) {
         return BeginOutcome{QString{}, QString{}, QStringLiteral("auth entity not connected")};
     }
+    if (m_waits >= kMaxConcurrentWaits) {
+        return BeginOutcome{QString{}, QString{},
+                            QStringLiteral("too many logins waiting on the auth entity")};
+    }
+    const WaitScope wait{&m_waits};
 
     // Delegate to the auth entity: invoke the slot, then wait (bounded) for the correlated
     // beginResult signal. The nested loop keeps the route handler synchronous.
@@ -385,6 +400,12 @@ IdentityProvider::ExchangeOutcome IdentityProvider::exchangeCode(const QString &
         return ExchangeOutcome{QVariantMap{}, QString{},
                                QStringLiteral("auth entity not connected"), QString{}};
     }
+    if (m_waits >= kMaxConcurrentWaits) {
+        return ExchangeOutcome{QVariantMap{}, QString{},
+                               QStringLiteral("too many callbacks waiting on the auth "
+                                              "entity"), QString{}};
+    }
+    const WaitScope wait{&m_waits};
 
     const QString requestId{randomToken()};
     QEventLoop loop;
@@ -434,9 +455,10 @@ QByteArray IdentityProvider::takeClaim(const QString &code, const QString &verif
         return m_claims.take(code, verifier, QDateTime::currentMSecsSinceEpoch(),
                              claimTtlMsFrom(m_config.claimTtlSeconds));
     }
-    if (!m_remote) {
+    if (!m_remote || m_waits >= kMaxConcurrentWaits) {
         return {};
     }
+    const WaitScope wait{&m_waits};
 
     // The same bounded nested loop the begin/exchange pair uses, for the same reason: the
     // route handler is synchronous and the answer comes back as a correlated signal.
@@ -831,6 +853,31 @@ void IdentityProvider::onReuseDetected(const QString &family)
 
 QHttpServerResponse IdentityProvider::handleLogout(const QHttpServerRequest &request)
 {
+    // Signing out is a state change, and this route is reached by a GET, which is what
+    // `Session.logout()` does on both clients: the browser navigates to it and the desktop
+    // client fetches it. That makes it a cross-site request forgery target -- another site
+    // need only navigate a visitor here to end their session, and with it the device
+    // credential that would have kept them signed in. The cookie's SameSite=Lax does not
+    // cover it (a top-level navigation is exactly what Lax still sends), and in
+    // `split_origin` the cookie is SameSite=None and covers nothing at all.
+    //
+    // `Sec-Fetch-Site` is the header that separates the two, and it is set by the browser
+    // rather than by the page. `same-origin` for the app's own navigation, `cross-site`
+    // for somebody else's. A caller that is not a browser (the desktop client) sends none,
+    // and is unaffected. Refused rather than answered, so nothing is ended.
+    // `same-site` is refused only under the same-origin model, where the app and the edge
+    // share an origin and a legitimate sign-out is always `same-origin`. Under
+    // `split_origin` the app is a sibling of the edge by design, so its own sign-out
+    // arrives as `same-site` and refusing it would break the one deployment that needs it;
+    // there the bar for an attacker rises to controlling a sibling subdomain. `cross-site`
+    // is refused either way, which is the case a stray link can reach.
+    const QByteArray site{request.value("Sec-Fetch-Site")};
+    if (site == "cross-site" || (site == "same-site" && !m_cookie.sameSiteNone)) {
+        return QHttpServerResponse{QByteArrayLiteral("text/plain"),
+                                   QByteArrayLiteral("sign out from the application"),
+                                   QHttpServerResponse::StatusCode::Forbidden};
+    }
+
     const QByteArray prefix{m_cookie.name.toUtf8() + "="};
     const QList<QByteArray> parts{request.value("Cookie").split(';')};
     for (QByteArray part : parts) {

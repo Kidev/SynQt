@@ -746,6 +746,7 @@ def _identity_messages(config: Dict[str, Any]) -> List[str]:
         if not str(provider.get("client_id") or "").strip():
             messages.append(f"error: identity provider '{name}' has no client_id")
         messages += _insecure_endpoint_messages(name, provider)
+        messages += _id_token_messages(name, provider)
     messages += _device_session_messages(config)
     return messages
 
@@ -968,6 +969,31 @@ def _insecure_endpoint_messages(name: str, provider: Dict[str, Any]) -> List[str
         messages.append(
             f"error: identity provider '{name}' has a non-https {key} ({url}): {why}, so "
             "the edge refuses to use it (see https://synqt.org/authentication/)")
+    return messages
+
+
+def _id_token_messages(name: str, provider: Dict[str, Any]) -> List[str]:
+    """A provider whose identity comes from an ID token names what it will be checked against.
+
+    The verifier compares the token's `iss` claim against `issuer`, and skips the
+    comparison entirely when nothing is configured to compare it with. That is not a
+    setting anybody chooses on purpose, so the edge refuses such a login outright
+    (oauthbackend.cpp) and this says so while the config is being written rather than at
+    the first sign-in. `jwks_url` is the other half. Without it there is no key set and
+    no signature to verify.
+    """
+    if not provider.get("use_id_token"):
+        return []
+    messages: List[str] = []
+    if not str(provider.get("issuer") or "").strip():
+        messages.append(
+            f"error: identity provider '{name}' sets use_id_token but names no issuer; the "
+            "iss claim would not be checked at all, so the edge refuses the login (see "
+            "https://synqt.org/authentication/)")
+    if not str(provider.get("jwks_url") or "").strip():
+        messages.append(
+            f"error: identity provider '{name}' sets use_id_token but names no jwks_url; "
+            "there would be no key set to verify the token's signature against")
     return messages
 
 

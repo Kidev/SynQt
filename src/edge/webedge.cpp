@@ -550,6 +550,18 @@ QByteArray WebEdge::computeCsp() const
     return directives.join("; ");
 }
 
+namespace {
+
+/// The password gate's budget: attempts per visitor address, and how long a window lasts.
+/// Generous for somebody typing a password and mistyping it, far below what a guesser
+/// needs, and low enough that the derivations behind them cannot fill the event loop.
+constexpr int kMaxSignInsPerWindow{10};
+constexpr qint64 kSignInWindowMs{60 * 1000};
+/// How many addresses the window table may name before it is dropped and started again.
+constexpr int kMaxRateEntries{4096};
+
+} // namespace
+
 /// The password gate an entity serves for its own people (`signInPath`).
 ///
 /// On success the caller's existing session is elevated rather than replaced, which is what
@@ -561,6 +573,35 @@ QByteArray WebEdge::computeCsp() const
 /// which names exist.
 QHttpServerResponse WebEdge::handleSignIn(const QHttpServerRequest &request)
 {
+    // Budgeted before the password is so much as read, so a refusal here says nothing about
+    // the credential and costs nothing to give. See m_signInRate: what is being rationed is
+    // the PBKDF2 below as much as the guess in front of it.
+    const QString visitor{m_clientAddress.resolve(request.remoteAddress(),
+                                                  request.value("X-Forwarded-For"))};
+    const qint64 now{QDateTime::currentMSecsSinceEpoch()};
+    RateWindow &window{m_signInRate[visitor]};
+    if (now - window.startedMs > kSignInWindowMs) {
+        window.startedMs = now;
+        window.count = 0;
+    }
+    if (++window.count > kMaxSignInsPerWindow) {
+        const qint64 remaining{window.startedMs + kSignInWindowMs - now};
+        QHttpServerResponse response{QByteArrayLiteral("text/plain"),
+                                     QByteArrayLiteral("slow down"),
+                                     QHttpServerResponder::StatusCode::TooManyRequests};
+        QHttpHeaders headers{response.headers()};
+        headers.append(QHttpHeaders::WellKnownHeader::RetryAfter,
+                       QByteArray::number(qMax(qint64{1}, (remaining + 999) / 1000)));
+        response.setHeaders(std::move(headers));
+        emit signInRefused(QString{});
+        return response;
+    }
+    if (m_signInRate.size() > kMaxRateEntries) {
+        // A table keyed by whatever address dialled in is a table an attacker can grow. It
+        // is only ever a rate window, so dropping it wholesale costs one window of leniency.
+        m_signInRate.clear();
+    }
+
     const QUrlQuery form{QString::fromUtf8(request.body())};
     const QString name{form.queryItemValue(QStringLiteral("name"),
                                            QUrl::FullyDecoded)};

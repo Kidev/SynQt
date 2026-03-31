@@ -100,6 +100,20 @@ bool JwksVerifier::ensureJwks(const QUrl &jwksUrl, QString *error, bool force)
     connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
     QTimer::singleShot(15000, &loop, &QEventLoop::quit);
     loop.exec();
+    // isFinished() before error(), and this is the whole of the deadline. A reply the
+    // timer above walked out on has no error on it yet, so asking error() alone reads a
+    // half-arrived body as a good one -- and this is the one place that would then be
+    // cached as the key set, with `fetchedMs` set to now, which the refetch floor holds
+    // for five minutes. A provider that went slow once would refuse every login for the
+    // rest of that window.
+    if (!reply->isFinished()) {
+        reply->abort();
+        if (error) {
+            *error = QStringLiteral("JWKS fetch timed out");
+        }
+        reply->deleteLater();
+        return false;
+    }
     if (reply->error() != QNetworkReply::NoError) {
         if (error) {
             *error = QStringLiteral("JWKS fetch failed: %1").arg(reply->errorString());
@@ -107,8 +121,18 @@ bool JwksVerifier::ensureJwks(const QUrl &jwksUrl, QString *error, bool force)
         reply->deleteLater();
         return false;
     }
-    m_jwksCache.insert(jwksUrl.toString(), CachedJwks{reply->readAll(), now});
+    const QByteArray body{reply->readAll()};
     reply->deleteLater();
+    // A key set with no keys in it is not a key set. Caching one would put the refetch
+    // floor in front of the real answer for five minutes, exactly as a timeout would.
+    if (QJsonDocument::fromJson(body).object().value(QStringLiteral("keys")).toArray()
+            .isEmpty()) {
+        if (error) {
+            *error = QStringLiteral("JWKS response carried no keys");
+        }
+        return false;
+    }
+    m_jwksCache.insert(jwksUrl.toString(), CachedJwks{body, now});
     return true;
 }
 
@@ -182,10 +206,24 @@ QVariantMap JwksVerifier::verify(const QString &idToken, const IdentityProviderC
     if (!audienceMatches(payload.value(QStringLiteral("aud")), audience)) {
         return fail(QStringLiteral("ID-token audience mismatch"));
     }
+    // `exp` is required by OpenID Connect and required here, rather than checked only
+    // when present. A token that carries none is not a token that never expires. It is a
+    // token whose lifetime nothing bounds, and accepting it means a copy taken today is
+    // still a valid sign-in years from now. The 60 seconds is clock skew between this
+    // edge and the provider, and nothing more.
     const qint64 now{QDateTime::currentSecsSinceEpoch()};
-    if (payload.contains(QStringLiteral("exp"))
-        && static_cast<qint64>(payload.value(QStringLiteral("exp")).toDouble()) + 60 < now) {
+    const QJsonValue expiry{payload.value(QStringLiteral("exp"))};
+    if (!expiry.isDouble()) {
+        return fail(QStringLiteral("ID token carries no expiry"));
+    }
+    if (static_cast<qint64>(expiry.toDouble()) + 60 < now) {
         return fail(QStringLiteral("ID token expired"));
+    }
+    // A subject is what the whole session is keyed on downstream (the scope mapping reads
+    // it, and a device credential is enrolled against it). A token with none would sign
+    // somebody in as nobody, and every such visitor would be the same nobody.
+    if (payload.value(QStringLiteral("sub")).toString().isEmpty()) {
+        return fail(QStringLiteral("ID token carries no subject"));
     }
     if (!expectedNonce.isEmpty()
         && payload.value(QStringLiteral("nonce")).toString() != expectedNonce) {

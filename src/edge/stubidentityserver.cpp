@@ -129,10 +129,8 @@ std::string StubIdentityServer::signIdToken(const QString &nonce) const
 {
     auto builder{jwt::create()};
     builder.set_issuer(m_issuer.toStdString())
-        .set_subject(m_user.value(QStringLiteral("id")).toString().toStdString())
         .set_audience(m_clientId.toStdString())
         .set_issued_at(std::chrono::system_clock::now())
-        .set_expires_at(std::chrono::system_clock::now() + std::chrono::seconds(3600))
         .set_key_id(m_kid.toStdString())
         .set_payload_claim("email",
             jwt::claim(m_user.value(QStringLiteral("email")).toString().toStdString()))
@@ -140,6 +138,14 @@ std::string StubIdentityServer::signIdToken(const QString &nonce) const
             jwt::claim(m_user.value(QStringLiteral("name")).toString().toStdString()))
         .set_payload_claim("preferred_username",
             jwt::claim(m_user.value(QStringLiteral("login")).toString().toStdString()));
+    // Both are required claims, and both are here rather than in the chain above so a test
+    // can ask this stub to behave like a provider that does not send one (omitIdTokenClaim).
+    if (!m_omittedClaims.contains(QStringLiteral("sub"))) {
+        builder.set_subject(m_user.value(QStringLiteral("id")).toString().toStdString());
+    }
+    if (!m_omittedClaims.contains(QStringLiteral("exp"))) {
+        builder.set_expires_at(std::chrono::system_clock::now() + std::chrono::seconds(3600));
+    }
     if (!nonce.isEmpty()) {
         builder.set_payload_claim("nonce", jwt::claim(nonce.toStdString()));
     }
@@ -147,6 +153,11 @@ std::string StubIdentityServer::signIdToken(const QString &nonce) const
     const std::string token{
         builder.sign(jwt::algorithm::rs256(m_publicKeyPem, m_privateKeyPem, "", ""), ec)};
     return ec ? std::string{} : token;
+}
+
+void StubIdentityServer::omitIdTokenClaim(const QString &claim)
+{
+    m_omittedClaims.insert(claim);
 }
 
 bool StubIdentityServer::start(quint16 port)

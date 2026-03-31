@@ -227,6 +227,27 @@ private:
     };
     QHash<QString, RateWindow> m_deviceRate;
 
+    /// How many delegated answers this edge is waiting on right now, and the guard that
+    /// keeps the count honest across every way out of a handler. Each wait is a nested
+    /// event loop that keeps serving requests, so this is what stops the nesting from
+    /// following the request rate; see kMaxConcurrentWaits.
+    int m_waits{0};
+    class WaitScope
+    {
+    public:
+        explicit WaitScope(int *counter)
+            : m_counter{counter}
+        {
+            ++(*m_counter);
+        }
+        ~WaitScope() { --(*m_counter); }
+        WaitScope(const WaitScope &) = delete;
+        WaitScope &operator=(const WaitScope &) = delete;
+
+    private:
+        int *m_counter;
+    };
+
     /// Delegated results, keyed by request id, filled by the onBeginResult/onExchangeResult
     /// slots and consumed by the waiting route handler (provider_entity mode only).
     QHash<QString, BeginOutcome> m_beginResults;

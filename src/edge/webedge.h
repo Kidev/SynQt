@@ -337,6 +337,22 @@ private:
     /// which is the peer's own address until a deployment names a balancer in front.
     int m_activeGlobal{0};
     QHash<QString, int> m_activePerIp;
+
+    /// Attempts on the password gate, per visitor address, in a fixed window.
+    ///
+    /// The gate derives a PBKDF2 at the operator store's round count, which is deliberately
+    /// expensive and is deliberately run on this edge's own event loop. Without a budget
+    /// that makes an unauthenticated POST the cheapest way there is to stop the edge
+    /// answering anybody: a handful of requests a second is enough to keep the loop busy,
+    /// and the same requests are a password guess apiece. Keyed the way the connection caps
+    /// and the device route are keyed, so a balancer in front does not put every visitor in
+    /// one bucket.
+    struct RateWindow
+    {
+        qint64 startedMs{0};
+        int count{0};
+    };
+    QHash<QString, RateWindow> m_signInRate;
     /// Which address is the visitor, given who this edge was told to believe.
     ClientAddress m_clientAddress;
 };

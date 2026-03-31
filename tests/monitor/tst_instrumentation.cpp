@@ -372,6 +372,76 @@ private slots:
                  QStringLiteral("entity"));
     }
 
+    /// The gate has a budget, because the answer behind it is expensive to give.
+    ///
+    /// A sign-in derives PBKDF2 at the operator store's round count -- deliberately
+    /// hundreds of milliseconds -- on the edge's own event loop, and the route is open to
+    /// anybody who can reach the port. So an unauthenticated POST was both a password guess
+    /// and the cheapest way there is to stop the edge answering anybody else: a handful a
+    /// second is enough to keep the loop busy, and nothing counted them.
+    ///
+    /// The refusal is deliberately not the gate's own "no": it is decided before the
+    /// credential is read, so it says nothing about it, and it carries Retry-After so an
+    /// honest client can wait rather than read it as "this password is wrong".
+    void aFloodOfSignInAttemptsIsRefusedBeforeThePasswordIsChecked()
+    {
+        QQmlEngine engine;
+        WebEdgeConfig config{makeConfig()};
+        config.scopeOrder = {QStringLiteral("anonymous"), QStringLiteral("operator")};
+        config.defaultScope = QStringLiteral("anonymous");
+        config.signInPath = QStringLiteral("/monitor/signin");
+        config.signInScope = QStringLiteral("operator");
+        int checked{0};
+        config.signIn = [&checked](const QString &name, const QString &password) {
+            ++checked;
+            return (name == QStringLiteral("ada"))
+                    && (password == QStringLiteral("correct horse battery"));
+        };
+        WebEdge edge{config, &engine};
+        QVERIFY2(edge.start(), qPrintable(edge.errorString()));
+
+        QNetworkAccessManager manager;
+        QNetworkReply *page{httpGet(manager, edge.httpOrigin() + QStringLiteral("/"))};
+        QVERIFY(page != nullptr);
+        const QByteArray cookie{sessionCookie(page)};
+        page->deleteLater();
+
+        // Spend the window on wrong guesses, then keep going. Somewhere in here the answer
+        // has to stop being 401.
+        int lastStatus{0};
+        QByteArray retryAfter;
+        for (int attempt{0}; attempt < 40; ++attempt) {
+            QNetworkReply *reply{postForm(manager, edge.httpOrigin() + config.signInPath,
+                                          cookie, QByteArrayLiteral("name=ada&password=no"))};
+            QVERIFY(reply != nullptr);
+            lastStatus = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+            retryAfter = reply->rawHeader("Retry-After");
+            reply->deleteLater();
+            if (lastStatus == 429) {
+                break;
+            }
+        }
+        QCOMPARE(lastStatus, 429);
+        QVERIFY2(!retryAfter.isEmpty(), "a refusal a client should wait out has to say so");
+
+        // The decisive half. The derivation stopped being reached. Forty attempts, and the
+        // gate itself was consulted for only the handful the budget allows.
+        QVERIFY2(checked < 40,
+                 qPrintable(QStringLiteral("the password was checked %1 times for 40 "
+                                           "attempts, so nothing was rationed")
+                                .arg(checked)));
+
+        // And the right password is refused too while the window lasts, which is what makes
+        // it a budget rather than a filter on wrong guesses.
+        QNetworkReply *correct{postForm(
+            manager, edge.httpOrigin() + config.signInPath, cookie,
+            QByteArrayLiteral("name=ada&password=correct%20horse%20battery"))};
+        QVERIFY(correct != nullptr);
+        QCOMPARE(correct->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt(), 429);
+        QVERIFY(correct->rawHeader("Set-Cookie").isEmpty());
+        correct->deleteLater();
+    }
+
     // The console's gate. The monitor authenticates its own operators, because an operator
     // is not a user of the application and the application's login provider is often the
     // thing they are signing in to investigate.

@@ -12,6 +12,7 @@
 #include <QHostAddress>
 #include <QHttpHeaders>
 #include <QHttpServer>
+#include <QHttpServerConfiguration>
 #include <QHttpServerRequest>
 #include <QHttpServerResponse>
 #include <QHttpServerResponder>
@@ -26,6 +27,7 @@
 #include <QTimer>
 #include <QUrlQuery>
 
+#include <chrono>
 #include <memory>
 #include <utility>
 
@@ -94,6 +96,17 @@ bool equalInConstantTime(const QByteArray &presented, const QByteArray &secret)
     return difference == 0;
 }
 
+/// How long a connection may sit idle between requests before the transport closes it.
+/// A machine caller either has something to say or has gone away; this is what ends the
+/// half-open connections that neither a size limit nor a rate limit can see.
+constexpr int kKeepAliveTimeoutSeconds{30};
+
+/// The deadline used when the topology names none. See handle().
+constexpr int kFallbackReplyTimeoutMs{15000};
+
+/// How many addresses the rate window may name before it is dropped and started again.
+constexpr int kMaxRateEntries{4096};
+
 QString methodOf(const QHttpServerRequest &request)
 {
     switch (request.method()) {
@@ -149,6 +162,21 @@ bool ApiServer::start()
     }
 
     m_server = new QHttpServer{this};
+
+    // Qt's own ceilings on the request, set before a route can see one. The body check in
+    // refuse() below is a check on a body Qt has already read into memory, so on its own it
+    // bounds what a handler is handed and not what the process allocates: Qt's default is
+    // 32 MiB, which an unauthenticated caller can spend per connection whatever
+    // `network.inbound.max_body_bytes` says. Declaring it here is what makes the number in
+    // the topology the number the transport enforces. The idle timeout is the other half:
+    // it is what closes a peer that opens a connection, sends half a request and stops,
+    // which no size limit covers. The same reasoning, and the same two calls, as the web
+    // edge (webedge.cpp).
+    QHttpServerConfiguration httpConfiguration;
+    httpConfiguration.setMaximumBodySize(m_config.maxBodyBytes);
+    httpConfiguration.setKeepAliveTimeout(std::chrono::seconds{kKeepAliveTimeoutSeconds});
+    m_server->setConfiguration(httpConfiguration);
+
     // One catch-all route rather than one route per declared path: the routing table lives
     // in `Api`, where QML declared it, and having QHttpServer hold a second copy of it
     // would mean two tables to keep in step and a 404 that could disagree with itself.
@@ -202,7 +230,15 @@ bool ApiServer::withinRate(const QString &peer)
         m_rateWindow.clear();
         m_rateWindowStartMs = now;
     }
-    return ++m_rateWindow[peer] <= m_config.ratePerMinutePerIp;
+    const bool within{++m_rateWindow[peer] <= m_config.ratePerMinutePerIp};
+    if (m_rateWindow.size() > kMaxRateEntries) {
+        // A table keyed by whatever address dialled in is a table a caller can grow, one
+        // entry per address, for as long as the window lasts. It is only ever a rate
+        // window, so dropping it wholesale costs the rest of one minute's leniency.
+        m_rateWindow.clear();
+        m_rateWindowStartMs = now;
+    }
+    return within;
 }
 
 QString ApiServer::refuse(const QHttpServerRequest &request, int *status) const
@@ -323,21 +359,37 @@ QFuture<QHttpServerResponse> ApiServer::handle(const QHttpServerRequest &request
     // The handler is answering later. Hold the connection open for it, with a deadline, so
     // a handler that never answers costs one 504 rather than a socket held forever. The
     // timer is a child of the request, so answering first destroys it.
-    if (m_config.replyTimeoutMs > 0) {
-        const QString method{methodOf(request)};
-        QTimer *deadline{new QTimer{apiRequest}};
-        deadline->setSingleShot(true);
-        connect(deadline, &QTimer::timeout, this, [this, answer, apiRequest, method, path]() {
-            const QString reason{QStringLiteral("the handler for %1 %2 did not answer within "
-                                                "%3 ms")
-                                     .arg(method, path)
-                                     .arg(m_config.replyTimeoutMs)};
-            emit requestRefused(reason);
-            answer(errorResponse(504, reason));
-            apiRequest->deleteLater();
-        });
-        deadline->start(m_config.replyTimeoutMs);
+    //
+    // A deadline is not optional here, whatever the topology says. `reply_timeout_ms: 0`
+    // reads as "let a handler take as long as it likes", but what it bought was a
+    // request object and an unfinished promise per call that nothing ever retired, and a
+    // connection held for the life of the process. A handler that forgets to answer once is
+    // a leak, and one that forgets on every call is a caller's way to exhaust the entity.
+    // So zero means the default rather than none, and it is said out loud the first time.
+    int deadlineMs{m_config.replyTimeoutMs};
+    if (deadlineMs <= 0) {
+        if (!m_warnedAboutDeadline) {
+            m_warnedAboutDeadline = true;
+            qWarning("SynQt: network.inbound.reply_timeout_ms is not set, so a handler that "
+                     "never answers would hold its request forever; using %d ms",
+                     kFallbackReplyTimeoutMs);
+        }
+        deadlineMs = kFallbackReplyTimeoutMs;
     }
+    const QString method{methodOf(request)};
+    QTimer *deadline{new QTimer{apiRequest}};
+    deadline->setSingleShot(true);
+    connect(deadline, &QTimer::timeout, this,
+            [this, answer, apiRequest, method, path, deadlineMs]() {
+        const QString reason{QStringLiteral("the handler for %1 %2 did not answer within "
+                                            "%3 ms")
+                                 .arg(method, path)
+                                 .arg(deadlineMs)};
+        emit requestRefused(reason);
+        answer(errorResponse(504, reason));
+        apiRequest->deleteLater();
+    });
+    deadline->start(deadlineMs);
     return future;
 }
 

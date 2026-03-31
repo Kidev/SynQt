@@ -58,8 +58,15 @@ identity:
 
 `use_id_token: true` is the one to notice. With it, the identity is taken from the ID
 token, whose signature is verified against the issuer's JWKS before a single claim is
-read; the issuer and audience are checked too. Without it, identity comes from a userinfo
-endpoint and you must say which raw field feeds each normalized one:
+read. The issuer and audience are checked too, and so are the two claims a session
+cannot be built without, `exp` and `sub`. A token missing either is refused rather than
+treated as one that never expires or as a visitor with no name. `issuer` is required
+alongside `use_id_token` for that reason. Without it there is nothing to compare `iss`
+against, so a login through a provider that names none is refused at the edge rather
+than allowed through with one check quietly skipped.
+
+Without `use_id_token`, identity comes from a userinfo endpoint and you must say which
+raw field feeds each normalized one:
 
 ```yaml
       userinfo_url: https://sso.internal.example/oauth2/userinfo

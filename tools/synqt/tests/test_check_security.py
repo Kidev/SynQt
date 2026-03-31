@@ -276,8 +276,28 @@ class IdentityTest(unittest.TestCase):
                                jwks_url="https://provider.example/jwks")
         self.assertEqual(errors(config), [])
 
+    def test_use_id_token_without_an_issuer_is_rejected(self):
+        # The verifier compares the token's iss against `issuer` and skips the comparison
+        # when nothing names one, which is not a thing anybody chooses. The edge refuses
+        # such a login outright, so saying it here is saying it while the config is being
+        # written rather than at the first sign-in.
+        found = errors(self.identity(use_id_token=True,
+                                     jwks_url="https://provider.example/jwks"))
+        self.assertTrue(any("names no issuer" in m for m in found), found)
+
+    def test_use_id_token_without_a_jwks_url_is_rejected(self):
+        found = errors(self.identity(use_id_token=True,
+                                     issuer="https://provider.example"))
+        self.assertTrue(any("names no jwks_url" in m for m in found), found)
+
+    def test_a_complete_id_token_provider_passes(self):
+        config = self.identity(use_id_token=True,
+                               issuer="https://provider.example",
+                               jwks_url="https://provider.example/jwks")
+        self.assertEqual(errors(config), [])
+
     def test_a_loopback_provider_is_the_dev_stub_and_passes(self):
-        # `synqt dev` issues a stub provider on localhost; nothing off this machine can
+        # `synqt dev` issues a stub provider on localhost. Nothing off this machine can
         # reach it, so requiring https there would only make the dev path unrunnable.
         config = self.identity(authorize_url="http://127.0.0.1:8123/authorize",
                                token_url="http://localhost:8123/token")
