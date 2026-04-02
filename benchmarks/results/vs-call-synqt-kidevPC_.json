@@ -1,0 +1,90 @@
+{
+    "arch": "x86_64",
+    "benchmark": "vs-node-calls",
+    "host": "Arch Linux",
+    "path": "a connect point's returning slot over QtRemoteObjects",
+    "qt_version": "6.11.1",
+    "recorded": "2026-09-01T01:11:15Z",
+    "rss_available": true,
+    "seconds": 5,
+    "stack": "synqt",
+    "sweep": [
+        {
+            "callers": 1,
+            "completed": 257985,
+            "cpu_ms_per_1k": 18.023086613562807,
+            "failed": 0,
+            "latency": {
+                "max": 0.138269,
+                "mean": 0.020234038564253654,
+                "min": 0.019609,
+                "p50": 0.01991,
+                "p95": 0.02212,
+                "p99": 0.02544,
+                "samples": 257985,
+                "unit": "ms"
+            },
+            "rss_bytes_per_caller": 12374016,
+            "rss_total_bytes": 36925440,
+            "throughput_calls_per_sec": 49356.22728142337
+        },
+        {
+            "callers": 8,
+            "completed": 317840,
+            "cpu_ms_per_1k": 13.432116788321165,
+            "failed": 0,
+            "latency": {
+                "max": 0.896652,
+                "mean": 0.12477245866158129,
+                "min": 0.118659,
+                "p50": 0.122709,
+                "p95": 0.136049,
+                "p99": 0.15921509999999986,
+                "samples": 317840,
+                "unit": "ms"
+            },
+            "rss_bytes_per_caller": 1609216,
+            "rss_total_bytes": 37425152,
+            "throughput_calls_per_sec": 64106.49455425575
+        },
+        {
+            "callers": 32,
+            "completed": 304672,
+            "cpu_ms_per_1k": 13.971687585337678,
+            "failed": 0,
+            "latency": {
+                "max": 1.075552,
+                "mean": 0.5176605194077618,
+                "min": 0.479626,
+                "p50": 0.515345,
+                "p95": 0.533035,
+                "p99": 0.5568107999999996,
+                "samples": 304672,
+                "unit": "ms"
+            },
+            "rss_bytes_per_caller": 454400,
+            "rss_total_bytes": 39092224,
+            "throughput_calls_per_sec": 61824.67532467533
+        },
+        {
+            "callers": 128,
+            "completed": 251520,
+            "cpu_ms_per_1k": 17.140088263358784,
+            "failed": 0,
+            "latency": {
+                "max": 4.081346,
+                "mean": 2.4864044745388045,
+                "min": 2.213702,
+                "p50": 2.4447,
+                "p95": 2.691058,
+                "p99": 3.2240800099999998,
+                "samples": 251520,
+                "unit": "ms"
+            },
+            "rss_bytes_per_caller": 178336,
+            "rss_total_bytes": 47378432,
+            "throughput_calls_per_sec": 51477.69136307818
+        }
+    ],
+    "work": "echo"
+}

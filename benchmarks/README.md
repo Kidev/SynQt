@@ -509,8 +509,16 @@ easier comparison, and Next.js is what most readers are already running -- with 
 server of its own, so its live path is a Route Handler streaming server-sent events and it is
 the one column not carrying the same protocol as the rest.
 
+It measures the other direction too, because that is the direction most application code
+goes: a caller asks the server to do something and waits for the value. There the Next.js
+feature to compare against is a **Server Function**, which is shaped exactly like a connect
+point's returning slot, and the harness calls one by making the request React's own client
+runtime makes rather than by importing the function and skipping the framework. Bare Node
+answering a JSON POST sits between the two as the control, so the gap can be split into what
+React's machinery costs and what holding an open connection saves.
+
 ```sh
-./benchmarks/vs-node/run-bench.sh                       # the five live columns, and a table
+./benchmarks/vs-node/run-bench.sh                       # both tables, five columns and three
 python3 benchmarks/vs-node/sweep.py --processes 1,2,4,8 # throughput against process count
 ```
 

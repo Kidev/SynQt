@@ -278,7 +278,8 @@ def _sweep_label(kind: str, row: Mapping[str, Any]) -> str:
     """
     if "mode" in row and "consumers" in row:
         return f"{row['mode']}.n{row['consumers']}"
-    for axis in ("players", "sessions", "consumers", "subscribers", "blobs", "target"):
+    for axis in ("players", "sessions", "consumers", "subscribers", "callers", "blobs",
+                 "target"):
         if axis in row:
             return f"{axis}_{row[axis]}"
     return "sweep"
@@ -1110,6 +1111,68 @@ def _check_vs_node_replicas(document: Mapping[str, Any], checks: List[Check]) ->
     )
 
 
+def _check_vs_node_calls(document: Mapping[str, Any], checks: List[Check]) -> None:
+    """One column of the call-path comparison, gated on the same footing as the live one:
+    what makes a column comparable, never how fast it was.
+
+    The equivalent of the live table's delivered/expected is `failed`. A call that never
+    came back is excluded from the latency distribution by construction, so a column that
+    gave up on a tenth of its calls posts a flattering p99 over the nine tenths it answered,
+    and that is precisely the failure a reader would take for a win.
+    """
+    sweep = document.get("sweep", [])
+    if not sweep:
+        checks.append(Check("calls.sweep", False, "no caller counts were measured"))
+        return
+
+    checks.append(
+        Check(
+            "calls.stack_is_named",
+            bool(document.get("stack")),
+            f"column: {document.get('stack')}" if document.get("stack")
+            else "the result does not say which stack produced it",
+        )
+    )
+    # Which of the two units of work this was. A latency compared against one recorded for
+    # the other unit is a comparison of two different questions.
+    checks.append(
+        Check(
+            "calls.work_is_named",
+            document.get("work") in ("echo", "lookup"),
+            f"work: {document.get('work')}" if document.get("work")
+            else "the result does not say which unit of work it measured",
+        )
+    )
+
+    failed = [
+        f"callers={row.get('callers')} failed {row.get('failed')}"
+        for row in sweep
+        if row.get("failed")
+    ]
+    checks.append(
+        Check(
+            "calls.answered_every_call",
+            not failed,
+            "every caller count got an answer to every call"
+            if not failed else "; ".join(failed),
+        )
+    )
+
+    curve = [
+        (row.get("callers"), float(row.get("throughput_calls_per_sec") or 0.0))
+        for row in sorted(sweep, key=lambda r: r.get("callers", 0))
+    ]
+    checks.append(
+        Check(
+            "calls.throughput_curve",
+            True,
+            " -> ".join(f"{count}: {value:.6g} calls/s" for count, value in curve)
+            + " (printed, not gated: absolute speed is a fact about this host)",
+            enforced=False,
+        )
+    )
+
+
 def _check_vs_node_live(document: Mapping[str, Any], checks: List[Check]) -> None:
     """One column of the live-path comparison, gated on the things that make a column
     comparable at all rather than on how fast it was.
@@ -1259,6 +1322,7 @@ INVARIANTS: Dict[str, Callable[[Mapping[str, Any], List[Check]], None]] = {
     "remote-pages": _check_remote_pages,
     "buildtime": _check_buildtime,
     "vs-node-live": _check_vs_node_live,
+    "vs-node-calls": _check_vs_node_calls,
     "vs-node-replicas": _check_vs_node_replicas,
 }
 

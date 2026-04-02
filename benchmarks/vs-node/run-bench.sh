@@ -2,12 +2,18 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-# The live-path comparison: SynQt against Node.js, on the workload SynQt is for. Builds the
-# SynQt harness, runs every column over the same sweep, and writes one baseline each under
-# benchmarks/results/ keyed by hostname. Pinned Qt 6.11.1.
+# SynQt against Node.js, in both directions. Builds the SynQt harnesses, runs every column
+# over the same sweep, and writes one baseline each under benchmarks/results/ keyed by
+# hostname. Pinned Qt 6.11.1.
 #
 #   ./run-bench.sh
 #   ./run-bench.sh --subscribers 10,50,100,250,500 --seconds 10 --hz 60
+#
+# Two tables come out of it. The live one first, which is the headline: one publisher, N
+# subscribers, and the arguments above shape it. Then the call one: a caller asks and waits,
+# which is the direction a Next.js Server Function goes, shaped by CALL_CALLERS,
+# CALL_SECONDS and CALL_WORK instead (the two sweeps count different things, so one set of
+# flags cannot mean the same thing to both).
 #
 # QT_HOST overrides the kit path and BENCH_OUT_DIR overrides where the baselines are
 # written, so CI can run this against its own kit without writing into benchmarks/results/.
@@ -78,3 +84,37 @@ echo "== Node, framework (Next.js, server-sent events) =="
 echo
 echo "== the table =="
 python3 benchmarks/vs-node/compare.py "$RESULTS_DIR"/vs-node-*-"${HOST_TAG}".json
+
+# The other direction: a caller asks and waits. This is where the Next.js Server Function
+# column lives, because that is the Next.js feature shaped like a connect point's returning
+# slot.
+#
+# Its own flags rather than "$@": the live columns sweep subscribers and these sweep
+# callers, so forwarding one run's arguments to the other would hand --subscribers to a
+# program that has no such option. CALL_CALLERS, CALL_SECONDS and CALL_WORK are the knobs.
+#
+# Written under vs-call- rather than vs-node-calls-, so the live table's glob above keeps
+# matching only the live results.
+CALL_WORK="${CALL_WORK:-echo}"
+CALL_CALLERS="${CALL_CALLERS:-1,8,32,128}"
+CALL_SECONDS="${CALL_SECONDS:-5}"
+CALL_ARGS=(--callers "$CALL_CALLERS" --seconds "$CALL_SECONDS" --work "$CALL_WORK")
+
+echo
+echo "== SynQt, a connect point's returning slot ($CALL_WORK) =="
+"$BUILD_DIR/bench_call" "${CALL_ARGS[@]}" \
+    --out "$RESULTS_DIR/vs-call-synqt-${HOST_TAG}.json"
+
+echo
+echo "== Node, bare (node:http, a JSON body each way) =="
+(cd "$NODE_DIR" && node calls-bare.mjs "${CALL_ARGS[@]}" \
+    --out "$REPO_ROOT/$RESULTS_DIR/vs-call-bare-${HOST_TAG}.json")
+
+echo
+echo "== Node, framework (Next.js Server Functions) =="
+(cd "$NODE_DIR" && node calls-nextjs.mjs "${CALL_ARGS[@]}" \
+    --out "$REPO_ROOT/$RESULTS_DIR/vs-call-nextjs-${HOST_TAG}.json")
+
+echo
+echo "== the call table =="
+python3 benchmarks/vs-node/compare-calls.py "$RESULTS_DIR"/vs-call-*-"${HOST_TAG}".json

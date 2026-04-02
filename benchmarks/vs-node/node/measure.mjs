@@ -132,3 +132,102 @@ export function report(entry) {
         `  ${entry.throughput_msgs_per_sec.toFixed(0)} msg/s` +
         `  delivered ${entry.delivered}/${entry.expected}`);
 }
+
+/// One sweep entry for the call comparison, computed identically on every column of it.
+///
+/// Separate from summarize() above because the two tables answer different questions and
+/// share only their statistics: the live one is "one change, N subscribers see it" and its
+/// unit is a delivery, this one is "a caller asks and waits" and its unit is a round trip.
+/// Reusing the live shape would put a `subscribers` count on a table that has none and call
+/// a latency a propagation.
+export function summarizeCalls({ callers, latency, completed, failed, elapsedSeconds, cpuMs,
+                                 rssPerCaller, rssTotal }) {
+    return {
+        callers,
+        latency: distribution(latency),
+        throughput_calls_per_sec: completed / Math.max(elapsedSeconds, 0.001),
+        cpu_ms_per_1k: completed > 0 ? (cpuMs * 1000) / completed : 0,
+        rss_bytes_per_caller: rssPerCaller,
+        rss_total_bytes: rssTotal,
+        completed,
+        failed,
+    };
+}
+
+export function reportCall(entry) {
+    const l = entry.latency;
+    console.log(
+        `  callers=${entry.callers}` +
+        `  p50 ${l.p50.toFixed(3)} ms` +
+        `  p99 ${l.p99.toFixed(3)} ms` +
+        `  ${entry.throughput_calls_per_sec.toFixed(0)} calls/s` +
+        `  failed ${entry.failed}`);
+}
+
+/// Drive one column of the call comparison: `callers` callers, each with exactly one call in
+/// flight, for `seconds`, and the statistics over what came back.
+///
+/// Closed loop per caller, and that is the whole design. Firing calls open-loop at a fixed
+/// rate would measure the queue in front of the server rather than what the server does, and
+/// the concurrency would be whatever the rate happened to outrun. Here the concurrency is
+/// the thing being swept and it is exact: N callers, N calls outstanding, never N+1.
+///
+/// `call(index)` makes one call and resolves when its answer is back. It is the only thing
+/// that differs between the columns; everything above it is shared, so a difference in the
+/// table is a difference in the stack and not in the harness.
+export async function driveCalls({ call, callers, seconds, warmupCalls }) {
+    const latency = [];
+    let completed = 0;
+    let failed = 0;
+    let measuring = false;
+    let running = true;
+
+    const once = async (index) => {
+        const started = nowMicros();
+        try {
+            await call(index);
+        } catch (error) {
+            if (measuring) {
+                failed += 1;
+            }
+            return;
+        }
+        if (measuring) {
+            latency.push((nowMicros() - started) / 1000);
+            completed += 1;
+        }
+    };
+
+    // Warm up on one caller rather than all of them: the first calls pay for lazily built
+    // route tables, a first database statement and a first TLS-less socket, and what is being
+    // warmed is the server, which every caller shares.
+    for (let i = 0; i < warmupCalls; i += 1) {
+        await once(0);
+    }
+
+    const loops = [];
+    measuring = true;
+    const cpuBefore = cpuMilliseconds();
+    const startedAt = Date.now();
+    for (let index = 0; index < callers; index += 1) {
+        loops.push((async () => {
+            while (running) {
+                await once(index);
+            }
+        })());
+    }
+    // The window is wall-clock and the loops end on the flag, so a call already in flight
+    // when time runs out is awaited rather than abandoned: abandoning it would report a
+    // throughput over calls whose latency was never counted.
+    await sleep(seconds * 1000);
+    running = false;
+    await Promise.all(loops);
+
+    return {
+        latency,
+        completed,
+        failed,
+        elapsedSeconds: (Date.now() - startedAt) / 1000,
+        cpuMs: cpuMilliseconds() - cpuBefore,
+    };
+}

@@ -34,3 +34,21 @@ target_link_libraries(bench_live PRIVATE
     Qt6::WebSockets
     Qt6::RemoteObjects
 )
+
+# The other direction: a caller asks and waits. This is the column the Next.js Server
+# Function comparison is measured against, so it runs the same stack the live column does
+# and differs only in which way the message goes first.
+qt_add_executable(bench_call bench_call.cpp)
+
+qt_add_repc_sources(bench_call "${CMAKE_CURRENT_SOURCE_DIR}/call.rep")
+qt_add_repc_replicas(bench_call "${CMAKE_CURRENT_SOURCE_DIR}/call.rep")
+
+target_include_directories(bench_call PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
+
+target_link_libraries(bench_call PRIVATE
+    SynQtClient
+    Qt6::Core
+    Qt6::Gui
+    Qt6::WebSockets
+    Qt6::RemoteObjects
+)

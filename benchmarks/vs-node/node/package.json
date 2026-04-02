@@ -10,6 +10,8 @@
     "http:bare": "node http-bare.mjs",
     "http:fastify": "node http-fastify.mjs",
     "http:nextjs": "node http-nextjs.mjs",
+    "calls:bare": "node calls-bare.mjs",
+    "calls:nextjs": "node calls-nextjs.mjs",
     "build:nextjs": "next build nextjs"
   },
   "dependencies": {

@@ -1,0 +1,20 @@
+// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+// SPDX-License-Identifier: Apache-2.0
+
+// The contract for the call comparison: a caller asks the owner to do something and waits
+// for the value back. That is the whole of it, and it is the shape a connect point's
+// returning slot has -- what `synqt` lowers `slot lookup(int id) -> Row` to.
+//
+// Two slots rather than one, matching nextjs/app/actions.js, because one number would not
+// separate the pipeline from the work. `echo` has an empty body, so what it measures is the
+// round trip and the object protocol around it. `lookup` reads a row out of the same seeded
+// table the HTTP table's `/db` route reads.
+//
+// Both return, and that matters: a fire-and-forget slot has no reply to wait for and would
+// measure how fast a caller can write to a socket. A QtRemoteObjects slot with a return type
+// answers on the replica through a QRemoteObjectPendingReply, which is the round trip.
+class CallFeed
+{
+    SLOT(QByteArray echo(QByteArray payload))
+    SLOT(int lookup(int id))
+}

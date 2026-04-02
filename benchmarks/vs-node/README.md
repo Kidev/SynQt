@@ -11,10 +11,16 @@ somebody choosing a framework is actually comparing it to.
 
 One publisher changes a value at a fixed rate. N subscribers must each see every change.
 
-That is the whole of it, and it is the thing SynQt exists for rather than the
-thing that is easiest to measure. A framework comparison that led with request throughput
-would be comparing SynQt on somebody else's ground; the HTTP table below is here as
-supporting evidence, not as the headline.
+That is the headline, and it is the thing SynQt exists for rather than the thing that is
+easiest to measure. A framework comparison that led with request throughput would be
+comparing SynQt on somebody else's ground.
+
+Two further tables sit under it, in the order they are worth reading. First
+[the call path](#the-other-direction-a-caller-asks-and-waits): a caller asks the server to
+do something and waits for the value, which is the shape a Next.js Server Function has and
+the shape most application code has, whichever framework it is written in. Then
+[the HTTP table](#the-supporting-table-http), which is supporting evidence rather than an
+argument.
 
 **Held constant across every column**: the outcome (N clients live on a shared
 value), the machine, the subscriber sweep, the publish rate, the payload size, the frame
@@ -85,13 +91,18 @@ doing work.
 ./benchmarks/vs-node/run-bench.sh --subscribers 10,50,100,250,500 --seconds 10 --hz 60
 ```
 
-It builds the SynQt column, installs the Node columns' dependencies and builds the Next.js
-app on first run, runs all five over the same sweep, writes one baseline each under
-`benchmarks/results/` keyed by hostname, and prints the table. To re-render a table from
-baselines already on disk:
+It builds the two SynQt harnesses, installs the Node columns' dependencies and builds the
+Next.js app on first run, runs all five live columns over the same sweep and all three call
+columns over theirs, writes one baseline each under `benchmarks/results/` keyed by hostname,
+and prints both tables. The arguments above shape the live sweep; the call sweep has knobs of
+its own (`CALL_CALLERS`, `CALL_SECONDS`, `CALL_WORK`), because the two count different things
+and one `--subscribers` cannot mean anything to a table with no subscribers in it.
+
+To re-render either table from baselines already on disk:
 
 ```sh
 python3 benchmarks/vs-node/compare.py benchmarks/results/vs-node-*.json
+python3 benchmarks/vs-node/compare-calls.py benchmarks/results/vs-call-*.json
 ```
 
 ## What it reports, and how to read it
@@ -368,6 +379,106 @@ socket for a single frame each. See `flushBeforeBlocking` in
 [`websockettransport.cpp`](../../src/transport/websockettransport.cpp), which also records
 why the obvious version of it corrupts the stream.
 
+## The other direction: a caller asks and waits
+
+Everything above is one publisher and N subscribers, which is the workload SynQt is built
+around. It is not the workload most code is. The other shape is the one a reader is more
+likely to be writing today: the client asks the server to do something, the server does it,
+the value comes back. In SynQt that is a connect point's returning slot. In Next.js it is a
+**Server Function**, a `"use server"` function the client calls and awaits, which is the one
+Next.js feature that lines up with a slot member for member.
+
+So there is a second table, measured the same way, in that direction:
+
+| Column | What it is |
+|---|---|
+| `synqt` | A returning slot on a real connect point, called from N consumer nodes over the framework's own `WebSocketTransport`, answering through the `QRemoteObjectPendingReply` a consumer facade's `.then()` is built on |
+| `node-bare-call` | `node:http`, a JSON body up and a JSON body back. No framework |
+| `node-nextjs-action` | A Next.js 16 Server Function, invoked with the request React's client runtime makes |
+
+```sh
+./benchmarks/vs-node/run-bench.sh            # runs both tables
+CALL_CALLERS=1,8,32 CALL_WORK=lookup ./benchmarks/vs-node/run-bench.sh
+```
+
+The sweep is over concurrency and the loop is closed per caller: N callers, N calls
+outstanding, never N+1. Open-looping at a fixed rate would measure the queue in front of the
+server rather than the server, and the concurrency would be whatever the rate happened to
+outrun.
+
+Two units of work, because one number cannot separate the pipeline from the job.
+`--work echo` has an empty function body, so what is left is the round trip and the
+framework around it. `--work lookup` reads one row from the same seeded ten-thousand-row
+table the HTTP routes read. On this host the two are within noise of each other on every
+column, which is itself the finding: at these sizes none of the three stacks is spending its
+time on the work.
+
+### The Next.js column is a real Server Function call
+
+The way to get this wrong is to `import {echo} from "./actions.js"` and call it, which
+measures the function body with Next.js removed from underneath it. This column does not do
+that. [`serveraction.mjs`](node/serveraction.mjs) reads the action id `next build` assigned
+out of `.next/server/server-reference-manifest.json` and POSTs the flight-encoded arguments
+to the page route with a `Next-Action` header, which is the request React's client runtime
+makes. What is inside the measurement is therefore the action lookup, the flight decode of
+the arguments, the function body, and the flight encode of the result, and a deployment pays
+for all four.
+
+Because that path is addressed by a build-assigned id rather than by a URL, it has more ways
+to silently become an error page than most, and every one of them would look fast. So the
+first call of every run asserts on the value that came back before the clock starts. A stale
+build, a moved id or a Next release that changes the envelope makes the column say so and
+stop.
+
+Both Node columns reach their server through `fetch`, whose connections are pooled and kept
+alive, so what is being counted per call is HTTP framing and routing rather than a TCP
+handshake.
+
+### The result
+
+Arch Linux, x86_64, Qt 6.11.1 against Node 22.22, `--work echo`, 5 second windows. These
+are the committed baselines under `benchmarks/results/vs-call-*.json`.
+
+| | 1 caller | 8 | 32 | 128 |
+|---|---|---|---|---|
+| latency p50, SynQt | 0.020 ms | 0.123 ms | 0.515 ms | 2.445 ms |
+| latency p50, Node bare | 0.119 ms | 0.897 ms | 3.788 ms | 17.371 ms |
+| latency p50, Next.js Server Function | 0.769 ms | 5.256 ms | 19.082 ms | 84.083 ms |
+| latency p99, Next.js Server Function | 1.862 ms | 7.984 ms | 24.710 ms | 120.154 ms |
+| calls / core-second, SynQt | 55,484 | 74,448 | 71,573 | 58,343 |
+| calls / core-second, Node bare | 5,712 | 6,517 | 6,378 | 5,895 |
+| calls / core-second, Next.js Server Function | 932 | 1,171 | 1,330 | 1,166 |
+
+That is a wide gap and it is two separate facts stacked on top of each other, so read it as
+two:
+
+**Next.js Server Functions cost five to six times what the same Node process costs
+answering a plain JSON POST** (6.1x at one caller, 4.8x at thirty-two, on both the latency
+and the per-core rows). Both columns are the same runtime on the same transport doing the
+same nothing, so that factor is React's machinery around the call: resolving the action id,
+decoding the arguments out of the flight format, encoding the result back into it. This is
+the comparison with no asymmetry in it at all, and it is the one to quote.
+
+**SynQt is about ten times the bare Node column on top of that**, and that is a difference in
+design rather than in efficiency. A SynQt caller holds one connection for as long as the
+page is open and a call is a framed message on it; both Node columns hold an HTTP request
+per call, even on a pooled connection. The framework is not faster at the same work, it is
+doing less work per call because the connection is already there. Whether that is an
+advantage for you depends on whether your client is a long-lived app or a series of separate
+requests, and this table cannot answer that.
+
+What the table does support: **a Server Function is not a cheap call.** It costs a little
+under a millisecond with nothing else on the machine, and at 128 callers its p50 is 84 ms
+against 17 ms for the same Node process without the framework. Its throughput stops
+improving after about 32 callers while its latency goes on climbing, which is the shape of a
+stack that is already CPU-bound and is queueing: the `calls / core-second` row says the same
+thing more directly, at roughly a thousand a core across the whole sweep.
+
+What it does not support: any claim about Next.js as a whole. This is one path through it,
+and its per-call overhead is a fixed cost that a handler doing real work would dilute. The
+things a Server Function is actually for, keeping a mutation next to the component that
+causes it and having it work before any client bundle loads, are not on any axis here.
+
 ## The supporting table: HTTP
 
 The six TechEmpower test types (`/plaintext`, `/json`, `/db`, `/queries`, `/updates`,
@@ -396,9 +507,10 @@ the generator is not a variable between stacks.
 
 A sandbox that terminates sustained parallel load cannot produce these numbers, so the
 committed baselines come from a run on an unrestricted host. The harness itself runs
-anywhere: every live column completes at small sizes, and all six HTTP routes are verified
+anywhere: every live column completes at small sizes, all six HTTP routes are verified
 correct on all three Node servers (including the 1..500 clamp on `queries` and the HTML
-escaping of the seeded `<script>` fortune) before anything is timed. A benchmark of a wrong
-endpoint is worse than no benchmark. The Next.js column adds one build step and needs its
+escaping of the seeded `<script>` fortune) before anything is timed, and every call column
+asserts on what its first call returned before the clock starts. A benchmark of a wrong
+endpoint is worse than no benchmark. The Next.js columns add one build step and need its
 `.next` output present; without it the harness says so and stops, rather than measuring a
 server answering 404.

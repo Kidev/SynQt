@@ -117,7 +117,9 @@ Both runtimes run one thread per process and add capacity by running more proces
 trails the built-ins column by 2% on one process and leads it by 19% on eight. That column
 is `node:http` with a hand written WebSocket implementation, which is faster than what most
 deployments run; Socket.IO is the usual choice, and the sweep measures it on one process
-only.
+only. Next.js is measured too and is not in this table, because it ships no WebSocket server:
+its live path is a route streaming server-sent events, which is a different protocol carrying
+the same workload, so it belongs beside its caveats rather than in a column here.
 
 Adding processes divides the subscribers between them, and each process holds its own copy
 of the value. A SynQt web edge can instead spread its sockets across IO threads inside one
@@ -134,8 +136,27 @@ The threads column stops improving after two cores. The processes column keeps s
 it cannot answer the case in the left column: making N processes agree on one value costs a
 broadcast between them that these numbers do not include.
 
+The other direction is the one most application code goes: the client asks the server to do
+something and waits for the answer. In SynQt that is a connect point's returning slot; the
+Next.js feature shaped the same way is a Server Function. Same host, `--work echo`, one
+caller with nothing else on the machine, then a hundred and twenty-eight at once:
+
+| | SynQt slot | Node, plain JSON POST | Next.js Server Function |
+|---|---|---|---|
+| latency p50, 1 caller | 0.020 ms | 0.119 ms | 0.769 ms |
+| latency p50, 128 callers | 2.4 ms | 17.4 ms | 84.1 ms |
+| calls per core-second | ~55k | ~5.7k | ~0.9k |
+
+Two things are stacked in that gap and they are worth separating. React's machinery around a
+server action costs five to six times what the same Node process costs answering a plain
+POST, which is a like-for-like number. The rest is that a SynQt caller already holds its
+connection while both Node columns open a request per call, which is a difference in design
+rather than in efficiency.
+
 Every harness, the committed baselines, and what each number does and does not support are
-in [`benchmarks/`](benchmarks/). The deployment docs plot the same data under
+in [`benchmarks/`](benchmarks/), which is also where the caveats live: the Next.js column is
+driven by making the request React's own client runtime makes, never by importing the
+function and skipping the framework. The deployment docs plot the fan-out data under
 [running one edge on more than one core](https://synqt.org/deploying/#running-one-edge-on-more-than-one-core).
 
 ## Where to go next
