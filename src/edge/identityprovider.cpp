@@ -9,6 +9,7 @@
 #include "deviceregistry.h"
 #include "identitymapping.h"
 #include "oauthbackend.h"
+#include "ratewindow.h"
 #include "sessionmanager.h"
 
 #include <QCryptographicHash>
@@ -761,6 +762,17 @@ QHttpServerResponse IdentityProvider::handleDevice(const QHttpServerRequest &req
                                                       request.value("X-Forwarded-For"))
                            : request.remoteAddress().toString()};
     const qint64 now{QDateTime::currentMSecsSinceEpoch()};
+
+    // The table's own ceiling, taken first, for the two reasons webedge.cpp's sign-in gate
+    // spells out: a reference from operator[] does not survive a prune (QHash::erase moves
+    // the entries after the one it removes), and dropping only what has run out is what
+    // keeps the ceiling from being a way to clear the count. A table that is still full of
+    // live windows after that is a refusal rather than a reset.
+    constexpr int kMaxRateEntries{4096};
+    if (pruneRateWindows(m_deviceRate, now, kWindowMs, kMaxRateEntries)) {
+        return tooManyRequests(kWindowMs);
+    }
+
     RateWindow &window{m_deviceRate[peer]};
     if (now - window.startedMs > kWindowMs) {
         window.startedMs = now;
@@ -768,11 +780,6 @@ QHttpServerResponse IdentityProvider::handleDevice(const QHttpServerRequest &req
     }
     if (++window.count > kMaxAttemptsPerWindow) {
         return tooManyRequests(window.startedMs + kWindowMs - now);
-    }
-    if (m_deviceRate.size() > 4096) {
-        // A table keyed by whatever address dialled in is a table an attacker can grow. It is
-        // only ever a rate window, so dropping it wholesale costs one window of leniency.
-        m_deviceRate.clear();
     }
 
     const QUrlQuery body{QString::fromUtf8(request.body())};

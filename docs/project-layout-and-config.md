@@ -445,7 +445,7 @@ entities:
         key_header: X-API-Key            # default
         allowed_origins: []              # browser callers; default none
         max_body_bytes: 1048576          # default
-        rate_per_minute: 600             # per IP; default
+        rate_per_minute: 600             # per peer address; default
         reply_timeout_ms: 15000          # default; 0 means the default, not no deadline
 ```
 
@@ -468,6 +468,16 @@ a call site writes a path and the base URL stays a configuration decision.
 singleton declares its routes on (see [the gateway](entities.md#gateway-the-api-entity)).
 Everything a caller can influence is checked before a handler exists: the rate limit,
 the API key, the origin, then the body size.
+
+`rate_per_minute` counts the peer address, which is the caller's own on a gateway machine
+callers reach directly and the balancer's on one behind a proxy. Behind a proxy it is
+therefore one budget shared by everybody. That is generous rather than dangerous, since the
+API key is what admits a caller and this is only there to keep an unauthenticated one from
+spending the entity's time, but it means the number to set is a whole deployment's rate and
+not one client's. A gateway that has to ration per client behind a balancer wants the
+balancer's own rate limiting, which sees the forwarded address. The web edge is the one that
+resolves it, because `security.trusted_proxies` is a browser-facing setting and a machine
+caller has no browser.
 
 `max_body_bytes` is the transport's limit and not a check made after the fact: a body
 past it is refused while it is still arriving, so an oversized request is never read

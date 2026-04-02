@@ -390,6 +390,33 @@ read them.
   read memory. A drained buffer also returns its allocation instead of keeping it
   for the life of the connection.
 
+- Password and credential gates. Two routes take something guessable and are rationed by
+  client address on a one minute fixed window: the entity password gate (`sign_in`) at ten
+  attempts, and the desktop device-credential route at thirty. Both are counted before the
+  credential is read, so a refusal says nothing about it, and both answer `429` with
+  `Retry-After`. What is being rationed is the cost as much as the guess: a PBKDF2 is
+  expensive on purpose, and an unauthenticated caller must not be able to buy one per packet.
+
+    The table each keeps is keyed by whatever address dialled in, so it needs a ceiling of
+    its own, and the ceiling must not become a way to clear the count. Past four thousand
+    addresses the windows that have run out are dropped, which is evidence of nothing; when
+    that frees nothing, the gate refuses for the rest of the window rather than emptying the
+    table. Emptying it is how a guesser who can present addresses, and an IPv6 /64 is an
+    unlimited supply of them, hands themselves a fresh budget on demand.
+
+    That has an availability cost worth stating: four thousand distinct addresses arriving
+    at one of these routes inside a minute make it answer `429` to everybody until the
+    minute is out. It is the right way round. A password gate that can be brute-forced is
+    worse than one a flood can make briefly unavailable, and a flood on that scale is
+    already the case for a reverse proxy in front of the edge.
+
+- Outbound answers. `Http` holds a whole reply in memory before a handler sees it, so the
+  size of one is capped at 16 MiB, checked while the body is arriving and against the
+  announced length as well as the running count. An allowlisted third party is not the same
+  thing as a trusted one, and a `Content-Length` is not a promise anybody has to keep. A
+  provider endpoint on the login path is capped the same way, at 1 MiB, which no real token
+  response or profile approaches.
+
 - Heartbeat and reconnection. The QtRO heartbeat detects dead connections so their
   resources are reclaimed, and capped exponential backoff avoids hammering a
   recovering entity.

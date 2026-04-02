@@ -9,6 +9,7 @@
 #include "pagesedgesource.h"
 #include "pagesservice.h"
 #include "pagestore.h"
+#include "ratewindow.h"
 #include "sessionmanager.h"
 #include "sessionstatesource.h"
 #include "sourcefactory.h"
@@ -579,27 +580,40 @@ QHttpServerResponse WebEdge::handleSignIn(const QHttpServerRequest &request)
     const QString visitor{m_clientAddress.resolve(request.remoteAddress(),
                                                   request.value("X-Forwarded-For"))};
     const qint64 now{QDateTime::currentMSecsSinceEpoch()};
+    const auto refuse{[this](qint64 retryAfterMs) {
+        QHttpServerResponse response{QByteArrayLiteral("text/plain"),
+                                     QByteArrayLiteral("slow down"),
+                                     QHttpServerResponder::StatusCode::TooManyRequests};
+        QHttpHeaders headers{response.headers()};
+        headers.append(QHttpHeaders::WellKnownHeader::RetryAfter,
+                       QByteArray::number(qMax(qint64{1}, (retryAfterMs + 999) / 1000)));
+        response.setHeaders(std::move(headers));
+        emit signInRefused(QString{});
+        return response;
+    }};
+
+    // The table's own ceiling, before this request is counted into it and before anything
+    // holds a reference into it. Both halves of that matter. QHash::erase moves the entries
+    // that follow the one it removes, so a reference taken from operator[] does not survive
+    // a prune, and a gate is a poor place to leave that waiting for somebody.
+    //
+    // What is dropped is only the windows that have run out. When that frees nothing the
+    // gate refuses for the rest of the minute. That has an availability cost and it is the
+    // right way round. Emptying the table instead would let a flood of throwaway addresses
+    // hand the address doing the guessing a fresh ten attempts, and a password gate that can
+    // be brute-forced is worse than one that four thousand simultaneous visitors can make
+    // briefly unavailable.
+    if (pruneRateWindows(m_signInRate, now, kSignInWindowMs, kMaxRateEntries)) {
+        return refuse(kSignInWindowMs);
+    }
+
     RateWindow &window{m_signInRate[visitor]};
     if (now - window.startedMs > kSignInWindowMs) {
         window.startedMs = now;
         window.count = 0;
     }
     if (++window.count > kMaxSignInsPerWindow) {
-        const qint64 remaining{window.startedMs + kSignInWindowMs - now};
-        QHttpServerResponse response{QByteArrayLiteral("text/plain"),
-                                     QByteArrayLiteral("slow down"),
-                                     QHttpServerResponder::StatusCode::TooManyRequests};
-        QHttpHeaders headers{response.headers()};
-        headers.append(QHttpHeaders::WellKnownHeader::RetryAfter,
-                       QByteArray::number(qMax(qint64{1}, (remaining + 999) / 1000)));
-        response.setHeaders(std::move(headers));
-        emit signInRefused(QString{});
-        return response;
-    }
-    if (m_signInRate.size() > kMaxRateEntries) {
-        // A table keyed by whatever address dialled in is a table an attacker can grow. It
-        // is only ever a rate window, so dropping it wholesale costs one window of leniency.
-        m_signInRate.clear();
+        return refuse(window.startedMs + kSignInWindowMs - now);
     }
 
     const QUrlQuery form{QString::fromUtf8(request.body())};

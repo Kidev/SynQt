@@ -51,7 +51,6 @@ include("${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/SynQtContracts.cmake")
 qt_add_library(SynQtIdentity STATIC
     claimstore.cpp
     claimstore.h
-    constanttime.h
     identityconfig.h
     deviceregistry.cpp
     deviceregistry.h

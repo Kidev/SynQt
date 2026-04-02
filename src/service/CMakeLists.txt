@@ -50,6 +50,7 @@ qt_add_library(SynQtService STATIC
     tracecontext.h
     tracer.cpp
     tracer.h
+    constanttime.h
     connectpointhost.cpp
     connectpointhost.h
     entityruntime.cpp

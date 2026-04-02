@@ -70,3 +70,16 @@ target_link_libraries(tst_clientaddress PRIVATE
 )
 
 add_test(NAME clientaddress COMMAND tst_clientaddress)
+
+# The rate-window table on its own. Three gates share it, and its interesting case is what
+# a table does when it fills up, which an end-to-end test cannot reach without arriving from
+# four thousand addresses. Same reasoning as tst_clientaddress above.
+qt_add_executable(tst_ratewindow tst_ratewindow.cpp)
+
+target_link_libraries(tst_ratewindow PRIVATE
+    SynQtEdge
+    Qt6::Core
+    Qt6::Test
+)
+
+add_test(NAME ratewindow COMMAND tst_ratewindow)

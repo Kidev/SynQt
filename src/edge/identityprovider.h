@@ -6,6 +6,7 @@
 
 #include "claimstore.h"
 #include "identityconfig.h"
+#include "ratewindow.h"
 
 #include <QHash>
 #include <QObject>
@@ -218,13 +219,8 @@ private:
 
     /// Fixed-window request counts per client address for the device route, so a machine
     /// cannot sit there spending guesses. The secret is 256 bits, so this is not what makes
-    /// guessing hopeless; it is what keeps a guesser from costing the edge a database read
+    /// guessing hopeless. It is what keeps a guesser from costing the edge a database read
     /// per attempt.
-    struct RateWindow
-    {
-        qint64 startedMs{0};
-        int count{0};
-    };
     QHash<QString, RateWindow> m_deviceRate;
 
     /// How many delegated answers this edge is waiting on right now, and the guard that

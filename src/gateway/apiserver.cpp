@@ -5,6 +5,7 @@
 
 #include "api.h"
 #include "apirequest.h"
+#include "constanttime.h"
 #include "topology.h"  // loadCertificate / loadPrivateKey
 
 #include <QDateTime>
@@ -80,24 +81,8 @@ QVariant bodyOf(const QHttpServerRequest &request)
     return QString::fromUtf8(raw);
 }
 
-/// Whether two byte strings are equal, in time that depends on their lengths and not on
-/// their contents. `QByteArray::operator==` returns at the first differing byte, which
-/// over many attempts tells an attacker how long a prefix they have guessed.
-bool equalInConstantTime(const QByteArray &presented, const QByteArray &secret)
-{
-    if (secret.isEmpty() || presented.size() != secret.size()) {
-        return false;
-    }
-    unsigned char difference{0};
-    for (qsizetype index{0}; index < secret.size(); ++index) {
-        difference |= static_cast<unsigned char>(presented.at(index))
-                      ^ static_cast<unsigned char>(secret.at(index));
-    }
-    return difference == 0;
-}
-
 /// How long a connection may sit idle between requests before the transport closes it.
-/// A machine caller either has something to say or has gone away; this is what ends the
+/// A machine caller either has something to say or has gone away. This is what ends the
 /// half-open connections that neither a size limit nor a rate limit can see.
 constexpr int kKeepAliveTimeoutSeconds{30};
 
@@ -233,10 +218,14 @@ bool ApiServer::withinRate(const QString &peer)
     const bool within{++m_rateWindow[peer] <= m_config.ratePerMinutePerIp};
     if (m_rateWindow.size() > kMaxRateEntries) {
         // A table keyed by whatever address dialled in is a table a caller can grow, one
-        // entry per address, for as long as the window lasts. It is only ever a rate
-        // window, so dropping it wholesale costs the rest of one minute's leniency.
-        m_rateWindow.clear();
-        m_rateWindowStartMs = now;
+        // entry per address, for as long as the window lasts. What it must not become is a
+        // way to clear the count. This window is shared by every caller, so emptying it on
+        // overflow would let one that can present many addresses reset its own budget on
+        // demand, and the rate limit would be gone rather than generous. Everything in this
+        // table belongs to the current minute by construction (the whole of it is dropped
+        // when the minute turns, above), so there is nothing stale to prune and the only
+        // right answer to an overflowing table is to refuse while it lasts.
+        return false;
     }
     return within;
 }
@@ -254,7 +243,7 @@ QString ApiServer::refuse(const QHttpServerRequest &request, int *status) const
             // Every candidate is compared, and each comparison reads every byte: no early
             // return on the first mismatch and no `break` on the first match, so how long
             // this takes does not say how much of a guess was right.
-            accepted = equalInConstantTime(presented, key) || accepted;
+            accepted = constantTimeEquals(presented, key) || accepted;
         }
         if (!accepted) {
             *status = 401;

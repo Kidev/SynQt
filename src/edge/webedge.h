@@ -5,6 +5,7 @@
 #define SYNQT_WEBEDGE_H
 
 #include "clientaddress.h"
+#include "ratewindow.h"
 #include "webedgeconfig.h"
 
 #include <QHash>
@@ -347,12 +348,16 @@ private:
     /// and the same requests are a password guess apiece. Keyed the way the connection caps
     /// and the device route are keyed, so a balancer in front does not put every visitor in
     /// one bucket.
-    struct RateWindow
-    {
-        qint64 startedMs{0};
-        int count{0};
-    };
     QHash<QString, RateWindow> m_signInRate;
+    /// The two answers stamped on, or checked against, every request. Both are pure
+    /// functions of the configuration and the bound port, so they are built once when the
+    /// port is known rather than per request. See cachePolicy().
+    QByteArray m_csp;
+    QStringList m_allowedOrigins;
+    /// Bundle directory as configured -> its canonical path. Filled by cacheBundle(), which
+    /// already walks every root, so containment costs a hash lookup per request instead of
+    /// a filesystem round trip.
+    QHash<QString, QString> m_canonicalRoots;
     /// Which address is the visitor, given who this edge was told to believe.
     ClientAddress m_clientAddress;
 };

@@ -3,6 +3,7 @@
 
 #include "deviceregistry.h"
 
+#include "constanttime.h"
 #include "ipersistenceprovider.h"
 #include "persistencefactory.h"
 
@@ -27,23 +28,6 @@ QByteArray randomSecret()
     QRandomGenerator::system()->fillRange(reinterpret_cast<quint32 *>(raw.data()),
                                           raw.size() / static_cast<int>(sizeof(quint32)));
     return raw.toHex();
-}
-
-// Length-constant comparison. The stored value is a hash of a 256-bit secret, so timing here
-// leaks nothing anyone can walk back to the secret; it is written this way because the next
-// person to read it should not have to work that out before trusting it.
-bool constantTimeEquals(const QString &lhs, const QString &rhs)
-{
-    const QByteArray left{lhs.toLatin1()};
-    const QByteArray right{rhs.toLatin1()};
-    if (left.isEmpty() || left.size() != right.size()) {
-        return false;
-    }
-    quint8 difference{0};
-    for (qsizetype i{0}; i < left.size(); ++i) {
-        difference |= static_cast<quint8>(left.at(i)) ^ static_cast<quint8>(right.at(i));
-    }
-    return difference == 0;
 }
 
 // The label a device carries for a future "your devices" list. Bounded and stripped of
