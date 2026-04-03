@@ -750,29 +750,40 @@ void WebEdge::stampResponse(const QHttpServerRequest &request, QHttpServerRespon
     response.setHeaders(std::move(headers));
 }
 
+QString WebEdge::canonicalRootOf(const QString &root) const
+{
+    // Resolved at start-up, so a bundle directory that appears or moves afterwards is not
+    // picked up. That is already true of the ETag table beside it. What an edge serves is
+    // decided when it starts, and a deploy is a restart.
+    return m_canonicalRoots.value(root);
+}
+
 void WebEdge::cacheBundle()
 {
     m_etags.clear();
-    // Every bundle this edge may serve, not just one: the table is keyed by canonical
+    m_canonicalRoots.clear();
+    // Every bundle this edge may serve, not only one: the table is keyed by canonical
     // absolute path, so two roots holding a file of the same name never collide.
     for (const QString &bundle : std::as_const(m_config.bundles)) {
         const QDir root{bundle};
+        m_canonicalRoots.insert(bundle, root.canonicalPath());
         const QFileInfoList entries{root.entryInfoList(QDir::Files | QDir::NoSymLinks)};
         for (const QFileInfo &entry : entries) {
-        // A precompressed variant is the same resource under a different encoding, so it
-        // shares the identity of the file it encodes and is never requested directly.
-        if (entry.fileName().endsWith(QLatin1String(".br"))
-            || entry.fileName().endsWith(QLatin1String(".gz"))) {
-            continue;
-        }
-        QFile file{entry.absoluteFilePath()};
-        if (!file.open(QIODevice::ReadOnly)) {
-            continue;
-        }
-        QCryptographicHash hash{QCryptographicHash::Sha256};
-        if (!hash.addData(&file)) {
-            continue;
-        }
+            // A precompressed variant is the same resource under a different encoding, so
+            // it shares the identity of the file it encodes and is never requested
+            // directly.
+            if (entry.fileName().endsWith(QLatin1String(".br"))
+                || entry.fileName().endsWith(QLatin1String(".gz"))) {
+                continue;
+            }
+            QFile file{entry.absoluteFilePath()};
+            if (!file.open(QIODevice::ReadOnly)) {
+                continue;
+            }
+            QCryptographicHash hash{QCryptographicHash::Sha256};
+            if (!hash.addData(&file)) {
+                continue;
+            }
             m_etags.insert(entry.canonicalFilePath(),
                            '"' + hash.result().toHex().left(32) + '"');
         }
@@ -830,11 +841,17 @@ QString WebEdge::bundlePathFor(const QString &root, const QString &urlPath) cons
     if (name.isEmpty() || name.contains(QLatin1Char('/'))) {
         return {};
     }
+    // Membership of the ETag table is no longer enough. It now holds every bundle's
+    // files, so a path has to be inside the bundle this caller was served as well. The
+    // root's canonical form was resolved when the table was built. The file's still has to
+    // be resolved here, because that is what follows a symlink or a `..` out of the bundle
+    // and is therefore the check itself.
+    const QString canonicalRoot{canonicalRootOf(root)};
+    if (canonicalRoot.isEmpty()) {
+        return {};
+    }
     const QString resolved{QFileInfo{QDir{root}, name}.canonicalFilePath()};
-    // Membership of the ETag table is no longer enough: it now holds every bundle's
-    // files, so a path has to be inside the bundle this caller was served as well.
-    const QString canonicalRoot{QDir{root}.canonicalPath()};
-    if (canonicalRoot.isEmpty() || !resolved.startsWith(canonicalRoot + QLatin1Char('/'))) {
+    if (!resolved.startsWith(canonicalRoot + QLatin1Char('/'))) {
         return {};
     }
     return m_etags.contains(resolved) ? resolved : QString{};
@@ -1225,16 +1242,16 @@ void WebEdge::registerBundleRoutes()
     // absolute paths and NUL/backslash, then verify the canonical (symlink- and
     // ..-resolved) path stays under the canonical bundle root.
     //
-    // Skipped entirely when a CDN delivers the bundle: an edge that is not the origin of
+    // Skipped entirely when a CDN delivers the bundle. An edge that is not the origin of
     // the app has no business serving files, and every path that is not one of its own
     // routes should be a 404 rather than a second copy of what the CDN is authoritative for.
     m_httpServer->route(QStringLiteral("/<arg>"),
                         [this](const QString &asset,
                                const QHttpServerRequest &request) {
-        // Resolved per request rather than once at start: which bundle a caller may read
+        // Resolved per request rather than once at start, which bundle a caller may read
         // from is a property of their session, not of this edge.
         const QString root{bundleFor(request)};
-        const QString bundleRoot{QDir{root}.canonicalPath()};
+        const QString bundleRoot{canonicalRootOf(root)};
         if (asset.isEmpty() || QDir::isAbsolutePath(asset)
             || asset.contains(QLatin1Char('\0')) || asset.contains(QLatin1Char('\\'))) {
             return QHttpServerResponse{QHttpServerResponse::StatusCode::Forbidden};
