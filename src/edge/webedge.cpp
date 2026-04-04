@@ -1035,10 +1035,29 @@ bool WebEdge::start()
         // route rate-limits on it exactly as the upgrade verifier caps on it, and two
         // answers to that question is how one of them ends up being the balancer's.
         m_identity->setClientAddress(&m_clientAddress);
-        // A session that runs out of time takes its server-side tokens with it. Logging
-        // out already released them; almost nobody logs out.
+        // A session that ends takes its server-side tokens with it. Logging out already
+        // released them; almost nobody logs out, so both of the ways a session ends
+        // without anybody pressing anything are wired here.
+        //
+        // `sessionRemoved` covers revocation, which is not a rare path: it is what a
+        // detected device-credential reuse does to every session that credential opened,
+        // and leaving a stolen family's access and refresh tokens live on the edge would
+        // undo most of what the revocation was for. It also fires for the rotation that a
+        // scope change makes, which is not the end of anything, so that case is read and
+        // handed to followRotation instead -- the same distinction dropSession draws.
         connect(m_sessionManager, &SessionManager::sessionExpired, m_identity,
                 [this](const QString &token) { m_identity->forgetSession(token.toLatin1()); });
+        connect(m_sessionManager, &SessionManager::sessionRemoved, m_identity,
+                [this](const QString &token) {
+            const QByteArray sessionId{token.toLatin1()};
+            if (m_sessionManager->rotationOf(sessionId).isEmpty()) {
+                m_identity->forgetSession(sessionId);
+            }
+        });
+        connect(m_sessionManager, &SessionManager::sessionRotated, m_identity,
+                [this](const QByteArray &from, const QByteArray &to) {
+            m_identity->followRotation(from, to);
+        });
         m_httpServer->route(m_config.identity.loginRoute,
                             [this](const QHttpServerRequest &request) {
             return m_identity->handleLogin(request);

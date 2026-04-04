@@ -507,6 +507,28 @@ void IdentityProvider::forgetSession(const QByteArray &sessionId)
     }
 }
 
+void IdentityProvider::followRotation(const QByteArray &from, const QByteArray &to)
+{
+    if (from.isEmpty() || to.isEmpty() || from == to) {
+        return;
+    }
+    if (m_backend) {
+        m_backend->rekeyTokens(QString::fromLatin1(from), QString::fromLatin1(to));
+    } else {
+        // provider_entity mode. The tokens are the auth entity's, held under the session id
+        // this edge told it about. `bindSession` is the same call the callback makes, so
+        // rebinding under the new id moves them there exactly as rekeyTokens does here.
+        bindRemoteSession(QString::fromLatin1(from), to);
+    }
+    if (m_devices) {
+        const QString family{m_devices->familyOf(from)};
+        if (!family.isEmpty()) {
+            m_devices->unbindSession(from);
+            m_devices->bindSession(to, family);
+        }
+    }
+}
+
 QVariantMap IdentityProvider::tokensForSession(const QByteArray &sessionId) const
 {
     if (m_backend) {

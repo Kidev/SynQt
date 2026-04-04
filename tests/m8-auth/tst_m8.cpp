@@ -995,6 +995,56 @@ private slots:
                  "a server-side refresh must not disturb the session");
     }
 
+    // An elevation rotates the session credential (SessionManager::setScope, which
+    // Caller.setScope calls on every sign-in that raises somebody's scope), and the provider
+    // tokens are keyed on that credential. Nothing moved them, so after any elevation the
+    // tokens for the live session could not be found and the entry under the replaced id was
+    // unreachable. The refresh sweep went on spending its refresh token against the provider
+    // on behalf of a session that no longer existed, forever.
+    void elevatingASessionCarriesItsProviderTokens()
+    {
+        const Response callback{completeLogin(QStringLiteral("?provider=stub"))};
+        QCOMPARE(callback.status, 302);
+        const QByteArray before{sessionToken(callback.setCookie)};
+        QVERIFY(!before.isEmpty());
+
+        OAuthBackend *backend{m_edge->identityProvider()->backend()};
+        QVERIFY(backend != nullptr);
+        const QString access{backend->tokens(QString::fromLatin1(before))
+                                 .value(QStringLiteral("access_token")).toString()};
+        QVERIFY2(!access.isEmpty(), "the login must have left tokens under the session id");
+
+        const QByteArray after{
+            m_edge->sessionManager()->setScope(before, QStringLiteral("moderator"))};
+        QVERIFY2(!after.isEmpty(), "the elevation must rotate the credential");
+        QVERIFY(after != before);
+
+        QCOMPARE(backend->tokens(QString::fromLatin1(after))
+                     .value(QStringLiteral("access_token")).toString(), access);
+        QVERIFY2(backend->tokens(QString::fromLatin1(before)).isEmpty(),
+                 "nothing may be left under the credential the elevation replaced");
+    }
+
+    // Revocation is not a rare path. It is what a detected device-credential reuse does to
+    // every session that credential opened. Only expiry released the provider tokens, so a
+    // revoked session kept its live access and refresh tokens on the edge, which is most of
+    // what the revocation was for.
+    void revokingASessionReleasesItsProviderTokens()
+    {
+        const Response callback{completeLogin(QStringLiteral("?provider=stub"))};
+        QCOMPARE(callback.status, 302);
+        const QByteArray token{sessionToken(callback.setCookie)};
+        QVERIFY(!token.isEmpty());
+
+        OAuthBackend *backend{m_edge->identityProvider()->backend()};
+        QVERIFY(backend != nullptr);
+        QVERIFY(!backend->tokens(QString::fromLatin1(token)).isEmpty());
+
+        m_edge->sessionManager()->revoke(token);
+        QVERIFY2(backend->tokens(QString::fromLatin1(token)).isEmpty(),
+                 "revoking a session must take its provider tokens with it");
+    }
+
     // AUTH-1: with identity.provider_entity set, the client secret and the tokens live only
     // on a dedicated auth entity. The edge delegates begin/exchange over the Identity mesh
     // connect point, holds no OAuth backend, no secret and no token, and only issues the

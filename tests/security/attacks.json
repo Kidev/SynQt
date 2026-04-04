@@ -583,6 +583,20 @@
       "test": "aBodyPastTheLimitIsRefusedByTheTransportAndNotByTheHandler"
     },
     {
+      "id": "provider-tokens-outlive-the-session",
+      "what": "A session is revoked -- which is what a detected device-credential reuse does to every session that credential opened -- and the edge goes on holding that visitor's provider access and refresh tokens, live, for as long as the process runs.",
+      "defended_by": "Both of the ways a session ends without anybody pressing anything are wired to the release: expiry and revocation. The rotation that a scope change reports as a removal is read and handed to followRotation instead, so an elevation does not look like an ending.",
+      "file": "tests/m8-auth/tst_m8.cpp",
+      "test": "revokingASessionReleasesItsProviderTokens"
+    },
+    {
+      "id": "provider-tokens-orphaned-by-an-elevation",
+      "what": "A sign-in elevates a scope, which rotates the session credential, and the provider tokens stay keyed on the credential that was replaced. The live session can no longer reach its tokens, and the unreachable entry is refreshed against the provider forever.",
+      "defended_by": "The identity provider follows the rotation: the tokens and the device family move to the new credential, on the edge or on the auth entity, the same way the edge moves the socket and the session's Sources.",
+      "file": "tests/m8-auth/tst_m8.cpp",
+      "test": "elevatingASessionCarriesItsProviderTokens"
+    },
+    {
       "id": "rate-limit-reset-by-flooding-the-window-table",
       "what": "Every gate that rations by client address keeps a table keyed by address, and each one emptied that table when it grew too large. So a guesser who can present addresses -- an IPv6 /64, or a forwarding header on a deployment that trusts one -- fills it with entries they will never use again, the table is emptied, and the count against the address they are guessing from is back to zero. The ceiling was the reset.",
       "defended_by": "The table drops only the windows that have run out, which are evidence of nothing. When that frees nothing the gate refuses for the rest of the window rather than forgetting what it knows.",

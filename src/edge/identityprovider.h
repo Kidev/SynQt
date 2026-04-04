@@ -120,6 +120,17 @@ public:
     /// credential exists to survive. Only signing out ends the family (handleLogout).
     void forgetSession(const QByteArray &sessionId);
 
+    /// Move everything this provider holds under `from` to `to`, because the session
+    /// manager rotated the credential (a scope change, which `Caller.setScope` makes on
+    /// every sign-in that elevates). The session is the same session. Only its id changed.
+    ///
+    /// Two things are keyed on that id and both have to move. The provider tokens, or the
+    /// next refresh spends a refresh token on behalf of a session nothing can look up any
+    /// more and the entry is never released. And the device family, or signing out later
+    /// finds no family for the current id and leaves a redeemable credential on the
+    /// visitor's disk, which is the one outcome handleLogout exists to prevent.
+    void followRotation(const QByteArray &from, const QByteArray &to);
+
 signals:
     /// Internal: a delegated begin/exchange result for the given request has arrived from the
     /// auth entity, so the waiting route handler can resume.
