@@ -1207,7 +1207,18 @@ void WebEdge::trackPendingUpgrade(QAbstractSocket *socket)
     // QTcpSocket": QWebSocketPrivate::releaseConnections() wildcard-disconnects that very
     // socket and Qt warns about any destroyed() connection it finds there. The timer is a
     // child of the socket, so it dies with it and nothing wildcard-disconnects the timer.
-    connect(timer, &QObject::destroyed, this, [this, key]() { m_pendingTimers.remove(key); });
+    //
+    // Removed only while the entry still names this timer. The key is the peer's address
+    // and port, which the operating system hands out again once a connection is gone, so a
+    // new socket can be tracked under a key an older one's teardown has yet to run for.
+    // Removing unconditionally would then take the live connection's entry out from under
+    // it. On a threaded edge that is a connection quietly served on the main thread, and
+    // its handshake window is one nobody can cancel.
+    connect(timer, &QObject::destroyed, this, [this, key, timer]() {
+        if (m_pendingTimers.value(key) == timer) {
+            m_pendingTimers.remove(key);
+        }
+    });
     m_pendingTimers.insert(key, timer);
     // Caught here because this is the last place it can be. Once the upgrade is accepted,
     // the QWebSocket on top of this socket does not lead back to it (it is not its child)
@@ -1221,11 +1232,22 @@ void WebEdge::trackPendingUpgrade(QAbstractSocket *socket)
     // (see the note on the timer above for why that matters).
     //
     // Remembered on every link and not only a threaded one. A threaded edge needs it to
-    // move the connection; every edge needs it to own the connection, because once the
+    // move the connection. Every edge needs it to own the connection, because once the
     // upgrade is accepted nothing else does (see carry()).
+    //
+    // Conditional for the same reason as the timer above: the key is reusable, so a
+    // teardown running late must not evict the entry a newer connection put there.
     QObject *tag{new QObject{socket}};
-    connect(tag, &QObject::destroyed, this,
-            [this, key]() { m_pendingRawSockets.remove(key); });
+    connect(tag, &QObject::destroyed, this, [this, key, socket]() {
+        // Null as well as this socket, because by the time a child's destroyed() runs the
+        // parent has already cleared every QPointer to itself: the entry this handler is
+        // here to clean up reads as null rather than as the socket it names. A live entry
+        // under the same key is a newer connection's, and it stays.
+        const QPointer<QAbstractSocket> held{m_pendingRawSockets.value(key)};
+        if (held.isNull() || held.data() == socket) {
+            m_pendingRawSockets.remove(key);
+        }
+    });
     m_pendingRawSockets.insert(key, socket);
     timer->start(m_config.handshakeTimeoutMs);
 }
