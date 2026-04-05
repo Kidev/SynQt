@@ -18,6 +18,7 @@
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QNetworkRequest>
+#include <QScopeGuard>
 #include <QSet>
 #include <QOAuth2AuthorizationCodeFlow>
 #include <QRandomGenerator>
@@ -350,6 +351,16 @@ void OAuthBackend::setAutoRefresh(int intervalSeconds, int marginSeconds)
 
 int OAuthBackend::refreshExpiring(int marginSeconds)
 {
+    // One sweep at a time. Each refresh waits on the provider in a nested event loop, and
+    // the refresh timer keeps firing while it does, so without this a slow provider starts
+    // a second sweep over the same due list inside the first. The same refresh token spent
+    // twice, which a provider that rotates them answers by invalidating both.
+    if (m_sweeping) {
+        return 0;
+    }
+    m_sweeping = true;
+    const auto done{qScopeGuard([this]() { m_sweeping = false; })};
+
     const qint64 threshold{QDateTime::currentMSecsSinceEpoch()
                            + static_cast<qint64>(marginSeconds) * 1000};
     int refreshed{0};
@@ -374,20 +385,28 @@ int OAuthBackend::refreshExpiring(int marginSeconds)
 
 bool OAuthBackend::refreshOne(const QString &key)
 {
-    const auto it{m_tokens.find(key)};
-    if (it == m_tokens.end() || it->refreshToken.isEmpty()) {
+    // Read out by value, never held as an iterator. Everything below waits on the network
+    // in a nested event loop, and that loop runs every other handler this backend has: a
+    // callback completing inserts into m_tokens and can rehash it, a session expiring or
+    // being revoked erases from it. Either one leaves an iterator taken before the wait
+    // pointing at memory the hash no longer owns, and the writes at the end of this
+    // function land there. So the entry is copied out, the wait happens, and the row is
+    // looked up again afterwards under the same key.
+    const auto before{m_tokens.constFind(key)};
+    if (before == m_tokens.constEnd() || before->refreshToken.isEmpty()) {
         return false;
     }
-    const IdentityProviderConfig *provider{m_config.provider(it->providerName)};
+    const TokenEntry entry{before.value()};
+    const IdentityProviderConfig *provider{m_config.provider(entry.providerName)};
     if (!provider) {
         return false;
     }
 
     // RFC 6749 section 6: exchange the refresh token for a fresh access token, server-side. The
-    // client secret stays here; the browser is never involved.
+    // client secret stays here. The browser is never involved.
     QUrlQuery body;
     body.addQueryItem(QStringLiteral("grant_type"), QStringLiteral("refresh_token"));
-    body.addQueryItem(QStringLiteral("refresh_token"), it->refreshToken);
+    body.addQueryItem(QStringLiteral("refresh_token"), entry.refreshToken);
     body.addQueryItem(QStringLiteral("client_id"), provider->clientId);
     if (!provider->clientSecret.isEmpty()) {
         body.addQueryItem(QStringLiteral("client_secret"), provider->clientSecret);
@@ -431,20 +450,29 @@ bool OAuthBackend::refreshOne(const QString &key)
         return false;  // a provider error (e.g. invalid_grant): keep the old entry
     }
 
-    it->accessToken = access;
-    // A provider may rotate the refresh token; keep the old one if it does not.
+    // Looked up again rather than written through the iterator taken at the top: the wait
+    // above ran every other handler, and the row may have been rekeyed to a new session
+    // id, replaced by a second sign-in, or erased by a revocation while it did. A row that
+    // is no longer there is a session that ended mid-refresh, and the fresh tokens are
+    // dropped. Writing them back would resurrect a credential somebody revoked.
+    const auto after{m_tokens.find(key)};
+    if (after == m_tokens.end()) {
+        return false;
+    }
+    after->accessToken = access;
+    // A provider may rotate the refresh token. Keep the old one if it does not.
     const QString rotated{object.value(QStringLiteral("refresh_token")).toString()};
     if (!rotated.isEmpty()) {
-        it->refreshToken = rotated;
+        after->refreshToken = rotated;
     }
     const QString freshId{object.value(QStringLiteral("id_token")).toString()};
     if (!freshId.isEmpty()) {
-        it->idToken = freshId;
+        after->idToken = freshId;
     }
     if (object.contains(QStringLiteral("expires_in"))) {
         const qint64 expiresIn{
             static_cast<qint64>(object.value(QStringLiteral("expires_in")).toDouble())};
-        it->expiresAtMs = QDateTime::currentMSecsSinceEpoch() + expiresIn * 1000;
+        after->expiresAtMs = QDateTime::currentMSecsSinceEpoch() + expiresIn * 1000;
     }
     return true;
 }

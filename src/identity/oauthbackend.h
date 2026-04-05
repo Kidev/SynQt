@@ -148,6 +148,7 @@ private:
     JwksVerifier *m_jwks{nullptr};
     QTimer *m_refreshTimer{nullptr};
     int m_refreshMargin{0};
+    bool m_sweeping{false};   ///< a refresh sweep is running; see refreshExpiring()
 
     QHash<QString, Pending> m_pending;      ///< state -> pending login (verifier + nonce)
     QHash<QString, TokenEntry> m_tokens;    ///< key -> stored tokens
