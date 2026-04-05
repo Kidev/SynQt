@@ -677,10 +677,25 @@ QHttpServerResponse IdentityProvider::loopbackRedirect(const LoginContext &conte
                                                        const QString &code,
                                                        const QString &error) const
 {
-    // Built through QUrl rather than by concatenation. The URL itself was validated to
-    // carry no query of its own at login, and the state is the caller's own string, so the
-    // encoding is what keeps it a value rather than a second parameter.
+    // Checked again here, and not only at login. isLoopbackReturn is the line this flow
+    // turns on: whatever passes it is where a freshly authenticated visitor's browser is
+    // sent. The value arriving here has been out of this process in between -- carried as
+    // the `context` the identity engine keeps beside the state, which in provider_entity
+    // mode means a round trip to the auth entity and back through JSON. Nothing has gone
+    // wrong with that today. But a check whose correctness depends on every hop between two
+    // distant points in the code is a check that stops holding the first time somebody adds
+    // a hop, and this one costs a URL parse on a path that runs once per desktop sign-in.
     QUrl target{context.returnUrl, QUrl::StrictMode};
+    if (!isLoopbackReturn(target)) {
+        // Not a redirect to somewhere safer. There is nowhere safe to send this. The app
+        // waiting on its loopback listener times out and says the sign-in failed, which is
+        // the truth.
+        qWarning("SynQt: refusing to complete a desktop login whose return URL is not a "
+                 "loopback address; nothing was handed back");
+        return QHttpServerResponse{QByteArrayLiteral("text/plain"),
+                                   QByteArrayLiteral("invalid return"),
+                                   QHttpServerResponse::StatusCode::BadRequest};
+    }
     QUrlQuery query;
     if (!code.isEmpty()) {
         query.addQueryItem(QStringLiteral("code"), code);
