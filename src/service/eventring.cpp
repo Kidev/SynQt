@@ -37,7 +37,12 @@ bool EventRing::push(TraceEvent event)
 QList<TraceEvent> EventRing::drain(int max)
 {
     QMutexLocker locker{&m_mutex};
-    const int taken{std::min(max, m_size)};
+    // Clamped at zero as well as at the size held. A negative `max` would otherwise take a
+    // negative count, which walks the head backwards through a modulo of a negative number
+    // and grows m_size instead of shrinking it -- an out-of-range index on the next push,
+    // reached by a caller doing nothing worse than passing a batch size it read from
+    // somewhere. Every caller today clamps its own; a ring buffer should not need them to.
+    const int taken{std::clamp(max, 0, m_size)};
     QList<TraceEvent> events;
     events.reserve(taken);
     for (int index{0}; index < taken; ++index) {
