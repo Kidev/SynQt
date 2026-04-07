@@ -52,6 +52,9 @@ private:
     /// with no way to refetch, that is every login failing until the process restarts, so
     /// an unknown kid refetches once, no more often than kMinRefetchMs.
     QHash<QString, CachedJwks> m_jwksCache;
+    /// How many fetches are waiting on the network right now. Each one spins a nested event
+    /// loop, so this is the depth of that nesting. See kMaxNestedFetches.
+    int m_fetching{0};
 };
 
 } // namespace SynQt

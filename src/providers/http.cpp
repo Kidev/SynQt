@@ -56,7 +56,17 @@ QMap<QString, QString> asHeaderMap(const QVariantMap &headers)
     return result;
 }
 
-// A body as bytes. A string is sent as written; anything structured (the ordinary case from
+// How large an answer this helper will hold before it gives up on the call.
+//
+// QNetworkReply buffers the whole body in memory and readAll() hands it over, so without a
+// ceiling the size of an outbound answer is decided by whoever is answering. An allowlisted
+// third party is not the same thing as a trusted one: a compromised or broken
+// endpoint that streams gigabytes takes the entity down with it, and a `Content-Length` is
+// not a promise anybody has to keep. Sixteen mebibytes is far above any JSON API answer and
+// far below what a service can spend on one call.
+constexpr qint64 kMaxResponseBytes{16 * 1024 * 1024};
+
+// A body as bytes. A string is sent as written. Anything structured (the ordinary case from
 // QML, where a body is an object) is serialized as JSON, which is what the Content-Type
 // already says it is.
 QByteArray bodyBytes(const QVariant &value)
@@ -405,6 +415,22 @@ HttpPromise *Http::send(const QString &method, const QString &url, const QVarian
             return;
         }
         emit reply->redirectAllowed();
+    });
+
+    // The ceiling, applied while the body is arriving rather than after. Both halves are
+    // needed. The announced length catches a well-formed large answer before a byte of it is
+    // buffered, and the running count catches a chunked one that announces nothing, which
+    // is the shape anybody sending a body deliberately too large would use.
+    QObject::connect(reply, &QNetworkReply::downloadProgress, promise,
+                     [promise, reply](qint64 received, qint64 total) {
+        if (received <= kMaxResponseBytes && total <= kMaxResponseBytes) {
+            return;
+        }
+        promise->reject(QStringLiteral("the answer from %1 is larger than the %2 byte "
+                                       "limit an outbound call will hold")
+                            .arg(reply->url().toString(QUrl::RemoveUserInfo))
+                            .arg(kMaxResponseBytes));
+        reply->abort();
     });
 
     QObject::connect(reply, &QNetworkReply::finished, promise, [promise, reply]() {

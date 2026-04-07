@@ -664,6 +664,13 @@ accepts the connection and then answers nothing is not an error and never become
 so without it the error handler written for exactly that case would never run and the
 call would never be freed.
 
+Every call also has a ceiling of 16 MiB of answer, after which the call is rejected and the
+reply abandoned. The whole body is held in memory before a handler is given it, so without
+one the memory a call costs is decided by whoever is answering, and an allowlisted third
+party is not the same thing as a trusted one. It is checked while the body is arriving and
+against the announced length as well as the running count, since a `Content-Length` is not a
+promise anybody has to keep.
+
 It also refuses any URL that is not under one of the prefixes this entity's
 `network.outbound` names, and the rejection message carries the list, because the
 mistake is nearly always a prefix that does not cover the path being composed. The

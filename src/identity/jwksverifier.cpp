@@ -11,6 +11,7 @@
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QNetworkRequest>
+#include <QScopeGuard>
 #include <QTimer>
 
 #include <jwt-cpp/jwt.h>
@@ -25,6 +26,21 @@ namespace {
 /// stream of tokens naming keys that do not exist is not, so the refetch a rotation needs
 /// must not be a request an unverified token can ask for at will.
 constexpr qint64 kMinRefetchMs{5 * 60 * 1000};
+
+/// How large a key set may be before this refuses to hold it. A JWKS is a handful of public
+/// keys. A megabyte is orders of magnitude above the largest real one and well below what
+/// the process can spend on a document it is about to parse as JSON.
+constexpr qint64 kMaxJwksBytes{1024 * 1024};
+
+/// How deep a JWKS fetch may nest inside another one.
+///
+/// The wait below is a nested event loop, which keeps serving requests while it spins, so a
+/// second callback arriving during a fetch runs its own exchange inside this stack frame.
+/// The identity routes bound their own nesting for exactly this reason
+/// (kMaxConcurrentWaits in identityprovider.cpp); this is the same bound for the one wait
+/// that sits below them, so a provider that goes slow cannot turn a queue of callbacks into
+/// a stack that runs out.
+constexpr int kMaxNestedFetches{16};
 
 QByteArray decodeBase64Url(const QString &segment)
 {
@@ -95,9 +111,29 @@ bool JwksVerifier::ensureJwks(const QUrl &jwksUrl, QString *error, bool force)
         }
         return false;
     }
+    if (m_fetching >= kMaxNestedFetches) {
+        if (error) {
+            *error = QStringLiteral("too many JWKS fetches are already waiting");
+        }
+        return false;
+    }
+    ++m_fetching;
+    const auto released{qScopeGuard([this]() { --m_fetching; })};
+
     QNetworkReply *reply{m_network->get(QNetworkRequest{jwksUrl})};
     QEventLoop loop;
     connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+    // The size ceiling, checked as the body arrives. These are the keys every ID token is
+    // trusted against, so the endpoint is one an attacker would like to control; a document
+    // this size is not a key set whatever it is, and reading it to the end to find that out
+    // is the part worth refusing.
+    connect(reply, &QNetworkReply::downloadProgress, &loop,
+            [reply, &loop](qint64 received, qint64 total) {
+        if (received > kMaxJwksBytes || total > kMaxJwksBytes) {
+            reply->abort();
+            loop.quit();
+        }
+    });
     QTimer::singleShot(15000, &loop, &QEventLoop::quit);
     loop.exec();
     // isFinished() before error(), and this is the whole of the deadline. A reply the

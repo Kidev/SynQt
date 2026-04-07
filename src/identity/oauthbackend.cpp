@@ -66,6 +66,25 @@ QString insecureEndpoint(const IdentityProviderConfig &provider)
 // same five minutes is a busy day, not an attack.
 constexpr int kMaxPendingLogins{1024};
 
+// How large an answer from a provider endpoint may be. A token response and a profile are
+// both a few hundred bytes. The ceiling exists because QNetworkReply buffers a whole body
+// before anybody reads it, so without one the size of a login's memory cost is decided by
+// whatever answered. Generous enough that no provider approaches it.
+constexpr qint64 kMaxProviderResponseBytes{1024 * 1024};
+
+// Refuse an answer past kMaxProviderResponseBytes while it is still arriving. Connected to
+// the loop rather than to the reply so it dies with the wait, exactly as the deadline does.
+void boundResponse(QNetworkReply *reply, QEventLoop *loop)
+{
+    QObject::connect(reply, &QNetworkReply::downloadProgress, loop,
+                     [reply, loop](qint64 received, qint64 total) {
+        if (received > kMaxProviderResponseBytes || total > kMaxProviderResponseBytes) {
+            reply->abort();
+            loop->quit();
+        }
+    });
+}
+
 } // namespace
 
 OAuthBackend::OAuthBackend(IdentityConfig config, QObject *parent)
@@ -424,6 +443,7 @@ bool OAuthBackend::refreshOne(const QString &key)
 
     QEventLoop loop;
     connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+    boundResponse(reply, &loop);
     QTimer::singleShot(15000, &loop, &QEventLoop::quit);
     loop.exec();
 
@@ -486,6 +506,7 @@ QByteArray OAuthBackend::httpGet(const QUrl &url, const QString &bearer, QString
 
     QEventLoop loop;
     connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+    boundResponse(reply, &loop);
     QTimer::singleShot(15000, &loop, &QEventLoop::quit);
     loop.exec();
 
