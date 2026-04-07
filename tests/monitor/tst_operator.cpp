@@ -69,6 +69,44 @@ private slots:
                                 .arg(unknown).arg(known)));
     }
 
+    // The same question with the store holding operators of unequal cost, which is the
+    // ordinary state. They are minted one at a time and nothing makes their round counts
+    // agree. An unknown name worked against whichever credential happens to be
+    // listed first is, with the cheap one first, refused faster than the expensive
+    // operator can ever be refused, and "that name came back too quickly" is the whole of
+    // what somebody enumerating names is looking for.
+    void anUnknownOperatorCostsWhatTheDearestKnownOneCosts()
+    {
+        OperatorStore store;
+        // Cheapest first, because this is the order that can leak.
+        QVERIFY(store.add(OperatorStore::mint(QStringLiteral("ada"),
+                                              QStringLiteral("correct horse battery"),
+                                              OperatorStore::MinimumIterations)));
+        QVERIFY(store.add(OperatorStore::mint(QStringLiteral("bob"),
+                                              QStringLiteral("correct horse battery"),
+                                              OperatorStore::MinimumIterations * 4)));
+
+        store.verify(QStringLiteral("ada"), QStringLiteral("wrong"));  // warm, as above
+
+        QElapsedTimer clock;
+        clock.start();
+        QVERIFY(!store.verify(QStringLiteral("bob"), QStringLiteral("wrong")));
+        const qint64 dearest{clock.nsecsElapsed()};
+
+        clock.restart();
+        QVERIFY(!store.verify(QStringLiteral("mallory"), QStringLiteral("wrong")));
+        const qint64 unknown{clock.nsecsElapsed()};
+
+        // Half, for the same reason the test above uses a factor rather than an equality: a
+        // shared runner's scheduler is noisier than the thing being measured. The failure
+        // this catches is not subtle, since the two round counts differ fourfold.
+        QVERIFY2(unknown * 2 >= dearest,
+                 qPrintable(QStringLiteral("an unknown operator was refused in %1 ns and the "
+                                           "most expensive known one in %2 ns, so the clock "
+                                           "says which names exist")
+                                .arg(unknown).arg(dearest)));
+    }
+
     void thePasswordIsNowhereInWhatIsStored()
     {
         const QString password{QStringLiteral("correct horse battery")};

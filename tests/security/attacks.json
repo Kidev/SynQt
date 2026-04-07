@@ -597,6 +597,13 @@
       "test": "elevatingASessionCarriesItsProviderTokens"
     },
     {
+      "id": "operator-name-enumeration-by-clock",
+      "what": "The monitor's sign-in gate answers one 'no' whatever was wrong, but answers it sooner for a name that does not exist, so a guesser learns which operators are real by timing the refusals. It leaked again once the store held operators with different round counts: an unknown name was worked against whichever credential was listed first.",
+      "defended_by": "Every refusal costs one derivation, and for an unknown name it is the most expensive credential in the store, so no unknown name is ever answered faster than a known one.",
+      "file": "tests/monitor/tst_operator.cpp",
+      "test": "anUnknownOperatorCostsWhatTheDearestKnownOneCosts"
+    },
+    {
       "id": "rate-limit-reset-by-flooding-the-window-table",
       "what": "Every gate that rations by client address keeps a table keyed by address, and each one emptied that table when it grew too large. So a guesser who can present addresses -- an IPv6 /64, or a forwarding header on a deployment that trusts one -- fills it with entries they will never use again, the table is emptied, and the count against the address they are guessing from is back to zero. The ceiling was the reset.",
       "defended_by": "The table drops only the windows that have run out, which are evidence of nothing. When that frees nothing the gate refuses for the rest of the window rather than forgetting what it knows.",

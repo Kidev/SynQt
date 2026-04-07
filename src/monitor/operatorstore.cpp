@@ -3,6 +3,8 @@
 
 #include "operatorstore.h"
 
+#include "constanttime.h"
+
 #include <QCryptographicHash>
 #include <QPasswordDigestor>
 #include <QRandomGenerator>
@@ -14,22 +16,6 @@ namespace {
 
 constexpr int kSaltBytes{16};
 constexpr int kHashBytes{32};
-
-/// Compare without letting the time it takes say how much of the value was right.
-///
-/// A monitor is reachable by whoever can reach its port, and a comparison that returns
-/// early on the first wrong byte tells them, one byte at a time, what the right answer is.
-bool equalInConstantTime(const QByteArray &left, const QByteArray &right)
-{
-    if (left.size() != right.size()) {
-        return false;
-    }
-    quint8 difference{0};
-    for (qsizetype index{0}; index < left.size(); ++index) {
-        difference |= static_cast<quint8>(left.at(index) ^ right.at(index));
-    }
-    return difference == 0;
-}
 
 QByteArray derive(const QString &password, const QByteArray &salt, int iterations)
 {
@@ -145,12 +131,24 @@ bool OperatorStore::verify(const QString &name, const QString &password) const
         }
     }
 
-    // One derivation either way, and of the same shape: an unknown name is worked against
-    // the first credential's salt and round count, so the cost of a wrong guess does not
-    // depend on which half of it was wrong.
-    const Credential &against{found != nullptr ? *found : m_credentials.first()};
+    // One derivation either way. For an unknown name that is the most expensive credential
+    // in the store rather than the first one, which is the difference between a claim and a
+    // fact: operators are minted one at a time and need not share a round count, so working
+    // an unknown name against whichever happened to be listed first could answer it faster
+    // than any real name -- and "that name came back too quickly" is the whole of what a
+    // guesser enumerating names is looking for. Against the most expensive one, no unknown
+    // name is ever cheaper than a known one. What remains visible is that two known names
+    // derived with different round counts cost differently, which is a property of the
+    // credentials themselves and not something this comparison can hide.
+    const Credential *slowest{&m_credentials.first()};
+    for (const Credential &credential : m_credentials) {
+        if (credential.iterations > slowest->iterations) {
+            slowest = &credential;
+        }
+    }
+    const Credential &against{found != nullptr ? *found : *slowest};
     const QByteArray derived{derive(password, against.salt, against.iterations)};
-    const bool digestMatches{equalInConstantTime(derived, against.hash)};
+    const bool digestMatches{constantTimeEquals(derived, against.hash)};
     return (found != nullptr) && digestMatches;
 }
 
