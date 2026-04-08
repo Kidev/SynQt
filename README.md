@@ -37,11 +37,10 @@ walkthrough in [getting started](https://synqt.org/getting-started/).
 
 ## What a system looks like
 
-A project is a set of entities. Two are always there, and you add the rest:
-
-Every entity has a folder of its own, inside the folder entities of its type share, so
-everything one entity is made of is in one place and two databases never write over
-each other.
+A project is a set of entities. The client and the web edge are always there, and you add
+whatever else the system needs. Every entity has a folder of its own, inside the folder
+entities of its type share, so everything one entity is made of is in one place and two
+databases never write over each other.
 
 ```
 your-app/
