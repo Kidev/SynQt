@@ -504,14 +504,33 @@ class BuildEntitySelectionTest(unittest.TestCase):
         self.assertIn("jwt-cpp not found.", message)
         self.assertIn("cmake --preset host", message)
 
+    def test_a_failed_compile_quotes_the_diagnostics_ninja_wrote_to_stdout(self):
+        # The half that was missing, and it is the half the common failure uses.
+        # `cmake --build` hands the work to Ninja, which writes its "FAILED:" line and the
+        # compiler diagnostics under it to stdout; stderr stays empty. Reading stderr alone
+        # meant that every broken compile -- the ordinary case, as against a broken
+        # configure -- reported "no output captured" and named the command, which is the one
+        # thing the reader already had.
+        error = subprocess.CalledProcessError(
+            returncode=1, cmd=["cmake", "--build", "build/host", "--target", "edge"],
+            output="[3/9] Building CXX object edge/CMakeFiles/edge.dir/main.cpp.o\n"
+                   "FAILED: edge/CMakeFiles/edge.dir/main.cpp.o\n"
+                   "main.cpp:12:5: error: use of undeclared identifier 'Caller'\n"
+                   "ninja: build stopped: subcommand failed.\n")
+        message = buildmod._compile_failure(error, verbose=False)
+        self.assertIn("use of undeclared identifier 'Caller'", message)
+        self.assertIn("--target edge", message)
+
     def test_a_failed_compile_with_no_captured_output_still_names_the_command(self):
         error = subprocess.CalledProcessError(returncode=1, cmd=["cmake", "--build", "x"],
                                               stderr="")
         message = buildmod._compile_failure(error, verbose=False)
         self.assertIn("cmake --build x", message)
+        # And the exit code, which is all that is left to say when both streams are empty.
+        self.assertIn("1", message)
 
     def test_the_compiled_note_names_the_targets_it_actually_built(self):
-        # The rule this pins: with --entity, the note is the only thing that says the build
+        # The rule this pins. With --entity, the note is the only thing that says the build
         # was partial, so it names the targets. Asserted on the wording itself rather than
         # on a real build's summary, because reaching the compile path needs a resolved Qt
         # toolchain. A machine without one skips compilation, and the assertion would then

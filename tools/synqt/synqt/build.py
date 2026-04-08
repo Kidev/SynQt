@@ -341,16 +341,26 @@ _FAILURE_TAIL_LINES = 20
 
 def _compile_failure(error: subprocess.CalledProcessError, verbose: bool) -> str:
     """Explain a failed build step. Without --verbose the output was captured, so the
-    message has to carry it: cmake's own last line is 'Configuring incomplete, errors
+    message has to carry it. Cmake's own last line is 'Configuring incomplete, errors
     occurred!', which names nothing, while the FATAL_ERROR that matters is some lines
-    above it. Quote the tail rather than one line."""
+    above it. Quote the tail rather than one line.
+
+    Both streams, and stdout first. This read stderr alone, which is the wrong half of the
+    answer for the step that fails most often. `cmake --build` hands the work to Ninja, and
+    Ninja writes its `FAILED:` line and the compiler diagnostics under it to stdout. So a
+    compile that broke printed "cmake build failed with no output captured" and named the
+    command, which is the one thing the reader already knew. A configure failure does use
+    stderr, hence both.
+    """
     command = " ".join(str(part) for part in error.cmd)
     if verbose:
-        # The output already streamed past; repeating a slice of it would only bury it.
+        # The output already streamed past. Repeating a slice of it would only bury it.
         return f"cmake build failed (see the output above): {command}"
-    detail = (error.stderr or "").strip().splitlines()
+    captured = "\n".join(part for part in (error.stdout, error.stderr) if part)
+    detail = captured.strip().splitlines()
     if not detail:
-        return f"cmake build failed with no output captured: {command}"
+        return (f"cmake build failed with no output captured, and exit code "
+                f"{error.returncode}: {command}")
     tail = "\n".join(f"  {line}" for line in detail[-_FAILURE_TAIL_LINES:])
     return f"cmake build failed: {command}\n{tail}"
 
