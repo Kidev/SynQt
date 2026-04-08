@@ -5,6 +5,7 @@
 #define SYNQT_APISERVER_H
 
 #include "apiconfig.h"
+#include "clientaddress.h"
 
 #include <QFuture>
 #include <QHash>
@@ -67,10 +68,16 @@ private:
     /// The refusal this request earns before routing, or an empty string when it earns
     /// none. Ordered cheapest-first so a flood costs the least work possible.
     QString refuse(const QHttpServerRequest &request, int *status) const;
-    bool withinRate(const QString &peer);
+    bool withinRate(const QString &caller);
+    /// The address this request is attributed to. The peer, or what a trusted proxy said
+    /// is behind it. It is the rate limit's key and the only client address a handler is
+    /// given, so nothing else in here reads the forwarding header.
+    QString callerAddress(const QHttpServerRequest &request) const;
     QString originOf(const QHttpServerRequest &request) const;
 
     ApiConfig m_config;
+    /// Which address a request counts against, built once from the configured list.
+    ClientAddress m_clientAddress;
     QJSEngine *m_engine;
     Api *m_api;
     QHttpServer *m_server{nullptr};

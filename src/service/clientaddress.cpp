@@ -24,10 +24,9 @@ ClientAddress::ClientAddress(const QStringList &trustedProxies)
         if (trimmed.isEmpty()) {
             continue;
         }
-        // parseSubnet takes both forms: a bare address comes back with a full-length
-        // prefix, so one code path covers "10.0.0.1" and "10.0.0.0/24" alike. A prefix
-        // below zero is what it reports for input it could not read, and that entry is
-        // dropped rather than widened into something that matches.
+        // parseSubnet takes both forms: a bare address gets a full-length prefix, so
+        // "10.0.0.1" and "10.0.0.0/24" share one path. A negative prefix means unreadable
+        // input, and the entry is dropped.
         const QPair<QHostAddress, int> subnet{QHostAddress::parseSubnet(trimmed)};
         if (subnet.second >= 0) {
             m_trusted.append(subnet);
@@ -58,17 +57,16 @@ QString ClientAddress::resolve(const QHostAddress &peer, const QByteArray &forwa
         return peerAddress;
     }
 
-    // Right to left: the rightmost entry is what the nearest hop observed, and each
-    // trusted hop recognized along the way is skipped to reach what IT observed. The
-    // first entry that is neither trusted nor malformed is the closest thing to the
-    // visitor that anything we believe actually vouched for. Anything further left was
-    // written by whoever the client is, so it is never the answer.
+    // Right to left. The rightmost entry is what the nearest hop observed; each trusted hop
+    // is skipped to reach what it observed. The first entry neither trusted nor malformed
+    // is the visitor as vouched for by a trusted hop. Entries further left were written by
+    // the client.
     const QList<QByteArray> hops{forwardedFor.split(',')};
     for (auto it{hops.crbegin()}; it != hops.crend(); ++it) {
         const QHostAddress parsed{QString::fromLatin1(it->trimmed())};
         if (parsed.isNull()) {
-            // A hop nobody can parse ends the walk at the peer rather than at a guess:
-            // the chain past it cannot be attributed to anyone.
+            // An unparsable hop ends the walk at the peer: nothing past it can be
+            // attributed.
             return peerAddress;
         }
         if (!isTrusted(parsed)) {

@@ -417,5 +417,47 @@ class TestTrustedProxies(unittest.TestCase):
         self.assertEqual(appmodel.trusted_proxies({"name": "web"}), [])
 
 
+class TestInboundTrustedProxies(unittest.TestCase):
+    """The same question for an entity's API surface, which is a second listener.
+
+    `network.inbound.rate_per_minute` rations per address, so which address it counts is
+    the whole of whether it rations anybody. A surface behind a proxy that names none
+    counts one address for every caller at once.
+    """
+
+    def api_entity(self, **inbound):
+        settings = {"port": 8443, "api_keys": "env:KEYS"}
+        settings.update(inbound)
+        return {"name": "gateway", "type": "api", "path": "gateway",
+                "network": {"inbound": settings}}
+
+    def render_api(self, entity):
+        return "\n".join(maingen._api_config_lines(entity,
+                                                   entity["network"]["inbound"]))
+
+    def test_declared_proxies_are_emitted(self):
+        source = self.render_api(
+            self.api_entity(trusted_proxies=["10.0.0.1", "10.0.0.0/24"]))
+        self.assertIn('apiConfig.trustedProxies = {QStringLiteral("10.0.0.1"), '
+                      'QStringLiteral("10.0.0.0/24")};', source)
+
+    def test_absent_proxies_emit_nothing(self):
+        self.assertNotIn("trustedProxies", self.render_api(self.api_entity()))
+
+    def test_a_non_list_is_refused(self):
+        with self.assertRaises(appmodel.AppGenError):
+            self.render_api(self.api_entity(trusted_proxies="10.0.0.1"))
+
+    def test_neither_surface_reads_the_other_one_s_list(self):
+        # Two listeners on two ports, and a deployment can put a balancer in front of one
+        # while the other stays on an internal network. Inheriting would be the framework
+        # deciding to believe a header nobody said to believe.
+        entity = self.api_entity()
+        entity["public"] = {"trusted_proxies": ["10.0.0.1"]}
+        self.assertEqual(appmodel.inbound_trusted_proxies(entity), [])
+        self.assertEqual(appmodel.trusted_proxies(entity), ["10.0.0.1"])
+        self.assertNotIn("trustedProxies", self.render_api(entity))
+
+
 if __name__ == "__main__":
     unittest.main()

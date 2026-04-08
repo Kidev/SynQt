@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import ipaddress
 import os
 import re
 import shutil
@@ -267,6 +268,101 @@ def _inbound_messages(name: str, entity: Dict[str, Any],
     return messages
 
 
+def _proxies_quietly(reader, entity: Dict[str, Any]) -> List[str]:
+    """One of the two proxy readers, with a malformed block reported as empty.
+
+    The malformed block already has its own error above. This is for the rules that only
+    want to know whether a list was named.
+    """
+    try:
+        return reader(entity)
+    except appmodel.AppGenError:
+        return []
+
+
+def _proxy_entry_is_readable(entry: str) -> bool:
+    """Would `QHostAddress::parseSubnet` make an address or a range of this?
+
+    Written against what Qt accepts rather than against what Python's `ipaddress` accepts,
+    because the two disagree: Qt takes an abbreviated IPv4 form (`10/8`) and a netmask
+    written out (`10.0.0.0/255.255.255.0`), and a check that refused those would refuse a
+    list the runtime honours. What both refuse is the mistake this is here for: a host
+    name. `trusted_proxies: [nginx]` reads like it says something, and to the runtime it
+    says nothing at all.
+    """
+    address, _, mask = entry.partition("/")
+    if ":" in address:
+        try:
+            ipaddress.IPv6Address(address)
+        except ValueError:
+            return False
+        return not mask or (mask.isdigit() and int(mask) <= 128)
+
+    parts = address.rstrip(".").split(".")
+    if not 1 <= len(parts) <= 4:
+        return False
+    for part in parts:
+        if not part.isdigit() or not 0 <= int(part) <= 255:
+            return False
+    if not mask:
+        return True
+    if "." in mask:  # a netmask written out, which Qt converts to a prefix length
+        try:
+            ipaddress.IPv4Address(mask)
+        except ValueError:
+            return False
+        return True
+    return mask.isdigit() and int(mask) <= 32
+
+
+def _trusted_proxy_messages(declared: List[Dict[str, Any]]) -> List[str]:
+    """`trusted_proxies`, on both surfaces that have one.
+
+    The list is what turns a forwarding header from a field the client filled in into the
+    address every per-IP limit counts. An entry the runtime cannot read is dropped there
+    rather than refused, which is right in the runtime (a live entity should not fail to
+    start over a list it can mostly read) and wrong to leave unsaid: a deployment that
+    wrote a host name would run with a list that trusts nobody, count the proxy as every
+    caller, and have nothing to read about it. So the entry is checked here, where saying
+    so costs a line of output instead of a restart.
+    """
+    messages: List[str] = []
+    for entity in declared:
+        name = str(entity.get("name") or "?")
+        for reader, where in ((appmodel.trusted_proxies, "public.trusted_proxies"),
+                              (appmodel.inbound_trusted_proxies,
+                               "network.inbound.trusted_proxies")):
+            try:
+                entries = reader(entity)
+            except appmodel.AppGenError as failure:
+                messages.append(f"error: entity '{name}': {failure}")
+                continue
+            for entry in entries:
+                if _proxy_entry_is_readable(entry.strip()):
+                    continue
+                messages.append(
+                    f"error: entity '{name}' has {where} entry '{entry}', which is not an "
+                    "address or a CIDR range. Write the proxy's address ('10.0.0.1') or "
+                    "the range it comes from ('10.0.0.0/24'); a name is resolved by "
+                    "nobody at the point this is read, so the entry would be dropped and "
+                    "every caller would count as the proxy")
+
+        # Two listeners, two lists, and neither is read for the other. A word is due when
+        # one is configured and the other is not. An entity that has both surfaces is
+        # behind the same infrastructure for both often enough that leaving the second
+        # list out is more likely to be an oversight than a decision.
+        if (appmodel.serves_inbound(entity)
+                and _proxies_quietly(appmodel.trusted_proxies, entity)
+                and not _proxies_quietly(appmodel.inbound_trusted_proxies, entity)):
+            messages.append(
+                f"warn: entity '{name}' names public.trusted_proxies but its "
+                "network.inbound names none, so the API surface counts the peer it is "
+                "connected to. Behind the same proxy that is one budget for every caller "
+                "at once; add network.inbound.trusted_proxies, or leave it out if that "
+                "port is reached directly")
+    return messages
+
+
 def _shared_messages(declared: List[Dict[str, Any]]) -> List[str]:
     """Refuse a `shared:` that is not a yes-or-no, and one written on a client.
 
@@ -386,6 +482,7 @@ def validate(config: Dict[str, Any], *, release: bool = False,
     messages += _public_port_messages(entities)
     messages += _entity_type_messages(declared)
     messages += _network_messages(declared)
+    messages += _trusted_proxy_messages(declared)
     messages += _shared_messages(declared)
     messages += _orphan_messages(config, declared)
     messages += _replica_messages(config, entities)

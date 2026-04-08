@@ -708,6 +708,7 @@ The handler is called with one argument, the request:
 | `request.query` | object | the decoded query string pairs. |
 | `request.headers` | object | request headers, lower-cased. The API key header is removed before a handler sees it. |
 | `request.body` | object \| string | the parsed JSON for an `application/json` request, the raw text otherwise. |
+| `request.client` | string | who is calling, as an address. |
 | `request.reply(body, status?)` | - | answer. A map or a list is sent as JSON; anything else as text. Default status 200. |
 | `request.fail(status, message)` | - | answer with `{"error": message}` and that status. |
 
@@ -724,7 +725,15 @@ Api.get("/health", () => { return { ok: true }; });
 A handler that returns a value and has not answered yet replies with it as 200, which
 is what makes the synchronous case the one-liner above. A handler that will answer
 later returns nothing and calls `reply` or `fail` when it can. Every request is
-answered exactly once: a second `reply` is ignored rather than writing twice.
+answered exactly once. A second `reply` is ignored rather than writing twice.
+
+`request.client` is the peer that connected, unless the entity named a proxy in
+`network.inbound.trusted_proxies`, in which case it is the address that proxy said is
+behind it. Use it rather than the forwarding header in `request.headers`. That one is
+whatever the last hop sent, and on a surface that trusts nobody it is whatever the
+client typed. It is also the address the built-in rate limit counts, so a handler that
+logs or rations by client agrees with the framework rather than keeping a second
+opinion.
 
 Nothing about who may call reaches the handler, because it was settled before the
 handler existed. `synqt check` refuses an inbound surface with no API keys unless it

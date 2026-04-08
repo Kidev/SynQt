@@ -60,10 +60,15 @@ add_test(NAME m5 COMMAND tst_m5)
 # contract: it is a pure function of the peer, the header and the configured list, and
 # that is exactly why it is testable to the corner cases an end-to-end upgrade cannot
 # reach (a forged hop, a trusted hop, a malformed entry).
+#
+# It links SynQtService, which is where the class lives, and not SynQtEdge: the browser
+# side of an edge and an entity's inbound API surface both resolve a client address, and
+# only one of those two may link Qt HTTP Server. Building the test against the narrower
+# library is what keeps that true.
 qt_add_executable(tst_clientaddress tst_clientaddress.cpp)
 
 target_link_libraries(tst_clientaddress PRIVATE
-    SynQtEdge
+    SynQtService
     Qt6::Core
     Qt6::Network
     Qt6::Test
@@ -77,7 +82,7 @@ add_test(NAME clientaddress COMMAND tst_clientaddress)
 qt_add_executable(tst_ratewindow tst_ratewindow.cpp)
 
 target_link_libraries(tst_ratewindow PRIVATE
-    SynQtEdge
+    SynQtService
     Qt6::Core
     Qt6::Test
 )

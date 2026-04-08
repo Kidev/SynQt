@@ -15,13 +15,10 @@ namespace SynQt {
 
 namespace {
 
-// A value as QML handed it over. An object literal reaches a `QVariant` parameter as a
-// QVariantMap when the engine can see the parameter's type at the call site, and as a
-// QJSValue when it cannot, which is what happens inside a closure that runs on a later
-// turn. Both are the same object to whoever wrote the handler, so both become the same
-// QVariant here. Without this, `request.reply({ok: true})` from a `.then(...)` sent an
-// empty body. The map branch below did not match, and the text branch stringified a
-// QJSValue to nothing.
+// A value as QML passed it. An object literal arrives as a QVariantMap when the engine sees
+// the parameter type at the call site, and as a QJSValue inside a closure that runs later.
+// Both become the same QVariant here, so `request.reply({ok: true})` inside `.then(...)`
+// sends its body.
 QVariant fromQml(const QVariant &value)
 {
     if (value.metaType().id() == qMetaTypeId<QJSValue>()) {
@@ -33,7 +30,7 @@ QVariant fromQml(const QVariant &value)
 } // namespace
 
 ApiRequest::ApiRequest(QString method, QString path, QVariantMap params, QVariantMap query,
-                       QVariantMap headers, QVariant body, QObject *parent)
+                       QVariantMap headers, QVariant body, QString client, QObject *parent)
     : QObject{parent}
     , m_method{std::move(method)}
     , m_path{std::move(path)}
@@ -41,7 +38,13 @@ ApiRequest::ApiRequest(QString method, QString path, QVariantMap params, QVarian
     , m_query{std::move(query)}
     , m_headers{std::move(headers)}
     , m_body{std::move(body)}
+    , m_client{std::move(client)}
 {
+}
+
+QString ApiRequest::client() const
+{
+    return m_client;
 }
 
 QString ApiRequest::method() const
@@ -87,9 +90,8 @@ void ApiRequest::setParams(QVariantMap params)
 void ApiRequest::reply(const QVariant &value, int status)
 {
     const QVariant body{fromQml(value)};
-    // A map or a list is what a JSON API returns, so those are serialized. Anything else
-    // is sent as the text it is. Deciding here rather than making the handler say means a
-    // handler returning an object cannot accidentally send its QVariant spelling.
+    // A map or a list is serialized as JSON; anything else is sent as text. Deciding here
+    // means a handler returning an object never sends a QVariant spelling.
     if (body.metaType().id() == QMetaType::QVariantMap
         || body.metaType().id() == QMetaType::QVariantList) {
         send(status, QByteArrayLiteral("application/json"),
@@ -108,9 +110,8 @@ void ApiRequest::fail(int status, const QString &message)
 
 void ApiRequest::send(int status, const QByteArray &contentType, const QByteArray &body)
 {
-    // Answered exactly once. A handler that replies on one branch and falls through to
-    // another would otherwise write a second response onto a socket the first already
-    // closed, which is a protocol error the caller sees as a truncated body.
+    // Answered exactly once: a second response would be written to a socket the first
+    // already closed, and the caller would see a truncated body.
     if (m_answered) {
         return;
     }

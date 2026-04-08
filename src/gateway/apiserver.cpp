@@ -117,6 +117,7 @@ QString methodOf(const QHttpServerRequest &request)
 ApiServer::ApiServer(ApiConfig config, QJSEngine *engine, QObject *parent)
     : QObject{parent}
     , m_config{std::move(config)}
+    , m_clientAddress{m_config.trustedProxies}
     , m_engine{engine}
     , m_api{new Api{engine, this}}
 {
@@ -199,13 +200,24 @@ bool ApiServer::start()
     return true;
 }
 
+QString ApiServer::callerAddress(const QHttpServerRequest &request) const
+{
+    // `value()` joins every `X-Forwarded-For` line the request carries, in the order they
+    // arrived, which is what RFC 9110 says they mean. Reading only the first would hand a
+    // caller the answer on a proxy that appends a line of its own instead of extending the
+    // one it was given. The client's own line would be the one read, and the resolver would
+    // walk a chain the client wrote from end to end.
+    return m_clientAddress.resolve(request.remoteAddress(),
+                                   request.value(QByteArrayLiteral("X-Forwarded-For")));
+}
+
 QString ApiServer::originOf(const QHttpServerRequest &request) const
 {
     return QString::fromUtf8(
         request.headers().value(QHttpHeaders::WellKnownHeader::Origin).toByteArray());
 }
 
-bool ApiServer::withinRate(const QString &peer)
+bool ApiServer::withinRate(const QString &caller)
 {
     if (m_config.ratePerMinutePerIp <= 0) {
         return true;
@@ -215,7 +227,7 @@ bool ApiServer::withinRate(const QString &peer)
         m_rateWindow.clear();
         m_rateWindowStartMs = now;
     }
-    const bool within{++m_rateWindow[peer] <= m_config.ratePerMinutePerIp};
+    const bool within{++m_rateWindow[caller] <= m_config.ratePerMinutePerIp};
     if (m_rateWindow.size() > kMaxRateEntries) {
         // A table keyed by whatever address dialled in is a table a caller can grow, one
         // entry per address, for as long as the window lasts. What it must not become is a
@@ -285,9 +297,12 @@ QFuture<QHttpServerResponse> settled(QHttpServerResponse &&response)
 
 QFuture<QHttpServerResponse> ApiServer::handle(const QHttpServerRequest &request)
 {
-    const QString peer{request.remoteAddress().toString()};
-    if (!withinRate(peer)) {
-        emit requestRefused(QStringLiteral("rate limit for %1").arg(peer));
+    // The address this request is counted against, which is the peer's until the topology
+    // names a proxy in front of this surface. Resolved once, and the only client address
+    // that goes any further: the rate limit keys on it and the handler is handed it.
+    const QString caller{callerAddress(request)};
+    if (!withinRate(caller)) {
+        emit requestRefused(QStringLiteral("rate limit for %1").arg(caller));
         return settled(errorResponse(429, QStringLiteral("too many requests")));
     }
 
@@ -313,7 +328,7 @@ QFuture<QHttpServerResponse> ApiServer::handle(const QHttpServerRequest &request
     // and the QHttpServerResponder it answers through is held by the lambda below.
     ApiRequest *apiRequest{new ApiRequest{methodOf(request), path, QVariantMap{}, query,
                                           headersOf(request, m_config.keyHeader),
-                                          bodyOf(request), this}};
+                                          bodyOf(request), caller, this}};
 
     // Shared, because three things may settle it and only the first one counts: the
     // handler answering, the deadline below, and a route that never matched. The promise

@@ -189,6 +189,69 @@ def test_a_negative_reply_timeout_is_refused():
     assert any("reply_timeout_ms" in message for message in errors(inbound(reply_timeout_ms=-1)))
 
 
+def proxies(where="network.inbound", entries=None, **extra):
+    """One entity with a trusted-proxy list on the surface named by `where`."""
+    entity = {"name": "api"}
+    if where == "network.inbound":
+        entity["network"] = {"inbound": {"port": 8443, "api_keys": "env:API_KEYS",
+                                         "trusted_proxies": entries}}
+    else:
+        entity["public"] = {"trusted_proxies": entries}
+    entity.update(extra)
+    return check._trusted_proxy_messages([entity])
+
+
+@pytest.mark.parametrize("where", ["network.inbound", "public"])
+@pytest.mark.parametrize("entry", ["nginx", "edge.internal", "10.0.0.256", "1.2.3.4.5",
+                                   "10.0.0.0/33", "not an address"])
+def test_a_proxy_entry_that_is_not_an_address_is_refused(where, entry):
+    # The runtime drops what it cannot read, which is right there and silent: the surface
+    # would run counting its proxy as every caller. A host name is the one to expect,
+    # because a compose file names its front `nginx` and writing that here reads like it
+    # says something.
+    messages = errors(proxies(where, [entry]))
+    assert any(entry in message and where in message for message in messages), messages
+
+
+@pytest.mark.parametrize("entry", ["10.0.0.1", "10.0.0.0/24", "10/8",
+                                   "10.0.0.0/255.255.255.0", "::1", "fd00::/8"])
+def test_every_form_the_runtime_reads_is_accepted(entry):
+    # Written against what QHostAddress::parseSubnet takes rather than against Python's
+    # ipaddress, which is stricter. Refusing an abbreviated form or a netmask spelled out
+    # would refuse a list the runtime honours.
+    assert proxies(entries=[entry]) == []
+
+
+def test_a_proxy_list_that_is_not_a_list_is_refused():
+    assert any("list of addresses" in message for message in errors(proxies(entries="10.0.0.1")))
+
+
+def test_naming_a_proxy_for_the_browser_side_and_not_the_api_one_is_a_warning():
+    # Two listeners, two lists, and neither is read for the other. Configuring one and
+    # leaving the other out is legitimate (a port on an internal network) and is more
+    # often an oversight, so it is said rather than refused.
+    entity = {"name": "monitor",
+              "public": {"trusted_proxies": ["10.0.0.1"]},
+              "network": {"inbound": {"port": 9443, "api_keys": "env:KEYS"}}}
+    messages = check._trusted_proxy_messages([entity])
+    assert errors(messages) == []
+    assert any(message.startswith("warn:") and "network.inbound.trusted_proxies" in message
+               for message in messages)
+
+
+def test_the_warning_goes_once_the_api_surface_names_its_own():
+    entity = {"name": "monitor",
+              "public": {"trusted_proxies": ["10.0.0.1"]},
+              "network": {"inbound": {"port": 9443, "api_keys": "env:KEYS",
+                                      "trusted_proxies": ["10.0.0.1"]}}}
+    assert check._trusted_proxy_messages([entity]) == []
+
+
+def test_an_entity_that_serves_no_api_surface_is_not_asked_for_one():
+    entity = {"name": "edge", "public": {"trusted_proxies": ["10.0.0.1"]}}
+    assert check._trusted_proxy_messages([entity]) == []
+
+
 def test_a_type_that_is_not_one_of_the_eight_is_refused():
     # A misspelled type is an entity with no helpers, whose files go to the wrong folder,
     # and whose provider block nothing reads. Every symptom points away from the typo.

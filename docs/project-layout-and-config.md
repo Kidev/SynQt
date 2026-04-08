@@ -445,41 +445,56 @@ entities:
         key_header: X-API-Key            # default
         allowed_origins: []              # browser callers; default none
         max_body_bytes: 1048576          # default
-        rate_per_minute: 600             # per peer address; default
-        reply_timeout_ms: 15000          # default; 0 means the default, not no deadline
+        rate_per_minute: 600             # per caller address; default
+        # trusted_proxies: [10.0.0.1, 10.0.0.0/24]
+        #   The peers whose `X-Forwarded-For` this surface believes. Empty (the default)
+        #   means the peer that connected is the caller, which is true of a port reached
+        #   directly and false of every request at once behind a proxy.
+        reply_timeout_ms: 15000          # default, and 0 means the default rather than no deadline
 ```
 
-`outbound` is a list of URL prefixes. Declaring the key is what puts the `Http` helper
-in the entity's QML scope; the list is what `Http` will allow. The two are separate:
+`outbound` is a list of URL prefixes. Declaring the key puts the `Http` helper
+in the entity's QML scope, and the list is what `Http` will allow. The two are separate.
 `outbound: []` gives the entity the helper and lets it reach nowhere, so a
 call is refused by name and tells you which key to add, where no key at all would have
 been a ReferenceError on a helper that is not there. A prefix is matched against the
 normalized URL, so a traversal cannot escape it.
 
 An entry may be a record instead of a string, with a `name`, a `url` and `headers`.
-The headers are attached by the runtime to every call under that prefix, which is how
-an API key reaches an upstream without the entity's QML ever holding it: write it as an
-`env:` reference and it is read from that entity's environment at startup. A literal
-credential is refused by `synqt check`. The `name` is the handle
+The runtime attaches the headers to every call under that prefix, which is how
+an API key reaches an upstream without the entity's QML ever holding it. Write it as an
+`env:` reference and it is read from that entity's environment at startup. `synqt check`
+refuses a literal credential. The `name` is the handle
 [`Http.api(name)`](runtime-api.md#http-outbound-calls-within-the-allowlist) resolves, so
 a call site writes a path and the base URL stays a configuration decision.
 
 `inbound` opens a port and puts the `Api` helper in scope, which the entity's own
 singleton declares its routes on (see [the gateway](entities.md#gateway-the-api-entity)).
-Everything a caller can influence is checked before a handler exists: the rate limit,
-the API key, the origin, then the body size.
+Everything a caller can influence is checked before a handler exists, in order the rate
+limit, the API key, the origin, then the body size.
 
-`rate_per_minute` counts the peer address, which is the caller's own on a gateway machine
-callers reach directly and the balancer's on one behind a proxy. Behind a proxy it is
-therefore one budget shared by everybody. That is generous rather than dangerous, since the
-API key is what admits a caller and this is only there to keep an unauthenticated one from
-spending the entity's time, but it means the number to set is a whole deployment's rate and
-not one client's. A gateway that has to ration per client behind a balancer wants the
-balancer's own rate limiting, which sees the forwarded address. The web edge is the one that
-resolves it, because `security.trusted_proxies` is a browser-facing setting and a machine
-caller has no browser.
+`rate_per_minute` counts one address, and `trusted_proxies` is what decides which address
+that is. With nobody named it is the peer that connected, which is correct for a port
+callers reach directly and one budget shared by everybody as soon as a proxy sits in
+front, because every request then arrives from the proxy. Naming the proxy makes it the address the proxy
+put in `X-Forwarded-For` instead, so each caller gets its own budget again. Nothing is
+trusted implicitly. The header is read only from a peer on this list, and within it only
+the rightmost entry that is not itself a listed hop, because everything to the left of that
+is whatever the client sent. `synqt check` refuses an entry that is not an address or a
+CIDR range rather than dropping it at startup, because a host name there would leave the
+surface counting the proxy as every caller with nothing said about it.
 
-`max_body_bytes` is the transport's limit and not a check made after the fact: a body
+The list is per surface. An edge's browser side reads `public.trusted_proxies` and an API
+surface reads this one, and neither is taken to mean the other, because they are two
+listeners on two ports and a deployment can put a balancer in front of one while the other
+stays on an internal network. An entity that has both and configures only the browser one
+gets a warning, since that is more often an oversight than a decision.
+
+A handler reads the resolved address as
+[`request.client`](runtime-api.md#api-the-inbound-http-surface), which is the same address
+the rate limit counts.
+
+`max_body_bytes` is the transport's limit rather than a check made after the fact. A body
 past it is refused while it is still arriving, so an oversized request is never read
 into memory. The connection also has an idle timeout, which is what ends a caller that
 opens a socket, sends half a request and stops.
@@ -509,6 +524,9 @@ Validation of the block:
 - A web edge may not declare `inbound`. It already serves the public through its own
   `public:` and `tls:` blocks, and two listeners in one entity would be two policies to
   keep in step.
+- Every `trusted_proxies` entry has to be an address or a CIDR range. A host name is
+  refused rather than resolved, because the runtime reads this list as addresses, so a
+  name there would be dropped and the surface would count its proxy as every caller.
 
 An entity with `inbound` links Qt HTTP Server, which is GPLv3 only, so its artifact is
 GPLv3 and its generated `THIRD-PARTY-LICENSES` says so. An outbound only entity links

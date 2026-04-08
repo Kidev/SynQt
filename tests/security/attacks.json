@@ -609,6 +609,13 @@
       "defended_by": "The table drops only the windows that have run out, which are evidence of nothing. When that frees nothing the gate refuses for the rest of the window rather than forgetting what it knows.",
       "file": "tests/m5-webedge/tst_ratewindow.cpp",
       "test": "aFloodOfLiveAddressesDoesNotClearTheGuessersOwnCount"
+    },
+    {
+      "id": "api-rate-limit-escaped-by-a-forged-forwarding-header",
+      "what": "An entity's inbound API surface rations requests per address. A caller who can decide which address that is has no limit at all, not a generous one: a different X-Forwarded-For on every request buys a fresh budget every time.",
+      "defended_by": "The header is read only from a peer the entity named in network.inbound.trusted_proxies, and within it only the rightmost entry that is not itself a listed hop, since a balancer appends what it saw rather than replacing what the client sent. A surface that names nobody counts the peer that connected and nothing else.",
+      "file": "tests/api-inbound/tst_apiinbound.cpp",
+      "test": "aForgedForwardedHeaderDoesNotBuyAFreshBudget"
     }
   ]
 }

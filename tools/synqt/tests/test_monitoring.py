@@ -509,6 +509,28 @@ def test_the_monitor_is_told_where_the_bundles_are_and_not_what_they_are_called(
     assert 'parser.values(bundleWithDefaults)' in source
 
 
+def test_a_monitor_behind_a_proxy_is_told_which_peer_is_not_an_operator():
+    from synqt import maingen
+
+    # The monitor is the entity with a password gate on it, rationed per client address.
+    # `public.trusted_proxies` is read by `synqt check` either way, so leaving it out of
+    # this main is the worst of the two. The project sets it, the check honours it, and
+    # the running console counts its proxy as every operator.
+    config = {
+        "project": {"name": "demo"},
+        "monitoring": {"entity": "ops"},
+        "entities": [{"name": "ops", "type": "monitor",
+                      "public": {"trusted_proxies": ["10.0.0.1", "10.0.0.0/24"]}}],
+    }
+    source = maingen.render_monitor_main(config, config["entities"][0])
+    assert ('config.trustedProxies = {QStringLiteral("10.0.0.1"), '
+            'QStringLiteral("10.0.0.0/24")};') in source
+
+    config["entities"][0].pop("public")
+    assert "trustedProxies" not in maingen.render_monitor_main(config,
+                                                               config["entities"][0])
+
+
 def test_synqt_dev_launches_a_monitor_with_its_own_port_and_its_bundles():
     from pathlib import Path
     from synqt import run

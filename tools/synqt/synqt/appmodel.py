@@ -909,22 +909,41 @@ def public_port(entity: Dict[str, Any]) -> int:
     return int(public_settings(entity).get("port") or DEFAULT_PUBLIC_PORT)
 
 
-def trusted_proxies(entity: Dict[str, Any]) -> List[str]:
-    """``public.trusted_proxies``: the hops whose ``X-Forwarded-For`` this edge believes.
+def _proxy_list(settings: Dict[str, Any], where: str) -> List[str]:
+    """The ``trusted_proxies`` of one block, or [] when it names none.
 
-    Empty (the default) means the peer address is the client address, which is what an
-    edge facing the internet directly should think. A balancer in front makes that false
-    for every connection at once, so the list is how a deployment says which peer is not
-    a visitor. The rules for reading the header are in ``src/edge/clientaddress.h``.
+    Empty (the default) means the peer address is the client address, which is what a
+    surface reached directly should think. A balancer in front makes that false for every
+    connection at once, so the list is how a deployment says which peer is not a caller.
+    The rules for reading the header are in ``src/service/clientaddress.h``.
     """
-    declared = public_settings(entity).get("trusted_proxies")
+    declared = settings.get("trusted_proxies")
     if declared is None:
         return []
     if not isinstance(declared, list):
         raise AppGenError(
-            f"public.trusted_proxies must be a list of addresses or CIDR ranges, "
-            f"not {declared!r}")
+            f"{where} must be a list of addresses or CIDR ranges, not {declared!r}")
     return [str(entry) for entry in declared]
+
+
+def trusted_proxies(entity: Dict[str, Any]) -> List[str]:
+    """``public.trusted_proxies``: the hops whose ``X-Forwarded-For`` this edge believes.
+
+    The browser side of an edge. Its inbound API surface, when it has one, is a second
+    listener with its own list. See `inbound_trusted_proxies`.
+    """
+    return _proxy_list(public_settings(entity), "public.trusted_proxies")
+
+
+def inbound_trusted_proxies(entity: Dict[str, Any]) -> List[str]:
+    """``network.inbound.trusted_proxies``: the same question for the API surface.
+
+    Deliberately not inherited from ``public.trusted_proxies``. They are two listeners on
+    two ports, and a deployment may put a balancer in front of one and expose the other
+    on an internal network, so taking one list to mean the other would be this framework
+    deciding to believe a header nobody said to believe.
+    """
+    return _proxy_list(inbound_settings(entity), "network.inbound.trusted_proxies")
 
 
 def replicas(entity: Dict[str, Any]) -> int:

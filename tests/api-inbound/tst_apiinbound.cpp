@@ -1,13 +1,17 @@
 // SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 // SPDX-License-Identifier: Apache-2.0
 
-// The inbound HTTP surface (`network.inbound`): an entity serving a public API through
+// The inbound HTTP surface (`network.inbound`), an entity serving a public API through
 // routes its own QML declared on `Api`, behind the checks `ApiServer` runs first.
 //
-// Two halves are under test. That the surface works at all: a route matches, captures a
+// Two halves are under test. That the surface works at all. A route matches, captures a
 // placeholder, reads a JSON body, and answers with JSON. And that nothing reaches a
 // handler that should not: no API key, an origin nobody allowed, a body over the limit,
 // and a flood past the rate limit are each answered by the server.
+//
+// The rate limit brings a third question with it, since a limit per address is only as
+// good as its notion of address. Whether `X-Forwarded-For` is believed, which turns on
+// whether the peer that sent it is a proxy this surface was told about.
 
 #include "api.h"
 #include "apiconfig.h"
@@ -16,12 +20,14 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QList>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QNetworkRequest>
 #include <QQmlContext>
 #include <QQmlEngine>
 #include <QSignalSpy>
+#include <QStringList>
 #include <QTest>
 #include <QUrl>
 
@@ -59,7 +65,7 @@ private:
 
     Answer send(const QString &method, const QString &path, const QByteArray &body = {},
                 const QByteArray &key = QByteArrayLiteral("right-key"),
-                const QByteArray &origin = {})
+                const QByteArray &origin = {}, const QByteArray &forwardedFor = {})
     {
         QNetworkRequest request{url(path)};
         if (!key.isEmpty()) {
@@ -67,6 +73,9 @@ private:
         }
         if (!origin.isEmpty()) {
             request.setRawHeader(QByteArrayLiteral("Origin"), origin);
+        }
+        if (!forwardedFor.isEmpty()) {
+            request.setRawHeader(QByteArrayLiteral("X-Forwarded-For"), forwardedFor);
         }
         request.setHeader(QNetworkRequest::ContentTypeHeader,
                           QByteArrayLiteral("application/json"));
@@ -81,6 +90,46 @@ private:
         answer.body = reply->readAll();
         reply->deleteLater();
         return answer;
+    }
+
+    /// A throwaway surface with a rate limit on it, and how many of a run of requests it
+    /// refused.
+    ///
+    /// One server per case, because the limit is a property of the surface: sharing one
+    /// would make the order the cases run in part of what they assert. `forwardedFor` is
+    /// one entry per request, and an empty one sends no header at all.
+    void countRefusals(const QStringList &trustedProxies, int perMinute,
+                       const QList<QByteArray> &forwardedFor, int *refused)
+    {
+        QQmlEngine engine;
+        ApiConfig config;
+        config.host = QStringLiteral("127.0.0.1");
+        config.port = 0;
+        config.anonymous = true;  // the key is not what is under test here
+        config.ratePerMinutePerIp = perMinute;
+        config.trustedProxies = trustedProxies;
+        ApiServer server{config, &engine};
+        engine.rootContext()->setContextProperty(QStringLiteral("Api"), server.api());
+        QJSValue handler{engine.evaluate(QStringLiteral("(function(r){ return {ok: true}; })"))};
+        server.api()->get(QStringLiteral("/ping"), handler);
+        QVERIFY2(server.start(), qPrintable(server.errorString()));
+
+        const quint16 port{server.serverPort()};
+        *refused = 0;
+        for (const QByteArray &claimed : forwardedFor) {
+            QNetworkRequest request{
+                QUrl{QStringLiteral("http://127.0.0.1:%1/ping").arg(port)}};
+            if (!claimed.isEmpty()) {
+                request.setRawHeader(QByteArrayLiteral("X-Forwarded-For"), claimed);
+            }
+            QNetworkReply *reply{m_network.get(request)};
+            QSignalSpy finished{reply, &QNetworkReply::finished};
+            finished.wait(5000);
+            if (reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt() == 429) {
+                *refused += 1;
+            }
+            reply->deleteLater();
+        }
     }
 
 private slots:
@@ -263,34 +312,97 @@ private slots:
 
     void theRateLimitAnswers429WithoutReachingAHandler()
     {
-        // Its own server, because the limit is a property of the surface and turning it on
-        // for the cases above would make each of them count against the others.
+        int refused{0};
+        countRefusals(QStringList{}, 3, QList<QByteArray>(5), &refused);
+        QCOMPARE(refused, 2);  // three allowed in the window, two refused
+    }
+
+    /// The rate limit counts one address, and the question here is which one.
+    ///
+    /// A surface that trusts nobody counts the peer, and `X-Forwarded-For` is then a field
+    /// the client filled in. Believing it would hand every caller a way to pick a fresh
+    /// budget per request, which removes the limit rather than loosening it: five requests
+    /// under a limit of three would all be served.
+    void aForgedForwardedHeaderDoesNotBuyAFreshBudget()
+    {
+        int refused{0};
+        countRefusals(QStringList{}, 3,
+                      {QByteArrayLiteral("9.9.9.1"), QByteArrayLiteral("9.9.9.2"),
+                       QByteArrayLiteral("9.9.9.3"), QByteArrayLiteral("9.9.9.4"),
+                       QByteArrayLiteral("9.9.9.5")},
+                      &refused);
+        QCOMPARE(refused, 2);
+    }
+
+    /// And the other half, without which the first is a broken feature. With a proxy
+    /// named, the surface counts what that proxy forwarded, so two callers behind one
+    /// balancer have a budget each instead of sharing the balancer's.
+    ///
+    /// Six requests at a limit of two. Three from each caller, so each spends its two and
+    /// is refused once. Counting the peer would refuse four of the six.
+    void aTrustedProxyGivesEachCallerItsOwnBudget()
+    {
+        int refused{0};
+        countRefusals({QStringLiteral("127.0.0.1")}, 2,
+                      {QByteArrayLiteral("203.0.113.1"), QByteArrayLiteral("203.0.113.2"),
+                       QByteArrayLiteral("203.0.113.1"), QByteArrayLiteral("203.0.113.2"),
+                       QByteArrayLiteral("203.0.113.1"), QByteArrayLiteral("203.0.113.2")},
+                      &refused);
+        QCOMPARE(refused, 2);
+    }
+
+    /// What the handler is handed, which has to be the same answer the limit counted or
+    /// the two would disagree about who is calling. This surface trusts nobody, so a
+    /// forged header changes nothing. The peer is the client.
+    void theHandlerIsHandedTheAddressTheLimitCounts()
+    {
+        const Answer mine{send(QStringLiteral("GET"), QStringLiteral("/whoami"), {},
+                               QByteArrayLiteral("right-key"), {},
+                               QByteArrayLiteral("9.9.9.9"))};
+        QCOMPARE(mine.status, 200);
+        QCOMPARE(mine.json().value(QStringLiteral("client")).toString(),
+                 QStringLiteral("127.0.0.1"));
+    }
+
+    /// The same property on a surface that does name a proxy, where the answer is the
+    /// address behind it. Declared in C++ rather than in the fixture's QML because it
+    /// needs a second server with a different configuration, not a second route.
+    void aTrustedProxySaysWhoIsCallingAndOnlyForTheHopsItVouchedFor()
+    {
         QQmlEngine engine;
         ApiConfig config;
         config.host = QStringLiteral("127.0.0.1");
         config.port = 0;
-        config.anonymous = true;  // the key is not what is under test here
-        config.ratePerMinutePerIp = 3;
+        config.anonymous = true;
+        config.ratePerMinutePerIp = 0;
+        config.trustedProxies = {QStringLiteral("127.0.0.1")};
         ApiServer server{config, &engine};
         engine.rootContext()->setContextProperty(QStringLiteral("Api"), server.api());
-        QJSValue handler{engine.evaluate(QStringLiteral("(function(r){ return {ok: true}; })"))};
-        server.api()->get(QStringLiteral("/ping"), handler);
+        QJSValue handler{
+            engine.evaluate(QStringLiteral("(function(r){ return {client: r.client}; })"))};
+        server.api()->get(QStringLiteral("/whoami"), handler);
         QVERIFY2(server.start(), qPrintable(server.errorString()));
 
-        const quint16 port{server.serverPort()};
-        int limited{0};
-        for (int attempt{0}; attempt < 5; ++attempt) {
-            QNetworkRequest request{
-                QUrl{QStringLiteral("http://127.0.0.1:%1/ping").arg(port)}};
+        const auto ask{[&](const QByteArray &forwarded) {
+            QNetworkRequest request{QUrl{QStringLiteral("http://127.0.0.1:%1/whoami")
+                                             .arg(server.serverPort())}};
+            request.setRawHeader(QByteArrayLiteral("X-Forwarded-For"), forwarded);
             QNetworkReply *reply{m_network.get(request)};
             QSignalSpy finished{reply, &QNetworkReply::finished};
             finished.wait(5000);
-            if (reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt() == 429) {
-                ++limited;
-            }
+            const QByteArray body{reply->readAll()};
             reply->deleteLater();
-        }
-        QCOMPARE(limited, 2);  // three allowed in the window, two refused
+            return QJsonDocument::fromJson(body).object()
+                .value(QStringLiteral("client")).toString();
+        }};
+
+        QCOMPARE(ask(QByteArrayLiteral("203.0.113.7")), QStringLiteral("203.0.113.7"));
+
+        // A balancer appends what it saw rather than replacing what was there, so the
+        // entries to the left of the rightmost untrusted one are whatever the client sent.
+        // Taking the leftmost would let the client name its own address.
+        QCOMPARE(ask(QByteArrayLiteral("1.2.3.4, 203.0.113.7")),
+                 QStringLiteral("203.0.113.7"));
     }
 };
 

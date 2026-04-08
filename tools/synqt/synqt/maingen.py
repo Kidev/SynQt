@@ -192,6 +192,14 @@ def _api_config_lines(entity: Dict[str, Any], inbound: Dict[str, Any]) -> List[s
         lines.append("    apiConfig.ratePerMinutePerIp = %s;"
                      % _int_literal("network.inbound.rate_per_minute",
                                     inbound["rate_per_minute"]))
+
+    # Which address the rate limit above counts against. Absent, it is the peer that
+    # connected; present, that peer is a proxy and the caller is behind it. The edge's
+    # browser side has its own list and neither is read for the other (appmodel).
+    proxies = appmodel.inbound_trusted_proxies(entity)
+    if proxies:
+        lines.append("    apiConfig.trustedProxies = {%s};" % string_list_literal(proxies))
+
     if "reply_timeout_ms" in inbound:
         lines.append("    apiConfig.replyTimeoutMs = %s;"
                      % _int_literal("network.inbound.reply_timeout_ms",
@@ -263,8 +271,8 @@ def _edge_policy_lines(config: Dict[str, Any], edge: Dict[str, Any]) -> List[str
         lines.append("    config.serveClient = %s;"
                      % _bool_literal("public.serve_client", public["serve_client"]))
 
-    # Where the client address comes from. Absent, it is the peer address; present, the
-    # peer is a balancer and the visitor is behind it (src/edge/clientaddress.h). It is
+    # Where the client address comes from. Absent, it is the peer address. Present, the
+    # peer is a balancer and the visitor is behind it (src/service/clientaddress.h). It is
     # the key every per-IP limit on the edge depends on being right.
     proxies = appmodel.trusted_proxies(edge)
     if proxies:
@@ -1581,6 +1589,14 @@ def render_monitor_main(config: Dict[str, Any], entity: Dict[str, Any],
     export_block, export_includes, export_qt_includes = _monitor_exporters(entity)
     bundle_defaults = _monitor_bundle_defaults(config, entity)
 
+    # A monitor's browser half is a listener like an edge's, and its sign-in gate is
+    # rationed per client address, so the same key has to reach it. Absent it, a monitor
+    # behind a proxy counts every operator as one address and ten wrong passwords from
+    # anywhere lock the console for a minute.
+    proxies = appmodel.trusted_proxies(entity)
+    monitor_proxies = ("    config.trustedProxies = {%s};\n" % string_list_literal(proxies)
+                       if proxies else "")
+
     console = next((cp for cp in appmodel.owned_by(config, name)
                     if appmodel.point_name(cp) == appmodel.MONITOR_CONSOLE_POINT), None)
     if console is not None:
@@ -1744,7 +1760,7 @@ int main(int argc, char *argv[])
     config.scopeOrder = {{QStringLiteral("anonymous"),
                          QStringLiteral("{appmodel.MONITOR_SCOPE}")}};
     config.defaultScope = QStringLiteral("anonymous");
-    config.signInPath = QStringLiteral("/monitor/signin");
+{monitor_proxies}    config.signInPath = QStringLiteral("/monitor/signin");
     config.signInScope = QStringLiteral("{appmodel.MONITOR_SCOPE}");
     config.signIn = [&service](const QString &who, const QString &password) {{
         return service.signIn(who, password);

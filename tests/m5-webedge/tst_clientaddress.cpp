@@ -1,14 +1,18 @@
 // SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 // SPDX-License-Identifier: Apache-2.0
 
-// Which address is the visitor, when the peer might be a load balancer.
+// Which address is the caller, when the peer might be a load balancer.
 //
-// Every per-IP limit on the edge is only as good as its notion of "IP". Facing the
-// internet directly that is the peer address. Behind a balancer the peer is the same
-// address for every visitor at once, and the visitor's own address arrives in a header
-// that any client can also write. So the rule is two-sided and neither half is optional:
-// the header is read only from a peer the deployment named, and within it only the
-// rightmost entry that is not itself a named hop is taken.
+// Every per-IP limit is only as good as its notion of "IP". Facing the internet directly
+// that is the peer address. Behind a balancer the peer is the same address for every
+// caller at once, and the caller's own address arrives in a header that any client can
+// also write. So the rule is two-sided and neither half is optional. The header is read
+// only from a peer the deployment named, and within it only the rightmost entry that is
+// not itself a named hop is taken.
+//
+// Two surfaces ask this, which is why the class is in the service library and this test
+// links that: the browser side of an edge (`public.trusted_proxies`) and an entity's
+// inbound API surface (`network.inbound.trusted_proxies`).
 
 #include "clientaddress.h"
 
@@ -36,8 +40,8 @@ private slots:
 
 void TestClientAddress::noTrustedProxyIgnoresTheHeader()
 {
-    // The default, and every project that has ever run. Nothing is in front, so the
-    // header is a field the client wrote and is worth exactly nothing.
+    // The default. Nothing is in front, so the header is a field the client wrote and is
+    // worth nothing.
     const ClientAddress resolver{QStringList{}};
     QCOMPARE(resolver.resolve(QHostAddress{QStringLiteral("203.0.113.9")},
                               QByteArrayLiteral("198.51.100.7")),

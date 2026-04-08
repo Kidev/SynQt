@@ -239,6 +239,11 @@ store refuses everybody rather than allowing all.
 the list lives in the deployment's environment, and a CLI that edited that file would be a
 CLI editing a running deployment's secrets.
 
+The sign-in route is rationed per client address, ten attempts a minute, counted before the
+password is read. A monitor reached through a proxy names it in `public.trusted_proxies`
+like any other browser-facing entity, otherwise every operator arrives from the proxy and
+shares one budget: ten wrong guesses from anywhere would answer `429` to all of them.
+
 ## When the monitor is down
 
 Nothing stops. An entity whose monitor is unreachable keeps running with no degradation

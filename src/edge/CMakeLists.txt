@@ -38,8 +38,6 @@ qt_add_library(SynQtEdge STATIC
     pagesedgesource.h
     sessionstatesource.cpp
     sessionstatesource.h
-    clientaddress.cpp
-    clientaddress.h
     webedgeconfig.h
     webedge.cpp
     webedge.h

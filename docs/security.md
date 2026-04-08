@@ -697,7 +697,10 @@ Mesh links:
   any entity that deliberately declares [`network.inbound`](project-layout-and-config.md#network-what-an-entity-may-reach-and-who-may-reach-it);
   every other entity binds private or local only. An `inbound` surface sits behind its
   API key, its origin list and its rate limit, and `synqt check` refuses one that names
-  no keys unless it also says `public: true`.
+  no keys unless it also says `public: true`. That rate limit counts one address per
+  caller, so a surface with a proxy in front of it names the proxy in
+  `network.inbound.trusted_proxies`; without it every caller arrives from the proxy and
+  shares a single budget.
 
 Authorization and data:
 

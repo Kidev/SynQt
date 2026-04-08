@@ -46,6 +46,9 @@ entities:
         api_keys: env:GW_API_KEYS
         max_body_bytes: 4096
         rate_per_minute: 600
+        # The loopback address the test's own requests arrive from, so the generated main
+        # carries the emitted list and the surface reads the forwarded address.
+        trusted_proxies: [127.0.0.1]
         tls_terminated_upstream: true # plaintext on loopback, on purpose, for the test
 
 connect_points:

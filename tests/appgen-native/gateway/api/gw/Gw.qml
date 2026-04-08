@@ -38,6 +38,15 @@ QtObject {
             };
         });
 
+        // Proves the trusted-proxy list reached the runtime the same way: the caller here
+        // arrives from 127.0.0.1, which synqt.yaml named, so the address it forwards is
+        // the one the framework resolves and the rate limit counts.
+        Api.get("/whoami", request => {
+            return {
+                client: request.client
+            };
+        });
+
         probeOutbound();
     }
 }

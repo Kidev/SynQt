@@ -35,6 +35,10 @@ QtObject {
             return { created: request.body.name, query: request.query.dry || "" };
         });
 
+        // Who the framework decided is calling. A handler that logs or rations by client
+        // reads this rather than the forwarding header beside it in `headers`.
+        Api.get("/whoami", request => { return { client: request.client }; });
+
         // A handler that throws must not take the process with it.
         Api.get("/broken", () => { throw new Error("deliberate"); });
 

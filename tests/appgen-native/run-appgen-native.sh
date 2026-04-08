@@ -419,7 +419,8 @@ gw_pid=$!
 # column alone. A value starting with http:// is left alone. Same runtime, and the same shape
 # of surprise, as the openssl subject in tests/lib/mesh-certs.sh.
 gateway_call() {
-    SYNQT_KEY="${2:-}" SYNQT_URL="http://127.0.0.1:18456$1" SYNQT_BODY="${3:-}" python3 - <<'PY'
+    SYNQT_KEY="${2:-}" SYNQT_URL="http://127.0.0.1:18456$1" SYNQT_BODY="${3:-}" \
+        SYNQT_FORWARDED="${4:-}" python3 - <<'PY'
 import json, os, urllib.error, urllib.request
 
 body = os.environ["SYNQT_BODY"].encode() or None
@@ -428,6 +429,8 @@ request = urllib.request.Request(os.environ["SYNQT_URL"],
 request.add_header("Content-Type", "application/json")
 if os.environ["SYNQT_KEY"]:
     request.add_header("X-API-Key", os.environ["SYNQT_KEY"])
+if os.environ["SYNQT_FORWARDED"]:
+    request.add_header("X-Forwarded-For", os.environ["SYNQT_FORWARDED"])
 try:
     with urllib.request.urlopen(request, timeout=2) as reply:
         print("%d %s" % (reply.status, reply.read().decode().strip()))
@@ -470,6 +473,8 @@ gateway_nokey="$(gateway_call /health)"
 echo "  GET /health with no key   -> ${gateway_nokey:-<no answer>}"
 gateway_echo="$(gateway_call /echo/7 appgen-native-key '{"value":"hi"}')"
 echo "  POST /echo/7 with a body  -> ${gateway_echo:-<no answer>}"
+gateway_client="$(gateway_call /whoami appgen-native-key '' '203.0.113.9')"
+echo "  GET /whoami via a proxy   -> ${gateway_client:-<no answer>}"
 
 gateway_rc=0
 case "$gateway_health" in
@@ -484,7 +489,16 @@ case "$gateway_echo" in
     200*'"7"'*'"hi"'*) ;;
     *) echo "  a captured :id and a JSON body must both reach the handler"; gateway_rc=1 ;;
 esac
-# The outbound half, from the same run: the entity's own file calls two URLs and only one of
+# The caller arrives from 127.0.0.1, which this fixture's network.inbound names as a
+# trusted proxy, so the address it forwards is the one the framework resolves. Without the
+# list reaching the generated main the answer would be 127.0.0.1: the right answer for a
+# surface that believes nobody, and the wrong one here.
+case "$gateway_client" in
+    200*'"203.0.113.9"'*) ;;
+    *) echo "  a trusted proxy's forwarded address must be what the handler is handed"
+       gateway_rc=1 ;;
+esac
+# The outbound half, from the same run. The entity's own file calls two URLs and only one of
 # them is under the single prefix network.outbound names.
 if ! grep -q "refused:.*network.outbound" "$WORK/gateway-gw.log"; then
     echo "  a URL outside network.outbound must be refused by Http, naming the allowlist"

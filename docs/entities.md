@@ -309,6 +309,13 @@ is how an internal API ends up answering the internet, so the omission is an err
 the exposure is a sentence you have to write. A request carrying an `Origin` the block
 does not list is refused, so a key that leaked into a page still buys nothing.
 
+The rate limit counts one address, and which address that is depends on what sits in
+front. Reached directly it is the peer that connected; behind a proxy every request
+arrives from the proxy, so name it in `network.inbound.trusted_proxies` and the address
+it forwards is counted instead. Nothing is trusted implicitly, because a
+forwarding header is a field any client can write. A handler reads the resolved address
+as [`request.client`](runtime-api.md#api-the-inbound-http-surface).
+
 ### Jobs (scheduled and background work)
 
 Purpose: run scheduled tasks (cron style) and background jobs (email sending, data
