@@ -6,6 +6,7 @@
 #include "constanttime.h"
 #include "edgereplyhandler.h"
 #include "jwksverifier.h"
+#include "secrets.h"
 
 #include "proxypolicy.h"
 
@@ -21,7 +22,6 @@
 #include <QScopeGuard>
 #include <QSet>
 #include <QOAuth2AuthorizationCodeFlow>
-#include <QRandomGenerator>
 #include <QTimer>
 #include <QUrlQuery>
 
@@ -30,15 +30,6 @@
 namespace SynQt {
 
 namespace {
-
-// A cryptographically random opaque token (state, nonce, ...), hex-encoded.
-QString randomToken()
-{
-    QByteArray raw(32, Qt::Uninitialized);
-    QRandomGenerator::system()->fillRange(reinterpret_cast<quint32 *>(raw.data()),
-                                          raw.size() / static_cast<int>(sizeof(quint32)));
-    return QString::fromLatin1(raw.toHex());
-}
 
 // The name of the first endpoint of this provider that may not be spoken to over the
 // network as configured, or empty when every one of them is safe.

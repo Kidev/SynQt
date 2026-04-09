@@ -5,14 +5,22 @@
 # edge) and the web edge (to wrap accepted browser sockets); the socket options every
 # SynQt link is opened with; RoutePattern, the route
 # matcher both the client (navigation) and a service (fetchPage authorization) compile a
-# request path against; and the proxy policy every server-side manager takes. A leaf
-# library so both sides can depend on it without one depending on the other.
+# request path against; the proxy policy every server-side manager takes; and the small
+# headers that both sides need and that were otherwise copied across the license boundary:
+# minting a secret and deriving its PKCE challenge, comparing one without leaking where it
+# differs, and the two facts the desktop sign-in rests on (where its routes are, and which
+# socket in an accepted connection already has an owner). A leaf library so both sides can
+# depend on it without one depending on the other.
 
 # GLOBAL: see the note in src/service/CMakeLists.txt. Qt6::WebSockets is public on this target,
 # so it has to resolve in whatever scope the consuming executable is finalized in.
 find_package(Qt6 6.11 REQUIRED COMPONENTS Core Network WebSockets GLOBAL)
 
 qt_add_library(SynQtTransport STATIC
+    constanttime.h
+    desktoproutes.h
+    objecttree.h
+    secrets.h
     websockettransport.cpp
     websockettransport.h
     socketoptions.cpp

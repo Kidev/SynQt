@@ -5,14 +5,15 @@
 
 #include "claimstore.h"
 #include "clientaddress.h"
-#include "constanttime.h"
+#include "cookies.h"
+#include "desktoproutes.h"
 #include "deviceregistry.h"
 #include "identitymapping.h"
 #include "oauthbackend.h"
 #include "ratewindow.h"
+#include "secrets.h"
 #include "sessionmanager.h"
 
-#include <QCryptographicHash>
 #include <QDateTime>
 #include <QEventLoop>
 #include <QHostAddress>
@@ -23,7 +24,7 @@
 #include <QJsonObject>
 #include <QMetaObject>
 #include <QQmlComponent>
-#include <QRandomGenerator>
+#include <QScopeGuard>
 #include <QTimer>
 #include <QUrlQuery>
 #include <QtQml/qqmlengine.h>
@@ -33,15 +34,6 @@
 namespace SynQt {
 
 namespace {
-
-// A cryptographically random opaque token (state, request id, ...), hex-encoded.
-QString randomToken()
-{
-    QByteArray raw(32, Qt::Uninitialized);
-    QRandomGenerator::system()->fillRange(reinterpret_cast<quint32 *>(raw.data()),
-                                          raw.size() / static_cast<int>(sizeof(quint32)));
-    return QString::fromLatin1(raw.toHex());
-}
 
 QHttpServerResponse redirectTo(const QString &location,
                                const QList<QByteArray> &setCookies = {})
@@ -56,20 +48,6 @@ QHttpServerResponse redirectTo(const QString &location,
     }
     response.setHeaders(std::move(headers));
     return response;
-}
-
-// The value of a named cookie from a Cookie request header, or empty.
-QByteArray cookieValue(const QByteArray &cookieHeader, const QByteArray &name)
-{
-    const QByteArray prefix{name + "="};
-    const QList<QByteArray> parts{cookieHeader.split(';')};
-    for (QByteArray part : parts) {
-        part = part.trimmed();
-        if (part.startsWith(prefix)) {
-            return part.mid(prefix.size());
-        }
-    }
-    return {};
 }
 
 // The cookie name that binds a pending login to the browser that started it.
@@ -133,17 +111,6 @@ bool isLoopbackReturn(const QUrl &url)
     return !url.hasQuery() && !url.hasFragment();
 }
 
-// The two desktop routes hang off the login route, so they move with it and a project that
-// renames its login has renamed all three.
-QString desktopRoute(const QString &loginRoute, const QString &leaf)
-{
-    QString route{loginRoute};
-    while (route.endsWith(QLatin1Char('/'))) {
-        route.chop(1);
-    }
-    return route + leaf;
-}
-
 QHttpServerResponse notFound()
 {
     // One answer for every way a claim can fail: unknown code, expired code, code already
@@ -165,7 +132,7 @@ QHttpServerResponse tooManyRequests(qint64 retryAfterMs)
     QHttpServerResponse response{QHttpServerResponse::StatusCode::TooManyRequests};
     QHttpHeaders headers{response.headers()};
     headers.append(QHttpHeaders::WellKnownHeader::RetryAfter,
-                   QByteArray::number(qMax(qint64{1}, (retryAfterMs + 999) / 1000)));
+                   QByteArray::number(retryAfterSeconds(retryAfterMs)));
     response.setHeaders(std::move(headers));
     return response;
 }
@@ -270,12 +237,12 @@ QString IdentityProvider::logoutRoute() const
 
 QString IdentityProvider::claimRoute() const
 {
-    return desktopRoute(m_config.loginRoute, QStringLiteral("/claim"));
+    return desktopClaimRoute(m_config.loginRoute);
 }
 
 QString IdentityProvider::deviceRoute() const
 {
-    return desktopRoute(m_config.loginRoute, QStringLiteral("/device"));
+    return desktopDeviceRoute(m_config.loginRoute);
 }
 
 DeviceRegistry *IdentityProvider::devices() const
@@ -922,30 +889,25 @@ QHttpServerResponse IdentityProvider::handleLogout(const QHttpServerRequest &req
                                    QHttpServerResponse::StatusCode::Forbidden};
     }
 
-    const QByteArray prefix{m_cookie.name.toUtf8() + "="};
-    const QList<QByteArray> parts{request.value("Cookie").split(';')};
-    for (QByteArray part : parts) {
-        part = part.trimmed();
-        if (part.startsWith(prefix)) {
-            const QByteArray sessionId{part.mid(prefix.size())};
-            // Signing out ends the credential too, and it has to: a logout that leaves a
-            // redeemable credential on disk is worse than no logout at all, because the
-            // visitor believes it worked. This is also the only thing that ends a family
-            // early, which is why it reads the family from what this edge recorded when the
-            // session was minted rather than from anything the caller sent.
-            if (m_devices) {
-                const QString family{m_devices->familyOf(sessionId)};
-                m_devices->unbindSession(sessionId);
-                if (!family.isEmpty()) {
-                    m_devices->forget(family);
-                }
+    const QByteArray sessionId{cookieValue(request.value("Cookie"), m_cookie.name.toUtf8())};
+    if (!sessionId.isEmpty()) {
+        // Signing out ends the credential too, and it has to. A logout that leaves a
+        // redeemable credential on disk is worse than no logout at all, because the visitor
+        // believes it worked. This is also the only thing that ends a family early, which is
+        // why it reads the family from what this edge recorded when the session was minted
+        // rather than from anything the caller sent.
+        if (m_devices) {
+            const QString family{m_devices->familyOf(sessionId)};
+            m_devices->unbindSession(sessionId);
+            if (!family.isEmpty()) {
+                m_devices->forget(family);
             }
-            m_sessions->revoke(sessionId);
-            if (m_backend) {
-                m_backend->releaseTokens(QString::fromLatin1(sessionId));
-            } else {
-                releaseRemoteTokens(sessionId);
-            }
+        }
+        m_sessions->revoke(sessionId);
+        if (m_backend) {
+            m_backend->releaseTokens(QString::fromLatin1(sessionId));
+        } else {
+            releaseRemoteTokens(sessionId);
         }
     }
     // Expire the cookie.

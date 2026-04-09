@@ -52,7 +52,7 @@ qt_add_library(SynQtService STATIC
     tracer.h
     clientaddress.cpp
     clientaddress.h
-    constanttime.h
+    cookies.h
     connectpointhost.cpp
     connectpointhost.h
     entityruntime.cpp

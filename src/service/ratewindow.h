@@ -53,6 +53,21 @@ inline bool pruneRateWindows(QHash<QString, RateWindow> &windows, qint64 now,
     return windows.size() >= cap;
 }
 
+/// How long a refused caller is told to wait, in whole seconds, given what is left of its
+/// window.
+///
+/// Rounded up, and never zero. Both halves matter and neither is obvious enough to be
+/// rewritten at each gate: rounding down would let a client retry inside the window it was
+/// just refused for, and `Retry-After: 0` reads as "try again now", which is a gate telling a
+/// well-behaved client to hammer it. The two gates that answer 429 -- the entity password gate
+/// on the edge and the desktop device-credential route -- had this arithmetic written out
+/// separately and identically, which is one place for it to be corrected and another to be
+/// forgotten.
+inline qint64 retryAfterSeconds(qint64 remainingMs)
+{
+    return qMax(qint64{1}, (remainingMs + 999) / 1000);
+}
+
 } // namespace SynQt
 
 #endif // SYNQT_RATEWINDOW_H

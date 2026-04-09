@@ -11,16 +11,13 @@ namespace SynQt {
 
 /// Compare two secrets without leaking where they first differ.
 ///
-/// An ordinary comparison returns at the first differing byte, so how long it took says how
-/// much of a guess was right, and a guesser who can measure that recovers a secret byte by
-/// byte instead of all at once. This one always reads the whole of the shorter side and
-/// folds every difference into one accumulator, so the time it takes is a fact about the
-/// length and nothing else. Unequal lengths are refused up front, which leaks only the
-/// length, and every secret compared through here is fixed-length anyway.
+/// An ordinary comparison returns at the first differing byte, so its timing tells a guesser
+/// how much of a guess was right. This one reads all of the shorter side and folds every
+/// difference into one accumulator, so its time depends on the length only. Unequal lengths
+/// are refused up front, which leaks only the length.
 ///
-/// An empty left side is false rather than "equal to another empty one": every caller here
-/// is checking something presented against something stored, and "nothing was presented"
-/// must never be a match.
+/// An empty left side is false: every caller checks something presented against something
+/// stored, and nothing presented must never match.
 inline bool constantTimeEquals(const QByteArray &lhs, const QByteArray &rhs)
 {
     if (lhs.isEmpty() || lhs.size() != rhs.size()) {

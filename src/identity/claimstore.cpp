@@ -4,8 +4,7 @@
 #include "claimstore.h"
 
 #include "constanttime.h"
-
-#include <QCryptographicHash>
+#include "secrets.h"
 
 namespace SynQt {
 
@@ -30,17 +29,14 @@ QByteArray ClaimStore::take(const QString &code, const QString &verifier, qint64
         return {};
     }
 
-    // Taken out before it is checked, so a wrong verifier spends the code rather than
-    // leaving it there to be tried again. One code, one attempt.
+    // Removed before it is checked, so a wrong verifier spends the code: one code, one
+    // attempt.
     const Claim claim{m_claims.take(code)};
     if (nowMs - claim.createdMs > ttlMs) {
         return {};
     }
-    const QByteArray digest{QCryptographicHash::hash(verifier.toUtf8(),
-                                                     QCryptographicHash::Sha256)
-                                .toBase64(QByteArray::Base64UrlEncoding
-                                          | QByteArray::OmitTrailingEquals)};
-    if (!constantTimeEquals(digest, claim.challenge.toUtf8())) {
+    // The function the client used to derive what it registered (SynQt::challengeFor).
+    if (!constantTimeEquals(challengeFor(verifier.toUtf8()), claim.challenge.toUtf8())) {
         return {};
     }
     return claim.sessionId;

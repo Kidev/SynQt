@@ -6,29 +6,18 @@
 #include "constanttime.h"
 #include "ipersistenceprovider.h"
 #include "persistencefactory.h"
+#include "secrets.h"
 
 #include <QCryptographicHash>
 #include <QDateTime>
 #include <QJsonDocument>
 #include <QJsonObject>
-#include <QRandomGenerator>
 
 #include <utility>
 
 namespace SynQt {
 
 namespace {
-
-// A cryptographically random credential, hex-encoded: 256 bits, from the system generator.
-// The same shape the claim codes use, and for the same reason. It is the only thing standing
-// between a file on somebody's disk and a session.
-QByteArray randomSecret()
-{
-    QByteArray raw(32, Qt::Uninitialized);
-    QRandomGenerator::system()->fillRange(reinterpret_cast<quint32 *>(raw.data()),
-                                          raw.size() / static_cast<int>(sizeof(quint32)));
-    return raw.toHex();
-}
 
 // The label a device carries for a future "your devices" list. Bounded and stripped of
 // control characters on the way in, because it arrives from a client and is stored.

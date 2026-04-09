@@ -32,16 +32,17 @@
 #include <QWebSocket>
 
 #ifndef Q_OS_WASM
+#  include "constanttime.h"
+#  include "desktoproutes.h"
 #  include "loopbackreceiver.h"
+#  include "secrets.h"
 
-#  include <QCryptographicHash>
 #  include <QDesktopServices>
 #  include <QNetworkAccessManager>
 #  include <QNetworkCookie>
 #  include <QNetworkCookieJar>
 #  include <QNetworkReply>
 #  include <QNetworkRequest>
-#  include <QRandomGenerator>
 #  include <QSslCertificate>
 #  include <QSslConfiguration>
 #  include <QSslSocket>
@@ -137,54 +138,6 @@ QSslConfiguration nativeTlsConfiguration(const SynClientConfig &config)
                               + QSslCertificate::fromPath(config.pinnedCaCertPath));
     }
     return tls;
-}
-
-/// A cryptographically random opaque value, hex-encoded. The system generator, not the
-/// default one: these are the two values a desktop sign-in rests on, and a predictable
-/// nonce is a sign-in somebody else can finish.
-QByteArray randomToken()
-{
-    QByteArray raw(32, Qt::Uninitialized);
-    QRandomGenerator::system()->fillRange(reinterpret_cast<quint32 *>(raw.data()),
-                                          raw.size() / static_cast<int>(sizeof(quint32)));
-    return raw.toHex();
-}
-
-/// The two desktop routes hang off the login route, exactly as the edge hangs them off it
-/// (IdentityProvider::claimRoute and deviceRoute), so a project that renamed its login route
-/// renamed these with it.
-QString desktopRoute(const QString &loginRoute, const QString &leaf)
-{
-    QString route{loginRoute};
-    while (route.endsWith(QLatin1Char('/'))) {
-        route.chop(1);
-    }
-    return route + leaf;
-}
-
-/// The S256 challenge for a verifier, in the form the edge registers it.
-QByteArray challengeFor(const QByteArray &verifier)
-{
-    return QCryptographicHash::hash(verifier, QCryptographicHash::Sha256)
-        .toBase64(QByteArray::Base64UrlEncoding | QByteArray::OmitTrailingEquals);
-}
-
-/// Length-constant comparison, so a mismatch does not leak position via timing.
-///
-/// It matters here and not only on the edge: any local process can connect to the loopback
-/// port and offer this client a code of its own, and the nonce is the only thing that
-/// refuses it. A comparison that gives up at the first wrong byte is a nonce that can be
-/// walked one byte at a time by a process that is already on the machine.
-bool constantTimeEquals(const QByteArray &lhs, const QByteArray &rhs)
-{
-    if (lhs.isEmpty() || lhs.size() != rhs.size()) {
-        return false;
-    }
-    quint8 difference{0};
-    for (qsizetype i{0}; i < lhs.size(); ++i) {
-        difference |= static_cast<quint8>(lhs.at(i)) ^ static_cast<quint8>(rhs.at(i));
-    }
-    return difference == 0;
 }
 
 } // namespace
@@ -322,8 +275,8 @@ void SynClient::beginDesktopLogin(const QString &provider)
         return;
     }
     m_loopback = loopback;
-    m_loginState = randomToken();
-    m_loginVerifier = randomToken();
+    m_loginState = randomSecret();
+    m_loginVerifier = randomSecret();
 
     QUrl target{QString::fromUtf8(edgeHttpOrigin()) + m_config.loginRoute};
     QUrlQuery query;
@@ -371,10 +324,9 @@ void SynClient::onLoginAnswer(const QString &code, const QString &state, const Q
 void SynClient::claimSession(const QString &code)
 {
     QNetworkRequest request{QUrl{QString::fromUtf8(edgeHttpOrigin())
-                                 + desktopRoute(m_config.loginRoute,
-                                                QStringLiteral("/claim"))}};
+                                 + desktopClaimRoute(m_config.loginRoute)}};
     // This client's own verified connection to the edge, which is the whole reason the
-    // loopback carried a code and not a session: the exchange happens here, over TLS this
+    // loopback carried a code and not a session. The exchange happens here, over TLS this
     // process terminates, and not through a browser.
     request.setSslConfiguration(nativeTlsConfiguration(m_config));
     request.setHeader(QNetworkRequest::ContentTypeHeader,
@@ -603,8 +555,7 @@ void SynClient::redeemDeviceCredential()
     m_redeeming = true;
 
     QNetworkRequest request{QUrl{QString::fromUtf8(edgeHttpOrigin())
-                                 + desktopRoute(m_config.loginRoute,
-                                                QStringLiteral("/device"))}};
+                                 + desktopDeviceRoute(m_config.loginRoute)}};
     request.setSslConfiguration(nativeTlsConfiguration(m_config));
     request.setHeader(QNetworkRequest::ContentTypeHeader,
                       QByteArrayLiteral("application/x-www-form-urlencoded"));

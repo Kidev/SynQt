@@ -4,6 +4,7 @@
 #include "webedge.h"
 
 #include "caller.h"
+#include "cookies.h"
 #include "identityprovider.h"
 #include "pageseed.h"
 #include "pagesedgesource.h"
@@ -16,6 +17,7 @@
 #include "topology.h"           // loadCertificate / loadPrivateKey
 #include "tracer.h"
 #include "iothreadpool.h"       // reused host-side (from src/transport)
+#include "objecttree.h"         // reused host-side (from src/transport)
 #include "socketchannel.h"      // reused host-side (from src/transport)
 #include "socketoptions.h" // reused host-side (from src/transport)
 #include "websockettransport.h" // reused host-side (from src/transport)
@@ -110,19 +112,6 @@ std::optional<QHttpServerResponse> notModifiedFor(const QHttpServerRequest &requ
     headers.append(QHttpHeaders::WellKnownHeader::ETag, etag);
     response.setHeaders(std::move(headers));
     return response;
-}
-
-/// Whether `candidate` already sits somewhere under `ancestor`, so adopting it would take
-/// it away from an owner that is counting on having it. Same question SocketChannel asks
-/// before adopting a raw socket, asked here for the link that has no channel.
-bool isUnder(const QObject *candidate, const QObject *ancestor)
-{
-    for (const QObject *walk{candidate}; walk != nullptr; walk = walk->parent()) {
-        if (walk == ancestor) {
-            return true;
-        }
-    }
-    return false;
 }
 
 // A plaintext (dev) transport server that surfaces every accepted socket so the edge
@@ -592,7 +581,7 @@ QHttpServerResponse WebEdge::handleSignIn(const QHttpServerRequest &request)
                                      QHttpServerResponder::StatusCode::TooManyRequests};
         QHttpHeaders headers{response.headers()};
         headers.append(QHttpHeaders::WellKnownHeader::RetryAfter,
-                       QByteArray::number(qMax(qint64{1}, (retryAfterMs + 999) / 1000)));
+                       QByteArray::number(retryAfterSeconds(retryAfterMs)));
         response.setHeaders(std::move(headers));
         emit signInRefused(QString{});
         return response;
@@ -693,15 +682,7 @@ QByteArray WebEdge::cookieFor(const QByteArray &token)
 
 QByteArray WebEdge::sessionIdFromCookie(const QByteArray &cookieHeader) const
 {
-    const QByteArray prefix{m_config.cookieName.toUtf8() + "="};
-    const QList<QByteArray> parts{cookieHeader.split(';')};
-    for (QByteArray part : parts) {
-        part = part.trimmed();
-        if (part.startsWith(prefix)) {
-            return part.mid(prefix.size());
-        }
-    }
-    return QByteArray{};
+    return cookieValue(cookieHeader, m_config.cookieName.toUtf8());
 }
 
 void WebEdge::stampResponse(const QHttpServerRequest &request, QHttpServerResponse &response)
