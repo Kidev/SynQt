@@ -25,8 +25,12 @@
 #include "sessionstore_sourcehelper.h"   // synqtRegisterSessionStoreSources()
 #include "identity_sourcehelper.h"  // synqtRegisterIdentitySources()
 
+#include <QElapsedTimer>
 #include <QEventLoop>
 #include <QHostAddress>
+#include <QHttpServer>
+#include <QHttpServerResponse>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QCryptographicHash>
@@ -40,7 +44,10 @@
 #include <QRemoteObjectNode>
 #include <QSslCertificate>
 #include <QSslKey>
+#include <QTcpServer>
+#include <QTcpSocket>
 #include <QTest>
+#include <QTimer>
 #include <QUrlQuery>
 
 #include <memory>
@@ -126,6 +133,84 @@ IdentityProviderConfig plaintextProvider()
     provider.clientSecret = QStringLiteral("stub-secret");
     return provider;
 }
+
+/// A JWKS endpoint on loopback, so a test can decide how many keys a provider publishes.
+///
+/// The stub serves exactly one key and cannot be made to serve two, and two is the
+/// interesting number. It is what a provider publishes for the length of a rotation, and it
+/// is where choosing a key by position rather than by name starts to matter.
+class JwksHost
+{
+public:
+    explicit JwksHost(const QJsonArray &keys)
+    {
+        // Built by inserting rather than by brace-initializing an object literal: a
+        // QJsonValue is constructible from anything, so `QJsonObject{{"keys", keys}}` puts
+        // the array inside a second array and serves `"keys":[[...]]`. The same trap the
+        // note in JwksVerifier::selectKey is about.
+        QJsonObject document;
+        document.insert(QStringLiteral("keys"), keys);
+        m_document = QJsonDocument{document}.toJson(QJsonDocument::Compact);
+        m_server.route(QStringLiteral("/jwks"), [this]() {
+            return QHttpServerResponse{QByteArrayLiteral("application/json"), m_document};
+        });
+        m_socket = new QTcpServer{&m_owner};
+        m_socket->listen(QHostAddress::LocalHost, 0);
+        m_server.bind(m_socket);
+    }
+
+    /// Loopback http, which is what an identity endpoint may be reached over when it is
+    /// on this machine (isSecureIdentityEndpoint). Anywhere else it would have to be https.
+    QUrl url() const
+    {
+        return QUrl{QStringLiteral("http://127.0.0.1:%1/jwks").arg(m_socket->serverPort())};
+    }
+
+private:
+    QByteArray m_document;
+    QObject m_owner;
+    QHttpServer m_server;
+    QTcpServer *m_socket{nullptr};
+};
+
+/// A token endpoint that accepts the connection and answers nothing for a while.
+///
+/// This is what puts a callback inside a nested event loop: the exchange has been started
+/// and cannot finish, so its handler stays on the stack and whatever arrives next is served
+/// from inside it. The connection is dropped rather than answered when the time is up,
+/// because how the exchange ends is not what is under test. The time in between is.
+class StallingTokenEndpoint : public QTcpServer
+{
+public:
+    explicit StallingTokenEndpoint(int holdMs)
+        : m_holdMs{holdMs}
+    {
+        listen(QHostAddress::LocalHost, 0);
+    }
+
+    QUrl tokenUrl() const
+    {
+        return QUrl{QStringLiteral("http://127.0.0.1:%1/token").arg(serverPort())};
+    }
+
+protected:
+    void incomingConnection(qintptr descriptor) override
+    {
+        QTcpSocket *socket{new QTcpSocket{this}};
+        if (!socket->setSocketDescriptor(descriptor)) {
+            delete socket;
+            return;
+        }
+        // Never handed to addPendingConnection, so nothing else takes an interest in it.
+        QTimer::singleShot(m_holdMs, socket, [socket]() {
+            socket->abort();
+            socket->deleteLater();
+        });
+    }
+
+private:
+    int m_holdMs;
+};
 
 /// One edge process, with everything it needs to reach an auth entity.
 ///
@@ -736,7 +821,7 @@ private slots:
         // "cannot find the key" must never degrade into "accept it".
         refuses(reheadered(parts, QJsonObject{{QStringLiteral("alg"), QStringLiteral("RS256")},
                                               {QStringLiteral("kid"), QStringLiteral("not-ours")}}),
-                good, nonce, QStringLiteral("no matching RSA signing key"));
+                good, nonce, QStringLiteral("matches this ID token's kid"));
 
         // A forged signature over an otherwise perfect token.
         refuses(withForgedSignature(parts), good, nonce,
@@ -762,6 +847,82 @@ private slots:
         // And nothing above quietly broke the verifier: the good token still verifies.
         error.clear();
         QVERIFY2(!verifier.verify(idToken, good, nonce, &error).isEmpty(), qPrintable(error));
+    }
+
+    /// Which key verifies an ID token, when the provider publishes more than one.
+    ///
+    /// Two keys is a rotation in progress, and it is the ordinary state of a provider for a
+    /// day or so. A token that names its key (`kid`) is unambiguous either way. A token that
+    /// names none is not, and taking whichever key the provider happened to list first makes
+    /// acceptance depend on the order of a JSON array. The same token verifies or does not
+    /// depending on which entry came back at the top.
+    ///
+    /// The no-kid tokens here are reheadered, so their signatures no longer match, and that
+    /// is what makes the test readable rather than a problem to work around. Key selection
+    /// happens before the signature is checked, so a refusal naming the selection is one
+    /// that got no further, and "signature invalid" is proof that selection succeeded and
+    /// handed a key on.
+    void anIdTokenThatNamesNoKeyIsRefusedWhenTheProviderPublishesTwo()
+    {
+        const QString nonce{QStringLiteral("nonce-for-the-key-selection-test")};
+        const QString idToken{mintStubIdToken(nonce)};
+        QVERIFY2(!idToken.isEmpty(), "the stub provider issued no ID token");
+        const QStringList parts{idToken.split(QLatin1Char('.'))};
+        QCOMPARE(parts.size(), 3);
+
+        // The provider's own key, read back off its JWKS, so what is served below is the
+        // key it signed with rather than one invented here.
+        const Response served{get(QUrl{m_stub->baseUrl() + QStringLiteral("/jwks")})};
+        QCOMPARE(served.status, 200);
+        // '=' not '{}': QJsonArray{anArray} wraps the array as a single element rather
+        // than copying it (see the note in JwksVerifier::selectKey), and the wrapper has a
+        // size of one, so the assertion below would pass on the wrong thing.
+        const QJsonArray published = QJsonDocument::fromJson(served.body).object()
+                                         .value(QStringLiteral("keys")).toArray();
+        QCOMPARE(published.size(), 1);
+
+        // The same key under a second name. Enough to make the set ambiguous, which is all
+        // selection looks at. A rotation publishes a different key, and that
+        // difference is the signature check's business rather than this one's.
+        QJsonObject rotatingIn = published.first().toObject();  // '=': see JwksHost
+        rotatingIn.insert(QStringLiteral("kid"), QStringLiteral("the-key-being-rotated-in"));
+        QJsonArray both;
+        both.append(published.first());
+        both.append(rotatingIn);
+
+        JwksHost soleKeyHost{published};
+        JwksHost rotatingHost{both};
+
+        IdentityProviderConfig soleKey{
+            stubOidcProvider(m_stub->baseUrl(), QStringLiteral("one-key"), m_stub->baseUrl())};
+        soleKey.jwksUrl = soleKeyHost.url();
+        IdentityProviderConfig rotating{soleKey};
+        rotating.name = QStringLiteral("two-keys");
+        rotating.jwksUrl = rotatingHost.url();
+
+        const QString noKid{reheadered(parts, QJsonObject{{QStringLiteral("alg"),
+                                                           QStringLiteral("RS256")}})};
+
+
+        QNetworkAccessManager network;
+        JwksVerifier verifier{&network};
+
+        // One key published: the token names none and there is only one it could be, so
+        // selection succeeds and the token is refused on its signature instead.
+        QString why;
+        QVERIFY(verifier.verify(noKid, soleKey, nonce, &why).isEmpty());
+        QVERIFY2(why.contains(QStringLiteral("signature invalid")), qPrintable(why));
+
+        // Two keys published: there is no telling which of them signed it, and guessing by
+        // position is exactly what must not happen.
+        why.clear();
+        QVERIFY(verifier.verify(noKid, rotating, nonce, &why).isEmpty());
+        QVERIFY2(why.contains(QStringLiteral("cannot be told")), qPrintable(why));
+
+        // And a token that does name its key still verifies against the rotating set, which
+        // is the whole reason a provider publishes two.
+        why.clear();
+        QVERIFY2(!verifier.verify(idToken, rotating, nonce, &why).isEmpty(), qPrintable(why));
     }
 
     /// A correctly signed token that leaves out a claim the verifier depends on.

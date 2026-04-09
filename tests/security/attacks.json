@@ -16,6 +16,13 @@
   ],
   "attacks": [
     {
+      "id": "id-token-key-chosen-by-position",
+      "what": "An ID token that names no signing key is verified against whichever key the provider happened to list first. During a rotation a provider publishes two, so whether a token is accepted depends on the order of a JSON array rather than on who signed it.",
+      "defended_by": "A token with no kid is accepted only where the provider publishes exactly one key. With more than one it is refused, and the refusal names the ambiguity rather than the signature.",
+      "file": "tests/m8-auth/tst_m8.cpp",
+      "test": "anIdTokenThatNamesNoKeyIsRefusedWhenTheProviderPublishesTwo"
+    },
+    {
       "id": "cross-site-websocket-hijack",
       "what": "A page on another origin opens a WebSocket to the edge, and the browser attaches the victim's session cookie to it.",
       "defended_by": "The upgrade verifier compares Origin against security.allowed_origins before a socket exists. A browser cannot forge Origin.",

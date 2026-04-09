@@ -52,16 +52,26 @@ QJsonObject jsonSegment(const QString &segment)
     return QJsonDocument::fromJson(decodeBase64Url(segment)).object();
 }
 
-// The JWK whose kid matches (or the sole key when the token carries no kid).
+// The JWK whose kid matches, or the sole key when the token carries no kid.
+//
+// "Sole" is the whole no-kid case. Returning the first key of however many there are
+// is not the same thing. A provider publishes two keys
+// for the length of a rotation, and a token with no kid would then verify or not depending
+// on which of them the provider happened to list first. Failing is the correct answer, and
+// failing with a reason that names the ambiguity beats failing with "signature invalid",
+// which sends whoever is reading the log looking for the wrong thing.
 QJsonObject selectKey(const QByteArray &jwks, const QString &kid)
 {
     // Copy-init, not brace-init: QJsonArray{anArray} would wrap the array as a single
     // element (its initializer_list is of QJsonValue), not copy it.
     const QJsonArray keys =
         QJsonDocument::fromJson(jwks).object().value(QStringLiteral("keys")).toArray();
+    if (kid.isEmpty()) {
+        return keys.size() == 1 ? keys.first().toObject() : QJsonObject{};
+    }
     for (qsizetype i{0}; i < keys.size(); ++i) {
         const QJsonObject key{keys.at(i).toObject()};
-        if (kid.isEmpty() || key.value(QStringLiteral("kid")).toString() == kid) {
+        if (key.value(QStringLiteral("kid")).toString() == kid) {
             return key;
         }
     }
@@ -206,8 +216,16 @@ QVariantMap JwksVerifier::verify(const QString &idToken, const IdentityProviderC
         // first rotation would end every login until the edge restarts.
         jwk = selectKey(m_jwksCache.value(provider.jwksUrl.toString()).json, kid);
     }
-    if (jwk.isEmpty() || jwk.value(QStringLiteral("kty")).toString() != QLatin1String("RSA")) {
-        return fail(QStringLiteral("no matching RSA signing key in JWKS"));
+    if (jwk.isEmpty()) {
+        return fail(kid.isEmpty()
+                        ? QStringLiteral("the ID token names no signing key and the provider "
+                                         "publishes more than one, so which key signed it "
+                                         "cannot be told")
+                        : QStringLiteral("no signing key in the JWKS matches this ID token's "
+                                         "kid"));
+    }
+    if (jwk.value(QStringLiteral("kty")).toString() != QLatin1String("RSA")) {
+        return fail(QStringLiteral("the ID token's signing key is not RSA"));
     }
 
     // Build the RSA public key from the JWK modulus/exponent and verify the RS256
