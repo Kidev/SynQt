@@ -11,8 +11,11 @@
 #include <QHash>
 #include <QObject>
 #include <QPointer>
+#include <QSet>
 #include <QString>
 #include <QVariantMap>
+
+#include <utility>
 
 QT_BEGIN_NAMESPACE
 class QHttpServerRequest;
@@ -255,8 +258,43 @@ private:
         int *m_counter;
     };
 
+    /// The request ids this edge is waiting on right now, and the guard that adds one for
+    /// the length of a wait.
+    ///
+    /// It is what makes the three result tables below bounded rather than merely usually
+    /// small. Each of them was written by whatever the auth entity said and read only by a
+    /// handler that was still waiting, so two ordinary things left an entry behind for the
+    /// life of the process. An answer that arrived after its twenty-second deadline, which a
+    /// slow auth entity produces on every call, and an answer naming a request id this edge
+    /// never issued, which a compromised or confused auth entity can produce as fast
+    /// as it can write them. The callback route is open, so the first of those is reachable
+    /// by anyone who can make the auth entity slow.
+    ///
+    /// So an answer is kept only while somebody is waiting for it, and a waiter takes its id
+    /// out of this set before it returns -- which also drops any answer that arrives during
+    /// the same turn but after the wait ended.
+    QSet<QString> m_awaited;
+    class AwaitScope
+    {
+    public:
+        AwaitScope(QSet<QString> *awaited, QString id)
+            : m_awaited{awaited}
+            , m_id{std::move(id)}
+        {
+            m_awaited->insert(m_id);
+        }
+        ~AwaitScope() { m_awaited->remove(m_id); }
+        AwaitScope(const AwaitScope &) = delete;
+        AwaitScope &operator=(const AwaitScope &) = delete;
+
+    private:
+        QSet<QString> *m_awaited;
+        QString m_id;
+    };
+
     /// Delegated results, keyed by request id, filled by the onBeginResult/onExchangeResult
-    /// slots and consumed by the waiting route handler (provider_entity mode only).
+    /// slots for a request id in `m_awaited` and consumed by the waiting route handler
+    /// (provider_entity mode only).
     QHash<QString, BeginOutcome> m_beginResults;
     QHash<QString, ExchangeOutcome> m_exchangeResults;
     QHash<QString, QByteArray> m_claimResults;

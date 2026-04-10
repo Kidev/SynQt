@@ -32,7 +32,21 @@ struct EventQuery
     QString traceId;
     /// Free text over the message and the attributes, through FTS5.
     QString search;
+    /// How many rows to return at most, clamped to [1, MaxRows] by the store.
     int limit{200};
+
+    /// The ceiling the store clamps `limit` to.
+    ///
+    /// This number arrives from a console, over a connect point, as a plain `int` -- the
+    /// contract vocabulary sizes strings and lists and has nothing to say about integers --
+    /// and every row it asks for is built into a QVariantList and serialized back over the
+    /// link. So the largest answer this store can be made to produce is decided here rather
+    /// than by whoever typed the number: at two thousand rows a console is already showing
+    /// far more than anyone reads, and an operator who wants the rest narrows the question.
+    /// Everything else in this pipeline is bounded (the ring, the batch, the spool, the
+    /// retention), and an unbounded one at the end of it was the way to make the monitor
+    /// allocate the whole table at once.
+    static constexpr int MaxRows{2000};
 };
 
 /// The monitor's history: every entity's events, on disk, in a shape that can be asked
@@ -41,7 +55,7 @@ struct EventQuery
 /// SQLite because the answer to "where do the events go" has to be something an operator
 /// already has. It is a file, it needs no second process to deploy or to back up, and it
 /// is the one embedded engine with a full-text index good enough to search a message
-/// without a scan. What it is not is the only answer: the exporters send the same records
+/// without a scan. What it is not is the only answer. The exporters send the same records
 /// to a collector for whoever already runs one.
 ///
 /// One connection, owned by the thread that built the store, because that is the rule for
@@ -90,6 +104,12 @@ private:
     QString m_connectionName;
     QString m_errorString;
     bool m_open{false};
+    /// Whether this SQLite build provides the full-text index. Answered once, when the
+    /// schema is applied, rather than by asking the database for its table list: that is a
+    /// query against sqlite_master, and it was being run once per incoming batch, once per
+    /// console query and once per retention pass, to learn something that cannot change
+    /// while the store is open.
+    bool m_hasFts{false};
 };
 
 } // namespace SynQt

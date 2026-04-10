@@ -140,14 +140,15 @@ QHttpServerResponse tooManyRequests(qint64 retryAfterMs)
 // How long a delegated begin/exchange over the mesh may take before the handler gives up.
 constexpr int kRemoteTimeoutMs{20000};
 
-/// How many delegated answers this edge may be waiting on at once.
+/// How many answers this edge may be waiting on at once, wherever the answer comes from.
 ///
 /// Each wait is a nested QEventLoop, which keeps serving requests while it spins, so a
 /// second request that also waits nests inside the first. The routes that do this are open
 /// (a GET to the login route is enough), so without a ceiling the nesting depth is whatever
 /// a caller opens connections for, and the stack is what runs out. Far above the number of
-/// logins any real deployment has in flight at one instant, because each of these lasts a
-/// round trip over the mesh and not a browser's visit to a provider.
+/// logins any real deployment has in flight at one instant, because each of these lasts one
+/// round trip (over the mesh to the auth entity, or out to the identity provider) rather than
+/// a browser's whole visit to a provider.
 constexpr int kMaxConcurrentWaits{64};
 
 } // namespace
@@ -286,6 +287,9 @@ void IdentityProvider::attachRemote(QObject *identityReplica)
 void IdentityProvider::onBeginResult(const QString &requestId, const QString &state,
                                      const QString &authorizeUrl, const QString &error)
 {
+    if (!m_awaited.contains(requestId)) {
+        return;  // nobody is waiting on this one. See m_awaited
+    }
     BeginOutcome outcome;
     outcome.state = state;
     outcome.authorizeUrl = authorizeUrl;
@@ -296,6 +300,9 @@ void IdentityProvider::onBeginResult(const QString &requestId, const QString &st
 
 void IdentityProvider::onClaimResult(const QString &requestId, const QString &sessionId)
 {
+    if (!m_awaited.contains(requestId)) {
+        return;  // nobody is waiting on this one. See m_awaited
+    }
     m_claimResults.insert(requestId, sessionId.toLatin1());
     emit claimArrived(requestId);
 }
@@ -303,6 +310,9 @@ void IdentityProvider::onClaimResult(const QString &requestId, const QString &se
 void IdentityProvider::onExchangeResult(const QString &requestId, const QString &identityJson,
                                         const QString &context, const QString &error)
 {
+    if (!m_awaited.contains(requestId)) {
+        return;  // nobody is waiting on this one. See m_awaited
+    }
     ExchangeOutcome outcome;
     outcome.identity = identityJson.isEmpty()
         ? QVariantMap{}
@@ -336,6 +346,8 @@ IdentityProvider::BeginOutcome IdentityProvider::beginLogin(const QString &provi
     // Delegate to the auth entity: invoke the slot, then wait (bounded) for the correlated
     // beginResult signal. The nested loop keeps the route handler synchronous.
     const QString requestId{randomToken()};
+    const AwaitScope awaited{&m_awaited, requestId};
+    const auto forget{qScopeGuard([this, requestId]() { m_beginResults.remove(requestId); })};
     QEventLoop loop;
     connect(this, &IdentityProvider::beginArrived, &loop, [&loop, requestId](const QString &id) {
         if (id == requestId) {
@@ -359,6 +371,21 @@ IdentityProvider::ExchangeOutcome IdentityProvider::exchangeCode(const QString &
                                                                  const QString &presentedBinding)
 {
     const QString redirectUri{m_edgeOrigin + m_config.callbackRoute};
+    // The ceiling covers both ways of running identity, because both of them wait inside a
+    // nested event loop and the loop is what has to be counted. In provider_entity mode the
+    // wait is for the auth entity's answer. In process it is `OAuthBackend::exchange`
+    // spinning its own loop around the token exchange with the provider. That second one had
+    // no bound at all, and it is the reachable one: the callback route is open, a state this
+    // engine issued is all it takes to get past the first check, and up to
+    // `kMaxPendingLogins` of those can be in flight. Callbacks arriving together then nest
+    // one loop inside another until the stack, rather than any limit, decides.
+    if (m_waits >= kMaxConcurrentWaits) {
+        return ExchangeOutcome{QVariantMap{}, QString{},
+                               QStringLiteral("too many callbacks are already being "
+                                              "exchanged"), QString{}};
+    }
+    const WaitScope wait{&m_waits};
+
     if (!isRemote()) {
         const OAuthBackend::ExchangeResult result{
             m_backend->exchange(state, code, redirectUri, presentedBinding)};
@@ -368,14 +395,10 @@ IdentityProvider::ExchangeOutcome IdentityProvider::exchangeCode(const QString &
         return ExchangeOutcome{QVariantMap{}, QString{},
                                QStringLiteral("auth entity not connected"), QString{}};
     }
-    if (m_waits >= kMaxConcurrentWaits) {
-        return ExchangeOutcome{QVariantMap{}, QString{},
-                               QStringLiteral("too many callbacks waiting on the auth "
-                                              "entity"), QString{}};
-    }
-    const WaitScope wait{&m_waits};
 
     const QString requestId{randomToken()};
+    const AwaitScope awaited{&m_awaited, requestId};
+    const auto forget{qScopeGuard([this, requestId]() { m_exchangeResults.remove(requestId); })};
     QEventLoop loop;
     connect(this, &IdentityProvider::exchangeArrived, &loop,
             [&loop, requestId](const QString &id) {
@@ -431,6 +454,8 @@ QByteArray IdentityProvider::takeClaim(const QString &code, const QString &verif
     // The same bounded nested loop the begin/exchange pair uses, for the same reason: the
     // route handler is synchronous and the answer comes back as a correlated signal.
     const QString requestId{randomToken()};
+    const AwaitScope awaited{&m_awaited, requestId};
+    const auto forget{qScopeGuard([this, requestId]() { m_claimResults.remove(requestId); })};
     QEventLoop loop;
     connect(this, &IdentityProvider::claimArrived, &loop, [&loop, requestId](const QString &id) {
         if (id == requestId) {

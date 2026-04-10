@@ -44,6 +44,7 @@
 #include <QTcpSocket>
 #include <QTemporaryDir>
 #include <QTest>
+#include <QTimer>
 
 #include <memory>
 
@@ -68,10 +69,13 @@ class Probe : public QObject
 {
     Q_OBJECT
 public:
-    Q_INVOKABLE void bump() { ++count; }
+    Q_INVOKABLE void bump() { ++count; emit bumped(); }
     Q_INVOKABLE void record(const QVariant &value) { last = value; }
     int count{0};
     QVariant last;
+
+signals:
+    void bumped();
 };
 
 // A network manager that keeps the last request it was handed, so a test can ask what the
@@ -1243,6 +1247,59 @@ private slots:
 
         QTRY_COMPARE(jobs.queued(), 0);  // the queued jobs drain on the event loop
         QCOMPARE(probe.count, 2);
+    }
+
+    // A job that enqueues a job, which is what a batch walking a list a page at a time is.
+    //
+    // The drain used to run until the queue was empty, so that shape never gave the event
+    // loop back: the entity stopped answering its connect points, stopped reconnecting and
+    // stopped reporting, with nothing to say why -- the queue is bounded, so it never grew,
+    // and each turn of the loop looked like progress. A pass now runs what was waiting when
+    // it started and asks for another turn, so the work still finishes and everything else
+    // gets served in between.
+    //
+    // What is measured is when the event loop next ran, and the marker is armed from inside
+    // the first job rather than before it. Armed earlier it would fire before the drain even
+    // started, and the test would pass either way.
+    void aJobThatEnqueuesAJobDoesNotHoldTheEventLoop()
+    {
+        constexpr int kPasses{20};
+        QJSEngine engine;
+        Probe probe;
+        engine.globalObject().setProperty(QStringLiteral("probe"),
+                                          engine.newQObject(&probe));
+        Jobs jobs{/*maxQueue*/ 4};
+        engine.globalObject().setProperty(QStringLiteral("jobs"),
+                                          engine.newQObject(&jobs));
+        QQmlEngine::setObjectOwnership(&jobs, QQmlEngine::CppOwnership);
+        QQmlEngine::setObjectOwnership(&probe, QQmlEngine::CppOwnership);
+
+        // Twenty passes, each one queueing the next. The count is kept in JS because Probe
+        // exposes bump() and not the tally behind it.
+        const QJSValue chain{engine.evaluate(QStringLiteral(
+            "(function(){ var left = %1;"
+            " return function step(){ probe.bump(); if (--left > 0) { jobs.enqueue(step); } };"
+            " })()").arg(kPasses))};
+        QVERIFY2(!chain.isError(), qPrintable(chain.toString()));
+
+        // How many jobs had run by the time anything else on this event loop got a turn. A
+        // drain that runs the chain to its end without returning answers kPasses. One that
+        // takes a pass at a time answers 1.
+        int passesBeforeTheLoopTurned{-1};
+        QObject::connect(&probe, &Probe::bumped, &probe, [&]() {
+            if (probe.count != 1) {
+                return;   // armed from inside the first job, and only that one
+            }
+            QTimer::singleShot(0, &probe, [&]() { passesBeforeTheLoopTurned = probe.count; });
+        });
+
+        QVERIFY(jobs.enqueue(chain));
+        QTRY_COMPARE(probe.count, kPasses);
+        QTRY_VERIFY(passesBeforeTheLoopTurned >= 0);
+        QVERIFY2(passesBeforeTheLoopTurned < kPasses,
+                 qPrintable(QStringLiteral("the event loop did not get a turn until all %1 "
+                                           "jobs had run").arg(kPasses)));
+        QTRY_COMPARE(jobs.queued(), 0);
     }
 
     void jobsTimersFireAndCancelWithTheirOwner()

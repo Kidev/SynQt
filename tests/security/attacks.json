@@ -16,6 +16,27 @@
   ],
   "attacks": [
     {
+      "id": "delegated-answers-nobody-is-waiting-for",
+      "what": "An edge running identity on an auth entity keeps every answer that entity sends, keyed by request id, and reads one only while a route handler is still waiting for it. An answer arriving after its twenty-second deadline is therefore kept forever, and so is one naming a request id the edge never issued. The login and callback routes are open, so making the auth entity slow is enough to grow the table on demand; an auth entity that has been compromised can grow it as fast as it can write.",
+      "defended_by": "An answer is kept only while somebody is waiting for it, and a waiter takes its request id out of the awaited set before it returns, so an answer that arrives late is dropped rather than filed.",
+      "file": "tests/memory/tst_memory.cpp",
+      "test": "anEdgeKeepsNoAnswerNobodyIsWaitingFor"
+    },
+    {
+      "id": "one-console-question-asks-for-the-whole-table",
+      "what": "A console asks the monitor for its history with a row limit of its own choosing. The limit crosses as a plain integer -- the contract vocabulary sizes strings and lists and says nothing about integers -- and every row it asks for is built into a list in memory and serialized back over the link, so one question could make the monitor materialize its whole table at once.",
+      "defended_by": "The store clamps the limit to a range it decides, so the largest answer it can be made to produce is a property of the store rather than of the number it was sent. Every other stage of this pipeline is already bounded; this was the one that was not.",
+      "file": "tests/monitor/tst_store.cpp",
+      "test": "oneQuestionCannotAskForTheWholeTable"
+    },
+    {
+      "id": "nested-callbacks-exhaust-the-stack",
+      "what": "Callbacks are fired at the open /auth/callback route faster than the token exchanges behind them finish. Each one waits in a nested event loop that goes on serving requests, so every arrival nests inside the last and the depth follows the request rate until the stack runs out.",
+      "defended_by": "At most sixty-four callbacks are exchanged at once, whether identity runs on the edge or on an auth entity. The ceiling used to cover the auth-entity path alone, which is the one an attacker is least likely to be talking to.",
+      "file": "tests/m8-auth/tst_m8.cpp",
+      "test": "concurrentCallbacksAreBoundedWithIdentityInProcess"
+    },
+    {
       "id": "id-token-key-chosen-by-position",
       "what": "An ID token that names no signing key is verified against whichever key the provider happened to list first. During a rotation a provider publishes two, so whether a token is accepted depends on the order of a JSON array rather than on who signed it.",
       "defended_by": "A token with no kid is accepted only where the provider publishes exactly one key. With more than one it is refused, and the refusal names the ambiguity rather than the signature.",

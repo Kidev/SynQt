@@ -13,19 +13,18 @@
 #include <QUuid>
 #include <QVariant>
 
+#include <algorithm>
+
 namespace SynQt {
 
 namespace {
 
-/// The schema, applied on open and never migrated in place. A monitor's store is
-/// disposable by design (it holds a bounded window of operational history, not the
-/// system's data), so a version this build does not understand is replaced rather than
-/// upgraded through a migration nobody would test.
+/// The schema, applied on open and never migrated. The store holds a bounded window of
+/// operational history, so a version this build does not understand is replaced.
 constexpr int kSchemaVersion{1};
 
-/// Attributes are stored as JSON text rather than as a table of key/value rows. They are
-/// read whole, searched as text, and never joined on, so a second table would buy a query
-/// shape nothing performs and cost a row per attribute per event.
+/// Attributes are stored as JSON text: they are read whole, searched as text, and never
+/// joined on, so a key/value table would cost a row per attribute for nothing.
 QString attributesJson(const QVariantMap &attributes)
 {
     if (attributes.isEmpty()) {
@@ -37,9 +36,8 @@ QString attributesJson(const QVariantMap &attributes)
 
 /// A QString that is empty rather than null.
 ///
-/// Qt binds a null QString as SQL NULL, and every text column here is NOT NULL because an
-/// event without a trace id has an empty one, not an unknown one. Without this the first
-/// event that begins no trace fails the whole batch.
+/// Qt binds a null QString as SQL NULL, and every text column is NOT NULL (an event without
+/// a trace id has an empty one). Without this, one such event would fail its whole batch.
 QString notNull(const QString &value)
 {
     return value.isNull() ? QString::fromLatin1("") : value;
@@ -78,17 +76,16 @@ bool EventStore::open()
     }
     m_db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), m_connectionName);
     m_db.setDatabaseName(m_path);
-    // A busy store retries to the timeout rather than failing the write. The monitor is
-    // the only writer, but its own retention pass and a console query can overlap with an
-    // incoming batch (pitfall 10).
+    // A busy store retries up to the timeout instead of failing. The monitor is the only
+    // writer, but its retention pass and a console query can overlap a batch (pitfall 10).
     m_db.setConnectOptions(QStringLiteral("QSQLITE_BUSY_TIMEOUT=5000"));
     if (!m_db.open()) {
         m_errorString = m_db.lastError().text();
         return false;
     }
     QSqlQuery pragma{m_db};
-    // WAL, so a console reading the history never blocks an entity's batch from landing.
-    // An in-memory store has no journal to write, and asking for WAL there is refused.
+    // WAL, so console reads never block an incoming batch. An in-memory store has no
+    // journal and refuses WAL.
     if (m_path != QLatin1String(":memory:")) {
         pragma.exec(QStringLiteral("PRAGMA journal_mode=WAL"));
     }
@@ -103,10 +100,8 @@ bool EventStore::open()
 bool EventStore::applySchema()
 {
     QSqlQuery query{m_db};
-    // STRICT, so a column that was declared to hold an integer holds an integer. SQLite's
-    // default is to store whatever it is given whatever the column says, which turns a
-    // wrong type into a value that reads back wrong months later instead of a write that
-    // fails now.
+    // STRICT, so an integer column holds an integer. By default SQLite stores whatever it
+    // is given, so a wrong type reads back wrong much later instead of failing the write.
     if (!query.exec(QStringLiteral(
             "CREATE TABLE IF NOT EXISTS events ("
             "  id INTEGER PRIMARY KEY,"
@@ -126,8 +121,8 @@ bool EventStore::applySchema()
         m_errorString = query.lastError().text();
         return false;
     }
-    // The two questions an operator asks. What happened recently, and what did
-    // this entity do. A third index on traceId is what turns one click into one story.
+    // The two common queries: recent events, and one entity's events. A third index on
+    // traceId gathers one click into one trace.
     for (const QString &statement : {
              QStringLiteral("CREATE INDEX IF NOT EXISTS events_ts ON events(ts)"),
              QStringLiteral("CREATE INDEX IF NOT EXISTS events_entity_category_ts "
@@ -141,21 +136,20 @@ bool EventStore::applySchema()
             return false;
         }
     }
-    // Full text over what an operator types into a search box. The sentence and the
-    // attributes.
+    // Full-text search over what an operator types: the message and the attributes.
     //
-    // Its own copy of the text rather than an external-content index over `events`. An
-    // external-content table cannot be deleted from with an ordinary DELETE, so retention
-    // would trim the events and leave the index behind, and the bound the whole thing
-    // exists to keep would quietly stop being kept. The cost is a second copy of two text
-    // columns inside a store that is bounded anyway.
+    // A separate copy of the text, not an external-content index over `events`: an
+    // external-content table cannot be deleted from with a plain DELETE, so retention would
+    // leave the index behind and the size bound would fail. The cost is a second copy of
+    // two columns in a bounded store.
     if (!query.exec(QStringLiteral(
             "CREATE VIRTUAL TABLE IF NOT EXISTS events_fts USING fts5(message, attributes)"))) {
-        // An SQLite built without FTS5 is a real deployment, not a broken one. The store
-        // works without it; search falls back to LIKE, which is slower and still correct,
-        // so this is reported and not fatal.
+        // An SQLite built without FTS5 is a valid deployment: search falls back to LIKE,
+        // slower but correct, so this is reported and the store still opens.
         m_errorString = query.lastError().text();
+        return true;
     }
+    m_hasFts = true;
     return true;
 }
 
@@ -174,9 +168,8 @@ bool EventStore::append(const QList<TraceEvent> &events)
     if (!m_open || events.isEmpty()) {
         return m_open;
     }
-    // One transaction for the whole batch. Ten thousand events committed one at a time is
-    // ten thousand fsyncs, and a monitor that cannot keep up with the system it watches
-    // stops being a monitor.
+    // One transaction per batch: committing ten thousand events one by one is ten thousand
+    // fsyncs, and the monitor must keep up.
     if (!m_db.transaction()) {
         m_errorString = m_db.lastError().text();
         return false;
@@ -186,7 +179,7 @@ bool EventStore::append(const QList<TraceEvent> &events)
         "INSERT INTO events (ts, severity, category, entity, traceId, spanId, parentSpanId,"
         " durationUs, ok, untrusted, message, attributes)"
         " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"));
-    const bool hasFts{m_db.tables().contains(QStringLiteral("events_fts"))};
+    const bool hasFts{m_hasFts};
     QSqlQuery index{m_db};
     if (hasFts) {
         index.prepare(QStringLiteral(
@@ -231,9 +224,8 @@ QList<TraceEvent> EventStore::query(const EventQuery &request) const
     if (!m_open) {
         return results;
     }
-    // Built from placeholders and bound values, never from what an operator typed. The
-    // search box is the one field a person writes freely, and it is a bound parameter like
-    // every other (pitfall 10).
+    // Built from placeholders and bound values, never from operator text. The search box is
+    // a bound parameter like every other (pitfall 10).
     QStringList conditions;
     QVariantList values;
     if (!request.entities.isEmpty()) {
@@ -269,7 +261,7 @@ QList<TraceEvent> EventStore::query(const EventQuery &request) const
         values.append(request.traceId);
     }
     if (!request.search.isEmpty()) {
-        if (m_db.tables().contains(QStringLiteral("events_fts"))) {
+        if (m_hasFts) {
             conditions.append(QStringLiteral(
                 "id IN (SELECT rowid FROM events_fts WHERE events_fts MATCH ?)"));
             values.append(request.search);
@@ -288,7 +280,7 @@ QList<TraceEvent> EventStore::query(const EventQuery &request) const
         sql += QStringLiteral(" WHERE ") + conditions.join(QStringLiteral(" AND "));
     }
     sql += QStringLiteral(" ORDER BY ts DESC, id DESC LIMIT ?");
-    values.append(qMax(1, request.limit));
+    values.append(std::clamp(request.limit, 1, EventQuery::MaxRows));
 
     QSqlQuery select{m_db};
     select.prepare(sql);
@@ -334,7 +326,7 @@ bool EventStore::retire(int maxAgeDays, qint64 maxBytes)
     if (!m_open) {
         return false;
     }
-    const bool hasFts{m_db.tables().contains(QStringLiteral("events_fts"))};
+    const bool hasFts{m_hasFts};
     if (maxAgeDays > 0) {
         const qint64 cutoff{QDateTime::currentMSecsSinceEpoch()
                             - (static_cast<qint64>(maxAgeDays) * 86400000LL)};
@@ -355,16 +347,13 @@ bool EventStore::retire(int maxAgeDays, qint64 maxBytes)
     }
 
     if ((maxBytes > 0) && (m_path != QLatin1String(":memory:"))) {
-        // Rows, not bytes, because SQLite reports the file and not the table. Measured,
-        // trimmed, measured again. The estimate only has to be close, since the loop is
-        // what makes it exact, and the bound's only job is to keep the disk from filling.
+        // Rows, not bytes, because SQLite reports the file size, not the table's. Measure,
+        // trim, measure again; the estimate only needs to be close, since the loop makes it
+        // exact.
         for (int pass{0}; pass < 24; ++pass) {
-            // Reclaimed before measuring, both ways. A delete only frees pages inside the
-            // file, so without the VACUUM the size never moves, and in WAL mode the freed
-            // pages sit in the write-ahead log until it is folded back, so without the
-            // checkpoint the VACUUM's own effect is invisible too. Measuring before either
-            // is measuring the size the store had a pass ago, and the loop then chases a
-            // number that cannot change.
+            // Reclaim before measuring. A delete only frees pages inside the file, so the
+            // size moves only after VACUUM, and in WAL mode the freed pages stay in the log
+            // until a checkpoint. Measuring before both reads a stale size.
             QSqlQuery reclaim{m_db};
             reclaim.exec(QStringLiteral("VACUUM"));
             reclaim.exec(QStringLiteral("PRAGMA wal_checkpoint(TRUNCATE)"));
@@ -374,8 +363,8 @@ bool EventStore::retire(int maxAgeDays, qint64 maxBytes)
             }
             const qint64 rows{count()};
             if (rows <= 0) {
-                // Nothing left to remove and still over the cap. The floor is the empty
-                // store's own pages, and deleting further would only spin.
+                // Nothing left to delete and still over the cap: the empty store's own
+                // pages are the floor.
                 break;
             }
             const qint64 perRow{qMax<qint64>(1, size / rows)};
@@ -390,8 +379,8 @@ bool EventStore::retire(int maxAgeDays, qint64 maxBytes)
                 dropIndex.addBindValue(remove);
                 dropIndex.exec();
             }
-            // Oldest first, always. The newest events are the ones an operator is looking
-            // at when something has gone wrong.
+            // Always oldest first: the newest events are the ones an operator is looking
+            // at.
             drop.prepare(QStringLiteral(
                 "DELETE FROM events WHERE id IN "
                 "(SELECT id FROM events ORDER BY ts ASC, id ASC LIMIT ?)"));

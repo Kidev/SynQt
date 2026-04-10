@@ -23,6 +23,7 @@
 // run-leakcheck.sh is the other half, and runs the rest of the tree under LeakSanitizer.
 
 #include "entityruntime.h"
+#include "identityprovider.h"
 #include "meshserver.h"
 #include "sessionmanager.h"
 #include "topology.h"
@@ -62,7 +63,10 @@
 #endif
 
 using SynQt::ConnectPointConfig;
+using SynQt::CookiePolicy;
 using SynQt::EntityRuntime;
+using SynQt::IdentityConfig;
+using SynQt::IdentityProvider;
 using SynQt::MeshTransportMode;
 using SynQt::SessionManager;
 using SynQt::Topology;
@@ -838,8 +842,57 @@ private slots:
 
     // A mesh link is kept up, which means a consumer builds a new node, transport and
     // Replica every time an owner restarts. Restarting a service is an ordinary operation,
-    // so the old ones have to go: this is the same reconnect m4 proves correct, asked the
+    // so the old ones have to go. This is the same reconnect m4 proves correct, asked the
     // question m4 does not ask, which is what it costs to do it a hundred times.
+    // An edge in provider_entity mode, told answers nobody is waiting for.
+    //
+    // The three delegated-result tables are written by whatever the auth entity says and
+    // were read only by a route handler that was still waiting on the matching request id.
+    // Two ordinary things therefore left a row behind for the life of the process: an answer
+    // that arrived after its twenty-second deadline, which a slow auth entity produces on
+    // every call, and an answer naming a request id this edge never issued, which an auth
+    // entity that has been compromised can produce as fast as it can write them. The
+    // callback and login routes are open, so making the auth entity slow is enough to reach
+    // the first.
+    //
+    // The cycle is one such answer. Nothing is waiting for it, so after the fix nothing is
+    // kept. Before it, each cycle retained a row of three strings and its hash node, which
+    // is far above what this suite can resolve.
+    void anEdgeKeepsNoAnswerNobodyIsWaitingFor()
+    {
+        SessionManager sessions{QStringLiteral("anonymous"), 60};
+        IdentityConfig config;
+        config.enabled = true;
+        config.providerEntity = QStringLiteral("auth");  // delegated mode; no engine here
+        IdentityProvider provider{config, &sessions, nullptr,
+                                  QStringLiteral("https://edge.example"), CookiePolicy{}};
+
+        // The shape a real answer has: a 64-character request id, the state beside it, and
+        // an authorize URL long enough to be one.
+        const QString authorizeUrl{QStringLiteral("https://provider.example/authorize"
+                                                  "?response_type=code&client_id=synqt"
+                                                  "&code_challenge_method=S256"
+                                                  "&scope=openid+profile+email&state=")};
+        qint64 serial{0};
+        const auto oneUnexpectedAnswer{[&]() {
+            const QString requestId{QString::number(++serial).rightJustified(64,
+                                                                            QLatin1Char('0'))};
+            return QMetaObject::invokeMethod(&provider, "onBeginResult",
+                                             Qt::DirectConnection,
+                                             Q_ARG(QString, requestId),
+                                             Q_ARG(QString, requestId),
+                                             Q_ARG(QString, authorizeUrl + requestId),
+                                             Q_ARG(QString, QString{}));
+        }};
+
+        const Growth growth{measureConfirmed(50, 400, AllowedBytesPerCycle,
+                                             oneUnexpectedAnswer)};
+        QVERIFY2(growth.completed, "the delegated-answer slot could not be reached");
+        QVERIFY2(withinBudget(growth, AllowedBytesPerCycle),
+                 qPrintable(growth.describe("an answer no route handler is waiting for",
+                                            budgetFor(growth, AllowedBytesPerCycle))));
+    }
+
     void theMeshLinkLetsGoOfEveryRetiredNode()
     {
         QTemporaryDir sockets;

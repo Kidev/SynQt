@@ -54,13 +54,29 @@ bool Jobs::enqueue(const QJSValue &job)
 
 void Jobs::drain()
 {
-    while (!m_queue.isEmpty()) {
+    // One pass runs what was waiting when it started, and no more. A job is ordinary QML and
+    // may perfectly well enqueue the next one -- a batch that walks a list a page at a time is
+    // exactly that shape -- and a loop that drained until the queue was empty would then never
+    // return to the event loop at all. The entity stops answering its connect points, stops
+    // reconnecting, stops reporting, and nothing says why: the queue is bounded, so it never
+    // grows, and each pass through the loop looks like progress. Taking a pass at a time turns
+    // that into a job that runs on every turn, which is what somebody writing it meant.
+    qsizetype remaining{m_queue.size()};
+    while (remaining > 0 && !m_queue.isEmpty()) {
         QJSValue job{m_queue.takeFirst()};
+        --remaining;
         if (job.isCallable()) {
             job.call();
         }
     }
-    m_draining = false;
+    if (m_queue.isEmpty()) {
+        m_draining = false;
+        return;
+    }
+    // What a job added while this pass ran. Asked for again rather than looped over, so
+    // everything else waiting on this entity gets its turn in between. `m_draining` stays
+    // set, which is what keeps enqueue() from asking for a second one.
+    QTimer::singleShot(0, this, [this]() { drain(); });
 }
 
 int Jobs::queued() const

@@ -196,6 +196,15 @@ Liveness is the absence of the link. An entity that stops heartbeating is shown 
 which is what makes a catastrophic failure of the main application show up as a red tile
 rather than as silence.
 
+One question returns at most two thousand rows, whatever it asked for. The console sends a
+row count and the store decides what to honour, because every row is built in memory and
+serialized back over the link, so an unbounded count is a question that materializes the
+whole history at once. Two thousand is already far more than anyone reads down a screen;
+when it is not enough, narrowing the question is the answer rather than widening the answer.
+Everything else on this path is bounded the same way, which is the point: the ring, the
+batch, the spool and the retention sweep all have a ceiling, and the one at the end had
+none.
+
 ## Reaching it
 
 The monitor binds `127.0.0.1` by default and `synqt check` refuses any other host. Reaching

@@ -746,7 +746,7 @@ the body size in that order, answering the request itself when any of them fails
 |--------|---------|-------------|
 | `Jobs.every(intervalMs, callback)` | int | run `callback` every `intervalMs`, returning a handle. |
 | `Jobs.cancel(handle)` | - | stop the repeating job that `every` returned. |
-| `Jobs.enqueue(job)` | bool | queue a one-shot job off the request path. **Returns `false` when the queue is full**, and the work is dropped rather than buffered without bound. Check it. |
+| `Jobs.enqueue(job)` | bool | queue a one-shot job off the request path. **Returns `false` when the queue is full**, and the work is dropped rather than buffered without bound. Check it. A job may enqueue another; what it queues runs on a later turn, so the entity keeps answering in between. |
 | `Jobs.queued` | int | how many jobs are pending, for backpressure decisions. |
 
 Work runs on the entity's own event loop, so a job that blocks blocks that entity.

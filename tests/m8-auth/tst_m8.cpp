@@ -925,6 +925,109 @@ private slots:
         QVERIFY2(!verifier.verify(idToken, rotating, nonce, &why).isEmpty(), qPrintable(why));
     }
 
+    /// Callbacks arriving together are bounded, with identity running on the edge.
+    ///
+    /// Every callback waits for the token exchange inside a nested event loop, and a nested
+    /// loop goes on serving requests, so a second callback arriving during the first runs
+    /// its own exchange inside that stack frame. The callback route is open, and a state
+    /// this edge issued is all it takes to get past the first check, so without a ceiling
+    /// the nesting depth follows the request rate and the stack is what decides.
+    ///
+    /// The ceiling covers both paths, and this drives the one that does not delegate to an
+    /// auth entity. Identity in process, a provider whose token endpoint accepts and
+    /// answers nothing, and more callbacks at once than the ceiling allows. What it looks
+    /// for is a callback answered while the others are still waiting, which is the one thing
+    /// a ceiling produces and the one thing its absence rules out.
+    void concurrentCallbacksAreBoundedWithIdentityInProcess()
+    {
+        // Above the ceiling (kMaxConcurrentWaits, 64, in identityprovider.cpp), so some of
+        // these have to be refused rather than nested.
+        constexpr int kInFlight{80};
+        constexpr int kStallMs{3000};
+        // Comfortably inside the stall: an answer this early is one that did not wait for
+        // the token endpoint, and there is no other way to get one.
+        constexpr qint64 kAnsweredWithoutWaitingMs{1200};
+
+        StallingTokenEndpoint stall{kStallMs};
+        QVERIFY(stall.isListening());
+
+        IdentityProviderConfig slow;
+        slow.name = QStringLiteral("slow");
+        slow.devStub = true;
+        slow.authorizeUrl = QUrl{m_stub->baseUrl() + QStringLiteral("/authorize")};
+        slow.tokenUrl = stall.tokenUrl();
+        slow.userinfoUrl = QUrl{m_stub->baseUrl() + QStringLiteral("/userinfo")};
+        slow.clientId = QStringLiteral("stub-client");
+        slow.clientSecret = QStringLiteral("stub-secret");
+
+        QQmlEngine engine;
+        WebEdgeConfig config;
+        config.bundleDir = QStringLiteral(M8_SRCDIR "/bundle");
+        config.host = QStringLiteral("127.0.0.1");
+        config.port = 0;
+        config.identity.enabled = true;
+        config.identity.allowDevStub = true;
+        config.identity.providers = {slow};
+
+        WebEdge edge{config, &engine};
+        QVERIFY2(edge.start(), qPrintable(edge.errorString()));
+        const QString base{QStringLiteral("http://127.0.0.1:%1").arg(edge.serverPort())};
+
+        // One browser per login, because each holds its own state and its own
+        // login-binding cookie, and the callback is refused without the matching pair.
+        QObject browserScope;
+        QList<QNetworkAccessManager *> browsers;
+        QStringList states;
+        for (int index{0}; index < kInFlight; ++index) {
+            auto *browser{new QNetworkAccessManager{&browserScope}};
+            browser->setCookieJar(new QNetworkCookieJar{browser});
+            const Response begun{
+                hopWith(*browser, base + QStringLiteral("/auth/login?provider=slow"))};
+            QCOMPARE(begun.status, 302);
+            const QString state{QUrlQuery{QUrl{begun.location}.query()}
+                                    .queryItemValue(QStringLiteral("state"))};
+            QVERIFY(!state.isEmpty());
+            browsers.append(browser);
+            states.append(state);
+        }
+
+        // Fired without waiting for any of them, which is the whole point: they have to be
+        // in flight together for the nesting to happen at all.
+        QElapsedTimer clock;
+        QList<qint64> answeredAtMs;
+        clock.start();
+        for (int index{0}; index < kInFlight; ++index) {
+            QUrl callback{base + QStringLiteral("/auth/callback")};
+            QUrlQuery query;
+            query.addQueryItem(QStringLiteral("code"), QStringLiteral("a-code"));
+            query.addQueryItem(QStringLiteral("state"), states.at(index));
+            callback.setQuery(query);
+            QNetworkRequest request{callback};
+            request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
+                                 QNetworkRequest::ManualRedirectPolicy);
+            QNetworkReply *reply{browsers.at(index)->get(request)};
+            connect(reply, &QNetworkReply::finished, reply,
+                    [&answeredAtMs, &clock]() { answeredAtMs.append(clock.elapsed()); });
+        }
+
+        // Long enough for the stalls to expire and every nested loop to unwind. It cannot
+        // return before they do: this loop is underneath them on the stack.
+        QTRY_VERIFY_WITH_TIMEOUT(answeredAtMs.size() == kInFlight, 30000);
+
+        int answeredWithoutWaiting{0};
+        for (const qint64 elapsed : std::as_const(answeredAtMs)) {
+            if (elapsed < kAnsweredWithoutWaitingMs) {
+                ++answeredWithoutWaiting;
+            }
+        }
+        QVERIFY2(answeredWithoutWaiting > 0,
+                 "every callback waited for the token endpoint, so nothing bounded the "
+                 "nesting: the ceiling covers the auth-entity path only");
+        QVERIFY2(answeredWithoutWaiting < kInFlight,
+                 "no callback waited at all, so none of them nested and this proves "
+                 "nothing about the ceiling");
+    }
+
     /// A correctly signed token that leaves out a claim the verifier depends on.
     ///
     /// Kept apart from idTokenRefusals because these two cannot be built by editing a good

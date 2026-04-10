@@ -186,6 +186,43 @@ private slots:
         QCOMPARE(store.count(), static_cast<qint64>(1));
     }
 
+    // How many rows one question may return.
+    //
+    // The number arrives from a console over a connect point as a plain `int` -- the
+    // contract vocabulary sizes strings and lists and has nothing to say about integers --
+    // and every row it asks for is built into a QVariantList and serialized back over the
+    // link. Unbounded, one question was a way to make the monitor materialize its whole
+    // table at once, which is the one thing every other stage of this pipeline (the ring,
+    // the batch, the spool, the retention) is bounded against.
+    void oneQuestionCannotAskForTheWholeTable()
+    {
+        QTemporaryDir dir;
+        EventStore store{dir.filePath(QStringLiteral("events.db"))};
+        QVERIFY2(store.open(), qPrintable(store.errorString()));
+
+        QList<TraceEvent> batch;
+        const int stored{EventQuery::MaxRows + 500};
+        batch.reserve(stored);
+        for (int index{0}; index < stored; ++index) {
+            batch.append(made(QStringLiteral("web"), Category::Call, Severity::Info,
+                              QStringLiteral("call %1").arg(index), 1750000000000 + index));
+        }
+        QVERIFY(store.append(batch));
+
+        EventQuery greedy;
+        greedy.limit = 1000000000;
+        QCOMPARE(store.query(greedy).size(), EventQuery::MaxRows);
+
+        // And the other end, so the clamp is a range rather than a ceiling. A limit of zero
+        // or less is one row, not none and not everything.
+        EventQuery none;
+        none.limit = 0;
+        QCOMPARE(store.query(none).size(), 1);
+        EventQuery negative;
+        negative.limit = -5;
+        QCOMPARE(store.query(negative).size(), 1);
+    }
+
     void retentionDropsTheOldestAndKeepsTheNewest()
     {
         QTemporaryDir dir;

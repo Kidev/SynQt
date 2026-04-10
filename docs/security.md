@@ -410,6 +410,29 @@ read them.
     worse than one a flood can make briefly unavailable, and a flood on that scale is
     already the case for a reverse proxy in front of the edge.
 
+- Logins in flight, and callbacks being exchanged. Two ceilings, because the login path
+  spends two different things. A pending login holds a flow object for the five minutes it
+  is given, and `/auth/login` is open, so at most a thousand may be in flight; past that the
+  route refuses rather than allocating further. A callback then waits for the token exchange
+  inside a nested event loop, which keeps serving requests while it spins, so callbacks
+  arriving together nest one loop inside another and the stack is what runs out; at most
+  sixty-four are exchanged at once, whether identity runs on the edge or on an auth entity.
+  Both numbers are far above what any real deployment has at one instant. Neither is a knob
+  to tune: they bound a failure mode that no workload should reach, and
+  `tests/m8-auth/tst_m8.cpp` drives more callbacks at a stalled provider than the second
+  ceiling allows to prove it still holds.
+
+- Answers from an auth entity. An edge that delegates identity waits for the auth entity's
+  reply and gives up after twenty seconds, and what it does with a reply that arrives after
+  that is the part worth stating: it drops it. The three tables those replies land in are
+  keyed by request id and read only by a handler that is still waiting, so a reply kept past
+  its deadline would be kept for the life of the process, and so would one naming a request
+  id the edge never issued. Both are ordinary rather than exotic. The first is what a slow
+  auth entity produces on every call, and the login route is open to anybody who can reach
+  the edge. The second is what an auth entity that has been compromised can produce as fast
+  as it can write. So a reply is kept only while somebody is waiting for it, and the waiter
+  stops waiting before it returns.
+
 - Outbound answers. `Http` holds a whole reply in memory before a handler sees it, so the
   size of one is capped at 16 MiB, checked while the body is arriving and against the
   announced length as well as the running count. An allowlisted third party is not the same
