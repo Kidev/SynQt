@@ -9,8 +9,6 @@
 #include <QThread>
 #include <QTimer>
 
-#include <QRegularExpression>
-
 #include <algorithm>
 #include <chrono>
 #include <utility>
@@ -26,6 +24,11 @@ constexpr int kRingCapacity{8192};
 /// Lower-case hex of a fixed width, which is what W3C trace context asks for, with the
 /// all-zero value the specification forbids replaced rather than retried: a collector
 /// drops a traceparent carrying it, and one bit is not worth a loop.
+///
+/// The all-zero test is a scan and not a regular expression. Two of these are minted for
+/// every span, so a `QRegularExpression` built here is a pattern compiled per span, on a
+/// path whose whole enabled cost is measured in hundreds of nanoseconds; the answer to "is
+/// any character not a zero" does not need a pattern at all.
 QString randomHex(int characters)
 {
     QString value;
@@ -35,7 +38,8 @@ QString randomHex(int characters)
                      .rightJustified(16, QLatin1Char('0'));
     }
     value.truncate(characters);
-    if (!value.contains(QRegularExpression{QStringLiteral("[1-9a-f]")})) {
+    if (std::all_of(value.cbegin(), value.cend(),
+                    [](QChar character) { return character == QLatin1Char('0'); })) {
         value[0] = QLatin1Char('1');
     }
     return value;
