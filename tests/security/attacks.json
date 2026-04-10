@@ -30,6 +30,13 @@
       "test": "oneQuestionCannotAskForTheWholeTable"
     },
     {
+      "id": "an-event-recorded-outside-every-filter",
+      "what": "Severity and category cross the ingest link as their numbers. An entity sending a number this build has no enumerator for gets an event that is written to the history and then matches no category filter and no severity floor, so it is in the record and cannot be found in it. An operator reading a quiet period cannot tell it from a hidden one.",
+      "defended_by": "Both fields are checked against the vocabulary where the record arrives, and a number outside it is read as the ordinary value rather than kept as an unfilterable one. That is also what keeps the two enums inside the array the hot-path level check indexes.",
+      "file": "tests/monitor/tst_pipeline.cpp",
+      "test": "aNumberOutsideTheVocabularyIsReadAsTheOrdinaryValue"
+    },
+    {
       "id": "nested-callbacks-exhaust-the-stack",
       "what": "Callbacks are fired at the open /auth/callback route faster than the token exchanges behind them finish. Each one waits in a nested event loop that goes on serving requests, so every arrival nests inside the last and the depth follows the request rate until the stack runs out.",
       "defended_by": "At most sixty-four callbacks are exchanged at once, whether identity runs on the edge or on an auth entity. The ceiling used to cover the auth-entity path alone, which is the one an attacker is least likely to be talking to.",

@@ -7,8 +7,36 @@ namespace SynQt {
 
 // Field by field, both ways, and no loop over a table of names. A field added to the
 // struct without a line added here should fail to compile or fail a test, not silently
-// stop crossing the link: a monitoring record that quietly loses half of itself is worse
+// stop crossing the link. A monitoring record that quietly loses half of itself is worse
 // than one that never arrives, because the operator reading it cannot tell.
+
+namespace {
+
+/// One of the enumerators, or `fallback`.
+///
+/// `fromVariant` reads a record off the wire, and the two enums cross as their numbers, so
+/// a static_cast alone means a number this build has no enumerator for becomes a value of
+/// the enum type anyway. Nothing crashes on one today -- `severityName` and `categoryName`
+/// answer with a default, and the store writes the number down -- but the event it is on is
+/// then invisible to every category filter the console offers, and to the severity floor
+/// too. An event nobody can find is worse than one that was never sent, so a number outside
+/// the vocabulary is read as the ordinary value rather than kept as an unfilterable one.
+///
+/// It also keeps the enums to what `Tracer::isEnabled` assumes, which is an unchecked index
+/// into a six-element array. Nothing routes a wire event through it, and this is what makes
+/// that a fact about the boundary rather than about the current call graph.
+template <typename Enum>
+Enum enumeratorOr(const QVariant &value, Enum last, Enum fallback)
+{
+    bool numeric{false};
+    const int which{value.toInt(&numeric)};
+    if (!numeric || which < 0 || which > static_cast<int>(last)) {
+        return fallback;
+    }
+    return static_cast<Enum>(which);
+}
+
+} // namespace
 
 QVariantMap TraceEvent::toVariant() const
 {
@@ -32,8 +60,10 @@ TraceEvent TraceEvent::fromVariant(const QVariantMap &value)
 {
     TraceEvent event;
     event.timestampMs = value.value(QStringLiteral("timestampMs")).toLongLong();
-    event.severity = static_cast<Severity>(value.value(QStringLiteral("severity")).toInt());
-    event.category = static_cast<Category>(value.value(QStringLiteral("category")).toInt());
+    event.severity = enumeratorOr(value.value(QStringLiteral("severity")),
+                                  Severity::Fatal, Severity::Info);
+    event.category = enumeratorOr(value.value(QStringLiteral("category")),
+                                  Category::Application, Category::Lifecycle);
     event.entity = value.value(QStringLiteral("entity")).toString();
     event.traceId = value.value(QStringLiteral("traceId")).toString();
     event.spanId = value.value(QStringLiteral("spanId")).toString();

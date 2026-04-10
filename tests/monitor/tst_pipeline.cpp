@@ -50,6 +50,51 @@ private slots:
                  QStringLiteral("placeBid"));
     }
 
+    // A number the wire carries that this build has no enumerator for.
+    //
+    // Severity and category cross the link as their numbers, so a reporting entity built
+    // against a later vocabulary -- or one that has been compromised and is choosing what
+    // to send -- can put any integer in either field. A static_cast alone turns that into a
+    // value of the enum type anyway, and the event carrying it is then invisible to every
+    // category filter the console offers and to the severity floor as well: it is written
+    // down and cannot be found again, which is worse for whoever is reading the record than
+    // never receiving it. It is also what keeps both enums inside the six-element array
+    // `Tracer::isEnabled` indexes without checking.
+    void aNumberOutsideTheVocabularyIsReadAsTheOrdinaryValue()
+    {
+        QVariantMap wire;
+        wire.insert(QStringLiteral("severity"), 9999);
+        wire.insert(QStringLiteral("category"), -3);
+        wire.insert(QStringLiteral("message"), QStringLiteral("from somewhere newer"));
+
+        const TraceEvent event{TraceEvent::fromVariant(wire)};
+        QCOMPARE(event.severity, Severity::Info);
+        QCOMPARE(event.category, Category::Lifecycle);
+        // So a filter can find it.
+        QCOMPARE(severityName(event.severity), QStringLiteral("info"));
+        QCOMPARE(categoryName(event.category), QStringLiteral("lifecycle"));
+
+        // A field that is not a number at all is the same case, and so is one that is
+        // missing. Neither may become an enumerator nobody declared.
+        QVariantMap nonsense;
+        nonsense.insert(QStringLiteral("severity"), QStringLiteral("loud"));
+        const TraceEvent guessed{TraceEvent::fromVariant(nonsense)};
+        QCOMPARE(guessed.severity, Severity::Info);
+        QCOMPARE(guessed.category, Category::Lifecycle);
+
+        // And every value the vocabulary does have still crosses unchanged.
+        for (int level{0}; level <= static_cast<int>(Severity::Fatal); ++level) {
+            for (int which{0}; which <= static_cast<int>(Category::Application); ++which) {
+                TraceEvent sent;
+                sent.severity = static_cast<Severity>(level);
+                sent.category = static_cast<Category>(which);
+                const TraceEvent back{TraceEvent::fromVariant(sent.toVariant())};
+                QCOMPARE(back.severity, sent.severity);
+                QCOMPARE(back.category, sent.category);
+            }
+        }
+    }
+
     void aFullRingDropsAndCountsRatherThanGrowing()
     {
         EventRing ring{4};

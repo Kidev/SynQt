@@ -205,6 +205,12 @@ Everything else on this path is bounded the same way, which is the point: the ri
 batch, the spool and the retention sweep all have a ceiling, and the one at the end had
 none.
 
+Severity and category cross the ingest link as numbers, and a number this build has no word
+for is read as `info` and `lifecycle` rather than kept as itself. That matters for what an
+operator can find: an event carrying an unknown category is written to the history and then
+matches no category filter and no severity floor, so it is in the record and cannot be found
+in it. An entity built against a later vocabulary reports as something readable instead.
+
 ## Reaching it
 
 The monitor binds `127.0.0.1` by default and `synqt check` refuses any other host. Reaching
