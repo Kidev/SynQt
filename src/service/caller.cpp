@@ -313,11 +313,19 @@ void Caller::adopt(QObject *other)
     }
     // Everything, including the Source: a signal this Caller sends has to leave through the
     // mirror the adopted caller acquired, or it would reach the wrong browser.
+    //
+    // And including the trace, which was the one field left out. A shared entity runs its
+    // slots on the shared Source's Caller, adopted from the mirror's, and `CallSpan` reads
+    // the parent span off whichever Caller the slot is holding. Without this the chain
+    // starts again at every shared entity, so a request that crosses one arrives in the
+    // console as two unrelated traces instead of one story. A shared entity is exactly the
+    // shape a busy edge has.
     m_sessions = from->m_sessions;
     m_sessionId = from->m_sessionId;
     m_forwarded = from->m_forwarded;
     m_entity = from->m_entity;
     m_source = from->m_source;
+    m_trace = from->m_trace;
     m_scopeOrder = from->m_scopeOrder;
     m_isUser = from->m_isUser;
     m_entityVerified = from->m_entityVerified;
