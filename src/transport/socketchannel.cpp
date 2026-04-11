@@ -3,26 +3,12 @@
 
 #include "socketchannel.h"
 
+#include "objecttree.h"
+
 #include <QAbstractSocket>
 #include <QWebSocket>
 
 namespace SynQt {
-
-namespace {
-
-/// Whether `candidate` already sits somewhere under `ancestor`, so adopting it would take
-/// it away from an owner that is counting on having it.
-bool isUnder(const QObject *candidate, const QObject *ancestor)
-{
-    for (const QObject *walk{candidate}; walk != nullptr; walk = walk->parent()) {
-        if (walk == ancestor) {
-            return true;
-        }
-    }
-    return false;
-}
-
-} // namespace
 
 SocketChannel::SocketChannel(QWebSocket *socket, QAbstractSocket *rawSocket, QObject *parent)
     : QObject{parent}

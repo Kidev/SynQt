@@ -248,9 +248,29 @@ void ConnectPointHost::onPeerConnected(QIODevice *device, const MeshPeer &peer)
     connect(device, &QObject::destroyed, this,
             [this, entity]() { releasePeerSource(entity); });
 
-    // Its own node for this link, with a Caller carrying the certificate-verified entity
-    // name for the owner's per-slot authorization.
-    QRemoteObjectHost *node{new QRemoteObjectHost{device}};
+    // Everything this link owns hangs off one object, and the two things under it are added
+    // in the order they have to be destroyed in. The node first, the socket second. QObject
+    // destroys its children in the order they were added, and QtRO writes a RemoveObject to
+    // every connection as a host node goes, so the socket has to outlive the node that is
+    // still talking to it. Hanging the node off the socket instead put that write after
+    // ~QSslSocket had already run. WebEdge::hostConnection arranges a browser link the same
+    // way and for the same reason.
+    QObject *link{new QObject{this}};
+    QRemoteObjectHost *node{new QRemoteObjectHost{link}};
+    device->setParent(link);
+    // MeshServer hands the device over rather than reclaiming it, so this is what ends the
+    // link: the socket drops, the object above goes, and the node and the socket are
+    // destroyed in that order. Connected to the concrete socket because QIODevice has no
+    // notion of a peer hanging up.
+    const auto endLink{[link]() { link->deleteLater(); }};
+    if (QAbstractSocket *socket{qobject_cast<QAbstractSocket *>(device)}) {
+        connect(socket, &QAbstractSocket::disconnected, link, endLink);
+    } else if (QLocalSocket *local{qobject_cast<QLocalSocket *>(device)}) {
+        connect(local, &QLocalSocket::disconnected, link, endLink);
+    }
+
+    // A Caller carrying the certificate-verified entity name, for the owner's per-slot
+    // authorization.
     node->setHostUrl(QUrl{QStringLiteral("synqt-cp-%1:///%2")
                               .arg(m_config.name,
                                    QUuid::createUuid().toString(QUuid::WithoutBraces))},
@@ -260,7 +280,7 @@ void ConnectPointHost::onPeerConnected(QIODevice *device, const MeshPeer &peer)
     if (!source) {
         emit connectionRefused(peer.entity);
         device->close();
-        device->deleteLater();
+        link->deleteLater();
         return;
     }
     if (!node->enableRemoting(source, m_config.name)) {

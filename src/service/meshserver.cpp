@@ -153,9 +153,14 @@ void MeshServer::onTlsConnectionPending()
             continue;
         }
         disableNagle(socket);
-        connect(socket, &QSslSocket::disconnected, socket, &QObject::deleteLater);
         // The handshake completed and the certificate verified against the CA; the
-        // subject is the calling entity.
+        // subject is the calling entity. Whoever takes the device owns it from here, the
+        // way MeshClient hands its side over. The receiver puts the socket under the
+        // object that also holds the QtRO node for this link, and the order those two are
+        // destroyed in is the receiver's to arrange. A socket that deleted itself here
+        // took the node with it as a child, and a node destroyed from inside ~QObject
+        // writes its farewell into a QIODevice whose own destructor has already run.
+        // Until somebody takes it, it stays a child of the server and goes with it.
         emit peerConnected(socket, MeshPeer{peerEntityName(socket), true});
     }
 }
@@ -169,9 +174,9 @@ void MeshServer::onLocalConnectionPending()
             socket->deleteLater();
             continue;
         }
-        connect(socket, &QLocalSocket::disconnected, socket, &QObject::deleteLater);
-        // Colocation trust, not authentication: the OS confirmed the same user, but
+        // Colocation trust, not authentication. The OS confirmed the same user, but
         // the entity name is the configured one and could be any same-user process.
+        // Ownership passes with the device, as on the mutual-TLS path above.
         emit peerConnected(socket, MeshPeer{m_colocatedEntity, false});
     }
 }
