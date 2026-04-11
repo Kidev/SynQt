@@ -139,6 +139,9 @@ QByteArray SessionManager::setScope(const QByteArray &wasId, const QString &scop
         return QByteArray{};
     }
     SessionRecord record{it.value()};
+    // What this session was reached from before, if anything. Read before the line below
+    // overwrites it, because it is the head of a chain that has to be moved along too.
+    const QByteArray chained{record.rotatedFrom};
     m_sessions.erase(it);
     record.id = newToken();  // rotate the credential on privilege change
     record.scope = scope.isEmpty() ? m_defaultScope : scope;
@@ -154,6 +157,20 @@ QByteArray SessionManager::setScope(const QByteArray &wasId, const QString &scop
     m_sessions.insert(record.id, record);
     trackExpiry(record);
     m_rotations.insert(previous, Rotation{record.id, record.createdMs});
+    // Elevating twice before the visitor's next page load used to sign them out. Their
+    // cookie still holds the credential the FIRST rotation replaced, and that hand-off
+    // pointed at the id the second rotation has just erased; `rotationOf` refuses a
+    // hand-off whose target is gone, so the browser was handed a fresh anonymous session
+    // instead of the elevated one it had earned. A slot that raises scope and then raises
+    // it again -- signing somebody in and then granting them a role -- is an ordinary
+    // thing to write, so the chain is followed rather than broken.
+    //
+    // The window keeps the clock it started on. A hand-off is for the visitor's next page
+    // load, and refreshing `atMs` here would let a session that rotates every few minutes
+    // keep one alive indefinitely.
+    if (const auto head{m_rotations.find(chained)}; head != m_rotations.end()) {
+        head->to = record.id;
+    }
     emitUpsert(record);
     // First, so that everything still naming the old credential is holding the new one
     // before anybody acts on the removal below.

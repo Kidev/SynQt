@@ -293,6 +293,44 @@ private slots:
         QCOMPARE(removed.first().first().toString().toLatin1(), anonymous);
     }
 
+    // Two elevations before the visitor's next page load. The browser is still holding the
+    // credential the FIRST one replaced, in an httpOnly cookie no slot call can rewrite, so
+    // the hand-off from that credential is the only thing that gets the visitor their new
+    // one. The second elevation erased what the first hand-off pointed at, `rotationOf`
+    // refuses a hand-off whose target is gone, and the next page load handed the visitor a
+    // fresh anonymous session. Signed in, then signed out again by being promoted. Signing
+    // somebody in and then granting them a role in the same call is an ordinary thing to
+    // write.
+    void rotationChainStillLeadsToTheLiveSession()
+    {
+        SessionManager sessions{QStringLiteral("anonymous"), OneMinuteTtl};
+        const QByteArray held{sessions.createSession()};  // what the cookie holds, throughout
+
+        const QByteArray signedIn{sessions.setScope(held, QStringLiteral("user"))};
+        QVERIFY(!signedIn.isEmpty());
+        QCOMPARE(sessions.rotationOf(held), signedIn);
+
+        const QByteArray promoted{sessions.setScope(signedIn, QStringLiteral("moderator"))};
+        QVERIFY(!promoted.isEmpty());
+
+        // The cookie the browser is still presenting leads to the session it now names.
+        QCOMPARE(sessions.rotationOf(held), promoted);
+        QCOMPARE(sessions.rotationOf(signedIn), promoted);
+        const SessionRecord *record{sessions.lookup(promoted)};
+        QVERIFY(record);
+        QCOMPARE(record->scope, QStringLiteral("moderator"));
+        QCOMPARE(sessions.snapshot().size(), 1);
+
+        // A hand-off is a redirection and never an authorization: neither dead credential
+        // is live, whatever it can still point at.
+        QVERIFY(!sessions.isLive(held));
+        QVERIFY(!sessions.isLive(signedIn));
+
+        // And when the session at the end of the chain ends, the chain leads nowhere.
+        sessions.revoke(promoted);
+        QVERIFY(sessions.rotationOf(held).isEmpty());
+    }
+
     void setScopeOnAnUnknownCredentialChangesNothing()
     {
         SessionManager sessions{QStringLiteral("anonymous"), OneMinuteTtl};
