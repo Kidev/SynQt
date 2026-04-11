@@ -173,7 +173,11 @@ private slots:
         }
     }
 
-    void anEntityWithNowhereToSpoolLosesTheEventsAndCountsThem()
+    // An entity with no writable state directory has nowhere to keep what the monitor
+    // missed, so it loses it. What it must not do is lose it quietly. This is the case
+    // where the gap is total, and an operator reading the record has no other way to tell a
+    // period when nothing happened from one when nothing could be kept.
+    void anEntityWithNowhereToSpoolLosesTheEventsAndSaysSo()
     {
         MonitorStandIn monitor;
         IngestClient client{QString{}, 0};
@@ -181,10 +185,18 @@ private slots:
         QCOMPARE(client.droppedBatches(), static_cast<qint64>(1));
         QCOMPARE(client.spooledEvents(), static_cast<qint64>(0));
 
-        // Nothing was kept, so nothing is replayed; what it does not do is pretend
-        // otherwise or fail.
         client.setReplica(&monitor);
-        QCOMPARE(monitor.flattened().size(), 0);
+        // Nothing was kept, so none of the five events comes back. What arrives is the one
+        // record that says so.
+        const QVariantList replayed = monitor.flattened();  // '=': see above
+        QCOMPARE(replayed.size(), 1);
+        const QVariantMap gap{replayed.first().toMap()};
+        QCOMPARE(gap.value(QStringLiteral("message")).toString(),
+                 QStringLiteral("monitoring spool overflowed"));
+        QCOMPARE(gap.value(QStringLiteral("attributes")).toMap()
+                     .value(QStringLiteral("droppedBatches")).toInt(), 1);
+        // And it is reported once: the count is cleared by the replay that carried it.
+        QCOMPARE(client.droppedBatches(), static_cast<qint64>(0));
     }
 };
 

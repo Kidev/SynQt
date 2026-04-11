@@ -107,6 +107,9 @@ bool IngestClient::send(const QList<TraceEvent> &batch)
 
 void IngestClient::spool(const QList<TraceEvent> &batch)
 {
+    // This runs on the tracer's writer thread and replay() runs on the entity's, and both
+    // of them have the same file and the same counter in hand.
+    QMutexLocker locker{&m_spoolMutex};
     if (m_spoolPath.isEmpty()) {
         m_droppedBatches += 1;
         return;
@@ -120,10 +123,10 @@ void IngestClient::spool(const QList<TraceEvent> &batch)
     stream.setVersion(QDataStream::Qt_6_0);
     stream << kSpoolVersion << toVariants(batch);
     file.close();
-    trim();
+    trimLocked();
 }
 
-void IngestClient::trim()
+void IngestClient::trimLocked()
 {
     if (m_spoolCapBytes <= 0) {
         return;
@@ -187,15 +190,17 @@ void IngestClient::trim()
     rewritten.commit();
 }
 
-void IngestClient::replay()
+/// Read every batch the spool file holds and take the file with them. The caller holds
+/// m_spoolMutex.
+QList<QVariantList> IngestClient::takeSpooledLocked()
 {
-    if (m_spoolPath.isEmpty() || !QFileInfo::exists(m_spoolPath)) {
-        return;
-    }
     QList<QVariantList> batches;
+    if (m_spoolPath.isEmpty() || !QFileInfo::exists(m_spoolPath)) {
+        return batches;
+    }
     QFile file{m_spoolPath};
     if (!file.open(QIODevice::ReadOnly)) {
-        return;
+        return batches;
     }
     QDataStream stream{&file};
     stream.setVersion(QDataStream::Qt_6_0);
@@ -209,40 +214,111 @@ void IngestClient::replay()
         batches.append(events);
     }
     file.close();
+    QFile::remove(m_spoolPath);
+    return batches;
+}
+
+/// Put batches back that a replay took out and could not deliver, ahead of anything the
+/// writer thread has spooled since. The caller holds m_spoolMutex.
+///
+/// Ahead, and not appended, because these are older. The file was taken whole when the
+/// replay began, and whatever is in it now arrived after. A record that reads out of order
+/// is a record an operator has to reconstruct by timestamp.
+void IngestClient::restoreLocked(const QList<QVariantList> &pending)
+{
+    if (pending.isEmpty()) {
+        return;
+    }
+    if (m_spoolPath.isEmpty()) {
+        m_droppedBatches += pending.size();  // nowhere to keep them, so they are lost
+        return;
+    }
+    const QList<QVariantList> since{takeSpooledLocked()};
+    QSaveFile rewritten{m_spoolPath};
+    if (!rewritten.open(QIODevice::WriteOnly)) {
+        m_droppedBatches += pending.size() + since.size();
+        return;
+    }
+    QDataStream out{&rewritten};
+    out.setVersion(QDataStream::Qt_6_0);
+    for (const QVariantList &events : pending) {
+        out << kSpoolVersion << events;
+    }
+    for (const QVariantList &events : since) {
+        out << kSpoolVersion << events;
+    }
+    rewritten.commit();
+    trimLocked();
+}
+
+void IngestClient::replay()
+{
+    // Taken once, under the lock that guards it, and tracked from there: a QPointer copy
+    // still goes null if the Replica is destroyed while this runs, which is the case the
+    // loop below is watching for, and reading the member itself on this thread while the
+    // writer thread reads it on its own is the race that mutex exists to stop.
+    QPointer<QObject> replica;
+    {
+        QMutexLocker locker{&m_replicaMutex};
+        replica = m_replica;
+    }
+
+    // Then the file work, under its own lock, with nothing published while it is held: a
+    // monitor coming back must not stall the thread that records what happens next. What
+    // the spool is holding is taken whole, and the file with it, so a batch the writer
+    // thread appends after this point belongs to the next spool rather than to a file that
+    // has already been read out from underneath it.
+    QList<QVariantList> batches;
+    qint64 dropped{0};
+    {
+        QMutexLocker locker{&m_spoolMutex};
+        dropped = m_droppedBatches;
+        m_droppedBatches = 0;
+        batches = takeSpooledLocked();
+    }
 
     // Oldest first, so the record reads in the order it happened.
-    for (const QVariantList &events : std::as_const(batches)) {
-        if (m_replica.isNull()) {
-            return;   // gone again mid-replay: what is left stays on disk
+    for (qsizetype index{0}; index < batches.size(); ++index) {
+        if (replica.isNull()) {
+            // Gone again mid-replay. What has not been delivered goes back on disk, ahead
+            // of anything spooled since, so the guarantee this class exists for (that what
+            // the monitor missed is kept) holds through a link that drops twice.
+            QMutexLocker locker{&m_spoolMutex};
+            restoreLocked(batches.mid(index));
+            m_droppedBatches += dropped;
+            return;
         }
-        QMetaObject::invokeMethod(m_replica.data(), "publish", Qt::DirectConnection,
-                                  Q_ARG(QVariantList, events));
+        QMetaObject::invokeMethod(replica.data(), "publish", Qt::DirectConnection,
+                                  Q_ARG(QVariantList, batches.at(index)));
     }
-    QFile::remove(m_spoolPath);
 
-    if (m_droppedBatches > 0 && !m_replica.isNull()) {
+    if (dropped > 0 && !replica.isNull()) {
         // The gap, named. A monitor that received a replay with no word of what was lost
-        // would show a quiet period where there had been an overflowing one.
+        // would show a quiet period where there had been an overflowing one. Reported
+        // whether or not there was a file to replay. An entity with no writable state
+        // directory spools nothing and drops every batch the monitor misses, which is the
+        // case where saying so matters most.
         TraceEvent gap;
         gap.severity = Severity::Warning;
         gap.category = Category::Lifecycle;
         gap.entity = Tracer::instance()->entity();
         gap.ok = false;
         gap.message = QStringLiteral("monitoring spool overflowed");
-        gap.attributes.insert(QStringLiteral("droppedBatches"), m_droppedBatches);
-        QMetaObject::invokeMethod(m_replica.data(), "publish", Qt::DirectConnection,
+        gap.attributes.insert(QStringLiteral("droppedBatches"), dropped);
+        QMetaObject::invokeMethod(replica.data(), "publish", Qt::DirectConnection,
                                   Q_ARG(QVariantList, QVariantList{gap.toVariant()}));
-        m_droppedBatches = 0;
     }
 }
 
 qint64 IngestClient::droppedBatches() const
 {
+    QMutexLocker locker{&m_spoolMutex};
     return m_droppedBatches;
 }
 
 qint64 IngestClient::spooledEvents() const
 {
+    QMutexLocker locker{&m_spoolMutex};
     if (m_spoolPath.isEmpty() || !QFileInfo::exists(m_spoolPath)) {
         return 0;
     }

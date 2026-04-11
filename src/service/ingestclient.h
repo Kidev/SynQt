@@ -7,6 +7,7 @@
 #include "traceevent.h"
 
 #include <QList>
+#include <QVariantList>
 #include <QMutex>
 #include <QObject>
 #include <QPointer>
@@ -71,7 +72,14 @@ private:
     bool send(const QList<TraceEvent> &batch);
     void spool(const QList<TraceEvent> &batch);
     void replay();
-    void trim();
+    /// Read the spool out and take the file with it. The caller holds m_spoolMutex.
+    QList<QVariantList> takeSpooledLocked();
+    /// Put back what a replay took and could not deliver, ahead of anything spooled since.
+    /// The caller holds m_spoolMutex.
+    void restoreLocked(const QList<QVariantList> &pending);
+    /// Bound the spool file. The caller holds m_spoolMutex. This is where the spool is
+    /// rewritten, so it may not take it again.
+    void trimLocked();
 
     /// Read on the writer thread and written on the entity's, so it is guarded. A raw
     /// QPointer read across threads is a race whatever the pointer is worth.
@@ -79,6 +87,18 @@ private:
     QPointer<QObject> m_replica;
     QString m_spoolPath;
     qint64 m_spoolCapBytes{0};
+
+    /// The spool file and the count of what it dropped, which are the other two things two
+    /// threads reach. Spooling runs on the tracer's writer thread and replay runs on the
+    /// entity's, so without this the writer can be appending a batch while the entity is
+    /// reading the file and then removing it. The appended batch goes with the file it was
+    /// never read out of, and the counter beside it is read and written from both threads
+    /// at once, which is a data race whatever the number is worth.
+    ///
+    /// Held for the file work and released before anything is published, so a monitor
+    /// coming back does not stall the thread that is trying to record what happened while
+    /// it was away.
+    mutable QMutex m_spoolMutex;
     qint64 m_droppedBatches{0};
 };
 
