@@ -55,6 +55,10 @@ private:
     DbResult runOnLease(const QString &sql, const QVariantList &params, bool collectRows);
 
     ProviderConfig m_config;
+    // Declared before the lease below, and it has to be: members are destroyed in reverse,
+    // so this order is what makes `m_txLease` release itself back into a pool that is still
+    // there. Swapped, an entity destroyed mid-transaction would run ~Lease against a pool
+    // that had already gone.
     std::unique_ptr<SqlConnectionPool> m_pool;
     SqlConnectionPool::Lease m_txLease;  ///< valid only while a transaction is open
     bool m_inTransaction{false};

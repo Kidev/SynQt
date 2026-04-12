@@ -6,6 +6,7 @@
 #include <QSqlError>
 #include <QSqlQuery>
 #include <QSqlRecord>
+#include <QStringList>
 #include <QUuid>
 #include <QVariantMap>
 
@@ -47,6 +48,28 @@ DbResult runStatement(QSqlDatabase &db, const QString &sql, const QVariantList &
     return result;
 }
 
+/// The journal mode to ask SQLite for, given what the topology asked for.
+///
+/// SQLite takes a PRAGMA value as a bare word, so this is the one setting on this provider
+/// that reaches the engine as SQL text rather than as a bound parameter. It comes from
+/// `synqt.yaml` and not from a caller, so this is not an injection anybody can reach today;
+/// it is refused anyway, because "a string from configuration is concatenated into SQL" is
+/// a sentence that should not be true of this file at all, and a typo in a journal mode is
+/// better answered with a message than with a statement SQLite silently declines.
+QString journalModeOrDefault(const QString &requested)
+{
+    static const QStringList modes{QStringLiteral("delete"), QStringLiteral("truncate"),
+                                   QStringLiteral("persist"), QStringLiteral("memory"),
+                                   QStringLiteral("wal"), QStringLiteral("off")};
+    const QString lowered{requested.toLower()};
+    if (modes.contains(lowered)) {
+        return lowered;
+    }
+    qWarning("SynQt: '%s' is not a SQLite journal mode; using WAL. One of: %s",
+             qUtf8Printable(requested), qUtf8Printable(modes.join(QStringLiteral(", "))));
+    return QStringLiteral("wal");
+}
+
 } // namespace
 
 SqliteProvider::SqliteProvider(ProviderConfig config)
@@ -79,10 +102,11 @@ bool SqliteProvider::connect(QString *error)
         }
         return false;
     }
-    // WAL journalling (better concurrency: readers do not block a writer) and enforced
+    // WAL journalling (better concurrency, readers do not block a writer) and enforced
     // foreign keys.
     QSqlQuery pragma{m_db};
-    pragma.exec(QStringLiteral("PRAGMA journal_mode=%1").arg(m_config.journalMode));
+    pragma.exec(QStringLiteral("PRAGMA journal_mode=%1")
+                    .arg(journalModeOrDefault(m_config.journalMode)));
     pragma.exec(QStringLiteral("PRAGMA foreign_keys=ON"));
     if (!runStatement(m_db,
                       QStringLiteral("CREATE TABLE IF NOT EXISTS synqt_migrations "

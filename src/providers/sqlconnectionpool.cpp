@@ -61,6 +61,15 @@ SqlConnectionPool::SqlConnectionPool(QString driver, Configure configure, int ma
     , m_configure{std::move(configure)}
     , m_maxSize{maxSize > 0 ? maxSize : 1}
 {
+    // Every slot the pool will ever hold, allocated now, so the list never reallocates.
+    //
+    // Not a performance note. `Lease::database()` hands out a `QSqlDatabase &` into this
+    // list, and a lease is held for as long as its caller is running a query. The pool grows
+    // on demand, under a mutex a lease does not hold, so a second caller asking for a
+    // connection while the first is using one would move the list and leave that reference
+    // pointing at freed memory. Reserving the cap is what makes the reference outlive the
+    // growth, since the size can never pass `m_maxSize`.
+    m_slots.reserve(m_maxSize);
 }
 
 SqlConnectionPool::~SqlConnectionPool()
@@ -157,6 +166,12 @@ void SqlConnectionPool::closeAll()
         }
     }
     m_slots.clear();
+    // And reserved again, because clear() is not obliged to keep the capacity the
+    // constructor asked for and this pool may be used after being closed: `acquire()` grows
+    // it back on demand. The reservation is what keeps `Lease::database()`'s reference into
+    // this list valid while another caller is growing it (see the constructor), so it has to
+    // hold for the pool's whole life and not only until the first disconnect.
+    m_slots.reserve(m_maxSize);
 }
 
 int SqlConnectionPool::openCount() const
