@@ -217,12 +217,29 @@ def rotate(project_dir: os.PathLike[str] | str, entity: Optional[str] = None,
     return cert_all(project_dir, service_entities or [], dev=dev)
 
 
+#: The month abbreviations openssl prints, which are English whatever the machine's locale
+#: is. `%b` in `strptime` is not. It reads the *current* locale's month names, so a developer
+#: whose shell is not English got a ValueError out of `synqt mesh status` and a traceback
+#: instead of an expiry date. Parsed by hand, against the names openssl writes.
+_MONTHS = {name: number for number, name in enumerate(
+    ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+     "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"], start=1)}
+
+
 def _not_after(crt: Path) -> Optional[datetime]:
     output = _openssl("x509", "-enddate", "-noout", "-in", str(crt)).strip()
     if not output.startswith("notAfter="):
         return None
-    return datetime.strptime(output[len("notAfter="):], "%b %d %H:%M:%S %Y %Z").replace(
-        tzinfo=timezone.utc)
+    # "Aug  4 12:00:00 2027 GMT" -- the day is space-padded, so split on runs of whitespace.
+    fields = output[len("notAfter="):].split()
+    if len(fields) < 4 or fields[0] not in _MONTHS:
+        return None
+    try:
+        clock = datetime.strptime(fields[2], "%H:%M:%S")
+        return datetime(int(fields[3]), _MONTHS[fields[0]], int(fields[1]),
+                        clock.hour, clock.minute, clock.second, tzinfo=timezone.utc)
+    except ValueError:
+        return None
 
 
 def status(project_dir: os.PathLike[str] | str, *, dev: bool = False,

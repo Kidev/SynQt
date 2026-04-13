@@ -91,6 +91,21 @@ class MeshTest(unittest.TestCase):
             stat.S_IMODE((self.root / "synqt" / "mesh" / "ca.key").stat().st_mode), 0o600)
 
 
+    def test_status_reads_an_expiry_whatever_the_machine_locale_is(self):
+        """openssl prints English month abbreviations; `%b` in strptime reads the current
+        locale's. On a machine whose locale is not English that combination raised a
+        ValueError out of `synqt mesh status`, printing a traceback where an expiry date
+        belongs.
+        """
+        with unittest.mock.patch.object(
+                mesh, "_openssl", return_value="notAfter=Aug  4 12:34:56 2027 GMT\n"):
+            parsed = mesh._not_after(Path("anything.crt"))
+        self.assertEqual(parsed, datetime(2027, 8, 4, 12, 34, 56, tzinfo=timezone.utc))
+        # An unreadable date is None, which status() reports, rather than an exception.
+        with unittest.mock.patch.object(
+                mesh, "_openssl", return_value="notAfter=Nonesuch 4 12:34:56 2027 GMT\n"):
+            self.assertIsNone(mesh._not_after(Path("anything.crt")))
+
     def test_entity_certs_carry_the_key_usages_a_strict_verifier_requires(self):
         """An entity cert must chain to the CA and state both TLS roles it plays: server
         on the links it owns, client on the links it consumes.
