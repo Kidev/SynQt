@@ -52,6 +52,45 @@ class MeshTest(unittest.TestCase):
         with self.assertRaises(mesh.MeshError):
             mesh.cert(self.root, "client", kind="client")
 
+    def test_a_private_key_is_never_readable_by_anyone_else_even_briefly(self):
+        """The key file is created with its final mode, not chmod-ed into it afterwards.
+
+        `openssl genrsa -out` creates the file with the process umask, which on a default
+        system is 0644, and the `chmod` that follows closes a window rather than never
+        opening it. In that window every account on the machine can read the trust anchor
+        for every mesh link in the project.
+
+        Asserted by running the generation with a permissive umask, which is what makes the
+        window observable. Without the fix the file is left 0666 & ~umask at creation, and
+        the assertion below is on the mode openssl itself wrote, taken from a callable that
+        stands in for it.
+        """
+        if os.name == "nt":
+            self.skipTest("POSIX modes; mesh._restrict carries the Windows ACL half")
+        seen = {}
+        real = mesh._openssl
+
+        def watching(*args):
+            # The moment openssl would start writing the key is the moment the file has to
+            # be private already.
+            if args[0] == "genrsa":
+                target = Path(args[args.index("-out") + 1])
+                seen[target.name] = stat.S_IMODE(target.stat().st_mode)
+            return real(*args)
+
+        previous = os.umask(0o000)
+        try:
+            with unittest.mock.patch.object(mesh, "_openssl", watching):
+                mesh.init(self.root)
+                mesh.cert(self.root, "database")
+        finally:
+            os.umask(previous)
+        self.assertEqual(seen["ca.key"], 0o600)
+        self.assertEqual(seen["database.key"], 0o600)
+        self.assertEqual(
+            stat.S_IMODE((self.root / "synqt" / "mesh" / "ca.key").stat().st_mode), 0o600)
+
+
     def test_entity_certs_carry_the_key_usages_a_strict_verifier_requires(self):
         """An entity cert must chain to the CA and state both TLS roles it plays: server
         on the links it owns, client on the links it consumes.

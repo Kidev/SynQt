@@ -51,6 +51,13 @@
       "test": "anIdTokenThatNamesNoKeyIsRefusedWhenTheProviderPublishesTwo"
     },
     {
+      "id": "mesh-key-readable-while-it-is-written",
+      "what": "Another account on the build machine reads the project CA private key in the window between openssl creating the file and the tool restricting it. Whoever holds that key issues themselves a certificate for any entity, and every mesh link accepts it.",
+      "defended_by": "The key file is created 0600 before openssl is run, so it is never readable by anyone else, rather than made unreadable a moment after it was.",
+      "file": "tools/synqt/tests/test_m10.py",
+      "test": "test_a_private_key_is_never_readable_by_anyone_else_even_briefly"
+    },
+    {
       "id": "cross-site-websocket-hijack",
       "what": "A page on another origin opens a WebSocket to the edge, and the browser attaches the victim's session cookie to it.",
       "defended_by": "The upgrade verifier compares Origin against security.allowed_origins before a socket exists. A browser cannot forge Origin.",

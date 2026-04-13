@@ -47,6 +47,25 @@ def _openssl(*args: str) -> str:
     return result.stdout
 
 
+def _reserve_key(path: Path) -> None:
+    """Create the file a private key is about to be written into, readable only by this user.
+
+    ``openssl genrsa -out`` creates the file with the process umask, which on most systems
+    means every account on the machine can read it, and the ``chmod`` afterwards closes the
+    window rather than never opening it. The key it protects is the trust anchor for every
+    mesh link in the project, so the window is worth not having. Create the file first, with
+    the mode it needs, and let openssl write into the file that is already there (it opens
+    the path for writing and does not reset the mode of a file that exists).
+
+    Windows has no mode to set here. ``_restrict`` applies the ACL after the fact, and says
+    so when it cannot.
+    """
+    path.unlink(missing_ok=True)
+    if os.name == "nt":
+        return
+    os.close(os.open(path, os.O_CREAT | os.O_WRONLY | os.O_EXCL, 0o600))
+
+
 def _restrict(path: Path) -> bool:
     """Make a private key readable only by the user who owns it. Returns whether the
     platform's own mechanism was applied, because the caller reports it: os.chmod on
@@ -118,6 +137,7 @@ def init(project_dir: os.PathLike[str] | str, *, dev: bool = False, force: bool 
         "subjectKeyIdentifier=hash\n"
         "authorityKeyIdentifier=keyid:always\n")
     try:
+        _reserve_key(ca_key)
         _openssl("genrsa", "-out", str(ca_key), "2048")
         _openssl("req", "-new", "-key", str(ca_key), "-subj", "/CN=SynQt Mesh CA",
                  "-out", str(csr))
@@ -170,6 +190,7 @@ def cert(project_dir: os.PathLike[str] | str, entity: str, *, dev: bool = False,
         "subjectKeyIdentifier=hash\n"
         "authorityKeyIdentifier=keyid,issuer\n")
     try:
+        _reserve_key(key)
         _openssl("genrsa", "-out", str(key), "2048")
         _openssl("req", "-new", "-key", str(key), "-subj", f"/CN={entity}", "-out", str(csr))
         _openssl("x509", "-req", "-in", str(csr), "-CA", str(ca_crt), "-CAkey", str(ca_key),
