@@ -89,17 +89,29 @@ bool MemoryCacheProvider::isExpired(const Entry &entry) const
     return entry.expiresMs > 0 && QDateTime::currentMSecsSinceEpoch() > entry.expiresMs;
 }
 
-void MemoryCacheProvider::touch(const QString &key)
+/// Move an entry to the most-recently-used end. Constant time. The list node is spliced
+/// rather than searched for, which is what the iterator on the entry is for.
+void MemoryCacheProvider::touch(Entry &entry)
 {
-    m_lru.removeOne(key);
-    m_lru.append(key);  // most-recently-used at the back
+    m_lru.splice(m_lru.end(), m_lru, entry.recency);
+}
+
+/// Forget one entry, and its place in the recency order with it.
+void MemoryCacheProvider::drop(QHash<QString, Entry>::iterator entry)
+{
+    m_lru.erase(entry->recency);
+    m_entries.erase(entry);
 }
 
 void MemoryCacheProvider::evictIfNeeded()
 {
-    while (m_entries.size() > m_maxEntries && !m_lru.isEmpty()) {
-        const QString victim{m_lru.takeFirst()};  // least-recently-used
-        m_entries.remove(victim);
+    while (m_entries.size() > m_maxEntries && !m_lru.empty()) {
+        const auto victim{m_entries.find(m_lru.front())};  // least-recently-used
+        if (victim == m_entries.end()) {
+            m_lru.pop_front();  // cannot happen. Leaving it would spin
+            continue;
+        }
+        drop(victim);
     }
 }
 
@@ -110,28 +122,38 @@ QVariant MemoryCacheProvider::get(const QString &key)
         return {};
     }
     if (isExpired(it.value())) {
-        m_entries.erase(it);
-        m_lru.removeOne(key);
+        drop(it);
         return {};
     }
-    touch(key);
+    touch(it.value());
     return it.value().value;
 }
 
 void MemoryCacheProvider::set(const QString &key, const QVariant &value, int ttlSeconds)
 {
+    const auto existing{m_entries.find(key)};
+    if (existing != m_entries.end()) {
+        // Overwriting: the key keeps the node it already has, so replacing a value never
+        // costs a list insertion and never leaves a second node naming the same key.
+        existing->value = value;
+        existing->expiresMs = expiryFor(ttlSeconds);
+        touch(*existing);
+        return;
+    }
     Entry entry;
     entry.value = value;
     entry.expiresMs = expiryFor(ttlSeconds);
+    entry.recency = m_lru.insert(m_lru.end(), key);
     m_entries.insert(key, entry);
-    touch(key);
     evictIfNeeded();  // never exceed the bound
 }
 
 void MemoryCacheProvider::del(const QString &key)
 {
-    m_entries.remove(key);
-    m_lru.removeOne(key);
+    const auto it{m_entries.find(key)};
+    if (it != m_entries.end()) {
+        drop(it);
+    }
 }
 
 qint64 MemoryCacheProvider::incr(const QString &key, qint64 by)
@@ -144,9 +166,18 @@ qint64 MemoryCacheProvider::incr(const QString &key, qint64 by)
 void MemoryCacheProvider::expire(const QString &key, int ttlSeconds)
 {
     const auto it{m_entries.find(key)};
-    if (it != m_entries.end()) {
-        it.value().expiresMs = expiryFor(ttlSeconds);
+    if (it == m_entries.end()) {
+        return;  // naming a key that is not here does not create one
     }
+    // The table is swept lazily, so a key whose deadline has passed is still sitting in it
+    // until something reads it. Resetting that entry's deadline without asking would hand
+    // back the value it expired with, which is a stale read that no TTL bounds: an entry
+    // expired an hour ago comes back live. It is gone, and this is where it goes.
+    if (isExpired(it.value())) {
+        drop(it);
+        return;
+    }
+    it.value().expiresMs = expiryFor(ttlSeconds);
 }
 
 int MemoryCacheProvider::size() const

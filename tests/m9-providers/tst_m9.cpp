@@ -835,6 +835,15 @@ private slots:
         cache->set(key, QStringLiteral("brief"), 30);
         QCOMPARE(cache->get(key).toString(), QStringLiteral("brief"));
 
+        // And the case that made the two providers disagree. A non-positive TTL means "no
+        // expiry" in this family, as it does on set(); `EXPIRE key 0` means "expired
+        // already" to Redis, which deletes the key. So the same line of application QML
+        // kept the value forever against the memory provider and dropped it against Redis.
+        cache->expire(key, 0);
+        QCOMPARE(cache->get(key).toString(), QStringLiteral("brief"));
+        cache->expire(key, -1);
+        QCOMPARE(cache->get(key).toString(), QStringLiteral("brief"));
+
         cache->del(key);
         cache->del(counter);
         cache->disconnect();
@@ -1402,9 +1411,90 @@ private slots:
         QVERIFY(!cache.get(QStringLiteral("absent")).isValid());
     }
 
+    // Clearing a deadline, and the other half of the sentence set() already answers.
+    //
+    // `expire(key, 0)` reads two ways -- "no expiry" and "expire now" -- and the two
+    // providers in this family read it differently: the memory one kept the key and Redis
+    // deleted it, because Redis takes a non-positive EXPIRE as "already expired". The
+    // interface says what set() says, which is no expiry, so this pins it on the provider
+    // every project gets by default. redisLiveRoundTrip() pins the same line on the other.
+    void memoryCacheExpireWithNoTtlClearsTheDeadline()
+    {
+        ProviderConfig config;
+        MemoryCacheProvider cache{config, /*maxEntries*/ 8};
+        QVERIFY(cache.connect(nullptr));
+
+        cache.set(QStringLiteral("kept"), 1, /*ttlSeconds*/ 1);
+        cache.expire(QStringLiteral("kept"), 0);
+        cache.set(QStringLiteral("also-kept"), 2, /*ttlSeconds*/ 1);
+        cache.expire(QStringLiteral("also-kept"), -5);
+
+        // Past the deadline they were given, and still here, because it was taken off them.
+        QTest::qWait(1200);
+        QCOMPARE(cache.get(QStringLiteral("kept")).toInt(), 1);
+        QCOMPARE(cache.get(QStringLiteral("also-kept")).toInt(), 2);
+    }
+
+    // A key whose deadline has passed is gone, and expire() may not bring it back.
+    //
+    // The entries table is swept lazily -- get() erases what it finds expired -- so an
+    // entry that has run out is still sitting there until somebody reads it. expire()
+    // looked the key up and reset its deadline without asking whether the deadline it was
+    // replacing had already gone by, which turned a key that had expired an hour ago into
+    // a live one holding the value it expired with. Redis answers the same call with "no
+    // such key", so this was the divergence the family interface exists to prevent: the
+    // same line of application QML read a stale value against the default provider and
+    // nothing at all against Redis.
+    void memoryCacheExpireDoesNotResurrectAKeyThatHasAlreadyExpired()
+    {
+        ProviderConfig config;
+        MemoryCacheProvider cache{config, /*maxEntries*/ 8};
+        QVERIFY(cache.connect(nullptr));
+
+        cache.set(QStringLiteral("gone"), 7, /*ttlSeconds*/ 1);
+        QTest::qWait(1200);
+
+        // Not read in between, so the entry is still in the table when this arrives.
+        cache.expire(QStringLiteral("gone"), 600);
+        QVERIFY(!cache.get(QStringLiteral("gone")).isValid());
+    }
+
+    // Recency survives an overwrite, which is where the bookkeeping is easiest to get wrong.
+    //
+    // Each entry holds its place in the recency list rather than being searched for in it,
+    // so writing an existing key has to move the node it already has instead of adding a
+    // second one naming the same key. A duplicate would make the list disagree with the
+    // table and evict a key that is not the least recently used -- which is a cache quietly
+    // dropping live data, and nothing in the eviction test above would notice.
+    void memoryCacheKeepsOneRecencyNodePerKey()
+    {
+        ProviderConfig config;
+        MemoryCacheProvider cache{config, /*maxEntries*/ 3};
+        QVERIFY(cache.connect(nullptr));
+
+        cache.set(QStringLiteral("a"), 1, 0);
+        cache.set(QStringLiteral("b"), 2, 0);
+        cache.set(QStringLiteral("c"), 3, 0);
+        // Rewritten several times over. With a node per write, "a" would own most of the
+        // list and the eviction below would take it rather than the key nobody has touched.
+        for (int pass{0}; pass < 5; ++pass) {
+            cache.set(QStringLiteral("a"), 100 + pass, 0);
+        }
+        cache.set(QStringLiteral("b"), 20, 0);
+        cache.set(QStringLiteral("c"), 30, 0);
+
+        // "a" is now the least recently used of the three, so it is what goes.
+        cache.set(QStringLiteral("d"), 4, 0);
+        QCOMPARE(cache.size(), 3);
+        QVERIFY(!cache.get(QStringLiteral("a")).isValid());
+        QCOMPARE(cache.get(QStringLiteral("b")).toInt(), 20);
+        QCOMPARE(cache.get(QStringLiteral("c")).toInt(), 30);
+        QCOMPARE(cache.get(QStringLiteral("d")).toInt(), 4);
+    }
+
     void memoryCacheDropsAnEntryOnceItsTtlHasPassed()
     {
-        // The one test here that has to spend real time: a TTL is in whole seconds, so the
+        // The one test here that has to spend real time. A TTL is in whole seconds, so the
         // shortest one that can be observed to elapse is one second. It is worth the wait,
         // because expiry is the cache's whole correctness claim and the read path is where
         // it is enforced (get() erases what it finds expired rather than only hiding it).

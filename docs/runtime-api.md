@@ -598,27 +598,27 @@ That is what keeps one Source working across `memory` and `mongodb`.
 
 | Member | Returns | Description |
 |--------|---------|-------------|
-| `Cache.get(key)` | value \| undefined | the stored value, or nothing when the key is missing or expired. A miss is normal, not an error. |
+| `Cache.get(key)` | value \| undefined | the stored value, or nothing when the key is missing or expired. A miss is normal rather than an error. |
 | `Cache.set(key, value, ttlSeconds?)` | - | store `value`. `ttlSeconds` omitted or `0` means no expiry. |
 | `Cache.del(key)` | - | drop the key. |
 | `Cache.incr(key, by?)` | int | add `by` (default `1`) atomically and return the new value. The rate-limit counter primitive. |
-| `Cache.expire(key, ttlSeconds)` | - | set or replace the TTL on an existing key. |
+| `Cache.expire(key, ttlSeconds)` | - | set or replace the TTL on an existing key. `0` or less clears it, exactly as on `set`. It never means "drop the key now". A key whose TTL has already passed is not an existing key, so this drops it rather than reviving it. |
 
 The cache is bounded and evicts. Anything that has to survive a restart or an
-eviction belongs in a relational entity, not here.
+eviction belongs in a relational entity rather than here.
 
 ### `Http`: outbound calls, within the allowlist
 
 | Member | Returns | Description |
 |--------|---------|-------------|
-| `Http.api(name)` | endpoint | the named `network.outbound` entry: its base URL, and the headers the runtime attaches to every call under it. |
+| `Http.api(name)` | endpoint | the named `network.outbound` entry, its base URL, and the headers the runtime attaches to every call under it. |
 | `Http.get(url, headers?)` | promise | issue a GET. |
 | `Http.post(url, body?, headers?)` | promise | issue a POST. A body that is not a string is sent as JSON. |
 | `Http.put(url, body?, headers?)` | promise | issue a PUT. |
 | `Http.del(url, headers?)` | promise | issue a DELETE. |
 | `endpoint.get(path?, headers?)` | promise | the same four, with `path` resolved against the endpoint's base. |
 | `endpoint.url` | string | the base this endpoint resolves against. |
-| `promise.then(onOk, onError?)` | - | `onOk({ status, body, json })` on success, `onError(message)` on failure. `json` is there when the reply said it was JSON. Settles once; a handler attached in the same statement fires as soon as it settles. |
+| `promise.then(onOk, onError?)` | - | `onOk({ status, body, json })` on success, `onError(message)` on failure. `json` is there when the reply said it was JSON. Settles once, and a handler attached in the same statement fires as soon as it settles. |
 
 ```qml
 Http.get("https://api.example.com/rates")

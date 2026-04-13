@@ -14,19 +14,16 @@ FAMILY_INTERFACE = {
     "document": ("IDocumentProvider", "idocumentprovider.h"),
 }
 
-# Family -> the macro that registers a provider with the ProviderRegistry. Implementing the
-# interface only gets you a class. The registration is what makes provider.name able to
-# select it, so the skeleton ships with it already written.
+# Family to the macro that registers a provider with the ProviderRegistry, which is what
+# lets provider.name select it.
 FAMILY_REGISTER_MACRO = {
     "relational": "SYNQT_REGISTER_PERSISTENCE_PROVIDER",
     "cache": "SYNQT_REGISTER_CACHE_PROVIDER",
     "document": "SYNQT_REGISTER_DOCUMENT_PROVIDER",
 }
 
-# The family operations, stubbed. The registration below instantiates the class, so a
-# skeleton that left these pure would not compile, and a stub that quietly returned success
-# would be worse than not compiling. Each one fails through the interface (never throws),
-# naming itself, so an unfinished provider is loud at the first call rather than mysterious.
+# The family operations, stubbed. Each fails through the interface, naming itself, so an
+# unfinished provider fails at its first call.
 _OPERATIONS = {
     "relational": (
         "    DbResult query(const QString &sql, const QVariantList &params) override\n"
@@ -58,8 +55,7 @@ _OPERATIONS = {
         "    QVariant get(const QString &key) override\n"
         "    {\n"
         "        // TODO: return the value, or an invalid QVariant. A miss is a normal\n"
-        "        // result in this family, not an error, so an unfinished cache is an\n"
-        "        // always-miss cache: correct, just useless.\n"
+        "        // result in this family, not an error.\n"
         "        Q_UNUSED(key);\n"
         "        return QVariant{};\n"
         "    }\n\n"
@@ -80,6 +76,8 @@ _OPERATIONS = {
         "    }\n\n"
         "    void expire(const QString &key, int ttlSeconds) override\n"
         "    {\n"
+        "        // TODO: set or replace the TTL on an existing key (ttlSeconds <= 0 means\n"
+        "        // no expiry, as on set(), and never \"drop the key now\").\n"
         "        Q_UNUSED(key);\n"
         "        Q_UNUSED(ttlSeconds);\n"
         "    }\n"),
@@ -117,12 +115,11 @@ _OPERATIONS = {
         "    }\n"),
 }
 
-# The relational family reports errors through DbResult and QString *error both, so its
-# skeleton carries the two shapes of the same "not written yet" message.
+# The relational family reports errors through DbResult and QString *error.
 _HELPERS = {
     "relational": (
-        "    // Until the operations above are written, every call says so through the\n"
-        "    // interface. Errors are returned here, never thrown across the boundary.\n"
+        "    // Until the operations above are written, every call returns this error through\n"
+        "    // the interface. Errors are returned, never thrown across the boundary.\n"
         "    QString notImplemented(const QString &operation) const\n"
         "    {\n"
         "        return QStringLiteral(\"%1: %2() is not implemented\")\n"
@@ -163,12 +160,11 @@ def _skeleton(name: str, family: str) -> str:
         '#include "providerregistry.h"\n\n'
         f"{_INCLUDES[family]}\n"
         "#include <utility>\n\n"
-        "// A custom provider is your code, reviewed like any entity code; the framework\n"
-        "// does not weaken its boundary for it. Honour the interface contract: pass\n"
-        "// parameters separately (never concatenate), report errors through the return\n"
-        "// value (never throw across the boundary), keep credentials from the entity env\n"
-        "// only, and connect to an external engine over verified TLS (refuse plaintext in\n"
-        "// release).\n\n"
+        "// A custom provider is entity code and gets the same review. Honour the interface\n"
+        "// contract: pass parameters separately (never concatenate), report errors through\n"
+        "// the return value (never throw across the boundary), take credentials from the\n"
+        "// entity env only, and connect to an external engine over verified TLS (refuse\n"
+        "// plaintext in release).\n\n"
         "namespace SynQt {\n\n"
         f"class {name}Provider final : public {interface}\n"
         "{\n"
@@ -177,17 +173,17 @@ def _skeleton(name: str, family: str) -> str:
         "        : m_config{std::move(config)}\n"
         "    {\n"
         "    }\n\n"
-        "    // TODO: open the engine here, over verified TLS, with credentials taken from\n"
-        "    // m_config (which the entity resolved from its own env). Refuse a plaintext\n"
-        "    // or unverified connection when m_config.release is true.\n"
+        "    // TODO: open the engine here over verified TLS, with credentials from m_config\n"
+        "    // (resolved from the entity env). Refuse a plaintext or unverified connection\n"
+        "    // when m_config.release is true.\n"
         "    bool connect(QString *error) override\n"
         "    {\n"
         "        Q_UNUSED(error);\n"
         "        return true;\n"
         "    }\n\n"
         "    void disconnect() override {}\n\n"
-        "    // TODO: report real readiness, so the entity can say \"not ready\" and retry\n"
-        "    // rather than crash.\n"
+        "    // TODO: report real readiness, so the entity reports \"not ready\" and retries\n"
+        "    // instead of failing.\n"
         "    bool isHealthy() const override { return true; }\n\n"
         f'    QString name() const override {{ return QStringLiteral("custom:{name}"); }}\n\n'
         f"{_OPERATIONS[family]}"
@@ -195,9 +191,9 @@ def _skeleton(name: str, family: str) -> str:
         f"{_HELPERS[family]}"
         "    ProviderConfig m_config;\n"
         "};\n\n"
-        "// This is what makes the class selectable: it registers the provider under the\n"
-        f"// bare name, so `provider.name: custom:{name}` in synqt.yaml reaches it. Without\n"
-        "// it the name resolves to nothing and the entity refuses to start.\n"
+        "// Registers the provider under its bare name, so `provider.name:\n"
+        f"// custom:{name}` in synqt.yaml selects it. Without this the entity refuses to\n"
+        "// start.\n"
         f'{macro}("{name}", {name}Provider)\n\n'
         "} // namespace SynQt\n")
 

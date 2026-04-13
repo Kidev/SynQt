@@ -195,7 +195,7 @@ QVariant RedisCacheProvider::get(const QString &key)
     redisReply *reply{runCommand(m_context, {QByteArrayLiteral("GET"), key.toUtf8()})};
     QVariant value;
     if (reply != nullptr && reply->type == REDIS_REPLY_STRING) {
-        value = QString::fromUtf8(reply->str, static_cast<int>(reply->len));
+        value = QString::fromUtf8(reply->str, static_cast<qsizetype>(reply->len));
     }
     if (reply != nullptr) {
         freeReplyObject(reply);
@@ -254,8 +254,17 @@ void RedisCacheProvider::expire(const QString &key, int ttlSeconds)
     if (m_context == nullptr) {
         return;
     }
-    redisReply *reply{runCommand(
-        m_context, {QByteArrayLiteral("EXPIRE"), key.toUtf8(), QByteArray::number(ttlSeconds)})};
+    // A TTL of zero or less means "no expiry" in this family, exactly as it does on `set`,
+    // and PERSIST is how Redis says that. `EXPIRE key 0` says something else entirely: Redis
+    // treats a non-positive TTL as "already expired" and deletes the key. So the same line
+    // of application QML kept a value forever against the memory provider and dropped it
+    // against Redis, which is the one thing swapping a provider is not allowed to do.
+    const QList<QByteArray> command{
+        ttlSeconds > 0
+            ? QList<QByteArray>{QByteArrayLiteral("EXPIRE"), key.toUtf8(),
+                                QByteArray::number(ttlSeconds)}
+            : QList<QByteArray>{QByteArrayLiteral("PERSIST"), key.toUtf8()}};
+    redisReply *reply{runCommand(m_context, command)};
     if (reply != nullptr) {
         freeReplyObject(reply);
     }

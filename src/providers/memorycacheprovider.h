@@ -8,7 +8,8 @@
 #include "providerconfig.h"
 
 #include <QHash>
-#include <QList>
+
+#include <list>
 
 namespace SynQt {
 
@@ -35,21 +36,35 @@ public:
     int size() const; ///< for tests: the number of live entries
 
 private:
+    /// The recency order, oldest at the front. A `std::list` rather than a QList of keys,
+    /// because every entry holds an iterator into it and a list is the one container whose
+    /// iterators survive insertion and removal elsewhere in it.
+    ///
+    /// That is what makes a hit O(1). It used to be a QList<QString> with
+    /// `removeOne(key)` on every get and every set, which is a linear scan comparing
+    /// strings: at the default bound of a thousand entries, a cache doing its job -- a full
+    /// working set, every access a hit -- spent a thousand string comparisons per access on
+    /// bookkeeping, and `incr` spent two thousand, since it reads and writes. A cache is the
+    /// thing an entity reaches for when it wants something to be fast.
+    using Recency = std::list<QString>;
+
     struct Entry
     {
         QVariant value;
         qint64 expiresMs{0}; ///< 0 == no expiry
+        Recency::iterator recency; ///< this key's place in m_lru
     };
 
     bool isExpired(const Entry &entry) const;
-    void touch(const QString &key);  ///< mark most-recently-used
+    void touch(Entry &entry);  ///< mark most-recently-used
+    void drop(QHash<QString, Entry>::iterator entry);
     void evictIfNeeded();
 
     ProviderConfig m_config;
     int m_maxEntries;
     bool m_connected{false};
     QHash<QString, Entry> m_entries;
-    QList<QString> m_lru; ///< front = least-recently-used, back = most-recently-used
+    Recency m_lru; ///< front = least-recently-used, back = most-recently-used
 };
 
 } // namespace SynQt

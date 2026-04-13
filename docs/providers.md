@@ -92,18 +92,23 @@ a provider must implement. The connect point Source calls the interface, never a
 specific engine, so the same `Store.qml` works whether the provider is SQLite or
 PostgreSQL.
 
-Family interfaces (illustrative shapes; the exact C++ signatures live in the
+Family interfaces (illustrative shapes, and the exact C++ signatures live in the
 framework headers):
 
 - Persistence (relational): `connect()`, `health()`, `query(sql, params) -> rows`,
   `exec(sql, params) -> affected/id`, `begin()/commit()/rollback()`,
-  `migrate(steps)`. Always parameterized; the interface takes parameters
+  `migrate(steps)`. Always parameterized. The interface takes parameters
   separately so a provider can never be handed concatenated SQL.
 - Document: `connect()`, `health()`, `insert(collection, doc)`,
   `find(collection, filter, options) -> docs`, `update(collection, filter, change)`,
   `remove(collection, filter)`.
 - Cache: `connect()`, `health()`, `get(key)`, `set(key, value, ttl)`, `del(key)`,
-  `incr(key)`, `expire(key, ttl)`.
+  `incr(key)`, `expire(key, ttl)`. A TTL of zero or less means no expiry, on `expire` as
+  well as on `set`. It is written down because it reads two ways and the engines disagree.
+  Redis takes `EXPIRE key 0` as "already expired" and deletes the key, so a provider
+  wrapping it has to say `PERSIST` instead. A provider that got this wrong would make the
+  same line of application QML keep a value forever behind one engine and drop it behind
+  another, which is the one thing swapping a provider may not do.
 
 The entity's QML never holds the interface itself. Each type exposes one helper,
 injected into every owned connect point Source by the entity runtime: `Db` for
