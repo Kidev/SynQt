@@ -7,6 +7,8 @@
 #include <QUrl>
 #include <QUrlQuery>
 
+#include <utility>
+
 namespace SynQt {
 
 namespace {
@@ -77,11 +79,8 @@ bool RoutePattern::hasParameters() const
     return m_segments.size() > m_literalSegments;
 }
 
-bool RoutePattern::matches(const QString &path, QVariantMap *parameters) const
+bool RoutePattern::splitPath(const QString &path, QStringList *segments)
 {
-    if (!m_valid) {
-        return false;
-    }
     if (!path.startsWith(QLatin1Char('/'))) {
         return false;
     }
@@ -96,11 +95,31 @@ bool RoutePattern::matches(const QString &path, QVariantMap *parameters) const
     }
     for (const QString &segment : actual) {
         if (segment.isEmpty()) {
-            // Any remaining empty element is an interior "//" (or a
-            // leading "//", which after removeFirst() also shows up as
-            // a leading empty element here). This never matches.
+            // Any remaining empty element is an interior "//" (or a leading "//", which
+            // shows up here after removeFirst()). It never matches.
             return false;
         }
+    }
+    *segments = std::move(actual);
+    return true;
+}
+
+bool RoutePattern::matches(const QString &path, QVariantMap *parameters) const
+{
+    if (!m_valid) {
+        return false;
+    }
+    QStringList actual;
+    if (!splitPath(path, &actual)) {
+        return false;
+    }
+    return matches(actual, parameters);
+}
+
+bool RoutePattern::matches(const QStringList &actual, QVariantMap *parameters) const
+{
+    if (!m_valid) {
+        return false;
     }
     if (actual.size() != m_segments.size()) {
         return false;
@@ -113,11 +132,9 @@ bool RoutePattern::matches(const QString &path, QVariantMap *parameters) const
                             QUrl::fromPercentEncoding(actual.at(index).toUtf8()));
             continue;
         }
-        /// Literal segments compare against the raw, still percent-encoded
-        /// actual segment, while parameter segments are decoded before
-        /// capture. So "/%63art" will not match a literal "/cart" pattern.
-        /// That asymmetry only ever produces a false negative, never a
-        /// false positive, so it is safe to leave as is.
+        // Literal segments compare against the raw percent-encoded segment, while
+        // parameters are decoded before capture, so "/%63art" does not match a literal
+        // "/cart". This can only cause a false negative, never a false positive.
         if (segment != actual.at(index)) {
             return false;
         }

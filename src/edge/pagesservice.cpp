@@ -25,10 +25,9 @@ PageResponse refusal(const QString &status)
 
 } // namespace
 
-/// A declared route paired with its compiled pattern, so match precedence is
-/// decided once (by literalSegmentCount(), most literal first) rather than left
-/// to PageStore::declaredRoutes()'s QHash order, which is unspecified and
-/// unstable. Mirrors Router::compiledRoutes()/applyRoutes() on the client side.
+/// A declared route with its compiled pattern, so match precedence is decided once
+/// (literalSegmentCount(), most literal first) instead of by PageStore::declaredRoutes()'s
+/// unspecified QHash order. Mirrors Router::compiledRoutes()/applyRoutes() on the client.
 struct PagesService::Candidate
 {
     QString route;
@@ -45,13 +44,12 @@ PagesService::~PagesService() = default;
 
 const QList<PagesService::Candidate> &PagesService::candidates() const
 {
-    // Keyed on the count because the table only ever grows: PageStore::addPage() is the
-    // one thing that writes it, and a hot reload rewrites a page's bytes rather than its
-    // route. So a size that has not moved is a table that has not moved.
-    const QStringList declared{m_store->declaredRoutes()};
-    if (m_compiledRoutes == declared.size()) {
+    // Keyed on the count: only PageStore::addPage() writes the table, and a hot reload
+    // changes a page's bytes, not its route, so an unchanged size means an unchanged table.
+    if (m_compiledRoutes == m_store->routeCount()) {
         return m_candidates;
     }
+    const QStringList declared{m_store->declaredRoutes()};
     m_candidates.clear();
     m_candidates.reserve(declared.size());
     for (const QString &route : declared) {
@@ -82,18 +80,20 @@ PageResponse PagesService::fetchPageFor(const QString &requestPath,
     QVariantMap query{};
     const QString path{RoutePattern::splitQuery(requestPath, &query)};
 
-    // Match against what was declared, most literal segments first (see
-    // candidates() above), so "/c/summary" beats "/c/:campaign" whatever
-    // order PageStore::declaredRoutes() happened to return them in. A route the
-    // table does not contain does not exist, whatever the caller sent.
+    // Match against the declared routes, most literal first (see candidates() above), so
+    // "/c/summary" beats "/c/:campaign". An undeclared route does not exist.
     QString matched{};
     QVariantMap parameters{};
-    for (const Candidate &candidate : candidates()) {
-        QVariantMap captured{};
-        if (candidate.pattern.matches(path, &captured)) {
-            matched = candidate.route;
-            parameters = captured;
-            break;
+    QStringList segments;
+    // One split for the table. See Api::dispatch. This runs on every page fetch.
+    if (RoutePattern::splitPath(path, &segments)) {
+        for (const Candidate &candidate : candidates()) {
+            QVariantMap captured{};
+            if (candidate.pattern.matches(segments, &captured)) {
+                matched = candidate.route;
+                parameters = captured;
+                break;
+            }
         }
     }
     if (matched.isEmpty()) {
@@ -102,18 +102,15 @@ PageResponse PagesService::fetchPageFor(const QString &requestPath,
 
     const QString scope{m_store->scopeFor(matched)};
     if (!scope.isEmpty() && (!caller || !caller->hasScope(scope))) {
-        // Nothing about the page goes back: not its source, not its hash, not
-        // its size.
+        // Nothing about the page goes back: no source, hash or size.
         return refusal(QStringLiteral("forbidden"));
     }
 
-    // Past this point the caller is authorized for this route, so a reply may carry the
-    // page. The hash is the hash of the page FILE, so it is the same for every
-    // parameterization of one route. A caller who already holds the component sends that
-    // hash with a different concrete path, and only the bulky qml payload is worth
-    // skipping. The seed is small and parameter-dependent, and the client keeps its
-    // previous seed on an empty one (router.cpp), so producing it only on the ok path
-    // would paint the new parameters with the old page's data.
+    // The caller is authorized for this route from here on. The hash is of the page file,
+    // the same for every parameterization, so a caller holding the component may send it
+    // with a different path and only the QML payload is skipped. The seed is small and
+    // depends on the parameters, and the client keeps its previous seed on an empty one
+    // (router.cpp), so it is produced on every reply.
     const QString hash{m_store->hashFor(matched)};
     const bool alreadyHeld{!haveHash.isEmpty() && haveHash == hash};
 

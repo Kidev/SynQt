@@ -10,13 +10,9 @@
 
 namespace SynQt {
 
-/// One route path, compiled once so navigation does not re-parse it.
-///
-/// A pattern is a sequence of segments, each either a literal or a `:name` placeholder
-/// that captures. Precedence between two patterns that both match is decided by
-/// literalSegmentCount(), so `/c/summary` wins over `/c/:campaign` however the routes
-/// were declared. Ordering by declaration would make the table's meaning depend on the
-/// order a generator happened to emit it in.
+/// One route path, compiled once so navigation does not re-parse it. Segments are literals
+/// or `:name` placeholders. When two patterns match, literalSegmentCount() decides, so
+/// `/c/summary` beats `/c/:campaign` in any declaration order.
 class RoutePattern
 {
 public:
@@ -43,6 +39,13 @@ public:
     /// placeholders are written to parameters, percent-decoded;
     /// parameters is left untouched when this returns false.
     bool matches(const QString &path, QVariantMap *parameters) const;
+
+    /// The segments of \a path, or false when no pattern can match it (not absolute, or with an
+    /// empty segment). Split once per request, then ask each pattern.
+    static bool splitPath(const QString &path, QStringList *segments);
+
+    /// As matches(), for a path already through splitPath().
+    bool matches(const QStringList &segments, QVariantMap *parameters) const;
 
     /// Split "/path?a=1" into "/path" plus the decoded query pairs.
     static QString splitQuery(const QString &pathWithQuery, QVariantMap *query);

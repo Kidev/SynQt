@@ -36,10 +36,10 @@ public:
     explicit PageStore(QString pagesDir, QObject *parent = nullptr);
     ~PageStore() override;
 
-    /// Declare a page. file is relative to the pages directory. Scope is the
-    /// minimum session scope, empty for a page any session may fetch.
-    /// Declare a page. `graphics` is the requirement the build decided ("accelerated" or
-    /// empty). The store carries it into the route table and never computes one.
+    /// Declare a page. `file` is relative to the pages directory. `scope` is the minimum
+    /// session scope, empty for a page any session may fetch. `graphics` is the requirement
+    /// the build decided ("accelerated" or empty); the store carries it into the route
+    /// table and never computes one.
     void addPage(const QString &route, const QString &file, const QString &scope,
                  const QString &graphics = QString{});
 
@@ -48,12 +48,18 @@ public:
     QString hashFor(const QString &route) const;
     QString sourceFor(const QString &route) const;
 
-    /// The remote route table as a JSON array of {path, scope} objects, for
-    /// the Pages connect point to push.
+    /// The remote route table as a JSON array of {path, scope} objects, with `graphics`
+    /// on a page that needs it, for the Pages connect point to push.
     QString routeTableJson() const;
 
     /// Every declared route, for matching a request path against the table.
     QStringList declaredRoutes() const;
+
+    /// How many there are. Separate from declaredRoutes() because the answer is wanted far
+    /// more often than the list is: PagesService asks it on every page fetch to find out
+    /// whether the table it compiled is still the table, and building a QStringList of
+    /// every route to read its size was a per-request allocation for a number.
+    qsizetype routeCount() const;
 
     /// Watch the page files and re-hash on change. Development only.
     void setWatching(bool watching);

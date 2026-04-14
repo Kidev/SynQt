@@ -249,8 +249,15 @@ void Router::applyRoutes(QList<Route> routes)
 
 const Router::Route *Router::lookup(const QString &path, QVariantMap *parameters) const
 {
+    // One split for the table, not one per route. See Api::dispatch for the same note.
+    // This one runs on every navigation, in the client, where the table is the whole of
+    // the application's routes.
+    QStringList segments;
+    if (!RoutePattern::splitPath(path, &segments)) {
+        return nullptr;
+    }
     for (const Route &route : m_routes) {
-        if (route.pattern.matches(path, parameters)) {
+        if (route.pattern.matches(segments, parameters)) {
             return &route;
         }
     }

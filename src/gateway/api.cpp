@@ -78,9 +78,8 @@ void Api::add(const QString &method, const QString &path, const QJSValue &handle
     }
 
     m_routes.append(Route{method, pattern, handler});
-    // Most literal segments first, so /lots/open beats /lots/:id whichever order the QML
-    // declared them in. std::stable_sort, so two patterns of equal specificity keep their
-    // declaration order and the table stays reproducible.
+    // Most literal segments first, so /lots/open beats /lots/:id in any declaration order.
+    // std::stable_sort keeps equally specific patterns in declaration order.
     std::stable_sort(m_routes.begin(), m_routes.end(), [](const Route &a, const Route &b) {
         return a.pattern.literalSegmentCount() > b.pattern.literalSegmentCount();
     });
@@ -91,18 +90,24 @@ void Api::add(const QString &method, const QString &path, const QJSValue &handle
 
 bool Api::dispatch(ApiRequest *request) const
 {
+    // Split once for the whole table, not once per route. A path that cannot be split
+    // matches no pattern.
+    QStringList segments;
+    if (!RoutePattern::splitPath(request->path(), &segments)) {
+        return false;
+    }
     for (const Route &route : m_routes) {
         if (route.method != request->method()) {
             continue;
         }
         QVariantMap parameters;
-        if (!route.pattern.matches(request->path(), &parameters)) {
+        if (!route.pattern.matches(segments, &parameters)) {
             continue;
         }
 
-        // The request carries this route's captures, then goes to the handler as its only
-        // argument. Ownership stays in C++ because the handler may hold it past this call
-        // to answer later. The server parents it and retires it with the response.
+        // The request carries this route's captures and is the handler's only argument.
+        // Owned by C++, since the handler may keep it to answer later; the server parents
+        // it and retires it with the response.
         request->setParams(parameters);
         QQmlEngine::setObjectOwnership(request, QQmlEngine::CppOwnership);
         QJSValue handler{route.handler};
@@ -114,9 +119,9 @@ bool Api::dispatch(ApiRequest *request) const
             request->fail(500, QStringLiteral("handler error"));
             return true;
         }
-        // A handler that returned a value and has not answered meant that value as the
-        // answer, which is what makes the synchronous case a one-liner. One that answered
-        // already, or that returned nothing because it will answer later, is left alone.
+        // A returned value from a handler that has not answered is the answer, so a
+        // synchronous handler is one line. A handler that already answered, or returned
+        // nothing to answer later, is left alone.
         if (!request->isAnswered() && !result.isUndefined() && !result.isNull()) {
             request->reply(result.toVariant());
         }

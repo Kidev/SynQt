@@ -773,6 +773,19 @@ void WebEdge::cacheBundle()
 
 QByteArray WebEdge::etagFor(const QString &path) const
 {
+    // The table is keyed by canonical path, and most callers already hold one: the asset
+    // route resolved it to check containment, and stampResponse gets it straight back from
+    // bundlePathFor. So try the string as a key first. A hit means it was canonical, by
+    // construction, and it saves a second `canonicalFilePath()`. That call is a stat and a
+    // realpath, and every asset request and every response stamp was paying for one on a
+    // path that had been resolved a few lines earlier.
+    //
+    // The miss is the shell's `<root>/index.html`, which is composed rather than resolved,
+    // and that one still pays for the filesystem exactly as it did.
+    const auto direct{m_etags.constFind(path)};
+    if (direct != m_etags.constEnd()) {
+        return direct.value();
+    }
     return m_etags.value(QFileInfo{path}.canonicalFilePath());
 }
 

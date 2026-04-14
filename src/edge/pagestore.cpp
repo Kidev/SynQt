@@ -118,6 +118,11 @@ QStringList PageStore::declaredRoutes() const
     return m_pages.keys();
 }
 
+qsizetype PageStore::routeCount() const
+{
+    return m_pages.size();
+}
+
 void PageStore::setWatching(bool watching)
 {
     if (!watching) {
