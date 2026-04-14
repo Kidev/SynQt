@@ -58,6 +58,13 @@
       "test": "test_a_private_key_is_never_readable_by_anyone_else_even_briefly"
     },
     {
+      "id": "entity-name-escapes-the-mesh-directory",
+      "what": "A name given to `synqt mesh cert` is put literally into the key and certificate file names, the certificate subject and the SAN. A separator writes a private key outside the mesh directory; a `/` opens a second RDN, so the identity a peer is authenticated as is not the one the operator asked for.",
+      "defended_by": "The same name rule `synqt check` holds a declared entity to is applied to the name typed at the prompt, before openssl is reached.",
+      "file": "tools/synqt/tests/test_m10.py",
+      "test": "test_a_name_that_is_not_an_entity_name_never_reaches_openssl"
+    },
+    {
       "id": "cross-site-websocket-hijack",
       "what": "A page on another origin opens a WebSocket to the edge, and the browser attaches the victim's session cookie to it.",
       "defended_by": "The upgrade verifier compares Origin against security.allowed_origins before a socket exists. A browser cannot forge Origin.",

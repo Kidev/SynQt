@@ -3,7 +3,9 @@
 
 """The `bundles:` block: which scope is served which bundle, and where it is built."""
 
-from synqt import appmodel
+import re
+
+from synqt import appmodel, check
 
 
 def _config(bundles=None, clients=("app",)):
@@ -63,8 +65,29 @@ def test_two_clients_get_distinct_qml_uris():
     config["project"] = {"name": "shop"}
     app = appmodel.qml_uri_for(config, config["entities"][1])
     gate = appmodel.qml_uri_for(config, config["entities"][2])
-    # Distinct, or both modules would claim qrc:/qt/qml/Shop/Main.qml and the second
-    # would silently win for every route in the first.
+    # Distinct URIs, or both modules would claim qrc:/qt/qml/Shop/Main.qml.
     assert app != gate
     assert app == "ShopApp"
     assert gate == "ShopGate"
+
+
+def test_a_hyphenated_client_name_still_makes_a_legal_qml_module_uri():
+    """A hyphenated client name (`<name>-console`) still gives a legal QML module URI, folded
+    through `qml_uri` like the project name.
+    """
+    config, _ = _config(clients=("app", "ops-console"))
+    config["project"] = {"name": "watched"}
+    console = appmodel.qml_uri_for(config, config["entities"][2])
+    assert console == "WatchedOpsConsole"
+    for uri in (appmodel.qml_uri_for(config, config["entities"][1]), console):
+        assert re.fullmatch(r"[A-Za-z_][0-9A-Za-z_]*", uri), uri
+
+
+def test_two_client_names_that_fold_to_one_uri_are_refused():
+    """Two client names that fold to one URI (`admin-ui`, `admin_ui`) are refused."""
+    config, _ = _config(clients=("admin-ui", "admin_ui"))
+    config["project"] = {"name": "shop"}
+    ok, messages = check.validate(config)
+    assert not ok
+    assert any("admin-ui" in m and "admin_ui" in m and "ShopAdminUi" in m
+               for m in messages), messages

@@ -90,9 +90,26 @@ class MeshTest(unittest.TestCase):
         self.assertEqual(
             stat.S_IMODE((self.root / "synqt" / "mesh" / "ca.key").stat().st_mode), 0o600)
 
+    def test_a_name_that_is_not_an_entity_name_never_reaches_openssl(self):
+        """`synqt mesh cert` takes its name from a prompt, and puts it in three literal
+        places: the key and certificate file names, the `/CN=` of the subject, and the SAN.
+
+        A separator writes a private key outside the mesh directory. A `/` opens a second
+        RDN in the subject, so the certificate a peer is identified by is not the one the
+        operator asked for. Refused on the shape of the name, before openssl is reached.
+        """
+        mesh.init(self.root)
+        for name in ["../evil", "a/b", "..", "web edge", "CN=web/O=elsewhere", "", "9lives"]:
+            with self.assertRaises(mesh.MeshError, msg=name):
+                mesh.cert(self.root, name)
+        self.assertEqual(sorted(p.name for p in self.root.glob("synqt/mesh/*.key")),
+                         ["ca.key"])
+        # And a name that IS one still works, so the rule is a shape and not a blocklist.
+        mesh.cert(self.root, "web-edge_2")
+        self.assertTrue((self.root / "synqt" / "mesh" / "web-edge_2.crt").exists())
 
     def test_status_reads_an_expiry_whatever_the_machine_locale_is(self):
-        """openssl prints English month abbreviations; `%b` in strptime reads the current
+        """openssl prints English month abbreviations. `%b` in strptime reads the current
         locale's. On a machine whose locale is not English that combination raised a
         ValueError out of `synqt mesh status`, printing a traceback where an expiry date
         belongs.

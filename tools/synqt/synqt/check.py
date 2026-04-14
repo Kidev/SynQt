@@ -54,6 +54,68 @@ def _named_point_messages(config: Dict[str, Any]) -> List[str]:
     return messages
 
 
+def _entity_name_messages(declared: List[Dict[str, Any]]) -> List[str]:
+    """Refuse a name that cannot be used everywhere an entity name is used.
+
+    Nothing checked this, and an entity name is not a label. It becomes the directory the
+    entity's files live in, a CMake target, the QML accessor other entities reach it through,
+    and the subject and file name of its mesh certificate. A name with a separator in it is
+    the sharp end, since `synqt mesh cert` writes `<name>.key` into the mesh directory. The
+    quiet ones cost more time. A space or a dot produces a build failure or an unresolvable
+    QML name a long way from the line that caused it.
+    """
+    messages: List[str] = []
+    for entity in declared:
+        name = entity.get("name")
+        if name is None:
+            messages.append(
+                "error: an entity declares no name; every entity needs one, because it is "
+                "the folder its files live in and the name other entities reach it by")
+            continue
+        name = str(name)
+        if appmodel.is_valid_entity_name(name):
+            continue
+        messages.append(
+            f"error: entity name '{name[:80]}' cannot be used; an entity name starts with a "
+            f"letter and is made of letters, digits, underscores and hyphens, up to "
+            f"{appmodel.ENTITY_NAME_MAX} characters. It becomes a directory, a build target, "
+            "the accessor other entities reach this one by, and the subject of its mesh "
+            "certificate")
+    return messages
+
+
+def _qml_uri_messages(config: Dict[str, Any], declared: List[Dict[str, Any]]) -> List[str]:
+    """Refuse two client entities whose names fold to one QML module URI.
+
+    A project with more than one client gives each client's QML module a URI of its own,
+    because both would otherwise claim `qrc:/qt/qml/<Uri>/Main.qml` and whichever
+    registered last would answer for every route in the other. Nothing reports that. The
+    wrong page loads.
+
+    The URI is the entity name folded into identifier shape, since a name may carry
+    hyphens and a URI may not. Folding is many-to-one: `admin-ui` and `admin_ui` are two
+    entities and one URI, which puts the collision back exactly where the per-client URI
+    was introduced to remove it. Rare, and silent when it happens, which is the pair of
+    properties that earns a check.
+    """
+    seen: Dict[str, str] = {}
+    messages: List[str] = []
+    clients = [entity for entity in declared if appmodel.is_client(entity)]
+    if len(clients) < 2:
+        return messages
+    for entity in clients:
+        name = str(entity.get("name") or "")
+        uri = appmodel.qml_uri_for(config, entity)
+        first = seen.setdefault(uri, name)
+        if first != name:
+            messages.append(
+                f"error: client entities '{first}' and '{name}' both give their QML module "
+                f"the URI '{uri}', so one would claim the other's views and the wrong page "
+                "would load with nothing reported. A URI is made of letters and digits, so "
+                "names that differ only in punctuation are one URI; rename one of them")
+    return messages
+
+
 def _entity_type_messages(declared: List[Dict[str, Any]]) -> List[str]:
     """Refuse a `type:` that is not one of the eight.
 
@@ -434,6 +496,8 @@ def validate(config: Dict[str, Any], *, release: bool = False,
     entities = {e.get("name"): e for e in declared}
     if not entities:
         return False, ["error: no entities declared"]
+    messages += _entity_name_messages(declared)
+    messages += _qml_uri_messages(config, declared)
     messages += _duplicate_messages(
         [e.get("name") for e in declared], "entity",
         "the later one wins and the earlier one is never built, so part of this file "

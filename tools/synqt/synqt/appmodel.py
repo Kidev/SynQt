@@ -158,11 +158,35 @@ NETWORK_HELPERS: Dict[str, str] = {
     "inbound": "Api",
 }
 
+#: What an entity may be called. An entity name is not a label. It becomes a directory under
+#: its type folder, a CMake target, the QML accessor other entities reach it through
+#: (capitalized), the subject of its mesh certificate, and the file names that certificate and
+#: its key are written to. A name that is fine in YAML and wrong in any one of those produces
+#: a failure a long way from the line that caused it, so the shape is stated once, here, and
+#: checked where names arrive. `synqt check` for the topology, `synqt mesh cert` for the name
+#: typed at a prompt.
+#:
+#: Letters, digits, underscores and hyphens, starting with a letter. That is the intersection
+#: of what a path segment, a CMake target and a QML identifier prefix all accept, and it
+#: leaves out the two that matter. A separator (`/`, `\`) would write files outside the mesh
+#: directory, and a `.` leads `..` past it.
+ENTITY_NAME = re.compile(r"^[A-Za-z][A-Za-z0-9_-]*$")
+
+#: How long a name may be. A directory name has a limit on every filesystem and a certificate
+#: common name has one of 64 characters in X.509, which is the lower of the two.
+ENTITY_NAME_MAX = 64
+
+
+def is_valid_entity_name(name: str) -> bool:
+    """Whether `name` is usable as an entity name everywhere one is used."""
+    return bool(name) and len(name) <= ENTITY_NAME_MAX and ENTITY_NAME.match(name) is not None
+
+
 def entity_type(entity: Dict[str, Any]) -> str:
-    """The one word an entity is: `client`, `web_edge`, or the engine family it runs on.
+    """The one word an entity is. `client`, `web_edge`, or the engine family it runs on.
 
     An entity that names no type is a plain service, which is the type with no engine and
-    no browser-facing side: something whose behaviour is entirely its own QML.
+    no browser-facing side. Something whose behaviour is entirely its own QML.
     """
     declared = str(entity.get("type") or "").strip()
     return declared or PLAIN_TYPE
@@ -787,8 +811,13 @@ def qml_uri_for(config: Dict[str, Any], client: Dict[str, Any]) -> str:
     clients = [entity for entity in entities(config) if is_client(entity)]
     if len(clients) < 2:
         return base
-    name = str(client.get("name") or "")
-    return base + name[:1].upper() + name[1:]
+    # Folded through `qml_uri` rather than merely capitalized, because a URI is dotted
+    # identifiers and an entity name is not held to that shape. It may carry hyphens, and
+    # `synqt add entity <name> --type monitor` produces one that does on every project it
+    # touches, since it names the console client `<name>-console`. Appending that raw gave
+    # `WatchedOps-console`, which Qt reports as an invalid module URI at build time and
+    # then cannot import at run time. The project name has been folded this way all along.
+    return base + qml_uri(str(client.get("name") or ""))
 
 
 def bundle_output_dir(config: Dict[str, Any], client: Dict[str, Any]) -> str:

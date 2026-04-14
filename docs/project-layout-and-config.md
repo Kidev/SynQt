@@ -379,24 +379,30 @@ graduated path described in [providers](providers.md):
 
 Notes:
 
+- `name` is the entity, everywhere. It is the directory its files live in, the build
+  target, the accessor other entities reach it through (capitalized, so `store`
+  becomes `Store`), and the subject of its mesh certificate. So it is held to a shape.
+  It starts with a letter and is made of letters, digits, underscores and hyphens, up
+  to 64 characters. `synqt check` refuses anything else rather than letting a space or
+  a dot turn into a build failure somewhere a long way from the line that caused it.
 - `type` is the one field that says what an entity is: `client`, `web_edge`, or one
   of the entity types on the [entities](entities.md) page (`relational`, `document`,
   `cache`, `api`, `jobs`, `service`). It decides the folder the entity lives in, the
   helper the runtime puts in its QML, and whether it faces the internet. Omitted, it
-  is `service`: no engine, no browser-facing side, reachable only over the mesh.
+  is `service`, with no engine, no browser-facing side, and reachable only over the mesh.
 - The `provider` section selects the engine behind a type that has one (see
-  [providers](providers.md)); omit it to use that type's default (the embedded
+  [providers](providers.md)). Omit it to use that type's default (the embedded
   engine), which needs no provider section. `provider.name` picks the engine and the
   remaining keys in the section carry the connection.
 - `transport: mtls` (the default for every mesh link) uses QtRO over mutually
   authenticated TLS against the project CA, bound to loopback when the two entities
   share a host, so `Caller.entity` is certificate authenticated everywhere.
   `transport: local` uses QLocalServer and QLocalSocket (filesystem permission
-  protected, no network): an explicit opt in for co located, equally trusted
-  entities, because a local socket identifies the connecting user, not the
+  protected, no network). It is an explicit opt in for co located, equally trusted
+  entities, because a local socket identifies the connecting user rather than the
   connecting entity (see [security](security.md)). It is never chosen implicitly.
-- The entity's `mesh` block says how other entities reach *this* entity, which is
-  what you write when a service moves to its own host: set `host` and `port` there
+- The entity's `mesh` block says how other entities reach this entity, which is
+  what you write when a service moves to its own host. Set `host` and `port` there
   once and every connect point it owns follows. A connect point may override
   `transport`, `host`, `port`, or `socket` for its own link, key by key, which is
   how one entity can own a loopback link and a cross host link at the same time.
@@ -1447,24 +1453,30 @@ fast. Non negotiable checks:
   `contract:`, because what crosses is the point's own `export:` block and the type it
   becomes is the owner's name. The `server` file
   (`<type>/<owner>/<Owner>.qml` when the point does not name one) must also
-  be rooted at `<Owner>`: it is the owner-side half of the point, and an
+  be rooted at `<Owner>`. It is the owner-side half of the point, and an
   owner with nothing to host it with fails at start-up rather than at build time.
   `synqt add connect-point` writes that file, empty, along with the point, so the
   usual way to meet this rule is not to notice it.
 - A connect point reachable by the `client` entity whose `owner` lacks the
   `type: web_edge` is rejected (the browser can only reach a web edge). So is a
-  `client` entity in a project that declares no `web_edge` entity at all: a browser
+  `client` entity in a project that declares no `web_edge` entity at all, because a browser
   reaches a web edge or it reaches nothing, so that client has no address to open.
-  A client built only for the `desktop` target is exempt, because it is not served by
-  an edge and dials the one [`build.desktop.edge_url`](#builddesktop) names, which may
-  belong to another deployment entirely; that key is required of it instead.
+  A client built only for the `desktop` target is exempt, because no edge serves it
+  and it dials the one [`build.desktop.edge_url`](#builddesktop) names, which may
+  belong to another deployment entirely. That key is required of it instead.
 - A connect point owned by a `client` entity is rejected. An owner hosts the Source and
-  listens for consumers to acquire it, and a browser cannot listen: there is no WebSocket
+  listens for consumers to acquire it, and a browser cannot listen. There is no WebSocket
   server under WebAssembly, so the client is always the side that connects out. A connect
   point the client takes part in is owned by the web edge, whichever way the data flows.
 - A connect point that lists its own `owner` among its `consumers` is rejected. The
   owner holds the Source and does not acquire a replica of what it already has, and
   the entry only makes the consumer list look wider than it is.
+- An entity `name` outside the shape described [above](#entities-the-topology) is rejected. The shape is a letter,
+  then letters, digits, underscores and hyphens, up to 64 characters. The name is a
+  directory, a build target, an accessor and a certificate subject all at once, so a space
+  or a dot in it fails somewhere a long way from the line that put it there. `synqt mesh
+  cert` holds the name typed at its prompt to the same rule, because that one reaches
+  openssl and the mesh directory.
 - A name declared twice, whether an entity or a connect point, is rejected. Both are
   keyed by name, so the second declaration replaces the first rather than colliding
   with it, and a consumer list narrowed on the first would disappear without a word.

@@ -23,6 +23,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional
 
+from .appmodel import ENTITY_NAME_MAX, is_valid_entity_name
+
 # ~13 months. This was 825 days, described as the CA/Browser Forum leaf maximum, which it
 # stopped being in September 2020 when that ceiling dropped to 398. The number is not
 # cosmetic: Apple's verifier rejects a TLS leaf issued after 2020-09-01 whose validity runs
@@ -161,6 +163,16 @@ def cert(project_dir: os.PathLike[str] | str, entity: str, *, dev: bool = False,
         raise MeshError(
             f"'{entity}' is a client entity: the client gets no mesh certificate "
             "(it authenticates to the edge with a user session, not mutual TLS)")
+    # The name is typed at a prompt here, not read from a validated topology, and it goes
+    # into three places that all take it literally: the file names below, the `/CN=` of the
+    # subject, and the SAN. A separator in it writes a private key outside the mesh
+    # directory, and a `/` in the subject opens a second RDN. The same rule `synqt check`
+    # holds a declared entity to, applied to the one place a name arrives from a keyboard.
+    if not is_valid_entity_name(entity):
+        raise MeshError(
+            f"'{entity[:80]}' is not usable as an entity name: a name starts with a letter "
+            f"and is made of letters, digits, underscores and hyphens, up to "
+            f"{ENTITY_NAME_MAX} characters")
     mesh = _mesh_dir(project_dir, dev)
     ca_key = mesh / "ca.key"
     ca_crt = mesh / "ca.crt"
