@@ -192,6 +192,18 @@ It shows what every entity is doing right now, how many events arrived and how m
 dropped, which entities are live and which have gone quiet, a filter by entity and
 severity, a search across messages and attributes, and one trace end to end.
 
+![The SynQt monitoring console: a counters strip, a tile per reporting entity, the filter
+row, and the event table](assets/monitoring-console.png)
+
+That is a real console rather than a drawing of one. Two entities are reporting: `ops`, the
+monitor watching itself, and `web`, the edge reporting to it over the mesh. The tiles carry
+each one's event count and liveness dot, the counters above them separate what arrived from
+what was stored and what was dropped, and the table below is the record, with a timestamp, the
+severity, which entity said it, the category, the message, how long the call took, and a
+link that opens the whole trace it belonged to. It is taken by `tests/monitor-console`, on
+a run that has just finished driving that console in a browser, so it is regenerated from a
+passing suite rather than pasted in once and left to age.
+
 Liveness is the absence of the link. An entity that stops heartbeating is shown as down,
 which is what makes a catastrophic failure of the main application show up as a red tile
 rather than as silence.

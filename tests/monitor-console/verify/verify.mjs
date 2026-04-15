@@ -39,6 +39,21 @@ const exportFile = path.join(project, "build/ops/state/events.jsonl");
 const OPERATOR = "alice";
 const PASSWORD = "correct-horse-battery";
 
+// Where to write the console's portrait, when somebody wants one. The docs carry a picture
+// of the console (docs/monitoring.md), and this is the only place in the repository where a
+// real console is running against a real monitor with real events in it, so this is where
+// the picture comes from. Off unless asked for. The suite's job is to pass or fail, and a
+// run that also writes a file into the source tree should be a run somebody asked for.
+//
+//   MONITOR_CONSOLE_SHOT=docs/assets/monitoring-console.png
+//
+// Written from the first engine that gets that far, so the picture is reproducible rather
+// than whichever of three engines finished last.
+const shotPath = process.env.MONITOR_CONSOLE_SHOT
+    ? path.resolve(repoRoot, process.env.MONITOR_CONSOLE_SHOT)
+    : null;
+let shotTaken = false;
+
 const headless = process.env.MONITOR_CONSOLE_HEADLESS === "1" ? true : !process.env.DISPLAY;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -204,7 +219,11 @@ async function runCase(browserType, name) {
     const origin = `http://127.0.0.1:${port}`;
     const browser = await browserType.launch(launchOptions(browserType));
     try {
-        const context = await browser.newContext();
+        // A stated viewport rather than the default, because one of the things this
+        // suite produces is a picture for the docs and a picture wants a known size. It is
+        // also the better test. A console laid out for whatever window Playwright
+        // happened to open is a console nobody has looked at.
+        const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
         const page = await context.newPage();
         page.on("console", (msg) => {
             logs.push(msg.text());
@@ -283,10 +302,31 @@ async function runCase(browserType, name) {
         console.log("  both halves of the gate are in the record, and the password is not");
 
         // 6. A second entity's events reached the monitor over the mesh, which is the whole
-        //    fan-in: the console is showing a system and not only itself.
+        //    fan-in. The console is showing a system and not only itself.
         await waitFor(async () => exportedEvents().some((event) => event.entity === "web"),
                       60000, "the web edge to report through the mesh");
         console.log("  the web edge's events reached the monitor over mutual TLS");
+
+        // 7. The picture for the docs, taken here and not earlier. By this line the console
+        //    is showing a system rather than itself, because a second entity's events have
+        //    crossed the mesh into the table. A screenshot taken at step 3 would be a
+        //    correct console with one row in it, which teaches a reader nothing about what
+        //    the thing is for.
+        if (shotPath && !shotTaken) {
+            await sleep(1500);  // let the table settle on the frame it gained
+            fs.mkdirSync(path.dirname(shotPath), { recursive: true });
+            // Clipped rather than shrunk. The window stays the 1440x900 one the assertions
+            // above ran against, because that is a window somebody would open;
+            // what the docs want is the part of it with the console in it, and a test run
+            // with a viewport chosen to flatter a screenshot is a test run about the
+            // screenshot.
+            await page.screenshot({
+                path: shotPath,
+                clip: { x: 0, y: 0, width: 1440, height: 620 },
+            });
+            shotTaken = true;
+            console.log(`  wrote ${shotPath}`);
+        }
 
         return { name, pass: true, logs };
     } catch (err) {
