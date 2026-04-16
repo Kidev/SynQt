@@ -368,7 +368,7 @@ def _proxy_entry_is_readable(entry: str) -> bool:
             return False
     if not mask:
         return True
-    if "." in mask:  # a netmask written out, which Qt converts to a prefix length
+    if "." in mask: # a netmask written out, which Qt converts to a prefix length
         try:
             ipaddress.IPv4Address(mask)
         except ValueError:

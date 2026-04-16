@@ -46,7 +46,7 @@ inline QString randomToken()
 /// The public half of a secret this file mints, so it lives beside the minting. It is also
 /// computed on two machines -- the native client derives it from the verifier it is about to
 /// keep, and the edge derives it again from the verifier presented at the claim, and compares
-/// -- and those two computations must agree byte for byte or no desktop sign-in ever
+/// and those two computations must agree byte for byte or no desktop sign-in ever
 /// completes. Written twice they agreed; written once they cannot do otherwise.
 inline QByteArray challengeFor(const QByteArray &verifier)
 {

@@ -84,6 +84,22 @@ product. When you want a particular engine behind one, a
 [provider](https://synqt.org/providers/) backs the entity with it and leaves that
 entity's connect points, and the security model around them, identical.
 
+## Drawing it, and watching it
+
+A system of several processes is a picture before it is a file, so there is an editor for
+it. `synqt design` draws the project on this machine: entities as nodes, connect points as
+the lines between them, and Apply writes `synqt.yaml` and the QML a new entity needs. The
+[same editor runs on the site](https://synqt.org/designer/) with nothing behind it, so you
+can sketch a system and export it as a project before installing anything.
+
+The same shape makes a running system hard to see: several processes on several machines,
+linked by connections a browser never shows you. `synqt add entity ops --type monitor` adds
+an operations entity that keeps the record and serves a console for it, and one line of
+configuration makes every other entity report to it. One click becomes one trace that runs
+through every entity it touched. It is off until you add it, and an entity that has one
+pays a single atomic read per instrumented call site to decide it has nothing to say. See
+[monitoring](https://synqt.org/monitoring/).
+
 ## Security is on by default
 
 - The browser to edge link is TLS (wss), the user signs in server side (the client
@@ -172,6 +188,9 @@ function and skipping the framework. The deployment docs plot the fan-out data u
 - [Configuration](https://synqt.org/project-layout-and-config/) and
   [build system and CLI](https://synqt.org/build-system-and-cli/) for the complete
   `synqt.yaml` schema and every command.
+- [The designer](https://synqt.org/visual-editor/) for drawing a system and applying the
+  drawing to a project, and [monitoring](https://synqt.org/monitoring/) for the operations
+  console and what it records.
 
 ## This repository
 
