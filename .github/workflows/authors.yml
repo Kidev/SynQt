@@ -104,10 +104,18 @@ jobs:
           git add AUTHORS
           git commit -m "Update AUTHORS"
 
-          # The branch carries the regenerated file and nothing else, and it is rebuilt from
-          # main every run rather than added to. Forcing is what keeps the open pull request
-          # showing the current answer instead of a stack of superseded ones.
-          git push --force origin "HEAD:refs/heads/${BRANCH}"
+          # Why this is not a plain push. The branch survives between runs, and a second run
+          # happens only when a further pull request merged before the first AUTHORS one did.
+          # By then main has moved, and the generator has to read main's newest history or it
+          # writes a file missing the contributor who just arrived. So the branch is rebuilt
+          # from current main rather than added to, which makes it diverge from what was
+          # pushed last time, which a plain push refuses.
+          #
+          # `--force-with-lease`, not `--force`: it refuses if the branch moved since this job
+          # read it, so a hand-made fix pushed there is never silently discarded. The branch
+          # is derived state and nothing else, and rebuilding it is what keeps the open pull
+          # request showing one current commit instead of a stack of superseded ones.
+          git push --force-with-lease origin "HEAD:refs/heads/${BRANCH}"
 
           open="$(gh pr list --head "${BRANCH}" --base main --state open --json number --jq '.[0].number // empty')"
           if [ -n "${open}" ]; then

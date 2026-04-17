@@ -31,11 +31,10 @@ name: "[TEST] Look for what the suites leak"
 
 on:
   workflow_dispatch:
+  # No `paths:` filter on either trigger: the `changes` job below decides, so that the check
+  # always reports and can be required. See .github/scripts/relevant-changes.sh.
   push:
-    paths:
-      - "src/**"
-      - "tests/memory/**"
-      - ".github/workflows/leaks.yml"
+  pull_request:
 
 # Nothing here writes to the repository: every job checks the tree out, builds it, and
 # uploads its artifacts, which needs no token at all. Stating that here means the run keeps
@@ -53,8 +52,35 @@ env:
   AQT_COMMIT: "9e49c82edc6d946db376dec907cca5b4b486eec5"
 
 jobs:
+  # The path decision lives here rather than on the trigger above, and that is the whole
+  # reason this job exists. A workflow skipped by a `paths:` filter reports no check at all,
+  # so a required status check on it leaves every unrelated pull request pending forever. A
+  # job skipped by an `if:` reports "skipped", and a skipped check satisfies a required one.
+  changes:
+    name: Decide what this run has to build
+    runs-on: ubuntu-24.04
+    outputs:
+      relevant: ${{ steps.decide.outputs.relevant }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # The decision is a diff, so the run needs the history on both sides of it.
+          fetch-depth: 0
+
+      - id: decide
+        env:
+          GITHUB_EVENT_BEFORE: ${{ github.event.before }}
+        run: |
+          bash .github/scripts/relevant-changes.sh \
+              "src/" \
+              "tests/memory/" \
+              ".github/workflows/leaks.yml" \
+              ".github/scripts/relevant-changes.sh" >> "$GITHUB_OUTPUT"
+
   leaks:
     name: leaks (linux)
+    needs: changes
+    if: needs.changes.outputs.relevant == 'true'
     runs-on: ubuntu-24.04
     # An instrumented rebuild of the whole tree plus three passes over every suite. This is
     # the blast radius of a hang, not the expected cost.

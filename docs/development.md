@@ -631,6 +631,40 @@ contributor bookkeeping.
 Every workflow name carries a tag so the checks list groups by purpose: `[TEST]`, `[BENCH]`,
 `[DOCS]`, `[RELEASE]`, `[CONTRIB]`.
 
+### Which checks can be required
+
+A ruleset that requires a status check needs that check to report on a pull
+request, and one GitHub rule decides whether it does. A workflow skipped by a `paths:`
+filter on its trigger reports nothing at all, so requiring it leaves every unrelated pull
+request pending forever. A job skipped by an `if:` condition is different. It reports a
+conclusion of "skipped", and a skipped check satisfies a required one.
+
+That is why [`ctest.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/ctest.yml) and [`leaks.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/leaks.yml) carry no `paths:` filter and open with a
+`changes` job instead. It runs [`.github/scripts/relevant-changes.sh`](https://github.com/Kidev/SynQt/blob/main/.github/scripts/relevant-changes.sh) over the diff and
+the expensive job is gated on its answer, so an unrelated pull request costs one small job
+and still reports the check. The script fails safe, so it builds anything it cannot rule out.
+
+These are the checks that report on an open pull request and can be required:
+
+| Check | Workflow |
+| --- | --- |
+| `CLA` | [`cla.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/cla.yml) |
+| `pytest (ubuntu-24.04)`, `pytest (macos-26)`, `pytest (windows-2025)` | [`tests.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/tests.yml) |
+| `CLI coverage floor`, `node checks`, `design editor (browser)` | [`tests.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/tests.yml) |
+| `ctest (linux)`, `ctest (macos)`, `ctest (windows)` | [`ctest.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/ctest.yml) |
+| `leaks (linux)` | [`leaks.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/leaks.yml) |
+
+A check is named by its job's `name:` with the matrix values substituted, so renaming a job
+or bumping a runner label renames the check and silently orphans the ruleset entry that
+named the old one. The entry does not error. It waits, and the pull request never becomes
+mergeable. Change one and change the other in the same edit.
+
+Three things must not be required. The `build-linux` and `build-native` jobs in
+[`release.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/release.yml) only run on dispatch. `Regenerate AUTHORS` runs on `pull_request_target`
+at `closed`, so it never reports while a pull request is open. And
+[`browser-matrix.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/browser-matrix.yml), [`wasm-proofs.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/wasm-proofs.yml) and [`benchmarks.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/benchmarks.yml) are
+not on every pull request, for the reason given below.
+
 ### Who the automation acts as
 
 Three of the workflows write to GitHub rather than only reading it: [`cla.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/cla.yml) comments on a
