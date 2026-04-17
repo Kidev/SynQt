@@ -31,6 +31,21 @@
 
 #include <utility>
 
+// Asking the running thread how much stack it has. There is no Qt API for it, and the
+// nesting bound below is only as good as this answer. Guarded so nothing but the platform
+// that needs each of these ever sees it.
+#if defined(Q_OS_WIN)
+#  ifndef WIN32_LEAN_AND_MEAN
+#    define WIN32_LEAN_AND_MEAN
+#  endif
+#  ifndef NOMINMAX
+#    define NOMINMAX
+#  endif
+#  include <windows.h>
+#elif defined(Q_OS_UNIX)
+#  include <pthread.h>
+#endif
+
 namespace SynQt {
 
 namespace {
@@ -151,7 +166,95 @@ constexpr int kRemoteTimeoutMs{20000};
 /// a browser's whole visit to a provider.
 constexpr int kMaxConcurrentWaits{64};
 
+/// What to assume a thread's stack is when the platform will not say.
+///
+/// The smallest SynQt runs on rather than the roomiest. A Windows thread gets a megabyte,
+/// where Linux and macOS give the main one eight.
+constexpr quintptr kAssumedStackBytes{1024 * 1024};
+
+/// How much of a thread's stack the nesting may spend. One part in four.
+///
+/// The count above is a policy number, and it cannot answer this on its own. What the
+/// nesting spends is stack, and what a level of it costs is decided by Qt's call chain and
+/// the compiler rather than by this code. Sixty-four levels fits the eight megabytes Linux and
+/// macOS give the main thread and does not fit the megabyte Windows gives it: the ceiling
+/// meant to stop the stack running out sat above the stack on the platform with the
+/// smallest of them, and a Windows edge crashed on exactly the traffic the count was there
+/// to refuse. So the stack is asked how big it is and a quarter of it is what the nesting
+/// may have. Where it is roomy the count still decides, unchanged. Where it is not, this
+/// does, and the refusal is the same one either way.
+constexpr quintptr kStackShareForNesting{4};
+
+/// The size of the running thread's stack, or zero when the platform will not say.
+quintptr threadStackBytes()
+{
+#if defined(Q_OS_WIN)
+    ULONG_PTR low{0};
+    ULONG_PTR high{0};
+    GetCurrentThreadStackLimits(&low, &high);
+    return static_cast<quintptr>(high - low);
+#elif defined(Q_OS_DARWIN)
+    return static_cast<quintptr>(pthread_get_stacksize_np(pthread_self()));
+#elif defined(Q_OS_LINUX)
+    pthread_attr_t attributes{};
+    if (pthread_getattr_np(pthread_self(), &attributes) != 0) {
+        return quintptr{0};
+    }
+    void *base{nullptr};
+    size_t size{0};
+    const bool known{pthread_attr_getstack(&attributes, &base, &size) == 0};
+    pthread_attr_destroy(&attributes);
+    if (!known) {
+        return quintptr{0};
+    }
+    return static_cast<quintptr>(size);
+#else
+    return quintptr{0};
+#endif
+}
+
+/// How much stack the nesting rooted at the running thread may spend.
+quintptr nestingStackBudget()
+{
+    const quintptr stack{threadStackBytes()};
+    return ((stack > 0) ? stack : kAssumedStackBytes) / kStackShareForNesting;
+}
+
+/// How far apart two stack frames are, whichever way this platform grows its stack.
+quintptr stackSpent(quintptr outermost, quintptr here)
+{
+    return (here > outermost) ? (here - outermost) : (outermost - here);
+}
+
 } // namespace
+
+IdentityProvider::WaitScope::WaitScope(WaitState *state)
+    : m_state{state}
+{
+    if (m_state->count >= kMaxConcurrentWaits) {
+        return;
+    }
+
+    // `this` is a local in the frame that is about to wait, so its address is where that
+    // frame sits. The outermost wait records its own and reads the budget off the thread
+    // it is running on. Every wait under it is that much further along the stack.
+    const quintptr frame{reinterpret_cast<quintptr>(this)};
+    if (m_state->count == 0) {
+        m_state->outermostFrame = frame;
+        m_state->budget = nestingStackBudget();
+    } else if (stackSpent(m_state->outermostFrame, frame) >= m_state->budget) {
+        return;
+    }
+    ++m_state->count;
+    m_taken = true;
+}
+
+IdentityProvider::WaitScope::~WaitScope()
+{
+    if (m_taken) {
+        --m_state->count;
+    }
+}
 
 IdentityProvider::IdentityProvider(IdentityConfig config, SessionManager *sessions,
                                    QQmlEngine *engine, QString edgeOrigin, CookiePolicy cookie,
@@ -337,13 +440,13 @@ IdentityProvider::BeginOutcome IdentityProvider::beginLogin(const QString &provi
     if (!m_remote) {
         return BeginOutcome{QString{}, QString{}, QStringLiteral("auth entity not connected")};
     }
-    if (m_waits >= kMaxConcurrentWaits) {
+    const WaitScope wait{&m_waits};
+    if (!wait.isTaken()) {
         return BeginOutcome{QString{}, QString{},
                             QStringLiteral("too many logins waiting on the auth entity")};
     }
-    const WaitScope wait{&m_waits};
 
-    // Delegate to the auth entity: invoke the slot, then wait (bounded) for the correlated
+    // Delegate to the auth entity. Invoke the slot, then wait (bounded) for the correlated
     // beginResult signal. The nested loop keeps the route handler synchronous.
     const QString requestId{randomToken()};
     const AwaitScope awaited{&m_awaited, requestId};
@@ -379,12 +482,12 @@ IdentityProvider::ExchangeOutcome IdentityProvider::exchangeCode(const QString &
     // engine issued is all it takes to get past the first check, and up to
     // `kMaxPendingLogins` of those can be in flight. Callbacks arriving together then nest
     // one loop inside another until the stack, rather than any limit, decides.
-    if (m_waits >= kMaxConcurrentWaits) {
+    const WaitScope wait{&m_waits};
+    if (!wait.isTaken()) {
         return ExchangeOutcome{QVariantMap{}, QString{},
                                QStringLiteral("too many callbacks are already being "
                                               "exchanged"), QString{}};
     }
-    const WaitScope wait{&m_waits};
 
     if (!isRemote()) {
         const OAuthBackend::ExchangeResult result{
@@ -446,10 +549,13 @@ QByteArray IdentityProvider::takeClaim(const QString &code, const QString &verif
         return m_claims.take(code, verifier, QDateTime::currentMSecsSinceEpoch(),
                              claimTtlMsFrom(m_config.claimTtlSeconds));
     }
-    if (!m_remote || m_waits >= kMaxConcurrentWaits) {
+    if (!m_remote) {
         return {};
     }
     const WaitScope wait{&m_waits};
+    if (!wait.isTaken()) {
+        return {};
+    }
 
     // The same bounded nested loop the begin/exchange pair uses, for the same reason: the
     // route handler is synchronous and the answer comes back as a correlated signal.

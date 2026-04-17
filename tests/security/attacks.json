@@ -39,7 +39,7 @@
     {
       "id": "nested-callbacks-exhaust-the-stack",
       "what": "Callbacks are fired at the open /auth/callback route faster than the token exchanges behind them finish. Each one waits in a nested event loop that goes on serving requests, so every arrival nests inside the last and the depth follows the request rate until the stack runs out.",
-      "defended_by": "At most sixty-four callbacks are exchanged at once, whether identity runs on the edge or on an auth entity. The ceiling used to cover the auth-entity path alone, which is the one an attacker is least likely to be talking to.",
+      "defended_by": "At most sixty-four callbacks are exchanged at once, whether identity runs on the edge or on an auth entity, and the nesting may spend at most a quarter of the running thread's stack, whichever comes first. The ceiling used to cover the auth-entity path alone, which is the one an attacker is least likely to be talking to; and a count on its own turned out to be a guess at what a stack holds, since sixty-four levels fit the eight megabytes Linux and macOS give the main thread and not the megabyte Windows gives it.",
       "file": "tests/m8-auth/tst_m8.cpp",
       "test": "concurrentCallbacksAreBoundedWithIdentityInProcess"
     },

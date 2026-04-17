@@ -412,15 +412,20 @@ read them.
 
 - Logins in flight, and callbacks being exchanged. Two ceilings, because the login path
   spends two different things. A pending login holds a flow object for the five minutes it
-  is given, and `/auth/login` is open, so at most a thousand may be in flight; past that the
+  is given, and `/auth/login` is open, so at most a thousand may be in flight. Past that the
   route refuses rather than allocating further. A callback then waits for the token exchange
   inside a nested event loop, which keeps serving requests while it spins, so callbacks
-  arriving together nest one loop inside another and the stack is what runs out; at most
-  sixty-four are exchanged at once, whether identity runs on the edge or on an auth entity.
-  Both numbers are far above what any real deployment has at one instant. Neither is a knob
-  to tune: they bound a failure mode that no workload should reach, and
-  `tests/m8-auth/tst_m8.cpp` drives more callbacks at a stalled provider than the second
-  ceiling allows to prove it still holds.
+  arriving together nest one loop inside another and the stack is what runs out. At most
+  sixty-four are exchanged at once, whether identity runs on the edge or on an auth entity,
+  and the nesting may spend at most a quarter of the running thread's stack, whichever of
+  the two it reaches first. The second of those is there because a count on its own is a
+  guess at what a stack holds. The compiler decides what a level of nesting costs,
+  and sixty-four of them fit the eight megabytes Linux and macOS give the main thread but
+  not the megabyte Windows gives it. Both numbers are far above what any real deployment
+  has at one instant. Neither is a knob to tune. They bound a failure mode that no workload
+  should reach, and `tests/m8-auth/tst_m8.cpp` drives more callbacks at a stalled provider
+  than the ceilings allow, against an edge on a deliberately small stack, to prove it still
+  holds.
 
 - Answers from an auth entity. An edge that delegates identity waits for the auth entity's
   reply and gives up after twenty seconds, and what it does with a reply that arrives after

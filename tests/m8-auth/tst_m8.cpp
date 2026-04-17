@@ -42,11 +42,13 @@
 #include <QRegularExpression>
 #include <QRemoteObjectDynamicReplica>
 #include <QRemoteObjectNode>
+#include <QSemaphore>
 #include <QSslCertificate>
 #include <QSslKey>
 #include <QTcpServer>
 #include <QTcpSocket>
 #include <QTest>
+#include <QThread>
 #include <QTimer>
 #include <QUrlQuery>
 
@@ -173,9 +175,77 @@ private:
     QTcpServer *m_socket{nullptr};
 };
 
+/// One web edge, on a thread with a quarter of a megabyte of stack.
+///
+/// What the nesting below spends is stack, and how much a level of it costs is decided by
+/// the compiler: about 3.5 KB with GCC on Linux, several times that with MSVC. So the same
+/// sixty-four levels that fit comfortably in the eight megabytes Linux and macOS give the
+/// main thread overflowed the one megabyte Windows gives it, and the first Windows run of
+/// this test is where that showed up -- as a stack overflow, in CI, on a ceiling written to
+/// prevent exactly that.
+///
+/// Running the edge on the roomiest stack on offer is what let a bound nobody had measured
+/// look fine for as long as it did, so it is given the smallest stack it can start on
+/// instead. A quarter of a megabyte is under what sixty-four levels cost on the cheapest
+/// platform, which is what makes the unbounded case fail here and not only on Windows. The
+/// bound is a share of the stack rather than a count, so what is left over for everything
+/// else is the same three quarters whatever the number is.
+class SmallStackEdge : public QThread
+{
+public:
+    explicit SmallStackEdge(WebEdgeConfig config)
+        : m_config{std::move(config)}
+    {
+        setStackSize(kStackBytes);
+    }
+
+    ~SmallStackEdge() override
+    {
+        quit();
+        wait();
+    }
+
+    /// Starts the thread and blocks until the edge has tried to listen.
+    bool startAndWait()
+    {
+        start();
+        m_ready.acquire();
+        return m_started;
+    }
+
+    quint16 port() const { return m_port; }
+    QString errorString() const { return m_error; }
+
+protected:
+    void run() override
+    {
+        // Created here rather than handed in, so the whole request path -- routing, the
+        // callback handler and the nested exchange loops under it -- runs on this stack
+        // instead of merely reaching it.
+        QQmlEngine engine;
+        WebEdge edge{m_config, &engine};
+        m_started = edge.start();
+        m_port = edge.serverPort();
+        m_error = edge.errorString();
+        m_ready.release();
+        if (m_started) {
+            exec();
+        }
+    }
+
+private:
+    static constexpr uint kStackBytes{256 * 1024};
+
+    WebEdgeConfig m_config;
+    QSemaphore m_ready;   ///< released once the three fields below are written
+    bool m_started{false};
+    quint16 m_port{0};
+    QString m_error;
+};
+
 /// A token endpoint that accepts the connection and answers nothing for a while.
 ///
-/// This is what puts a callback inside a nested event loop: the exchange has been started
+/// This is what puts a callback inside a nested event loop. The exchange has been started
 /// and cannot finish, so its handler stays on the stack and whatever arrives next is served
 /// from inside it. The connection is dropped rather than answered when the time is up,
 /// because how the exchange ends is not what is under test. The time in between is.
@@ -938,13 +1008,19 @@ private slots:
     /// answers nothing, and more callbacks at once than the ceiling allows. What it looks
     /// for is a callback answered while the others are still waiting, which is the one thing
     /// a ceiling produces and the one thing its absence rules out.
+    ///
+    /// The edge runs on a small stack (SmallStackEdge) because a count of sixty-four is not
+    /// on its own an answer to how much stack sixty-four levels cost. Run against a roomy
+    /// stack this passed while the ceiling it was testing sat above what a Windows edge can
+    /// hold; run against a small one it stops rather than crashes, which is the whole claim.
     void concurrentCallbacksAreBoundedWithIdentityInProcess()
     {
-        // Above the ceiling (kMaxConcurrentWaits, 64, in identityprovider.cpp), so some of
-        // these have to be refused rather than nested.
+        // Above both ceilings in identityprovider.cpp -- the count (kMaxConcurrentWaits,
+        // 64) and the quarter of the thread's stack the nesting may spend -- so some of
+        // these have to be refused rather than nested, whichever of the two decides.
         constexpr int kInFlight{80};
         constexpr int kStallMs{3000};
-        // Comfortably inside the stall: an answer this early is one that did not wait for
+        // Comfortably inside the stall. An answer this early is one that did not wait for
         // the token endpoint, and there is no other way to get one.
         constexpr qint64 kAnsweredWithoutWaitingMs{1200};
 
@@ -960,7 +1036,6 @@ private slots:
         slow.clientId = QStringLiteral("stub-client");
         slow.clientSecret = QStringLiteral("stub-secret");
 
-        QQmlEngine engine;
         WebEdgeConfig config;
         config.bundleDir = QStringLiteral(M8_SRCDIR "/bundle");
         config.host = QStringLiteral("127.0.0.1");
@@ -969,9 +1044,9 @@ private slots:
         config.identity.allowDevStub = true;
         config.identity.providers = {slow};
 
-        WebEdge edge{config, &engine};
-        QVERIFY2(edge.start(), qPrintable(edge.errorString()));
-        const QString base{QStringLiteral("http://127.0.0.1:%1").arg(edge.serverPort())};
+        SmallStackEdge edge{config};
+        QVERIFY2(edge.startAndWait(), qPrintable(edge.errorString()));
+        const QString base{QStringLiteral("http://127.0.0.1:%1").arg(edge.port())};
 
         // One browser per login, because each holds its own state and its own
         // login-binding cookie, and the callback is refused without the matching pair.

@@ -237,25 +237,45 @@ private:
     /// per attempt.
     QHash<QString, RateWindow> m_deviceRate;
 
-    /// How many delegated answers this edge is waiting on right now, and the guard that
-    /// keeps the count honest across every way out of a handler. Each wait is a nested
-    /// event loop that keeps serving requests, so this is what stops the nesting from
-    /// following the request rate; see kMaxConcurrentWaits.
-    int m_waits{0};
+    /// What this edge is waiting on right now, and what the nesting is measured against.
+    ///
+    /// Each wait is a nested event loop that keeps serving requests, so a request that
+    /// also waits nests inside the one already waiting, and the depth follows the request
+    /// rate. Two numbers bound it, because a count on its own is a guess at what the stack
+    /// can hold. How many waits are in flight, and how much stack the nesting has spent
+    /// since the outermost of them. See WaitScope and kMaxConcurrentWaits.
+    ///
+    /// One thread's, both of them. The edge serves its routes on the thread this provider
+    /// lives on, which is the same thread whose stack the second number is measured on.
+    struct WaitState
+    {
+        int count{0};                ///< waits in flight, outermost included
+        quintptr outermostFrame{0};  ///< where the outermost wait's frame sits
+        quintptr budget{0};          ///< stack the nesting may spend, read off that thread
+    };
+    WaitState m_waits{};
+
+    /// Takes a place in the nesting for as long as it is alive, or refuses to.
+    ///
+    /// Declare one as a local in the handler that is about to wait, and ask isTaken()
+    /// before waiting. The scope object is a local in that frame, so its own address is
+    /// where the frame sits, which is how a nested one measures the stack the nesting has
+    /// spent. Keeping the count correct across every way out of a handler is the other
+    /// half of what it is for.
     class WaitScope
     {
     public:
-        explicit WaitScope(int *counter)
-            : m_counter{counter}
-        {
-            ++(*m_counter);
-        }
-        ~WaitScope() { --(*m_counter); }
+        explicit WaitScope(WaitState *state);
+        ~WaitScope();
         WaitScope(const WaitScope &) = delete;
         WaitScope &operator=(const WaitScope &) = delete;
 
+        /// Whether the wait may go ahead. False means refuse the request instead.
+        bool isTaken() const { return m_taken; }
+
     private:
-        int *m_counter;
+        WaitState *m_state;
+        bool m_taken{false};
     };
 
     /// The request ids this edge is waiting on right now, and the guard that adds one for
