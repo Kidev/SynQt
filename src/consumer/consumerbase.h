@@ -18,8 +18,8 @@ namespace SynQt {
 ///
 /// The facade is stable across reconnects: the runtime creates it once and calls setReplica()
 /// again with the freshly acquired Replica, so QML bindings to the accessor entry stay valid.
-/// It is deliberately Replica-type agnostic (it reflects through the metaobject), so the same
-/// facade works over a typed Replica on the client and a dynamic Replica on the mesh.
+/// It reflects through the metaobject rather than naming a Replica type, so the same facade
+/// works over a typed Replica on the client and a dynamic Replica on the mesh.
 class ConsumerBase : public QObject
 {
     Q_OBJECT

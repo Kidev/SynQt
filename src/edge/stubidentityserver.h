@@ -51,8 +51,8 @@ public:
     /// there to refuse, and the only way to produce a validly signed token that is missing
     /// one is for the signer to leave it out: mutating the payload of a good token breaks
     /// the signature, so the verifier would refuse it a step earlier and prove nothing.
-    /// This widens no production surface -- the stub is a fake provider that a shipped edge
-    /// already refuses to run -- it only lets the fake misbehave the way a real one can.
+    /// This widens no production surface (the stub is a fake provider that a shipped edge
+    /// already refuses to run); it only lets the fake misbehave the way a real one can.
     void omitIdTokenClaim(const QString &claim);
 
     bool start(quint16 port = 0);

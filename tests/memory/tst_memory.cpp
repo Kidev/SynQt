@@ -447,11 +447,11 @@ private slots:
     }
 
     // The edge itself, taken up and down. Everything else here keeps one edge and cycles
-    // what happens to it; nothing asked what an edge costs to build and retire, and a whole
+    // what happens to it. Nothing asked what an edge costs to build and retire, and a whole
     // suite that never asks a question is how a leak lives.
     //
-    // The client is thrown away with each cycle, and that is the point of the test rather
-    // than a detail of it. A QNetworkAccessManager caches a connection and its TLS session
+    // The client is thrown away with each cycle, which is what this measures rather than a
+    // detail of the setup. A QNetworkAccessManager caches a connection and its TLS session
     // per host:port and lets go only on an inactivity timer, so a long-lived one pointed at
     // a fresh port every cycle holds about 131 KB per edge that has nothing to do with the
     // edge. That is exactly what tests/m5-webedge does, which is why m5 is the largest
@@ -543,9 +543,9 @@ private slots:
             if (!replica->waitForSource(5000)) {
                 return false;
             }
-            // Deliberately not closed. An edge that goes down under a browser still
+            // Not closed. An edge that goes down under a browser still
             // holding it is the case this test is about, and it is the one nothing else
-            // covers: the cycle above closes first, and closing is what used to hide this.
+            // covers. The cycle above closes first, and closing is what hides this.
             return true;
         }};
 
@@ -731,20 +731,20 @@ private slots:
 
     // Signing out costs the edge nothing that closing the tab does not.
     //
-    // The two halves of ending a session meet here: the store lets go of the record, and
+    // The two halves of ending a session meet here. The store lets go of the record, and
     // the edge closes the connections that record authorized. The second half keeps a map
     // of live sockets per session, and a map an edge writes to once per connection is
     // exactly the shape of thing that grows for a month and is noticed by nobody.
     //
-    // Measured as a difference rather than against a fixed bound, and that is deliberate.
+    // Measured as a difference rather than against a fixed bound.
     // A visitor who is new each time reads as a cost this run does not get back, and it is
-    // not a leak: bisected on its own edge, every container the edge keys by session is
+    // not a leak. Bisected on its own edge, every container the edge keys by session is
     // empty afterwards (pending sessions, per-session Sources, per-session sockets, the
     // per-IP counts), the sessions themselves are exactly the ones nobody signed out of,
     // and what is left over is a fixed cost being amortised, falling from about 960 bytes
     // a visit over 30 visits to about 530 over 150. A fixed bound here would be a test that
     // fails for the allocator's reasons rather than for the edge's. What this asks is the
-    // question the sign-out path owns: given the same visitor arriving and connecting, does
+    // question the sign-out path owns. Given the same visitor arriving and connecting, does
     // ending the session at the edge leave more behind than the visitor going away?
     // It must not, and if the map or the Sources or the Callers it carries were ever left
     // in place, it would.

@@ -133,17 +133,15 @@ jobs:
         #
         # The Mesa DRI drivers are for the physics-single proof's last phase, which runs the
         # same scene as a native desktop app as a cross-check: it renders on the offscreen
-        # platform, which still needs something to rasterise with (llvmpipe, from mesa-dri --
-        # the -dev package above is for linking and does not bring it). There is deliberately
-        # no xvfb here any more: that phase used to render on a virtual X display, which
-        # needed xvfb *and* xauth and reported nothing at all when it did not work.
+        # platform, which still needs something to rasterise with (llvmpipe, from mesa-dri;
+        # the -dev package above is for linking and does not bring it).
         #
-        # The GLX and EGL runtimes are for the browsers, and they are load bearing. Firefox
+        # The GLX and EGL runtimes are for the browsers, and they are required. Firefox
         # and WebKit take the machine's GL rather than bringing a rasteriser of their own
         # (only Chromium ships SwiftShader), and a WASM client with no WebGL context cannot
         # start Qt Quick at all: QSGRenderLoop ends that with qFatal, which is emscripten's
         # abort(), which sets ABORT, after which emscripten drops every callback queued
-        # through emscripten_async_call -- the first hop of QEventDispatcherWasm::wakeUp().
+        # through emscripten_async_call, the first hop of QEventDispatcherWasm::wakeUp().
         # The client then connects, pushes properties and never delivers a posted event
         # again, which is what the client-runtime row spent a run reporting as a stalled
         # queue. The -dev package brings the GLX loader for linking; EGL is what a modern
@@ -299,7 +297,7 @@ jobs:
     # suites compile the framework and appgen-native compiles generated entity mains, but
     # nothing else drives the CLI through an actual Emscripten client build; that path is
     # where the shipped-blank-page class of bug lives, and it has only ever been exercised by
-    # hand. Asserting the artifacts is the point: a `synqt build` that skips compilation
+    # hand. The artifacts are what this asserts: a `synqt build` that skips compilation
     # still exits 0 and prints a summary (it says so in its note), so only the bundle on disk
     # separates a real build from a plausible one.
     name: example-bundle (arena, wasm)

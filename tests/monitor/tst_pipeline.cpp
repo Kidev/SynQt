@@ -53,8 +53,8 @@ private slots:
     // A number the wire carries that this build has no enumerator for.
     //
     // Severity and category cross the link as their numbers, so a reporting entity built
-    // against a later vocabulary -- or one that has been compromised and is choosing what
-    // to send -- can put any integer in either field. A static_cast alone turns that into a
+    // against a later vocabulary, or one that has been compromised and is choosing what
+    // to send, can put any integer in either field. A static_cast alone turns that into a
     // value of the enum type anyway, and the event carrying it is then invisible to every
     // category filter the console offers and to the severity floor as well: it is written
     // down and cannot be found again, which is worse for whoever is reading the record than

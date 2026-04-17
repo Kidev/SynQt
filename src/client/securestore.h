@@ -14,18 +14,12 @@ namespace SynQt {
 /// Where a native client keeps the device credential that lets a visitor stay signed in
 /// between launches: the OS secure store, and nowhere else.
 ///
-/// Shaped like the provider families deliberately: one narrow interface, one implementation
-/// per platform, errors reported through the interface and never thrown across it. What is
-/// not here is as load-bearing as what is. **There is no file backend**, not behind a flag,
-/// not in development, not "just for CI". A machine with no store persists nothing and its
-/// visitor signs in once per launch, which is the behaviour of every project that never
-/// asked for any of this. The moment a file backend exists, every honest sentence about
-/// where this credential lives stops being true.
+/// One narrow interface, one implementation per platform, errors reported through the
+/// interface and never thrown across it. **There is no file backend**, in any mode. A machine
+/// with no store persists nothing, and its visitor signs in once per launch.
 ///
-/// The three platform APIs are synchronous and at least one of them can block on a UI
-/// prompt, so nothing calls these directly at startup: DeviceCredential runs them on a
-/// worker with a deadline and reports a timeout as no store at all. An app must never hang
-/// on a keyring.
+/// The platform APIs are synchronous and can block on a UI prompt, so DeviceCredential runs
+/// them on a worker with a deadline and reports a timeout as no store.
 class SecureStore
 {
 public:
@@ -42,7 +36,7 @@ public:
 
     /// Whether this store can be used at all right now, with a short human-readable reason
     /// when it cannot (no session bus, no entitlement, a service logon). Cheap and silent:
-    /// being unavailable is an ordinary outcome on a headless or SSH session, not a fault.
+    /// being unavailable is an ordinary outcome on a headless or SSH session.
     virtual bool isAvailable(QString *reason) const = 0;
 
     /// Write, replacing whatever was under `account`. Rotation goes through here on every

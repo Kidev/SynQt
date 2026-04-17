@@ -34,39 +34,28 @@
   --md-accent-bg-color--light: rgba(255, 255, 255, .7);
 }
 
-/* The same gradient as the header (#201335, its exact background) fills the
-   whole screen, on every page, not only the home page. `fixed` pins it to the
-   viewport rather than the document, so it never scrolls away and always
-   covers exactly what's visible, the same band of gradient behind whatever
-   content is currently on screen. Material's own rule this overrides is
-   `body{background-color:var(--md-default-bg-color)}`; none of
-   `.md-container`/`.md-main`/`.md-content` set a background of their own, so
-   they show this straight through. The header stays its own opaque #201335
-   (overrides/partials/header.html) rather than also going transparent,
-   because it's `position:sticky` with page content scrolling underneath it;
-   letting the gradient show through there would make scrolled text bleed
-   into the header instead of being hidden by it.
+/* The same gradient as the header (#201335, its exact background) fills the whole screen,
+   on every page. `fixed` pins it to the viewport rather than the document, so it never
+   scrolls away and always covers exactly what is visible. The header stays its own opaque
+   #201335 (overrides/partials/header.html), because it is `position:sticky` with content
+   scrolling underneath it, and a transparent header would let scrolled text bleed into it.
 
-   It is declared on the root and not on the body, which is not a detail: the
-   flat colour under the gradient is the one thing on this page that reaches the
-   strip the scrollbar sits in. Whichever of the root and the body carries a
-   background becomes the canvas, and of a canvas background the browser paints
-   only the colour behind the scrollbar. The image stops at the edge of the page
-   area. So the colour is what the reader sees down the right of the window
-   wherever a platform scrollbar is drawn with the transparent track the rule
-   further down gives it. Set on the body, this
-   whole declaration is an image with no colour under it, and that strip was left
-   at the browser's near-black default: measured at rgb(18, 18, 18) against a
-   page whose right edge runs from rgb(34, 41, 89) down to rgb(16, 21, 44), a
-   black band down the side of every page. #191f42 is that edge's colour at the
-   middle of a typical window, so the strip reads as the last few pixels of the
-   page rather than as an object on top of it.
+   It is declared on the root and not on the body: the flat colour under the gradient is the
+   one thing on this page that reaches the strip the scrollbar sits in. Whichever of the
+   root and the body carries a background becomes the canvas, and of a canvas background the
+   browser paints only the colour behind the scrollbar; the image stops at the edge of the
+   page area. So the colour is what the reader sees down the right of the window wherever a
+   platform scrollbar is drawn with the transparent track the rule further down gives it. On
+   the body, the declaration would be an image with no colour under it, and the strip would
+   stay at the browser's near-black default beside a page whose right edge runs from rgb(34,
+   41, 89) down to rgb(16, 21, 44). #191f42 is that edge's colour at the middle of a typical
+   window, so the strip reads as the last few pixels of the page.
 
    The body is then explicitly cleared, because Material sets
-   `body{background-color:var(--md-default-bg-color)}` and an opaque colour there
-   would cover the root's gradient inside the body's box. None of
-   `.md-container`/`.md-main`/`.md-content` set a background of their own, so
-   they show the gradient straight through. */
+   `body{background-color:var(--md-default-bg-color)}` and an opaque colour there would
+   cover the root's gradient inside the body's box. None of
+   `.md-container`/`.md-main`/`.md-content` set a background of their own, so they show the
+   gradient straight through. */
 :root {
   --synqt-page-bg-color: #191f42;
   --synqt-page-bg-image: linear-gradient(165deg, #201335 0%, #232a5c 38%, #0d1224 100%);
@@ -199,7 +188,7 @@ body {
   font-size: .85rem;
 }
 
-/* And tighten it up. The left menu is a list of names, not a set of paragraphs: Material
+/* And tighten it up. The left menu is a list of short names. Material
    puts .625em between rows and indents each nested level by .6rem, which reads well on a
    handful of entries and turns a grouped section into a column carrying more air than
    text. Both are roughly halved, in the primary sidebar only, so the table of contents on
@@ -233,27 +222,22 @@ body {
 }
 
 /* Material pins two labels in place while the list under them scrolls: the active section
-   in the left sidebar ("Framework") and "Table of contents" on the right. The generated
-   C++ reference pins one of its own the same way ("Table of contents" over the page
-   outline, tools/docs-hooks/doxygen-synqt.css), and the three are one object seen on
-   three pages. A reader moving between the guide and the reference should not meet two
-   answers to the same heading.
+   in the left sidebar ("Framework") and "Table of contents" on the right. The generated C++
+   reference pins one of its own the same way ("Table of contents" over the page outline,
+   tools/docs-hooks/doxygen-synqt.css), and the three are one object seen on three pages, so
+   they share one treatment.
 
    The reference's is the one to match, down to the pixels: a flat #1e2129 plate with the
-   same colour fading out of it over .4rem all round, quiet bold text on top. Both of
-   those are Material's own -- #1e2129 is its dark background and .4rem its own spread --
-   so this is the stock treatment with the colour pinned flat rather than left to resolve
-   against a page that is a gradient. The reference writes the same two out as 8.8px,
-   which is what .4rem measures on either page.
+   same colour fading out of it over .4rem all round, quiet bold text on top. Both are
+   Material's own (#1e2129 is its dark background and .4rem its own spread), so this is the
+   stock treatment with the colour pinned flat rather than left to resolve against a
+   gradient. The reference writes the same two out as 8.8px, which is what .4rem measures on
+   either page.
 
-   The plate is deliberately not the colour of the page behind it, on any of the three.
-   A pinned label has one job -- hide the entries passing behind it -- and no flat colour
-   can match a gradient anyway. An earlier attempt painted the page's own gradient here
-   with `background-attachment: fixed`, which did resolve the same pixels and so made the
-   label invisible as an object: an invisible object with a shadow reads as a stray
-   hairline over the list, not as a heading with the list running under it. The soft edge
-   is what keeps it from reading as a pill, which is what a hard border-radius and a drop
-   shadow underneath it made of it.
+   The plate is not the colour of the page behind it, on any of the three. A pinned label
+   has one job (hide the entries passing behind it), and no flat colour can match a
+   gradient; painting the page's own gradient here would make the label invisible as an
+   object, a stray hairline over the list. The soft edge keeps it from reading as a pill.
 
    Desktop only, which is where the labels are pinned. In the mobile drawer they are
    ordinary bars that scroll with everything else. */
@@ -280,12 +264,11 @@ body {
   }
 }
 
-/* The header logo is now the synqt.svg wordmark (theme.logo in mkdocs.yml), so
-   the text in the title area next to it is redundant. The site title (first
-   topic) at rest, and the page title (second topic) that Material would swap in
-   on scroll per navigation.tracking. Hide both topics, but keep the
-   `.md-header__title` element itself, since it carries `flex-grow: 1` and acts
-   as the spacer that pushes search and the repo link to the right edge. */
+/* The header logo is the synqt.svg wordmark (theme.logo in mkdocs.yml), so the text in the
+   title area next to it is redundant: the site title (first topic) at rest, and the page
+   title (second topic) that Material swaps in on scroll per navigation.tracking. Hide both
+   topics, but keep the `.md-header__title` element itself, since it carries `flex-grow: 1`
+   and acts as the spacer that pushes search and the repo link to the right edge. */
 .md-header__title .md-header__topic {
   display: none;
 }
@@ -379,11 +362,10 @@ body {
   align-items: center;
 }
 
-/* .md-tabs__item is a plain (non-flex) box, height 2.4rem, matching the rest
-   of the row. Stock centers the link inside it with a hard coded
-   `margin-top:.8rem` (tuned for the separate, taller two-row tabs bar this
-   is no longer part of), which left it pinned to the top here instead.
-   Actual flex centering replaces that. */
+/* `.md-tabs__item` is a plain (non-flex) box, height 2.4rem, matching the rest of the row.
+   Stock centers the link inside it with a hard-coded `margin-top:.8rem`, tuned for the
+   separate, taller two-row tabs bar, which pins it to the top here. Flex centering replaces
+   that. */
 .md-header__inner .md-tabs__item {
   display: flex;
   align-items: center;
@@ -395,19 +377,18 @@ body {
 
 /* Both sidebars are pinned where they start, so neither moves at all.
 
-   Material's own arrangement is that they scroll away with the page until their top
-   reaches the header and then stick there, which is a short slide at the start of every
-   scroll and nothing after it. The sidebars begin 1.5rem below the header (the top margin
-   Material puts on `.md-main__inner`, which is also what sets the content's first line),
-   and stick at the header's own bottom edge. Pin them at the offset they already sit at
-   and that slide is gone, with everything ending up exactly where it is now at rest.
+   Material's own arrangement is that they scroll away with the page until their top reaches
+   the header and then stick there: a short slide at the start of every scroll and nothing
+   after it. The sidebars begin 1.5rem below the header (the top margin Material puts on
+   `.md-main__inner`, which also sets the content's first line) and stick at the header's
+   bottom edge. Pinning them at the offset they already sit at removes the slide and leaves
+   everything where it is at rest.
 
-   4rem is the header, whose height is the wordmark's (see the logo rules above), and
-   1.5rem is that margin, so 5.5rem is where a sidebar's box starts on a page at the top
-   of its scroll. It is `!important` because Material's own script writes this property
-   inline, as the height of the header alone, which is the value that produces the slide;
-   an inline declaration beats a stylesheet, an important one does not. Nothing else reads
-   it. */
+   4rem is the header, whose height is the wordmark's (see the logo rules above), and 1.5rem
+   is that margin, so 5.5rem is where a sidebar's box starts on a page at the top of its
+   scroll. It is `!important` because Material's own script writes this property inline, as
+   the height of the header alone, which produces the slide; an inline declaration beats a
+   stylesheet, an important one does not. Nothing else reads it. */
 :root {
   --synqt-sidebar-top: 5.5rem;
   /* What a pinned sidebar label is drawn in, both of them, and the C++ reference's own
@@ -444,11 +425,11 @@ body {
   .md-sidebar__scrollwrap {
     overflow-y: auto;
     /* The .4rem is the room the pinned label's halo needs above and beside it (see the
-       pinned-label rules): this is a scroll container, so it clips at its own padding
-       edge, and with the label sitting exactly in the corner the halo was cut square on
-       the two sides it had nothing to spare. The padding is given back on the same two
-       sides as negative margin and added to the height, so the box the reader sees --
-       where the first entry starts, how far down the list runs -- is where it was. */
+       pinned-label rules): this is a scroll container, so it clips at its own padding edge,
+       and with the label in the corner the halo would be cut square on the two sides it has
+       nothing to spare. The padding is given back on the same two sides as negative margin
+       and added to the height, so the box the reader sees (where the first entry starts,
+       how far down the list runs) does not move. */
     max-height: calc(100vh - var(--synqt-sidebar-top) - 2rem) !important;
     margin: -.4rem -.4rem 0;
     padding: .4rem .4rem 0;
@@ -456,17 +437,15 @@ body {
 
   /* And the sidebar itself is that tall, which is what makes it stop above the footer.
 
-     A sticky box is released when its own bottom edge reaches the bottom of the element
-     it sits in, and Material gives `.md-sidebar` a height of zero and lets the pane hang
-     out of it. Measured at the foot of a page it was a 53px box holding a 330px pane. So
-     the browser released it 277px too late and the last entries of both menus were drawn
-     over the footer.
+     A sticky box is released when its own bottom edge reaches the bottom of the element it
+     sits in, and Material gives `.md-sidebar` a height of zero and lets the pane hang out
+     of it, so the browser would release it far too late and draw the last entries of both
+     menus over the footer.
 
      `fit-content` rather than the window's height, so the box is exactly what it looks
-     like. A menu shorter than the window then releases at its own last entry instead of
-     at a fixed height, which is the difference between the menu ending above the footer
-     and the menu ending a hundred and forty pixels above the footer with nothing in
-     between. The cap is the same one the pane has, plus the padding the pane sits in. */
+     like: a menu shorter than the window releases at its own last entry, ending right above
+     the footer rather than well above it with a gap. The cap is the pane's own, plus the
+     padding the pane sits in. */
   .md-container .md-sidebar {
     height: fit-content;
     max-height: calc(100vh - var(--synqt-sidebar-top));
@@ -532,32 +511,26 @@ body {
    platform with overlay scrollbars, where there was never a difference to correct. */
 html {
   scrollbar-gutter: stable;
-  /* And the bar in that reserved width is the site's own rather than the
-     platform's: thin, with no track, so what is drawn is the thumb and nothing
-     else. It is the same treatment in the same colours as the reference's
-     content pane inside /api/ (tools/docs-hooks/doxygen-synqt.css, #doc-content),
-     which is the same thing one level down. That frame's scrollbar is the window
-     scrollbar of the page being read in it.
+  /* And the bar in that reserved width is the site's own rather than the platform's: thin,
+     with no track, so what is drawn is the thumb and nothing else. It is the same treatment
+     in the same colours as the reference's content pane inside /api/
+     (tools/docs-hooks/doxygen-synqt.css, #doc-content), which is the same thing one level
+     down; that frame's scrollbar is the window scrollbar of the page being read in it.
 
-     A transparent track is what lets the page reach the strip at all. The
-     platform track is flat and opaque and knows nothing about this page, and it
-     is drawn over the whole height of the bar, so on a scrolling page it was a
-     grey channel and on one too short to scroll the strip stayed at the
-     browser's default. Made transparent, both cases fall through to the one
-     colour behind them, which the root's `background-color` above puts a few
-     shades of the page edge rather than near-black.
+     A transparent track is what lets the page reach the strip at all. The platform track is
+     flat, opaque, drawn over the whole height of the bar, and knows nothing about this
+     page. Made transparent, the strip falls through to the one colour behind it, which the
+     root's `background-color` above sets to a shade of the page edge.
 
-     `scrollbar-color` is inherited, so every scroller on the page picks the
-     colours up from here, including the ones Material makes for wide code blocks
-     and tables. `scrollbar-width` is not inherited, and is left
-     alone below the root, because a bar the reader has to find and drag inside a small
-     box is worth its full width.
+     `scrollbar-color` is inherited, so every scroller on the page picks the colours up from
+     here, including the ones Material makes for wide code blocks and tables.
+     `scrollbar-width` is not inherited and is left alone below the root, because a bar the
+     reader has to find and drag inside a small box is worth its full width.
 
-     Standard properties only, no `::-webkit-scrollbar` fallback. The browsers
-     that need the fallback are the ones with overlay scrollbars, where there is
-     no reserved strip to correct and no track to hide, and taking their overlay
-     bar apart to rebuild it here would be a regression on the platform that had
-     nothing wrong with it. */
+     Standard properties only, no `::-webkit-scrollbar` fallback. The browsers that need the
+     fallback are the ones with overlay scrollbars, where there is no reserved strip to
+     correct and no track to hide, and rebuilding their overlay bar here would only make it
+     worse. */
   scrollbar-width: thin;
   scrollbar-color: rgba(230, 230, 240, .22) transparent;
 }

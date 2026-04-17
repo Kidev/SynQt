@@ -162,7 +162,7 @@ QByteArray SessionManager::setScope(const QByteArray &wasId, const QString &scop
     // pointed at the id the second rotation has just erased; `rotationOf` refuses a
     // hand-off whose target is gone, so the browser was handed a fresh anonymous session
     // instead of the elevated one it had earned. A slot that raises scope and then raises
-    // it again -- signing somebody in and then granting them a role -- is an ordinary
+    // it again (signing somebody in and then granting them a role) is an ordinary
     // thing to write, so the chain is followed rather than broken.
     //
     // The window keeps the clock it started on. A hand-off is for the visitor's next page

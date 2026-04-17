@@ -357,7 +357,7 @@ private slots:
         QNetworkReply *reply{httpGet(edge.httpOrigin() + QStringLiteral("/m5-encoded.js"),
                                      "Accept-Encoding", "gzip")};
         QVERIFY(reply != nullptr);
-        // Assert on what the edge chose, not on a decoded body: the point is that a .js
+        // Assert on what the edge chose rather than on a decoded body. The check is that a .js
         // takes the encoded path at all.
         QCOMPARE(reply->rawHeader("Vary"), QByteArray("Accept-Encoding"));
         QCOMPARE(reply->rawHeader("Content-Type"), QByteArray("text/javascript"));

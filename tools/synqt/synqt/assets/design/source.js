@@ -1,20 +1,20 @@
 // SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 // SPDX-License-Identifier: Apache-2.0
 
-// The page's one source reader: where the words of a file are, what a QML file declares, and
+// The page's one source reader. Where the words of a file are, what a QML file declares, and
 // what it reaches for in another entity.
 //
 // A project is made of a handful of kinds of text and the pane shows all of them, so all of
-// them are coloured here: the QML an entity is, the configuration, a contract, the schema
-// beside a relational entity, and the page an entity serves a browser -- markup with a
+// them are coloured here. The QML an entity is, the configuration, a contract, the schema
+// beside a relational entity, and the page an entity serves a browser: markup with a
 // stylesheet and a script inside it, each read by the reader that is about it.
 //
-// Only QML is read for meaning, because only QML has any: `synqt infer` does that same
+// Only QML is read for meaning, because only QML has any. `synqt infer` does that same
 // reading in Python, over the same two questions, and this is it brought to the page,
 // because the copy on synqt.org has no CLI behind it and the editor has to behave the same
 // in both places.
 //
-// It is deliberately a reader of declarations, not a parser of QML. A declaration is a line;
+// It reads declarations rather than parsing QML. A declaration is a line;
 // everything below the line is the author's and is never interpreted, never rewritten and
 // never held against them. That is what makes it safe to run on every keystroke.
 //
@@ -56,13 +56,13 @@ const NOT_AN_ENTITY = new Set([
     "Object", "Promise", "Qt", "Screen", "Set", "String", "Symbol",
     // What SynQt itself puts in QML scope. None of these can be an entity accessor, because
     // `addcontract.ALWAYS_RESERVED` refuses an entity these names in the first place. `Server`
-    // is deliberately not here: it is the one the client reaches its edge through.
+    // is not here. It is the one the client reaches its edge through.
     "Api", "App", "Cache", "Caller", "Client", "Db", "Docs", "EntityTest", "Graphics",
     "Http", "IdentityMapping", "Jobs", "PageSeed", "Router", "Session",
 ]);
 
 // The declaration forms. All three are one line, which is the whole reason this can run on
-// every keystroke: what follows a `function` line is a body, and nothing here reads it.
+// every keystroke. What follows a `function` line is a body, and nothing here reads it.
 const PROPERTY = /^[ \t]*(?:(?:readonly|required|default)[ \t]+)*property[ \t]+([A-Za-z_][\w.]*)[ \t]+([A-Za-z_]\w*)/;
 // The parentheses are optional because QML makes them optional and qmlformat takes them off:
 // `signal closed()` is written back as `signal closed`, and a reader that wanted them would
@@ -199,12 +199,11 @@ function synRuns(text) {
     return out;
 }
 
-// The `export: |` block, whose lines are a contract and not YAML. Everything a connect point
-// carries is written in there, in the same grammar a `.syn` file is written in, so it is
-// coloured by the same reader. `prop`, `model`, `signal` and `slot` are keywords here and a
-// type is a type, which is what makes an export block scannable at the size it is set in.
-// Left as one flat scalar it was the one part of the configuration that mattered most and
-// read as a wall.
+// The `export: |` block, whose lines are a contract and not YAML. Everything a connect
+// point carries is written there in the grammar a `.syn` file uses, so it is coloured by
+// the same reader: `prop`, `model`, `signal` and `slot` are keywords and a type is a type,
+// which makes an export block scannable at the size it is set in. As one flat scalar, the
+// part of the configuration that matters most would read as a wall.
 const BLOCK_KEY = /^(\s*)export\s*:\s*[|>][-+]?\s*$/;
 
 // The configuration. Keys, the scalars beside them, the comments, and the contract inside an
@@ -249,10 +248,9 @@ function yamlRuns(text) {
     return out;
 }
 
-// The schema beside a relational entity. Every project with a database in it holds one, and
-// it was the one file in the pane shown as a single grey run. The reader who has been
-// told the entity queries this table opens it and finds the least readable file in the
-// project. Small vocabulary, because the file is a list of forward-only statements and
+// The schema beside a relational entity. Every project with a database holds one, and a
+// reader told the entity queries this table opens it next, so it is painted like the other
+// files. Small vocabulary, because the file is a list of forward-only statements and
 // nothing here has to understand SQL.
 const SQL_KEYWORDS = new Set([
     "add", "all", "alter", "and", "as", "asc", "autoincrement", "begin", "between", "by",
@@ -309,9 +307,8 @@ function sqlRuns(text) {
     return out;
 }
 
-// A stylesheet. The page an entity serves is HTML with a `<style>` block in it, and until
-// this existed that block was the largest run of grey in the whole pane. The sign-in page a
-// monitor hands an anonymous visitor is two thirds CSS.
+// A stylesheet. The page an entity serves is HTML with a `<style>` block in it, often most
+// of the file: the sign-in page a monitor hands an anonymous visitor is two thirds CSS.
 //
 // Small vocabulary again, because nothing here has to understand CSS: the comments, the
 // literals, the at-rules, and the name half of a declaration. That last one is the whole of

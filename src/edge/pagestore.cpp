@@ -19,16 +19,14 @@ namespace SynQt {
 
 namespace {
 
-/// How long the file has to stay quiet before it is read. Long enough that a truncate
-/// and the write behind it coalesce into one reload, short enough that an edit still
-/// reaches the browser as fast as the developer can look at it.
+/// How long the file must stay quiet before it is read: long enough for a truncate and the
+/// following write to coalesce into one reload, short enough to feel immediate.
 constexpr int reloadQuietMs{100};
 
-/// How many reads a change is given before it is given up on. A file that was just
-/// written can be briefly unreadable. An atomic replace leaves the path missing between
-/// the unlink and the rename, and on Windows an indexer or a scanner holds a fresh file
-/// open for a moment. Retrying for two seconds turns that into a slightly late hot
-/// reload rather than an edit that never arrives.
+/// How many reads a change gets before it is abandoned. A freshly written file can be
+/// briefly unreadable: an atomic replace leaves the path missing between unlink and rename,
+/// and on Windows an indexer or scanner may hold it open. Retrying for two seconds makes
+/// that a slightly late reload instead of a lost edit.
 constexpr int reloadAttempts{20};
 
 } // namespace
@@ -103,8 +101,7 @@ QString PageStore::routeTableJson() const
         QJsonObject entry{};
         entry.insert(QStringLiteral("path"), iterator.key());
         entry.insert(QStringLiteral("scope"), iterator.value().scope);
-        // Only when it says something. A page with no requirement leaves the table byte
-        // for byte what it was before this existed.
+        // Only when the page has a requirement.
         if (!iterator.value().graphics.isEmpty()) {
             entry.insert(QStringLiteral("graphics"), iterator.value().graphics);
         }
@@ -153,10 +150,9 @@ void PageStore::onFileChanged(const QString &path)
     if (route.isEmpty()) {
         return;
     }
-    // Deliberately not read here. One edit is not one notification: an editor that
-    // truncates and then writes produces two, and reading between them hashes an empty
-    // file. Wait until the notifications stop, and let every further one push that wait
-    // back.
+    // Not read here: an editor that truncates and then writes sends two notifications, and
+    // reading between them hashes an empty file. Wait until the notifications stop; each
+    // one restarts the wait.
     m_pending.insert(route, reloadAttempts);
     if (m_reloadTimer) {
         m_reloadTimer->start(reloadQuietMs);
@@ -165,21 +161,21 @@ void PageStore::onFileChanged(const QString &path)
 
 void PageStore::flushPending()
 {
-    // Over a copy. The loop writes to m_pending, and a route dropped here must not
-    // invalidate the iteration.
+    // Over a copy: the loop writes m_pending, and dropping a route must not invalidate the
+    // iteration.
     const QStringList routes{m_pending.keys()};
     for (const QString &route : routes) {
         const QString path{QDir{m_pagesDir}.filePath(m_pages.value(route).file)};
         const QString before{m_pages.value(route).hash};
         if (reload(route)) {
             m_pending.remove(route);
-            // An atomic replace (write a sibling, rename over the watched path) drops the
-            // watch with the old inode, so re-arm it on the file that is there now.
+            // An atomic replace (write a sibling, rename it over the path) drops the watch
+            // with the old inode, so watch the new file.
             if (m_watcher && !m_watcher->files().contains(path)) {
                 m_watcher->addPath(path);
             }
-            // Only when the content moved. A replace can be reported twice, and
-            // an unchanged hash tells every open tab to re-fetch a page it already holds.
+            // Only when the content changed: a replace can be reported twice, and an
+            // unchanged hash would make every open tab re-fetch.
             if (m_pages.value(route).hash != before) {
                 emit pageChanged(route, m_pages.value(route).hash);
             }

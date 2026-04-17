@@ -663,7 +663,7 @@ QByteArray WebEdge::cookieFor(const QByteArray &token)
 {
     QByteArray cookie{m_config.cookieName.toUtf8() + "=" + token + "; HttpOnly; Path=/"};
     if (m_config.originModel == QLatin1String("split_origin")) {
-        // No `Partitioned` (CHIPS), deliberately, and this is measured rather than assumed:
+        // No `Partitioned` (CHIPS), and that is measured rather than assumed:
         // tests/split-origin proves that a partitioned cookie survives third-party cookie
         // restriction but loses the login, because the OAuth callback is a top-level
         // navigation onto the edge and the cookie lands under the edge's own partition, which
@@ -981,12 +981,11 @@ bool WebEdge::start()
     // 2. The HTTP server: serve the bundle, stamp headers, and verify upgrades.
     m_httpServer = new QHttpServer{this};
 
-    // Qt's own limits on the request, applied before anything of ours runs. Set here rather
+    // Qt's own limits on the request, applied before anything of SynQt's runs. Set here rather
     // than left at their defaults because Qt picks for a general-purpose server: a 32 MiB
     // body ceiling is right for one that receives uploads and generous for one whose own
-    // routes carry a token and a password field. The idle timeout is load-bearing rather
-    // than housekeeping, since it is what closes a peer that sends half a request and stops
-    // (docs/security.md says which of these covers what). Rate limiting stays off unless a
+    // routes carry a token and a password field. The idle timeout is what closes a peer that
+    // sends half a request and then stops (docs/security.md says which of these covers what). Rate limiting stays off unless a
     // project asks: Qt counts the peer address, which is the balancer's on every deployment
     // that has one.
     QHttpServerConfiguration httpConfiguration;
@@ -1038,7 +1037,7 @@ bool WebEdge::start()
         // and leaving a stolen family's access and refresh tokens live on the edge would
         // undo most of what the revocation was for. It also fires for the rotation that a
         // scope change makes, which is not the end of anything, so that case is read and
-        // handed to followRotation instead -- the same distinction dropSession draws.
+        // handed to followRotation instead, the same distinction dropSession draws.
         connect(m_sessionManager, &SessionManager::sessionExpired, m_identity,
                 [this](const QString &token) { m_identity->forgetSession(token.toLatin1()); });
         connect(m_sessionManager, &SessionManager::sessionRemoved, m_identity,
@@ -1355,7 +1354,7 @@ void WebEdge::registerBundleRoutes()
     // The application shell for any unmatched path, so a deep link or a refresh on
     // "/c/summer-sale" lands on the app instead of a 404.
     //
-    // This is deliberately a route and not setMissingHandler(): a missing handler is
+    // This is a route rather than setMissingHandler(): a missing handler is
     // answered through a QHttpServerResponder, and Qt does not run after-request
     // handlers for those, so the shell would go out with no CSP, COOP, or COEP.
     // Registered last, so every real route above still wins. The parameter is QUrl
@@ -1744,14 +1743,14 @@ void WebEdge::onNewWebSocketConnection()
 /// On a one-thread edge that is the socket itself and nothing has changed. On a threaded
 /// edge the socket and the raw socket underneath it become a channel's children and go to
 /// an IO thread together, leaving the device here, on the thread the QtRO host and every
-/// Source live on. The move is deliberately not done here: the caller does it last, once
-/// the connection is hosted, so nothing runs on the socket between the two.
+/// Source live on. The move is not done here. The caller does it last, once the connection
+/// is hosted, so nothing runs on the socket between the two.
 WebSocketTransport *WebEdge::carry(QWebSocket *socket, QObject *connection)
 {
     QAbstractSocket *raw{m_pendingRawSockets.take(
         peerKey(socket->peerAddress().toString(), socket->peerPort()))};
     if (m_ioThreads && !raw) {
-        // Should not happen: every accepted socket is remembered by the same key on the
+        // Should not happen. Every accepted socket is remembered by the same key on the
         // way in. If it ever does, this connection stays on this thread rather than going
         // half way, because a QWebSocket read on one thread and written on another is a
         // data race that presents as a connection which receives and never answers.
@@ -1861,8 +1860,8 @@ void WebEdge::hostConnection(QWebSocket *socket)
     }
 
     // The framework's own SessionState connect point: who this connection's visitor is.
-    // Hosted on every accepted connection, unconditionally, and that is deliberate. It is
-    // not a feature a project turns on: `Session.scope` and `Session.identity` are what
+    // Hosted on every accepted connection, unconditionally, rather than as a feature a
+    // project turns on: `Session.scope` and `Session.identity` are what
     // the runtime API says a client may always ask, and every app with a sign-in gates its
     // UI on them. Hosting it only where identity is configured would leave the two of them
     // answering "anonymous, nobody" on exactly the projects that are about to ask.

@@ -576,7 +576,7 @@ def test_the_examples_are_the_example_projects_themselves():
     Every example the editor opens is one of the projects under `examples/`, read by the
     same code `synqt design` reads a project on disk with. A hand-maintained copy would be
     a second answer to what the auction is, and the two would part company the first time
-    one of them changed -- silently, because nothing else compares them.
+    one of them changed, silently, because nothing else compares them.
     """
     import importlib.util
 

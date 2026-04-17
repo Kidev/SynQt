@@ -616,25 +616,69 @@ for `127.0.0.1` before looking for the cause in the CSS.
 ## Continuous integration ([`.github/workflows/`](https://github.com/Kidev/SynQt/tree/main/.github/workflows))
 
 The workflows are described in [build system and CLI](build-system-and-cli.md#continuous-integration).
-In short: [`tests.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/tests.yml) runs the Python suites on Linux, macOS, and Windows; [`ctest.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/ctest.yml)
-provisions the pinned Qt kit through aqtinstall and runs the native C++ suites;
-[`browser-matrix.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/browser-matrix.yml) runs the M0 transport proof across Chromium, Firefox, and WebKit;
+In short, [`tests.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/tests.yml) runs the Python suites on Linux, macOS, and Windows. [`ctest.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/ctest.yml)
+provisions the pinned Qt kit through aqtinstall and runs the native C++ suites.
+[`browser-matrix.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/browser-matrix.yml) runs the M0 transport proof across Chromium, Firefox, and WebKit.
 [`wasm-proofs.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/wasm-proofs.yml) runs the proofs needing a WebAssembly kit no other workflow installs (the
 multi-threaded SharedArrayBuffer proof, Qt Quick 3D Physics on both kits, the client
 runtime driven in all three engines against a real web edge, and a real `synqt build` of
-the arena's client bundle); [`leaks.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/leaks.yml) runs both halves of
-[`tests/memory/run-leakcheck.sh`](https://github.com/Kidev/SynQt/blob/main/tests/memory/run-leakcheck.sh) over the whole tree;
-[`release.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/release.yml) freezes and publishes the CLI; and
-[`docs.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/docs.yml) publishes this site.
+the arena's client bundle). [`leaks.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/leaks.yml) runs both halves of
+[`tests/memory/run-leakcheck.sh`](https://github.com/Kidev/SynQt/blob/main/tests/memory/run-leakcheck.sh) over the whole tree.
+[`release.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/release.yml) freezes and publishes the CLI.
+[`docs.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/docs.yml) publishes this site. [`cla.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/cla.yml) and [`authors.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/authors.yml) do the
+contributor bookkeeping.
 
 Every workflow name carries a tag so the checks list groups by purpose: `[TEST]`, `[BENCH]`,
 `[DOCS]`, `[RELEASE]`, `[CONTRIB]`.
 
-Neither [`browser-matrix.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/browser-matrix.yml) nor [`wasm-proofs.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/wasm-proofs.yml) runs on every push: each builds a Qt
+### Who the automation acts as
+
+Three of the workflows write to GitHub rather than only reading it: [`cla.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/cla.yml) comments on a
+pull request and records the signature on the `cla-signatures` branch, [`authors.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/authors.yml) opens a
+pull request when AUTHORS has gone stale, and the `release` job in [`release.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/release.yml) creates
+the tag and publishes the release. All three act as the [SynQt-Operations](https://github.com/apps/synqt-operations) GitHub App, so that
+the project is what talks to a contributor and what publishes a release.
+
+Nothing pushes to `main`. [`authors.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/authors.yml) regenerates AUTHORS after a pull request merges and,
+when the result differs from what is on `main`, pushes its own `authors/update` branch and
+opens a pull request from it. A pull request that regenerated the file itself gets nothing.
+This is the safety net for the one that did not. Merging what it opens re-runs it, which
+finds AUTHORS current and stops, so there is no loop. That branch is rebuilt from `main` and
+force-pushed every run, so the open pull request always shows the current answer rather than
+a stack of superseded ones.
+
+Each of those jobs trades the app's private key for a short-lived installation token with
+[`actions/create-github-app-token`](https://github.com/actions/create-github-app-token), asking for only the permissions it uses, and the token
+is revoked when the job ends. That needs two repository secrets:
+
+| Secret | Value |
+| --- | --- |
+| `SYNQT_CLIENT_ID` | The app's client id, the `Iv23...` string on its settings page |
+| `SYNQT_PRIVATE_KEY` | The app's private key, the whole `-----BEGIN RSA PRIVATE KEY-----` PEM generated under "Private keys" on that page. This is not the app's OAuth client secret, which signs nothing and will not mint a token |
+
+The app itself needs, across the three jobs, **contents** write (the signature branch, the
+`authors/update` branch, the tag and release), **pull requests** write (the CLA comment and
+the AUTHORS pull request), **commit statuses** write (the CLA check), and **actions** write
+(re-running the CLA check once a signature is recorded). Without both secrets those jobs fail
+at the token step, which is intended, because they must not fall back to a weaker
+identity or skip silently.
+
+Two workflows do not use the app. [`docs.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/docs.yml) deploys through the official
+Pages OIDC flow, which has no bot identity to set, and `publish-pypi` uses PyPI's trusted
+publisher (see [Publishing to PyPI](#publishing-to-pypi) below), which is matched on the workflow file rather than on
+any token.
+
+One side effect is invisible until it costs a CI run. A
+push made with an app token starts other workflows, where a push made with the default
+`GITHUB_TOKEN` starts none. [`tests.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/tests.yml) therefore skips a push that touches only AUTHORS,
+which is every push to `authors/update`. It still runs on the pull request itself, which is
+what a required status check has to report on.
+
+Neither [`browser-matrix.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/browser-matrix.yml) nor [`wasm-proofs.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/wasm-proofs.yml) runs on every push, because each builds a Qt
 module from source for the WebAssembly kit (which ships no QtRemoteObjects, see
 [`tests/m0-transport/README.md`](https://github.com/Kidev/SynQt/blob/main/tests/m0-transport/README.md)), which is too slow for that. They run on dispatch and on
-changes to what they cover. Note that [`browser-matrix.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/browser-matrix.yml) is the one workflow
-whose result depends on software that is not in this repository: the browser engines it
+changes to what they cover. [`browser-matrix.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/browser-matrix.yml) is the one workflow
+whose result depends on software that is not in this repository. The browser engines it
 drives keep moving while the spike it drives does not, so its path triggers can leave the
 Chromium, Firefox, and WebKit claim resting on a run from months ago. Dispatch it when you
 need the claim to be current.

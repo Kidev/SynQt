@@ -1,39 +1,17 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-# Shared helpers for asserting that a build produced a real native executable, on any host
-# SynQt targets as a desktop platform (Linux, macOS, Windows. See docs/desktop.md).
+# Helpers asserting that a build produced a native executable on Linux, macOS or Windows.
+# Sourced: `. "$REPO_ROOT/tests/lib/native-binary.sh"`.
 #
-# Sourced, not executed: `. "$REPO_ROOT/tests/lib/native-binary.sh"`.
-#
-# Two things here are deliberate.
-#
-# The executable's name is asked for without a suffix, because only Windows adds one (.exe). A
-# test that hard-codes the bare name reports MISSING on Windows for a binary that linked fine.
-#
-# The kind is read from the file's magic number rather than from `file`'s prose. `file` is not in
-# every Git-for-Windows install, and its wording is neither stable across versions nor the same on
-# two platforms, which is exactly how `file -b ... | grep -q ELF` came to report MISSING on macOS
-# for three executables that had linked successfully. The assertion only ever recognised
-# Linux, so the one thing it proved was that the test ran on Linux.
+# Names are given without the .exe suffix. The kind is read from the magic number, not from
+# `file`, which is missing on Git for Windows and words its output differently per platform.
 
-# Echo the path of a built executable, accounting for the .exe suffix on Windows. Echoes nothing
-# when neither exists, so callers can test for an empty result.
+# Echo the path of a built executable, or nothing when it does not exist.
 #
-# The .exe variant is tried FIRST, and that order is load-bearing on Windows. Git-for-Windows
-# bash is Cygwin/MSYS2, whose stat() transparently resolves a bare name to its `.exe` sibling
-# (the "exe magic"), so `[ -f "$1" ]` is TRUE for a target that only exists as `$1.exe`, and
-# this function would then echo the bare, extension-less path. That path works in bash (od, test)
-# but is a plain FileNotFoundError to any NATIVE Windows program, which has no exe magic: it cost
-# a CI round when a native Python step downstream tried to open the returned path and failed on a
-# binary that had linked perfectly. Preferring `$1.exe` returns the real filename. On Linux/macOS
-# there is no `.exe`, so it falls through to the bare name unchanged.
-#
-# The .app case is macOS's. The desktop client is a bundle (cmakegen sets MACOSX_BUNDLE, so the
-# macdeployqt hand-off in docs/desktop.md is possible at all), and the executable inside it is
-# what runs. Without this branch every assertion here reports MISSING on macOS for a client that
-# built and installed perfectly well, because the bare name is a directory there and `[ -f ]` on
-# a directory is false.
+# `.exe` first: MSYS stat() resolves a bare name to its .exe sibling, and a native Windows
+# program cannot open the bare name. On macOS the desktop client is a .app bundle, and the
+# executable inside it is what runs.
 native_exe_path() {
     if [ -f "$1.exe" ]; then
         printf '%s\n' "$1.exe"
@@ -50,8 +28,7 @@ native_exe_kind() {
     magic="$(od -A n -t x1 -N 4 "$1" 2>/dev/null | tr -d ' \n')"
     case "$magic" in
         7f454c46)                    printf 'ELF\n' ;;
-        # Mach-O, thin: 0xfeedfacf (64-bit) / 0xfeedface (32-bit), byte-swapped on disk on a
-        # little-endian host, so accept both orders.
+        # Mach-O, thin, 64- or 32-bit, in either byte order.
         cffaedfe|cefaedfe|feedfacf|feedface) printf 'Mach-O\n' ;;
         # Mach-O, universal ("fat"), what a default macOS build of a Qt app usually is.
         cafebabe|bebafeca)           printf 'Mach-O universal\n' ;;
@@ -69,11 +46,7 @@ assert_native_exe() {
     _label="${2:-$(basename "$1")}"
     if [ -z "$_path" ]; then
         printf '  %s : MISSING (no executable at %s)\n' "$_label" "$1"
-        # Say what is there instead. "It is not at the expected path" and "it was never
-        # built" are different failures with the same message here, and telling them apart
-        # matters. On Windows the binaries build into a per-config subdirectory
-        # (build/host/Debug/) that nothing downstream looks in, and without the listing
-        # this line reports the same MISSING it would for a compile that never ran.
+        # List what is there instead, to tell a wrong path from a missing build.
         if [ -d "$(dirname "$1")" ]; then
             printf '            (%s contains: %s)\n' "$(dirname "$1")" \
                 "$(ls "$(dirname "$1")" 2>/dev/null | tr '\n' ' ' | sed 's/ $//')"

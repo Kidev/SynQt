@@ -13,8 +13,8 @@ namespace SynQt {
 EventRing::EventRing(int capacity)
     : m_capacity{std::max(1, capacity)}
 {
-    // Allocated once, here, and never again. Growing the storage on the recording path is
-    // the unbounded allocation this class exists to avoid.
+    // Allocated once, here: growing on the recording path is the unbounded allocation this
+    // class prevents.
     m_events.resize(m_capacity);
 }
 
@@ -27,8 +27,7 @@ bool EventRing::push(TraceEvent event)
         ++m_size;
         return true;
     }
-    // Full: the write above landed on the oldest slot, so advancing the head is what
-    // makes it the newest and forgets what was there.
+    // Full: the write replaced the oldest slot, so advancing the head makes it the newest.
     m_head = (m_head + 1) % m_capacity;
     ++m_dropped;
     return false;
@@ -37,11 +36,9 @@ bool EventRing::push(TraceEvent event)
 QList<TraceEvent> EventRing::drain(int max)
 {
     QMutexLocker locker{&m_mutex};
-    // Clamped at zero as well as at the size held. A negative `max` would otherwise take a
-    // negative count, which walks the head backwards through a modulo of a negative number
-    // and grows m_size instead of shrinking it -- an out-of-range index on the next push,
-    // reached by a caller doing nothing worse than passing a batch size it read from
-    // somewhere. Every caller today clamps its own; a ring buffer should not need them to.
+    // Clamped at zero as well as at the size: a negative `max` would walk the head
+    // backwards through a negative modulo, grow m_size, and index out of range on the next
+    // push.
     const int taken{std::clamp(max, 0, m_size)};
     QList<TraceEvent> events;
     events.reserve(taken);

@@ -1,26 +1,24 @@
 /* SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
    SPDX-License-Identifier: Apache-2.0
 
-   The file pane's editor, styled -- the half of it that is ours rather than CodeMirror's.
+   The file pane's editor: the part of its styling that is SynQt's, not CodeMirror's.
 
-   Its own stylesheet and not part of design.css, because the editor lives in a shadow root
-   under `#source-view` and this is the sheet that root adopts. That is not decoration: the
-   vendored CodeMirror builds its own stylesheet at runtime, and inside a shadow root
-   style-mod builds it as a constructed CSSStyleSheet rather than as a <style> element with
-   text in it. A page served under `default-src 'none'` with no `unsafe-inline` refuses the
-   second and has no opinion about the first, so the boundary is what lets a real editor live
-   under the real policy. Scoping the library's styles away from the rest of the page is the
-   second reason, and it would have been reason enough.
+   A stylesheet of its own, separate from design.css, because the editor lives in a shadow
+   root under `#source-view` and this is the sheet that root adopts. The vendored CodeMirror
+   builds its own stylesheet at run time, and inside a shadow root style-mod builds it as a
+   constructed CSSStyleSheet instead of a <style> element. A page served under
+   `default-src 'none'` with no `unsafe-inline` refuses a <style> element and allows a
+   constructed sheet, so the shadow root is what lets the editor run under the page's policy.
+   It also keeps the library's styles away from the rest of the page.
 
-   Nothing named `cm-` is here. Those are the library's own
-   class names, its base theme reaches them through selectors two and three classes deep, and
-   a plain `.cm-gutters` here loses to every one of them. They are a CodeMirror theme in
-   editor.js, which is the mechanism that outranks a base theme by construction. What is here
-   is the box the editor sits in and the colours of the runs source.js finds, and neither of
-   those is a name CodeMirror has any rule about.
+   Nothing named `cm-` is here. Those are the library's class names, its base theme reaches
+   them through selectors two and three classes deep, and a plain `.cm-gutters` here loses to
+   every one of them. They are a CodeMirror theme in editor.js, which outranks a base theme
+   by construction. What is here is the box the editor sits in and the colours of the runs
+   source.js finds, which no CodeMirror rule names.
 
    The palette is the page's. Custom properties cross a shadow boundary, so `var(--ink)` here
-   is the same ink as everywhere else and follows the reader's light or dark setting with it. */
+   is the same ink as everywhere else and follows the light or dark setting with it. */
 
 :host {
   display: block;
@@ -28,8 +26,8 @@
   height: 100%;
 }
 
-/* What a run of each kind is coloured, which is the one description of the syntax: source.js
-   finds the runs and they are painted the same in the pane, on the canvas and on the cards. */
+/* The colour of each kind of run, the one description of the syntax: source.js finds the
+   runs, and they are painted the same in the pane, on the canvas and on the cards. */
 
 .tok--comment {
   color: var(--ink-dim);

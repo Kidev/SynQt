@@ -168,8 +168,8 @@ def deploy_client(root: Path, name: str, out: Path, resolved: Dict[str, Any],
 def _dynamic_needs(path: Path) -> List[str]:
     """The DT_NEEDED sonames of an ELF file, read out of the file itself.
 
-    Deliberately not `ldd`. `ldd` reports where a dependency *resolved on this machine*, which
-    is the wrong question twice over: it silently answers with the host's own Qt when the kit
+    Not `ldd`. `ldd` reports where a dependency *resolved on this machine*, which
+    is the wrong question twice over. It silently answers with the host's own Qt when the kit
     is not the only Qt installed (that is how a deployed tree came to look self-contained on a
     developer box and fail everywhere else), and it prints "not found" with no soname to act on
     for the dependency that is missing. The soname list is a property of the file, so
@@ -272,8 +272,8 @@ def _dynamic_needs(path: Path) -> List[str]:
 def _library_closure(roots: Iterable[Path], kit: Path) -> Dict[str, Path]:
     """Every library in `kit` reachable from `roots`, transitively, keyed by soname.
 
-    The transitive part is the whole point. The first version of this walked only the client
-    binary's own dependencies, which reads as thorough and is not: a platform plugin and a QML
+    The transitive part is what makes it work. The first version of this walked only the client
+    binary's own dependencies, which reads as thorough and is not. A platform plugin and a QML
     module are loaded at runtime, so nothing they need appears in the binary's list at all. The
     tree it produced was missing the X11 platform plugin's Qt6XcbQpa and the Controls style's
     Qt6QuickControls2Impl, and could not start on any machine that did not already have Qt.

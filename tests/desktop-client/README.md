@@ -64,4 +64,4 @@ tests/desktop-client/run-desktop-client.sh
 ```
 
 Needs the pinned host kit (`/opt/Qt/6.11.1/gcc_64`). Exit 0 means GO. No WASM kit or browser is
-involved; the desktop client builds entirely on the host kit, which is the point of the target.
+involved; the desktop client builds entirely on the host kit, which is what the target is for.

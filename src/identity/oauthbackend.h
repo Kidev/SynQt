@@ -29,8 +29,8 @@ class JwksVerifier;
 /// expires, server-side, using the refresh token (see "Session lifecycle" in
 /// [Authentication](https://synqt.org/authentication/)).
 ///
-/// This engine is deliberately free of any browser I/O: it exposes no cookies and no HTTP
-/// routes. The web edge's IdentityProvider drives it for the in-process case; a dedicated
+/// This engine is free of any browser I/O: it exposes no cookies and no HTTP
+/// routes. The web edge's IdentityProvider drives it for the in-process case. A dedicated
 /// auth entity's IdentityService drives the same engine for the provider_entity case, so
 /// the secret and the tokens live in exactly one place either way.
 class OAuthBackend : public QObject
@@ -74,7 +74,7 @@ public:
         QString tokenKey;
         QString error;
         /// The `context` begin() was given, back again. It comes back on a failed exchange
-        /// too, deliberately: a desktop login that is refused has to tell the waiting client
+        /// too: a desktop login that is refused has to tell the waiting client
         /// so, over the loopback address that is in here, or the app sits on its listener
         /// until the timeout and the visitor reads a refusal as a hang. Empty only when
         /// there was no record to match (unknown or expired state) or the presented binding

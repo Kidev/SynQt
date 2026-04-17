@@ -157,7 +157,7 @@ double cpuMilliseconds()
 
 /// Spin the event loop until the predicate holds or the deadline passes. Only ever used
 /// outside a measured window (waiting for callers to come up), because it burns CPU while
-/// it waits and the whole point of the CPU column is that nothing inside a window does.
+/// it waits, and the CPU column only means anything if nothing inside a window does.
 template <typename Predicate>
 bool spinUntil(Predicate predicate, int timeoutMs)
 {

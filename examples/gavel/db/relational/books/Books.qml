@@ -5,7 +5,7 @@ import SynQt
 
 // The authoritative ledger on the books entity (docs/tutorial-hall-of-fame.md).
 //
-// There is no check in here for who is calling, and that is the point: the connect point
+// There is no check in here for who is calling, and none is needed: the connect point
 // lists one consumer, the edge, so the mesh opens no link to anything else and nothing else
 // can acquire this. A browser cannot reach it at all. Where an entity does have two
 // consumers and only one of them may write, that is what `Caller.entity` is for.

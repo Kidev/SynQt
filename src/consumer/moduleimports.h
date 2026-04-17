@@ -6,39 +6,23 @@
 
 namespace SynQt {
 
-/// Makes `import SynQt` bring QtQuick in with it, so a file that imports the
-/// framework can write `Item`, `Timer` or `Component.onCompleted` without a
-/// second import line above the first.
+/// Makes `import SynQt` bring QtQuick in with it, so a file that imports the framework can
+/// write `Item`, `Timer` or `Component.onCompleted` without a second import line.
 ///
-/// Every SynQt file needs both. The framework's own types are useless on their
-/// own. An entity's file is a QtObject or a Source with QML bindings in it, and
-/// a client's is a window. Writing `import QtQuick` above `import SynQt` in
-/// every file was therefore a line that carried no decision, and leaving it out
-/// failed at load time with "Item is not a type", which names the symbol and
-/// not the missing import.
+/// This is the C++ spelling of a qmldir `import` declaration, whose documented effect is that
+/// "the types from the other module are made available in the same type namespace as this
+/// module is imported into" (Module Definition qmldir Files). SynQt registers its types
+/// imperatively, so the declaration is made here. It carries no version: `auto` would ask for
+/// QtQuick at SynQt's own version, 1.0, which does not exist.
 ///
-/// This is the C++ spelling of a qmldir `import` declaration, whose documented
-/// effect is that "the types from the other module are made available in the
-/// same type namespace as this module is imported into" (Module Definition
-/// qmldir Files). SynQt registers its types imperatively rather than through a
-/// qmldir, so the declaration is made here instead. Note the deliberate absence
-/// of a version: `auto` would ask for QtQuick at SynQt's own version, 1.0,
-/// which does not exist and fails the import outright.
+/// It shadows nothing. An explicit `import QtQuick` in a file resolves as before, and a type a
+/// file declares keeps its own name.
 ///
-/// It does not shadow anything. A file that still writes `import QtQuick`
-/// itself resolves exactly as before, and a file that imports SynQt and then
-/// declares a type of its own keeps its own: an explicit import in the document
-/// wins over one the module brought along.
+/// Call this before an engine loads anything. Registration is global to the QML type system,
+/// and the call is idempotent.
 ///
-/// Call this before an engine loads anything. Registration is global to the QML
-/// type system rather than per engine, and the call is idempotent, so repeating
-/// it costs nothing.
-///
-/// You rarely have to. Every generated contract registration makes this call
-/// first, so registering a contract's Sources or consumers is already enough for
-/// the QML that uses them. What remains for a caller is the case with no
-/// contract to register at all. A client with no consumed connect points yet,
-/// whose Main.qml is still a window and still needs QtQuick.
+/// Every generated contract registration makes this call first, so a caller needs it only when
+/// there is no contract to register, such as a client with no consumed connect points.
 void registerModuleImports();
 
 } // namespace SynQt

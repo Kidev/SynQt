@@ -39,7 +39,7 @@ const headless = process.env.M0_HEADLESS === "1" ? true : !process.env.DISPLAY;
 
 const expectation = process.argv[2] || "stall";
 // "load" starves every wakeup for the whole run. "once" drops exactly one and then gets out
-// of the way, which is the sharper measurement: it shows that a single lost browser callback
+// of the way, which is the narrower measurement. It shows that a single lost browser callback
 // is not a hiccup but a permanent wedge, because the dropped arm still returned a live timer
 // id and QWasmTimer::hasTimeout() reads true forever after. That is why this failure needs no
 // systematic cause to look perfectly systematic.

@@ -3,11 +3,10 @@
 
 """Unit tests for the SynQt docs lexers.
 
-Run with. Python3 -m pytest tools/pygments-synqt/tests
+Run with: python3 -m pytest tools/pygments-synqt/tests
 
-These cover the token decisions the docs' colors are built on, in particular the
-runtime accessors, which names are one, which lookalikes are not, and the CSS class
-Pygments writes for them, which docs/stylesheets/extra.css targets by name.
+Covers the token decisions the docs colours rely on, including the runtime accessors and the
+CSS classes docs/stylesheets/extra.css targets by name.
 """
 
 import os
@@ -33,9 +32,7 @@ def kind_of(source, word):
 
 
 def test_accessor_class_is_the_one_the_stylesheet_targets():
-    # extra.css colors `.nb-Accessor`. Pygments derives that class from the token by
-    # walking up to the nearest one it knows, so this is the pairing to hold on to: a
-    # rename on either side and the accessors silently go back to the default color.
+    # extra.css colours `.nb-Accessor`, the class Pygments derives from this token.
     assert _get_ttype_class(Name.Builtin.Accessor) == "nb-Accessor"
 
 
@@ -58,8 +55,7 @@ def test_every_documented_accessor_is_one():
 
 
 def test_an_accessor_is_one_wherever_it_stands():
-    # Bound to a property, passed as an argument, and as the target of an attached
-    # handler. The same object each time, so the same color each time.
+    # As a binding, an argument, and an attached handler target: one colour.
     source = """
     Item {
         target: Server.auth
@@ -72,8 +68,7 @@ def test_an_accessor_is_one_wherever_it_stands():
 
 
 def test_a_name_that_merely_contains_an_accessor_is_not_one():
-    # `SessionSource` is a generated type and `SynClient` is a C++ class. Neither is the
-    # accessor whose name they happen to spell part of.
+    # `SessionSource` and `SynClient` are not accessors.
     source = """
     SessionSource {
         property var client: SynClient
@@ -121,9 +116,7 @@ def contract_tokens(source, lexer=None):
 
 
 def test_a_member_line_is_four_things_and_not_one():
-    # The whole point of the lexer: the kind, the type, the width and the name are told
-    # apart. Read as one token they are one color, which is what a plain YAML lexer does
-    # to an export block and what this exists to stop.
+    # Kind, type, width and name are separate tokens.
     found = contract_tokens("prop string[80] itemName\n")
     assert found == [
         (Keyword, "prop"),
@@ -136,17 +129,13 @@ def test_a_member_line_is_four_things_and_not_one():
 
 
 def test_the_two_classes_the_stylesheet_targets():
-    # extra.css colors `.kt-Contract` and `.mi-Width`. Both are leaves Pygments does not
-    # know, so it writes them as their own class instead of folding them into `kt` and
-    # `mi`, which is what keeps the rule off every other code block on the site. A rename
-    # on either side and a contract silently goes back to Material's shared keyword color.
+    # extra.css colours `.kt-Contract` and `.mi-Width`, classes of their own.
     assert _get_ttype_class(Keyword.Type.Contract) == "kt-Contract"
     assert _get_ttype_class(Number.Integer.Width) == "mi-Width"
 
 
 def test_a_slot_names_its_member_whether_or_not_it_answers():
-    # `slot load()` and `slot bool allows(...)` put the member's name in different places
-    # on the line, and both are the name.
+    # The member name in `slot load()` and in `slot bool allows(...)`.
     assert (Name.Function, "load") in contract_tokens("slot load()\n")
     answering = contract_tokens("slot bool allows(string[64] sub)\n")
     assert (Keyword.Type.Contract, "bool") in answering
@@ -155,9 +144,7 @@ def test_a_slot_names_its_member_whether_or_not_it_answers():
 
 
 def test_the_export_block_of_a_connect_point_is_read_as_a_contract():
-    # The block is found by following the `export:` key, never by matching text, so this
-    # asserts both halves. The members inside it are contract tokens, and the ordinary
-    # configuration around them is left as the YAML it is.
+    # The block is found by its `export:` key: contract tokens inside, plain YAML around.
     found = contract_tokens("""entities:
   - name: edge
     type: web_edge
@@ -181,7 +168,6 @@ connect_points:
 
 
 def test_a_value_that_looks_like_a_member_elsewhere_is_left_alone():
-    # `prop int count` under some other key is a string, and colouring it as a contract
-    # would be the lexer guessing at what a file means from what its text resembles.
+    # `prop int count` under another key stays a string.
     found = contract_tokens("note: prop int count\n", SynqtYamlLexer())
     assert (Keyword, "prop") not in found

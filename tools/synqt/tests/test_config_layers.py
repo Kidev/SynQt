@@ -107,7 +107,7 @@ class ProfileTest(unittest.TestCase):
 
     def test_a_missing_profile_file_is_an_error(self):
         # Silently falling back to the base file would run a build that is not the one
-        # asked for, which is the whole point of naming a profile.
+        # asked for, and naming a profile is how you ask.
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             write(root, "synqt.yaml", BASE)

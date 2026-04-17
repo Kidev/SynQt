@@ -256,13 +256,13 @@ somewhere the topology did not list.
 
 Prefixes are matched structurally. A declared `https://api.example.com/v1` covers that
 scheme, that host, that port, and that path or a path below it, and it covers nothing
-else: not `https://api.example.com@evil.test/v1` (whose host is evil.test), not
-`api.example.com.evil.test`, not `http://` instead of `https://`, and not `/v1evil`. The
-distinction matters more than a request going somewhere unexpected, because the headers
-the entry declared travel with whatever gets through, so a prefix that could be escaped
-by spelling would be a way to post the API key to an attacker's host.
+else. It does not cover `https://api.example.com@evil.test/v1` (whose host is evil.test),
+`api.example.com.evil.test`, `http://` instead of `https://`, or `/v1evil`. More is at
+stake than a request landing somewhere unexpected, because the headers the entry
+declared travel with whatever gets through, so a prefix that could be escaped by spelling
+would be a way to post the API key to an attacker's host.
 
-A named `network.outbound` entry is also a preset: `Http.api("github").get("user/repos")`
+A named `network.outbound` entry is also a preset. `Http.api("github").get("user/repos")`
 resolves the base URL the entry declared and sends the headers it declared with it. That
 is how an upstream that wants an API key is reached without the key appearing in the
 QML, since a header value written as `env:GITHUB_TOKEN` is read from the entity's
@@ -340,7 +340,7 @@ consumes, and that link is derived from the single `monitoring.entity` line rath
 declared, so no entity can be left out of the record by forgetting to wire it.
 
 Security: the console binds `127.0.0.1` and `synqt check` refuses any other host without
-`monitoring: {public: acknowledged}`. Its identity is its own, deliberately not the
+`monitoring: {public: acknowledged}`. Its identity is its own rather than the
 application's, and an anonymous visitor is handed a sign-in page rather than a refusal on
 the console, so the console is not addressable to them at all. No credential, no call
 argument a member did not ask to [`capture`](programming-model.md), and nothing a browser
@@ -433,4 +433,4 @@ own configuration language, and its own failure modes. Every one of those is a
 separate thing to secure and a separate place to get it wrong. SynQt entities share
 one identity model (mesh mutual TLS), one authorization model (`Caller` checks in
 slots), one contract format, one transport, and one deny by default topology, which
-leaves fewer credentials and one security story to audit.
+leaves fewer credentials and one security model to audit.

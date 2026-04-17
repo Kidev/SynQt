@@ -1,10 +1,10 @@
 // SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 // SPDX-License-Identifier: Apache-2.0
 
-// M6 browser end-to-end. The WASM counter client runs in a real browser against the
-// real web edge, and two tabs stay in sync. The QML renders to a canvas, so the client
-// surfaces "M6 state=... counter=..." to the console (Main.qml telemetry) and this
-// harness asserts on those sentinels and drives the "+" button by clicking the canvas.
+// The client runtime end to end in a browser. The WASM counter client runs against the real
+// web edge, and two tabs stay in sync. The QML renders to a canvas, so the client surfaces
+// "M6 state=... counter=..." to the console (Main.qml telemetry) and this harness asserts
+// on those sentinels and drives the "+" button by clicking the canvas.
 //
 // It runs on every engine whose runtime is installed. The transport underneath is proven
 // engine by engine in tests/m0-transport. This is the layer above it (the client runtime,
@@ -126,9 +126,8 @@ async function graphicsRenderer(browser) {
 
 // Every line the page says, not only the sentinels this file matches on. The assertions
 // still key off "M6 ..." (Qt prefixes QML console.log with "qml: ") and off the starvation
-// shim's "M0PUMP ...", but what a dying client says is usually neither: this harness once
-// reported a twenty-second wait for a posted event while the reason stood one line above
-// it, in a qFatal that the sentinel filter dropped on the floor.
+// shim's "M0PUMP ...", but what a dying client says is usually neither, such as a qFatal
+// one line above a wait for a posted event.
 //
 // `fatals` collects uncaught page errors separately, so a wait can end the moment the
 // client is gone instead of running out its clock against a runtime that has stopped.
@@ -369,7 +368,7 @@ async function runStarvedCase(browserType, name) {
     }
 }
 
-// The whole point of the fallback, in the one place it can be measured: an engine that
+// The fallback, in the one place it can be measured: an engine that
 // hands out no WebGL context at all.
 //
 // Without it the client does not merely fail to draw. Qt Quick cannot create its scene
@@ -457,7 +456,7 @@ async function main() {
             // A runtime that launches but cannot hand out a WebGL context runs no Qt Quick
             // client, so there is nothing here to measure through it. Said out loud and
             // carried into the summary rather than turned into a client failure thirty
-            // seconds later. The fix is in the machine, not in the client.
+            // seconds later. The fix belongs on the machine.
             const renderer = await graphicsRenderer(probe);
             if (!renderer) {
                 unproven.push([browserName, "no WebGL context, so Qt Quick cannot start"]);
@@ -492,7 +491,7 @@ async function main() {
             const result = await run(browserType, caseName);
             results.push(result);
             console.log(`    ${result.pass ? "PASS" : "FAIL"} ${result.name}` +
-                        (result.error ? ` -- ${result.error}` : ""));
+                        (result.error ? `: ${result.error}` : ""));
             if (!result.pass) {
                 dumpEvidence("tabA", result.logsA);
                 dumpEvidence("tabB", result.logsB);

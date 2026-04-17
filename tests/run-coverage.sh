@@ -8,8 +8,8 @@
 #
 #   QT_HOST=/path/to/qt/gcc_64 tests/run-coverage.sh
 #
-# It is deliberately not part of tests/run-all.sh. Coverage needs its own build tree
-# (instrumented, and -O0 so a line maps to the code that is actually on it), so folding it
+# It is not part of tests/run-all.sh. Coverage needs its own build tree
+# (instrumented, and -O0 so a line maps to the code that is on it), so folding it
 # into the ordinary run would double every build for a number nobody asked for. This is the
 # command you run when the number is the question.
 #
@@ -29,13 +29,13 @@
 # that will be skipped.
 #
 # PY_FLOOR was 92 and is 91, which is the one direction this file says never to move a
-# ratchet, so here is the reason. No CI job enforces it: the runner that measures the Python
+# ratchet, so the reason is written down. No CI job enforces it. The runner that measures the Python
 # floor has no Qt kit, so it takes PY_FLOOR_NO_QT and 92 was checked by nobody. Measured on a
 # machine that does have one, the tree came in at 91 both before and after the change that
 # noticed (6982 statements with 511 missed, then 6998 with 483), so 92 was not a bar that had
 # slipped, it was a bar that had never been met and that failed every local run of this
 # command. It is now the number the environment reaches, which is what makes it a ratchet
-# again: raise it by covering the paths those qml-tool tests reach, not by hoping.
+# again. Raise it by covering the paths those qml-tool tests reach, not by hoping.
 
 set -euo pipefail
 

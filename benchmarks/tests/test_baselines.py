@@ -250,7 +250,7 @@ def test_a_no_op_build_that_recompiles_is_caught_before_the_wider_band_notices()
         row["noop_s"] = row["clean_s"] * 0.30
     names = failures_of(document)
     assert any(name.startswith("buildtime.a_no_op_build_compiles_nothing") for name in names)
-    # And the wider band still says nothing, which is the point of adding a second one.
+    # And the wider band still says nothing, which is why a second one was added.
     assert not any(
         name.startswith("buildtime.the_build_is_incremental") for name in names
     )

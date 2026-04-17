@@ -106,7 +106,7 @@ function entityLines(entity) {
     //
     // This wrote nothing at all until a project needed it, which the panel did not know:
     // it read `bundles` and showed the mapping, so an edge with a gate displayed one here
-    // and downloaded without one, and the gate is the whole point of having drawn it.
+    // and downloaded without one, when the gate is the reason to draw it at all.
     const bundles = Object.entries(bundlesOf(entity));
     if (bundles.length) {
         lines.push("    bundles:");
@@ -320,20 +320,20 @@ export function contractOf(link) {
     return owner ? `${owner[0].toUpperCase()}${owner.slice(1)}` : "";
 }
 
-// What a link is called: the two entities it runs between, in the names their author gave
-// them. It used to be the owner's name capitalised, which is the type a consumer writes in
-// QML and not a name this drawing has anything to do with -- so a canvas of entities called
-// `edge` and `app` labelled the line between them `Edge`, and a reader had two spellings of
-// one thing and nothing saying they were one thing.
+// What a link is called, the two entities it runs between, in the names their author gave
+// them. The owner's name capitalised is the type a consumer writes in
+// QML and not a name this drawing has anything to do with, so a canvas of entities called
+// `edge` and `app` with the line between them labelled `Edge` gives a reader two spellings of
+// one thing and nothing saying they are one thing.
 //
-// This is the form for the places that take text and nothing else: a `title` attribute, a
+// This is the form for the places that take text and nothing else. A `title` attribute, a
 // label read out by a screen reader. On the page itself a link is drawn rather than written,
 // by `linkTitleNode`, with the arrow between the names as an arrow.
 //
 // `consumer` narrows it to one line. Without it the point is named by every consumer it has.
 //
 // The two ends are answered separately as well, because most places that name a link draw it
-// rather than write it: the arrow between the two names is a mark on the page, and the names
+// rather than write it. The arrow between the two names is a mark on the page, and the names
 // themselves are coloured for the role each end plays. This is the one reading of a link's
 // name, so the drawn form and the written form can never say different things.
 export function linkEnds(link, consumer) {
@@ -436,9 +436,9 @@ export function entityFiles(design, entity) {
                  text: forMonitor(MONITOR_SCAFFOLD.signin_html, entity.name)}];
     }
     if (isFront(link)) {
-        // A front owns a connect point it does not implement: it keeps the session and the
+        // A front owns a connect point it does not implement. It keeps the session and the
         // sign-in, and every caller is answered by the entity wired to their scope. So there
-        // is no Source to write here, and writing one anyway is not harmless -- `synqt
+        // is no Source to write here, and writing one anyway is not harmless: `synqt
         // check` refuses a point whose owner publishes none of what it exports, which is
         // exactly what an empty Source beside a `behind:` block is.
         return [];

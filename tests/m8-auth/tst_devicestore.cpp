@@ -292,7 +292,7 @@ private:
 
     /// Sign one client in and wait for the credential to reach the store.
     ///
-    /// Deliberately not waiting for "connected": one caller's edge refuses every socket on
+    /// Not waiting for "connected": one caller's edge refuses every socket on
     /// purpose, and enrolment does not depend on one. It rides the claim, over HTTP, which
     /// is why a client can be enrolled and unable to connect at the same time.
     DeviceCredential::Held signInAndEnrol(SynClient &client, DeviceCredential &probe)
@@ -496,20 +496,20 @@ private slots:
 
         credential.erase();
         QVERIFY(!credential.load().isValid());
-        // Erasing what is not there is a success: signing out must never depend on the
+        // Erasing what is not there is a success. Signing out must never depend on the
         // store agreeing about what it held.
         credential.erase();
         QVERIFY(!credential.load().isValid());
     }
 
-    // The launch this feature exists for, asked of the store alone: one that has written
+    // The launch this feature exists for, asked of the store alone. One that has written
     // nothing, and whose first question is a read.
     //
     // Every other test here happens to write before it reads, the skip guard included, and a
     // store can be perfectly good at answering a read that follows one of its own writes and
     // useless at the only read that matters. It is the first call SynClient::openSession makes
-    // and there is no second chance at it: a miss is not an error, it is an ordinary first
-    // launch, so the app quietly signs in again with the credential still sitting on the store.
+    // and there is no second chance at it. A miss reads as an ordinary first launch, so the
+    // app quietly signs in again with the credential still sitting on the store.
     // macOS is where this went wrong, because which of its two keychains an item lands in
     // depends on how the build was signed and a read is not told about it the way a write is.
     void aLaunchWhoseFirstCallIsAReadFindsIt()
@@ -523,7 +523,7 @@ private slots:
         held.secret = QByteArrayLiteral("what-the-next-launch-has-to-find");
         QVERIFY(writer.save(held));
 
-        // Deliberately not the credential above, and deliberately not through the skip guard:
+        // Not the credential above, and not through the skip guard:
         // both of those have written to this store already, and having written is exactly the
         // thing a next launch has not done.
         DeviceCredential reader{edgeWsUrl()};
@@ -611,7 +611,7 @@ private slots:
                                                         .arg(clock.elapsed())));
     }
 
-    // End to end, and the point of all of it: sign in once, close the app, open it again,
+    // End to end, and what all of it is for: sign in once, close the app, open it again,
     // and be signed in without a browser, a password or a prompt.
     void aSecondLaunchIsStillSignedIn()
     {
@@ -722,7 +722,7 @@ private slots:
     // somebody else spends that window, this visitor's client must wait, not conclude that
     // what it is holding is dead and delete it.
     //
-    // Both halves of that are load bearing. The edge has to answer the limit differently
+    // Both halves of that are needed. The edge has to answer the limit differently
     // from a refused credential (it decides it before it has so much as read the credential,
     // so it gives nothing away), and the client has to act only on the answer that is about
     // the credential. Either one missing signs the visitor out.

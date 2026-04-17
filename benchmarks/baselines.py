@@ -542,7 +542,7 @@ def _check_sessions(document: Mapping[str, Any], checks: List[Check]) -> None:
         )
 
     # The one that matters most. createSession() used to run a full-table purge, making
-    # it O(live sessions) -- 306 us at 100k. The expiry queue made it amortized O(1) at
+    # it O(live sessions), 306 us at 100k. The expiry queue made it amortized O(1) at
     # ~600 ns. Reintroducing the walk would show up here as a 500x spread, so a 5x band
     # catches it with room to spare and no chance of flapping.
     creates = [row["create_ns"] for row in sweep]
@@ -997,10 +997,10 @@ def _check_buildtime(document: Mapping[str, Any], checks: List[Check]) -> None:
                 f"({row['noop_s']:.2f}s of {row['clean_s']:.2f}s; band: < 50%)",
             )
         )
-        # The sharper form of the same claim, and the one that actually guards the defect.
+        # The narrower form of the same claim, and the one that guards the defect.
         # A no-op that costs a third of a clean build passes the band above while doing a
         # full recompile, which is exactly what an unconditionally rewritten `main.cpp`
-        # produces: regeneration moves every modification time, and the compiler reads
+        # produces. Regeneration moves every modification time, and the compiler reads
         # modification times. Content-addressed generation (synqt.writer) puts a no-op at
         # well under 1%, so the band that notices a regression is this one.
         checks.append(
@@ -1177,8 +1177,8 @@ def _check_vs_node_live(document: Mapping[str, Any], checks: List[Check]) -> Non
     """One column of the live-path comparison, gated on the things that make a column
     comparable at all rather than on how fast it was.
 
-    Speed is deliberately not gated. Several stacks are recorded here, most of them not
-    ours, and a gate on absolute numbers would fail the moment the host changed or would
+    Speed is not gated. Several stacks are recorded here, most of them not
+    SynQt's, and a gate on absolute numbers would fail the moment the host changed or would
     quietly become a gate on the machine. What has to hold for the table to mean anything is that
     every column carried the whole workload, and that the harness knows which stack it was
     measuring: a column that dropped a third of its frames posts an excellent latency over

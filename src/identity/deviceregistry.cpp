@@ -295,7 +295,7 @@ void DeviceRegistry::forget(const QString &family)
     if (!isOpen() || family.isEmpty()) {
         return;
     }
-    // The rows naming it are deliberately left where they are: reuse detection forgets the
+    // The rows naming it are left where they are. Reuse detection forgets the
     // family and then asks sessionsOfFamily() which sessions it opened, so deleting them
     // here would answer "none" at the one moment the answer matters. They are reclaimed by
     // purgeExpired() instead, which is where an orphan belongs.
@@ -386,7 +386,7 @@ void DeviceRegistry::purgeExpired()
                   {now, idleBefore});
     // Then whatever is left pointing at a family that is no longer there. A row here is
     // written once per stored sign-in and deleted by a sign-out or a session expiring, so
-    // the ones that survive are the sign-ins nobody ever ended -- which, on a store shared
+    // the ones that survive are the sign-ins nobody ever ended, which, on a store shared
     // by a replicated edge, is most of them. Without this the table grows for the life of
     // the store, and it is the table a sign-out reads to find the family it must end.
     //

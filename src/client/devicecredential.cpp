@@ -15,12 +15,12 @@ namespace SynQt {
 
 namespace {
 
-/// How long any one store call may take before it is abandoned.
+/// How long one store call may take before it is abandoned.
 ///
-/// Two seconds because this runs before the first frame. A keyring that is going to answer
-/// answers in microseconds, and one that does not is either prompting (which must not happen
-/// at startup) or wedged on a bus that is not there. Either way the right outcome is the same
-/// as having no store, which costs the visitor one sign-in and costs nobody a hung window.
+/// Two seconds, because this runs before the first frame. A working keyring answers in
+/// microseconds; one that does not is prompting (which must not happen at startup) or
+/// waiting on a missing bus. Either way the result is the same as having no store: one
+/// sign-in, and no hung window.
 constexpr int kDeadlineMs{2000};
 
 /// What a call writes, in memory both the caller and an abandoned worker can hold.
@@ -31,13 +31,11 @@ struct Outcome
     QString error;
 };
 
-/// Run one store call with a deadline, on a thread of its own.
+/// Run one store call on its own thread, with a deadline.
 ///
-/// The awkward shape is the point. On a timeout the worker is detached rather than joined,
-/// because it is stuck inside a platform API with no cancellation, and the two things it
-/// could still touch (the store and the outcome) are both shared with it so neither can be
-/// freed underneath it. Nothing reads the outcome after a timeout, so there is no race for
-/// the value either. The caller has already decided this machine has no store.
+/// On timeout the worker is detached, not joined: it is stuck in a platform API with no
+/// cancellation. The store and the outcome it may still touch are shared with it, so
+/// neither is freed underneath it, and nothing reads the outcome after a timeout.
 std::shared_ptr<Outcome> runWithDeadline(
     const std::shared_ptr<SecureStore> &store,
     const std::function<void(SecureStore &, Outcome &)> &call, bool *timedOut)
@@ -59,8 +57,7 @@ std::shared_ptr<Outcome> runWithDeadline(
     return ready ? outcome : std::make_shared<Outcome>();
 }
 
-/// The two halves as one blob. A separator no hex token can contain, so the split cannot be
-/// confused by either half's content.
+/// The two halves as one blob, joined by a separator no hex token contains.
 QByteArray packed(const DeviceCredential::Held &held)
 {
     return held.id.toUtf8() + '\n' + held.secret;
@@ -99,9 +96,8 @@ DeviceCredential::DeviceCredential(const QUrl &edgeUrl, std::unique_ptr<SecureSt
     QString reason;
     m_available = m_store->isAvailable(&reason);
     if (!m_available) {
-        // Said once, plainly, and not as a warning. On a headless session or a machine with
-        // no keyring this is the ordinary state of affairs, and the only thing it costs is
-        // a sign-in per launch. What would deserve a warning is the opposite.
+        // Logged once at info level: on a headless session or without a
+        // keyring this is normal and costs a sign-in per launch.
         qInfo("SynQt: no secure store is available (%s), so this app will not stay signed in "
               "between launches. Nothing is written to disk.", qUtf8Printable(reason));
     }
@@ -176,26 +172,22 @@ bool DeviceCredential::save(const Held &held)
     blob.fill('\0');
     blob.clear();
     if (timedOut) {
-        // Same reason as the failure below, plus one this path has of its own: nothing here
-        // knows whether the write landed. A store that answered too late may have taken the
-        // new generation or kept the old one, so what is on disk is a coin flip, and one of
-        // its faces is a retired credential the edge would read as a second copy. Erase
-        // before writing the store off, on the same deadline, so neither face is left.
+        // As for the failure below, plus: a late answer may or may not have stored the new
+        // generation, so what is on disk is unknown and may be a retired credential the
+        // edge would read as a second copy. Erase it first, on the same deadline.
         erase();
         m_available = false;
         return false;
     }
     if (!outcome->ok) {
-        // Worth saying: the visitor asked to stay signed in and will not be. It is not fatal,
-        // and in particular it is never a reason to fail the sign-in that just succeeded.
+        // The visitor stays signed in only for this run. Not fatal, and never a reason to
+        // fail the successful sign-in.
         qWarning("SynQt: could not store the sign-in for the next launch (%s).",
                  qUtf8Printable(outcome->error));
-        // A store that reads but cannot write is the one shape of failure that is worse than
-        // having no store at all. What it leaves behind is the generation this call was
-        // replacing, which the edge has already retired, so the next launch would present a
-        // second copy of a spent credential. The exact signature of a stolen one, answered by
-        // revoking the family and every session on it. Leave nothing instead. The visitor
-        // signs in again next launch, which is what a machine with no store does anyway.
+        // A store that reads but cannot write is worse than none: it keeps the generation
+        // this call replaced, which the edge has retired, so the next launch would present
+        // a second copy of a spent credential and the edge would revoke the family. Leave
+        // nothing; the visitor signs in next launch.
         erase();
     }
     return outcome->ok;

@@ -5,10 +5,9 @@
 
 #include <QCoreApplication>
 
-// GLib's gdbusintrospection.h declares a struct member called `signals`, and Qt's keyword
-// macros turn that into `public` halfway through a struct definition. Dropping the keyword
-// across this one include is Qt's own workaround for the same collision with GTK; it is put
-// back afterwards so nothing else in the translation unit is affected.
+// GLib's gdbusintrospection.h has a struct member called `signals`, which Qt's keyword
+// macro would turn into `public`. Undefining the keyword around this include is Qt's own
+// workaround for GTK; it is restored afterwards.
 #undef signals
 #include <libsecret/secret.h>
 #define signals Q_SIGNALS
@@ -17,9 +16,9 @@ namespace SynQt {
 
 namespace {
 
-// The schema every SynQt device credential is filed under. `edge` is the account key (the
-// edge origin), `app` keeps two SynQt apps against one edge from finding each other's item.
-// The trailing entry terminates the array, as libsecret requires.
+// The schema every SynQt device credential uses. `edge` is the account key (the edge
+// origin); `app` keeps two SynQt apps on one edge apart. The trailing entry terminates the
+// array, as libsecret requires.
 const SecretSchema *deviceSchema()
 {
     static const SecretSchema schema{
@@ -37,8 +36,8 @@ QByteArray applicationKey()
     return name.isEmpty() ? QByteArrayLiteral("SynQt") : name.toUtf8();
 }
 
-// The label a human sees in Seahorse or KWalletManager. It is readable because being able to
-// find this entry and delete it is one of the reasons for using the OS store at all.
+// The label shown in Seahorse or KWalletManager, readable so a person can find and delete
+// the entry.
 QByteArray itemLabel(const QString &account)
 {
     return applicationKey() + " sign-in for " + account.toUtf8();
@@ -60,16 +59,16 @@ QString takeError(GError **error)
 
 bool SecretServiceStore::isAvailable(QString *reason) const
 {
-    // Cheap and silent first. No session bus is the common case (SSH, a container, a
-    // minimal window manager, CI), and it must not cost a D-Bus round trip to find out.
+    // Cheap check first: no session bus is common (SSH, containers, minimal window
+    // managers, CI) and must not cost a D-Bus round trip.
     if (qEnvironmentVariableIsEmpty("DBUS_SESSION_BUS_ADDRESS")) {
         if (reason) {
             *reason = QStringLiteral("there is no session bus, so no keyring to talk to");
         }
         return false;
     }
-    // A sandboxed app reaches secrets through org.freedesktop.portal.Secret instead, which
-    // SynQt does not implement. Saying so beats failing later in a way that reads as a bug.
+    // A sandboxed app reaches secrets through org.freedesktop.portal.Secret, which SynQt
+    // does not implement. Report it now.
     if (!qEnvironmentVariableIsEmpty("FLATPAK_ID") || !qEnvironmentVariableIsEmpty("SNAP")) {
         if (reason) {
             *reason = QStringLiteral("a sandboxed app reaches secrets through the desktop "
@@ -97,8 +96,8 @@ bool SecretServiceStore::store(const QString &account, const QByteArray &secret,
 {
     GError *failure{nullptr};
     // SECRET_COLLECTION_DEFAULT is the `login` keyring, which pam_gnome_keyring unlocks at
-    // login. Storing replaces any item with the same attributes, which is what rotation
-    // needs. One item per edge, overwritten on every relaunch.
+    // login. Storing replaces the item with the same attributes, as rotation needs: one
+    // item per edge.
     const gboolean stored{secret_password_store_sync(
         deviceSchema(), SECRET_COLLECTION_DEFAULT, itemLabel(account).constData(),
         secret.constData(), nullptr, &failure,
@@ -118,10 +117,9 @@ bool SecretServiceStore::store(const QString &account, const QByteArray &secret,
 bool SecretServiceStore::load(const QString &account, QByteArray *secret, QString *error)
 {
     GError *failure{nullptr};
-    // SECRET_SEARCH_LOAD_SECRETS and deliberately not SECRET_SEARCH_UNLOCK. With UNLOCK a
-    // locked collection is unlocked, which means a password dialog, which at startup means
-    // an app that hangs on a machine with nobody in front of it. Without it a locked item
-    // comes back with no secret and the client signs in normally.
+    // SECRET_SEARCH_LOAD_SECRETS, not SECRET_SEARCH_UNLOCK: unlocking a locked collection
+    // shows a password dialog, which at startup would hang an unattended app. A locked item
+    // comes back without a secret and the client signs in normally.
     GList *found{secret_password_search_sync(
         deviceSchema(), SECRET_SEARCH_LOAD_SECRETS, nullptr, &failure,
         "edge", account.toUtf8().constData(),
@@ -136,8 +134,8 @@ bool SecretServiceStore::load(const QString &account, QByteArray *secret, QStrin
 
     bool ok{false};
     if (SECRET_IS_ITEM(found->data)) {
-        // The already-loaded value, so this reads what the search brought back rather than
-        // asking the service again (which is where a prompt could still appear).
+        // The value the search already loaded, so the service is not asked again (where a
+        // prompt could appear).
         SecretValue *value{secret_item_get_secret(SECRET_ITEM(found->data))};
         if (value != nullptr) {
             gsize length{0};
@@ -167,16 +165,16 @@ bool SecretServiceStore::erase(const QString &account, QString *error)
         }
         return false;
     }
-    // FALSE with no error means there was nothing to remove, which is a success: signing out
-    // must not depend on the keyring agreeing about what it held.
+    // FALSE without an error means nothing was removed, which is success: sign-out must not
+    // depend on the keyring.
     Q_UNUSED(removed);
     return true;
 }
 
 SecureStore::Binding SecretServiceStore::binding() const
 {
-    // User, and not more. Any process on the session bus can read any item, so claiming an
-    // application boundary here would be claiming one that does not exist.
+    // User, no more: any process on the session bus can read any item, so there is no
+    // application boundary.
     return Binding::User;
 }
 

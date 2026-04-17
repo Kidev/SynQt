@@ -124,7 +124,7 @@ void reportTlsEnvironment()
         for (const QSslCertificateExtension &extension : found) {
             // Rendered through QDebug rather than QVariant::toString(): an extension's value
             // is a map or a list as often as it is a string (basicConstraints and
-            // extendedKeyUsage both are), and toString() renders those as nothing at all --
+            // extendedKeyUsage both are), and toString() renders those as nothing at all,
             // which prints the extension as present but empty, the one reading that makes a
             // correct certificate look like a broken one.
             QString rendered;

@@ -41,8 +41,8 @@ cmake --build "$BUILD_DIR"
 
 if [ ! -d "$NODE_DIR/node_modules" ]; then
     echo "== install the Node columns' dependencies =="
-    # Only the two framework columns need these. The bare column is Node built-ins, which is
-    # the whole point of it, and it runs whether or not this succeeded.
+    # Only the two framework columns need these. The bare column is Node built-ins by
+    # definition, and it runs whether or not this succeeded.
     (cd "$NODE_DIR" && npm install --no-audit --no-fund)
 fi
 

@@ -212,8 +212,8 @@ cleanup_promoted() {
     kill "${auth_pid:-}" "${edge_pid:-}" 2>/dev/null || true
 }
 trap cleanup_promoted EXIT
-# The secret is never a literal in either binary; it arrives from the environment of the one
-# entity that runs the token exchange, which is the whole point of the promotion.
+# The secret is never a literal in either binary. It arrives from the environment of the one
+# entity that runs the token exchange, which is what the promotion buys.
 export GITHUB_CLIENT_SECRET="appgen-native-not-a-real-secret"
 export QT_QPA_PLATFORM=offscreen
 # `exec` so the subshell is replaced by the entity: $! is then the process itself, and the
@@ -276,7 +276,7 @@ esac
 # and for the same reason.) Searching bytes is also stricter than `strings`, which only
 # reports runs of printable characters above a minimum length.
 #
-# An unreadable file is a hard error, not an answer. This search is asked both ways round --
+# An unreadable file is a hard error, not an answer. This search is asked both ways round,
 # "the edge must not contain it" and "the auth entity must", so a path that cannot be opened
 # would otherwise read as absence and quietly satisfy half the checks it was given.
 promoted_in_binary() {

@@ -11,8 +11,8 @@ mechanical and all of it is already described by ``synqt.yaml``, so this generat
 Dockerfile that provisions the pinned toolchain and builds every entity, a compose file
 that runs them, and the profile that wires them to each other.
 
-Four decisions are worth stating, because each is the reason something below looks the way
-it does.
+Four decisions explain the rest of this file, because each is the reason something below
+looks the way it does.
 
 *One container per entity, not one container running everything.* An entity is a separate
 binary on a separate host in a real deployment, and a compose file with a single box in it
@@ -198,7 +198,7 @@ def checkout_source() -> Optional[Path]:
     """
     try:
         root = appmodel.framework_root()
-    except Exception:                    # noqa: BLE001 -- no checkout is an answer, not an error
+    except Exception:                    # noqa: BLE001 (no checkout is an answer, not an error)
         return None
     if all((root / where).is_dir() for _, where, _ in SYNQT_CONTEXTS):
         return root
@@ -206,10 +206,10 @@ def checkout_source() -> Optional[Path]:
 
 
 def service_entities(config: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """Every entity that becomes a container: all of them except the client.
+    """Every entity that becomes a container. All of them except the client.
 
-    The client is not a process. It is a bundle the edge serves, so it has no container of
-    its own however it was built.
+    The client is a bundle the edge serves rather than a process of its own, so it has no
+    container however it was built.
     """
     return [entity for entity in appmodel.entities(config) if appmodel.is_service(entity)]
 
@@ -280,8 +280,8 @@ def replica_names(entity: Dict[str, Any]) -> List[str]:
     """The compose service names for one entity's processes.
 
     One replica keeps the entity's own name, so a project that never asks to be replicated
-    generates the compose file it generated before any of this existed. That is the point:
-    the un-replicated case must not pay for the replicated one.
+    generates the compose file it generated before any of this existed: the un-replicated
+    case must not pay for the replicated one.
     """
     name = str(entity.get("name"))
     if appmodel.replicas(entity) == 1:
@@ -497,7 +497,7 @@ def render_profile(config: Dict[str, Any], addresses: Dict[str, str],
 def _provider_loopback(engine: str, entity: str) -> List[str]:
     """Point an entity at the engine sharing its network namespace.
 
-    Loopback and not a service name, and that is the whole point rather than a shortcut.
+    Loopback rather than a service name, and it is required rather than convenient.
     An external provider refuses an unverified connection in release unless the engine is
     on loopback (``ProviderConfig::isLoopbackHost``), and here it truly is: the compose
     file puts the engine container in this entity's network namespace, so this link never
@@ -772,9 +772,9 @@ def render_dockerfile(config: Dict[str, Any], *, client: str = "image",
 
 #: The edge's browser-facing certificate, in a directory of its own.
 #:
-#: Not `synqt/mesh/<edge>.crt`, and the difference is the whole point. `synqt mesh cert
+#: Not `synqt/mesh/<edge>.crt`, and the difference decides whether this works. `synqt mesh cert
 #: --all` writes one file per entity flat into `synqt/mesh/`, so an edge named `edge` has
-#: a mesh identity at exactly that path already -- and the browser certificate, issued
+#: a mesh identity at exactly that path already, and the browser certificate, issued
 #: after it behind an "if it does not exist yet" guard, was never issued at all. What the
 #: browser then got handed was the mesh identity: subject `CN=edge`, its only name `edge`,
 #: which no browser opening `https://localhost:8443` can match. A subdirectory cannot
@@ -1124,10 +1124,10 @@ def _front_service(config: Dict[str, Any], addresses: Dict[str, str],
                    edge_port: int) -> List[str]:
     """The balancer in front of a replicated edge.
 
-    An off-the-shelf nginx with a generated configuration, and deliberately not a SynQt
+    An off-the-shelf nginx with a generated configuration, and not a SynQt
     process: distributing TCP connections is a solved problem with good implementations,
-    and what is interesting about a replicated SynQt deployment is that the edges hold
-    nothing, not that the thing in front of them is ours.
+    and what matters about a replicated SynQt deployment is that the edges hold
+    nothing, rather than that the thing in front of them is SynQt's.
     """
     edge = edge_entity(config)
     replicas = replica_names(edge)
@@ -1224,7 +1224,7 @@ def _engine_service(entity: Dict[str, Any], engine: str, spec: Dict[str, Any],
 
     Its credentials come out of the same ``.env`` the entity reads, through ``env_file``:
     the password is written once and both ends take it from there. Compose's own ``${...}``
-    interpolation is deliberately not used for it, because that reads the shell environment
+    interpolation is not used for it, because that reads the shell environment
     and a root ``.env``, neither of which is where a SynQt secret lives.
     """
     name = entity["name"]
@@ -1603,9 +1603,9 @@ def export_ca(project_dir: os.PathLike[str] | str) -> str:
     """Copy the development authority's certificate out of the volume, and say how to
     trust it.
 
-    Why this exists at all: the edge serves the browser over TLS from a certificate that
+    Why this exists at all. The edge serves the browser over TLS from a certificate that
     authority signed, and a browser has never heard of it. The interstitial is the visible
-    half and the smaller one -- an origin with a certificate error also gets no service
+    half and the smaller one: an origin with a certificate error also gets no service
     worker, so a bundle that installs one runs a degraded copy of itself all through
     development and only on this transport. Trusting the authority once fixes both, and
     trusting an authority is not something a tool should do to a machine on its own, so
@@ -1649,7 +1649,7 @@ def export_ca(project_dir: os.PathLike[str] | str) -> str:
         "",
         "What you are agreeing to: until you remove it, this authority can vouch for any",
         "name to your browser. Its key is in a docker volume on this machine and nowhere",
-        "else, and `synqt docker down --volumes` destroys it -- after which remove this",
+        "else, and `synqt docker down --volumes` destroys it. After that, remove this",
         "from your store too, because the next `up` issues a different one.",
     ])
 

@@ -51,19 +51,18 @@ That builds a second, instrumented tree (`-DSYNQT_COVERAGE=ON`, Debug), runs the
 against it, and reports the C++ line coverage of `src/` and the branch coverage of the
 Python CLI. `HALVES=cxx` or `HALVES=py` runs one of the two, which is how each half runs in
 the CI job that already has what it needs. `CXX_FLOOR` and `PY_FLOOR` are the percentages
-below which it fails; they are a ratchet, so raise them when the number goes up and never
+below which it fails. They are a ratchet, so raise them when the number goes up and never
 lower them to make a branch green. `PY_FLOOR_NO_QT` is the Python floor for a machine with
-no Qt kit, where the `qmllint` and `qmlformat` tests skip and the suite honestly reaches
-less; the run prints which of the two it applied. The full story, including what the figure deliberately
-does not claim, is in the [developer guide](../docs/development.md).
+no Qt kit, where the `qmllint` and `qmlformat` tests skip and the suite reaches less. The
+run prints which of the two it applied. The [developer guide](../docs/development.md)
+explains what the figure does and does not claim.
 
 ## What is here
 
 [CMakeLists.txt](CMakeLists.txt) is the registry. A directory with a `CMakeLists.txt` or a
 `run-*.sh` has to appear in one of its three lists, and configuring the tree fails on one
-that does not, locally as well as in CI. Deciding a suite is out is fine; leaving it
-undecided is not. That guard exists because [remote-pages](remote-pages) reached 1849 lines
-and five commits without CI ever running it, and nothing said so.
+that does not, locally as well as in CI. A suite may be left out of the build, but the list
+has to say so. The guard catches a suite that CI never runs without anything saying so.
 
 Built and run by the tree, in milestone order:
 

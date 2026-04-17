@@ -5,8 +5,8 @@
 
 // The Next.js column of the call comparison: Server Functions.
 //
-// This is the primitive that answers the same question SynQt's returning slot answers --
-// the client asks the server to do something and waits for the value back -- so it is the
+// This is the primitive that answers the same question SynQt's returning slot answers:
+// the client asks the server to do something and waits for the value back, so it is the
 // one Next.js feature that lines up member-for-member with a connect point's slot. A Route
 // Handler is the other way to do it, and the HTTP table already measures that; what is
 // different here is everything React puts around the call: the action is addressed by a

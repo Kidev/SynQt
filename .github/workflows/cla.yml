@@ -14,9 +14,15 @@
 # the check passes without asking again. The record is in the repository rather than in a
 # third-party service, so it survives the action being unavailable and can be audited.
 #
+# The comment text is set below rather than left to the action's default, and one thing
+# about that is load bearing: `custom-notsigned-prcomment` REPLACES the default opening
+# line, and the default opening line is where the action puts the link to the document and
+# the instruction to reply by commenting. Whatever is written there has to carry both, or
+# the contributor is shown a bare sentence between two rules with nothing saying what to do
+# with it.
+#
 # Enforcement: a failing check does not block a merge on its own. Add "CLA" to main's
-# required status checks in branch protection, or this workflow is advisory and someone can
-# merge past it.
+# required status checks, or this workflow is advisory and someone can merge past it.
 #
 # The action is pinned to a commit rather than a tag. It runs on `pull_request_target` with
 # a writable token, so a moved tag would be a write-access supply chain problem, not a
@@ -33,14 +39,11 @@ on:
   pull_request_target:
     types: [opened, synchronize, reopened, closed]
 
+# The run's own GITHUB_TOKEN needs nothing: every write below is made with the app token,
+# which is what puts the comment, the signature commit and the check under the
+# SynQt-Operations account.
 permissions:
-  # Store the signature file on the cla-signatures branch.
-  contents: write
-  # Comment on the pull request and set its check.
-  pull-requests: write
-  statuses: write
-  # Re-run the check after a signature is recorded.
-  actions: write
+  contents: read
 
 concurrency:
   group: cla-${{ github.event.pull_request.number || github.event.issue.number }}
@@ -57,10 +60,28 @@ jobs:
       (github.event.issue.pull_request &&
        contains(github.event.comment.body, 'I have read the CLA Document and I hereby sign the CLA'))
     steps:
+      # Trade the app's private key for an installation token, so a contributor is talked to
+      # by SynQt-Operations. The token is scoped to the four permissions this job uses and is
+      # revoked when the job ends. Pinned to a commit for the same reason the CLA action is:
+      # it handles the private key.
+      - name: Mint a token for the SynQt-Operations app
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ secrets.SYNQT_CLIENT_ID }}
+          private-key: ${{ secrets.SYNQT_PRIVATE_KEY }}
+          # Least privilege, one line per thing the action below does: write the signature
+          # file to the cla-signatures branch, comment on the pull request, set the check,
+          # and re-run this workflow once a signature is recorded.
+          permission-contents: write
+          permission-pull-requests: write
+          permission-statuses: write
+          permission-actions: write
+
       - name: Check or record the signature
         uses: contributor-assistant/github-action@ca4a40a7d1004f18d9960b404b97e5f30a505a08 # v2.6.1
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
         with:
           # Where the signatures live. A branch of this repository, not a service. The path
           # is versioned: if the CLA text ever changes materially, bump it to v2 so everyone
@@ -69,11 +90,15 @@ jobs:
           path-to-signatures: signatures/v1/cla.json
           path-to-document: https://github.com/Kidev/SynQt/blob/main/CLA.md
           # Bots author no copyrightable work, so there is nothing for them to license.
-          allowlist: github-actions[bot],dependabot[bot]
-          custom-notsigned-prcomment: >-
-            Thanks for the pull request. Before it can be merged, SynQt needs you to accept
-            its Contributor License Agreement. You keep the copyright in your contribution;
-            the CLA grants the project a license broad enough to keep the option of
-            relicensing SynQt in the future. See CONTRIBUTING.md for the why.
+          allowlist: github-actions[bot],dependabot[bot],synqt-operations[bot]
+          # `$you` is replaced with "you" or "you all" by the action. The sentence the
+          # contributor has to post is appended by the action right after this text, which
+          # is why this ends by pointing at it.
+          custom-notsigned-prcomment: |-
+            Thanks for the pull request. Before it can be merged, $you need to accept SynQt's [Contributor License Agreement](https://github.com/Kidev/SynQt/blob/main/CLA.md).
+
+            You keep the copyright in your contribution. The CLA gives SynQt a license broad enough to release the project under other terms later. [CONTRIBUTING.md](https://github.com/Kidev/SynQt/blob/main/CONTRIBUTING.md) explains why that matters.
+
+            To accept, post a comment on this pull request that says exactly this:
           custom-pr-sign-comment: I have read the CLA Document and I hereby sign the CLA
-          custom-allsigned-prcomment: All contributors have accepted the CLA. Thank you.
+          custom-allsigned-prcomment: The CLA is accepted. Thank you.

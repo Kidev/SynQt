@@ -5,7 +5,7 @@
 // pool itself: that it runs the threads it was asked for, hands them out evenly, gives
 // each one a live event loop, and stops them all when it goes.
 //
-// The event-loop case is the load-bearing one. A QWebSocket needs an event loop on its own
+// The event-loop case is the one that matters. A QWebSocket needs an event loop on its own
 // thread for its socket notifiers to fire at all, which is why this pool is real QThreads
 // and not QThreadPool or QtConcurrent: their worker threads run no event loop, so a socket
 // moved onto one would go quiet with nothing reporting an error.

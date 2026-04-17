@@ -27,7 +27,7 @@ struct PendingFlushes
 
 PendingFlushes &pendingFlushes()
 {
-    // Deliberately not a QObject. A thread_local QObject is destroyed after
+    // Not a QObject. A thread_local QObject is destroyed after
     // QCoreApplication is, and ~QObject then walks per-thread data that is already gone.
     static thread_local PendingFlushes state;
     return state;
@@ -157,9 +157,9 @@ void WebSocketTransport::shutdown(QWebSocketProtocol::CloseCode closeCode,
 }
 
 /// A peer that keeps sending while nothing reads is either broken or hostile, and either
-/// way the memory is the thing to stop. Closing rather than dropping the message is
-/// deliberate: QtRO carries a framed protocol, so a stream missing a message in the
-/// middle is not a degraded stream, it is a desynchronized one.
+/// way the memory is the thing to stop. The message is closed over rather than dropped
+/// because QtRO carries a framed protocol: a stream missing a message in the middle is
+/// desynchronized, and nothing downstream can recover its framing.
 void WebSocketTransport::discardOnOverflow(qint64 incomingBytes)
 {
     m_readBufferOverflowed = true;
@@ -291,8 +291,8 @@ qint64 WebSocketTransport::writeData(const char *data, qint64 maxSize)
 /// socket is per-subscriber cost inside QWebSocket and QtRO, which that harness's README
 /// fits across the sweep.
 ///
-/// Waiting for aboutToBlock() rather than flushing inside writeData() is not a style
-/// choice. Flushing there costs about 2% more throughput and breaks the stack: with it in
+/// Waiting for aboutToBlock() rather than flushing inside writeData() is required.
+/// Flushing there costs about 2% more throughput and breaks the stack: with it in
 /// place, two QtRO calls issued back to back reach the owner as one, and tst_m6 fails on
 /// a counter that reads 1 after two increments. Nothing reports an error. The likely path
 /// is QAbstractSocket::flush() emitting bytesWritten under the write already running, but
@@ -343,7 +343,7 @@ void WebSocketTransport::flushNow()
 /// Ask for the batch to cross when control next returns to the event loop.
 ///
 /// A queued call to itself, rather than the aboutToBlock hook the unsplit device uses.
-/// The distinction is not stylistic: on the unsplit device the bytes are already the
+/// The distinction matters: on the unsplit device the bytes are already the
 /// socket's and the hook only brings a syscall forward, so a pass that never blocks costs
 /// latency and nothing else. Here the batch has not gone anywhere yet, so whatever flushes
 /// it has to run on *every* pass and not only on the ones that end in a block.
@@ -372,9 +372,9 @@ void WebSocketTransport::scheduleBatchFlush()
 qint64 WebSocketTransport::batchData(const char *data, qint64 maxSize)
 {
     // The ceiling is on what goes on the wire, so it is checked before the append rather
-    // than after: what is already gathered leaves as its own message and this one starts
-    // the next batch. sendBatch() rather than flushNow() deliberately, so the pending
-    // flush this device is already registered for stays exactly one registration.
+    // than after. What is already gathered leaves as its own message and this one starts
+    // the next batch. sendBatch() rather than flushNow(), so the pending flush this device
+    // is already registered for stays exactly one registration.
     if (!m_writeBatch.isEmpty() && m_writeBatchLimit > 0
         && (static_cast<qint64>(m_writeBatch.size()) + maxSize) > m_writeBatchLimit) {
         sendBatch();

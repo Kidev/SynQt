@@ -148,7 +148,7 @@ bool JwksVerifier::ensureJwks(const QUrl &jwksUrl, QString *error, bool force)
     loop.exec();
     // isFinished() before error(), and this is the whole of the deadline. A reply the
     // timer above walked out on has no error on it yet, so asking error() alone reads a
-    // half-arrived body as a good one -- and this is the one place that would then be
+    // half-arrived body as a good one, and this is the one place that would then be
     // cached as the key set, with `fetchedMs` set to now, which the refetch floor holds
     // for five minutes. A provider that went slow once would refuse every login for the
     // rest of that window.

@@ -6,9 +6,9 @@
 
 `/designer/#example=demo` hands somebody a system to look at rather than an empty canvas,
 and every tutorial links to the project it builds. Those projects are not fixtures written
-for the editor: they are the ones under `examples/`, which `synqt check` validates and the
+for the editor. They are the ones under `examples/`, which `synqt check` validates and the
 tutorials are written about. So the editor reads them rather than carrying a second copy,
-and this is what does the reading -- `synqt design` opening one of those directories and
+and this is what does the reading. `synqt design` opening one of those directories and
 the editor opening the example produce the same document, through the same code.
 
 Run this after changing an example project, or after changing how a project is read:

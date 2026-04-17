@@ -12,9 +12,9 @@
 // far less about the four QtRO paths than the sentinels do.
 //
 // So the page records for itself, and the driver reads the array back with an execute/sync call.
-// This is a same-origin script rather than an inline one on purpose: the multi-threaded proof
+// This is a same-origin script rather than an inline one because the multi-threaded proof
 // serves a strict `script-src 'self' 'wasm-unsafe-eval'`, which an inline tap would violate,
-// and the point of that proof is to run under the policy the edge really emits.
+// and that proof has to run under the policy the edge emits.
 (function () {
     "use strict";
 

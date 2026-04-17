@@ -69,9 +69,8 @@ class WorkerTest(unittest.TestCase):
         self.assertNotIn("importScripts(", worker)
 
     def test_a_builds_presence_is_judged_by_content_not_by_cache_name(self):
-        # caches.open() creates the named cache the moment install starts, so a failed or
-        # in-flight precache leaves an empty cache under the right name. Judging presence
-        # by caches.has(name) would call that build "current" and never update again.
+        # caches.open() creates the cache at install start, so presence is judged by
+        # content, not by caches.has(name).
         worker = self._worker()
         self.assertIn("hasCompleteBuild", worker)
         self.assertNotIn("caches.has(", worker)
@@ -82,19 +81,14 @@ class WorkerTest(unittest.TestCase):
         self.assertIn("console.warn", worker)
 
     def test_precache_goes_to_the_network_not_the_browser_http_cache(self):
-        # A plain addAll() fetches through the HTTP cache, which hands back the previous
-        # build's bytes and stores them under the new build's name. A cache labelled new
-        # and holding old, so the update silently never takes effect. Verified against a
-        # real browser. No string assertion would have caught it.
+        # Precache with `cache: "reload"`: a plain addAll() goes through the HTTP cache and
+        # would store the previous build under the new name.
         worker = self._worker()
         self.assertIn('cache: "reload"', worker)
 
     def test_a_new_build_sweeps_the_old_one_without_waiting_for_activate(self):
-        # The worker script is identical from build to build, so activate fires once ever
-        # while build_id changes on every deploy. Sweeping only there would strand a full
-        # uncompressed module per deploy, and caches.match() searches every cache in
-        # creation order, so the stale one would keep winning and the update would never
-        # take effect.
+        # The sweep runs on every build change, not only on activate: the worker script
+        # rarely changes, and caches.match() searches caches in creation order.
         worker = self._worker()
         message_handler = worker.split('"synqt-check-update"')[1]
         self.assertIn("sweepOtherCaches", message_handler)
@@ -114,8 +108,7 @@ class BootRegistrationTest(unittest.TestCase):
         self.assertNotIn("serviceWorker.register", boot)
 
     def test_registration_requires_a_secure_context(self):
-        # A worker needs https or localhost. Without the guard a plaintext dev edge
-        # throws on every boot.
+        # A worker needs https or localhost; the registration is guarded.
         self.assertIn("isSecureContext", self._boot())
 
     def test_update_defaults_to_reload_when_the_app_does_not_handle_it(self):
@@ -125,8 +118,7 @@ class BootRegistrationTest(unittest.TestCase):
 
 
 class EdgeConfigTest(unittest.TestCase):
-    """One knob drives the whole chain. The bundle renderer and the edge must agree, or
-    the CSP would advertise a worker the build never emitted (or block one it did)."""
+    """The bundle renderer and the edge CSP agree on whether there is a worker."""
 
     def _edge_main(self, **build):
         edge = {"name": "web", "type": "web_edge"}
@@ -153,21 +145,17 @@ def test_two_bundles_get_different_cache_names():
     gate = clientshell.render_service_worker_js("gate")
     assert '"app"' in app
     assert '"gate"' in gate
-    # Different bytes, which is the point: the browser only re-runs install when the
-    # worker script itself changed, so two identical scripts would leave the old bundle's
-    # worker active and serving its cached "/" after a scope change.
+    # Two bundles get different worker bytes, so a scope change installs the new one.
     assert app != gate
 
 
 def test_the_default_bundle_name_is_stable():
-    # A single-client project must not churn its worker between builds, or every build
-    # would evict every repeat visitor's copy of a 20 MB bundle.
+    # A single-client project's worker is stable across builds.
     assert clientshell.render_service_worker_js() == clientshell.render_service_worker_js()
 
 
 def test_the_worker_still_sweeps_every_synqt_cache():
-    # Scoped naming, global sweep. A switch reclaims the other bundle's cache rather than
-    # leaving a full uncompressed module on disk forever.
+    # Per-bundle names, global sweep.
     worker = clientshell.render_service_worker_js("app")
     assert 'PREFIX = "synqt-"' in worker
     assert "caches.delete" in worker
@@ -176,8 +164,7 @@ def test_the_worker_still_sweeps_every_synqt_cache():
 def test_the_warm_script_reads_the_real_manifest_keys():
     script = clientshell.render_warm_script()
     assert "synqtWarmBundle" in script
-    # The keys manifest.manifest() writes. Guessing them is how a warm-up
-    # silently fetches nothing and still resolves.
+    # The keys manifest.manifest() writes.
     assert "wasm_size" in script
     assert ".wasm" in script or "manifest.wasm" in script
     assert "files" in script

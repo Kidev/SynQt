@@ -12,19 +12,15 @@ namespace SynQt {
 
 /// Who may read the console.
 ///
-/// The monitor holds every entity's record, which makes it the one place in a system where
-/// a single sign-in reveals what everything has been doing. So it has an identity system of
-/// its own, deliberately separate from the application's: an operator is not a user of the
-/// application, and a project's own login provider is often the thing an operator is
-/// signing in to investigate.
+/// The monitor holds every entity's record, so it has an identity system of its own,
+/// separate from the application's: an operator is not a user of the application, and the
+/// project's login provider may be what the operator is investigating.
 ///
-/// Credentials live in the monitor entity's environment and never in `synqt.yaml`, which
-/// is a file in a repository. The stored form is a PBKDF2-SHA256 hash with a per-operator
-/// salt. Nothing here ever holds, logs or records a password.
+/// Credentials live in the monitor entity's environment, never in `synqt.yaml`. The stored
+/// form is a PBKDF2-SHA256 hash with a per-operator salt. Nothing here holds, logs or records
+/// a password.
 ///
-/// Fail closed. A monitor with no operators configured refuses everybody. The opposite
-/// default, letting everyone in until somebody is configured, is how an operations console
-/// ends up on a network with no gate at all.
+/// Fail closed: a monitor with no operators configured refuses everybody.
 class OperatorStore
 {
 public:

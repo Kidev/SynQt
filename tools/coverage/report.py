@@ -4,25 +4,14 @@
 
 """Line coverage for the SynQt runtime libraries, read back from gcov.
 
-`cmake -DSYNQT_COVERAGE=ON` instruments the five libraries under src/ and nothing else
-(cmake/SynQtCoverage.cmake). Running the suites leaves a .gcda counter file beside every
-object file. This reads those, keeps the source files that are SynQt's, and
-reports what fraction of their executable lines the suites reached.
-
-It shells out to `gcov -t -j`, which prints one JSON document per .gcda instead of
-scattering .gcov files through the build tree, and needs nothing installed beyond the
-compiler that produced the counters. lcov and gcovr both do more than this. Neither is a
-dependency worth adding to read a number that gcov already knows.
+`cmake -DSYNQT_COVERAGE=ON` instruments the five libraries under src/
+(cmake/SynQtCoverage.cmake). After the suites run, this reads the .gcda files through `gcov
+-t -j`, keeps SynQt's sources, and reports the fraction of executable lines reached.
 
     tools/coverage/report.py --build-dir build/coverage [--fail-under 70]
 
-`--json` writes the same figures as a machine-readable file, which is what CI keeps.
-
-One thing this number must not do quietly. A native build does not compile the code behind
-`#ifdef Q_OS_WASM`, so gcov never instruments it and it lands in neither the covered nor the
-missed column. It is not in the denominator, which would let the percentage rise by
-moving code into a WebAssembly-only branch. The report counts those lines separately and
-names them, so the blind spot is on the same screen as the figure it is missing from.
+`--json` writes the figures for CI. Code under `#ifdef Q_OS_WASM` is not compiled natively,
+so it is counted and named separately instead of silently leaving the denominator.
 """
 
 from __future__ import annotations
@@ -38,12 +27,7 @@ from typing import Dict, Set, Tuple
 
 
 def _gcov_documents(gcov: str, gcda_files, build_dir: Path):
-    """Every gcov JSON document for these .gcda files, one batch of files per call.
-
-    gcov takes many .gcda arguments at once and prints one document per line, so the
-    process is started a handful of times rather than once per translation unit. A full
-    tree has hundreds. The batch is bounded because a command line is.
-    """
+    """Every gcov JSON document for these .gcda files, in bounded batches."""
     batch = []
     for gcda in gcda_files:
         batch.append(str(gcda))
@@ -55,14 +39,8 @@ def _gcov_documents(gcov: str, gcda_files, build_dir: Path):
 
 
 def _run_gcov(gcov: str, batch, build_dir: Path):
-    """Read one batch, and if gcov objects to any file in it, read them one at a time.
-
-    gcov reports failure for the whole invocation when a single .gcda is unreadable (a
-    stale one from an older build, a counter file a killed process never finished), and it
-    is not worth trusting the partial output of a run that reported an error. Retrying
-    singly costs one process per file in a batch that had a problem, and only then, and it
-    is what keeps one bad counter file from turning the report into "no coverage at all"
-    rather than into "one file short".
+    """Read one batch; if gcov fails on it, read its files one at a time, so one unreadable
+    counter file costs one file, not the whole report.
     """
     result = subprocess.run([gcov, "--stdout", "--json-format", *batch],
                             cwd=build_dir, capture_output=True, text=True)
@@ -90,11 +68,8 @@ def _documents_in(output: str):
 
 
 def _collect(build_dir: Path, source_root: Path, gcov: str) -> Dict[Path, Tuple[Set[int], Set[int]]]:
-    """Map each SynQt source file to (executable lines, lines that were executed).
-
-    A header included by several translation units is measured once per unit, so the same
-    line arrives repeatedly with different counts. Covered wins over not covered: the
-    question is whether the suites ever reached the line, not how many objects contain it.
+    """Map each SynQt source file to (executable lines, executed lines). A header measured in
+    several units counts as covered if any unit reached the line.
     """
     per_file: Dict[Path, Tuple[Set[int], Set[int]]] = {}
     gcda_files = sorted(build_dir.rglob("*.gcda"))
@@ -127,14 +102,9 @@ def _collect(build_dir: Path, source_root: Path, gcov: str) -> Dict[Path, Tuple[
 
 
 def _wasm_only_lines(path: Path) -> Set[int]:
-    """The lines of one file that only a WebAssembly build compiles.
-
-    A deliberately shallow reading of the preprocessor: it tracks `#if`/`#else`/`#endif`
-    nesting and calls a branch WebAssembly-only when its condition names Q_OS_WASM
-    positively. That is exactly the shape the runtime uses (`#ifdef Q_OS_WASM` ... `#else`
-    ... `#endif`), and being approximate is acceptable here because the figure it produces
-    is reported on its own rather than folded into the coverage percentage: at worst it
-    misstates the size of a hole it exists to point at.
+    """The lines of one file that only a WebAssembly build compiles: branches of
+    `#if`/`#else`/`#endif` whose condition names Q_OS_WASM positively. Approximate; reported
+    separately from the percentage.
     """
     branches: list = []
     wasm: Set[int] = set()

@@ -31,24 +31,24 @@ struct WebEdgeConnectPoint
     QString name;
     QString contract;
     QString serverFile;  ///< the owner-side QML implementing the Source
-    QString scope;       ///< minimum session scope; empty == reachable by any session
+    QString scope;       ///< minimum session scope. Empty == reachable by any session
 
     /// Whether the edge is shared, copied onto each point it owns (ConnectPointConfig::
     /// shared in topology.h carries the full explanation). Shared is one Source for
-    /// everybody, mirrored to each session; not shared is one Source per session, so what
+    /// everybody, mirrored to each session. Not shared is one Source per session, so what
     /// it holds is that person's and their second tab continues it.
     bool shared{true};
 
     /// Which entity serves each scope, on a point the edge owns and does not implement.
     ///
     /// This is a front. The edge keeps what only it can keep, the session and the sign-in,
-    /// and hands each caller to the entity serving people of their scope; the Source the
+    /// and hands each caller to the entity serving people of their scope. The Source the
     /// browser acquires relays to that entity and holds nothing itself. Empty on an
     /// ordinary point, which the edge answers from its own QML.
     ///
-    /// The consequence worth stating: an entity behind a front is reached by callers of one
-    /// scope and no other, so it authorizes on `Caller` and never asks about scope. Nothing
-    /// enforces that at run time because nothing has to; no link to it is opened for anyone
+    /// What follows from that. An entity behind a front is reached by callers of one scope
+    /// and no other, so it authorizes on `Caller` and never asks about scope. Nothing
+    /// enforces that at run time because nothing has to. No link to it is opened for anyone
     /// else.
     QMap<QString, QString> behind;
 };
@@ -199,7 +199,7 @@ struct WebEdgeConfig
     int keepAliveTimeoutSeconds{15};
 
     /// Requests per second per peer address, or zero to leave Qt's rate limiting off, which
-    /// is the default and is deliberate. Qt counts the address it is connected to and knows
+    /// is the default. Qt counts the address it is connected to and knows
     /// nothing of `X-Forwarded-For`, so behind a balancer every visitor shares one bucket
     /// and a limit meant for one client throttles the whole site. `synqt check` refuses the
     /// combination rather than letting a deployment find out in production.

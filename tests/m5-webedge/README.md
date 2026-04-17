@@ -96,27 +96,27 @@ real generated edge:
 | client | offered a subprotocol | result |
 |--------|-----------------------|--------|
 | Qt 6.11 `QWebSocket` | `synqt`, `synqt.session.<token>` | connects, `subprotocol()` empty |
-| Chromium 149 | same | **closed, code 1006** (`Sent non-empty 'Sec-WebSocket-Protocol' header but no response was received`) |
+| Chromium 149 | same | closed, code 1006 (`Sent non-empty 'Sec-WebSocket-Protocol' header but no response was received`) |
 | Firefox 151 | same | connects, `socket.protocol` empty |
 | all three | nothing offered | connects |
 
 An edge that works in one browser and not another is worse than one that refuses the
-setting, which is why the word is rejected at `synqt check`. The test is a tripwire: if a
+setting, which is why the word is rejected at `synqt check`. The test is a tripwire. If a
 later Qt lets the verifier select a subprotocol, it starts failing, and that failure says
 the transport has become buildable.
 
 ## Notes / scope
 
-- Decisions: M5 uses a minimal proto-session (a cookie token in an in-memory store);
-  the full `SessionManager` (expiry, revocation, rotation) and
-  per-connect-point scope gating land in M7, and OAuth login in M8. The
-  acceptance test runs over real TLS; plaintext (`synqt dev`) is implemented too.
-- The `WebSocketTransport` adapter is shared with the client runtime; the same source
+- M5 uses a minimal proto-session (a cookie token in an in-memory store). The full
+  `SessionManager` (expiry, revocation, rotation) and per-connect-point scope gating
+  land in M7, and OAuth login in M8. The acceptance test runs over real TLS, and
+  plaintext (`synqt dev`) is implemented too.
+- The `WebSocketTransport` adapter is shared with the client runtime. The same source
   is compiled into `SynQtTransport` so the edge can wrap accepted browser sockets without
   a service->client library dependency.
-- In-process test trap worth noting: a blocking `waitForEncrypted` starves the
-  same-process edge's event loop, so the stall test drives TLS asynchronously (`QTRY`).
-- The full edge *entity* composes `WebEdge` (client side) with M4's `EntityRuntime`
-  (mesh side, e.g. reaching a database). M5 tests `WebEdge` standalone.
-- Production note: the CSP/origin "self" expansion uses the configured public host; an
-  edge bound to `0.0.0.0` needs an explicit public origin in config (an M10 concern).
+- A blocking `waitForEncrypted` starves the same-process edge's event loop, so the stall
+  test drives TLS asynchronously (`QTRY`).
+- The full edge entity composes `WebEdge` (client side) with M4's `EntityRuntime`
+  (mesh side, for example reaching a database). M5 tests `WebEdge` standalone.
+- The CSP/origin "self" expansion uses the configured public host. An edge bound to
+  `0.0.0.0` needs an explicit public origin in config.

@@ -1,19 +1,13 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-"""Render the files the browser loads before the client does. The page, the boot
-script, the shell cache worker, and the dev live-reload hook.
+"""Render the files the browser loads before the client: the page, the boot script, the shell
+cache worker and the dev live-reload hook.
 
-Qt's default WebAssembly template boots from `<body onload="init()">` with an inline
-script. An inline event handler cannot be allowed by a CSP hash, so it violates the
-edge's strict `script-src 'self' 'wasm-unsafe-eval'`. SynQt ships its own shell instead:
-no inline handler and no inline script. All boot logic lives in an external
-synqt-boot.js (served same-origin, so plain `script-src 'self'` admits it). Everything
-here holds to that rule, so a page these functions produce loads under the edge's
-default policy with nothing relaxed for it.
-
-``synqt build`` writes the first three into the client bundle. The fourth is written
-only by ``synqt dev``.
+Qt's WebAssembly template boots from an inline `onload` handler, which the edge CSP
+(`script-src 'self' 'wasm-unsafe-eval'`) blocks. SynQt's shell has no inline handler or
+script; boot logic is in the same-origin synqt-boot.js. ``synqt build`` writes the first
+three into the bundle; only ``synqt dev`` writes the fourth.
 """
 
 from __future__ import annotations
@@ -26,13 +20,11 @@ from . import appmodel, clientcache, loadingpage
 
 
 def render_client_shell(app_js: str, config: Dict[str, Any], project_dir) -> str:
-    """The CSP-clean index.html. External scripts only, no inline handlers.
+    """The CSP-clean index.html: external scripts only, no inline handlers.
 
-    The logo and the CSS are inlined rather than linked. This page's only job is to
-    appear instantly, and a linked asset costs a round trip before it can paint. The
-    inline <style> needs no CSP work. The default policy already carries
-    style-src 'self' 'unsafe-inline' (webedgeconfig.h). Adding a hash instead would
-    silently disable that 'unsafe-inline' for every app, per CSP Level 2.
+    The logo and the CSS are inlined so the page paints at once. The default policy already
+    allows inline style (`style-src 'self' 'unsafe-inline'`, webedgeconfig.h); a hash would
+    disable 'unsafe-inline' under CSP Level 2.
     """
     override = loadingpage.html_override(config, project_dir)
     if override is not None:
@@ -54,40 +46,24 @@ _CLIENT_SHELL = """<!doctype html>
   <title>{title}</title>
   <link rel="icon" type="image/svg+xml" href="{favicon}">
   <style>
-    /* One length drives the whole column: the mark, the progress track under it, and
-       through them the height of the three stacked together. It is bounded on both
-       axes. Sized from the width alone, a short landscape
-       viewport gets a mark taller than the window. At 640x300 the logo is clipped top
-       and bottom and the bar and the word "Loading" were off the bottom of the screen
-       entirely, on a page whose only job is to tell a visitor something is happening.
-       40vh is the cap that cannot happen under, 55vw keeps it from dominating a narrow
-       phone, and the two clamps are the floor for a very small window and the ceiling
-       that stops a desktop from rendering a 900px logo.
-
-       The rest of the column is proportional to the viewport height for the same reason,
-       so the gaps and the padding shrink with the space rather than eating a short
-       window. */
+    /* One length sizes the column: the mark and the progress track under it. It is
+       bounded on both axes, so a short landscape window still shows the logo, the bar
+       and the word "Loading". The two clamps set a floor for a very small window and a
+       ceiling for a desktop. The gaps and padding scale with the viewport height too. */
     :root {{
       --synqt-mark: clamp(4rem, min(55vw, 40vh), 22rem);
       --synqt-gap: clamp(0.75rem, 3vh, 1.5rem);
     }}
-    /* The background belongs on the document, not only on the overlay: the overlay is
-       hidden the moment Qt reports the module loaded, which is a frame or two before the
-       first QML paint, and the browser's default white would flash through that gap.
+    /* The background is on the document as well as the overlay, because the overlay
+       hides a frame or two before the first QML paint.
 
-       `height: 100%` first and `100dvh` second: a mobile browser's `100%` is measured
-       against whichever viewport it currently calls layout, so the page can come up a
-       URL-bar short of the screen. The dynamic unit is the one that tracks the bar as it
-       retracts, and an engine that does not know it keeps the percentage.
+       `height: 100%` first and `100dvh` second: a mobile browser measures `100%`
+       against its current layout viewport. An engine without `dvh` keeps the
+       percentage.
 
-       `fixed` and `no-repeat` are what make the background the viewport's rather than the
-       element's. The root element's background is painted over the whole canvas, but an
-       image in it is still sized and placed against the root element's own box and then
-       tiled to fill the rest; so any moment the canvas is taller than that box -- a
-       retracting URL bar, an engine that does not know `dvh`, a window resized before
-       layout catches up -- the gradient either restarts partway down or leaves what it
-       does not reach. Attached to the viewport it is measured against the thing it has
-       to cover. */
+       `fixed` and `no-repeat` size the background to the viewport. A root background
+       image is placed against the root box and tiled, so it would restart or stop
+       whenever the canvas is taller than that box. */
     html, body {{
       padding: 0; margin: 0; overflow: hidden; height: 100%;
       background: {background};
@@ -96,10 +72,8 @@ _CLIENT_SHELL = """<!doctype html>
     }}
     html, body {{ height: 100dvh }}
     #screen {{ width: 100%; height: 100% }}
-    /* Fixed and pinned to all four edges, so the background is the viewport's whatever
-       the document under it turns out to be. `min-height` is the same dynamic-viewport
-       belt as above, for the moment a retracting URL bar makes the window taller than
-       the box that was laid out. */
+    /* Fixed to all four edges, so the background covers the viewport. `min-height`
+       handles a retracting URL bar, as above. */
     #synqt-loading {{
       position: fixed; inset: 0; min-height: 100dvh;
       display: flex; flex-direction: column;
@@ -110,10 +84,8 @@ _CLIENT_SHELL = """<!doctype html>
       font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
     }}
     #synqt-loading[hidden] {{ display: none }}
-    /* `max-height` as well as `width`, because the logo is replaceable
-       (`build.loading.logo`) and a project's own mark is not necessarily square. An SVG
-       fits itself to its box preserving its aspect ratio, so a tall one letterboxes
-       inside the square rather than stretching the column past the window. */
+    /* `max-height` as well as `width`, because a project logo (`build.loading.logo`)
+       need not be square. The SVG keeps its aspect ratio inside the square. */
     #synqt-logo svg {{
       width: var(--synqt-mark); max-width: 100%; max-height: var(--synqt-mark);
       height: auto; display: block;
@@ -152,13 +124,10 @@ _CLIENT_SHELL = """<!doctype html>
 def render_boot_js(target: str, config: Dict[str, Any]) -> str:
     """The external boot script that compiles and starts the WebAssembly module.
 
-    External and eval-free so the edge's strict Content-Security-Policy holds. It hands
-    Qt a compileStreaming promise through qtloader's documented ``qt.module`` option,
-    which is what lets the page show a real percentage while compilation still overlaps
-    the download.
-
-    Under ``build.client_cache: service_worker`` it also registers the shell cache and
-    forwards its update signal. Under ``http`` the registration is absent.
+    Eval-free, for the edge CSP. It passes a compileStreaming promise through qtloader's
+    ``qt.module`` option, so the page shows real progress while compilation overlaps the
+    download. Under ``build.client_cache: service_worker`` it also registers the shell cache
+    and forwards its update signal.
     """
     registration = _BOOT_SW_JS if clientcache.uses_service_worker(config) else ""
     return (_BOOT_JS.replace("ENTRY_FUNCTION", "%s_entry" % target)
@@ -168,15 +137,8 @@ def render_boot_js(target: str, config: Dict[str, Any]) -> str:
 
 
 def _edge_origin_js(config: Dict[str, Any]) -> str:
-    """Publish the edge's origin to the page, when the page is not served from it.
-
-    Under `origin_model: split_origin` a CDN delivers this bundle, so neither the boot
-    script nor the client can read the edge from `window.location`: that names the CDN,
-    which hosts no sync endpoint and no session. The one place that knows is the build, so
-    the build states it here, in the file it already generates and the CDN already serves.
-
-    Emitted only when the project declares it, so a same-origin app generates the boot
-    script it generated before this existed and keeps deriving its edge from its own page.
+    """Publish the edge origin to the page when a CDN serves it (`split_origin`), since
+    `window.location` then names the CDN. Emitted only when the project declares it.
     """
     origin = appmodel.public_origin(config)
     if not origin or appmodel.serves_client(config):
@@ -193,9 +155,8 @@ _BOOT_SW_JS = """navigator.serviceWorker.register("synqt-sw.js").then(function (
                     if (!event.data || event.data.type !== "synqt-update-ready") {
                         return;
                     }
-                    // The app decides if it asked to (the client runtime installs this
-                    // hook when something handles App.updateReady). If nothing did,
-                    // reload now. An update nobody applies is worse than an interruption.
+                    // If the app handles App.updateReady, the client runtime installs
+                    // this hook and the app decides. Otherwise reload now.
                     if (typeof window.__synqtUpdateReady === "function") {
                         window.__synqtUpdateReady();
                     } else {
@@ -206,8 +167,8 @@ _BOOT_SW_JS = """navigator.serviceWorker.register("synqt-sw.js").then(function (
                     registration.active.postMessage({ type: "synqt-check-update" });
                 }
             }).catch(function (error) {
-                // The cache is an optimization. A worker that will not install must never
-                // stop the app from booting.
+                // The cache is an optimization; a worker that fails to install never
+                // stops the boot.
                 console.warn("synqt: service worker unavailable", error);
             });"""
 
@@ -215,8 +176,8 @@ _BOOT_SW_JS = """navigator.serviceWorker.register("synqt-sw.js").then(function (
 _BOOT_JS = """// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 // SPDX-License-Identifier: Apache-2.0
 
-// Boots the Qt WebAssembly module. External (script-src 'self') and eval-free so the
-// edge's strict Content-Security-Policy holds. Generated by `synqt build`.
+// Boots the Qt WebAssembly module. External (script-src 'self') and eval-free, for the
+// edge CSP. Generated by `synqt build`.
 (function () {
     "use strict";
 
@@ -238,11 +199,9 @@ _BOOT_JS = """// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
         }
     }
 
-    // Count the module's bytes as they stream past, without buffering it: the chunks go
-    // straight through to compileStreaming, so compilation still overlaps the download.
-    // `total` comes from the manifest, never from the response headers: the edge serves
-    // the wasm compressed, so its declared length is the compressed size while these
-    // chunks are decoded, and the ratio would run past 100%.
+    // Count the module bytes as they stream to compileStreaming, so compilation still
+    // overlaps the download. `total` comes from the manifest: the edge serves the wasm
+    // compressed, so the response length is not the decoded size.
     function countingResponse(response, total) {
         if (!response.body || typeof TransformStream === "undefined") {
             return response;
@@ -282,8 +241,8 @@ _BOOT_JS = """// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
     function start(manifest) {
         return qtLoad({
             qt: {
-                // Documented qtloader option: Promise<WebAssembly.Module>. Passing the
-                // promise unresolved lets the download start now and the loader await it.
+                // Documented qtloader option: a Promise<WebAssembly.Module>, passed
+                // unresolved so the download starts now.
                 module: compileModule(manifest),
                 onLoaded: function () {
                     if (loading) {
@@ -305,17 +264,13 @@ _BOOT_JS = """// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
         });
     }
 
-    // Ask the edge for a session before the app tries to connect.
+    // Ask the edge for a session before the app connects. Split-origin builds only: the
+    // page came from a CDN, so the browser has no edge cookie and the wss upgrade would
+    // be refused. The edge answers 204 with a Set-Cookie; `credentials: "include"`
+    // stores it, and the edge echoes this exact origin.
     //
-    // Only for a split-origin build. This page came from a CDN, so the browser has never
-    // touched the edge and holds no cookie for it, and the wss upgrade refuses a request
-    // that carries no session. One credentialed request to the edge's client route fixes
-    // that. The edge answers 204 and a Set-Cookie. `credentials: "include"` is what both
-    // sends nothing yet and stores what comes back, and it is why the edge echoes this
-    // exact origin rather than a wildcard.
-    //
-    // Never fatal. A blocked third-party cookie leaves the app to report a connection it
-    // cannot authorize, which is a far clearer failure than a boot that never happens.
+    // Never fatal. If a third-party cookie is blocked, the app reports that it cannot
+    // connect.
     function bootstrapSession() {
         if (!window.__synqtEdgeOrigin) {
             return Promise.resolve();
@@ -338,16 +293,14 @@ _BOOT_JS = """// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
         screen = document.querySelector("#screen");
 
         // The shell cache, when this build has one. A worker needs a secure context
-        // (https, or localhost in dev). Without the guard a plaintext edge throws here
-        // on every boot. Registration is off the critical path. The module fetch below
-        // starts regardless, and the worker serves it from cache once it controls.
+        // (https, or localhost in dev). Registration is off the critical path; the
+        // module fetch starts regardless.
         if ("serviceWorker" in navigator && window.isSecureContext) {
             // SERVICE_WORKER_HOOK
         }
 
-        // The session request and the module download overlap. The module is megabytes
-        // and the session is one small round trip, so waiting for both costs nothing over
-        // waiting for the module, and starting Qt before the cookie exists would race it.
+        // The session request and the module download overlap. Qt starts only after
+        // both, so it never races the cookie.
         Promise.all([
             bootstrapSession(),
             fetch("synqt-manifest.json", { credentials: "same-origin" })
@@ -363,21 +316,12 @@ _BOOT_JS = """// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 def render_service_worker_js(bundle: str = "client") -> str:
     """The service worker that makes a repeat visit instant, for one bundle.
 
-    Cache-first over CacheStorage, with the manifest's build_id as the cache name, so a
-    new build lands in its own cache and the old one is swept on activate. The update
-    probe is a single no-store fetch of the manifest: identical is the common case and
-    costs one small request; only a real difference pulls the module again.
+    Cache-first over CacheStorage, with the manifest build_id as the cache name; old caches
+    are swept on activate. The update check is one no-store fetch of the manifest.
 
-    The bundle name is written into the script, and that is load bearing rather than
-    cosmetic. An edge may serve one bundle to an anonymous visitor and another once they
-    sign in, both at "/", so both register a worker at the same scope. The browser re-runs
-    install only when the worker's own bytes changed; two byte-identical scripts would
-    leave the first bundle's worker active, and its cache-first fetch handler would go on
-    answering "/" from the bundle the visitor is no longer entitled to. Naming the bundle
-    here makes the switch a real update.
-
-    The sweep stays global (every `synqt-` cache but the live one), so changing bundles
-    reclaims the other one rather than stranding a full uncompressed module on disk.
+    The bundle name is written into the script: an edge may serve two bundles at "/" (before
+    and after sign-in), and the browser reinstalls a worker only when its bytes change. The
+    sweep removes every other `synqt-` cache.
     """
     return _SERVICE_WORKER_JS.replace("__SYNQT_BUNDLE__", bundle)
 
@@ -385,23 +329,22 @@ def render_service_worker_js(bundle: str = "client") -> str:
 _SERVICE_WORKER_JS = """// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 // SPDX-License-Identifier: Apache-2.0
 
-// The SynQt client shell cache. Generated by `synqt build`. Never edit in place.
-// Cache-first so a repeat visit reaches the app with no network on the critical path,
-// then a background manifest probe decides whether anything changed.
+// The SynQt client shell cache. Generated by `synqt build`. Do not edit. Cache-first,
+// so a repeat visit needs no network before the app starts; a background manifest check
+// looks for a new build.
 "use strict";
 
 var MANIFEST = "synqt-manifest.json";
 var PREFIX = "synqt-";
-// Which bundle this worker belongs to. See render_service_worker_js. This is what makes
-// two bundles served at the same scope two distinct workers rather than one.
+// Which bundle this worker belongs to (see render_service_worker_js). Two bundles at
+// the same scope get distinct workers.
 var BUNDLE = "__SYNQT_BUNDLE__";
 
 function cacheName(buildId) {
     return PREFIX + BUNDLE + "-" + buildId;
 }
 
-// The manifest is the identity of a build. It is fetched no-store, because a cached
-// probe could never observe a new build, which is the one thing it exists to do.
+// The manifest identifies a build, so it is fetched no-store.
 function fetchManifest() {
     return fetch(MANIFEST, { cache: "no-store", credentials: "same-origin" })
         .then(function (response) {
@@ -418,11 +361,8 @@ function precache(manifest) {
         if (urls.indexOf(MANIFEST) === -1) {
             urls.push(MANIFEST);
         }
-        // cache: "reload" is load bearing. A plain addAll() fetches through the browser's
-        // HTTP cache, which will happily hand back the *previous* build's bytes and store
-        // them under this build's name: a cache labelled new and holding old, so the
-        // update silently never takes effect. Going to the network is the only way to be
-        // sure the bytes match the build_id they are filed under.
+        // cache: "reload" is required. A plain addAll() goes through the HTTP cache and
+        // could store the previous build's bytes under this build's name.
         var requests = urls.map(function (url) {
             return new Request(url, { cache: "reload", credentials: "same-origin" });
         });
@@ -430,10 +370,9 @@ function precache(manifest) {
     });
 }
 
-// Whether this build is cached *and complete*. The name existing proves nothing:
-// caches.open() creates the named cache the moment install starts, so a failed or
-// in-flight precache leaves an empty cache under the right name. addAll() is atomic, so
-// the manifest being present is what proves the precache finished.
+// Whether this build is cached and complete. caches.open() creates the cache when
+// install starts, so the name alone proves nothing. addAll() is atomic, so a cached
+// manifest means the precache finished.
 function hasCompleteBuild(buildId) {
     var name = cacheName(buildId);
     return caches.keys().then(function (names) {
@@ -460,15 +399,13 @@ function sweepOtherCaches(keep) {
 }
 
 self.addEventListener("install", function (event) {
-    // Take over as soon as the new build is cached. The page that triggered the update
-    // is about to reload onto it.
+    // Take over as soon as the new build is cached; the page is about to reload onto
+    // it.
     event.waitUntil(fetchManifest().then(precache).then(function () {
         return self.skipWaiting();
     }).catch(function (error) {
-        // A failed install must not wedge the worker. The page still boots from the
-        // network, because the cache is an optimization and never a dependency. Warn
-        // rather than swallow, or a bundle that never caches looks exactly like one that
-        // does.
+        // A failed install must not block the worker: the page still boots from the
+        // network. Warn, so a bundle that never caches is visible.
         console.warn("synqt: shell precache failed", error);
     }));
 });
@@ -505,12 +442,9 @@ self.addEventListener("message", function (event) {
                 return null;  // the common case: nothing changed, stop here
             }
             return precache(manifest).then(function () {
-                // Sweep here, not only in activate. The worker script is identical from
-                // build to build, so activate fires once ever while build_id changes on
-                // every deploy. Without this, each deploy would strand another cache
-                // holding a full uncompressed module, and caches.match() searches every
-                // cache in creation order, so the stale one would keep winning and the
-                // update would never take effect.
+                // Sweep here, not only in activate: the worker script rarely changes,
+                // so activate rarely fires, and caches.match() searches caches in
+                // creation order.
                 return sweepOtherCaches(cacheName(manifest.build_id));
             }).then(function () {
                 return self.clients.matchAll();
@@ -522,8 +456,8 @@ self.addEventListener("message", function (event) {
             });
         });
     }).catch(function (error) {
-        // A failed probe leaves the working cache exactly as it was. Warn rather than
-        // swallow. A cache that silently never updates is the worst outcome here.
+        // A failed probe leaves the cache as it was. Warn, so a cache that never
+        // updates is visible.
         console.warn("synqt: update check failed", error);
     }));
 });
@@ -535,8 +469,8 @@ self.addEventListener("message", function (event) {
 _WARM_JS = """// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 // SPDX-License-Identifier: Apache-2.0
 
-// Fetch the bundle the caller has become entitled to, while they are still looking
-// at the page that signed them in. Generated by `synqt build`. Never edit in place.
+// Fetch the bundle the caller is now entitled to, while they are still on the sign-in
+// page. Generated by `synqt build`. Do not edit.
 "use strict";
 
 window.synqtWarmBundle = function (onProgress) {
@@ -550,9 +484,8 @@ window.synqtWarmBundle = function (onProgress) {
         })
         .then(function (manifest) {
             var total = manifest.wasm_size || 0;
-            // The module is the transfer. Everything else together is noise beside it, so
-            // it is the one thing progress is measured against. Streamed rather than
-            // awaited whole, or the bar would sit at zero and then jump to done.
+            // Progress is measured against the module, the bulk of the transfer.
+            // Streamed, so the bar moves.
             return fetch(manifest.wasm, { credentials: "same-origin" })
                 .then(function (response) {
                     if (!response.ok || !response.body || !total) {
@@ -585,9 +518,9 @@ window.synqtWarmBundle = function (onProgress) {
                 });
         })
         .catch(function (error) {
-            // A warm-up that fails is not the visitor's problem: the navigation that
-            // follows fetches the same bundle, only without the head start. Reported as a
-            // negative so a caller can drop its progress UI rather than leave it stuck.
+            // A failed warm-up only loses the head start: the navigation fetches the
+            // same bundle. Reported as a negative so the caller can drop its progress
+            // UI.
             report(-1, 0);
             console.warn("synqt: bundle warm-up failed", error);
             return false;
@@ -597,17 +530,11 @@ window.synqtWarmBundle = function (onProgress) {
 
 
 def render_warm_script() -> str:
-    """The bundle warm-up a gate runs once a credential has been accepted.
+    """The bundle warm-up a gate runs once a credential is accepted.
 
-    Exposed as `window.synqtWarmBundle(onProgress)`. It reads the target bundle's
-    manifest, streams the module reporting progress against `wasm_size`, then fetches the
-    rest of the files. The navigation that follows finds them in the browser's HTTP cache,
-    so the visitor waits at a page with a progress bar instead of at a blank one.
-
-    It does not fill the service worker's cache. That
-    precache fetches with `cache: "reload"` (see render_service_worker_js), so
-    it always goes to the network and cannot be primed from here. This shortens first
-    paint, not the precache.
+    `window.synqtWarmBundle(onProgress)` reads the target manifest, streams the module with
+    progress against `wasm_size`, then fetches the other files into the HTTP cache. The
+    service worker precache uses `cache: "reload"`, so this does not fill it.
     """
     return _WARM_JS
 
@@ -617,23 +544,20 @@ def render_warm_script() -> str:
 def render_dev_reload_js() -> str:
     """The dev-only live-reload script ``synqt dev`` injects into the served bundle.
 
-    It polls the reload token the file watcher bumps after every rebuild and reloads the
-    page when the token changes, so a QML or contract edit shows up in the browser without
-    a manual refresh. External and eval-free so the edge's strict Content-Security-Policy
-    holds. The fetch stays same-origin (``connect-src 'self'``). Never emitted by
-    ``synqt build``; only the watcher writes it into ``build/client/``.
+    It polls the reload token the watcher bumps after each rebuild and reloads the page when
+    it changes. Eval-free and same-origin (``connect-src 'self'``). Never written by ``synqt
+    build``.
     """
     return """// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 // SPDX-License-Identifier: Apache-2.0
 
-// Injected by `synqt dev` only. Polls the reload token the file watcher bumps on every
-// rebuild and reloads the page when it changes. External and eval-free so the edge's
-// strict Content-Security-Policy holds. The fetch stays same-origin (connect-src 'self').
+// Injected by `synqt dev` only. Polls the reload token the file watcher bumps after
+// each rebuild and reloads the page when it changes. External and eval-free, for the
+// edge CSP; the fetch is same-origin (connect-src 'self').
 (function () {
-    // Dev never has a shell cache of its own (build.client_cache is http here), but a
-    // production build previously loaded from this origin (commonly localhost) leaves its
-    // worker installed, and it would serve a cached shell over the dev build and silently
-    // defeat the watcher below. Evict it.
+    // Dev has no shell cache (build.client_cache is http), but a production build
+    // loaded from this origin may have left its worker installed, which would serve a
+    // cached shell over the dev build. Evict it.
     if ("serviceWorker" in navigator) {
         navigator.serviceWorker.getRegistrations().then(function (registrations) {
             registrations.forEach(function (registration) { registration.unregister(); });

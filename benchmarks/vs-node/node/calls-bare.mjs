@@ -3,10 +3,9 @@
 
 // Node's floor for the call comparison: `node:http`, a JSON body in and a JSON body out.
 //
-// Zero dependencies and no framework, which is the point of it. It is not a stack anybody
-// deploys and it is not trying to be: it is the control that says how much of the Next.js
-// Server Function number is Node answering a request at all, and how much is the machinery
-// React puts around a function call. Without it "Next.js takes N microseconds" is a number
+// Zero dependencies and no framework, on purpose. This is a control rather than a stack
+// anybody deploys: it says how much of the Next.js Server Function number is Node answering
+// a request at all, and how much is the machinery React puts around a function call. Without it "Next.js takes N microseconds" is a number
 // with nothing to subtract from it.
 //
 // The two units of work are the same two ./nextjs/app/actions.js exports. `echo` has no

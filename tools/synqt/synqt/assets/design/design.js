@@ -270,9 +270,9 @@ function forgetInHash(key) {
     window.history.replaceState(null, "", rest ? `#${rest}` : window.location.pathname);
 }
 
-// The other half of the pair: an example opened from the bar is written into the address,
+// The other half of the pair. An example opened from the bar is written into the address,
 // so the link in it is the link that hands somebody the thing on screen, and a reload comes
-// back to it. replaceState for the same reason forgetInHash uses it -- opening an example is
+// back to it. replaceState for the same reason forgetInHash uses it. Opening an example is
 // not a navigation, and it should not fill the back button with them.
 function keepInHash(key, value) {
     const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
@@ -425,14 +425,14 @@ function redraw() {
          {problems: state.problems, selected: state.selected,
           filesOf: (entity) => entityFiles(state.design, entity)});
     // Everything the drawing held is gone, the marks on it included, so the record of what was
-    // lit has to go with them: left behind, the next pointermove over the same thing would
+    // lit has to go with them. Left behind, the next pointermove over the same thing would
     // find its key unchanged and light nothing.
     state.hover = "";
     // The handles a link is pulled from are the one exception, because they are not a mark on
-    // the drawing: they are the target. They appear on whichever entity the pointer is nearest
+    // the drawing. They are the target. They appear on whichever entity the pointer is nearest
     // and only answer the pointer while they do, so a redraw between the last move and the
-    // next press took them away under a stationary pointer -- and a press where a handle had
-    // just been landed on the canvas behind it and panned the view. Anything that redraws
+    // next press took them away under a stationary pointer, and a press where a handle had
+    // been landed on the canvas behind it and panned the view. Anything that redraws
     // (selecting a node, typing into a file, the panel changing a setting) did it.
     if (state.pointer && !drag) {
         showSlotsNear(state.pointer);
@@ -1903,8 +1903,8 @@ function remember() {
     renderHistory();
 }
 
-// A document arriving from somewhere other than an edit -- the project read off disk, an
-// example opened, a design restored from this browser -- is where the history starts. There
+// A document arriving from somewhere other than an edit (the project read off disk, an
+// example opened, a design restored from this browser) is where the history starts. There
 // is nothing before it to go back to, and offering to would go back to a blank canvas.
 function forgetHistory() {
     history.past.length = 0;
@@ -2502,11 +2502,11 @@ function onDown(event) {
         // Every front's seats become visible drop targets for as long as this drag lasts. A
         // line let go on one hands that scope to the entity it came from, and until the canvas
         // said so, the only half of that gesture anybody found was the one that starts at the
-        // seat: the reverse worked and looked like nothing.
+        // seat. The reverse worked and looked like nothing.
         page.canvas.classList.add("is-linking");
         // Drawn from the handle that was grabbed rather than from the middle of the disc, so
-        // a link pulled off the left of an entity leaves to the left. That is the whole point
-        // of there being a handle on each side.
+        // a link pulled off the left of an entity leaves to the left. That is why there is a
+        // handle on each side.
         drag = {
             mode: "link",
             from,
@@ -3318,16 +3318,16 @@ async function goOffline(reason) {
     // no project on the other end of this page.
     page.infer.hidden = true;
     page.review.hidden = true;
-    // And nothing to apply a change set to. The button used to stay in the bar wearing the
-    // word "Download", which put the one way of keeping a design at the far end of a row of
-    // controls that were all hidden or disabled beside it; taking a design away is Export's
-    // job now, and it is the same button on a project and on the drawing board.
+    // And nothing to apply a change set to. A button that stays in the bar wearing the
+    // word "Download" puts the one way of keeping a design at the far end of a row of
+    // controls that are all hidden or disabled beside it. Taking a design away is Export's
+    // job, and it is the same button on a project and on the drawing board.
     page.apply.hidden = true;
     // What was being drawn last time comes back first. An example named in the address is a
     // *preset*: it is where a drawing starts, not a page that replaces one. So a design already
-    // in this browser wins even then, as long as it grew out of the same example -- somebody
-    // who opened one, moved things around and reloaded is looking for what they left, and the
-    // link in the address bar used to hand them the pristine example back every time. A link
+    // in this browser wins even then, as long as it grew out of the same example: somebody
+    // who opened one, moved things around and reloaded is looking for what they left, rather than
+    // for the pristine example the link in the address bar names. A link
     // to a *different* example is a request to look at that one, and seeds afresh.
     const wanted = fromHash("example");
     const kept = await keptDesign();
@@ -3411,10 +3411,10 @@ function wire() {
         say("Cleared. Drag an entity out of the rail to begin.");
     });
     // Leaving is asked about once, and the browser is the one that asks. Every way out of
-    // this page fires this -- the mark in the corner, a reload, the back button, the tab
-    // being closed -- so a question of our own on top of it meant the mark in the corner
-    // asked twice: our box, and then the browser's. What this decides is whether to ask at
-    // all; the words are the browser's, and an empty canvas has nothing to lose, so a page
+    // this page fires this (the mark in the corner, a reload, the back button, the tab
+    // being closed), so a question of the page's own on top of it would make the mark in the corner
+    // ask twice, the page's box and then the browser's. What this decides is whether to ask at
+    // all. The words are the browser's, and an empty canvas has nothing to lose, so a page
     // somebody opened, looked at and closed goes without an argument.
     window.addEventListener("beforeunload", (event) => {
         if ((state.design.entities || []).length) {

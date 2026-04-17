@@ -16,8 +16,8 @@ cmake -S tests/m3-mesh -B build/m3-mesh -G Ninja \
     -DCMAKE_BUILD_TYPE=RelWithDebInfo
 cmake --build build/m3-mesh
 
-# Capture the exit code rather than letting `set -e` abort: on a failure the crash-safe trace
-# below is the whole point, and it must be printed before the script exits non-zero. On Windows
+# Capture the exit code rather than letting `set -e` abort. On a failure the crash-safe trace
+# below is what the run is for, and it must be printed before the script exits non-zero. On Windows
 # the test can die before writing any QtTest output at all, so this file is the only record of
 # where it got to.
 rc=0

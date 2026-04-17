@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // A WebSocket server in Node built-ins alone: node:http for the upgrade and node:crypto for
-// the handshake accept. No dependency, which is the point of the "bare" column.
+// the handshake accept. No dependency, which is what the "bare" column measures.
 //
 // Server-to-client framing only, which is all this workload needs and is the simple half of
 // RFC 6455: no masking (a server must not mask), and one frame per message. Incoming frames

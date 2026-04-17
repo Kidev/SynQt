@@ -33,15 +33,14 @@ private slots:
 
     /// An operator name that does not exist must cost what one that does costs.
     ///
-    /// The gate answers one "no" to every failure, so that nothing learns which
-    /// half of a guess was right. Returning early on an unknown name gave that away by the
-    /// clock instead. A known name spent a 600,000-round PBKDF2 and an unknown one spent a
-    /// string comparison, which is four orders of magnitude apart and readable over the
-    /// network. Whoever was guessing could enumerate the operators and then spend every
-    /// attempt on a name that exists.
+    /// The gate answers one "no" to every failure, so that nothing learns which half of a
+    /// guess was right. Returning early on an unknown name would give that away by the
+    /// clock: a known name spends a 600,000-round PBKDF2 and an unknown one a string
+    /// comparison, four orders of magnitude apart and readable over the network, so a
+    /// guesser could enumerate the operators and then spend every attempt on a real name.
     ///
-    /// Measured as a ratio with a wide floor rather than as a duration. What is being ruled
-    /// out is the difference between microseconds and a KDF, not a few percent of jitter.
+    /// Measured as a ratio with a wide floor rather than as a duration. What is ruled out
+    /// is the difference between microseconds and a KDF, not a few percent of jitter.
     void anUnknownOperatorCostsWhatAKnownOneCosts()
     {
         OperatorStore store;
@@ -69,12 +68,11 @@ private slots:
                                 .arg(unknown).arg(known)));
     }
 
-    // The same question with the store holding operators of unequal cost, which is the
-    // ordinary state. They are minted one at a time and nothing makes their round counts
-    // agree. An unknown name worked against whichever credential happens to be
-    // listed first is, with the cheap one first, refused faster than the expensive
-    // operator can ever be refused, and "that name came back too quickly" is the whole of
-    // what somebody enumerating names is looking for.
+    // The same question with the store holding operators of unequal cost, the ordinary
+    // state: they are minted one at a time and nothing makes their round counts agree. An
+    // unknown name worked against whichever credential is listed first would, with the
+    // cheap one first, be refused faster than the expensive operator ever is, and "that
+    // name came back too quickly" is exactly what an enumerator looks for.
     void anUnknownOperatorCostsWhatTheDearestKnownOneCosts()
     {
         OperatorStore store;
@@ -192,9 +190,10 @@ private slots:
 
     void aWrongPasswordCostsTheSameWhicheverByteIsWrong()
     {
-        // Not a timing proof, which a unit test cannot give. A check that the comparison
-        // does not return on the first wrong byte. A monitor is reachable by whoever can
-        // reach its port, and an early return tells them the answer one byte at a time.
+        // A monitor is reachable by whoever can reach its port, and an answer that comes
+        // back sooner for a closer guess tells them the password one byte at a time. This
+        // is not a timing proof (a unit test cannot give one): it checks that a guess wrong
+        // in its first byte and one wrong in its last both pay the whole derivation.
         OperatorStore store;
         QVERIFY(store.add(OperatorStore::mint(QStringLiteral("ada"),
                                               QStringLiteral("correct horse"))));
@@ -208,8 +207,8 @@ private slots:
             QVERIFY(!store.verify(QStringLiteral("ada"), QStringLiteral("correct hors_")));
         }
         const qint64 late{clock.elapsed()};
-        // Both are dominated by the derivation, which is the point: the comparison is
-        // nothing next to it, and neither answer is reached sooner than the other.
+        // Both are dominated by the derivation. The comparison after it reads derived bytes
+        // a guesser cannot steer, and it is constant time as well.
         QVERIFY2(qAbs(early - late) < (qMax(early, late) / 2 + 5),
                  qPrintable(QStringLiteral("first-byte %1ms vs last-byte %2ms")
                                 .arg(early).arg(late)));

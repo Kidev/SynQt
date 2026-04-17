@@ -155,8 +155,8 @@ earlier one said. It holds the framework's own events too, which is why the exam
 rather than counting: a signed-in caller means a session, and a session being created is
 something the framework records.
 
-The consequence worth relying on: a slot cannot pass here and fail in production because
-the test stubbed the authorization. It can still fail for a reason the harness does not
+What follows from that: a slot cannot pass here and fail in production because the test
+stubbed the authorization. It can still fail for a reason the harness does not
 model, and there are four:
 
 - **The transport.** The harness calls slots directly, so nothing here proves a contract
@@ -200,8 +200,11 @@ built once first, because that is what configures the build directory. Run `synq
 against a project that never has been and it says so rather than reporting a passing run
 over nothing.
 
+```cli
+synqt test
+```
+
 ```text
-$ synqt test
 Test project /home/you/gavel/build/host
     Start 1: app-tests
 1/1 Test #1: app-tests ........................   Passed    0.06 sec

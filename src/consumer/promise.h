@@ -28,11 +28,11 @@ namespace SynQt {
 /// A promise lives until the turn after it settles, and no longer. It is created as a
 /// child of the facade, which lives as long as the connection does, so without a
 /// disposal rule every returning-slot call an app ever makes would still be on that
-/// facade at shutdown: a page polling a slot leaks one object per call, forever. Settling
+/// facade at shutdown. A page polling a slot leaks one object per call, forever. Settling
 /// is the end of what a promise can do (it delivers to the handlers attached to it, then
 /// there is nothing left to deliver), so it is disposed one event-loop turn later, which
-/// is after every handler chained onto it in the ordinary way -- `slot().then(...)`,
-/// `.then(...).catchError(...)` -- has been attached and run. What that rules out is
+/// is after every handler chained onto it in the ordinary way (`slot().then(...)`,
+/// `.then(...).catchError(...)`) has been attached and run. What that rules out is
 /// storing a promise and attaching to it later, in a different turn: attach where the
 /// call is made, not to a promise kept in a property.
 class Promise : public QObject

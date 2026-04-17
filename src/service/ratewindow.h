@@ -21,22 +21,12 @@ struct RateWindow
     int count{0};
 };
 
-/// Drop the windows that have run out, and report whether the table is still over its cap.
+/// Drop the windows that have run out, and report whether the table is still at or above
+/// `cap`.
 ///
-/// This exists because the obvious way to bound a table keyed by caller address is to empty
-/// it when it grows too large, and that turns the cap into a reset anybody can pull. Every
-/// gate here rations by address, so an attacker who can present addresses -- an IPv6 /64 is
-/// a practically unlimited supply of them, and so is a forwarding header on a deployment
-/// that trusts one -- fills the table with entries they will never use again, the table is
-/// emptied, and the count against the address they are actually guessing from goes back to
-/// zero. Repeat, and the gate is gone.
-///
-/// A window that has run out is not evidence of anything and dropping it costs nothing, so
-/// that is what is dropped. The caller decides what to do when pruning was not enough,
-/// which is the case where the addresses really are live and the answer is to refuse rather
-/// than to forget.
-///
-/// Returns true when the table is still at or above `cap` after the prune.
+/// Emptying the table when it grows would let anyone with many addresses (an IPv6 /64, a
+/// trusted forwarding header) reset every count. Only expired windows are dropped; when that
+/// is not enough, the caller refuses.
 inline bool pruneRateWindows(QHash<QString, RateWindow> &windows, qint64 now,
                              qint64 windowMs, int cap)
 {
@@ -53,16 +43,8 @@ inline bool pruneRateWindows(QHash<QString, RateWindow> &windows, qint64 now,
     return windows.size() >= cap;
 }
 
-/// How long a refused caller is told to wait, in whole seconds, given what is left of its
-/// window.
-///
-/// Rounded up, and never zero. Both halves matter and neither is obvious enough to be
-/// rewritten at each gate: rounding down would let a client retry inside the window it was
-/// just refused for, and `Retry-After: 0` reads as "try again now", which is a gate telling a
-/// well-behaved client to hammer it. The two gates that answer 429 -- the entity password gate
-/// on the edge and the desktop device-credential route -- had this arithmetic written out
-/// separately and identically, which is one place for it to be corrected and another to be
-/// forgotten.
+/// How long a refused caller is told to wait, in whole seconds: rounded up and never zero, so
+/// a client never retries inside its window and never reads `Retry-After: 0`.
 inline qint64 retryAfterSeconds(qint64 remainingMs)
 {
     return qMax(qint64{1}, (remainingMs + 999) / 1000);

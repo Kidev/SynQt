@@ -10,73 +10,56 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <!-- Brand first, the way every page of the site titles itself (overrides/main.html), so a
-         tab holding the editor sits beside the tabs holding the guide rather than sorting
-         somewhere else. -->
+    <!-- Brand first, as every page of the site titles itself (overrides/main.html). -->
     <title>SynQt - Design editor</title>
-    <!-- The same icon file the site is served with, so the two are one tab icon rather than
-         two. Named, because a browser that is not told asks for /favicon.ico and the server
-         has no such file to give it. -->
+    <!-- The site's icon. Named, because a browser that is not told asks for /favicon.ico,
+         which the server does not have. -->
     <link rel="icon" href="synqt.ico" sizes="any">
     <link rel="stylesheet" href="design.css">
-    <!-- The file pane's editor lives in a shadow root and adopts this itself. Named here as
-         well so the browser has it before the pane is built rather than after. -->
+    <!-- The file pane's editor adopts this in its shadow root. Preloaded so the browser has
+         it before the pane is built. -->
     <link rel="preload" as="style" href="editor.css">
     <script type="module" src="design.js"></script>
   </head>
   <body>
     <header class="bar">
-      <!-- The way out, where a logo in the corner of a page always goes. A design lives in
-           this tab, and leaving by mistake is how an afternoon is lost, so the browser asks
-           on the way out -- once, from the one listener design.js puts on the window, which
-           every way out of this page runs through. It used to ask twice here: our own box
-           first and the browser's straight after it. -->
+      <!-- The way out. A design lives in this tab, so the browser asks before leaving, once,
+           from the beforeunload listener design.js puts on the window. A dialog of the
+           page's own here would make it ask twice. -->
       <a class="bar__home" id="home" href="/" title="Back to synqt.org">
         <img class="bar__mark" src="synqt.svg" alt="SynQt" width="284" height="150">
         <span class="bar__wordmark">Designer</span>
       </a>
-      <!-- The project's own name, and the one thing in this bar that is not a button: a
-           double click opens it for editing where it is written, the way an entity's name
-           on the canvas does. No verdict sits here. What the rules say is a list with a
-           line per finding, and the rail holds it under Review where each line can be
-           clicked back to the thing it is about. A count in the bar was the same news with
-           nowhere to go. -->
+      <!-- The project's name. A double click edits it in place, as an entity's name on the
+           canvas does. The findings are in the rail under Review, where each one links to
+           what it is about. -->
       <span class="bar__project" id="project" hidden
             title="Double click to rename the project"></span>
       <span class="bar__gap"></span>
-      <!-- The way back over what was done, and forward again, at the head of the
-           controls rather than beside the project's name. Everything at this end of the bar
-           is something to press, and these two are the first thing reached for when the last
-           thing pressed was wrong. design.js draws the arrows and enables each one only while
-           there is a step that way to take. -->
+      <!-- Undo and redo, first among the controls. design.js draws the arrows and enables
+           each one only while there is a step that way. -->
       <span class="bar__history">
         <button type="button" class="button button--step" id="undo" disabled
                 aria-label="Undo" title="Undo the last change (Ctrl-Z)"></button>
         <button type="button" class="button button--step" id="redo" disabled
                 aria-label="Redo" title="Redo the change undone (Ctrl-Shift-Z)"></button>
       </span>
-      <!-- A system to start from rather than an empty canvas. The projects the guide is
-           written about, each one an ordinary design once it is open. It sits beside Export
-           because the two are the ways in and out of this page that leave the project on
-           disk alone. -->
+      <!-- A system to start from instead of an empty canvas: the projects the guide is
+           written about, each an ordinary design once open. Beside Export, since neither
+           touches the project on disk. -->
       <button type="button" class="button button--icon" id="examples" aria-haspopup="menu">
         <span class="button__word">Examples</span>
       </button>
-      <!-- Take the design away, in either of the two forms it has. The drawing as a picture,
-           to be dropped into a document or a message, or the project itself as a zip of the
-           files it would be written as. One button, because both answers to "let me keep
-           this" belong in the same place. As the Apply button wearing a
-           different word on the drawing board, the zip would sit at the far end of the bar under
-           a name the rest of the page never uses. -->
+      <!-- The design as a picture, or the project as a zip of the files it would be written
+           as. -->
       <button type="button" class="button button--icon" id="export" aria-haspopup="menu">
         <span class="button__word">Export</span>
       </button>
       <button type="button" class="button button--danger button--icon" id="restart" hidden>
         <span class="button__word">Clear</span>
       </button>
-      <!-- The way back out of an edit to synqt.yaml, offered while that file is unlocked:
-           every version of it that read cleanly is remembered, and this returns to the last
-           one. It is what makes typing into the configuration something to try. -->
+      <!-- Offered while synqt.yaml is unlocked: every version of it that read cleanly is
+           remembered, and this returns to the last one. -->
       <button type="button" class="button" id="revert" hidden>Back to the last good version</button>
       <button type="button" class="button" id="infer">Infer from the sources</button>
       <button type="button" class="button" id="review">Review changes</button>
@@ -86,11 +69,9 @@
     </header>
 
     <main class="work">
-      <!-- The rail folds the way the panel does, and for the same reason: on a narrow window
-           the drawing is the whole point and two columns of furniture either side of it leave
-           nothing between them. Its handle is a button in its own top corner while it is
-           open and the tab it leaves behind once it is folded, which is one element in two
-           shapes rather than a control that appears when the window is resized. -->
+      <!-- The rail folds as the panel does, so a narrow window keeps room for the drawing.
+           Its handle is a button in its top corner while open and the tab left behind once
+           folded: one element in two shapes. -->
       <aside class="rail" id="rail">
         <button type="button" class="panel__handle" id="rail-handle"
                 aria-expanded="true" aria-controls="rail-body"
@@ -107,9 +88,8 @@
       <section class="stage">
         <div class="stage__canvas">
           <svg class="canvas" id="canvas" xmlns="http://www.w3.org/2000/svg">
-            <!-- The boxes behind everything, then the links, so a line passes under a node
-                 rather than across it, and the half-drawn one between them so it does the
-                 same. -->
+            <!-- Zones at the back, then the links and the half-drawn one, so a line passes
+                 under a node instead of across it. -->
             <g id="viewport">
               <g id="zones"></g>
               <g id="links"></g>
@@ -117,34 +97,24 @@
               <g id="nodes"></g>
             </g>
           </svg>
-          <!-- What happened, said once and then gone. It is not where a reader learns what
-               the drawing is. A situation worth acting on is marked on the entity or the
-               connect point it is about, and hovering that mark is what says it. -->
+          <!-- What just happened, shown once. A situation worth acting on is marked on the
+               entity or connect point it is about, and hovering the mark explains it. -->
           <p class="stage__hint" id="hint" role="status" aria-live="polite"></p>
         </div>
 
-        <!-- The same project as text, open from the start. The files are what is being
-             designed, not a second opinion about it. Redrawn from the document on every
-             change, so it is never a snapshot of an older design, and the QML in it is typed
-             into rather than read. What a Source declares is what its contract holds. Hiding
-             it leaves the bar, which is what opens it again. -->
+        <!-- The same project as text, open from the start. Redrawn from the document on every
+             change, and its QML can be edited. Hiding it leaves the bar, which opens it
+             again. -->
         <section class="dock" id="dock">
-          <!-- One bar, saying each thing once. What the pane is, the control that opens the
-               files for editing, which file is open, and the chevron that puts the whole
-               pane away. Nothing explains itself here. The button says what pressing it does
-               and carries the longer version as its own tooltip, which is one line of prose
-               fewer between the file name and the thing that opens the file. -->
-          <!-- Split where the pane below it is split, so each half of the bar is the
-               heading of the half under it: "Files" sits over the tree, and the file's own
-               name sits over the file. What unlocks the files sits at the end of the Files
-               half, because it is about all of them and not about whichever one is open. -->
+          <!-- Split where the pane below it is split: "Files" and the lock over the tree, the
+               open file's name and the chevron that hides the pane over the file. The lock
+               is on the Files half because it unlocks every file. -->
           <header class="dock__bar" id="dock-bar">
             <span class="dock__files">
               <span class="dock__title">Files</span>
               <span class="bar__gap"></span>
-              <!-- Read-only until somebody says otherwise, and then the whole project at
-                   once: the pane holds the entities' own code, and a stray keystroke over a
-                   file you were reading is not an edit anybody asked to make. -->
+              <!-- Read-only until unlocked, and then the whole project at once, so a stray
+                   keystroke in a file being read edits nothing. -->
               <button type="button" class="button button--lock" id="source-lock"
                       aria-pressed="false"></button>
             </span>
@@ -159,10 +129,8 @@
           <div class="dock__pane" id="dock-pane">
             <ul class="tree" id="tree"></ul>
             <div class="source">
-              <!-- Where the editor is built, and the whole of what this file says about it:
-                   what goes in here is CodeMirror (vendor/README.md), wired up by editor.js
-                   and coloured by source.js, which is the same reader that colours the
-                   members written along a link on the canvas. -->
+              <!-- The editor: CodeMirror (vendor/README.md), wired up by editor.js and coloured
+                   by source.js, which also colours the members along a link on the canvas. -->
               <div class="source__view" id="source-view"></div>
             </div>
           </div>
@@ -170,9 +138,8 @@
       </section>
 
       <!-- The panel for whatever is selected. On a narrow window it folds to its tab and
-           opens over the canvas, rather than being dropped from the layout: everything that
-           edits a selection is in here, so a page that can select a thing and not edit it is
-           a page missing half of itself. -->
+           opens over the canvas instead of leaving the layout, since everything that edits a
+           selection is in here. -->
       <aside class="inspector" id="inspector">
         <button type="button" class="panel__handle" id="inspector-handle"
                 aria-expanded="true" aria-controls="inspector-body"
@@ -180,9 +147,8 @@
         <div class="inspector__body" id="inspector-body"></div>
       </aside>
 
-      <!-- Where two panes meet, drawn as nothing and wider than it looks so the edge does not
-           have to be hit exactly. Each one drags the width or height its pane is laid out
-           from. -->
+      <!-- Where two panes meet: invisible, and wider than it looks so the edge need not be hit
+           exactly. Each one drags the width or height of its pane. -->
       <div class="grip grip--rail" id="grip-rail" role="separator"
            aria-orientation="vertical" aria-label="Resize the rail"></div>
       <div class="grip grip--inspector" id="grip-inspector" role="separator"
@@ -191,15 +157,13 @@
            aria-orientation="horizontal" aria-label="Resize the files"></div>
     </main>
 
-    <!-- What hovering something on the canvas opens, over whatever it was opened on. Filled
-         by design.js and positioned at the pointer. It holds nothing until then. -->
+    <!-- What hovering something on the canvas opens, filled by design.js and positioned at
+         the pointer. -->
     <div class="tip" id="tip" hidden></div>
 
-    <!-- The one question this page asks itself, in this page's own face. A browser's own
-         confirm box is kept for leaving the site, where the browser is the one asking and
-         nothing here can be trusted to stop a navigation. Everything else that needs an
-         answer is asked here, over the drawing it is about. A real `dialog`, so Escape
-         closes it, the focus is held inside it and the page behind it is inert. -->
+    <!-- Every question the page asks, except leaving the site, which the browser asks. A
+         real `dialog`, so Escape closes it, focus stays inside it and the page behind it is
+         inert. -->
     <dialog class="modal" id="modal" aria-labelledby="modal-title">
       <h2 class="modal__title" id="modal-title"></h2>
       <p class="modal__text" id="modal-text"></p>
@@ -213,9 +177,9 @@
     <!-- What a right click opens. -->
     <ul class="menu" id="menu" hidden></ul>
 
-    <!-- What crosses a link, chosen from what its owner already declares. It opens on a link
-         the moment one is drawn, because that is the question a new link asks. Nothing is
-         ticked to begin with: a member reaches a consumer because somebody said so. -->
+    <!-- What crosses a link, chosen from what its owner declares. It opens when a link is
+         drawn, with nothing ticked: a member reaches a consumer only when someone picks
+         it. -->
     <section class="picker" id="picker" hidden aria-label="What crosses this link"></section>
 
     <section class="sheet" id="sheet" hidden>

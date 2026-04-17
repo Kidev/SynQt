@@ -556,7 +556,7 @@ class BuildEntitySelectionTest(unittest.TestCase):
     def test_a_failed_compile_is_an_error_and_never_a_summary_bullet(self):
         # The rule: `synqt build` must not report success for a build that did not happen.
         # It used to. A failing cmake was caught, turned into a note, appended to a "Built N
-        # entity artifact(s)" summary, printed, and the command exited 0 -- having also written
+        # entity artifact(s)" summary, printed, and the command exited 0, having also written
         # each named artifact a THIRD-PARTY-LICENSES describing a binary that did not exist.
         # CI ran that way for as long as this command has existed: the arena's edge failed to
         # configure for a missing dependency and the job went red only because a later step
@@ -578,9 +578,9 @@ class BuildEntitySelectionTest(unittest.TestCase):
     def test_a_failed_compile_quotes_the_diagnostics_ninja_wrote_to_stdout(self):
         # The half that was missing, and it is the half the common failure uses.
         # `cmake --build` hands the work to Ninja, which writes its "FAILED:" line and the
-        # compiler diagnostics under it to stdout; stderr stays empty. Reading stderr alone
-        # meant that every broken compile -- the ordinary case, as against a broken
-        # configure -- reported "no output captured" and named the command, which is the one
+        # compiler diagnostics under it to stdout. Stderr stays empty. Reading stderr alone
+        # meant that every broken compile (the ordinary case, as against a broken
+        # configure) reported "no output captured" and named the command, which is the one
         # thing the reader already had.
         error = subprocess.CalledProcessError(
             returncode=1, cmd=["cmake", "--build", "build/host", "--target", "edge"],

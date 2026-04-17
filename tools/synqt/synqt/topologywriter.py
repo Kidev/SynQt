@@ -116,7 +116,7 @@ def resolve_endpoints(config: Dict[str, Any], project_name: str) -> Dict[str, Di
 # treated as a cross-host link, which is the safe direction to be wrong in: a link wrongly
 # called cross-host is held to mutual TLS, which it would have used anyway.
 #
-# The wildcards 0.0.0.0 and :: are deliberately not on this list. They read like "local"
+# The wildcards 0.0.0.0 and :: are not on this list. They read like "local"
 # and mean the opposite: an owner bound to one of them is listening on every interface the
 # machine has, which is the most exposed a link can be, not the least.
 LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})

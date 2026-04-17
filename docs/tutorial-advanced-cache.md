@@ -3,18 +3,18 @@
 
 # A cache of your own
 
-[The database page](tutorial-advanced-database.md) had Qt doing most of the work. A
-driver existed, so the adaptor was a connection and a dialect. This page is the other
-shape. Memcached has no Qt driver, no Qt module, and no client library SynQt pulls in, so
-the adaptor is the protocol itself, written by hand over a socket.
+On [the database page](tutorial-advanced-database.md), Qt did most of the work: a driver
+existed, so the adaptor was a connection and a dialect. This page covers the other case.
+Memcached has no Qt driver, no Qt module and no client library in SynQt, so the adaptor
+implements the protocol by hand over a socket.
 
-Most engines worth adapting are in this shape, and the protocol is usually the easy part.
-What takes the thought is what to do where the engine and the interface disagree, and
-Memcached disagrees in three places.
+Most engines worth adapting are like this, and the protocol is usually the easy part. The
+hard part is handling the places where the engine and the interface disagree. Memcached
+disagrees in three.
 
 ## Step 1: A smaller interface, and a different error model
 
-The cache family is `ICacheProvider`, and it is nine functions:
+The cache family is `ICacheProvider`, with nine functions:
 
 ```cpp
 bool connect(QString *error);
@@ -30,16 +30,14 @@ void expire(const QString &key, int ttlSeconds);
 QString name() const;
 ```
 
-`set`, `del`, and `expire` return nothing, and `get` has no way
-to report a failure. An absent value and an unreachable engine both come back as an
-invalid `QVariant`. That is the family's contract. A cache is an
-optimization, so a miss is a normal result and a broken cache is a slow system rather
-than a broken one. Callers are entitled to ignore the difference, which means your adaptor
-must never turn a cache problem into an application problem, so no throwing, no blocking
-forever, and no returning stale data it is not sure about.
+`set`, `del` and `expire` return nothing, and `get` cannot report a failure: a missing
+value and an unreachable engine both return an invalid `QVariant`. That is the family's
+contract. A cache is an optimization, so a miss is a normal result, and a broken cache
+makes a system slow, not broken. Callers may ignore the difference, so your adaptor must
+never turn a cache problem into an application problem: no throwing, no blocking forever,
+and no returning data it is not sure is fresh.
 
-`incr` is the exception that returns something, and it is where this engine gets
-interesting.
+`incr` is the one that returns something, and it is where this engine gets tricky.
 
 ## Step 2: Scaffold and connect
 
@@ -47,9 +45,9 @@ interesting.
 synqt add provider Memcached --family cache
 ```
 
-Then the connection. Memcached listens on 11211 and speaks a line-based text protocol.
-It supports TLS only in builds configured for it, which does not soften the rule. An
-unverified connection to a real address is refused in a release build, here as everywhere.
+Then the connection. Memcached listens on port 11211 and speaks a line based text
+protocol. It supports TLS only in builds configured for it, but the rule still holds: a
+release build refuses an unverified connection to a real address, here as everywhere.
 
 ```cpp
 #include "icacheprovider.h"
@@ -217,16 +215,15 @@ public:
     }
 ```
 
-The socket is not asynchronous. Every exchange here blocks, for
-at most a quarter second, on the entity's own event loop. That is the right trade for a
-cache lookup that normally takes under a millisecond on a private network, and it is why
-the timeout is short and treated as a miss rather than retried. If your engine's typical
-answer is not that fast, it does not belong behind a synchronous family interface, and the
-honest place for it is an entity of its own with a connect point.
+The socket is synchronous: each exchange blocks the entity's event loop for at most a
+quarter second. That suits a cache lookup that normally takes under a millisecond on a
+private network, which is why the timeout is short and counts as a miss instead of being
+retried. An engine slower than that belongs in an entity of its own with a connect point,
+not behind a synchronous family interface.
 
 ## Step 3: The protocol
 
-Two helpers carry every command. Together they are all the wire handling:
+Two helpers carry every command, and they are all the wire handling:
 
 ```cpp
 private:
@@ -272,7 +269,7 @@ private:
     }
 ```
 
-`get` and `set` are then almost transcriptions of the protocol:
+`get` and `set` then follow the protocol almost line for line:
 
 ```cpp
 public:
@@ -337,23 +334,19 @@ public:
 
 ## Step 4: The three disagreements
 
-Memcached and `ICacheProvider` do not agree about counters, and there are exactly three
-gaps.
+Memcached and `ICacheProvider` disagree about counters in three ways.
 
-It will not create the counter. `incr` on a key that does not exist returns
-`NOT_FOUND`. It does not start at zero. The interface promises to return the new value, so
-"the key was missing" is not an answer you may pass upwards. The fix is `add`, which
-stores only if the key is still absent, so the race with another entity doing the same
-thing at the same moment resolves rather than corrupting. Whoever loses the `add`
-increments what the winner created.
-
-It only counts up. Memcached has `incr` and a separate `decr`, and `by` in the
-interface is signed. Pick the command from the sign.
-
-It floors at zero. `decr` past zero gives zero rather than a negative number, and there is
-nothing you can do about that from outside the engine. So say so, in the code, where
-someone reaching for a counter that goes negative will read it. Documenting a limitation
-is a real fix. Hiding it behind a read-modify-write that is no longer atomic is not.
+- **Memcached leaves a missing counter missing.** `incr` on a missing key returns `NOT_FOUND`
+  instead of starting at zero. The interface promises the new value, so you may not pass
+  "the key was missing" upward. Use `add`, which stores only if the key is still absent,
+  so a race with another entity doing the same thing resolves cleanly: whoever loses the
+  `add` increments what the winner created.
+- **`incr` only counts up.** Memcached has `incr` and a separate `decr`, while the
+  interface's `by` is signed. Choose the command from the sign.
+- **It stops at zero.** `decr` past zero gives zero, not a negative number, and nothing
+  outside the engine can change that. So say so in the code, where someone expecting a
+  counter to go negative will read it. Document the limitation instead of hiding it behind
+  a read-modify-write that is no longer atomic.
 
 ```cpp
     qint64 incr(const QString &key, qint64 by) override
@@ -432,58 +425,55 @@ entities:
       ca_cert: certs/cache-ca.pem
 ```
 
-Any entity QML that was calling the bundled in-memory cache through the `Cache` helper
-keeps calling it. That is the point of the family: `Cache.get("session:42")` does not know
-what answered.
+Entity QML that called the bundled in-memory cache through the `Cache` helper keeps
+calling it unchanged. That is what the family interface gives you: `Cache.get("session:42")`
+does not know what answered.
 
 ## Try it, then think
 
 > [!QUESTION]
 > A connect point slot caches a per-user value with `Cache.set("profile:" + name, ...)`,
-> where `name` is a display name the user chose. What could a user pick as their display
-> name, and what would the adaptor above do about it? Now suppose `wireKey()` had been
-> written as `key.toUtf8()`.
+> where `name` is a display name the user chose. What display name could a user pick, and
+> what does the adaptor above do about it? Now suppose `wireKey()` were written as
+> `key.toUtf8()`.
 
 <details class="solution" markdown>
 <summary>Solution</summary>
 
-A display name containing a space, say `alice 0 0 6`, would make the key
-`profile:alice 0 0 6`. The memcached protocol is line-based and space-separated, so that
-everything after the space is read as the command's arguments. With
-`key.toUtf8()` the user is writing memcached commands, and can overwrite or expire entries
-belonging to other users by choosing a name carefully.
+A display name with a space, such as `alice 0 0 6`, makes the key `profile:alice 0 0 6`.
+The memcached protocol is line based and space separated, so everything after the space
+is read as the command's arguments. With `key.toUtf8()`, the user writes memcached
+commands, and with a carefully chosen name can overwrite or expire other users' entries.
 
-`wireKey()` percent-encodes, so the key becomes `profile%3Aalice%200%200%206`, one token,
-no spaces, no control characters, and reversible so two different names stay two different
-keys. It also refuses anything over the engine's 250 byte limit rather than sending a
-command the engine will reject in an ambiguous way.
+`wireKey()` percent-encodes, so the key becomes `profile%3Aalice%200%200%206`: one token,
+no spaces, no control characters, and reversible, so two different names stay two
+different keys. It also refuses keys over the engine's 250 byte limit, instead of sending
+a command the engine would reject ambiguously.
 
-This is the SQL injection lesson in a different protocol, and it generalizes. Any adaptor
-whose engine has a syntax has an injection to prevent. Whether that is achieved by binding
-a parameter, escaping a key, or building a typed request object, the invariant is the
-same, which is that a value must never reach the engine where the engine expects syntax.
-The interfaces are shaped to make that easy, so the only way to get it wrong is to
-assemble the syntax yourself, which is what this adaptor does and why this function
-exists.
+This is the SQL injection lesson in another protocol, and it applies everywhere: any
+adaptor whose engine has a syntax has an injection to prevent. Binding a parameter,
+escaping a key or building a typed request all keep the same rule: a value never reaches
+the engine where the engine expects syntax. The interfaces make that easy; you can only get
+it wrong by assembling syntax yourself, which this adaptor must do, hence this function.
 
 </details>
 
 ## What you learned
 
 - An engine with no Qt driver is still one class. The family interface does not care
-  whether there is a library behind it.
-- The cache family's error model is lossy. A miss and a failure look the same, so a
-  broken cache degrades a system instead of breaking it.
+  whether a library sits behind it.
+- The cache family's error model is lossy: a miss and a failure look the same, so a broken
+  cache slows a system down instead of breaking it.
 - A synchronous family interface means a blocking call on the entity's event loop, so it
-  needs a short timeout and a treat-it-as-a-miss policy. An engine too slow for that
-  belongs behind a connect point rather than behind a cache interface.
-- The engine's own features constrain your encoding. A native atomic counter dictated how
-  integers are stored here, and the `flags` field is what let the rest stay opaque.
-- Where the engine and the interface disagree, close the gap honestly. Emulate what can
-  be emulated without losing a guarantee (creating a missing counter with `add`), and
-  document what cannot (a counter that will not go negative).
-- Any engine with a syntax has an injection. Encode at the boundary, once, in one
+  needs a short timeout that counts as a miss. An engine too slow for that belongs behind
+  a connect point, not a cache interface.
+- The engine's features constrain your encoding. The native atomic counter decided how
+  integers are stored here, and the `flags` field kept everything else opaque.
+- Where the engine and the interface disagree, close the gap honestly. Emulate what you can
+  without losing a guarantee (create a missing counter with `add`), and document what you
+  cannot (a counter that will not go negative).
+- Any engine with a syntax has an injection risk. Encode at the boundary, once, in one
   function.
 
-The same invitation as the last page applies. If you have built this against a real engine,
-[send it](tutorial-advanced.md#when-yours-works-send-it) rather than keeping it.
+As on the last page: if you build this against a real engine, please
+[send it](tutorial-advanced.md#when-yours-works-send-it).

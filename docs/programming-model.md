@@ -207,24 +207,24 @@ The configurable parts that matter:
   hold before the framework will acquire the Replica for that client. A user below
   the required scope never gets the object, so cannot call its slots at all.
 - `export`. What may cross, written on the point. The type it becomes is the owner
-  capitalized, so `owner: edge` exports `Edge`; nothing names it separately, and nothing
+  capitalized, so `owner: edge` exports `Edge`. Nothing names it separately, and nothing
   carries a suffix.
 - `server`. The file that implements the connect point, and its root element is the
-  contract itself: `web/edge/Edge.qml` opens with `Edge { ... }`. That file is the entity,
-  so it defaults to the entity's own file and most points never write this. Both ends of
-  a contract are QML types with that one name, and they never meet, because an entity may
-  not consume the connect point it owns. In an owner's binary `Edge` is the owner
-  side; in a consumer's it is the consumer side and the attached handler type used for
-  [a connect point's signals](#handling-a-connect-points-signals). Which one you are
-  looking at is answered by the file: a Source is the `server:` of a connect point its
-  entity owns.
+  contract itself, so `web/edge/Edge.qml` opens with `Edge { ... }`. That file is the
+  entity, so it defaults to the entity's own file and most points never write this. Both
+  ends of a contract are QML types with that one name, and they never meet, because an
+  entity may not consume the connect point it owns. In an owner's binary `Edge` is the
+  owner side. In a consumer's it is the consumer side and the attached handler type used
+  for [a connect point's signals](#handling-a-connect-points-signals). The file answers
+  which one you are looking at. A Source is the `server:` of a connect point its entity
+  owns.
 
 ### Gating one member: `<scope>`
 
-`scope:` on the point is all or nothing: below it a visitor acquires no part of the point,
+`scope:` on the point is all or nothing. Below it a visitor acquires no part of the point,
 which is what you want when everything it carries is for the same audience. An owner that
-serves a public page and an admin surface is not that owner. Write the scope on the member
-instead:
+serves a public page and an admin surface needs something finer. Write the scope on the
+member instead:
 
 ```yaml
 connect_points:
@@ -248,7 +248,7 @@ exactly one scope, and a member reachable by two names them both, `<admin,audito
 **The gate is on what crosses, not on what is declared.** The member is still part of the
 contract, so a consumer's `Server.storefront` has an `auditLog` model either way. What
 changes is that for a caller without the scope it is never seeded, never followed, and
-never sent: the rows do not arrive and get hidden, they do not arrive. A gated `slot` is
+never sent. The rows are not delivered and then hidden; they are never delivered. A gated `slot` is
 refused before the owner's QML sees the call, and a gated `signal` is not delivered.
 
 The gate follows the session rather than the connection. A visitor who signs in mid-session
@@ -416,9 +416,9 @@ function add(text) {
 }
 ```
 
-`Server` is therefore just the well known name for "the edge a browser client
+`Server` is therefore the well known name for "the edge a browser client
 talks to." The general form is `<EntityName>.<member>`, addressing the owner by
-its configured name, capitalized into a QML type like accessor: entity `store`
+its configured name, capitalized into a QML type like accessor. Entity `store`
 appears as `Store`, entity `edge` as `Edge`. There is no second name under it,
 because an entity has one connect point. (`Server` is the client's alias for its
 own edge, whatever that edge entity is named.)

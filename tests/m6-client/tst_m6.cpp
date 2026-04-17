@@ -1,11 +1,11 @@
 // SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 // SPDX-License-Identifier: Apache-2.0
 
-// M6 acceptance (the functional core, natively, which is also the desktop runtime):
-// the counter runs against a real web edge, two clients stay in sync, connection state
-// transitions are observable, a forced disconnect triggers reconnection, a route above
-// the session scope redirects to the fallback, and signing out ends the session at the
-// edge rather than only in the client.
+// The client runtime, natively (which is also the desktop runtime): the counter runs
+// against a real web edge, two clients stay in sync, connection state transitions are
+// observable, a forced disconnect triggers reconnection, a route above the session scope
+// redirects to the fallback, and signing out ends the session at the edge rather than only
+// in the client.
 
 #include "sessionmanager.h"
 #include "webedge.h"
@@ -82,9 +82,9 @@ SynClientConfig clientConfig(quint16 port)
 
 /// A server that accepts every connection and answers none of them, holding each open.
 ///
-/// Not a refusal, which is the point: a refused connection is reported to the client at
-/// once and it moves on. This is the state that is indistinguishable from a slow answer
-/// until somebody decides how long to wait, and it is what a hung proxy looks like.
+/// A refused connection is reported to the client at once and it moves on. This is the
+/// state that is indistinguishable from a slow answer until somebody decides how long to
+/// wait, and it is what a hung proxy looks like.
 class BlackHoleServer : public QTcpServer
 {
     Q_OBJECT
@@ -146,11 +146,10 @@ private slots:
 
         // A replica exposes its Source's properties and methods only once the Source
         // description has arrived. Until then property("value") is an invalid QVariant
-        // (toInt() == 0) and "increment" is not yet on the metaobject. Comparing that
-        // spurious 0 to the expected initial 0 would pass without ever waiting, and the
-        // slot call below would then race the description and fail with "No such method"
-        // which is exactly what the slower macOS arm64 runner hit while the faster
-        // Linux/Windows runners initialised in time. Gate on real initialisation first.
+        // (toInt() == 0) and "increment" is not on the metaobject, so comparing that 0 to
+        // the expected initial 0 would pass without waiting, and the slot call below would
+        // race the description and fail with "No such method" on a slow runner. Gate on
+        // real initialisation first.
         auto *baseA{qobject_cast<QRemoteObjectReplica *>(replicaA)};
         auto *baseB{qobject_cast<QRemoteObjectReplica *>(replicaB)};
         QVERIFY(baseA != nullptr);
@@ -216,12 +215,10 @@ private slots:
 
     // Signing out has to reach the edge.
     //
-    // `Session.logout()` reports the request and SynClient answers it. For a long time
-    // nothing answered it at all, so logout reset the client's own idea of who it was and
-    // left the session alive at the edge with its cookie still in the browser. The next
-    // page load signed the visitor straight back in, and both the runtime API page and the
-    // authentication page said it "clears the session server-side". What is asserted here
-    // is the server side of it. The token the client was using is gone from the edge's
+    // `Session.logout()` reports the request and SynClient answers it. Resetting only the
+    // client's own state would leave the session alive at the edge with its cookie still in
+    // the browser, and the next page load would sign the visitor straight back in. What is
+    // asserted is the server side: the token the client was using is gone from the edge's
     // session manager afterwards, and the client is back, connected, as somebody else.
     void logoutEndsTheSessionAtTheEdgeAndNotOnlyInTheClient()
     {
@@ -252,12 +249,10 @@ private slots:
                                    .value(QStringLiteral("token")).toString().toLatin1()};
         QVERIFY(edge.sessionManager()->isLive(token));
 
-        // Counted from before the logout, because what proves the client came back is the
-        // round trip and not the state it ends in. Reading state() alone cannot see it:
-        // "connected" is still the answer for as long as it takes the edge's close to
-        // arrive, so a state check taken right after the edge dropped the session is
-        // answered by the connection that is on its way out, at the one instant when the
-        // edge holds no session at all. That is a flake, and it was one on Windows.
+        // Counted from before the logout, because the round trip proves the client came
+        // back, not the state it ends in. state() stays "connected" until the edge's close
+        // arrives, so a state check right after the edge dropped the session is answered by
+        // the outgoing connection, at the one instant the edge holds no session at all.
         QSignalSpy states{client.session(), &Session::stateChanged};
 
         client.session()->logout();
@@ -277,17 +272,15 @@ private slots:
 
     // Signing in has to reach the client.
     //
-    // The edge holds the whole truth about a session. The scope it was granted and the
-    // identity behind it. `Session.identity` and `Session.hasScope()` are how QML asks,
-    // and for a long time nothing ever answered. No code path in the runtime called
-    // Session::setScope or Session::setIdentity, so a client stayed anonymous with a null
-    // identity for its whole life however the visitor signed in. An app that gates its UI
-    // on either one (every app that has a sign-in does) showed the sign-in screen again
-    // the moment the successful login came back, which is a loop with no way out of it.
+    // The edge holds the whole truth about a session: the scope it was granted and the
+    // identity behind it. `Session.identity` and `Session.hasScope()` are how QML asks. If
+    // nothing set them, a client would stay anonymous with a null identity however the
+    // visitor signed in, and an app gating its UI on either (every app with a sign-in)
+    // would show the sign-in screen again after a successful login, a loop with no way out.
     //
-    // Nothing here signs anybody in. Whether the OAuth flow works is tests/m8-auth's
-    // subject. What is under test is the step after it, that the session the edge accepted
-    // this connection for is the session the client reports holding.
+    // Nothing here signs anybody in; the OAuth flow is tests/m8-auth's subject. What is
+    // under test is the step after it: the session the edge accepted this connection for is
+    // the session the client reports.
     void theSessionTheEdgeAcceptedIsTheOneTheClientReports()
     {
         QQmlEngine engine;
@@ -330,17 +323,14 @@ private slots:
 
     // And QML has to see it move.
     //
-    // Every scope-gated app is written the way the tutorials write it, as a binding:
-    // `visible: !Session.hasScope("player")`. QML records what a binding depends on from
-    // the properties it reads and from nothing else, so with `hasScope` declared as a
-    // Q_INVOKABLE that binding had no dependencies at all: it was evaluated once, while
-    // the visitor was still anonymous, and never again. Signing in moved the scope, the
-    // edge hosted the scope-gated connect point, and the overlay the sign-in was supposed
-    // to lift stayed up -- which reads as a sign-in that failed. Only C++ ever asked
-    // `hasScope` in a test, and C++ has no bindings, so nothing here could see it.
+    // Every scope-gated app is written as a binding, as the tutorials do: `visible:
+    // !Session.hasScope("player")`. QML records a binding's dependencies from the
+    // properties it reads and nothing else, so a Q_INVOKABLE `hasScope` gives that binding
+    // none: it is evaluated once, while the visitor is anonymous, and the overlay the
+    // sign-in should lift stays up. C++ has no bindings, so only QML can check this.
     //
-    // Session is wired to the engine here exactly as the generated main wires it: a
-    // context property named Session on the root context.
+    // Session is wired to the engine as the generated main wires it: a context property
+    // named Session on the root context.
     void aScopeGatedBindingReEvaluatesWhenTheScopeMoves()
     {
         QQmlEngine engine;
@@ -462,14 +452,12 @@ private slots:
     // Ending an elevated session has to end the connections it authorized.
     //
     // The edge keys a connection's bookkeeping by the session id the handshake presented,
-    // and an elevation rotates that id under the connection (SessionManager::setScope, which
-    // `Caller.setScope` in a slot calls). Nothing re-keyed it, so afterwards the edge held
-    // the socket under a credential that no longer existed: revoking, signing out, or
-    // running out the TTL looked up the current id, found no socket, and closed nothing. The
-    // visitor's calls failed from then on (no live record, so no scope), but the connection
-    // stayed up and every Replica it had already acquired went on receiving pushes. That is
-    // read access outliving the credential, on exactly the sessions that were elevated
-    // enough to be worth revoking.
+    // and an elevation rotates that id under the connection (SessionManager::setScope,
+    // which `Caller.setScope` in a slot calls). Unless the bookkeeping is re-keyed,
+    // revoking, signing out or running out the TTL looks up the current id, finds no
+    // socket, and closes nothing: the visitor's calls fail, but the connection stays up and
+    // every acquired Replica keeps receiving pushes. Read access would outlive the
+    // credential on exactly the sessions elevated enough to be worth revoking.
     void revokingAnElevatedSessionClosesTheConnectionItAuthorized()
     {
         QQmlEngine engine;
@@ -524,16 +512,15 @@ private slots:
     // An edge that accepts the connection and then answers nothing.
     //
     // This is not a refusal and never becomes one: a hung reverse proxy, a load balancer
-    // holding the socket in front of a backend that is down, a machine that went away
-    // between the SYN and the answer. The native client asks for a session over HTTP before
-    // it can open its socket, and a request with no deadline at all leaves the app on its
-    // first frame for as long as it is left running, with no session,
-    // no socket, no reconnect timer, and nothing to notice it had happened.
+    // holding the socket in front of a backend that is down, a machine gone between the SYN
+    // and the answer. The native client asks for a session over HTTP before it opens its
+    // socket, and a request with no deadline leaves the app on its first frame
+    // indefinitely, with no session, no socket and no reconnect timer.
     //
-    // Reaching "reconnecting" is the whole proof, and it takes both halves: the client had
-    // to stop waiting for the session request, and then stop waiting for the socket
-    // handshake, which nothing in QWebSocket or in a browser bounds either. With either one
-    // missing this sits in "connecting" until the test times out, which is what the app does.
+    // Reaching "reconnecting" is the proof, and it takes both halves: the client stops
+    // waiting for the session request, and then for the socket handshake, which neither
+    // QWebSocket nor a browser bounds. With either one missing this sits in "connecting"
+    // until the test times out.
     void aStalledEdgeDoesNotHangTheClient()
     {
         BlackHoleServer stalled;

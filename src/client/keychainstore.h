@@ -11,23 +11,18 @@ namespace SynQt {
 /// The macOS store: Keychain Services, a generic-password item under this app's service
 /// name.
 ///
-/// Two flags carry the whole security position, and neither is a default:
+/// Two flags carry the security position, and neither is a default:
 ///
-///  - `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`. The `ThisDeviceOnly` half is the
-///    load-bearing one: it keeps the item out of iCloud Keychain and out of an encrypted
-///    backup restored onto another machine. Without it, "a credential for this device"
-///    quietly becomes "a credential on every device signed into that Apple ID", which is the
-///    one thing a device credential must not be.
-///  - `kSecUseDataProtectionKeychain`, which is what gives the item a real per-application
-///    boundary rather than a per-user one.
+///  - `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`. `ThisDeviceOnly` keeps the item out
+///    of iCloud Keychain and out of an encrypted backup restored onto another machine.
+///  - `kSecUseDataProtectionKeychain`, which gives the item a per-application boundary rather
+///    than a per-user one.
 ///
-/// The second one has a consequence. It needs a
-/// keychain-access-group entitlement, so an unsigned or ad-hoc-signed build gets
-/// `errSecMissingEntitlement` and this store falls back to the file-based keychain, reporting
-/// Binding::User instead of Binding::Application. That is also the build whose code signature
-/// changes on every rebuild, so macOS asks the developer for permission on every run. Both
-/// are properties of an unsigned build, not faults. `synqt build --deploy --sign` is what
-/// buys the application boundary, and until now that flag was a Gatekeeper concern only.
+/// The second needs a keychain-access-group entitlement, so an unsigned or ad-hoc-signed build
+/// gets `errSecMissingEntitlement` and this store falls back to the file-based keychain,
+/// reporting Binding::User instead of Binding::Application. Such a build's code signature
+/// changes on every rebuild, so macOS also asks for permission on every run. `synqt build
+/// --deploy --sign` gives the application boundary.
 class KeychainStore : public SecureStore
 {
 public:

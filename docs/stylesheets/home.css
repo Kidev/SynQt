@@ -609,16 +609,15 @@
 
 /* Where the drawing goes. It is drawn into a shadow root by home-flow.js, out of the
    design editor's own code and the same project the editor opens, so nothing about how it
-   looks is written here: the editor's stylesheet is adopted whole inside the shadow, and
+   looks is written here. The editor's stylesheet is adopted whole inside the shadow, and
    the two pictures cannot part company. What is left on this side is the box.
 
-   There are no hotspots any more. The parts of the drawing answer for themselves -- an
-   entity's disc, a connect point's mark -- so the layer of percentage-positioned divs that
-   used to sit over the old hand-drawn SVG, each one a coordinate copied out of it by hand,
-   is gone with the drawing it was tracing. */
+   There are no hotspots. The parts of the drawing answer for themselves (an
+   entity's disc, a connect point's mark), so no layer of percentage-positioned divs
+   sits over it with coordinates copied out by hand. */
 .synqt-flow__stage {
   width: 100%;
-  /* The cap is what stops the drawing growing without limit on a very wide screen; below
+  /* The cap is what stops the drawing growing without limit on a very wide screen. Below
      it the column decides. Wider than the files under it, and wider again than the
      hand-drawn diagram this replaced, because this one carries more: four columns of
      entities, the boxes that say what can reach what, and beside every line the contract
@@ -633,10 +632,10 @@
 }
 
 /* --- The file view --------------------------------------------------------
-   One editor: the project down the left, the file being read beside it. The
-   arrangement is the design editor's own -- the drawing across the top and the
+   One editor. The project down the left, the file being read beside it. The
+   arrangement is the design editor's own (the drawing across the top and the
    files under it, the tree in a fixed column and whichever file is open taking
-   the rest -- because this section is that editor with the editing taken out,
+   the rest), because this section is that editor with the editing taken out,
    and a reader who opens the designer from the button under it should recognise
    what they are looking at rather than have to find it again.
 
@@ -713,11 +712,11 @@
    letting them ride up under a short file.
 
    The stacked one gives way, and the one under it does not. The pair is taller than
-   the panel -- the QML is twenty-nine lines and the table is ten -- and with the
+   the panel (the QML is twenty-nine lines and the table is ten), and with the
    first refusing to shrink at all the second was handed what was left, which was
    under four lines of a ten line file in a box the height of a paragraph. It reads as
    a table that was cut off rather than one that scrolls, which is the wrong thing
-   for the file the whole point of opening the pair is to show. So the long one
+   for the file the pair was opened to show. So the long one
    scrolls inside its own page, the way the client file already does on its own, and
    the short one is whole. */
 .synqt-file--current.synqt-file--stacked {
@@ -883,9 +882,9 @@
 
 /* A line that has something to say about itself, said quietly enough that a file still
    reads as a file: a dim rule down its left, in the same accent the explanation under the
-   panel is drawn in, so the two are visibly one thing. It is the whole of what replaced the
-   comments these snippets used to carry -- the explanations are still here, they are just
-   not in the code any more, and something has to say which lines have one. */
+   panel is drawn in, so the two are visibly one thing. The snippets carry no
+   comments. The explanations are under the panel instead, and something has to
+   say which lines have one. */
 .synqt-code__line--gloss {
   cursor: help;
   border-left-color: rgba(0, 166, 237, .3);

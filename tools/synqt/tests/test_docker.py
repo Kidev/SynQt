@@ -1,13 +1,9 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-"""What `synqt docker` generates, and the properties that make it more than a template.
-
-The image build itself is not exercised here (it downloads a Qt kit). What is asserted is
-everything that decides whether that build produces a system that comes up: the addresses
-the entities dial each other on, the one entity allowed a published port, what is kept out
-of the build context, and the arrangement that lets an entity reach its engine without a
-password crossing a network.
+"""What `synqt docker` generates. The image build itself is not run (it downloads a Qt kit);
+the addresses entities dial, the one published port, the build context contents, and the
+engine sidecar arrangement are asserted.
 """
 
 import unittest
@@ -53,9 +49,7 @@ class AddressTest(unittest.TestCase):
         self.assertEqual(sorted(addresses), ["store", "web"])
 
     def test_addresses_are_stable_across_runs(self):
-        # They end up in the profile, in the compose file and, through the topology, in what
-        # each entity dials. A regenerate that renumbered them would leave a half-regenerated
-        # project talking to itself wrong.
+        # Addresses are stable across regeneration.
         self.assertEqual(docker.mesh_addresses(_config()),
                          docker.mesh_addresses(_config()))
 
@@ -89,17 +83,15 @@ class ProfileTest(unittest.TestCase):
             self.assertEqual(entity["mesh"]["host"], addresses[entity["name"]])
 
     def test_the_mesh_host_is_an_address_and_never_a_service_name(self):
-        # A mesh endpoint is read into a QHostAddress (src/service/entityruntime.cpp), which
-        # holds an address and not a name. A compose service name here would parse to a null
-        # QHostAddress and the link would silently never connect.
+        # A mesh endpoint is a QHostAddress (src/service/entityruntime.cpp); a service name
+        # would parse to a null address.
         import ipaddress
 
         for entity in self._profile(_config())["entities"]:
             ipaddress.ip_address(entity["mesh"]["host"])
 
     def test_the_profile_only_changes_what_containers_change(self):
-        # A profile changes and adds, never removes (config.merge). Anything else in here
-        # would be a second copy of the topology, drifting from the first.
+        # A profile only changes and adds (config.merge).
         profile = self._profile(_config())
         self.assertEqual(set(profile), {"entities"})
         for entity in profile["entities"]:
@@ -107,27 +99,22 @@ class ProfileTest(unittest.TestCase):
                             entity)
 
     def test_the_edge_gets_a_certificate_it_will_actually_have(self):
-        # A scaffolded synqt.yaml points `tls:` at a deployment certificate nobody has
-        # obtained yet. Left alone, the edge comes up, reports itself listening, and every
-        # request fails in the handshake, which reads like a networking problem.
+        # The scaffolded `tls:` points at a certificate that does not exist yet; the profile
+        # supplies one.
         profile = self._profile(_config())
         web = next(e for e in profile["entities"] if e["name"] == "web")
         self.assertEqual(web["tls"]["cert_file"], docker.EDGE_CERT)
         self.assertEqual(web["tls"]["key_file"], docker.EDGE_KEY)
 
     def test_the_edge_is_told_where_a_browser_reaches_it(self):
-        # Without this the edge takes its bind address for its identity, and a container
-        # binds every interface. Everything the edge says about itself is built from that
-        # one string -- the OAuth redirect_uri, what `self` means at the upgrade's origin
-        # check, the sync endpoint in the CSP -- so an edge answering as "0.0.0.0" refuses
-        # the only visitor there can be and never says why.
+        # The edge origin is set explicitly: a container binds 0.0.0.0, which would become
+        # the OAuth redirect_uri, `self` in the origin check and the CSP sync endpoint.
         profile = self._profile(_config())
         web = next(e for e in profile["entities"] if e["name"] == "web")
         self.assertEqual(web["public"]["origin"], "https://localhost:8443")
 
     def test_the_declared_origin_follows_the_port_that_is_published(self):
-        # `synqt docker init --port` republishes the edge somewhere else, and the origin is
-        # the address a browser types, so it moves with it.
+        # `--port` moves the origin with the published port.
         config = _config()
         profile = yaml.safe_load(
             docker.render_profile(config, docker.mesh_addresses(config), port=9443))
@@ -135,8 +122,7 @@ class ProfileTest(unittest.TestCase):
         self.assertEqual(web["public"]["origin"], "https://localhost:9443")
 
     def test_the_callback_to_register_is_written_next_to_it(self):
-        # The one step that cannot be done from inside the project: the provider compares
-        # the redirect_uri character for character against what was registered with it.
+        # The redirect_uri must be registered with the provider, character for character.
         config = _config(identity={"providers": [{"name": "github", "client_id": "x"}]})
         rendered = docker.render_profile(config, docker.mesh_addresses(config))
         self.assertIn("https://localhost:8443/auth/callback", rendered)
@@ -146,12 +132,8 @@ class ProfileTest(unittest.TestCase):
         self.assertNotIn("/auth/callback", rendered)
 
     def test_the_browser_certificate_cannot_be_a_mesh_certificate(self):
-        # It was, for every project whose edge was named `edge`. `synqt mesh cert --all`
-        # writes `synqt/mesh/<entity>.crt`, the entrypoint then issued the localhost
-        # certificate behind an "unless it exists" guard at that same path, and so it never
-        # issued it. The browser was handed a mesh identity whose only name is the entity's,
-        # which no browser opening https://localhost:8443 can match. A directory of its own
-        # collides with nothing, whatever the entities are called.
+        # The browser certificate has its own directory: `synqt mesh cert --all` writes
+        # `synqt/mesh/<entity>.crt`, which would collide with an edge named `edge`.
         for entity in ("edge", "web", "browser", "localhost"):
             self.assertNotEqual(docker.EDGE_CERT, f"synqt/mesh/{entity}.crt")
             self.assertNotEqual(docker.EDGE_KEY, f"synqt/mesh/{entity}.key")
@@ -159,9 +141,8 @@ class ProfileTest(unittest.TestCase):
         self.assertNotEqual(Path(docker.BROWSER_CERT_DIR), Path("synqt/mesh"))
 
     def test_the_entrypoint_issues_the_browser_certificate_where_it_is_read_from(self):
-        # The two halves are generated from the same constants, and the directory is made
-        # before anything is written into it. `set -eu` turns a missing one into a container
-        # that exits before an entity ever starts.
+        # Both halves use the same constants, and the directory exists before writing (`set
+        # -eu`).
         script = docker.render_entrypoint("web")
         self.assertIn(f"mkdir -p {docker.BROWSER_CERT_DIR}", script)
         self.assertIn(f"-out {docker.EDGE_CERT}", script)
@@ -175,10 +156,8 @@ class ProfileTest(unittest.TestCase):
         self.assertNotIn("tls", store)
 
     def test_an_engine_backed_entity_is_pointed_at_loopback(self):
-        # Not at the engine's service name. The engine shares this entity's network
-        # namespace, so the link is loopback. That is what an external provider
-        # requires to accept plaintext in release (ProviderConfig::isLoopbackHost), and the
-        # point is that nothing had to be relaxed to satisfy it.
+        # Loopback, not the engine service name: the engine shares this namespace, which the
+        # release guard accepts (ProviderConfig::isLoopbackHost).
         profile = self._profile(_with_engine())
         store = next(e for e in profile["entities"] if e["name"] == "store")
         self.assertEqual(store["provider"]["host"], "127.0.0.1")
@@ -191,8 +170,7 @@ class ComposeTest(unittest.TestCase):
             docker.render_compose(config, docker.mesh_addresses(config), **kwargs))
 
     def test_only_the_web_edge_publishes_a_port(self):
-        # The deny-by-default topology, said in compose. Everything else is reachable only
-        # from inside the container network.
+        # Only the edge publishes a port.
         services = self._compose(_config())["services"]
         published = [name for name, service in services.items() if service.get("ports")]
         self.assertEqual(published, ["web"])
@@ -224,8 +202,7 @@ class ComposeTest(unittest.TestCase):
             self.assertTrue(any(mount.startswith("mesh:") for mount in mounts), name)
 
     def test_an_embedded_database_lives_in_a_volume(self):
-        # Otherwise it is in the container's own layer, and `up --build` starts the database
-        # over from nothing every time the app is rebuilt, silently.
+        # A volume, so a rebuild keeps the database.
         config = _config()
         for entity in config["entities"]:
             if entity["name"] == "store":
@@ -253,10 +230,8 @@ class ComposeTest(unittest.TestCase):
         self.assertFalse(any("build/client" in mount for mount in mounts), mounts)
 
     def test_an_engine_shares_its_entitys_namespace_and_holds_the_address(self):
-        # The arrangement that keeps a database password off the wire without switching off
-        # the guard that says so. The engine holds the address because it has to start
-        # first. The entity waits for it to be healthy, and a namespace has to exist before
-        # anything joins it.
+        # The engine holds the address and starts first; the entity joins its namespace once
+        # it is healthy.
         config = _with_engine()
         addresses = docker.mesh_addresses(config)
         services = self._compose(config)["services"]
@@ -271,16 +246,14 @@ class ComposeTest(unittest.TestCase):
         self.assertNotIn("ports", services["store-postgres"])
 
     def test_an_entity_waits_for_its_engine_and_still_for_its_certificate(self):
-        # The engine's condition replaces the merged mapping rather than adding to it, so
-        # this is the regression guard for dropping the certificate wait by restating
-        # depends_on.
+        # Restating depends_on replaces the merged mapping; the certificate wait must still
+        # be there.
         depends = self._compose(_with_engine())["services"]["store"]["depends_on"]
         self.assertEqual(set(depends), {"mesh-init", "store-postgres"})
         self.assertEqual(depends["store-postgres"]["condition"], "service_healthy")
 
     def test_the_engine_reads_the_same_env_file_the_entity_does(self):
-        # One value, written once, serving both ends of the connection. Compose's own
-        # ${...} interpolation would read a root .env, which is not where a SynQt secret is.
+        # One value for both ends, through env_file, not compose ${...} interpolation.
         compose = self._compose(_with_engine())
         entity_env = compose["services"]["store"]["env_file"]
         engine_env = compose["services"]["store-postgres"]["env_file"]
@@ -288,10 +261,8 @@ class ComposeTest(unittest.TestCase):
         self.assertEqual(entity_env[0]["path"], "db/relational/store/.env")
 
     def test_a_redis_password_is_left_for_the_container_shell_to_expand(self):
-        # `$$` in the file is how compose is told to hand a literal `$` to the container,
-        # so the shell there expands it from what env_file put in the environment. Written
-        # as a single `$`, compose would expand it itself at config time, from the host
-        # environment where the value is not (and must not be), and start an open Redis.
+        # `$$` passes a literal `$` to the container shell; a single `$` would be expanded
+        # by compose from the host environment.
         config = _with_engine("redis", "REDIS_PASSWORD")
         written = docker.render_compose(config, docker.mesh_addresses(config))
         self.assertIn('$$REDIS_PASSWORD', written)
@@ -301,8 +272,7 @@ class ComposeTest(unittest.TestCase):
 
 class DockerignoreTest(unittest.TestCase):
     def test_the_mesh_keys_and_the_env_files_never_enter_the_build_context(self):
-        # A file in the build context is a file in an image layer, readable by anyone with
-        # the image, whether or not a later stage deletes it.
+        # A file in the build context ends up in an image layer.
         ignored = docker.render_dockerignore()
         self.assertIn("synqt/mesh/", ignored)
         self.assertIn("**/.env", ignored)
@@ -312,10 +282,8 @@ class DockerignoreTest(unittest.TestCase):
 
 
 def _run_instructions(dockerfile: str) -> list:
-    """The RUN instructions, each rejoined from its backslash continuations.
-
-    A generated RUN spans several lines and the comments above it mention the same words,
-    so asserting on raw lines both misses the command and matches the prose about it.
+    """The RUN instructions, each rejoined from its backslash continuations, so comments are
+    not matched.
     """
     runs = []
     pending = None
@@ -346,26 +314,20 @@ class DockerfileTest(unittest.TestCase):
         self.assertIn("--client none", host)
 
     def test_qtremoteobjects_is_built_into_the_wasm_kit(self):
-        # The prebuilt WebAssembly kits ship QtWebSockets but not QtRemoteObjects, so
-        # without this the client cannot link a single connect point.
+        # The prebuilt WebAssembly kits have no QtRemoteObjects.
         image = docker.render_dockerfile(_config(), client="image")
         self.assertIn("qtremoteobjects", image)
         self.assertIn("QT_HOST_PATH", image)
 
     def test_the_wasm_kit_gets_its_executable_bit_back(self):
-        # aqt writes the scripts it generates itself executable, but the ones that come out
-        # of the WebAssembly archive arrive 0644, qt-cmake among them. Invoking it is then
-        # exit 126 from a file that is plainly there, which is how the first image build of
-        # this path died. The host kit does not have the problem and is left alone.
+        # Scripts from the WebAssembly archive (qt-cmake among them) arrive 0644; they are
+        # made executable.
         image = docker.render_dockerfile(_config(), client="image")
         self.assertIn('chmod +x "$QT_ROOT/$QT_VERSION/wasm_singlethread/bin/"*', image)
 
     def test_emsdk_is_sourced_from_its_own_directory(self):
-        # A Dockerfile RUN is /bin/sh, and emsdk_env.sh locates itself through $BASH_SOURCE,
-        # which dash leaves empty. It then prints "unable to determine 'emsdk' directory"
-        # and returns 0, so the build carries on with emcc off PATH and fails later as
-        # something else entirely. Sourcing from its own directory is the documented
-        # fallback, and every place that sources it has to use it.
+        # RUN uses /bin/sh, where emsdk_env.sh cannot find itself through $BASH_SOURCE; it
+        # is sourced from its own directory.
         runs = [r for r in _run_instructions(docker.render_dockerfile(_config(), client="image"))
                 if "emsdk_env.sh" in r]
         self.assertTrue(runs, "the image never sets up Emscripten")
@@ -373,8 +335,7 @@ class DockerfileTest(unittest.TestCase):
             self.assertIn("cd /opt/emsdk && . ./emsdk_env.sh", run)
 
     def test_the_client_build_returns_to_the_project_directory(self):
-        # The cd into /opt/emsdk above is inside the same shell as the build, so without a
-        # cd back synqt would run against an emsdk checkout instead of the project.
+        # Back to the project after the cd into /opt/emsdk.
         runs = [r for r in _run_instructions(docker.render_dockerfile(_config(), client="image"))
                 if "synqt build" in r]
         self.assertTrue(runs)
@@ -394,27 +355,21 @@ class DockerfileTest(unittest.TestCase):
         self.assertIn("USER synqt", docker.render_dockerfile(_config()))
 
     def test_the_mesh_directory_exists_before_the_volume_lands_on_it(self):
-        # Docker seeds a fresh named volume from the image's own directory, ownership
-        # included. Mounted over a path that does not exist, the volume is created owned by
-        # root and the certificate service cannot write into it.
+        # The directory exists in the image, so a new named volume is seeded with its
+        # ownership.
         dockerfile = docker.render_dockerfile(_config())
         self.assertIn("mkdir -p /app/synqt/mesh", dockerfile)
         self.assertLess(dockerfile.index("mkdir -p /app/synqt/mesh"),
                         dockerfile.index("USER synqt"))
 
     def test_the_runtime_carries_the_library_qt_actually_links(self):
-        # libgl1 provides libGL.so.1; Qt links libOpenGL.so.0, which is a different file
-        # from a different package. Found by running the thing. Every entity died before
-        # main() with "error while loading shared libraries", in a restart loop, and the
-        # image otherwise looked complete.
+        # libOpenGL.so.0 comes from libopengl0, not libgl1.
         lines = docker.render_dockerfile(_config()).splitlines()
         runtime = "\n".join(lines[lines.index("FROM debian:bookworm-slim AS runtime"):])
         self.assertIn("libopengl0", runtime)
 
     def test_an_embedded_database_has_a_directory_before_anything_opens_it(self):
-        # The sqlite provider opens `<entity>/data/app.db` and does not create the
-        # directory, so without this the entity dies at startup on "unable to open database
-        # file", which reads like a permissions problem and is not one.
+        # The sqlite provider does not create `<entity>/data/`.
         config = _config()
         for entity in config["entities"]:
             if entity["name"] == "store":
@@ -424,23 +379,19 @@ class DockerfileTest(unittest.TestCase):
         self.assertLess(dockerfile.index("/app/store/data"), dockerfile.index("USER synqt"))
 
     def test_the_cli_is_installed_after_the_project_is_copied(self):
-        # A SYNQT_PIP_SPEC naming a path inside the project has to be in the image before
-        # pip looks for it.
+        # A SYNQT_PIP_SPEC path inside the project is copied before pip runs.
         dockerfile = docker.render_dockerfile(_config())
         self.assertLess(dockerfile.index("COPY . ."),
                         dockerfile.index("ARG SYNQT_PIP_SPEC"))
 
     def test_the_image_installs_the_checkout_and_not_the_published_name(self):
-        # `pip install synqt` reaches PyPI, where synqt is not published yet, so an image
-        # that defaulted to it stopped at that line before it compiled anything.
+        # The image installs the CLI from the checkout, not from PyPI.
         dockerfile = docker.render_dockerfile(_config(), from_checkout=True)
         self.assertIn(f"ARG SYNQT_PIP_SPEC={docker.LOCAL_PIP_SPEC}", dockerfile)
         self.assertNotIn("ARG SYNQT_PIP_SPEC=synqt", dockerfile)
 
     def test_every_directory_the_install_needs_is_copied_before_pip_runs(self):
-        # Installing the CLI runs tools/synqt/_build_backend.py, which vendors src/, cmake/
-        # and tools/synqtc/ from beside the package. A COPY missing one of them produces a
-        # CLI that installs and then cannot build a contract.
+        # The backend vendors src/, cmake/ and tools/synqtc/, so all must be copied.
         dockerfile = docker.render_dockerfile(_config(), from_checkout=True)
         for name, _, into in docker.SYNQT_CONTEXTS:
             line = f"COPY --from={name} . {into}"
@@ -458,9 +409,8 @@ class CheckoutContextTest(unittest.TestCase):
     """The checkout the image is built from reaches every build that needs it."""
 
     def test_each_build_is_handed_the_directories_the_dockerfile_copies(self):
-        # The two have to agree. A COPY --from naming a context the compose file does not
-        # declare fails the build with "could not find" and nothing about which file is
-        # wrong. Both build blocks, because mesh-init builds the same image.
+        # Every COPY --from context is declared in compose, in both build blocks (mesh-init
+        # builds the same image).
         config = _config()
         compose = docker.render_compose(config, docker.mesh_addresses(config),
                                         checkout=Path("/checkout"))
@@ -468,9 +418,7 @@ class CheckoutContextTest(unittest.TestCase):
             self.assertEqual(compose.count(f"{name}: ${{SYNQT_SRC:-/checkout}}/{where}"), 2)
 
     def test_no_context_is_the_whole_checkout(self):
-        # A build context is transferred whole before the first COPY is read, and the top
-        # of a working checkout carries build/, site/ and node_modules/ as well: measured
-        # at 17 GB against 14 MB for the four directories that are wanted.
+        # Narrow contexts: a context is sent whole before the first COPY.
         self.assertTrue(all(where for _, where, _ in docker.SYNQT_CONTEXTS))
 
     def test_a_project_with_no_checkout_declares_no_contexts(self):
@@ -495,8 +443,7 @@ class InitTest(unittest.TestCase):
             docker.init(root, _config(), source=None)
             for name in docker.generated_files(_config()):
                 self.assertTrue((root / name).is_file(), name)
-            # And nothing more. An unreplicated project gets no balancer configuration,
-            # rather than one describing a balancer in front of a single process.
+            # No balancer configuration without replicas.
             self.assertFalse((root / f"{docker.DOCKER_DIR}/{docker.FRONT_FILE}").exists())
             with self.assertRaises(docker.DockerError) as error:
                 docker.init(root, _config(), source=None)
@@ -515,13 +462,12 @@ class InitTest(unittest.TestCase):
             self.assertIn("web edge", str(error.exception))
 
     def test_init_refuses_a_web_edge_that_owns_an_engine(self):
-        # It would have to share a namespace with its engine to keep the link off the wire,
-        # and a shared namespace cannot publish the public port.
+        # A web edge with its own engine is refused: a shared namespace cannot publish the
+        # port.
         import tempfile
 
-        # Hand written, because `synqt check` already refuses it from the other end: one
-        # field says what an entity is, and a web_edge is not a relational entity, so the
-        # provider block below is one nothing reads. This is the second door.
+        # Written by hand: `synqt check` refuses it too (a web_edge has no relational
+        # provider).
         config = _config()
         for entity in config["entities"]:
             if entity["name"] == "web":
@@ -533,8 +479,7 @@ class InitTest(unittest.TestCase):
             self.assertIn("network namespace", str(error.exception))
 
     def test_an_engine_credential_is_generated_rather_than_asked_for(self):
-        # Nobody types it and nobody registers it anywhere. It never leaves the pair of
-        # containers that share it. A strong random value beats whatever would be typed.
+        # Engine credentials are generated.
         import tempfile
 
         config = _with_engine()
@@ -603,8 +548,7 @@ class DriveTest(unittest.TestCase):
         self.assertIn("synqt docker init", str(error.exception))
 
     def test_up_refuses_a_mounted_bundle_that_was_never_built(self):
-        # The failure without this is the edge serving 404s for its own client, which reads
-        # like a broken app rather than a build that was not run.
+        # Without a built bundle the edge would serve 404s for its client.
         import tempfile
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -614,11 +558,8 @@ class DriveTest(unittest.TestCase):
         self.assertIn("synqt build --client wasm", str(error.exception))
 
     def test_up_is_content_when_the_image_builds_the_bundle(self):
-        # The two tests above stop at a check and never reach the compose binary. This one
-        # runs to the end, where `up_command` resolves it. That resolution is a property of
-        # the machine, not of what is being asserted here (that an image-built bundle is let
-        # through, and with which flags), and the macOS runner has no docker at all, so the
-        # lookup is stubbed rather than left to decide whether the test passes.
+        # This test reaches `up_command`; the compose binary lookup is stubbed, since the
+        # macOS runner has no docker.
         import tempfile
         from unittest import mock
 
@@ -657,13 +598,7 @@ def _edge_of(config):
 
 
 class ReplicatedEdgeTest(unittest.TestCase):
-    """N interchangeable edge processes, and the one thing in front of them.
-
-    The load balancer is generated rather than written, and generated rather than replaced
-    by one of SynQt's own. Distributing TCP connections is solved, and the property
-    of a replicated SynQt deployment that matters is that the edges hold nothing, rather
-    than that the thing in front of them is SynQt's.
-    """
+    """N interchangeable edge processes behind a generated nginx balancer."""
 
     def test_one_replica_is_one_service_named_as_before(self):
         config = _replicated(count=1)
@@ -712,8 +647,7 @@ class ReplicatedEdgeTest(unittest.TestCase):
         front = docker.render_front_config(config, addresses)
         for name in docker.replica_names(_edge_of(config)):
             self.assertIn(f"server {addresses[name]}:8443;", front)
-        # A browser link is long lived, so what has to be balanced is how many are open on
-        # each replica and not how many have been handed out.
+        # Browser links are long-lived: balance on open connections.
         self.assertIn("least_conn;", front)
 
     def test_the_front_carries_the_upgrade_and_the_client_address(self):

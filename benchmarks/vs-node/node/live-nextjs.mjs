@@ -11,7 +11,7 @@
 // something beside it.
 //
 // What it is not: a custom server with `ws` attached. That is `node-bare` with a Next.js
-// process next to it -- the frames never touch Next -- and printing it under this heading
+// process next to it (the frames never touch Next), and printing it under this heading
 // would be labelling one stack with another's name. See README.md.
 //
 // Two things differ from the other columns, both stated rather than corrected for, because
@@ -19,8 +19,8 @@
 //
 //  * SSE is text, so the same eight-byte stamp and the same payload travel base64 in one
 //    `data:` line: a third more bytes on the wire, and an encode per publish. Per publish
-//    and not per subscriber -- the route encodes once and enqueues the same bytes to every
-//    open stream -- so this is a fixed cost rather than the marginal one.
+//    and not per subscriber (the route encodes once and enqueues the same bytes to every
+//    open stream), so this is a fixed cost rather than the marginal one.
 //  * SSE is one direction. There is nothing to compare on the way back, and this table
 //    never measured that anyway: the workload is one publisher, N subscribers.
 //

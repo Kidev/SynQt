@@ -3,8 +3,8 @@
 
 // Node's framework column of the call comparison: Next.js Server Functions.
 //
-// The workload is the one SynQt's returning slot answers -- a caller asks the server to do
-// something and waits for the value back -- and Server Functions are the Next.js feature
+// The workload is the one SynQt's returning slot answers (a caller asks the server to do
+// something and waits for the value back), and Server Functions are the Next.js feature
 // that answers it in the same shape: a function the client calls, run on the server,
 // returning a value. That is why this column is a Server Function and not a Route Handler.
 // The Route Handler path is measured too, in the HTTP table, and the two together are the
@@ -15,7 +15,7 @@
 // ./serveraction.mjs reads the action id out of the build and POSTs the flight-encoded
 // arguments to the page route. What is being measured therefore includes the action
 // lookup, the flight decode of the arguments, the function body, and the flight encode of
-// the result -- all of which a deployment pays and none of which a direct import would show.
+// the result, all of which a deployment pays and none of which a direct import would show.
 //
 // Held constant with calls-bare.mjs: the clock, the warm-up, the closed loop, the measured
 // window, the statistics, and caller and server in one process.

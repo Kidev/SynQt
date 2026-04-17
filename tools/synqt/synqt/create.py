@@ -3,21 +3,11 @@
 
 """``synqt create``: the interactive front end to ``synqt new``.
 
-Two commands rather than one flag. ``synqt new`` is the scriptable one: every answer is
-a flag, it reads nothing from the terminal, and it behaves identically in a shell, in a
-Makefile and in CI. ``synqt create`` asks the same questions out loud and then calls it.
-
-Splitting them is deliberate. A single command that prompts when it has a terminal and
-silently picks defaults when it does not is two behaviors wearing one name: the CI run
-takes a path nobody watched it take, and the difference only shows up in the generated
-project. Here the name says which you get, and `create` refuses to run without a
-terminal rather than quietly becoming `new`.
-
-The questions are the security-relevant ones and nothing else. There is no question
-about the origin model. A scaffolded project is same-origin, which is the only shape
-whose session cookie is first-party (see the "Serving the client from another origin"
-section of docs/project-layout-and-config.md). Offering a menu item is how someone picks
-the other one without reading what it costs.
+``synqt new`` takes every answer as a flag and never reads the terminal. ``synqt create``
+asks the questions and then calls it, and refuses to run without a terminal. It asks only
+the security-relevant questions. There is no origin model question: a scaffolded project is
+same-origin (see "Serving the client from another origin" in
+docs/project-layout-and-config.md).
 """
 
 from __future__ import annotations
@@ -33,9 +23,7 @@ class CreateError(Exception):
     """A question could not be asked, or was answered with something impossible."""
 
 
-# The entity types worth starting a project with, in the order they are offered.
-# `client` and `web_edge` are types too and are not here. A project has one of each and
-# `synqt new` has already written them.
+# The entity types offered, in order. `client` and `web_edge` are written by `synqt new`.
 _STARTING_TYPES: Sequence[str] = ("relational", "cache", "document", "api", "jobs",
                                   "service")
 
@@ -55,8 +43,7 @@ def _prompt(question: str, *, default: str, out: TextIO, source: TextIO) -> str:
     out.flush()
     answer = source.readline()
     if answer == "":
-        # EOF part-way through. The stream ended, so there is no answer coming and no
-        # sound way to invent one. Better to stop than to scaffold half a decision.
+        # EOF mid-question: stop rather than guess.
         raise CreateError("input ended before the questions were answered")
     answer = answer.strip()
     return answer if answer else default
@@ -72,11 +59,7 @@ def ask_name(out: TextIO, source: TextIO, *, suggested: str = "my-app") -> str:
 
 
 def ask_auth(out: TextIO, source: TextIO) -> Optional[str]:
-    """Which identity provider to prime, or None for no authentication yet.
-
-    No is the default because no insecure auth state is the default. A project with no
-    identity configured cannot have a half-configured one.
-    """
+    """Which identity provider to prime, or None. No authentication is the default."""
     providers = ", ".join(addauth.TEMPLATED_PROVIDERS)
     out.write(f"\nAdd authentication now? Templated providers: {providers}.\n"
               "  Leave empty for none; `synqt add auth <provider>` adds it later.\n")
@@ -84,20 +67,14 @@ def ask_auth(out: TextIO, source: TextIO) -> Optional[str]:
     if answer in ("", "none", "no", "n"):
         return None
     if answer not in addauth.TEMPLATED_PROVIDERS:
-        # Not a refusal. A provider with no template is configured by hand, and saying so
-        # is more useful than rejecting the answer.
+        # A provider with no template is configured by hand; say so.
         out.write(f"  '{answer}' has no template; scaffolding it as a generic OIDC provider.\n")
     return answer
 
 
 def ask_entities(out: TextIO, source: TextIO) -> List[Tuple[str, str]]:
-    """The starting entities beyond the client and the edge, each as (name, type).
-
-    Two questions per entity, name first. The name is asked for and never derived from
-    the type. It is what the entity's folder, its own QML file and its accessor in every
-    consumer are built from, so it is the author's word or it is a word they have to
-    change later. Asking the two separately is also why this reads nothing like the
-    `<name>:<type>` pair a single flag would have needed.
+    """The starting entities beyond the client and the edge, each as (name, type). The name is
+    asked for, never derived from the type.
     """
     out.write("\nStarting entities beyond the client and the web edge.\n")
     for entity_type in _STARTING_TYPES:
@@ -122,10 +99,8 @@ def ask_entities(out: TextIO, source: TextIO) -> List[Tuple[str, str]]:
 
 
 def answers(out: TextIO, source: TextIO, *, name: Optional[str] = None) -> Dict[str, Any]:
-    """Ask every question and return what `newproject.scaffold` needs.
-
-    Separated from the scaffolding so the questions can be tested without writing a
-    project, and so a caller that already knows the name skips that one.
+    """Ask every question and return what `newproject.scaffold` needs. Separate, for testing
+    and so a known name is not asked.
     """
     out.write("Creating a SynQt project. Press Enter to take the default.\n\n")
     resolved = name if name else ask_name(out, source)
@@ -143,9 +118,7 @@ def create(parent_dir: os.PathLike[str] | str, *, name: Optional[str] = None,
     stream_out = out if out is not None else sys.stdout
     stream_in = source if source is not None else sys.stdin
 
-    # Refuse rather than degrade. A `synqt create` in a pipeline that answered its own
-    # questions from defaults would produce a project nobody chose, and the failure would
-    # surface much later as a missing entity.
+    # Refuse without a terminal rather than take defaults.
     if interactive is None:
         interactive = bool(getattr(stream_in, "isatty", lambda: False)())
     if not interactive:

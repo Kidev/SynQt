@@ -17,16 +17,8 @@ namespace SynQt {
 /// that a shorter one would buy anything.
 inline constexpr int SecretBytes{32};
 
-/// `SecretBytes` bytes from the system generator, hex-encoded.
-///
-/// The system generator and not the default one. `QRandomGenerator::global()` may be seeded
-/// from a source that is only good enough for a hash table, and every caller here is minting
-/// something that stands in for a person. A predictable state is a login somebody else can
-/// finish, and a predictable device secret is a session somebody else can open.
-///
-/// This lives in one place because it was written in five, character for character. A single
-/// copy is what makes "the framework mints secrets this way" a fact about the code rather
-/// than about five places all still agreeing.
+/// `SecretBytes` bytes from the system generator, hex-encoded. Never the global generator:
+/// every caller mints something that stands in for a person.
 inline QByteArray randomSecret()
 {
     QByteArray raw(SecretBytes, Qt::Uninitialized);
@@ -41,13 +33,8 @@ inline QString randomToken()
     return QString::fromLatin1(randomSecret());
 }
 
-/// The PKCE S256 challenge for a verifier: its SHA-256 digest, base64url, unpadded.
-///
-/// The public half of a secret this file mints, so it lives beside the minting. It is also
-/// computed on two machines -- the native client derives it from the verifier it is about to
-/// keep, and the edge derives it again from the verifier presented at the claim, and compares
-/// and those two computations must agree byte for byte or no desktop sign-in ever
-/// completes. Written twice they agreed; written once they cannot do otherwise.
+/// The PKCE S256 challenge for a verifier: its SHA-256 digest, base64url, unpadded. The
+/// native client and the edge must compute it identically.
 inline QByteArray challengeFor(const QByteArray &verifier)
 {
     return QCryptographicHash::hash(verifier, QCryptographicHash::Sha256)

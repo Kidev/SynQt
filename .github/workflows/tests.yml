@@ -31,6 +31,12 @@ name: "[TEST] Run the Python test suites"
 
 on:
   push:
+    # authors.yml pushes its branch with a GitHub App token, and an app token's push starts
+    # workflows where a GITHUB_TOKEN push starts none. That branch holds one regenerated file,
+    # so skip the push run; the pull request it opens is still tested through `pull_request`,
+    # which is what a required check has to report on.
+    paths-ignore:
+      - "AUTHORS"
   pull_request:
 
 # Nothing here writes to the repository: every job checks the tree out, builds it, and

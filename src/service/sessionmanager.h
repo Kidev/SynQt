@@ -135,7 +135,7 @@ signals:
 
     /// A session reclaimed because its time-to-live ran out, on this entity.
     ///
-    /// Deliberately not sessionRemoved: that one is the table change the auth entity
+    /// Not sessionRemoved. That one is the table change the auth entity
     /// forwards to every edge, and an expiry is not a change anyone needs to be told
     /// about (every holder of the record reaches the same verdict from the same
     /// createdMs). What it is good for is releasing what an expired session was still

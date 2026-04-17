@@ -52,13 +52,13 @@ function launchOptions(browserType) {
 // WebAssembly: with no WebGL context the scene graph cannot be created and QSGRenderLoop
 // ends that with qFatal, which is emscripten's abort(). That is not confined to drawing.
 // abort() sets emscripten's ABORT flag, and callUserCallback then returns without running
-// anything, so every callback queued through emscripten_async_call is dropped from that
-// moment on. That is the first of the two hops in QEventDispatcherWasm::wakeUp(), so the
-// client keeps its socket, its timers and its property pushes and never delivers another
-// posted event -- and the one path here that rides a posted event is the returning slot's
-// reply (QRemoteObjectPendingCallWatcher::finished is QtRO's lone queued connection). A
-// machine with no GL therefore produces exactly "reply=false while everything else works",
-// which is the signature this matrix chased for months. Ask the engine first, and say so.
+// anything, so every callback queued through emscripten_async_call is dropped from then on.
+// That is the first of the two hops in QEventDispatcherWasm::wakeUp(), so the client keeps
+// its socket, its timers and its property pushes and never delivers another posted event,
+// and the one path here that rides a posted event is the returning slot's reply
+// (QRemoteObjectPendingCallWatcher::finished is QtRO's lone queued connection). A machine
+// with no GL therefore produces exactly "reply=false while everything else works". Ask the
+// engine first, and say so.
 async function graphicsRenderer(browser) {
     const page = await browser.newPage();
     try {

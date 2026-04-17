@@ -49,14 +49,9 @@ private:
     bool m_handled{false};
 };
 
-/// One place an entity is allowed to call out to, as `network.outbound` declared it: a URL
-/// prefix, optionally named, optionally carrying headers.
-///
-/// The headers are the reason this is a record and not a string. A real API is reached with
-/// a key, and the two places a key must never be are the entity's QML and its logs. Declared
-/// here it is read from the entity environment at startup and attached by the runtime to
-/// every call under the prefix, so the QML that makes the call never holds it and cannot
-/// print it.
+/// One place an entity may call out to, as `network.outbound` declared it: a URL prefix,
+/// optionally named, optionally with headers. Headers such as an API key are read from the
+/// entity environment and attached by the runtime, so the entity's QML never holds them.
 struct HttpEndpointConfig
 {
     QString name;                    ///< the handle for `Http.api(name)`. Empty for a bare prefix
@@ -68,7 +63,7 @@ class Http;
 
 /// One named `network.outbound` entry, as the entity's QML sees it: `Http.api("ltd2")`.
 ///
-/// The point is that a call site names a path and nothing else. The base URL and the key
+/// A call site names a path and nothing else. The base URL and the key
 /// are the deployment's business, they are declared once in `synqt.yaml`, and changing
 /// either is a configuration change rather than an edit to every place that calls.
 class HttpEndpoint : public QObject
@@ -102,15 +97,9 @@ private:
 };
 
 /// The outbound HTTP helper, exposed as `Http` to the QML of an entity whose
-/// `network.outbound` names somewhere to call. A promise-returning wrapper over
-/// QNetworkAccessManager that enforces TLS verification and refuses plaintext in release,
-/// so entity code never touches sockets. Outbound only.
-///
-/// It is installed on the allowlist and nothing else. An entity that declares no
-/// `network.outbound` never has `Http` in scope, and one that does can reach only the URL
-/// prefixes it named. The check is here rather than in a comment because the entity's QML
-/// is where a URL is composed at run time, and a prefix list nothing enforced would be
-/// documentation of an intention.
+/// `network.outbound` names somewhere to call: a promise-returning wrapper over
+/// QNetworkAccessManager that verifies TLS, refuses plaintext in release, and reaches only the
+/// declared prefixes. Outbound only.
 class Http : public QObject
 {
     Q_OBJECT

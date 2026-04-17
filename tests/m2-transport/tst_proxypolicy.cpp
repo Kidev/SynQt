@@ -4,9 +4,9 @@
 // Which way an entity's outbound calls leave the host.
 //
 // Qt's default is the machine's proxy configuration. For a service that is wrong twice
-// over: it takes its routing from whoever is logged in, and on Windows resolving it runs
+// over. It takes its routing from whoever is logged in, and on Windows resolving it runs
 // WinHTTP's proxy auto-detection on the calling thread, which Qt's own documentation warns
-// "may take several seconds". That is not a hypothetical -- it is how a gateway whose QML
+// "may take several seconds". That is not a hypothetical. It is how a gateway whose QML
 // called one URL from Component.onCompleted took forty seconds to start serving, because
 // its inbound listener starts after the entity's own file has run. So an entity reads its
 // egress route from its own environment, the way every other server runtime does, and

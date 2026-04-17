@@ -449,7 +449,7 @@ def _hot_reload(root: Path, state: Dict[str, Any], port: int, client: str,
     # before it compiles, so a config the generator refuses (a route saved before its `view`
     # is typed) raises AppGenError, and that edit is exactly the one the watcher exists for.
     #
-    # The broad fallback below is deliberate: in dev the contract is always "report and keep
+    # The broad fallback below is intended. In dev the contract is always "report and keep
     # running", never "crash". A half-typed synqt.yaml can parse as valid YAML yet put a
     # scalar where the generator expects a mapping (`router: /home` before its indented
     # `fallback:` is typed), which reaches the generator and raises a bare AttributeError

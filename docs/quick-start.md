@@ -140,8 +140,11 @@ TestCase {
 
 Save it, and in a second terminal:
 
+```cli
+synqt test
+```
+
 ```text
-$ synqt test
 Test project /home/you/app/build/host
     Start 1: app-tests
 1/1 Test #1: app-tests ........................   Passed    0.09 sec
@@ -156,8 +159,7 @@ by directory when the target runs.
 There is no browser in that run, no database to start, and no certificate to issue. The
 harness loads the real Source and mints a real `Caller` through the same factory the
 transports use, so the check the test exercises is the check a deployment runs. There is no
-test-only door into it, which is the point: a gate you can only reach through a browser is
-a gate nobody tests.
+test-only door into it. A gate you can only reach through a browser is a gate nobody tests.
 
 ## Or draw it first
 

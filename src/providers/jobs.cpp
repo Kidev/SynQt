@@ -18,9 +18,8 @@ int Jobs::every(int intervalMs, const QJSValue &callback)
     const int handle{m_nextHandle++};
     QTimer *timer{new QTimer{this}};
     timer->setInterval(intervalMs);
-    // The closure outlives this call, so it owns its own copy of the callback. Capturing
-    // the parameter by reference would dangle at the first timeout. Copy straight into the
-    // capture (mutable because QJSValue::call is not const).
+    // The closure outlives this call, so it owns a copy of the callback; a reference would
+    // dangle at the first timeout. Mutable because QJSValue::call is not const.
     connect(timer, &QTimer::timeout, this, [job = callback]() mutable {
         if (job.isCallable()) {
             job.call();
@@ -54,13 +53,10 @@ bool Jobs::enqueue(const QJSValue &job)
 
 void Jobs::drain()
 {
-    // One pass runs what was waiting when it started, and no more. A job is ordinary QML and
-    // may perfectly well enqueue the next one -- a batch that walks a list a page at a time is
-    // exactly that shape -- and a loop that drained until the queue was empty would then never
-    // return to the event loop at all. The entity stops answering its connect points, stops
-    // reconnecting, stops reporting, and nothing says why: the queue is bounded, so it never
-    // grows, and each pass through the loop looks like progress. Taking a pass at a time turns
-    // that into a job that runs on every turn, which is what somebody writing it meant.
+    // One pass runs only what was waiting when it started. A job may enqueue the next one
+    // (a batch walking a list page by page), and draining until empty would never return to
+    // the event loop: the entity would stop answering, reconnecting and reporting. Running
+    // one pass per turn keeps it responsive.
     qsizetype remaining{m_queue.size()};
     while (remaining > 0 && !m_queue.isEmpty()) {
         QJSValue job{m_queue.takeFirst()};
@@ -73,17 +69,16 @@ void Jobs::drain()
         m_draining = false;
         return;
     }
-    // What a job added while this pass ran. Asked for again rather than looped over, so
-    // everything else waiting on this entity gets its turn in between. `m_draining` stays
-    // set, which is what keeps enqueue() from asking for a second one.
+    // What a job added during this pass: requested again rather than looped over, so other
+    // work gets its turn. `m_draining` stays set, so enqueue() does not request a second
+    // pass.
     QTimer::singleShot(0, this, [this]() { drain(); });
 }
 
 int Jobs::queued() const
 {
-    // int, not qsizetype. This is a QML-visible count of a queue the entity bounds, and
-    // QML has one integer type. The cast is written out because a 64-bit size silently
-    // becoming a 32-bit one is the kind of conversion this project spells.
+    // int, not qsizetype: a QML-visible count of a bounded queue, and QML has one integer
+    // type. The narrowing is written explicitly.
     return static_cast<int>(m_queue.size());
 }
 

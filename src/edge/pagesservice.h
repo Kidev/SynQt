@@ -18,12 +18,9 @@ namespace SynQt {
 class Caller;
 class PageStore;
 
-/// Owner-side answer to "may this caller have this page, and do they already have it".
-///
-/// This is where a remote page's confidentiality lives. The client-side route
-/// guard is a redirect and protects nothing. The check here is what stops an under-scoped
-/// session from receiving a single byte of the page. Requests name a route, and a route
-/// is matched against the declared table, so no caller-supplied string ever reaches the
+/// Owner-side answer to "may this caller have this page, and do they already have it". This
+/// check, not the client's route guard, is what keeps a page from an under-scoped session.
+/// Requests name a route matched against the declared table, so no caller string reaches the
 /// filesystem.
 class PagesService : public QObject
 {
@@ -38,8 +35,8 @@ public:
                               Caller *caller)>;
 
     /// store must not be null. It is the page table this service answers every
-    /// fetchPageFor() call against, not an optional collaborator, so a null
-    /// store is a construction-time programming error, not a per-call check.
+    /// fetchPageFor() call against, so a null store is a programming error
+    /// caught at construction.
     explicit PagesService(PageStore *store, QObject *parent = nullptr);
     ~PagesService() override;
 
@@ -54,14 +51,8 @@ private:
     /// A declared route paired with its compiled pattern, in match order.
     struct Candidate;
 
-    /// The route table, compiled once and kept, in the order matching wants it.
-    ///
-    /// Built lazily rather than in the constructor because pages are added to the store
-    /// after this service exists, and rebuilt when the declared set changes. It used to be
-    /// rebuilt per request, which meant every fetch a browser made compiled every route
-    /// pattern in the project and sorted the result -- work a caller could ask for as fast
-    /// as it could send, on the edge's own event loop, to reach a table that is the same
-    /// on every request.
+    /// The route table, compiled once and kept in matching order. Built lazily, since pages are
+    /// added after this service exists, and rebuilt when the declared set changes.
     const QList<Candidate> &candidates() const;
 
     PageStore *m_store;

@@ -374,15 +374,15 @@ private slots:
 
     /// The gate has a budget, because the answer behind it is expensive to give.
     ///
-    /// A sign-in derives PBKDF2 at the operator store's round count -- deliberately
-    /// hundreds of milliseconds -- on the edge's own event loop, and the route is open to
+    /// A sign-in derives PBKDF2 at the operator store's round count, on purpose
+    /// hundreds of milliseconds, on the edge's own event loop, and the route is open to
     /// anybody who can reach the port. So an unauthenticated POST was both a password guess
     /// and the cheapest way there is to stop the edge answering anybody else: a handful a
     /// second is enough to keep the loop busy, and nothing counted them.
     ///
-    /// The refusal is deliberately not the gate's own "no": it is decided before the
-    /// credential is read, so it says nothing about it, and it carries Retry-After so an
-    /// honest client can wait rather than read it as "this password is wrong".
+    /// The refusal is not the gate's own "no". It is decided before the
+    /// credential is read, so it says nothing about it, and it carries Retry-After so a
+    /// legitimate client can wait rather than read it as "this password is wrong".
     void aFloodOfSignInAttemptsIsRefusedBeforeThePasswordIsChecked()
     {
         QQmlEngine engine;

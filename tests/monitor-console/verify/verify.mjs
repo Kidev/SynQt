@@ -392,7 +392,7 @@ async function main() {
         const result = await runCase(browserType, browserName);
         results.push(result);
         console.log(`    ${result.pass ? "PASS" : "FAIL"} ${result.name}`
-                    + (result.error ? ` -- ${result.error}` : ""));
+                    + (result.error ? `: ${result.error}` : ""));
         if (!result.pass) {
             dumpEvidence(browserName, result.logs);
         }

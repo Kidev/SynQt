@@ -1,28 +1,25 @@
 // SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 // SPDX-License-Identifier: Apache-2.0
 
-// Reading a design back out of the configuration, so `synqt.yaml` in the files pane is a file
-// somebody types into rather than a rendering they can only look at.
+// Reading a design back out of the configuration, so `synqt.yaml` in the files pane can be
+// edited, not only read.
 //
-// The other direction is project.js, which writes the configuration from the document; these
-// two are a pair and the suite holds them to it by writing a design, reading it back, and
-// asserting the same design comes out.
+// project.js is the other direction: it writes the configuration from the document. The
+// suite writes a design, reads it back, and asserts the same design comes out.
 //
-// Deliberately not a YAML parser. It reads the shape SynQt writes and the shape SynQt asks
-// for, which is a flat mapping of blocks, two lists of mappings, and one literal block; a
-// general parser would accept anchors, flow mappings, multi-document streams and tags that
-// the topology has no meaning for, and would then have to refuse them one at a time. What it
-// does not understand it ignores, because the document models the topology and the contracts
-// and nothing else: an edge's `tls:` block and the project's `scopes:` are real configuration
-// that this page has no opinion about, and dropping them out of the *document* is not the
-// same as dropping them out of the file (the server writes the topology back into the file it
-// already has, and never rewrites the whole of it).
+// Not a YAML parser. It reads the shape SynQt writes: a flat mapping of blocks, two lists of
+// mappings, and one literal block. A general parser would accept anchors, flow mappings,
+// multi-document streams and tags the topology has no meaning for. What it does not
+// understand it ignores, because the document models the topology and the contracts and
+// nothing else. An edge's `tls:` block or the project's `scopes:` stay out of the document
+// and stay in the file, since the server writes the topology back into the file it has and
+// never rewrites the whole of it.
 //
-// Every refusal carries the line it happened on, because the reader is looking at that line.
+// Every refusal names the line it happened on.
 
-// One line of the file, with its indentation measured and its comment taken off. Tabs are
-// refused rather than counted: YAML does not allow them for indentation, and guessing a width
-// for one is how a file reads correctly here and differently everywhere else.
+// One line of the file, with its indentation measured and its comment taken off. A tab is
+// refused, not counted: YAML does not allow tabs for indentation, and guessing a width would
+// read the file differently from every other reader.
 function scan(text) {
     return String(text || "").split("\n").map((raw, index) => {
         const withoutComment = stripComment(raw);
@@ -211,7 +208,7 @@ function mapping(body) {
         const pair = keyed(line);
         if (!pair || pair.indent !== base) {
             at += 1;
-            continue;                   // deeper than this mapping, or not a key, so not this mapping's
+            continue;           // deeper than this mapping, or not a key
         }
         if (pair.value === "|" || pair.value === "|-") {
             const {text, next} = literalAfter(body, at, base);
@@ -242,18 +239,16 @@ function paramsOf(text, line) {
     });
 }
 
-// One line of an `export:` block, as the member record the document holds. A line that names a
-// member and nothing else is read through what the owner declares, which is exactly what the
-// command line does with one. Where the owner declares no such thing the type is `var`, the
-// same answer `synqt infer` writes when nothing gave it away.
+// One line of an `export:` block, as the member record the document holds. A line that names
+// a member and nothing else is read through what the owner declares, as the command line does.
+// Where the owner declares no such thing the type is `var`, as `synqt infer` writes it.
 export function memberFrom(text, line, declared) {
     const written = String(text || "").replace(/\/\/.*$/, "").trim();
     if (!written) {
         return null;
     }
-    // The scope gate a member may open with, taken off before the member is read: who may
-    // reach it is a separate question from what it is, and every form below is the same
-    // with or without one.
+    // The scope gate a member may open with, taken off before the member is read; every form
+    // below is the same with or without one.
     const gated = written.match(/^<\s*([A-Za-z_]\w*(?:\s*,\s*[A-Za-z_]\w*)*)\s*>\s*(.*)$/);
     const scope = gated ? gated[1].split(",").map((name) => name.trim()).join(",") : "";
     const body = gated ? gated[2].trim() : written;
@@ -362,12 +357,10 @@ function linkFrom(item, entities) {
         link.scope = scalar(scope.value, scope.line);
     }
     // Which entity serves each scope, on a point that is a front. Read as a mapping of its
-    // own rather than folded into the link's fields, because the keys are scope names and
-    // any of them could collide with a field name here.
+    // own, because the keys are scope names and could collide with a field name here.
     //
-    // The key alone is a front with nothing wired yet, so `behind: {}` has to come back as an
-    // empty block and not as no block. Read as no block, typing the configuration and reading
-    // it back took the switch off a front somebody had turned on.
+    // The key alone is a front with nothing wired yet, so `behind: {}` comes back as an empty
+    // block, not as no block, and reading the file back keeps the point a front.
     const behind = fields.get("behind");
     if (behind) {
         const tiers = {};
@@ -386,10 +379,9 @@ function linkFrom(item, entities) {
     return link;
 }
 
-// The design `text` describes, over `held`: the document the page already has, which is where
-// everything the configuration does not carry comes from. Positions, the QML each entity and
-// each Source holds, and the source hash all belong to the page and not to this file, so an
-// entity that was already there keeps them and a new one gets none.
+// The design `text` describes, over `held`, the document the page already has. Positions, the
+// QML each entity and each Source holds, and the source hash belong to the page and not to
+// this file, so an entity that was already there keeps them and a new one gets none.
 //
 // Throws YamlError, with the line, for anything it cannot read.
 export function parseDesign(text, held, declarationsOf) {
@@ -423,8 +415,8 @@ export function parseDesign(text, held, declarationsOf) {
             qml: before.qml,
         });
     }
-    // What each owner declares, so a member named on its own in an export block reads as the
-    // thing the owner already has rather than as an untyped guess.
+    // What each owner declares, so a member named on its own in an export block reads as what
+    // the owner has, not as an untyped guess.
     const byName = new Map(design.entities.map((entity) => [entity.name, {
         ...entity,
         declared: declarationsOf ? declarationsOf(entity) : [],

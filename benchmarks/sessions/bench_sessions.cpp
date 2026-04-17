@@ -10,9 +10,9 @@
 //   * lookup_hit: SessionManager::lookup() of a live credential (the per-upgrade cost);
 //   * lookup_miss: lookup() of an unknown credential (the rejection path);
 //   * hasScope_set: Caller::hasScope() with a set-based vocabulary (exact-match);
-//   * hasScope_hier-- Caller::hasScope() with a hierarchical vocabulary (rank compare);
-//   * createSession-- minting a session (random token + insert);
-//   * snapshot: the full-table snapshot the edge replays to a late-joining consumer.
+//   * hasScope_hier: Caller::hasScope() with a hierarchical vocabulary (rank compare);
+//   * createSession. Minting a session (random token + insert);
+//   * snapshot. The full-table snapshot the edge replays to a late-joining consumer.
 //
 // The first five are sub-microsecond, so they are reported as throughput (ns/op from a large
 // batch, the reliable way to time ns-scale operations), swept over N to show O(1) behaviour.

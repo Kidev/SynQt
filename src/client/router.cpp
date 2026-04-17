@@ -25,15 +25,11 @@ namespace SynQt {
 
 namespace {
 
-/// What the page is, not what the caller hoped it would be. A view
-/// whose URL is a typo, or which fails to compile, would otherwise render
-/// nothing while pageStatus said Ready, so an app has no way to tell a broken
-/// route from an empty page.
+/// The page's real status, not the one requested: a view whose URL is wrong or that fails
+/// to compile would otherwise render nothing while pageStatus said Ready.
 ///
-/// A broken fallback view reports Error even when status arrived here as
-/// Forbidden or NotFound, so Error can mask a guard's real reason. That
-/// precedence is deliberate, not an oversight: the fallback itself failing to
-/// load is the more urgent fact, and it is what an app must surface first.
+/// A broken fallback view reports Error even when the status was Forbidden or NotFound, so
+/// Error can hide a guard's reason. A failing fallback is the more urgent fact.
 Router::PageStatus loadStatus(const QQmlComponent *component, Router::PageStatus status)
 {
     if (!component) {
@@ -60,57 +56,41 @@ Router::Router(SynClientConfig config, Session *session, QQmlEngine *engine,
     , m_path{m_config.routerFallback}
 {
     applyRoutes(compiledRoutes());
-    // The popped signal is the only reliable report of where history landed:
-    // in the browser back() and forward() are asynchronous and location still
-    // holds the old path when they return, so nothing here ever reads
-    // currentPath() after them.
+    // The popped signal is the only reliable report of where history landed: in the browser
+    // back() and forward() are asynchronous and location still holds the old path when they
+    // return. currentPath() is never read after them.
     connect(m_history, &BrowserHistory::popped, this, [this](const QString &path) {
-        // Computed before navigate(), not after: navigate() emits
-        // pathChanged/pageChanged, and a QML handler reached by that
-        // delivery can call go(), which reaches BrowserHistory::push() and
-        // can reallocate the desktop stack. On desktop, path aliases a live
-        // QStringList element (back()/forward() pass m_stack.at(m_index)
-        // through by const reference), so reading it after navigate() would
-        // risk a dangling reference. Landed is a private copy taken first.
+        // Computed before navigate(): navigate() emits pathChanged/pageChanged, and a QML
+        // handler can then call go(), which reaches BrowserHistory::push() and can
+        // reallocate the desktop stack. On desktop, path refers to a live QStringList
+        // element (back()/forward() pass m_stack.at(m_index) by const reference), so it is
+        // copied first.
         const QString landed{RoutePattern::splitQuery(path, nullptr)};
         navigate(path, false);
-        // popped is delivered through a queued connection on WASM (popstate
-        // fires on a later task), so an ordinary Back double-click can queue
-        // two popped calls before Qt drains the first. By the time this one
-        // runs, the browser may already have moved past the entry it is
-        // handling. Only rewrite the entry being landed on here,
-        // never a later one the visitor has since moved to.
+        // On WASM popped arrives through a queued connection (popstate fires on a later
+        // task), so a double Back can queue two popped calls. By the time this one runs the
+        // browser may have moved on, so only the entry being landed on is rewritten.
         //
-        // currentPath() is read here inside a pop notification, which is the
-        // safe case. Location is already updated by the time popstate fires.
-        // The unsafe read this class avoids is currentPath() right after
-        // calling back()/forward(), which this is not.
+        // Reading currentPath() inside a pop notification is safe: location is updated
+        // before popstate fires.
         if (landed != m_path && m_history->currentPath() == path) {
-            // A guard redirected what history landed on, so the entry itself
-            // now names a page the visitor is not looking at: correct it, or
-            // the address bar lies and a refresh re-enters the same redirect.
-            // replace() is replaceState, which is synchronous even in the
-            // browser, so this adds no asynchronous read.
+            // A guard redirected where history landed, so correct the entry; otherwise the
+            // address bar shows another page and a refresh repeats the redirect. replace()
+            // is replaceState, which is synchronous even in the browser.
             m_history->replace(m_path);
         }
     });
     if (m_session) {
-        // Scope gating is decided once, at navigation time, so a scope that
-        // arrives (a sign-in) or goes away (a sign-out) leaves the visitor on
-        // a page the guard would now decide differently. Re-resolve the current
-        // path. This is a correction rather than a navigation, so it pushes no
-        // history entry, but the entry the visitor is already sitting on
-        // must still be corrected to match, the same way a redirect landed
-        // on through back()/forward() is: otherwise the address bar keeps
-        // naming the page the scope loss steered away from, and a
-        // refresh walks straight back into the redirect.
+        // Scope gating is decided at navigation time, so a sign-in or sign-out can leave
+        // the visitor on a page the guard would now decide differently. Resolve the current
+        // path again. This pushes no history entry, but corrects the current one, as for a
+        // redirect reached through back()/forward(), so the address bar and a refresh stay
+        // right.
         connect(m_session, &Session::scopeChanged, this, [this]() {
             const QString before{m_path};
-            // A privileged remote page (and its seed) must not survive a scope loss:
-            // without this, resolve() below would hit resolveRemote's cached branch and
-            // re-show it Ready, with its privileged seed, before the edge's own refusal
-            // has a chance to arrive. Cleared on every scope change, not only a loss,
-            // since re-fetching once here is a small price for never getting this wrong.
+            // A privileged remote page and its seed must not survive a scope loss:
+            // resolve() would otherwise show the cached page Ready before the edge's
+            // refusal arrives. Cleared on every scope change; one re-fetch is cheap.
             if (m_loader) {
                 m_loader->clear();
             }
@@ -121,14 +101,10 @@ Router::Router(SynClientConfig config, Session *session, QQmlEngine *engine,
             if (m_path != before) {
                 m_history->replace(m_path);
             }
-            // Second, never first, and in the same handler rather than in a
-            // second connection whose order would only be implied by where
-            // it happens to be made. A scope LOSS is a refused resolve like
-            // any other, so the re-resolve above stores the page it just
-            // evicted the visitor from. The take() inside this call is what
-            // clears that again. Run the two the other way round and a
-            // sign-out would leave its own page remembered, waiting to pull
-            // the next sign-in back to it.
+            // After the re-resolve and in the same handler, so the order is explicit. A
+            // scope loss is a refused resolve, so the re-resolve stores the page the
+            // visitor was removed from; take() here clears it again. In the other order a
+            // sign-out would remember its own page for the next sign-in.
             resumeAfterLogin();
         });
     }
@@ -173,10 +149,9 @@ void Router::setRemotePageLoader(RemotePageLoader *loader)
 
 void Router::applyRemoteRouteTable(const QString &json)
 {
-    // Not brace-initialized: QJsonArray/QJsonObject have an initializer_list
-    // constructor, and QJsonArray converts implicitly to QJsonValue, so
-    // QJsonArray entries{someArray} would wrap someArray as this array's one
-    // element instead of copying it.
+    // Not brace-initialized: QJsonArray has an initializer_list constructor and converts to
+    // QJsonValue, so QJsonArray entries{someArray} would wrap someArray as one element
+    // instead of copying it.
     const QJsonArray entries = QJsonDocument::fromJson(json.toUtf8()).array();
     QList<Route> remote;
     remote.reserve(entries.size());
@@ -185,9 +160,8 @@ void Router::applyRemoteRouteTable(const QString &json)
         RouteConfig config;
         config.path = entry.value(QStringLiteral("path")).toString();
         config.scope = entry.value(QStringLiteral("scope")).toString();
-        // Decided by the build and carried here by the edge. Anything but "accelerated"
-        // is Any, so an edge that predates the field, or a page that needs nothing, reads
-        // as it always did.
+        // Decided by the build and carried by the edge. Anything but "accelerated" is Any,
+        // including an edge without the field.
         if (entry.value(QStringLiteral("graphics")).toString()
             == QLatin1String("accelerated")) {
             config.graphics = GraphicsRequirement::Accelerated;
@@ -239,8 +213,7 @@ QList<Router::Route> Router::compiledRoutes() const
 
 void Router::applyRoutes(QList<Route> routes)
 {
-    // Most literal segments first, so precedence is a property of the table
-    // rather than of the order a generator happened to emit it in.
+    // Most literal segments first, so precedence does not depend on the generator's order.
     std::stable_sort(routes.begin(), routes.end(), [](const Route &a, const Route &b) {
         return a.pattern.literalSegmentCount() > b.pattern.literalSegmentCount();
     });
@@ -249,9 +222,8 @@ void Router::applyRoutes(QList<Route> routes)
 
 const Router::Route *Router::lookup(const QString &path, QVariantMap *parameters) const
 {
-    // One split for the table, not one per route. See Api::dispatch for the same note.
-    // This one runs on every navigation, in the client, where the table is the whole of
-    // the application's routes.
+    // One split for the table, not one per route (see Api::dispatch). This runs on every
+    // navigation.
     QStringList segments;
     if (!RoutePattern::splitPath(path, &segments)) {
         return nullptr;
@@ -282,25 +254,23 @@ void Router::replace(const QString &path)
 
 void Router::resumeAfterLogin()
 {
-    // Taken before anything else can decide not to use it: an intent that
-    // cannot be honored now must not linger to steer a later navigation.
+    // Taken first, so an intent that cannot be honoured now does not steer a later
+    // navigation.
     const QString intended{ResumePath::take()};
     QStringList declared;
     declared.reserve(m_routes.size());
     for (const Route &route : m_routes) {
         declared.append(route.config.path);
     }
-    // The path came back from storage the visitor's browser owns, so it is
-    // re-validated here rather than trusted for having been stored by this class.
+    // The path comes from storage the browser controls, so it is validated again.
     if (!ResumePath::isAcceptable(intended, declared)) {
         return;
     }
     QVariantMap parameters;
     const Route *route{lookup(RoutePattern::splitQuery(intended, nullptr), &parameters)};
     if (!route || !isReachable(route->config)) {
-        // The session gained something, but not what this page needs. Going
-        // there anyway would bounce off the same guard, flashing the
-        // fallback and pushing a history entry for nothing.
+        // The session gained a scope, but not the one this page needs. Navigating would
+        // bounce off the same guard.
         return;
     }
     go(intended);
@@ -320,17 +290,14 @@ void Router::navigate(const QString &pathWithQuery, bool push)
 {
     QVariantMap query;
     const QString path{RoutePattern::splitQuery(pathWithQuery, &query)};
-    // query is notified by pathChanged, so whether it changed has to travel
-    // with the resolution. Two links to one route differing only in their
-    // query are exactly what component reuse is for, and they must still
-    // notify.
+    // query is notified by pathChanged, so whether it changed travels with the resolution.
+    // Two links to one route that differ only in the query reuse the component and must
+    // still notify.
     const bool queryChanged{m_query != query};
     m_query = query;
     resolve(path, queryChanged);
     if (push) {
-        // Push the path that was resolved, not the one asked for:
-        // a guard may have redirected, and the address bar must agree with
-        // the view.
+        // Push the resolved path, not the requested one: a guard may have redirected.
         m_history->push(m_path);
     }
 }
@@ -342,11 +309,9 @@ void Router::resolve(QString path, bool queryChanged)
     QString target{path};
     PageStatus status{Ready};
 
-    // A route served by a remote page loader defers its scope check to the
-    // edge (PagesService is the real boundary. The client-side guard below protects
-    // nothing a browser could not already see). Without a loader installed, an empty
-    // componentUrl is a route with no view yet, and the ordinary local guard below
-    // still applies to it exactly as it always has.
+    // A remote route defers its scope check to the edge; PagesService is the real boundary.
+    // Without a loader, an empty componentUrl is a route with no view yet, and the local
+    // guard below applies.
     const bool isRemoteRoute{route && route->config.componentUrl.isEmpty()
                              && m_loader != nullptr};
 
@@ -354,27 +319,21 @@ void Router::resolve(QString path, bool queryChanged)
         target = m_config.routerFallback;
         status = NotFound;
     } else if (!isRemoteRoute && !isReachable(route->config)) {
-        // A guard is a redirect, not secrecy. Steer to the fallback and say
-        // why.
+        // A guard only redirects: go to the fallback and report why.
         target = m_config.routerFallback;
         status = Forbidden;
-        // Remember where they were going, so signing in lands them there
-        // instead of on the home page with no explanation. This is also the
-        // boot path: start() resolves a deep link while the session still
-        // holds only its default scope. Only the path is kept, never the
-        // query the guard is about to drop, which may carry a token.
+        // Remember the destination so signing in returns there. This is also the boot path:
+        // start() resolves a deep link while the session has only its default scope. Only
+        // the path is kept, never the query, which may carry a token.
         //
-        // A refused path is one of the app's own routes by construction
-        // (there is a route here, or this branch could not have been
-        // reached), so nothing outside the route table can be stored from
-        // here. resumeAfterLogin() validates it again on the way out.
+        // A refused path is always one of the app's own routes, and resumeAfterLogin()
+        // validates it again.
         ResumePath::store(path);
     }
 
     if (status != Ready) {
-        // The query was addressed to the page that was refused, so it has no
-        // business surviving into the fallback (a rejected /x?token=... would
-        // otherwise hand the token to whatever the fallback renders).
+        // The query belonged to the refused page and does not reach the fallback (a
+        // rejected /x?token=... would hand the token over).
         if (!m_query.isEmpty()) {
             m_query.clear();
             queryChanged = true;
@@ -386,8 +345,8 @@ void Router::resolve(QString path, bool queryChanged)
             m_params = parameters;
             emit pathChanged();
         }
-        // A redirect away from a remote route leaves nothing pending: a reply that
-        // arrives afterward must be recognized as stale, not applied to the fallback.
+        // Redirecting away from a remote route leaves nothing pending, so a late reply is
+        // recognised as stale.
         clearPendingRemoteFetch();
         setPageUrl(fallback ? fallback->config.componentUrl : QString{}, status);
         return;
@@ -399,9 +358,8 @@ void Router::resolve(QString path, bool queryChanged)
         emit pathChanged();
     }
 
-    // No redirect here, unlike the scope guard above. The visitor asked for a page that
-    // exists and may be theirs to see, and only this browser cannot draw it. Sending them
-    // somewhere else would hide that. The path stays and the notice takes the page.
+    // No redirect, unlike the scope guard: the page exists and may be the visitor's to see;
+    // only this browser cannot draw it. The path stays and the notice replaces the page.
     if (route->config.graphics == GraphicsRequirement::Accelerated
         && GraphicsProbe::isSoftwareRendered()) {
         clearPendingRemoteFetch();
@@ -434,8 +392,7 @@ bool Router::isReachable(const RouteConfig &route) const
     if (route.scope.isEmpty()) {
         return true;
     }
-    // No session means no scope, never every scope. A guard that fails open
-    // is worse than useless, because it reads as a control.
+    // No session means no scope. A guard must fail closed.
     return m_session && m_session->hasScope(route.scope);
 }
 
@@ -444,13 +401,11 @@ bool Router::resolveRemote(const QString &path, const RouteConfig &route)
     if (!m_loader) {
         return false;
     }
-    // The loader's cache (and m_pendingRoute, which correlates a reply directly driven
-    // against what is on screen) is keyed by the route's stable PATTERN
-    // ("/c/:campaign"), since that is what one delivered component serves, but
-    // the edge matches a concrete path against the declared patterns and the seed
-    // provider needs the real parameters, so the wire request (and m_pendingConcretePath,
-    // threaded back through onPageDelivered by the caller that owns the fetch) carries
-    // the CONCRETE path instead. Both are cleared together by clearPendingRemoteFetch().
+    // The loader cache and m_pendingRoute are keyed by the route pattern ("/c/:campaign"),
+    // which one delivered component serves. The edge matches a concrete path and the seed
+    // hook needs the real parameters, so the request carries the concrete path
+    // (m_pendingConcretePath, passed back through onPageDelivered).
+    // clearPendingRemoteFetch() clears both.
     m_pendingRoute = route.path;
     m_pendingConcretePath = path;
     QQmlComponent *cached{m_loader->componentFor(route.path)};
@@ -468,11 +423,10 @@ void Router::onPageDelivered(const QString &route, const QString &qml,
                              const QString &hash, const QString &seed,
                              const QString &status)
 {
-    // route may be the concrete path (a live fetch, the caller threads back exactly
-    // what pageRequested emitted) or the route's pattern (a caller driving this
-    // directly, as the unit tests do). Either identifies the current pending request,
-    // since m_pendingRoute and m_pendingConcretePath are always set and cleared
-    // together. Anything else is a reply for a route already navigated away from.
+    // route is the concrete path (a live fetch returns what pageRequested emitted) or the
+    // pattern (a direct caller, such as the unit tests). Both identify the pending request,
+    // since m_pendingRoute and m_pendingConcretePath change together. Anything else is a
+    // reply for a route already left.
     if (route != m_pendingRoute && route != m_pendingConcretePath) {
         return;
     }
@@ -501,13 +455,10 @@ void Router::onPageDelivered(const QString &route, const QString &qml,
     }
 
     QQmlComponent *component{m_loader->componentFor(m_pendingRoute)};
-    // The seed is in place before the component is, so a binding in the new page never
-    // evaluates against the previous page's seed. The delivered seed is authoritative,
-    // empty included: a page whose route declares no hook, and a hook that returns
-    // nothing for this caller, both mean "paint with nothing", not "keep what the last
-    // page left here". An accepted reply always describes the request that was
-    // made, on notModified no less than on ok (pagesservice.cpp), so there is nothing
-    // left for the client to hoard. Only a refusal is exempt, and those returned above.
+    // The seed is set before the component, so the new page never evaluates against the
+    // previous seed. The delivered seed is authoritative, empty included: no hook, or a
+    // hook returning nothing, means an empty seed. An accepted reply always describes this
+    // request, notModified included (pagesservice.cpp). Refusals returned above.
     const QVariantMap newSeed{
         seed.isEmpty() ? QVariantMap{}
                        : QJsonDocument::fromJson(seed.toUtf8()).object().toVariantMap()};
@@ -516,10 +467,9 @@ void Router::onPageDelivered(const QString &route, const QString &qml,
         m_pageSeed = newSeed;
         seedChanged = true;
     }
-    // setPageComponent only notifies when the component or status changes: the
-    // same parameterized route revisited with a changed parameter keeps the same cached
-    // component and Ready status, so a seed-only change needs its own pageChanged, or
-    // every binding on Router.pageSeed would go stale.
+    // setPageComponent notifies only when the component or status changes. A parameterized
+    // route revisited with another parameter keeps both, so a seed-only change needs its
+    // own pageChanged for Router.pageSeed bindings.
     const bool willNotify{component != m_pageComponent || m_pageStatus != Ready};
     setPageComponent(component, Ready, ComponentOwnership::Loader);
     if (seedChanged && !willNotify) {
@@ -533,12 +483,11 @@ void Router::onPageChanged(const QString &route, const QString &hash)
     if (!m_loader) {
         return;
     }
-    // route is the changed page's pattern (the edge reports at pattern granularity: one
-    // page serves every concrete path the pattern matches).
+    // route is the changed page's pattern: the edge reports per pattern.
     const bool isOnScreen{route == m_pendingRoute};
     if (isOnScreen) {
-        // Let go of the on-screen component before invalidate() frees it: a live QML
-        // Loader must stop pointing at a component that is about to be deleted.
+        // Release the on-screen component before invalidate() frees it, so a live Loader
+        // never points at a deleted component.
         setPageComponent(nullptr, Loading);
     }
     m_loader->invalidate(route);
@@ -550,27 +499,22 @@ void Router::onPageChanged(const QString &route, const QString &hash)
 
 void Router::setPageUrl(const QString &componentUrl, PageStatus status)
 {
-    // A Router with no engine cannot instantiate anything. Report it instead
-    // of showing an empty page as if it had loaded.
+    // A Router without an engine cannot instantiate anything; report it.
     if (!componentUrl.isEmpty() && !m_engine) {
         setPageComponent(nullptr, Error);
         return;
     }
-    // A URL-loaded page is a compiled-in view or the empty fallback of a refused
-    // route. Neither carries an edge-sent seed. Drop any the previous remote page
-    // left behind, so Router.pageSeed is empty for a compiled view as documented,
-    // and cleared before the component swaps (the same ordering onPageDelivered
-    // keeps, so a binding never reads the previous page's seed against the new one).
+    // A URL-loaded page is a compiled-in view or the empty fallback of a refused route;
+    // neither has an edge seed. Clear any left by a remote page, before the component swaps
+    // (as onPageDelivered does), so Router.pageSeed is empty for a compiled view.
     const bool seedCleared{!m_pageSeed.isEmpty()};
     if (seedCleared) {
         m_pageSeed.clear();
     }
     if (m_pageComponent && m_pageUrl.has_value() && m_pageUrl.value() == componentUrl) {
-        // Same view as the one already loaded (two paths through one
-        // parameterized route, or the same link followed twice). Reusing the
-        // component keeps a Loader bound to pageComponent from tearing its
-        // item down and rebuilding it. Path and params changed and are
-        // notified on their own.
+        // The same view as the one loaded (two paths through one parameterized route, or
+        // the same link twice). Reusing the component keeps a Loader from rebuilding its
+        // item. Path and params changed and are notified separately.
         const PageStatus reported{loadStatus(m_pageComponent, status)};
         if (m_pageStatus != reported || seedCleared) {
             m_pageStatus = reported;
@@ -595,26 +539,22 @@ void Router::setPageComponent(QQmlComponent *component, PageStatus status,
     if (m_pageComponent == component && m_pageStatus == status) {
         return;
     }
-    // An override supplies a component this class did not build from a URL,
-    // so the reuse key no longer describes what is loaded. Cleared only once
-    // something changes. An override polling a fetch calls this with
-    // what is already mounted, and that must not throw the key away.
+    // An override supplies a component not built from a URL, so the reuse key no longer
+    // applies. Cleared only when something changes: an override polling a fetch may pass
+    // what is already mounted.
     m_pageUrl.reset();
     QQmlComponent *previous{m_pageComponent};
-    // Whether the OUTGOING component may be freed here. Never a loader-owned one,
-    // which RemotePageLoader keeps (and frees) in its own cache by content hash, and
-    // hands the identical pointer back out on a later revisit. Deleting it here as
-    // well would free it while the loader still believes it is holding a live
-    // component, handing out a dangling pointer the next time the same page is shown,
-    // or on the same forbidden/notModified reply arriving twice.
+    // Whether the outgoing component may be freed here. Never one owned by
+    // RemotePageLoader, which caches it by content hash and returns the same pointer on a
+    // later visit; freeing it here would leave the loader with a dangling pointer.
     const bool previousWasOurs{!m_pageComponentIsLoaderOwned};
     m_pageComponent = component;
     m_pageStatus = status;
     m_pageComponentIsLoaderOwned = (ownership == ComponentOwnership::Loader);
     emit pageChanged();
     if (previous && previous != component && previousWasOurs) {
-        // Outlive the signal so a binding reading the old component during
-        // delivery does not read freed memory.
+        // Kept alive through the signal, so a binding reading the old component during
+        // delivery reads valid memory.
         deleteSoon(previous);
     }
 }

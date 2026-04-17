@@ -251,10 +251,10 @@ namespace {
 // three ways at once, each of which sends the endpoint's own credential headers to a host
 // the deployment never named:
 //
-//   https://api.example.com@evil.test/    -- userinfo: the host is evil.test, and the
-//                                            declared prefix is a prefix of the string
-//   https://api.example.com.evil.test/    -- a suffix on the host
-//   https://api.example.com/v1evil        -- a suffix on the last path segment
+//   https://api.example.com@evil.test/    (userinfo: the host is evil.test, and the
+//                                            declared prefix is a prefix of the string)
+//   https://api.example.com.evil.test/    (a suffix on the host)
+//   https://api.example.com/v1evil        (a suffix on the last path segment)
 //
 // So it is compared as a URL. Userinfo is refused outright rather than compared: nothing
 // this framework composes needs it, and it exists here only as the trick above.
@@ -356,14 +356,14 @@ HttpPromise *Http::send(const QString &method, const QString &url, const QVarian
     QNetworkRequest request{target};
     // Redirects are decided here rather than by the transport. Qt's default policy
     // (NoLessSafeRedirectPolicy) follows a 302 to any host as long as it does not step
-    // down from https to http, and it carries the original request's headers with it --
+    // down from https to http, and it carries the original request's headers with it,
     // which on this path are the endpoint's own credential headers, the ones a call site
     // never sees and cannot choose. So an allowlisted third party that answers with a
     // redirect (or a path under the prefix that an application composes from user input,
     // where the redirect target is somebody else's to choose) would send the deployment's
     // API key to a host `network.outbound` never named, and would reach it besides. The
-    // allowlist is not a check on the first request, it is a check on where the call ends
-    // up, so every hop is put through `match()` below.
+    // allowlist checks where the call ends up rather than where it starts, so every hop is
+    // put through `match()` below.
     request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
                          QNetworkRequest::UserVerifiedRedirectPolicy);
     // Every call has an end. Without this a third party that accepts the connection and

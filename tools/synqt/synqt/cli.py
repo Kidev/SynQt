@@ -166,7 +166,7 @@ def build_parser() -> argparse.ArgumentParser:
             p.add_argument("--unsigned", action="store_true",
                            help="deploy without signing, accepting what that means on this "
                                 "platform")
-            # Deliberately not on `dev`: dev re-reads synqt.yaml on every hot reload, so an
+            # Not on `dev`: dev re-reads synqt.yaml on every hot reload, so an
             # override held only in argv would be dropped mid-session, leaving a threaded
             # client served without the cross-origin isolation it needs (pitfall 13, and a
             # silent failure at that). For dev, set build.client_threads in synqt.yaml.

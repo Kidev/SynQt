@@ -1,8 +1,8 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-"""synqt.yaml and the project's contracts, as the one JSON model the editor and the
-inference share."""
+"""synqt.yaml and the project contracts, as the JSON model the editor and the inference share.
+"""
 
 from __future__ import annotations
 
@@ -87,9 +87,7 @@ def test_a_slot_keeps_its_parameter_types_and_return_type():
 
 
 def test_members_keep_the_order_they_were_written_in():
-    """A diff of a contract is read by a human. Regrouping the members by kind would show
-    every one of them as moved the first time the editor touched a file it did not write.
-    """
+    """Members keep their written order."""
     members = _members("arena", "edge")
     assert [m["name"] for m in members] == [
         "roundEndsAt", "blobs", "board", "pellets", "champions", "steer", "ping",
@@ -104,8 +102,7 @@ def test_render_export_round_trips_a_parsed_one():
 
 
 def test_a_rendered_export_is_the_members_and_no_wrapper_around_them():
-    # The point is already named, so the block holds the lines and nothing else. The
-    # `contract Auction { ... }` around them is the generator's.
+    # The block holds only the member lines; the generator adds `contract Auction { ... }`.
     rendered = designdoc.render_export(_members("gavel", "edge"))
     assert "prop int highBid" in rendered
     assert "contract" not in rendered
@@ -144,9 +141,7 @@ def test_the_source_hash_changes_with_the_file(tmp_path):
 
 
 def test_layout_coordinates_are_read_back_when_present(tmp_path):
-    """Where a node sits is a drawing, not a fact about the system, so it survives the
-    round trip, and a project nobody has drawn yet still lays out, from computed places.
-    """
+    """Layout coordinates survive a round trip; an undrawn project gets computed places."""
     project = tmp_path / "app"
     project.mkdir()
     (project / "synqt.yaml").write_text(
@@ -173,9 +168,7 @@ def test_layout_coordinates_are_read_back_when_present(tmp_path):
 
 
 def test_the_browser_is_placed_left_of_the_edge_and_the_edge_left_of_the_rest():
-    """The one thing the default placement has to say is which way a request travels, so
-    that a topology reads correctly before anyone has moved a single node.
-    """
+    """The default placement reads left to right: browser, edge, the rest."""
     document = designdoc.read(EXAMPLES / "gavel")
     at = {e["name"]: e["x"] for e in document["entities"]}
     assert at["app"] < at["edge"] < at["books"]
@@ -193,10 +186,7 @@ def test_to_config_gives_back_the_topology_it_was_read_from():
 
 
 def test_to_config_keeps_what_the_document_does_not_model():
-    """The document draws the topology. It is not the whole configuration. Validating a
-    plan against a config that had quietly lost every `scope:` would be validating a more
-    permissive project than the one about to be written.
-    """
+    """`to_config` keeps what the document does not model, such as every `scope:`."""
     project = EXAMPLES / "arena"
     document = designdoc.read(project)
     base = configmod.load(project)
@@ -207,24 +197,15 @@ def test_to_config_keeps_what_the_document_does_not_model():
 
 
 def test_a_points_own_scope_stays_on_the_point_through_a_round_trip():
-    """Opening a project in the editor and applying a change must give back the file.
-
-    The build fills a point's own `scope:` onto every member of its generated contract,
-    because a generated `.syn` has to be complete on its own terms. The editor read its
-    document through that same filling, and `to_config` writes the members back out: one
-    `scope: user` on the point came back as a `<user>` in front of every member of it. The
-    same contract, spelled longer, in the author's file, on any edit -- which is exactly
-    what `contract_source`'s `inherit` flag exists to prevent.
-
-    The room is the case worth pinning: `scope: user` on the point and `<admin>` on one
-    member, so the answer has to keep one gate and drop three.
+    """A point's own `scope:` stays on the point through a round trip; it is not copied onto
+    every member (`contract_source`'s `inherit`). The room has `scope: user` on the point
+    and `<admin>` on one member: one gate is kept and three are not added.
     """
     project = EXAMPLES / "chat"
     document = designdoc.read(project)
     room = next(link for link in document["links"] if link["owner"] == "edge")
     assert room["scope"] == "user"
-    # What the document holds is what the author wrote. The exception, and nothing on the
-    # three members that only inherit the point's gate.
+    # The document holds what the author wrote: one gate, on the exception.
     assert [(member["name"], member.get("scope")) for member in room["members"]] == \
         [("messages", None), ("say", None), ("erase", "admin")]
 
@@ -243,11 +224,7 @@ def test_a_document_is_json_and_says_which_version_it_is():
 
 
 def test_an_ordinary_point_does_not_read_back_as_a_front(tmp_path):
-    """The editor reads the *presence* of `behind` as "this point is answered by entities
-    behind it", the way `network:` works: an empty block is a switch somebody has turned
-    on with nothing wired yet. So handing every ordinary point an empty one made every point in
-    the project a front, and `synqt check` refused the whole design on the next Review.
-    """
+    """An ordinary point has no `behind` key: the editor reads its presence as a front."""
     project = tmp_path / "gavel"
     shutil.copytree(EXAMPLES / "gavel", project,
                     ignore=shutil.ignore_patterns("build", "generated", ".synqt"))

@@ -8,21 +8,16 @@
 
 namespace SynQt {
 
-/// The Windows store. A generic credential in Credential Manager, persisted to this machine
-/// and this machine only.
+/// The Windows store: a generic credential in Credential Manager, persisted to this machine
+/// only.
 ///
-/// `CRED_PERSIST_LOCAL_MACHINE`, never `CRED_PERSIST_ENTERPRISE`. The enterprise flag roams
-/// the credential with the user profile to every machine they log into, which is precisely
-/// what "device credential" means not to do; it is worth knowing that the wrong constant here
-/// is a one-word change that silently turns this into a credential that follows the visitor
-/// around a domain.
+/// `CRED_PERSIST_LOCAL_MACHINE`, never `CRED_PERSIST_ENTERPRISE`, which roams the credential
+/// with the user profile to every machine the user logs into.
 ///
-/// At rest the blob is DPAPI-protected under the user account, which is real protection
-/// against another user of the machine and against an offline disk. It is **not** protection
-/// against another process running as that user: any of them can read it back. That is the
-/// honest boundary, and [Desktop](https://synqt.org/desktop/) states it rather than implying
-/// one that is not there. What answers a copied credential in this design is the edge's reuse
-/// detection, not the file permission.
+/// At rest the blob is DPAPI-protected under the user account, which protects against another
+/// user of the machine and an offline disk, not against another process running as that user.
+/// [Desktop](https://synqt.org/desktop/) states that boundary. The edge's reuse detection is
+/// what answers a copied credential.
 class CredentialManagerStore : public SecureStore
 {
 public:

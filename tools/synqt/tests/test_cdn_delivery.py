@@ -1,18 +1,11 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-"""`public.serve_client: false` moves delivery to a CDN, and that is more than a flag.
+"""`public.serve_client: false` moves delivery to a CDN.
 
-The key was documented and reached nothing. No `WebEdgeConfig` field, so an edge told to
-stop serving the bundle served it anyway. Wiring the flag alone would not have been enough
-either, because the rest of that deployment was missing too. A browser that loads the app
-from a CDN has never touched the edge, so it holds no session and the upgrade refuses it;
-and the app cannot read the edge from `window.location`, because that names the CDN.
-
-So the three halves are pinned together here. The edge stops serving files and starts
-answering a credential request, the generated boot script asks for that credential and
-tells the app where the edge is, and `synqt check` refuses the three configurations that
-would produce an app that loads and never connects.
+The edge stops serving files and answers a credential request, the generated boot script
+asks for the credential and tells the app where the edge is, and `synqt check` refuses the
+three configurations that would load and never connect.
 """
 
 import tempfile
@@ -54,8 +47,7 @@ class GeneratedEdge(unittest.TestCase):
         self.assertIn("config.serveClient = false;", source)
 
     def test_an_ordinary_edge_says_nothing_and_keeps_the_default(self):
-        """One line per declared key. An edge that never mentions delivery generates what
-        it generated before this key was wired."""
+        """An edge that does not mention delivery generates what it always did."""
         config = cdn_config()
         del config["entities"][1]["public"]["serve_client"]
         source = maingen.render_edge_main(config, edge_of(config))
@@ -102,15 +94,14 @@ class GeneratedBootScript(unittest.TestCase):
         self.assertIn('fetch(origin + "/app"', script)
 
     def test_a_same_origin_build_names_no_edge_and_asks_for_nothing(self):
-        """It reads its edge off its own page, which is the whole point of same-origin."""
+        """It reads its edge off its own page, which is what same-origin gives it."""
         config = cdn_config()
         config["entities"][1]["public"]["serve_client"] = True
         script = clientshell.render_boot_js("app", config)
         self.assertNotIn("__synqtEdgeOrigin =", script)
 
     def test_a_failed_session_request_never_stops_the_boot(self):
-        """A blocked third-party cookie must leave the app running and reporting that it
-        cannot connect, not stuck on a loading screen forever."""
+        """A failed session request leaves the app running and reporting it cannot connect."""
         script = clientshell.render_boot_js("app", cdn_config())
         self.assertIn("could not obtain a session from the edge", script)
         bootstrap = script[script.index("function bootstrapSession"):]
@@ -158,12 +149,8 @@ class CdnValidation(unittest.TestCase):
 
 
 class DeclaredOriginIsAnOrigin(unittest.TestCase):
-    """`public.origin` is matched whole in three places, so a near miss is a total miss.
-
-    The provider compares the OAuth `redirect_uri` character for character, the upgrade
-    compares the browser's `Origin` header against what `self` expanded to, and the CSP
-    names the sync endpoint. None of the three degrades. They refuse, at the moment
-    somebody tries to sign in, with nothing in the log that names the value.
+    """`public.origin` is matched whole: the OAuth `redirect_uri`, the upgrade Origin check
+    against `self`, and the CSP sync endpoint.
     """
 
     def with_origin(self, origin, tls=True):
@@ -184,8 +171,7 @@ class DeclaredOriginIsAnOrigin(unittest.TestCase):
         self.assertTrue(any("carries a path" in m for m in messages), messages)
 
     def test_http_on_an_edge_that_terminates_tls_is_refused(self):
-        # The session cookie is issued Secure on a TLS edge, and a browser drops a Secure
-        # cookie on an http origin, so nobody stays signed in.
+        # A Secure cookie is dropped on an http origin.
         ok, messages = check.validate(self.with_origin("http://app.example.com"))
         self.assertFalse(ok)
         self.assertTrue(any("declares public.origin over" in m for m in messages), messages)
@@ -201,8 +187,7 @@ class DeclaredOriginIsAnOrigin(unittest.TestCase):
         self.assertEqual(messages, [])
 
     def test_a_release_edge_that_signs_people_in_is_asked_where_it_lives(self):
-        # Derived, the origin is localhost, and that would be the redirect_uri handed to
-        # the identity provider. The browser is sent somewhere it cannot come back from.
+        # A derived origin is localhost, which would become the redirect_uri.
         config = cdn_config()
         config["entities"][1]["public"] = {"port": 8443}
         config["identity"] = {"providers": [{"name": "github", "client_id": "x"}]}
@@ -218,13 +203,8 @@ class DeclaredOriginIsAnOrigin(unittest.TestCase):
 
 
 class SplitOriginIsNotOffered(unittest.TestCase):
-    """Reaching split-origin takes a hand edit, and that is the feature, not an oversight.
-
-    The session cookie it needs is a third-party cookie, which stops working entirely under
-    third-party cookie restriction (measured in tests/split-origin). So the scaffold cannot
-    produce that shape and the CLI cannot be talked into it. Someone who wants it writes the
-    key themselves, having read what it costs. These tests pin that posture, because it is
-    one flag away from quietly coming back.
+    """Split origin needs a hand edit. Its session cookie is third-party, which fails under
+    third-party cookie restriction (tests/split-origin).
     """
 
     def scaffolded(self):
@@ -236,8 +216,7 @@ class SplitOriginIsNotOffered(unittest.TestCase):
         self.assertNotIn("origin_model", self.scaffolded()["project"])
 
     def test_a_scaffolded_project_is_same_origin_by_absence(self):
-        # The absent key has to mean the safe thing, or removing it from the scaffold would
-        # have quietly changed what every new project does.
+        # The absent key means same-origin.
         self.assertEqual(appmodel.origin_model(self.scaffolded()), "")
 
     def test_synqt_new_has_no_origin_model_flag(self):
@@ -245,16 +224,12 @@ class SplitOriginIsNotOffered(unittest.TestCase):
             cli.build_parser().parse_args(["new", "app", "--origin-model", "split_origin"])
 
     def test_split_origin_still_validates_when_written_by_hand(self):
-        # Not offered is not the same as not supported. A hand-written split-origin project
-        # must still pass check, or the docs would describe something that cannot be run.
+        # A hand-written split-origin project still passes check.
         ok, messages = check.validate(cdn_config())
         self.assertTrue(ok, messages)
 
     def test_split_origin_is_reported_as_deprecated(self):
-        # Deprecated and still buildable. The mode depends on a third-party cookie, which is
-        # a browser policy decision that is going one way, so a project running it should
-        # hear that from its own tooling rather than from an outage. It stays a warning
-        # because failing it would break a deployment that works in the browsers it targets.
+        # Split origin is deprecated, so it only warns.
         ok, messages = check.validate(cdn_config())
         self.assertTrue(ok, messages)
         deprecations = [m for m in messages if "deprecated" in m and "split_origin" in m]
@@ -262,8 +237,7 @@ class SplitOriginIsNotOffered(unittest.TestCase):
         self.assertTrue(deprecations[0].startswith("warn:"), deprecations)
 
     def test_a_same_origin_project_hears_nothing_about_split_origin(self):
-        # The default shape says nothing, because there is nothing to warn about: its cookie
-        # is first-party and no browser policy is coming for it.
+        # The default shape gets no warning.
         config = cdn_config(project={"name": "app"})
         del config["entities"][1]["public"]["serve_client"]
         ok, messages = check.validate(config)

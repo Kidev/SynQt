@@ -13,8 +13,8 @@
 
 /* `hidden` means hidden, whatever else an element is. The attribute's whole effect is one UA
    rule at the weakest specificity there is, so any rule in this file that sets `display` on a
-   class beats it -- and every control in the bar is `.button--icon { display: inline-flex }`.
-   The result was a Clear button that was never taken off the page: the attribute was set, the
+   class beats it, and every control in the bar is `.button--icon { display: inline-flex }`.
+   The result was a Clear button that was never taken off the page. The attribute was set, the
    element stayed, and the tests looked at the attribute rather than at the pixels. Said once,
    here, rather than remembered at every element that carries the attribute. */
 [hidden] {
@@ -164,8 +164,8 @@ h2 {
 
 /* `min-width: 0`, and the same on the work below it: a grid track is at least as wide as its
    content, and this bar's content is a logo and eight controls. On a phone that made the row
-   wider than the window, which made the page wider than the window -- and since the body hides
-   its overflow, the far end of the drawing and the right-hand panel were simply not on screen,
+   wider than the window, which made the page wider than the window, and since the body hides
+   its overflow, the far end of the drawing and the right-hand panel were not on screen,
    with nothing to scroll to reach them. The bar takes the width it is given and scrolls inside
    itself if what it holds will not fit. */
 .bar {
@@ -406,7 +406,7 @@ h2 {
 /* `minmax(0, ...)` on the middle column, not `1fr`: a grid track's automatic minimum is its
    content's, and the stage holds an SVG that will not go below its own width. Left as `1fr`
    the three columns add up to more than the window on a narrow one, the grid overflows, and
-   the inspector is pushed off the right-hand edge -- while the grip that sizes it, which is
+   the inspector is pushed off the right-hand edge, while the grip that sizes it, which is
    positioned against the window rather than against the grid, stays behind on top of the
    drawing. A panel and its handle leave together or neither does.
 
@@ -551,8 +551,8 @@ h2 {
   outline-offset: -2px;
 }
 
-/* The handle, folded: the tab. The panel is gone and this is the whole of what is left of it,
-   so it is drawn as a panel that has been pushed off the edge -- the panel's own ground and
+/* The handle, folded. The tab. The panel is gone and this is the whole of what is left of it,
+   so it is drawn as a panel that has been pushed off the edge. The panel's own ground and
    line, rounded and lifted on the side still in the room, square and borderless on the side
    that is out of it. It holds the height it had when it was a button, so the fold and the
    unfold are the same gesture in the same place rather than one control that moves. */
@@ -1439,15 +1439,15 @@ h2 {
 }
 
 /* The rest of a link that does not arrive. Dashed and faded, so the eye follows it out of its
-   owner and watches it stop: a line that carries nobody drawn exactly like one that does is
+   owner and watches it stop. A line that carries nobody drawn exactly like one that does is
    the picture saying the opposite of what is true. */
 .link__line--severed {
   stroke-dasharray: 3 4;
   stroke-opacity: .45;
 }
 
-/* The break itself: a red cross on the line, three quarters of the way to the end it fails to
-   reach, with the word under it. It is a target and a handle both -- pointing at it says what
+/* The break itself. A red cross on the line, three quarters of the way to the end it fails to
+   reach, with the word under it. It is a target and a handle both. Pointing at it says what
    is wrong, and dragging off it onto a scope on the front's back is the fix. */
 .link__break {
   cursor: crosshair;
@@ -1734,9 +1734,9 @@ h2 {
   fill: var(--hover);
 }
 
-/* The block a hovered link carries comes forward: fully opaque over whatever the line is
+/* The block a hovered link carries comes forward. Fully opaque over whatever the line is
    crossing, and outlined. Left at the resting 86% it sat half-through a zone box or another
-   link's rows, which is exactly when somebody is reading it -- a reader hovers a line to find
+   link's rows, which is exactly when somebody is reading it. A reader hovers a line to find
    out what crosses it. */
 .link.is-hover .link__members-box {
   fill-opacity: 1;
@@ -1746,7 +1746,7 @@ h2 {
 }
 
 /* The kind mark of the one row under the pointer. Two of the four shapes are drawn hollow, and
-   giving those a fill would fill in the shape that being hollow is the whole point of. */
+   giving those a fill would fill in the shape whose whole meaning is being hollow. */
 .link__mark.is-hover {
   fill: var(--hover);
 }
@@ -1950,9 +1950,9 @@ h2 {
   margin-top: .55rem;
 }
 
-/* A fact about the entity rather than a control over it. Deliberately not styled as a
-   disabled input: a greyed-out drop-down reads as something that will become editable.
-   It is a sentence, so it is set as one and wraps: in the code face at a fixed size it ran
+/* A fact about the entity rather than a control over it. Not styled as a
+   disabled input. A greyed-out drop-down reads as something that will become editable.
+   It is a sentence, so it is set as one and wraps. In the code face at a fixed size it ran
    off the side of the panel, and what it ran off with was the half that said what the
    entity is. */
 .field__fixed {

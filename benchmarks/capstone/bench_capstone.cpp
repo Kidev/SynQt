@@ -11,18 +11,18 @@
 // snapshots just as a browser would.
 //
 // Swept over N, it reports the numbers the benchmarking plan asks for:
-//   * tick_jitter   -- how well the fixed-Hz server loop holds its cadence under the publish load
-//                      (the "server tick stability" signal; it grows once a tick's work no longer
+//   * tick_jitter. How well the fixed-Hz server loop holds its cadence under the publish load
+//                      (the "server tick stability" signal. It grows once a tick's work no longer
 //                      fits the tick budget);
-//   * publish_cpu   -- owner-side time to build every player's visible slice and bump its tick
+//   * publish_cpu. Owner-side time to build every player's visible slice and bump its tick
 //                      (the edge CPU per server tick);
-//   * snapshot_rate: snapshots per second actually delivered to a connected player over the
+//   * snapshot_rate. Snapshots per second delivered to a connected player over the
 //                      wire, averaged across players (should track the target rate until the loop
 //                      saturates);
-//   * rss_mb        -- resident memory at the end of the window (memory per connection as N grows);
-//   * rows_per_session: the interest-managed payload one player receives, which stays flat at k
-//                      once N passes k. The N where it stops being flat is the honest point the
-//                      plan asks us to find and report.
+//   * rss_mb. Resident memory at the end of the window (memory per connection as N grows);
+//   * rows_per_session. The interest-managed payload one player receives, which stays flat at k
+//                      once N passes k. The N where it stops being flat is the point the
+//                      plan asks for.
 //
 // It is a measurement run, not a pass/fail gate, and writes a committed JSON baseline a later run
 // diffs against. Client frame rate is the one number this native harness cannot produce (there is

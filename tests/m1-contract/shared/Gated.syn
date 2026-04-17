@@ -3,7 +3,7 @@
 
 // Exercises the `<scope>` gate on every kind of member, ungated members beside gated
 // ones, and a gate naming more than one scope. Compiled into a target that links no
-// service runtime, which is the point: the gate reaches SynQt::Caller by name, so a
+// service runtime: the gate reaches SynQt::Caller by name, so a
 // contract carrying one is still a contract anybody can compile.
 
 contract Gated {

@@ -34,15 +34,15 @@ connect_points:
 ```
 
 > [!NOTE]
-> Look hard at `steer`. Its two `real` arguments are not where the player *is*; they
-> are the point in the world the player is *aiming at*, the spot under their cursor.
+> The two `real` arguments of `steer` are not where the player is. They
+> are the point in the world the player is aiming at, the spot under their cursor.
 > The edge will walk the blob toward that goal at the speed the blob's mass allows,
 > and stop it when it arrives. The client never sends a position, so there is no
 > position to forge. That single choice, taking intent instead of state, is what
-> makes the movement honest, and we will come back to it. `ping` returns a value, so
+> makes the movement honest. `ping` returns a value, so
 > calling it is an asynchronous request whose answer arrives later, which is exactly
 > what a round trip time needs. The `blobs` model lists six roles and only those six
-> cross to a browser; the edge keeps more per player (a GitHub subject id, an aim
+> cross to a browser. The edge keeps more per player (a GitHub subject id, an aim
 > point, timestamps) that never leaves it, because those fields are not in the model.
 
 ## Step 2: Only approved players get in
@@ -319,23 +319,23 @@ Edge {
 ```
 
 > [!NOTE]
-> Notice how little the client is trusted. It supplies exactly one thing, an aim
+> The client is trusted with very little. It supplies exactly one thing, an aim
 > point, and even that is clamped into the map. Position, speed, growth, and who eats
 > whom are all computed here, from state the edge alone holds. The `name` comes from
 > `Caller.identity.login`, never from an argument. There is no slot a client can call
 > to place itself, change its mass, or eat a bigger blob, because none of those are
 > inputs at all. This is the auction's "a consumer asks, the owner decides," taken to
-> the point where the only thing the consumer even *can* ask for is a direction to
+> the point where the only thing the consumer even can ask for is a direction to
 > lean.
 
 > [!NOTE]
-> One honesty note about cost. Each session's Source pushes the whole roster every
+> Each session's Source pushes the whole roster every
 > tick, twenty times a second, so the work grows with the square of the player count.
 > For a handful of friends this is nothing. The pellet field already does the lighter
-> thing, republishing only when a pellet actually moved (`pelletsVersion`), and [the last
-> part](tutorial-multiplayer-run.md) takes the bigger step: sending each player only the
+> thing, republishing only when a pellet moved (`pelletsVersion`), and [the last
+> part](tutorial-multiplayer-run.md) takes the bigger step of sending each player only the
 > blobs and pellets near them, so the payload stops growing with the whole arena. The
-> split you just wrote is what makes that a change to one file: the simulation is already
+> split you wrote is what makes that a change to one file. The simulation is already
 > in one place, and only what each Source publishes has to narrow.
 
 The connect point is already declared, from step 1. What is left is the one line on

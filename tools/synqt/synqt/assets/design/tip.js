@@ -3,9 +3,9 @@
 
 // The card that opens over whatever the pointer is on.
 //
-// It is a function of the design document and nothing else: what is under the pointer, read
+// It is a function of the design document and nothing else. What is under the pointer, read
 // off the drawing's own data attributes, and the document that drawing was made from. Which
-// is why it is here rather than in the editor -- the home page draws the same picture with
+// is why it is here rather than in the editor. The home page draws the same picture with
 // the same `draw`, and a second, thinner tooltip written for it would be a second answer to
 // what an entity is. The editor hands it the findings it has and the palette rows it draws;
 // a page with neither passes neither, and every card that does not depend on them is the
@@ -198,9 +198,9 @@ export function tipFor(design, what, {problems = NO_PROBLEMS, palette = []} = {}
         }
         return box;
     }
-    // One scope on a front's back: who answers callers holding it, and what reaching them
-    // costs a browser. The seat is the whole of the routing on the canvas, so the one thing it
-    // cannot say in a word -- what happens to a caller of this scope -- is said here.
+    // One scope on a front's back. Who answers callers holding it, and what reaching them
+    // costs a browser. The seat is the whole routing on the canvas, so the one thing it
+    // cannot say in a word (what happens to a caller of this scope) is said here.
     if (what.kind === "seat") {
         const front = frontsOf(design).get(what.name);
         const seat = (seatsOfFront(front) || []).find((one) => one.scope === what.scope);
@@ -456,16 +456,16 @@ function tipFindings(found) {
 
 // What the pointer is on, as the card's own question.
 //
-// Read off the drawing rather than off the document: every part of it carries the name of
+// Read off the drawing rather than off the document. Every part of it carries the name of
 // what it is, so this is one `closest` per kind, in the order of what is the smaller thing
-// under the pointer. The order is the whole of it -- a member's row is on a line, and a line
+// under the pointer. The order is the whole of it. A member's row is on a line, and a line
 // is in a box.
 export function whatIsUnder(target) {
     if (!target || !target.closest) {
         return null;
     }
-    // One member of a contract, before the link it is written beside: the row is the smaller
-    // thing under the pointer, and it is answered by anywhere on it -- the mark that says
+    // One member of a contract, before the link it is written beside. The row is the smaller
+    // thing under the pointer, and it is answered by anywhere on it. The mark that says
     // which of the four kinds it is, or the name and prototype next to it.
     const member = target.closest("[data-member]");
     if (member) {

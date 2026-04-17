@@ -562,12 +562,12 @@ every project written before this key did, so nothing has to be added to keep wo
 
 Two things follow from it, and the first is the reason it exists:
 
-- A visitor is not merely stopped from navigating to a privileged view: the file is not
-  delivered to them at all. A route `scope:` is a navigation guard and says so in
+- The file is never delivered to an under-scoped visitor, rather than merely being
+  unreachable by navigation. A route `scope:` is a navigation guard and says so in
   [the programming model](programming-model.md), so a privileged view in a shared bundle
   still ships to every visitor. A bundle boundary is the one that does not.
-- A request for a file outside the caller's bundle is answered `404`, not `403`. A private
-  deployment does not confirm that an operator console exists.
+- A request for a file outside the caller's bundle is answered `404` rather than `403`. A
+  private deployment does not confirm that an operator console exists.
 
 When `scopes.hierarchical` is true (the default) a scope with no bundle of its own is
 served the nearest one below it, so a project declares two bundles rather than one per
@@ -724,18 +724,18 @@ for "off" rather than a limit of none.
 
 `handshake_timeout_ms` is how long an accepted socket may stay silent. The first byte
 the peer sends cancels it, so it bounds a connection that arrives and says nothing and
-never a transfer in progress. `keep_alive_timeout_s` is what takes over from there: it
-is what closes a peer that sends part of a request and then stops. See [denial of
+never a transfer in progress. `keep_alive_timeout_s` takes over from there. It
+closes a peer that sends part of a request and then stops. See [denial of
 service and resource limits](security.md#denial-of-service-and-resource-limits).
 
 `max_body_bytes` is derived when you leave it out, because its right answer is
-whatever this entity actually accepts. An edge with no `network.inbound` has only its
+whatever this entity accepts. An edge with no `network.inbound` has only its
 own routes, which carry a session token and a password field, and gets 64 KiB. One
 that declares `network.inbound` gets the ceiling that block already names
-(`network.inbound.max_body_bytes`, 1 MiB by default). The derivation is worth knowing
-about rather than trusting blindly: the API's own limit is checked after QHttpServer
-has read the body, so an edge left at Qt's 32 MiB default would buffer thirty-two
-megabytes from a stranger in order to refuse it at one.
+(`network.inbound.max_body_bytes`, 1 MiB by default). That derivation matters because
+the API's own limit is checked after QHttpServer has read the body, so an edge left at
+Qt's 32 MiB default would buffer thirty-two megabytes from a stranger in order to
+refuse it at one.
 
 `max_requests_per_second` is off by default and `synqt check` refuses it on an edge
 that names `public.trusted_proxies`. Qt counts the address it is connected to and has
@@ -1128,8 +1128,11 @@ any of them shows a notice explaining that instead of an empty area.
 `synqt build` decides which routes those are by reading each route's QML, and says what it
 concluded:
 
+```cli
+synqt check
 ```
-$ synqt check
+
+```text
 warn: routes: /tour needs the accelerated pipeline, so it is hidden on a client with
       none. Write graphics: accelerated on this route to make that explicit, or
       graphics: software to show it anyway

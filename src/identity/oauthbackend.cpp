@@ -503,7 +503,7 @@ QByteArray OAuthBackend::httpGet(const QUrl &url, const QString &bearer, QString
 
     // The deadline, read the only way it can be read. A reply the timer walked out on
     // carries no error yet, so asking error() alone takes a half-arrived body for a whole
-    // one -- here, a truncated profile that parses into an identity missing fields.
+    // one: here, a truncated profile that parses into an identity missing fields.
     if (!reply->isFinished()) {
         reply->abort();
         if (error) {

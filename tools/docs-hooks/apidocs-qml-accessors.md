@@ -76,10 +76,10 @@ is an accessor.
 
 | Member | Type | Description |
 |--------|------|-------------|
-| `Server.<member>` | per the contract | Each `prop`, `model`, `signal` and `slot` the owner's `export:` block declares. Properties and models are read-only mirrors of the owner's Source; slots are callable, and every call is a request the owner may refuse. |
-| `Server.ready` | bool | SynQt::ConsumerBase::ready: true once the bound Replica has completed its QtRO handshake. |
+| `Server.<member>` | per the contract | Each `prop`, `model`, `signal` and `slot` the owner's `export:` block declares. Properties and models are read-only mirrors of the owner's Source. Slots are callable, and every call is a request the owner may refuse. |
+| `Server.ready` | bool | SynQt::ConsumerBase::ready, true once the bound Replica has completed its QtRO handshake. |
 
-There is no fixed member list beyond that, which is the point of the class:
+There is no fixed member list beyond that, because of what the class is.
 SynQt::ServerAccessor is a `QQmlPropertyMap` holding one consumer facade per owner this
 client reaches, keyed by that owner's name, and `Server` is the entry belonging to the
 edge.
@@ -169,7 +169,7 @@ to the configured fallback when a route names a scope the session lacks.
 | `Router.params` | object | SynQt::Router::params | The path parameters the matched route captured, percent-decoded. Empty for a route without parameters. On a redirect the refused route's captures are dropped and the fallback route's own take their place, which is nothing at all for the usual parameterless fallback. |
 | `Router.query` | object | SynQt::Router::query | The decoded query string of the current URL. Cleared whenever the navigation ends somewhere other than the route that was asked for, a guard refusal and an unmatched path alike, so a query addressed to that page never reaches the fallback. |
 | `Router.pageComponent` | Component \| null | SynQt::Router::pageComponent | The component for the current route's view, ready to hand to a `Loader`. Null when there is no view to show. |
-| `Router.pageStatus` | enumeration | SynQt::Router::pageStatus | Why the current page is the one showing, one of SynQt::Router::Ready, SynQt::Router::Loading, SynQt::Router::Forbidden, SynQt::Router::NotFound, or SynQt::Router::Error. A remote page reports `Loading` while the edge is being asked for it. |
+| `Router.pageStatus` | enumeration | SynQt::Router::pageStatus | Why the current page is the one showing, one of SynQt::Router::Ready, SynQt::Router::Loading, SynQt::Router::Forbidden, SynQt::Router::NotFound, SynQt::Router::Error, or SynQt::Router::Unsupported. A remote page reports `Loading` while the edge is being asked for it. |
 | `Router.pageSeed` | object | SynQt::Router::pageSeed | The seed the edge sent for the current page, a read-only map. For a remote page it is whatever the route's seed hook returned, so a delivered page can paint its first frame before its connect points arrive. It is empty for a compiled-in view and kept across a `notModified` refetch. |
 | `Router.go(path)` | action | SynQt::Router::go | Navigate to `path` and push a history entry. When the matched route declares a scope the session lacks, the router goes to the configured fallback instead and reports `Forbidden`. |
 | `Router.replace(path)` | action | SynQt::Router::replace | Navigate without adding a history entry. The current entry is rewritten, so `back()` skips the page being left. |
@@ -212,7 +212,7 @@ while SynQt::QmlPalette enforces `router.palette`, the set of QML modules a deli
 may import. Both sit behind `Router`; an application sees only the resolved
 `pageComponent` and the `pageSeed` the edge sent with it.
 
-A route guard redirects and keeps nothing secret. The client is one compiled
+A route guard only redirects. The client is one compiled
 bundle, so every view's QML ships to every visitor. Guards decide which view is shown and
 nothing more. The data behind a privileged view arrives only through scope-gated connect
 points, so a user who edits their way past a guard finds the view empty rather than
@@ -235,11 +235,12 @@ interchangeable.
 | `Caller.isEntity` | bool | SynQt::Caller::isEntity | True when the call came from another entity over a mesh link. |
 | `Caller.isEntityVerified` | bool | SynQt::Caller::isEntityVerified | Entity callers. True when the name came from a certificate the mutual-TLS handshake verified, false when the link is an opt-in local socket and the name is trusted by colocation instead. |
 | `Caller.entity` | string | SynQt::Caller::entity | Entity callers. The calling entity's name, taken from the certificate its link verified. |
-| `Caller.id` | string | SynQt::Caller::id | User callers. The session id. |
-| `Caller.session` | object | SynQt::Caller::session | User callers. The session record: `id`, `scope`, `identity`. |
-| `Caller.identity` | object \| null | SynQt::Caller::identity | User callers. The normalized identity (`sub`, `login`, `name`, `email`), or `null` when anonymous. |
-| `Caller.scope` | string | SynQt::Caller::scope | User callers. The granted scope. Prefer `hasScope` to comparing it. |
-| `Caller.hasScope(name)` | bool | SynQt::Caller::hasScope | User callers. Whether the caller holds `name`, hierarchically where configured. |
+| `Caller.hasSession` | bool | SynQt::Caller::hasSession | Whether a person stands behind this call: the browser's own session for a user, or the session a calling entity acts for. |
+| `Caller.id` | string | SynQt::Caller::id | User callers. The session key, a name derived from the credential and never the credential itself. |
+| `Caller.session` | object | SynQt::Caller::session | When `hasSession`. The session record: `key`, `scope`, `identity`. |
+| `Caller.identity` | object \| null | SynQt::Caller::identity | When `hasSession`. The normalized identity (`sub`, `login`, `name`, `email`), or `null` when anonymous. |
+| `Caller.scope` | string | SynQt::Caller::scope | When `hasSession`. The granted scope. Prefer `hasScope` to comparing it. |
+| `Caller.hasScope(name)` | bool | SynQt::Caller::hasScope | When `hasSession`. Whether the caller holds `name`, hierarchically on the edge and as an exact match on a service. |
 | `Caller.setScope(scope)` | action | SynQt::Caller::setScope | User callers. Set the session's scope. Used by the identity flow after login, and it rotates the session id on a privilege change. |
 | `Caller.emit<Signal>(...)` | action | SynQt::Caller::emitSignal | User callers. Emit one of the contract's signals back to this one caller rather than to every consumer. The generated name is sugar over `emitSignal`. |
 
@@ -247,8 +248,8 @@ Which half of the table applies is never ambiguous. `isUser` and `isEntity` are 
 mutually exclusive cases, and reading a member of the other half is a mistake the owner
 should not be making rather than a value it should be interpreting.
 
-Outside a call that originated from a consumer, an owner-side timer mutating shared state
-for instance, there is no caller at all. The owner writes its Source and QtRO fans the
+Outside a call that originated from a consumer (an owner-side timer mutating shared state,
+for instance) `Caller` is out of scope. The owner writes its Source and QtRO fans the
 change out.
 
 @section qmlcaller_implementation Behind the name
@@ -274,7 +275,7 @@ reads better than `Caller.hasScope("user")`, and it is the same object.
 @section qmlclient_members Members
 
 Every member of \qmlCaller that is available when `isUser` is true, under the name
-`Client`. `Client.id` is the session id, `Client.identity.email` the caller's verified
+`Client`. `Client.id` is the session key, `Client.identity.email` the caller's verified
 address, `Client.emit<Signal>(...)` a signal to that one caller.
 
 @section qmlclient_implementation Behind the name

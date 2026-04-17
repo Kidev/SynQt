@@ -115,7 +115,7 @@ client and the sync endpoint from one origin, so the session cookie is first par
 content security policy `connect-src 'self'` is sufficient, and there is no cross origin
 relaxation to get wrong. This is the deployment SynQt is built around.
 
-Split origin (CDN) is the exception, it is opt in by hand, and it is deprecated: its
+Split origin (CDN) is the exception. It is opt in by hand, and it is deprecated. Its
 session cookie is a third party cookie, so the app loads and never connects wherever
 third party cookies are restricted, and `synqt check` says so. Put a node near the user
 that serves the bundle and terminates the browser link on one hostname instead. With
@@ -337,13 +337,13 @@ read them.
     What the window covers is a socket that connects and then says nothing. It is
     armed when the socket is accepted and cancelled by the first byte the peer sends,
     whether that byte starts an upgrade request or an ordinary page request. The
-    distinction is not academic: a browser fetches the page, the loader and the bundle
+    distinction matters in practice: a browser fetches the page, the loader and the bundle
     over the connection it goes on to upgrade, so a deadline that outlived that first
     byte would cut an ordinary transfer on a slow link and record refused upgrades
     nobody attempted. It used to do both.
 
     What this window no longer bounds is a peer that sends part of a request and never
-    finishes it, and the honest account of that case is worth having. If it goes quiet,
+    finishes it. If it goes quiet,
     QHttpServer's own keep-alive timeout closes it (15 seconds by default; measured at
     about 21 from the first byte), so it is covered, by Qt rather than by this window.
     If it keeps dribbling bytes it never goes idle, and then nothing here closes it:
@@ -394,21 +394,21 @@ read them.
   client address on a one minute fixed window: the entity password gate (`sign_in`) at ten
   attempts, and the desktop device-credential route at thirty. Both are counted before the
   credential is read, so a refusal says nothing about it, and both answer `429` with
-  `Retry-After`. What is being rationed is the cost as much as the guess: a PBKDF2 is
+  `Retry-After`. What is being rationed is the cost as much as the guess. A PBKDF2 is
   expensive on purpose, and an unauthenticated caller must not be able to buy one per packet.
 
     The table each keeps is keyed by whatever address dialled in, so it needs a ceiling of
     its own, and the ceiling must not become a way to clear the count. Past four thousand
-    addresses the windows that have run out are dropped, which is evidence of nothing; when
+    addresses the windows that have run out are dropped, which is evidence of nothing. When
     that frees nothing, the gate refuses for the rest of the window rather than emptying the
     table. Emptying it is how a guesser who can present addresses, and an IPv6 /64 is an
     unlimited supply of them, hands themselves a fresh budget on demand.
 
-    That has an availability cost worth stating: four thousand distinct addresses arriving
-    at one of these routes inside a minute make it answer `429` to everybody until the
-    minute is out. It is the right way round. A password gate that can be brute-forced is
-    worse than one a flood can make briefly unavailable, and a flood on that scale is
-    already the case for a reverse proxy in front of the edge.
+    That has an availability cost. Four thousand distinct addresses arriving at one of
+    these routes inside a minute make it answer `429` to everybody until the minute is out.
+    That trade is the right one. A password gate that can be brute-forced is worse than one
+    a flood can make briefly unavailable, and a flood on that scale is already the case for
+    a reverse proxy in front of the edge.
 
 - Logins in flight, and callbacks being exchanged. Two ceilings, because the login path
   spends two different things. A pending login holds a flow object for the five minutes it
@@ -428,8 +428,8 @@ read them.
   holds.
 
 - Answers from an auth entity. An edge that delegates identity waits for the auth entity's
-  reply and gives up after twenty seconds, and what it does with a reply that arrives after
-  that is the part worth stating: it drops it. The three tables those replies land in are
+  reply and gives up after twenty seconds, and a reply that arrives after that is dropped.
+  The three tables those replies land in are
   keyed by request id and read only by a handler that is still waiting, so a reply kept past
   its deadline would be kept for the life of the process, and so would one naming a request
   id the edge never issued. Both are ordinary rather than exotic. The first is what a slow

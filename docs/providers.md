@@ -162,9 +162,9 @@ ship. `synqt build` does not do this for you. It is a one time step per machine,
 [`tools/qmysql-plugin/build-qmysql-plugin.sh`](https://github.com/Kidev/SynQt/blob/main/tools/qmysql-plugin/build-qmysql-plugin.sh)
 in the SynQt repository does it:
 
-```console
-$ tools/qmysql-plugin/build-qmysql-plugin.sh
-$ export QT_PLUGIN_PATH="$HOME/.cache/synqt-qmysql"
+```sh
+tools/qmysql-plugin/build-qmysql-plugin.sh
+export QT_PLUGIN_PATH="$HOME/.cache/synqt-qmysql"
 ```
 
 It needs the Qt sources for your pinned version (the installer's Sources component)

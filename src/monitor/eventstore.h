@@ -35,33 +35,16 @@ struct EventQuery
     /// How many rows to return at most, clamped to [1, MaxRows] by the store.
     int limit{200};
 
-    /// The ceiling the store clamps `limit` to.
-    ///
-    /// This number arrives from a console, over a connect point, as a plain `int` -- the
-    /// contract vocabulary sizes strings and lists and has nothing to say about integers --
-    /// and every row it asks for is built into a QVariantList and serialized back over the
-    /// link. So the largest answer this store can be made to produce is decided here rather
-    /// than by whoever typed the number: at two thousand rows a console is already showing
-    /// far more than anyone reads, and an operator who wants the rest narrows the question.
-    /// Everything else in this pipeline is bounded (the ring, the batch, the spool, the
-    /// retention), and an unbounded one at the end of it was the way to make the monitor
-    /// allocate the whole table at once.
+    /// The ceiling the store clamps `limit` to. The limit arrives from a console as a plain `int`
+    /// and every row is built in memory and sent back, so the store decides the largest answer.
     static constexpr int MaxRows{2000};
 };
 
-/// The monitor's history: every entity's events, on disk, in a shape that can be asked
-/// questions.
+/// The monitor's history: every entity's events, on disk, queryable.
 ///
-/// SQLite because the answer to "where do the events go" has to be something an operator
-/// already has. It is a file, it needs no second process to deploy or to back up, and it
-/// is the one embedded engine with a full-text index good enough to search a message
-/// without a scan. What it is not is the only answer. The exporters send the same records
-/// to a collector for whoever already runs one.
-///
-/// One connection, owned by the thread that built the store, because that is the rule for
-/// QSqlDatabase and not a preference. A batch is one transaction: ten thousand events
-/// committed one at a time is ten thousand fsyncs, and the monitor would fall behind the
-/// system it is watching.
+/// SQLite: a file, no second process to deploy or back up, and a full-text index for message
+/// search. The exporters send the same records to a collector. One connection, owned by the
+/// creating thread (the QSqlDatabase rule). A batch is one transaction.
 class EventStore
 {
 public:
@@ -87,13 +70,9 @@ public:
     /// How many events are held.
     qint64 count() const;
 
-    /// Drop what is past either bound, oldest first, and reclaim the space. `maxAgeDays`
-    /// or `maxBytes` at 0 means that bound is not applied.
-    ///
-    /// A monitor left running is a monitor whose store grows until the disk is full, and a
-    /// full disk is an outage caused by the thing that was supposed to report outages. So
-    /// retention is not optional and not a cron job somebody has to remember. It is a call
-    /// the monitor makes on a timer.
+    /// Drop what is past either bound, oldest first, and reclaim the space. `maxAgeDays` or
+    /// `maxBytes` at 0 disables that bound. The monitor calls it on a timer, so the store never
+    /// fills the disk.
     bool retire(int maxAgeDays, qint64 maxBytes);
 
 private:

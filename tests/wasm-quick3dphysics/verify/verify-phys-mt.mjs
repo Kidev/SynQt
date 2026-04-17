@@ -156,7 +156,7 @@ async function main() {
         // Give the simulation a generous window to advance under rAF.
         await sleep(8000);
 
-        // Cross-origin isolation is the whole point of the multi-threaded kit: verify it took.
+        // The multi-threaded kit needs cross-origin isolation. Verify it took.
         const isolation = await page.evaluate(() => ({
             isolated: globalThis.crossOriginIsolated === true,
             hasSAB: typeof SharedArrayBuffer !== "undefined",
@@ -193,7 +193,7 @@ async function main() {
         // The classic freeze fingerprint. The scene loaded but the timer never ticked, so the
         // main thread stalled after (or during) app.exec(). The PhysX-worker deadlock on the
         // WASM pthread runtime that numThreads: 0 is meant to remove. Call it out explicitly so a
-        // silent hang reads as a diagnosis, not a mystery.
+        // silent hang comes with a diagnosis.
         if (isolation.isolated && loaded && !booted) {
             console.log("  --> FROZE: the scene loaded but the event loop never ticked" +
                 (enteredLoop ? " despite entering app.exec()" : " (never reached app.exec())") +

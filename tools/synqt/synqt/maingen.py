@@ -375,9 +375,8 @@ def _identity_provider_block(provider: Dict[str, Any], index: int, *,
     `target` is the `IdentityConfig` being filled, because two entities can hold one: the
     edge's (`config.identity`) and, when identity is promoted, the auth entity's own.
 
-    `with_secret` is the difference between them, and it is the whole point of promoting
-    identity. Only the entity that runs the token exchange is given the secret and the
-    endpoints; an edge in `provider_entity` mode gets provider NAMES and nothing else,
+    `with_secret` is the difference between them, and it is what promoting identity buys. Only the entity that runs the token exchange is given the secret and the
+    endpoints. An edge in `provider_entity` mode gets provider NAMES and nothing else,
     because names are all it needs to decide which provider to ask the auth entity for.
     """
     var = f"provider{index}"
@@ -448,9 +447,9 @@ def _identity_lines(config: Dict[str, Any], edge: Dict[str, Any]) -> List[str]:
         lines.append(f'    config.identity.mappingHook = qmlDir + '
                      f'QStringLiteral("/{cxx_string_literal(hook)}");')
     # The dev-stub gate. `synqt dev` is the only launcher that passes --dev, so a stub
-    # provider cannot run in anything that ships, which is the whole point of the gate.
+    # provider cannot run in anything that ships, which is what the gate is for.
     lines.append("    config.identity.allowDevStub = parser.isSet(devOption);")
-    # The desktop sign-in, on only for a project that actually builds a desktop client.
+    # The desktop sign-in, on only for a project that builds a desktop client.
     # Derived from `targets:`, not asked: see appmodel.has_desktop_client.
     if appmodel.has_desktop_client(config):
         lines.append("    config.identity.allowDesktopLogin = true;")
@@ -1780,12 +1779,12 @@ int main(int argc, char *argv[])
 
     // The monitor records itself, into its own store.
     //
-    // Nothing else is watching this process: it owns `ingest`, so it has no monitor of its
-    // own to report to, and without this its own events -- an operator failing to sign in
-    // five hundred times, a reporting entity being refused, its console attaching -- would
+    // Nothing else is watching this process. It owns `ingest`, so it has no monitor of its
+    // own to report to, and without this its own events (an operator failing to sign in
+    // five hundred times, a reporting entity being refused, its console attaching) would
     // be recorded into nothing. Those are the events an operator most wants to find.
     //
-    // Queued, never direct: the sink runs on the tracer's writer thread, and the store's
+    // Queued, never direct. The sink runs on the tracer's writer thread, and the store's
     // QSqlDatabase belongs to the thread that opened it.
     Tracer::instance()->setEnabled(true);
     Tracer::instance()->setSink([&service](const QList<TraceEvent> &batch) {{

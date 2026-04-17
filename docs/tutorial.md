@@ -3,32 +3,28 @@
 
 # Overview
 
-This is a hands on, build it yourself introduction to SynQt. You will build one
-project across three stages, and each stage adds exactly one new idea. By the end
-you will have a working real time auction with sign in and a persistent Hall of
-Fame, and you will have seen why SynQt is shaped the way it is. At a few points you
-will try the tempting shortcut, watch it fail, and see the reason for the safe path.
+In this tutorial you build one SynQt project in three stages, and each stage adds one
+idea. You end with a real time auction that has sign-in and a Hall of Fame kept in a
+database. At a few points you try a tempting shortcut, see it fail, and learn why the
+safe path exists.
 
-You do not need to know Qt or QML beforehand. You need to be comfortable in a
-terminal and a code editor. The auth stage needs a GitHub account. Plan on about
-an hour.
+Knowing Qt or QML is optional. You need to be at ease in a terminal and a code
+editor, and the sign-in stage needs a GitHub account. Plan on about an hour.
 
 ## What you will build
 
-A live auction. One item is up for bids. Everyone watching sees the current high
-bid update the instant someone raises it, with no refresh. You will grow it in
-three stages:
+A live auction. One item is up for bids, and everyone watching sees the high bid update
+the moment someone raises it, with no refresh. You build it in three stages:
 
 1. [The base case](tutorial-base-auction.md): a live auction anyone can bid on.
-   This teaches connect points, the heart of SynQt.
-2. [Real bidders](tutorial-sign-in.md): add sign in, so a bid is tied to a real
-   person and only signed in users can bid. This teaches identity and
-   authorization.
-3. [A Hall of Fame](tutorial-hall-of-fame.md): add a database so closed lots and
-   their winners are remembered forever and shown to everyone. This teaches
-   entities, the mesh, and segmentation.
+   This teaches connect points.
+2. [Real bidders](tutorial-sign-in.md): add sign-in, so each bid belongs to a real
+   person and only signed-in users can bid. This teaches identity and authorization.
+3. [A Hall of Fame](tutorial-hall-of-fame.md): add a database that keeps closed lots and
+   their winners and shows them to everyone. This teaches entities, the mesh and
+   segmentation.
 
-Here is where you will end up, an auction made of three entities:
+The finished auction has three entities:
 
 ```mermaid
 flowchart LR
@@ -45,25 +41,24 @@ flowchart LR
   style db fill:#def,stroke:#39c,color:#1a1a2e
 ```
 
-[Open it in the designer](/designer/#example=gavel) to see the finished shape
-before you build it, the entities, the links, and beside each line the contract that
-crosses it. Nothing is installed, and pulling it apart there changes nothing on your
-disk.
+[Open it in the designer](/designer/#example=gavel) to see the finished system before
+you build it: the entities, the links, and the contract on each line. The designer runs
+in the browser and changes nothing on your disk.
 
 ## What you will learn
 
-- What a contract is, and why both ends of a live value are generated from one
-  file neither side may quietly widen.
-- What a connect point is, an owner, a list of consumers, and the one path
-  between them. This is the idea the rest of SynQt is built on.
-- How a value the owner changes reaches every open browser with no fetch, no
-  refresh, and no synchronizing code of your own.
-- Where a rule belongs. Every check that matters runs on the owner, and you will
-  see for yourself what happens to the same rule written on the client.
-- How a person becomes a session with a scope, and how a slot asks who is calling
-  through `Caller`.
-- What an entity is, why the database is one, and why the browser cannot reach it
-  even though it can see the data the edge chooses to publish.
+- **Contracts:** why both ends of a live value are generated from one declaration that
+  neither side can widen on its own.
+- **Connect points:** an owner, a list of consumers, and the one path between them. The
+  rest of SynQt builds on this.
+- **Live values:** how a change on the owner reaches every open browser with no fetch,
+  no refresh and no sync code of your own.
+- **Where a rule belongs:** every check that matters runs on the owner. You will see
+  what happens to the same rule written on the client.
+- **Identity:** how a person becomes a session with a scope, and how a slot asks who is
+  calling through `Caller`.
+- **Entities:** what an entity is, why the database is one, and why the browser cannot
+  reach it even though it sees the data the edge publishes.
 
 > [!NOTE]
 > This tutorial introduces each idea as you use it. When you want the full reference
@@ -74,22 +69,21 @@ disk.
 
 ## Before you start
 
-Complete [Getting started](getting-started.md) first. Install `synqt` and confirm
-`synqt doctor` is happy. For the sign in stage you will also need a GitHub account.
+Complete [Getting started](getting-started.md) first: install `synqt` and check that
+`synqt doctor` reports no problem. The sign-in stage also needs a GitHub account.
 
-Then create this tutorial's project and leave it running for the rest of the
-tutorial:
+Then create the project and leave it running for the whole tutorial:
 
 ```cli
 synqt new gavel
 ```
 
 `synqt new` asks nothing and scaffolds the defaults: a client, a web edge, no
-authentication and no other entities. You add both yourself, in
-[Real bidders](tutorial-sign-in.md) and
+authentication and no other entities. You add authentication in
+[Real bidders](tutorial-sign-in.md) and the database in
 [A permanent Hall of Fame](tutorial-hall-of-fame.md).
 ([`synqt create`](build-system-and-cli.md#scaffolding-a-project-synqt-new-and-synqt-create)
-is the twin that asks these as questions instead.)
+does the same but asks these as questions.)
 
 ```cli
 cd gavel
@@ -98,5 +92,5 @@ synqt dev
 
 > [!IMPORTANT]
 > Keep `synqt dev` running in this terminal for the whole tutorial. It watches your
-> files and reloads the browser when you save. When a step says "save and look at
-> the browser," this is what makes that work.
+> files and reloads the browser when you save, which is what "save and look at the
+> browser" relies on.

@@ -3,16 +3,16 @@
 
 // The rate-window table on its own, which is where the case that matters is.
 //
-// Three gates in this framework ration by client address. The monitor's password route, the
+// Three gates in this framework ration by client address: the monitor's password route, the
 // device-credential route, and the API server. Each keeps a table keyed by address, and each
 // therefore has to answer the question this file is about: what happens when the table gets
 // too big? The obvious answer is to empty it, and the obvious answer turns the ceiling into
-// a reset primitive. An attacker who can present addresses -- an IPv6 /64 is a practically
-// unlimited supply, and so is a forwarding header on a deployment that trusts one -- fills
+// a reset primitive. An attacker who can present addresses (an IPv6 /64 is a practically
+// unlimited supply, and so is a forwarding header on a deployment that trusts one) fills
 // the table with entries they will never use again, the table is emptied, and their count
-// against the address they are actually guessing from goes back to zero.
+// against the address they are guessing from goes back to zero.
 //
-// A test through a real edge cannot reach this: it would have to arrive from four thousand
+// A test through a real edge cannot reach this. It would have to arrive from four thousand
 // addresses. The table is a pure function of what is in it and what time it is, which is
 // why it is tested here instead, the way the client-address resolver next to it is.
 

@@ -136,7 +136,7 @@ void IngestClient::trimLocked()
         return;
     }
     // Read what is there, keep the newest that fit, write it back. Not the cheapest way to
-    // bound a file, and deliberately so: this runs only once the spool is already over its
+    // bound a file, and it does not need to be: this runs only once the spool is already over its
     // cap, which means the monitor has been gone long enough that the entity has bigger
     // problems than the cost of a rewrite.
     QList<QVariantList> batches;

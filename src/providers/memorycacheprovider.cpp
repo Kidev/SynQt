@@ -14,8 +14,8 @@ namespace SynQt {
 
 namespace {
 
-// The absolute expiry for a relative TTL, or 0 for "never". The widening is deliberate:
-// the multiplication must happen in 64 bits, not in int.
+// The absolute expiry for a relative TTL, or 0 for never. The multiplication must be
+// 64-bit.
 qint64 expiryFor(int ttlSeconds)
 {
     if (ttlSeconds <= 0) {
@@ -89,8 +89,8 @@ bool MemoryCacheProvider::isExpired(const Entry &entry) const
     return entry.expiresMs > 0 && QDateTime::currentMSecsSinceEpoch() > entry.expiresMs;
 }
 
-/// Move an entry to the most-recently-used end. Constant time. The list node is spliced
-/// rather than searched for, which is what the iterator on the entry is for.
+/// Move an entry to the most-recently-used end in constant time, by splicing the node its
+/// iterator points at.
 void MemoryCacheProvider::touch(Entry &entry)
 {
     m_lru.splice(m_lru.end(), m_lru, entry.recency);
@@ -133,8 +133,8 @@ void MemoryCacheProvider::set(const QString &key, const QVariant &value, int ttl
 {
     const auto existing{m_entries.find(key)};
     if (existing != m_entries.end()) {
-        // Overwriting: the key keeps the node it already has, so replacing a value never
-        // costs a list insertion and never leaves a second node naming the same key.
+        // Overwriting keeps the key's existing node: no list insertion and no second node
+        // for the same key.
         existing->value = value;
         existing->expiresMs = expiryFor(ttlSeconds);
         touch(*existing);
@@ -169,10 +169,8 @@ void MemoryCacheProvider::expire(const QString &key, int ttlSeconds)
     if (it == m_entries.end()) {
         return;  // naming a key that is not here does not create one
     }
-    // The table is swept lazily, so a key whose deadline has passed is still sitting in it
-    // until something reads it. Resetting that entry's deadline without asking would hand
-    // back the value it expired with, which is a stale read that no TTL bounds: an entry
-    // expired an hour ago comes back live. It is gone, and this is where it goes.
+    // The table is swept lazily, so an expired key may still be present. Resetting its
+    // deadline would return the value it expired with, so it is removed here.
     if (isExpired(it.value())) {
         drop(it);
         return;

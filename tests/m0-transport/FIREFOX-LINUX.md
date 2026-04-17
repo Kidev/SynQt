@@ -294,57 +294,58 @@ node verify-pump.mjs recover    # patched Qt: the watcher must fire anyway
 
 It starves the one browser timeout `wakeUp()` arms, leaving the native Qt timer, the socket
 and everything else alone, and then reports the same booleans this document opens with. It
-also distinguishes the two ways the echo can resolve, which is the measurement that matters:
-the poll fallback resolving it proves the reply arrived and decoded, and the watcher not
+also distinguishes the two ways the echo can resolve, which is the measurement that matters.
+The poll fallback resolving it proves the reply arrived and decoded, and the watcher not
 resolving it proves the caller was never told.
 
 ## Workaround shipped, and one that failed
 
-**Shipped.** Resolve the reply from the call's own state instead of waiting for the queued
-signal: keep the watcher, and add a `QTimer` (50 ms) under `#ifdef Q_OS_WASM` that checks
+The shipped workaround resolves the reply from the call's own state instead of waiting for
+the queued signal. It keeps the watcher, and adds a `QTimer` (50 ms) under `#ifdef Q_OS_WASM` that checks
 `isFinished()` and settles from `returnValue()`. Both paths are guarded so whichever fires
 first wins. In SynQt this lives in `src/consumer/promise.cpp`, which is the single place the
 framework resolves a QtRO reply, so every application call is covered rather than only the
 test. On engines where the watcher works, the timer is a no-op.
 
-**Failed, and worth recording.** The first attempt also added a 16 ms
+The failed workaround came first. It also added a 16 ms
 `QCoreApplication::sendPostedEvents(nullptr, QEvent::MetaCall)` nudge to force the real
 watcher to fire. It broke reconnect on Firefox (the disconnect was seen, the reconnect never
-completed), while Chromium survived it: force-draining every posted meta-call on a timer
-reorders Qt's event delivery. A global pump is too invasive. Resolve the specific call from
-its own state instead.
+completed), while Chromium survived it, because force-draining every posted meta-call on a
+timer reorders Qt's event delivery. A global pump is too invasive. Resolve the specific call
+from its own state instead.
 
 ## The fix, and what is still open
 
-**Give posted events a second way to be delivered.** The patch in
+The fix gives posted events a second way to be delivered. The patch in
 [qt-patches/](qt-patches/README.md) makes `QEventDispatcherWasm::onTimer()` send posted
 events as well as timer events. It is four lines. It does not make the browser stop dropping
-callbacks; it stops one dropped callback from being fatal, turning an event that is never
+callbacks. It stops one dropped callback from being fatal, turning an event that is never
 delivered into one delivered at most a timer interval late. Measured against the
-reproduction above, on Qt 6.11.1 with Emscripten 4.0.7: on a stock kit the watcher never
-fires in either Chromium or Firefox, on a patched kit it fires in both, and the full M0 gate
+reproduction above, on Qt 6.11.1 with Emscripten 4.0.7, the watcher never fires on a stock
+kit in either Chromium or Firefox, it fires in both on a patched kit, and the full M0 gate
 stays green, reconnect included.
 
-**Doing the same thing from application code does not work**, which is worth stating plainly
-because it is the obvious thing to try instead of patching Qt, and it was tried twice. The
-first attempt, above, pumped `sendPostedEvents(nullptr, QEvent::MetaCall)` every 16 ms and
-broke reconnect on Firefox; the natural theory was that the event-type filter was at fault,
-since draining one type out of a queue holding several reorders them. It is not the filter.
+Doing the same thing from application code does not work, and it is the obvious thing to
+try instead of patching Qt, so it was tried twice. The first attempt, above, pumped
+`sendPostedEvents(nullptr, QEvent::MetaCall)` every 16 ms and broke reconnect on Firefox.
+The natural theory was that the event-type filter was at fault, since draining one type out
+of a queue holding several reorders them. It is not the filter.
 Build the M0 client with `-DM0_POSTED_EVENT_PUMP=ON` (`client/main.cpp`) and it sweeps the
 queue with the plain, unfiltered `QCoreApplication::sendPostedEvents()`, the same call the
 dispatcher makes, on a 50 ms `QTimer`. It fixes the stall in both engines. It also failed
 `firefox-reconnect` in one run out of four, with the same `disconnect=true reconnect=false`
 signature as the first attempt.
 
-So the difference is not what is drained but where from. Sweeping the queue from inside a
-`QTimer` handler runs it nested inside the dispatcher's own `sendAllEvents()` pass, which is
-not a place Qt expects a sweep. `onTimer()` runs before that pass begins, in the same order
-`sendAllEvents()` uses. That is why the fix belongs in the dispatcher, and why the option
-above is left off by default: it is kept as the measurement, not as a recommendation.
+So the difference is where the queue is drained from rather than what is drained. Sweeping
+the queue from inside a `QTimer` handler runs it nested inside the dispatcher's own
+`sendAllEvents()` pass, which is not a place Qt expects a sweep. `onTimer()` runs before
+that pass begins, in the same order `sendAllEvents()` uses. That is why the fix belongs in
+the dispatcher, and why the option above is left off by default. It is kept as the
+measurement rather than as a recommendation.
 
-## What a wedged pump actually costs an application
+## What a wedged pump costs an application
 
-Measured or read off the source, not guessed. What keeps working is most of the client:
+Everything here was measured or read off the source. Most of the client keeps working:
 QtRemoteObjects property, signal and model updates (activated directly from the socket read
 callback), every `QTimer` (`QTimerInfoList::activateTimers()` delivers with `sendEvent()`),
 the socket including reconnect, and `QNetworkReply::finished` (on WebAssembly

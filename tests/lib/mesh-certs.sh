@@ -8,9 +8,9 @@
 # never committed. No production mesh CA key is created here (see docs/security.md).
 #
 # There is one copy of these profiles because there was previously one per suite, and they
-# drifted into agreeing on something wrong: every leaf was issued with no extendedKeyUsage,
+# drifted into agreeing on something wrong. Every leaf was issued with no extendedKeyUsage,
 # no keyUsage and no basicConstraints, and the edge's self-signed certificate was marked
-# CA:TRUE while being served as a leaf. Issuing a proper profile is right on its own terms --
+# CA:TRUE while being served as a leaf. Issuing a proper profile is right on its own terms:
 # Apple's verifier does require a TLS certificate to carry the usage OID it is being used for,
 # and OpenSSL only enforces an EKU that is present, which is why the old profile could be
 # wrong and still keep the Linux column green.

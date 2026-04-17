@@ -32,7 +32,7 @@ if(TARGET Qt6::Quick)
         target_compile_definitions(tst_softwarebackend PRIVATE SYNQT_HAVE_QUICK3D)
     endif()
     add_test(NAME softwarebackend COMMAND tst_softwarebackend)
-    # The whole point: these run on the raster adaptation.
+    # What this suite is for: these run on the raster adaptation.
     set_tests_properties(softwarebackend PROPERTIES
         ENVIRONMENT "QT_QUICK_BACKEND=software;QT_QPA_PLATFORM=offscreen")
 endif()

@@ -639,14 +639,13 @@ def forwards_session(config: Dict[str, Any], point: Dict[str, Any]) -> bool:
     calling entity is answering, and `Caller` two links from the browser still knows who
     that is.
 
-    A point only the browser consumes carries nothing extra, which is the point: the one
-    caller that could put a session of its own choosing on the wire has no field to put it
-    in. (The owner would ignore it anyway, but not being there is better than being
-    ignored.)
+    A point only the browser consumes carries nothing extra, so the one caller that could
+    put a session of its own choosing on the wire has no field to put it in. (The owner
+    would ignore it anyway, but not being there is better than being ignored.)
 
-    Every client, not the first one. A project with two of them (an application and a
-    monitoring console, say) used to have the second read as a service here, which put the
-    session field on a link a browser is the only consumer of, and took away the one
+    Every client rather than the first one. In a project with two of them (an application and a
+    monitoring console, say), reading the second as a service here would put the
+    session field on a link a browser is the only consumer of, and take away the one
     property this function exists to provide.
     """
     clients = {str(entity.get("name") or "") for entity in entities(config)
@@ -967,7 +966,7 @@ def trusted_proxies(entity: Dict[str, Any]) -> List[str]:
 def inbound_trusted_proxies(entity: Dict[str, Any]) -> List[str]:
     """``network.inbound.trusted_proxies``: the same question for the API surface.
 
-    Deliberately not inherited from ``public.trusted_proxies``. They are two listeners on
+    Not inherited from ``public.trusted_proxies``. They are two listeners on
     two ports, and a deployment may put a balancer in front of one and expose the other
     on an internal network, so taking one list to mean the other would be this framework
     deciding to believe a header nobody said to believe.
@@ -1518,8 +1517,8 @@ def monitoring_connect_points(config: Dict[str, Any]) -> List[Dict[str, Any]]:
 
 
 #: What a category records when nothing says otherwise, and the vocabulary `monitoring.levels`
-#: is written in. `off` is the seventh word: it is not a severity, it is the category
-#: refused.
+#: is written in. `off` is the seventh word, and it names the category refused rather than
+#: a severity.
 TRACE_SEVERITIES = ("trace", "debug", "info", "warning", "error", "fatal", "off")
 TRACE_CATEGORIES = ("lifecycle", "transport", "authorization", "call", "data", "application")
 

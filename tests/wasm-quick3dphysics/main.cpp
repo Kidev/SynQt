@@ -4,10 +4,10 @@
 // Host the minimal Quick3D Physics scene in a QQuickView so it renders through the RHI
 // (OpenGL/WebGL in the browser), and sample the falling box's height from C++ rather than
 // from QML. qWarning() is the evidence channel: it reaches the browser console in the WASM
-// runtime (the M0 spike relies on the same path), so the harness sees these lines even in a
-// release build where QML console.log routing is not something we want to depend on. If the
-// scene aborts during RHI/PhysX init, the event loop never runs and no PHYS line appears --
-// which is itself the answer.
+// runtime (the transport spike in tests/m0-transport relies on the same path), so the
+// harness sees these lines even in a release build where QML console.log routing is not
+// something to depend on. If the scene aborts during RHI/PhysX init, the event loop never
+// runs and no PHYS line appears, which is itself the answer.
 
 #include <QGuiApplication>
 #include <QQuickItem>
@@ -60,8 +60,8 @@ int main(int argc, char *argv[])
 
     // Marker between "scene loaded" and "event loop running": if the console shows PHYS load
     // but never PHYS exec, main() stalled before app.exec(). If it shows PHYS exec but the timer
-    // never ticks (no PHYS started), the event loop or first frame deadlocked. The fingerprint
-    // of PhysX worker threads on the WASM pthread runtime (fixed by numThreads: 0 in Main.qml).
+    // never ticks (no PHYS started), the event loop or first frame deadlocked, which is what
+    // PhysX worker threads do on the WASM pthread runtime (numThreads: 0 in Main.qml).
     qWarning("PHYS exec");
     return app.exec();
 }

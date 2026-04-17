@@ -12,7 +12,7 @@
 # `provider.name: custom:X` resolved to nullptr in silence.
 #
 # Step 1 scaffolds one provider per family into build/custom-provider/scaffold/ (nothing is
-# committed: the point is to build what the tool emits today, not a copy of it). Step 2 builds
+# committed, so this builds what the tool emits today rather than a copy of it). Step 2 builds
 # them into a test that asserts each registered itself and that its family factory selects it.
 #
 # Needs the pinned host kit (/opt/Qt/6.11.1/gcc_64). Usage:

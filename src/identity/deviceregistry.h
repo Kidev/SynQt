@@ -29,17 +29,17 @@ class IPersistenceProvider;
 ///     was taken from next starts up.
 ///  2. **Reuse detection.** A retired generation presented past the overlap window means two
 ///     copies of it exist, so the family and every session descended from it are revoked.
-///     This is the property no file permission gives: theft stops being silent and becomes
+///     This is the property no file permission gives. Theft stops being silent and becomes
 ///     an event the edge sees. (RFC 6819 s.5.2.2.3, applied to SynQt's own credential rather
 ///     than to the provider's refresh token.)
 ///  3. **A short session at the end of it.** What a redemption buys is a session of exactly
 ///     the length a browser gets, so "stay signed in for a month" never becomes "a stolen
 ///     file is good for a month".
 ///
-/// The secret is never stored, here or anywhere on the edge: what a row holds is a SHA-256
-/// of it. A single hash and not a password KDF, deliberately, because there is no
-/// low-entropy secret to stretch (the credential is 256 random bits) and a KDF would only
-/// add latency to every relaunch.
+/// The secret is never stored, here or anywhere on the edge. What a row holds is a SHA-256
+/// of it. A single hash rather than a password KDF, because there is no low-entropy secret
+/// to stretch (the credential is 256 random bits) and a KDF would only add latency to every
+/// relaunch.
 class DeviceRegistry : public QObject
 {
     Q_OBJECT

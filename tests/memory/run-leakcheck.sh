@@ -68,7 +68,7 @@ if [ "$run_benchmarks" = 1 ]; then
     # They are named as left out rather than quietly halved.
     echo
     echo "== soak: benchmark harnesses =="
-    echo "(not covered here: capstone, edge, fanout, mesh -- fixed work dominates the knob)"
+    echo "(not covered here: capstone, edge, fanout, mesh; fixed work dominates the knob)"
     for entry in "sessions:--iterations:20000:400000" "persistence:--autocommit-rows:200:2000"; do
         name="${entry%%:*}"
         rest="${entry#*:}"

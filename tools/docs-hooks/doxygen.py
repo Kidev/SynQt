@@ -3,25 +3,17 @@
 
 """MkDocs hook that generates the C++ runtime reference into the built site.
 
-Doxygen renders the classes in `src/` into `<site>/api/ref/`, which the shell page at
-`/api/` (docs/api.md, overrides/api.html) shows in a frame so the reference is surrounded
-by the site's own header instead of by a copy of it. The Doxyfile at the repository root
-holds every setting. Only the output location is overridden here, so `doxygen Doxyfile` on
-its own produces the same pages in `build/apidocs/`.
+Doxygen renders `src/` into `<site>/api/ref/`, shown in a frame by the `/api/` shell page
+(docs/api.md, overrides/api.html). The Doxyfile at the repository root holds every setting;
+only the output location is overridden, so `doxygen Doxyfile` produces the same pages in
+`build/apidocs/`. Without Doxygen the rest of the site builds and the hook says so; CI
+installs it (.github/workflows/docs.yml).
 
-Doxygen is optional. Without it the rest of the site still builds, and the hook says so
-rather than failing. Only the API reference pages are missing. Continuous integration
-installs it (see .github/workflows/docs.yml), so the published site always has them.
-
-After Doxygen runs, a series of passes rewrite what it produced. `_uniform_navigation_tree`
-makes the sidebar tree list pages and nothing else, drops the directories it documents
-nothing in, and stops it from remembering a selection across a visit. `_version_tree_data`
-stamps the tree's run time data fetches so a cached copy cannot outlive the shape this
-hook gives them. `_dedupe_index_title` collapses the doubled title on the landing page;
-`_reserve_the_page_outline` gives the pages Doxygen leaves without an outline the column
-anyway, so the layout is the same on all of them. `_name_the_page_outline` labels that
-column, and `_fingerprint_assets` version-stamps the stylesheets and scripts the pages
-reference. See each for why it is not optional.
+Post-processing passes: `_uniform_navigation_tree` (pages only in the sidebar, no empty
+directories, no remembered selection), `_version_tree_data` (stamps the run-time data
+fetches), `_dedupe_index_title`, `_reserve_the_page_outline` (every page gets the outline
+column), `_name_the_page_outline`, and `_fingerprint_assets` (version-stamps stylesheets and
+scripts).
 """
 
 import hashlib
@@ -37,25 +29,20 @@ log = logging.getLogger("mkdocs.hooks.doxygen")
 _ROOT = Path(__file__).resolve().parents[2]
 _DOXYFILE = _ROOT / "Doxyfile"
 
-# A `href="..."` or `src="..."` naming a local stylesheet or script. Anything with a
-# scheme (the Google Fonts links) has a colon before the first slash and does not match.
+# A `href` or `src` naming a local stylesheet or script. A URL with a scheme does not match.
 _ASSET_REF = re.compile(r'(?P<attr>\b(?:href|src)=")(?P<path>[^":?#]+\.(?:css|js))(?=")')
 
 # One `"<url>":[<indices>]` pair of a navtreeindex file.
 _INDEX_ENTRY = re.compile(r'"(?P<url>[^"]*)":(?P<path>\[[^\]]*\])')
 
-# How many entries Doxygen puts in one navtreeindex file. Kept the same so the split
-# stays familiar. Nothing depends on the exact number, since the lookup is a range
-# search over the first key of each file (navtree.js, `gotoUrl`).
+# Entries per navtreeindex file, as Doxygen writes them. The lookup is a range search
+# (navtree.js, `gotoUrl`), so the exact number does not matter.
 _INDEX_CHUNK = 250
 
 
 def _array_span(text, name):
-    """Return the `[start, end)` span of the array literal assigned to `name`.
-
-    The generated navigation files are `var <name> = [ ... ];` with the array spanning
-    most of the file, so the span cannot be found by a regular expression without
-    balancing brackets. Strings are skipped, since a name in the tree may contain one.
+    """Return the `[start, end)` span of the array literal assigned to `name`, balancing
+    brackets and skipping strings.
     """
     head = text.find("var %s" % name)
     if head < 0:
@@ -89,12 +76,7 @@ def _array_span(text, name):
 
 
 def _load_nodes(path, name):
-    """Read the tree fragment `name` from `path`, or None if it cannot be read.
-
-    The array literal Doxygen writes is valid JSON (double quoted strings, `null` for a
-    childless node), so it needs no JavaScript parser. Anything that does not parse is
-    left alone by the caller rather than guessed at.
-    """
+    """Read the tree fragment `name` from `path`, or None. Doxygen's array literal is valid JSON."""
     text = path.read_text(encoding="utf-8")
     span = _array_span(text, name)
     if span is None:
@@ -114,15 +96,8 @@ def _write_nodes(path, text, span, nodes):
 def _strip_anchor_nodes(nodes, html_dir, fragments):
     """Drop every entry of a tree fragment that points into a page rather than at one.
 
-    This is the sidebar's half of one rule. The tree lists pages, and a page's own
-    sections are listed by the outline panel on the right of that page (navtree.js,
-    `initPageToc`, which builds it from the page's headings and has nothing to do with
-    this data). Doxygen mixes the two, so a class in the tree expands into its member
-    sections, which are anchors in the page the class already occupies, while the entry
-    next to it expands into pages. Sibling entries then mean two different things, one
-    page's contents show up in two places at once, and which of the two a given entry
-    uses is not something a reader can predict. Keeping only the pages here leaves each
-    of the two panels with one job.
+    The sidebar lists pages; the outline panel (navtree.js `initPageToc`) lists a page's
+    sections. Doxygen mixes the two in the tree.
     """
     kept = []
     for node in nodes:
@@ -139,12 +114,9 @@ def _strip_anchor_nodes(nodes, html_dir, fragments):
 
 
 def _strip_fragment(name, html_dir, fragments):
-    """Strip the fragment file `name`, and report whether anything is left of it.
-
-    A fragment left with no entries is deleted and its reference replaced by `null`, so
-    the tree does not offer an expand arrow that opens onto nothing. Fragments are shared
-    (a class is reachable from both its namespace and the class list), hence the cache;
-    it is seeded before recursing so a cycle, if Doxygen ever emitted one, terminates.
+    """Strip the fragment file `name`, and report whether anything is left. An empty fragment
+    is deleted and its reference replaced by `null`, so no arrow opens onto nothing.
+    Fragments are shared, hence the cache, seeded before recursing.
     """
     if name in fragments:
         return fragments[name]
@@ -168,21 +140,13 @@ def _strip_fragment(name, html_dir, fragments):
     return fragments[name]
 
 
-# A directory's own page. Doxygen names one `dir_<hash>.html`, and the File List is the
-# only branch of the tree that holds them.
+# A directory page (`dir_<hash>.html`), found only in the File List branch.
 _DIRECTORY_PAGE = re.compile(r"^dir_[0-9a-f]+\.html$")
 
 
 def _drop_empty_directories(nodes, html_dir, fragments, dropped):
-    """Drop the directory branches that hold none of the documented files.
-
-    Doxygen makes a directory node for the folder of every input file, whether or not it
-    lists anything from that folder. Two of this reference's inputs are the markdown files
-    that open it (the Doxyfile's INPUT), which become pages rather than file entries, so
-    the File List grew a `tools > docs-hooks` branch that expands onto an empty directory
-    page. It told a reader this reference documents a folder that it does not.
-
-    `_drop_directory_pages` then takes the pages themselves out of the site.
+    """Drop the directory branches that hold no documented file (the markdown inputs create
+    `tools > docs-hooks`). `_drop_directory_pages` removes the pages themselves.
     """
     kept = []
     for node in nodes:
@@ -202,10 +166,8 @@ def _drop_empty_directories(nodes, html_dir, fragments, dropped):
 
 
 def _keep_directory_branch(name, html_dir, fragments, dropped):
-    """Prune the tree fragment `name`, and report whether anything is left of it.
-
-    Same shape as `_strip_fragment`, and for the same reasons. Fragments are shared, and a
-    fragment left empty is deleted so the tree offers no arrow that opens onto nothing.
+    """Prune the tree fragment `name`, and report whether anything is left. Same shape as
+    `_strip_fragment`.
     """
     if name in fragments:
         return fragments[name]
@@ -227,14 +189,8 @@ def _keep_directory_branch(name, html_dir, fragments, dropped):
 
 
 def _drop_directory_pages(html_dir, dropped):
-    """Take the same directories out of the File List, and off the site.
-
-    Three places name a directory besides the tree. `files.html` is that branch of the
-    tree written out as a table, one `<tr>` per entry. `doxygen_crawl.html` is the link
-    farm Doxygen writes for crawlers and link checkers, which is how a page nothing links
-    to is still found and indexed. Leave a pruned directory in it and a search result can
-    still hand a reader the branch the tree no longer shows. And the directory pages
-    themselves, which by then have nothing left pointing at them.
+    """Remove the same directories from `files.html` (one `<tr>` per entry), from
+    `doxygen_crawl.html` (the crawler link list), and the directory pages themselves.
     """
     if not dropped:
         return
@@ -268,15 +224,9 @@ def _drop_directory_pages(html_dir, dropped):
 def _tree_index(nodes, html_dir, prefix, above, entries, visited):
     """Collect `url -> path of child indices, urls above it` for every node of the tree.
 
-    navtree.js looks a page up here to know which branches to open and which entry to
-    select, so the paths have to be recomputed rather than reused: removing the anchor
-    entries above shifts the position of every page entry that followed one inside the
-    same fragment, and sixteen of the fragments in this reference mix the two.
-
-    The urls of the entries a path passes through come along because most pages are in
-    the tree several times over, and which of those places to send the reader to is
-    decided by what the branch lists rather than by where in it the page sits. See
-    `_one_branch_per_page`.
+    navtree.js uses it to open branches and select the entry. Paths are recomputed, since
+    removing anchor entries shifts positions. The ancestor urls let `_one_branch_per_page`
+    pick which of a page's places to use.
     """
     for index, node in enumerate(nodes):
         path = prefix + [index]
@@ -296,13 +246,8 @@ def _tree_index(nodes, html_dir, prefix, above, entries, visited):
 
 
 def _add_source_views(html_dir, entries):
-    """Point each "Source File" page at the tree entry for the file it shows.
-
-    A file's source listing is a page of its own (`caller_8h_source.html`) that the tree
-    never lists: the tree lists the file (`caller_8h.html`), and the two are one entry as far
-    as a reader is concerned. Doxygen's own index maps both URLs to that entry, so opening a
-    source listing still selects the file in the tree. The tree entries collected above are
-    the tree's, so the source URLs have to be added back.
+    """Map each source listing page (`caller_8h_source.html`) to the tree entry of its file
+    (`caller_8h.html`), as Doxygen's own index does.
     """
     for url, path, above in list(entries):
         if "#" in url or not url.endswith(".html"):
@@ -312,12 +257,8 @@ def _add_source_views(html_dir, entries):
             entries.append((source, path, above))
 
 
-# Where each kind of page is listed. Doxygen names a page after what it documents and
-# gives each section a fixed landing page, so a url is enough to say which branch of the
-# tree a page belongs in. A class belongs under the class list, a namespace under the
-# namespace list. Every other kind of page (a file, a directory, a member index, the
-# section landing pages themselves) is in exactly one branch already, or is left where
-# Doxygen put it.
+# Which branch lists each kind of page, by url: classes under the class list, namespaces
+# under the namespace list. Other pages keep their single place.
 _LISTED_UNDER = (
     (re.compile(r"^(?:class|struct|union|interface)"), "annotated.html"),
     (re.compile(r"^namespace(?!members)"), "namespaces.html"),
@@ -325,23 +266,12 @@ _LISTED_UNDER = (
 
 
 def _one_branch_per_page(entries):
-    """Keep one place in the tree per page. The one the branch it belongs in gives it.
+    """Keep one tree place per page: the branch that lists its kind.
 
-    Most pages of this reference are in the tree several times over. `SynQt::Caller` is
-    under Classes, under the namespace that declares it, under the class hierarchy, and
-    under the header file it is declared in. This index is what tells the tree which of
-    them to open, and only one of them can win. Doxygen keeps whichever was written last,
-    which is the deepest, so opening a class from the class list sent the tree four levels
-    down `Files > src > service > caller.h` with Classes left collapsed. The tree was
-    following the page, just never to where the reader was, which is the whole point of
-    it following at all.
-
-    So prefer the branch that lists this kind of page (`_LISTED_UNDER`), measured by how
-    many of the entries above the page belong to that branch: the class list path passes
-    through both `Classes` and `Class List`, the class hierarchy path through `Classes`
-    alone, and the namespace and file paths through neither. A page no branch claims, and
-    a tie, keep Doxygen's own answer, the deepest and last, which is what puts a section's
-    landing page on the leaf that expands it (`Classes > Class List`, not `Classes`).
+    Most pages appear several times (under Classes, the namespace, the hierarchy, the header
+    file). Doxygen keeps the deepest. This prefers the path passing through most entries of
+    the branch in `_LISTED_UNDER`; with no claim or a tie, Doxygen's answer stands, which
+    puts a landing page on the leaf that expands it (`Classes > Class List`).
     """
     chosen = {}
     for url, path, above in entries:
@@ -354,11 +284,8 @@ def _one_branch_per_page(entries):
 
 
 def _write_navigation_index(html_dir, entries):
-    """Rewrite the navtreeindex files from `entries`, and report the file boundaries.
-
-    Sorted by url, which is what `gotoUrl` (navtree.js) needs. It finds the file holding
-    a page by comparing the page against the first url of each, so the order across the
-    files has to be the order it compares in.
+    """Rewrite the navtreeindex files from `entries`, sorted by url as `gotoUrl` (navtree.js)
+    requires, and report the file boundaries.
     """
     entries = _one_branch_per_page(entries)
     chunks = [entries[at:at + _INDEX_CHUNK] for at in range(0, len(entries), _INDEX_CHUNK)]
@@ -376,26 +303,11 @@ def _write_navigation_index(html_dir, entries):
 def _forget_selected_page(html_dir):
     """Stop the sidebar tree from remembering which page was open.
 
-    Doxygen's tree has a "panel synchronization" toggle. Turned off, it stores the last
-    entry clicked in a cookie, and `navTo` then opens and selects *that* entry on every
-    page instead of the page on screen. The cookie is written whenever the class
-    is absent, which is its state on a first visit, so the tree ends up pinned to
-    whichever entry was clicked first and stays there. Arriving at the reference from the
-    site's own "C++ reference" tab (which is not a tree link, so nothing updates the
-    cookie) leaves the old entry selected, and it never comes unstuck.
-
-    The toggle itself is hidden here (there is one navigation panel in this layout, so
-    there is no second panel to synchronize with), so the fix is to make the cache
-    always empty, which is exactly the synchronized behavior. The tree follows the page.
-
-    Reading it is neutralized first, and then writing it, which matters for one reader:
-    the one whose browser still has a copy of this file from before the first half of
-    this fix. Under Chrome the entry is a `sessionStorage` key rather than a cookie, so
-    it survives every navigation of a tab, including leaving the reference and coming
-    back, and that stale copy keeps rewriting it. Emptying it on the way out means such a
-    reader is one page load from being fixed permanently rather than stuck until they
-    clear their storage, and doxygen-header.html empties it on the way in for the same
-    reason, from a script a stale navtree.js cannot preempt.
+    With panel synchronization off, Doxygen stores the last clicked entry (a cookie, or
+    `sessionStorage` under Chrome) and `navTo` selects it on every page. The toggle is
+    hidden in this layout, so both reading and writing the stored value are neutralized and
+    the tree follows the page. doxygen-header.html also clears it on load, for browsers
+    holding an old navtree.js.
     """
     path = html_dir / "navtree.js"
     if not path.is_file():
@@ -426,21 +338,12 @@ def _forget_selected_page(html_dir):
 
 
 def _version_tree_data(html_dir):
-    """Make the tree's data files miss a stale browser cache.
+    """Make the tree data files miss a stale browser cache.
 
-    `_fingerprint_assets` covers everything a page names in a `src=`, which is where
-    `navtree.js` and `navtreedata.js` are. It cannot reach the rest of the tree: the
-    per-branch `<name>.js` files and the `navtreeindex*.js` lookup tables are fetched at
-    run time by `getScript`, under names it builds itself, and the host serves them with
-    a four-hour `max-age`. Doxygen alone could live with that, because those files change
-    only when the documented API does.
-
-    This hook breaks that assumption. It rewrites the shape of the tree (anchors removed,
-    every index rebuilt around the pages that are left), so a deploy can hand a returning
-    reader the new `navtree.js` and `navtreedata.js` against the old index files. The tree
-    then resolves the current page through indices that no longer describe it: it opens
-    the wrong branch, or none, and stops following the page entirely. Stamping the fetch
-    with a digest of the data itself is what keeps the two halves in step.
+    The per-branch `<name>.js` and `navtreeindex*.js` files are fetched at run time by
+    `getScript`, out of `_fingerprint_assets`' reach, and served with a four-hour `max-age`.
+    This hook reshapes the tree, so the fetches are stamped with a digest of the data to
+    keep them in step with `navtree.js`.
     """
     path = html_dir / "navtree.js"
     if not path.is_file():
@@ -501,9 +404,7 @@ def _uniform_navigation_tree(html_dir):
     data.write_text(text, encoding="utf-8")
 
 
-# The outline panel with nothing in it, written exactly as Doxygen writes it on the pages
-# that have one, down to the closing comments. `_reserve_the_page_outline` puts this on the
-# pages that have none, and `_name_the_page_outline` labels it afterwards like any other.
+# The empty outline panel, exactly as Doxygen writes it, for pages without one.
 _EMPTY_PAGE_OUTLINE = """<div id="page-nav" class="page-nav-panel">
 <div id="page-nav-resize-handle"></div>
 <div id="page-nav-tree">
@@ -515,27 +416,11 @@ _EMPTY_PAGE_OUTLINE = """<div id="page-nav" class="page-nav-panel">
 
 
 def _reserve_the_page_outline(html_dir):
-    """Give every page the outline column, so moving between two pages does not shift one.
+    """Give every page the outline column, so the layout does not shift between pages.
 
-    Doxygen emits the outline panel only on a page that has headings to list, and half the
-    reference has none: every "List of all members" page, every source view, and every
-    index (the class list, the file list, the alphabetical member lists). The panel is not
- missing there, it is missing from the layout. navtree.js sizes the frame's grid
-    from whether the element exists (`if (pagenav.length) ... else
-    gridTemplateColumns:'auto'`), so the content column is three hundred pixels wider on
-    those pages. A reader clicking from a class to its member list saw the whole page jump
-    sideways and re-wrap, and the table of contents disappear, because the two pages were
-    laid out to different widths.
-
-    Reserving the column costs those pages nothing they had. There are no headings to
-    list, so what is added is empty, and the label over it is hidden while it stays empty
-    (doxygen-synqt.css, the #page-nav-title rule). It is what the documentation site does
-    around these pages, where the contents column is part of the template and is rendered
-    on every page whether or not the page fills it.
-
-    Doxygen's own script fills the panel if the page turns out to have anything to list
-    (`initPageToc` already runs on every page, and until now had nowhere to put its result
-    on these ones), so a page that gains headings gains its outline with no further work.
+    Doxygen emits the panel only on pages with headings, and navtree.js sizes the grid from
+    its presence. The added panel is empty and its label hidden while empty
+    (doxygen-synqt.css, #page-nav-title). `initPageToc` fills it if the page has headings.
     """
     anchor = "</div><!-- container -->"
     for page in sorted(html_dir.rglob("*.html")):
@@ -548,27 +433,11 @@ def _reserve_the_page_outline(html_dir):
 
 
 def _name_the_page_outline(html_dir):
-    """Put a "Table of contents" label over the outline down the right of every page.
+    """Put a "Table of contents" label over the outline on every page, as real text.
 
-    Doxygen emits the outline panel unlabelled and fills it from script, so the column of
-    links arrives with nothing saying what it is. The documentation site names the same
-    thing on every page, and this reference is read as part of that site, so it says the
-    same word in the same place. The label is written into the HTML rather than drawn
-    from CSS so it is real text: selectable, findable, and read out in order by a screen
-    reader.
-
-    It goes in the panel, beside the element that scrolls (#page-nav-contents) rather than
-    inside it, and is placed over the top of it from CSS (see #page-nav-title in
-    doxygen-synqt.css). It was inside for a while, pinned to the top with `position:
-    sticky`, which is the obvious place for it and cost it its plate: a scrolling box
-    clips at its own edge, and the label sits exactly on that edge, so the soft glow the
-    site fades its own label out with was cut off square on the side facing the reader.
-    Out here nothing clips it. The list still scrolls under it and still disappears behind
-    it, because the plate is opaque and the box it scrolls in starts underneath.
-
-    Keeping the scrolling where the theme put it also keeps the theme's own behavior: it
-    scrolls #page-nav-contents itself to follow the content (navtree.js,
-    updateContentTop), which it could not do if the scrolling moved to the list.
+    It sits in the panel beside #page-nav-contents, not inside it, and is positioned from
+    CSS (#page-nav-title in doxygen-synqt.css): inside the scrolling box its glow would be
+    clipped. navtree.js (updateContentTop) still scrolls #page-nav-contents.
     """
     anchor = '<div id="page-nav-tree">'
     labelled = '<div id="page-nav-title">Table of contents</div>\n%s' % anchor
@@ -582,19 +451,9 @@ def _name_the_page_outline(html_dir):
 def _fingerprint_assets(html_dir):
     """Append a content hash to every local stylesheet and script the pages reference.
 
-    Doxygen emits these references under fixed names (`doxygen-synqt.css`,
-    `navtree.js`), and the published site serves them with a four-hour `max-age` and no
-    revalidation. A deploy therefore hands a returning reader the new HTML against
-    whichever copy of the old CSS their browser still holds, which is not a degraded
-    page but a broken one: the sidebar loses its layout and the member tables get back
-    the black bars the theme's box-shadow trick draws. The names have to change when the
-    bytes change, so the cache misses.
-
-    The query string is the whole mechanism. It is part of the cache key and the static
-    host ignores it, so nothing has to be renamed on disk. Doxygen's own scripts fetch
-    their data files (`search/*.js`, the per-class `.js`) by building paths at runtime
-    rather than from these attributes, so those keep their plain names and are left to
-    the cache. They change only when the documented API does.
+    The site serves these fixed names with a four-hour `max-age` and no revalidation, so new
+    HTML could meet old CSS. The query string changes the cache key; the host ignores it.
+    Data files fetched at run time (`search/*.js`, per-class `.js`) keep plain names.
     """
     digests = {}
     for page in sorted(html_dir.rglob("*.html")):
@@ -617,16 +476,10 @@ def _fingerprint_assets(html_dir):
 
 
 def _dedupe_index_title(html_dir):
-    """Collapse the doubled <title> on the reference's landing page.
-
-    The header template titles every page "SynQt - The C++ runtime reference - <page>"
-    (doxygen-header.html). On the landing page the <page> part ($title) is the section
-    name itself, so it comes out doubled ("... - The C++ runtime reference - The C++
-    runtime reference"). Drop the repeated tail on that one page. Every other page keeps
-    the full "SynQt - <section> - <page>". Matching the repetition rather than a hard
-    coded string keeps this correct if the section is ever renamed. The shell page reads
-    these titles for the browser tab (docs/javascripts/api-shell.js), so the doubling
-    would be visible well outside this one page.
+    """Collapse the doubled <title> on the reference landing page ("SynQt - The C++ runtime
+    reference - The C++ runtime reference"), matching the repetition rather than a fixed
+    string. The shell page shows these titles in the browser tab
+    (docs/javascripts/api-shell.js).
     """
     index = html_dir / "index.html"
     if not index.is_file():
@@ -657,8 +510,7 @@ def on_post_build(config, **kwargs):
     overrides = "\n".join([
         _DOXYFILE.read_text(encoding="utf-8"),
         "OUTPUT_DIRECTORY = %s" % site_dir,
-        # Under, not at, /api/: /api/ is the shell page MkDocs builds from docs/api.md,
-        # and it shows these pages in a frame.
+        # Under /api/, which is the shell page MkDocs builds from docs/api.md.
         "HTML_OUTPUT = api/ref",
         "",
     ])

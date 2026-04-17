@@ -158,7 +158,7 @@ private:
     /// The whole desktop sign-in, ending at the claim: the login route, the provider, the
     /// callback, and then the exchange the native client makes over its own connection. The
     /// browser half is driven exactly as tst_desktop drives it, because enrolment is
-    /// deliberately not a route of its own.
+    /// not a route of its own.
     Held signIn(const QString &binding)
     {
         const QByteArray verifier{"verifier-" + QByteArray::number(++m_signIns)};

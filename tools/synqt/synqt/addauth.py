@@ -161,11 +161,11 @@ IdentityMapping {
 
 def manual_steps(provider: str, provider_entity: str = "",
                  hook: str = DEFAULT_HOOK) -> str:
-    # `secret_env` is the NAME of the variable to set, which is the whole point of the step:
-    # it tells the reader where to put a value this process never sees.
+    # `secret_env` is the NAME of the variable to set: the step tells the reader where to
+    # put a value this process never sees.
     secret_env = _secret_env(provider)
     # Where the client secret lives depends on where identity runs. In process it is the
-    # edge; with provider_entity the OAuth engine (token exchange + secret + tokens) runs on
+    # edge. With provider_entity the OAuth engine (token exchange + secret + tokens) runs on
     # the auth entity, so the secret belongs in the auth entity's .env, never the edge's.
     if provider_entity:
         secret_step = (
@@ -194,7 +194,7 @@ def scaffold(project_dir: os.PathLike[str] | str, provider: str, *, required: bo
 
     Refuses to clobber an existing ``identity`` section.
     """
-    # Both deliberately local; see the note where the other imports are. yamledit imports
+    # Both are local imports. See the note where the other imports are. yamledit imports
     # PyYAML itself, so it carries the same restriction.
     import yaml
     from synqt import yamledit

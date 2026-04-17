@@ -3,35 +3,20 @@
 
 """Resolve the effective configuration from its layers.
 
-`docs/project-layout-and-config.md` states the order, and this module is the only place
-that implements it. Later layers override earlier ones, key by key:
+The order is stated in `docs/project-layout-and-config.md` and implemented only here. Later
+layers override earlier ones, key by key:
 
-1. Framework defaults. These are not a table here. Each reader carries its own
-   (``entity.get("targets", ["wasm"])``), so a default lives next to the code that
-   depends on it and cannot drift from it.
+1. Framework defaults, kept by each reader (``entity.get("targets", ["wasm"])``).
 2. ``synqt.yaml``, the project topology.
-3. ``synqt.<profile>.yaml``, selected with ``--profile``. Same schema, carrying only the
-   keys it changes.
+3. ``synqt.<profile>.yaml``, selected with ``--profile``, carrying only the keys it changes.
 4. ``SYNQT_<SECTION>_<KEY>`` environment variables, for CI and containers.
-5. CLI flags, which the CLI applies itself after this module has run.
+5. CLI flags, applied by the CLI after this module.
 
-Two properties are worth stating outright, because both are load-bearing:
-
-*A profile changes and adds; it never removes.* Merging a list by deleting from it would
-be an invisible way to drop an entity, a consumer, or a connect point, and dropping a
-consumer from a list is a security change. What a profile can do is override the entries
-it names.
-
-*Layer 4 cannot invent a section.* An environment variable is applied only when its first
-token names a section the configuration already declares. That keeps ``SYNQT_ROOT``,
-``SYNQT_EDGE_URL``, ``SYNQT_TEST_PG_HOST`` and the rest of the SynQt runtime's own
-namespace out of the topology, and it means a container cannot conjure a section that no
-reviewed ``synqt.yaml`` ever mentioned.
-
-Neither layer is a way in for a secret. Validation runs on the *resolved* configuration,
-so a password arriving from a profile file or from ``SYNQT_...`` is rejected by the same
-rule that rejects one typed into ``synqt.yaml``: it has to be an ``env:`` reference the
-entity resolves for itself.
+A profile changes and adds, never removes, since removing a consumer is a security change.
+An environment variable applies only when its first token names a section the configuration
+already has, which keeps ``SYNQT_ROOT``, ``SYNQT_EDGE_URL`` and the like out of the
+topology. Validation runs on the resolved configuration, so a secret from any layer must be
+an ``env:`` reference.
 """
 
 from __future__ import annotations
@@ -55,11 +40,8 @@ class ConfigError(Exception):
 
 @dataclass(frozen=True)
 class Resolved:
-    """The effective configuration plus a record of where it came from.
-
-    ``sources`` is for the human. A build that behaves differently on CI than on a laptop
-    is nearly always a layer the reader did not know was applied, so every layer beyond
-    the base file names itself.
+    """The effective configuration plus a record of where it came from. Every layer beyond the
+    base file is named in ``sources``.
     """
 
     config: Dict[str, Any]
@@ -71,22 +53,15 @@ def profile_filename(profile: str) -> str:
 
 
 def config_filenames(profile: Optional[str] = None) -> Tuple[str, ...]:
-    """The file names that make up the configuration, base first.
-
-    `synqt dev` watches these. With a profile active, editing the profile file is editing
-    the topology, and a watcher that only knew about ``synqt.yaml`` would keep serving the
-    old wiring with no sign that it had missed the save.
-    """
+    """The file names that make up the configuration, base first. `synqt dev` watches them all."""
     if profile:
         return ("synqt.yaml", profile_filename(profile))
     return ("synqt.yaml",)
 
 
 def _is_named_list(value: Any) -> bool:
-    """A list of mappings that all carry a ``name``: ``entities`` and ``connect_points``.
-
-    These are the two lists SynQt keys by name, which is what makes merging them key by
-    key meaningful rather than a guess about list positions.
+    """A list of mappings that all carry a ``name``: ``entities`` and ``connect_points``,
+    merged by name.
     """
     return (isinstance(value, list) and bool(value)
             and all(isinstance(item, dict) and item.get("name") for item in value))
@@ -95,12 +70,9 @@ def _is_named_list(value: Any) -> bool:
 def merge(base: Any, override: Any) -> Any:
     """Layer ``override`` onto ``base``, key by key.
 
-    Mappings merge recursively. A name-keyed list (``entities``, ``connect_points``)
-    merges entry by entry on ``name``, keeping the base order and appending entries the
-    base did not have, so a profile can retune one entity without restating the topology.
-    Every other list, and every scalar, is replaced outright. A plain list such as
-    ``consumers`` or ``scopes.order`` is a single value whose order and membership are the
-    point, and half-merging one would be a silent way to change who may reach what.
+    Mappings merge recursively. A name-keyed list merges entry by entry on ``name``, keeping
+    the base order and appending new entries. Every other list and scalar is replaced
+    outright, so ``consumers`` or ``scopes.order`` is never half-merged.
     """
     if isinstance(base, dict) and isinstance(override, dict):
         merged = dict(base)
@@ -132,12 +104,8 @@ def _read(path: Path) -> Dict[str, Any]:
 
 
 def _longest_key(node: Mapping[str, Any], remainder: str) -> Optional[str]:
-    """The longest existing key of ``node`` that ``remainder`` starts with.
-
-    Longest wins so ``SYNQT_BUILD_DESKTOP_EDGE_URL`` resolves against the structure that
-    is there (``build.desktop.edge_url``) instead of against a reading of the
-    underscores (``build.desktop_edge_url``), which no amount of naming convention could
-    disambiguate on its own.
+    """The longest existing key of ``node`` that ``remainder`` starts with, so
+    ``SYNQT_BUILD_DESKTOP_EDGE_URL`` resolves to ``build.desktop.edge_url``.
     """
     candidates = [key for key in node
                   if isinstance(key, str)
@@ -148,12 +116,9 @@ def _longest_key(node: Mapping[str, Any], remainder: str) -> Optional[str]:
 def _target_path(config: Mapping[str, Any], name: str) -> Optional[List[str]]:
     """Resolve ``build_desktop_edge_url`` to ``["build", "desktop", "edge_url"]``.
 
-    Returns None when the variable does not address a mapping key inside an existing
-    section. That covers three cases, all of them intended. The first token names no
-    section (which is how the SynQt runtime's own ``SYNQT_ROOT``, ``SYNQT_EDGE_URL`` and
-    ``SYNQT_TEST_*`` stay out of the topology), the path runs into a list (``entities``
-    and ``connect_points`` are keyed by name in a file, not addressable from a variable),
-    or it runs into a scalar it would have to restructure.
+    None when the variable does not address a key inside an existing section: the first
+    token names no section (``SYNQT_ROOT``, ``SYNQT_TEST_*``), the path runs into a list, or
+    into a scalar.
     """
     path: List[str] = []
     node: Any = config
@@ -178,12 +143,9 @@ _FALSE = {"false", "no", "off", "0"}
 
 
 def _coerce(existing: Any, raw: str, variable: str) -> Any:
-    """Read an environment string as the type the configuration already uses there.
-
-    Type-directed rather than "parse it as YAML and see", because YAML would turn the
-    perfectly good project name ``no`` into ``False`` and the version ``1.10`` into the
-    float ``1.1``. Where the key is new and there is no type to follow, YAML is the
-    fallback, so a list or a number still arrives as one.
+    """Read an environment string as the type the configuration already has there. Not plain
+    YAML, which would read the name ``no`` as False and ``1.10`` as 1.1. YAML is the
+    fallback for a new key.
     """
     if isinstance(existing, bool):
         if raw.strip().lower() in _TRUE:
@@ -226,9 +188,7 @@ def _assign(config: Dict[str, Any], path: List[str], value: Any) -> None:
 def apply_env(config: Dict[str, Any],
               env: Optional[Mapping[str, str]] = None) -> Tuple[Dict[str, Any], List[str]]:
     """Apply the ``SYNQT_<SECTION>_<KEY>`` layer. Returns the config and what it applied.
-
-    Sorted by variable name so two runs of the same environment resolve identically even
-    where two variables address the same key.
+    Sorted by variable name, so the result is deterministic.
     """
     environment = os.environ if env is None else env
     merged = copy.deepcopy(config)
@@ -237,10 +197,8 @@ def apply_env(config: Dict[str, Any],
         if not variable.startswith(ENV_PREFIX) or variable == ENV_PREFIX:
             continue
         path = _target_path(merged, variable[len(ENV_PREFIX):].lower())
-        # The documented form is SYNQT_<SECTION>_<KEY>: a key inside a section, never a
-        # bare section. Honoring a bare one would let a single variable replace the whole
-        # of `entities` or `security` with one scalar, which no deployment wants and no
-        # reviewer would spot.
+        # A key inside a section only; a bare section variable would replace a whole
+        # section.
         if not path or len(path) < 2:
             continue
         existing: Any = merged
@@ -256,10 +214,8 @@ def resolve(project_dir: os.PathLike[str] | str, *, profile: Optional[str] = Non
             required: bool = False) -> Resolved:
     """Read the layers in order and return the effective configuration.
 
-    A missing ``synqt.yaml`` is an empty configuration unless ``required``: several
-    commands are expected to run outside a project and say so in their own words. A
-    missing *profile* file is always an error, because asking for a profile that is not
-    there means the build about to run is not the one that was asked for.
+    A missing ``synqt.yaml`` is an empty configuration unless ``required``. A missing
+    profile file is always an error.
     """
     root = Path(project_dir)
     base_path = root / "synqt.yaml"
@@ -282,8 +238,7 @@ def resolve(project_dir: os.PathLike[str] | str, *, profile: Optional[str] = Non
 
     config, applied = apply_env(config, env)
     sources.extend(applied)
-    # Filled in here rather than at each of the two dozen places a contract name is read,
-    # so no reader carries its own idea of the default and none of them can drift.
+    # The default contract name, filled in once here for every reader.
     return Resolved(config=config, sources=sources)
 
 

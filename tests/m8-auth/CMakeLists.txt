@@ -116,7 +116,7 @@ target_link_libraries(tst_devicestore PRIVATE
 )
 if(UNIX AND NOT APPLE)
     # The Linux store is the Secret Service, and no CI runner or container has one logged in,
-    # so without help this test skips everywhere except a developer's desktop -- where it would
+    # so without help this test skips everywhere except a developer's desktop, where it would
     # instead write a credential into the keyring they keep their life in. The wrapper gives it
     # a private bus and a private keyring, and falls through to running the binary directly
     # where those tools are absent, which leaves the skip exactly as it is today.

@@ -3,32 +3,14 @@
 
 """MkDocs hook that publishes the design editor at /designer/.
 
-The editor is one directory of static files that `synqt design` serves out of the installed
-package (tools/synqt/synqt/assets/design). It needs a server for the half that touches a
-project on disk, and it says so when there is none. Reading `api/project` fails, the page
-turns into a drawing board, and Apply becomes a download of the project it would have
-written. That is the copy published here, so the site can offer the editor to somebody who
-has not installed anything yet.
+The editor is the static directory `synqt design` serves (tools/synqt/synqt/assets/design).
+Without a server it becomes a drawing board and Apply downloads the project. The whole
+directory is copied, `vendor/` (CodeMirror) included, and `site/designer/` is emptied first.
 
-The whole directory is copied rather than a list of files, and everything under it rather
-than the top of it, because the list is what drifts. The editor gained two modules while it
-was being built, and a copy naming five files would have published a page that loads seven.
-The subdirectory that matters is `vendor/`, which is the CodeMirror the file pane is.
-`site/designer/` is emptied first for the same reason, so a file the editor no longer has is
-not left standing in a `mkdocs serve` tree.
-
-The one thing checked before copying is that nothing here names another host. Under the CLI
-that is held down by the policy the server sends with every response. Nobody sends a header
-over a static site, so on this copy an off-origin reference is fetched rather than refused.
-The docs build is the last place that can still say no.
-
-The other thing checked is that no page of the site claims this URL, because that is not a
-collision anybody sees. A `docs/designer.md` builds to `site/designer/index.html`, this hook
-runs after and overwrites it, and the page is gone. Worse, the URL stays in
-sitemap.xml, and Material's instant navigation only intercepts links whose URL is in the
-sitemap. So a reader clicking through to the editor got its markup swapped into the
-documentation shell and a page that only came right after a reload, while a direct load
-looked fine and every test passed. The guard is in on_files, before any of that happens.
+Two checks. No file may reference another host: the CLI enforces that with a response
+header, which a static site cannot send. And no docs page may build to this URL: it would be
+overwritten but stay in sitemap.xml, and Material's instant navigation would then load the
+editor inside the docs shell. That guard runs in on_files.
 """
 
 import json
@@ -44,25 +26,18 @@ ASSETS = Path(__file__).resolve().parents[2] / "tools" / "synqt" / "synqt" / "as
 # Where the editor is published, under the site root.
 PUBLISHED_AT = "designer"
 
-# The one URL in these files that is not an address. It names the vocabulary the canvas is
-# drawn in, and nothing ever fetches it.
+# The one URL here that is not an address: a vocabulary name, never fetched.
 _SVG_NAMESPACE = "http://www.w3.org/2000/svg"
 
 _OFF_ORIGIN = re.compile(r"https?://")
 
-# The one asset that holds somebody else's source rather than the editor's own, and the
-# fields of it that do. An example is a project the editor can open cold, so it carries the
-# QML each of its entities is. One of the feed project's is a gateway whose whole point is
-# `Http.get("https://data.example/feed")`. That is a line printed in a pane for a reader to
-# look at, never a URL this page resolves, and the rest of the file is still held to the rule.
+# The example projects carry their entity QML as text, including URLs such as
+# `Http.get("https://data.example/feed")`. Those fields are not scanned.
 _EXAMPLES = "examples.json"
 _SOURCE_FIELDS = ("qml", "schema")
 
-# What is not part of the editor and is not published with it: the Markdown beside the
-# vendored library, which says what was vendored and how it was fetched. It is documentation
-# for whoever maintains this repository, no page ever loads it, and the links in it are the
-# very thing the scan below is for -- so rather than exempt a file from the rule, the file is
-# not published and there is nothing to exempt.
+# Not published: the Markdown beside the vendored library, which documents how it was
+# fetched.
 _NOT_PUBLISHED = (".md",)
 
 try:
@@ -82,8 +57,7 @@ def _off_origin(path):
 
 
 def _without_example_sources(text):
-    """The examples with each entity's own files taken out, so what is scanned is the page's
-    own wiring and not the projects it can open."""
+    """The examples without their entity files, so only the page's own wiring is scanned."""
     try:
         document = json.loads(text)
     except ValueError:

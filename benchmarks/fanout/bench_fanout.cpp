@@ -9,18 +9,18 @@
 // directly against the real QtRO-over-QtWebSockets path (one QRemoteObjectHost, N consumer nodes
 // over loopback WebSockets, the framework's WebSocketTransport), sweeping N over three modes:
 //
-//   * shared: one world Source. Every session replicates the same model, so one
+//   * shared. One world Source. Every session replicates the same model, so one
 //                            revision bump fans out to N consumers. Per-session payload = N (the
-//                            whole world): there is no way to give each player a filtered view.
-//   * per_session_naive: one Source per session, each publishing the FULL N-entity world.
+//                            whole world). There is no way to give each player a filtered view.
+//   * per_session_naive. One Source per session, each publishing the FULL N-entity world.
 //                            Total work per tick is N sessions * N rows = O(N^2).
-//   * per_session_interest-- one Source per session, each publishing only its k nearest entities.
+//   * per_session_interest. One Source per session, each publishing only its k nearest entities.
 //                            Total work per tick is N * k = O(N*k), flat per session.
 //
-// For each (N, mode) it reports two distributions (p50/p95/p99, the honest summary):
-//   * publish_cpu: owner-side time to build every session's visible slice and bump its revision
-//                    (the "edge CPU" the plan asks to characterize); and
-//   * propagation: wall-clock from the start of a publish tick until EVERY one of the N
+// For each (N, mode) it reports two distributions (p50/p95/p99):
+//   * publish_cpu. Owner-side time to build every session's visible slice and bump its revision
+//                    (the "edge CPU" the plan asks to characterize), and
+//   * propagation. Wall-clock from the start of a publish tick until EVERY one of the N
 //                    consumers has observed the new revision over the wire.
 // plus the per-session and per-tick row counts, so the O(N^2) -> O(N*k) flattening is explicit.
 // Written as a committed JSON baseline a later run diffs against.

@@ -10,10 +10,10 @@
    fallback. Colors follow the brand custom properties set in extra.css
    (--md-primary-fg-color #201335, --md-accent-fg-color #00a6ed). */
 
-/* `hidden` means hidden, everywhere in this card. Every control in here carries a
-   `display` of its own, and a `display` on the element beats the user-agent rule that
-   `[hidden]` relies on: the button that opens the drop-downs sets `inline-block`, so
-   hiding it did nothing at all until this rule existed. */
+/* `hidden` means hidden, everywhere in this card. Every control in here carries a `display`
+   of its own, and a `display` on the element beats the user-agent rule that `[hidden]`
+   relies on (the button that opens the drop-downs sets `inline-block`), so this rule
+   restores it. */
 .synqt-dl [hidden],
 .synqt-dl[hidden] {
   display: none !important;
@@ -198,7 +198,7 @@
 
 /* The two drop-downs behind "More versions": any published release, any platform one
    carries a binary for. They sit on the download row itself, in the place the button that
-   asked for them gives up, so the card is the same size open as shut -- a panel unfolding
+   asked for them gives up, so the card is the same size open as shut: a panel unfolding
    under the row moved everything below it down the moment somebody asked a question about
    versions, which is the one moment they are reading the row.
 
@@ -418,21 +418,16 @@ body.synqt-dl-open {
 
 /* The card on a phone.
 
-   Everything in here is one line of shell, and a phone is not wide enough for one. Measured
-   at a 360px viewport, `curl -fsSL https://get.synqt.org/install.sh | sh` ran 196px past its
-   block: what a visitor saw was `curl -fsSL https://get.synqt.or`, with the rest behind a
-   sideways scroll nothing indicates, and the copy button sitting on top of the last few
-   characters of what was visible -- the button is drawn over the code rather than beside it,
-   which is fine on a line with room to spare at the end and is two unreadable words on a
-   line with none.
+   Everything in here is one line of shell, and a phone is not wide enough for one: at a
+   360px viewport, `curl -fsSL https://get.synqt.org/install.sh | sh` runs about 200px past
+   its block, behind a sideways scroll nothing indicates, with the copy button (drawn over
+   the code) covering the last visible characters.
 
    So on a narrow screen the command wraps instead of scrolling, and the button comes out of
-   the corner and sits under it. Wrapping a shell line is not free -- a wrapped command is
-   one you cannot read in a single glance -- but it is whole, and the button that copies it
-   is over nothing, which is how the line is actually going to be used on a phone.
-   `overflow-wrap: anywhere` rather than `break-word`, because the longest run in all three
-   commands is a URL with no space in it and `break-word` would leave it overflowing exactly
-   as before. */
+   the corner and sits under it. A wrapped command is harder to read at a glance, but it is
+   whole, and the button that copies it covers nothing. `overflow-wrap: anywhere` rather
+   than `break-word`, because the longest run in all three commands is a URL with no space
+   in it, which `break-word` would leave overflowing. */
 @media screen and (max-width: 30em) {
   .synqt-dl {
     padding: 0.5rem;

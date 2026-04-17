@@ -72,8 +72,7 @@ bool OperatorStore::add(const QString &entry, QString *error)
         return false;
     }
     if (credential.iterations < MinimumIterations) {
-        // Refused rather than accepted and warned about. A credential whose weakness is
-        // only mentioned in a log line stays as weak as the day it was written.
+        // Refused outright.
         if (error) {
             *error = QStringLiteral("operator '%1' was derived with %2 iterations; the "
                                     "minimum is %3")
@@ -113,17 +112,13 @@ bool OperatorStore::loadFromEnvironment(QString *error)
 
 bool OperatorStore::verify(const QString &name, const QString &password) const
 {
-    // No operators means no operators. An empty store letting everybody in is how an
-    // operations console ends up with no gate on it at all.
+    // No operators means no operators; an empty store never lets everybody in.
     if (m_credentials.isEmpty()) {
         return false;
     }
 
-    // The whole list is read, and the first match is remembered rather than returned from.
-    // Returning early on a name that is not there is what made the gate answer an unknown
-    // operator in microseconds and a known one in a PBKDF2, which tells whoever is guessing
-    // which names exist -- the one thing the single "no" the sign-in route answers with is
-    // there to withhold.
+    // The whole list is read and the first match remembered, with no early return, so an
+    // unknown name takes as long as a known one and reveals nothing.
     const Credential *found{nullptr};
     for (const Credential &credential : m_credentials) {
         if (found == nullptr && credential.name == name) {
@@ -131,15 +126,10 @@ bool OperatorStore::verify(const QString &name, const QString &password) const
         }
     }
 
-    // One derivation either way. For an unknown name that is the most expensive credential
-    // in the store rather than the first one, which is the difference between a claim and a
-    // fact: operators are minted one at a time and need not share a round count, so working
-    // an unknown name against whichever happened to be listed first could answer it faster
-    // than any real name -- and "that name came back too quickly" is the whole of what a
-    // guesser enumerating names is looking for. Against the most expensive one, no unknown
-    // name is ever cheaper than a known one. What remains visible is that two known names
-    // derived with different round counts cost differently, which is a property of the
-    // credentials themselves and not something this comparison can hide.
+    // One derivation either way. An unknown name is checked against the most expensive
+    // credential in the store, not the first: operators may use different round counts, and
+    // a cheaper check would reveal that the name does not exist. Two known names with
+    // different round counts still cost differently; that is a property of the credentials.
     const Credential *slowest{&m_credentials.first()};
     for (const Credential &credential : m_credentials) {
         if (credential.iterations > slowest->iterations) {

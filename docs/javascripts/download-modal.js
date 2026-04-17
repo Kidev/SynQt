@@ -164,10 +164,10 @@
     return TARGETS[0];
   }
 
-  /* Everything the two choices decide, applied at once: which asset the button fetches,
+  /* Everything the two choices decide, applied at once, which asset the button fetches,
    * what the button and the facts row say, and which of the two shell commands is the one
    * on screen. One function, because the choices are not independent of each other on the
-   * page -- picking Windows in the panel and being left looking at the `curl` line was the
+   * page. Picking Windows in the panel and being left looking at the `curl` line was the
    * whole reason the old "On Windows instead?" link existed. */
   function apply() {
     var one = targetNamed(target);
@@ -361,7 +361,7 @@
       if (e.target === modal) close();
     });
 
-    // One way, not a toggle. The button is the question and the drop-downs are where it
+    // This only ever shows the row. The button is the question and the drop-downs are where it
     // is answered, so once they are on the row there is nothing left for it to ask. Going
     // back is picking Latest and the platform you are on, which is what it would have
     // restored anyway.

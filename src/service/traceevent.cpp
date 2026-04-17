@@ -16,8 +16,8 @@ namespace {
 ///
 /// `fromVariant` reads a record off the wire, and the two enums cross as their numbers, so
 /// a static_cast alone means a number this build has no enumerator for becomes a value of
-/// the enum type anyway. Nothing crashes on one today -- `severityName` and `categoryName`
-/// answer with a default, and the store writes the number down -- but the event it is on is
+/// the enum type anyway. Nothing crashes on one today (`severityName` and `categoryName`
+/// answer with a default, and the store writes the number down), but the event it is on is
 /// then invisible to every category filter the console offers, and to the severity floor
 /// too. An event nobody can find is worse than one that was never sent, so a number outside
 /// the vocabulary is read as the ordinary value rather than kept as an unfilterable one.

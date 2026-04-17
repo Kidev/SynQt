@@ -16,9 +16,9 @@
 // constant time before the code is spent. `context` is opaque and is handed back on the
 // exchange (the desktop loopback return, when there is one).
 //
-// Both are held HERE rather than on the edge that began the login, which is the whole point:
-// it makes a login answerable by any edge process rather than only the one that started it,
-// which is what a replicated edge needs (specs/2026-08-15-multi-edges.md), and it makes the
+// Both are held HERE rather than on the edge that began the login. That makes a login
+// answerable by any edge process rather than only the one that started it,
+// which is what a replicated edge needs (docs/deploying.md, running more than one edge), and it makes the
 // record single-use across all of them rather than once per process.
 //
 // The desktop claim codes are here for the same reason and no other. A code is minted by

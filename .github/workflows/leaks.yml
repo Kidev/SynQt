@@ -88,7 +88,7 @@ jobs:
         # libsecret-1-dev is here for the same reason and one more: without it the Linux
         # secure store is not compiled at all, so this pass would report on a tree missing a
         # file the shipped one has. The keyring daemon that would make it *run* is
-        # deliberately not installed, unlike the ctest column: an unlocked keyring pulls
+        # not installed, unlike the ctest column: an unlocked keyring pulls
         # glib's caches into the process, and LeakSanitizer would charge them to us. With no
         # session bus the store reports itself unavailable before it touches glib, which is
         # what a runner gets anyway.

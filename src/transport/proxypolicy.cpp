@@ -42,7 +42,7 @@ QNetworkProxy proxyFrom(const QString &value)
         return QNetworkProxy{QNetworkProxy::NoProxy};
     }
     // On `://` rather than on whether a scheme parsed, because `gateway.internal:3128` is
-    // a valid URL whose scheme is `gateway.internal` -- a dot is legal in a scheme -- so
+    // a valid URL whose scheme is `gateway.internal` (a dot is legal in a scheme), so
     // asking QUrl leaves a bare host and port looking like a misspelled protocol.
     const QUrl url{value.contains(QLatin1String("://")) ? value
                                                         : QStringLiteral("http://") + value};

@@ -48,18 +48,18 @@ struct ApiConfig
     /// Peers whose `X-Forwarded-For` this surface believes, as addresses or CIDR ranges.
     /// Empty (the default) means the peer that connected is the caller, which is true of a
     /// surface reached directly and false of every request at once as soon as a proxy sits
-    /// in front: there the rate limit above would count one address for everybody. Nothing
+    /// in front. There the rate limit above would count one address for everybody. Nothing
     /// is trusted implicitly, because a header any client can write would otherwise be a
     /// budget any client can pick. The browser side of an edge configures this separately
-    /// (`public.trusted_proxies`); see SynQt::ClientAddress.
+    /// (`public.trusted_proxies`). See SynQt::ClientAddress.
     QStringList trustedProxies;
 
     /// How long a handler may take to answer before the request is failed with 504.
     /// A handler answers on a later turn whenever it reaches a connect point or calls out
     /// (`Api.get("/x", r => Http.api("y").get(...).then(v => r.reply(v)))`), so the
-    /// connection has to be held open for it; a handler that never answers must not hold
-    /// it open forever. Zero waits with no deadline, which is a deliberate choice and not
-    /// the default.
+    /// connection has to be held open for it. A handler that never answers must not hold
+    /// it open forever. Zero is not a way to wait with no deadline. It falls back to the
+    /// default and says so once (see ApiServer::handle).
     int replyTimeoutMs{15000};
 };
 

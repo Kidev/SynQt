@@ -5,9 +5,9 @@
 cross-origin isolation it requires.
 
 Single-threaded WASM is the default and runs everywhere. The multi-threaded client needs
-SharedArrayBuffer, which the browser only exposes to a cross-origin-isolated page; so it
+SharedArrayBuffer, which the browser only exposes to a cross-origin-isolated page. So it
 requires the edge to send COOP ``same-origin`` + COEP ``require-corp``. The CSP also carries
-``worker-src 'self' blob:`` in that mode, kept deliberately rather than because it is needed:
+``worker-src 'self' blob:`` in that mode, kept as a margin rather than because it is needed:
 the pinned kit spawns its pthread workers from same-origin URLs, and a measured run under a
 strict ``worker-src 'self'`` stayed isolated with no violations (see docs/csp.md).
 

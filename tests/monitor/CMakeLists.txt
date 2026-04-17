@@ -5,7 +5,7 @@
 # ring that drops rather than blocks, the tracer and its per-category levels, and the
 # writer thread that batches off the caller's thread.
 #
-# Two executables, and the split is the point. `tst_pipeline` links Qt Core and Qt Test and
+# Two executables, and the split is required. `tst_pipeline` links Qt Core and Qt Test and
 # nothing else, which is what proves the pipeline stayed inside SynQtService and never grew
 # a GPLv3 dependency. `tst_instrumentation` drives a real web edge and a real session store
 # to prove the choke points actually record what they promise, and links what that needs.

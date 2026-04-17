@@ -24,9 +24,7 @@ class ManifestTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = _bundle(Path(tmp) / "client", b"\x00asm" + b"x" * 100)
             data = manifest.manifest(root, "client.wasm")
-        # Load-bearing: the edge serves the wasm with Content-Encoding: br, so a
-        # browser's Content-Length is the compressed size while the stream the boot
-        # script counts is decoded. Progress divides by this, not by Content-Length.
+        # The wasm is served Brotli-encoded, so Content-Length is not the decoded size.
         self.assertEqual(data["wasm_size"], 104)
         self.assertEqual(data["wasm"], "client.wasm")
 

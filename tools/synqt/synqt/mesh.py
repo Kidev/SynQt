@@ -122,14 +122,14 @@ def init(project_dir: os.PathLike[str] | str, *, dev: bool = False, force: bool 
     # is part of the tool's contract, not of the host's configuration. That was the intent
     # of the `req -x509 -addext` this replaces, and -addext does not deliver it: it appends
     # to the config's x509_extensions section instead of replacing it, so the anchor came
-    # out carrying that section's basicConstraints *and* ours. OpenSSL 3 collapses the pair;
-    # LibreSSL, which is the `openssl` on every macOS machine, emits both, and a repeated
-    # extension is invalid per RFC 5280 4.2 -- Apple's verifier duly refuses the anchor and
+    # out carrying that section's basicConstraints and this file's. OpenSSL 3 collapses the
+    # pair. LibreSSL, which is the `openssl` on every macOS machine, emits both, a repeated
+    # extension is invalid per RFC 5280 4.2, and Apple's verifier duly refuses the anchor and
     # every mesh link on that host fails to verify. Signing a CSR with `x509 -req -extfile`
-    # is the same route the entity certs below take: the extension file is the only source
+    # is the same route the entity certs below take. The extension file is the only source
     # of extensions, so the profile is identical on every host's openssl.
     #
-    # keyUsage is the addition over the default v3_ca profile: a CA whose key usage is
+    # keyUsage is the addition over the default v3_ca profile. A CA whose key usage is
     # unstated is one a strict verifier may decline to build a chain through.
     csr = mesh / "ca.csr"
     ext = mesh / "ca.ext"
@@ -186,7 +186,7 @@ def cert(project_dir: os.PathLike[str] | str, entity: str, *, dev: bool = False,
     # name, and Windows has no such device, so feeding the extension in on stdin works on a
     # developer's Linux box and makes `synqt mesh cert` fail outright there.
     #
-    # Both key usages are deliberate. A mesh entity is a TLS server on the links it owns
+    # Both key usages are needed. A mesh entity is a TLS server on the links it owns
     # and a TLS client on the links it consumes, and the same certificate authenticates it
     # in both directions, so it needs serverAuth and clientAuth. Naming them (rather
     # than omitting extendedKeyUsage entirely) is what keeps the certificate portable:
@@ -242,7 +242,7 @@ def _not_after(crt: Path) -> Optional[datetime]:
     output = _openssl("x509", "-enddate", "-noout", "-in", str(crt)).strip()
     if not output.startswith("notAfter="):
         return None
-    # "Aug  4 12:00:00 2027 GMT" -- the day is space-padded, so split on runs of whitespace.
+    # "Aug  4 12:00:00 2027 GMT": the day is space-padded, so split on runs of whitespace.
     fields = output[len("notAfter="):].split()
     if len(fields) < 4 or fields[0] not in _MONTHS:
         return None

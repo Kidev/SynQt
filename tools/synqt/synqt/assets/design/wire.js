@@ -1,19 +1,19 @@
 // SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 // SPDX-License-Identifier: Apache-2.0
 
-// How big the wire is: what a contract's members cost in bytes when they cross the link.
+// How big the wire is. What a contract's members cost in bytes when they cross the link.
 //
 // A connect point says what crosses it. This says how much, because the two questions are
-// asked together and only one of them had an answer on the page: a reader looking at a model
+// asked together and only one of them had an answer on the page. A reader looking at a model
 // of eight roles and a `string[280]` beside it has no idea whether that is a packet or a
 // page, and the difference is what decides whether a property is pushed on every keystroke or
 // on a timer.
 //
 // The numbers are QDataStream's, which is what QtRemoteObjects serialises with, and they are
-// bounds rather than measurements: a `string[60]` is 4 bytes of length and at most 60 UTF-16
+// bounds rather than measurements. A `string[60]` is 4 bytes of length and at most 60 UTF-16
 // code units, so 124, and a shorter one is shorter. That is the useful direction to be wrong
 // in. What a member costs is stated as "at most" wherever every part of it is bounded, and as
-// unbounded wherever one part is not -- an unsized `string` has no ceiling at all, and a
+// unbounded wherever one part is not. An unsized `string` has no ceiling at all, and a
 // number invented for it would be the one thing on this page that was made up.
 //
 // This is the whole of what the editor knows about wire size. Nothing here is a rule: `synqt
@@ -110,10 +110,10 @@ function add(into, one) {
 // What one member costs each time it crosses, and what "once" means for it.
 //
 // A property is one packet per change. A signal or a slot call is one packet per call, and
-// the parameters are what is in it; a slot that answers carries its return value back in a
+// the parameters are what is in it. A slot that answers carries its return value back in a
 // packet of its own, so both are counted. A model is counted per row, because how many rows
-// there are is the application's business and not the contract's -- the contract says what a
-// row holds, and that is the number worth stating.
+// there are is the application's business and not the contract's. The contract says what a
+// row holds, and that is the number this reports.
 export function memberBytes(member, link) {
     const named = String((link && link.owner) || "");
     const packet = PACKET_FIXED + (STRING_CHAR * named.length);
@@ -146,9 +146,9 @@ export function memberBytes(member, link) {
 }
 
 // The whole contract, as the one number worth putting at the top of it: what crosses when
-// every member crosses once, with a model counted as one row. Not a rate and not a total --
-// a system's traffic is how often each of these happens, which is the application's business
-// but it is the size of the wire, which is what somebody sizing one wants.
+// every member crosses once, with a model counted as one row. It is neither a rate nor a
+// total. How often each member crosses is the application's business. What it is instead is
+// the size of the wire, which is what somebody sizing one wants.
 export function contractBytes(link) {
     return (link && link.members || []).reduce(
         (into, member) => add(into, memberBytes(member, link)),

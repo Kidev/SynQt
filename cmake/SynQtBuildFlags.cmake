@@ -29,7 +29,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 option(SYNQT_WARNINGS_AS_ERRORS "Fail the build on a compiler warning" ON)
 option(SYNQT_LTO "Link-time optimisation for release builds" OFF)
 
-# MSVC is true for clang-cl as well, which is the point: the Windows gate under
+# MSVC is true for clang-cl as well, and this branch relies on that: the Windows gate under
 # tools/windows-check drives clang-cl, and it has to be told about the same warnings in
 # the same spelling as cl.exe, not in GCC's.
 if(MSVC)
@@ -64,10 +64,10 @@ endif()
 # CMake already supplies the optimisation level itself (`/O2 /Ob2 /DNDEBUG` for MSVC,
 # `-O3 -DNDEBUG` for GCC and Clang), so what is added here is the part CMake does not do:
 # emitting each function and each variable into its own section so the linker can drop the
-# ones nothing calls. On a binary that links Qt statically -- every WebAssembly client --
+# ones nothing calls. On a binary that links Qt statically (every WebAssembly client)
 # that is the difference between shipping the modules used and shipping the modules linked.
 #
-# Not added, deliberately: link-time optimisation, behind SYNQT_LTO and off. It costs
+# Link-time optimisation is not added. It sits behind SYNQT_LTO and is off. It costs
 # minutes per link, and Qt's static plugin registration relies on constructors in
 # translation units nothing references, which is exactly what an aggressive LTO pass is
 # built to remove. Turn it on for a measured release, not for a working tree.

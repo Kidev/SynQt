@@ -1,19 +1,13 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-"""What type an expression in a QML file has, answered as well as the machine can.
+"""What type an expression in a QML file has.
 
-The contract scan reads a literal and stops there, which is right as far as it goes and
-stops short of most real code. `award(w.id, w.name)` is where a value ends up, not where
-it was built. Following it back is a type checker's job, and TypeScript already infers
-over plain JavaScript, so this module hands it the JavaScript inside a project's QML and
-asks.
-
-Two backends answer the same question. The heuristic one reads a literal and says `var` to
-everything else, which needs nothing installed. The TypeScript one follows the value to
-where it was built, and needs node and `ts-morph`. Neither ever answers a type it cannot
-support: an answer is `var` when nothing proved otherwise, because a wrong type in a
-contract is worse than an open question in one.
+The contract scan reads literals only. TypeScript infers over plain JavaScript, so this
+module hands it the JavaScript inside a project's QML. Two backends: the heuristic one reads
+a literal and answers `var` otherwise, with nothing installed; the TypeScript one follows a
+value back to where it was built and needs node and `ts-morph`. Neither answers a type it
+cannot support.
 """
 
 from __future__ import annotations
@@ -28,14 +22,13 @@ from typing import Dict, List, Optional, Sequence, Set, Tuple
 
 from . import qmlscan
 
-#: How a caller asks for a backend. "auto" takes TypeScript when it is installed and the
-#: heuristic when it is not; "ts" refuses rather than quietly answering worse.
+#: Backend modes. "auto" takes TypeScript when installed, else the heuristic; "ts" refuses
+#: without TypeScript.
 MODES = ("auto", "ts", "heuristic")
 
 _ASSETS = Path(__file__).resolve().parent / "assets" / "tsinfer"
 
-#: How long the node side gets. A type check of a project's QML is a second or two. A
-#: minute means something is wrong, and hanging a CLI on it helps nobody.
+#: Timeout for the node side. A type check takes a second or two.
 _TIMEOUT_SECONDS = 60
 
 #: The kinds `qmlscan` gives a literal, which are the only tokens that prove a type.
@@ -44,16 +37,13 @@ _LITERAL_KINDS = ("string", "int", "real", "bool")
 #: What a directory of build output or installed packages holds is not this project's QML.
 _SKIPPED = ("build", "node_modules")
 
-#: What a declared property is worth in the synthesized scope, picked so that the checker
-#: reads back the type the QML declared. A `real` gets a fraction and an `int` a whole
-#: number, because that is the only difference JavaScript keeps between the two. Anything
-#: not a `.syn` type is `null`, which under `strict: false` is every type and so claims
-#: nothing. A `color` or a `list<Item>` is not something a contract carries.
+#: A declared property's value in the synthesized scope, chosen so the checker reads back
+#: the declared type: a fraction for `real`, a whole number for `int`. Anything that is not
+#: a `.syn` type is `null`, which under `strict: false` claims nothing.
 _PLACEHOLDERS = {"string": '""', "int": "0", "real": "0.5", "double": "0.5",
                  "bool": "false", "var": "null"}
 
-#: A binding runs to the end of the line unless the line ends on one of these, which is
-#: how QML itself decides. An expression that cannot have ended yet has not ended.
+#: A binding continues past the end of a line that ends on one of these, as in QML.
 _CONTINUES = ("+", "-", "*", "/", "%", "<", ">", "=", "&", "|", "?", ":", ",", ".", "!",
               "~", "^")
 
@@ -75,10 +65,8 @@ class Query:
 
 @dataclasses.dataclass(frozen=True)
 class Answer:
-    """What a backend made of one expression, and which backend made it.
-
-    `certain` is false exactly when the type is `var`, so a caller never has to know which
-    backend it asked to know whether it got an answer or a shrug.
+    """What a backend made of one expression, and which backend made it. `certain` is false
+    exactly when the type is `var`.
     """
 
     type: str
@@ -87,11 +75,7 @@ class Answer:
 
 
 class HeuristicBackend:
-    """The answer a literal gives away, and `var` for everything else.
-
-    This is what the scan already reads, offered through the backend interface so that the
-    two paths through `synqt infer` are one path with two answerers rather than two.
-    """
+    """The type a literal gives, and `var` for everything else, behind the backend interface."""
 
     #: It reads the expression it was handed and nothing around it.
     needs_sources = False
@@ -102,12 +86,10 @@ class HeuristicBackend:
 
 
 class TsBackend:
-    """TypeScript's inference over the JavaScript inside the project's QML.
+    """TypeScript inference over the JavaScript inside the project QML.
 
-    The value is followed to where it was built, which is the difference between
-    `slot award(var sub, var name)` and `slot award(string sub, string name)`. What it
-    reaches is still only what the file says: a value that came out of a `property var`
-    was never typed by anyone, and comes back `var` here too.
+    Follows a value back to where it was built (`slot award(string sub, string name)`
+    instead of `var`). A value from a `property var` stays `var`.
     """
 
     #: It needs the file a value was built in, not only the expression it ended up in.
@@ -132,10 +114,8 @@ class TsBackend:
 
 
 def available() -> bool:
-    """Whether the TypeScript backend can run here. Node, and `ts-morph` it can reach.
-
-    Probed once per process, because the answer decides one thing at the start of a
-    command and nothing installs a package while that command runs.
+    """Whether the TypeScript backend can run here: node, and a reachable `ts-morph`. Probed
+    once per process.
     """
     global _probed
     if _probed is None:
@@ -144,11 +124,8 @@ def available() -> bool:
 
 
 def resolve(mode: str, project_dir: os.PathLike[str] | str) -> object:
-    """The backend a `--types` mode asks for, or a sentence saying why it cannot be had.
-
-    "ts" refuses rather than falling back. Asking for TypeScript and silently getting the
-    heuristic would leave a contract full of `var` looking like TypeScript's answer, and
-    the whole point of the flag is to know which one answered.
+    """The backend a `--types` mode asks for, or a sentence saying why it is unavailable. "ts"
+    never falls back.
     """
     if mode not in MODES:
         raise TypeBackendError("unknown type backend %r; it is one of %s"
@@ -166,22 +143,14 @@ def resolve(mode: str, project_dir: os.PathLike[str] | str) -> object:
 
 
 def name_of(backend: object) -> str:
-    """Which backend this is, in the word `--types` names it by.
-
-    `auto` settles the question at run time, so whatever reports an answer has to be able
-    to say who gave it. A report full of `var` means one thing from TypeScript and quite
-    another from the literal reader.
-    """
+    """The `--types` word for this backend, so a report can say who answered."""
     return "ts" if isinstance(backend, TsBackend) else "heuristic"
 
 
 def extract(project_dir: os.PathLike[str] | str) -> List[Tuple[str, str]]:
-    """The JavaScript inside every QML file of a project, one synthesized module each.
-
-    A QML file is not JavaScript, but everything a type checker can say something about in
-    one is. The function bodies, the binding expressions and the handler bodies. Each is
-    copied out under a marker naming the lines it came from, so an answer can be asked for
-    by where it was written rather than by where it landed in the module made here.
+    """The JavaScript inside every QML file of a project, one synthesized module each: function
+    bodies, binding expressions and handler bodies, each under a marker naming its source
+    lines.
     """
     root = Path(project_dir)
     extracted: List[Tuple[str, str]] = []
@@ -196,13 +165,11 @@ def extract(project_dir: os.PathLike[str] | str) -> List[Tuple[str, str]]:
 
 
 def synthesize(path: str, source: str) -> str:
-    """One QML file's JavaScript as a module a type checker will read.
+    """One QML file's JavaScript as a module a type checker reads.
 
-    Every region keeps the source it was cut from, character for character, so an
-    expression can be found again by its own text. The file's root object is declared in
-    front of them with the types the file gave it, and nothing else in QML scope is: an id
-    from another file or an attached property resolves to nothing and comes back `var`,
-    which is the right answer, because this module never saw the object it named.
+    Each region keeps its source text exactly, so an expression can be found by its text.
+    The root object is declared in front with the types the file gives it; other QML names
+    are left undeclared and come back `var`.
     """
     lines = ["// The JavaScript inside %s, so a type checker can follow a value back to"
              % path,
@@ -211,23 +178,19 @@ def synthesize(path: str, source: str) -> str:
     lines.extend(_scope(source))
     for line, text in _regions(source):
         lines.append("")
-        # The marker carries the lines the region covers, not only the one it starts on:
-        # what gets asked about is where an expression was written, which is somewhere in
-        # the middle of a function far more often than at the top of one.
+        # The marker carries the region's whole line range, since queries point into the
+        # middle.
         lines.append("// %s:%d-%d" % (path, line, line + text.count("\n")))
         lines.append(_statement(text))
     return "\n".join(lines) + "\n"
 
 
 def _statement(text: str) -> str:
-    """One extracted region as a statement, isolated from the regions around it.
+    """One extracted region as an isolated statement.
 
-    A block stays a block, and an expression becomes one, because a QML binding is an
-    expression where a handler is a body and the two arrive here the same way. The braces
-    around each region are what keeps two files' `function f` from being one redeclared.
-
-    Nothing wrapped around a region adds a line to it, so the region's own line breaks are
-    the only ones in it and its Nth line is still the QML's Nth line.
+    A block stays a block, an expression becomes one. The braces keep two files' `function
+    f` apart. Nothing wrapped around a region adds a line, so line N of the region is line N
+    of the QML.
     """
     body = text.strip()
     if body.startswith("{") or body.startswith("function"):
@@ -236,13 +199,10 @@ def _statement(text: str) -> str:
 
 
 def _scope(source: str) -> List[str]:
-    """The root object of a QML file, as an object a type checker can read a type off.
+    """The root object of a QML file, declared for the type checker.
 
-    `auction.highBid` is a value with a type the file states plainly, and nothing in the
-    JavaScript cut out of that file says so. Declaring the root object here is what carries
-    the statement across. A declared property lends its declared type, and one only ever
-    assigned lends the type of what it was assigned. Every other name in QML scope is left
-    undeclared, and comes back `var` because nothing here ever claimed to know it.
+    A declared property gives its declared type; one only assigned gives the type of its
+    value. Other QML names stay undeclared.
     """
     tokens = qmlscan.tokenize(source)
     identifier = ""
@@ -279,11 +239,8 @@ def _root_identifier(tokens: Sequence[qmlscan.Token], index: int) -> str:
 
 def _declared_member(tokens: Sequence[qmlscan.Token], index: int,
                      members: List[Tuple[str, str]], declared: Set[str]) -> int:
-    """One member of the root object: `property real aimX`, or `highBid: 0`.
-
-    A declaration outranks an assignment, the same way it does in the contract scan: the
-    file states `property real ratio` once and may assign it a whole number, and the
-    statement is the type, not the number that happened to be handy.
+    """One root object member: `property real aimX` or `highBid: 0`. A declaration outranks an
+    assignment.
     """
     if _is_keyword(_at(tokens, index), "property"):
         type_token = _at(tokens, index + 1)
@@ -337,8 +294,8 @@ def _function_region(tokens: Sequence[qmlscan.Token], index: int, source: str,
         return 0
     opening = close + 1
     if _is_punct(_at(tokens, opening), ":") and _is_ident(_at(tokens, opening + 1)):
-        # `function viewWorld(mass): real`, the annotated spelling. TypeScript has no use
-        # for the annotation, so the body is what is taken and the return type is dropped.
+        # `function viewWorld(mass): real`: the body is taken, the return annotation
+        # dropped.
         opening += 2
     if not _is_punct(_at(tokens, opening), "{"):
         return 0
@@ -353,11 +310,8 @@ def _function_region(tokens: Sequence[qmlscan.Token], index: int, source: str,
 
 
 def _parameter_names(tokens: Sequence[qmlscan.Token], start: int, end: int) -> str:
-    """The names a function takes, without the annotations JavaScript has no syntax for.
-
-    `function steer(sub, name, x: real, y: real)` is ordinary QML and a syntax error as
-    JavaScript, so the names are copied out and the annotations left behind. They would
-    only have said what the checker is being asked to work out.
+    """The parameter names of a function, without QML type annotations (a syntax error in
+    JavaScript).
     """
     names: List[str] = []
     depth = 0
@@ -379,11 +333,8 @@ def _parameter_names(tokens: Sequence[qmlscan.Token], start: int, end: int) -> s
 
 def _binding_region(tokens: Sequence[qmlscan.Token], index: int, source: str,
                     found: List[Tuple[int, str]]) -> int:
-    """`onTriggered: { ... }` and `interval: world.roundMs`: the right hand side of a colon.
-
-    A property declaration, a plain binding and a signal handler are one shape here, and
-    the object keys inside a binding are inside its region rather than beside it, because
-    a region is consumed whole before the walk goes on.
+    """`onTriggered: { ... }` and `interval: world.roundMs`: the right-hand side of a colon.
+    Declarations, bindings and handlers share this shape; a region is consumed whole.
     """
     if not (_is_ident(_at(tokens, index)) and _is_punct(_at(tokens, index + 1), ":")):
         return 0
@@ -391,19 +342,16 @@ def _binding_region(tokens: Sequence[qmlscan.Token], index: int, source: str,
     if end <= index + 2:
         return 0
     if _declares_an_object(tokens, index + 2, end):
-        # `delegate: Rectangle { ... }` is a QML object, and there is no JavaScript that
-        # says it. Nothing is taken from here. The walk goes on into it instead, and the
-        # bindings and handlers inside come out as regions of their own.
+        # A QML object binding (`delegate: Rectangle { ... }`) is not JavaScript. Walk into
+        # it instead.
         return 0
     found.append((tokens[index + 2].line, _slice(source, tokens, index + 2, end - 1)))
     return end - index
 
 
 def _declares_an_object(tokens: Sequence[qmlscan.Token], start: int, end: int) -> bool:
-    """Whether a binding builds a QML object rather than evaluating an expression.
-
-    A block body is left alone: `else {` and `try {` are the same two tokens as `State {`
-    and only one of them is JavaScript. An expression that holds them is not an expression.
+    """Whether a binding builds a QML object rather than evaluating an expression. A block body
+    is left alone: `else {` looks like `State {`.
     """
     if _is_punct(_at(tokens, start), "{"):
         return False

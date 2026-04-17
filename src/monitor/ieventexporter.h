@@ -11,24 +11,16 @@
 
 namespace SynQt {
 
-/// The cold tier. Somewhere the events also go, for an operator who already runs
-/// something.
+/// The cold tier: somewhere the events also go, such as an OpenTelemetry collector,
+/// Grafana, Loki or a hosted backend, alongside SynQt's own store.
 ///
-/// SynQt's own store is the answer to "where do the events go" for a deployment that wants
-/// no second thing to operate. It is deliberately not the only answer: a team already
-/// running an OpenTelemetry collector, Grafana, Loki or a hosted backend should be able to
-/// point SynQt at it and keep the dashboards they have. That is all an exporter is.
+/// Implementations are held to two rules:
 ///
-/// Two rules the implementations are held to, and they are the reason this is an interface
-/// rather than a call in `MonitorService`:
-///
-/// - `take` returns immediately. Whatever is at the other end may be slow, unreachable, or
-///   gone. None of that may reach the monitor's own store or its console, and none of it
-///   may reach the entities being watched (which is why the exporters live here and not in
-///   `Tracer`).
-/// - Nothing queues without a bound. An exporter in front of a collector that stopped
-///   answering is the classic way a monitoring tool takes the machine down with it, so an
-///   exporter drops and counts what it dropped rather than growing.
+/// - `take` returns immediately. A slow, unreachable or missing destination must not reach
+///   the monitor's store, its console, or the entities being watched (which is why the
+///   exporters live here and not in `Tracer`).
+/// - Nothing queues without a bound. An exporter drops and counts what it dropped rather than
+///   growing.
 class IEventExporter
 {
 public:

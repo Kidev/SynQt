@@ -5,23 +5,30 @@
 #
 # Source files carry the collective notice "SPDX-FileCopyrightText: 2026 The SynQt Authors"
 # rather than any individual name (see CONTRIBUTING.md), which only means something if the
-# list of those authors is real and current. This regenerates it from the commit history
-# every time a pull request lands on main, so a contributor is added by the act of
-# contributing and nobody has to remember to edit a file.
+# list of those authors is real and current. AUTHORS is generated from the commit history by
+# .github/scripts/update-authors.sh, so a contributor is added by the act of contributing and
+# nobody has to remember to edit a file.
+#
+# A pull request that regenerated the file itself is the good case, and this workflow does
+# nothing at all for it. This is the safety net for the other case: it regenerates AUTHORS
+# after a merge, and if the result differs from what is on main, it opens a pull request
+# carrying the difference.
+#
+# A pull request rather than a push, because nothing here writes to main. The branch it
+# pushes is its own and holds nothing but the regenerated file, so the maintainer reviews and
+# merges a one file diff like any other, and no automation and no app needs write access to
+# the branch that matters.
 #
 # The trigger is a merged pull request rather than a push to main, so a direct push does not
-# produce a second AUTHORS commit chasing the first. It is `pull_request_target`, not
+# produce a second AUTHORS pull request chasing the first. It is `pull_request_target`, not
 # `pull_request`, for the only reason that matters here: `pull_request` from a fork gets a
-# read-only token and cannot push the result. `pull_request_target` runs the workflow file
-# from the base branch with a writable token, so a fork's pull request cannot alter what
-# runs. Nothing from the pull request head is checked out or executed; the job reads only
-# the merge commit already on main.
+# read-only token and cannot push a branch or open anything. `pull_request_target` runs the
+# workflow file from the base branch with a writable token, so a fork's pull request cannot
+# alter what runs. Nothing from the pull request head is checked out or executed; the job
+# reads only the merge commit already on main.
 #
-# Branch protection: if main requires pull requests or status checks, the default
-# GITHUB_TOKEN cannot push to it. Either allow this workflow to bypass the rule, or give the
-# checkout step a token from an app or account that can. Without one of those the job fails
-# loudly at the push, which is the intended outcome; it must not fail quietly and leave
-# AUTHORS stale.
+# Merging the pull request this opens re-runs the workflow, which regenerates AUTHORS, finds
+# it current, and stops. There is no loop.
 
 name: "[CONTRIB] Update AUTHORS when a pull request lands"
 
@@ -32,11 +39,13 @@ on:
   # Regenerating on demand, for the first run and after any history rewrite.
   workflow_dispatch:
 
+# Nothing is written with the run's own GITHUB_TOKEN; the app token below carries the write.
 permissions:
-  contents: write
+  contents: read
 
-# Two pull requests merging close together would otherwise race to push. Queue instead of
-# cancelling: a cancelled run leaves its author out of the file until the next merge.
+# Two pull requests merging close together would otherwise race to rebuild the branch. Queue
+# instead of cancelling: a cancelled run leaves its author out of the file until the next
+# merge.
 concurrency:
   group: authors
   cancel-in-progress: false
@@ -48,37 +57,64 @@ jobs:
     if: github.event_name == 'workflow_dispatch' || github.event.pull_request.merged == true
     runs-on: ubuntu-24.04
     steps:
+      # Trade the app's private key for an installation token, so the branch and the pull
+      # request come from SynQt-Operations. Scoped to the two permissions this job uses and
+      # revoked when the job ends. Pinned to a commit because it handles the private key.
+      - name: Mint a token for the SynQt-Operations app
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ secrets.SYNQT_CLIENT_ID }}
+          private-key: ${{ secrets.SYNQT_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+
       - name: Check out main
         uses: actions/checkout@v7
         with:
           ref: main
           # The script reads the whole history, so the default shallow clone will not do.
           fetch-depth: 0
+          # Leave the app token in the local git credential, so the push below uses it.
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: Regenerate AUTHORS
         run: bash .github/scripts/update-authors.sh
 
-      - name: Commit and push if it changed
+      - name: Open a pull request if it changed
+        env:
+          # The bot account's numeric id is what links a commit to the app on GitHub, so it
+          # is looked up rather than written down: rename the app and this still resolves.
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          APP_SLUG: ${{ steps.app-token.outputs.app-slug }}
+          BRANCH: authors/update
         run: |
           set -euo pipefail
+
           if git diff --quiet -- AUTHORS; then
-            echo "AUTHORS is already current; nothing to commit."
+            echo "AUTHORS is already current; nothing to open."
             exit 0
           fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          bot_id="$(gh api "/users/${APP_SLUG}[bot]" --jq .id)"
+          git config user.name "${APP_SLUG}[bot]"
+          git config user.email "${bot_id}+${APP_SLUG}[bot]@users.noreply.github.com"
+
+          git checkout -B "${BRANCH}"
           git add AUTHORS
           git commit -m "Update AUTHORS"
-          # main may have moved between the checkout and now. Rebase onto whatever is there
-          # and retry rather than force pushing over somebody else's commit.
-          for attempt in 1 2 3; do
-            if git push origin HEAD:main; then
-              echo "Pushed on attempt ${attempt}."
-              exit 0
-            fi
-            echo "Push rejected on attempt ${attempt}; rebasing onto origin/main."
-            git fetch origin main
-            git rebase origin/main
-          done
-          echo "Could not push AUTHORS after 3 attempts." >&2
-          exit 1
+
+          # The branch carries the regenerated file and nothing else, and it is rebuilt from
+          # main every run rather than added to. Forcing is what keeps the open pull request
+          # showing the current answer instead of a stack of superseded ones.
+          git push --force origin "HEAD:refs/heads/${BRANCH}"
+
+          open="$(gh pr list --head "${BRANCH}" --base main --state open --json number --jq '.[0].number // empty')"
+          if [ -n "${open}" ]; then
+            echo "Pull request #${open} already open; it now carries the update."
+            exit 0
+          fi
+
+          gh pr create --base main --head "${BRANCH}" \
+            --title "Update AUTHORS" \
+            --body "AUTHORS is generated from the commit history by .github/scripts/update-authors.sh. It went out of date when the last pull request merged. This is the regenerated file and nothing else."

@@ -15,10 +15,10 @@
 // across it, which on a canvas of a dozen links is exactly when knowing which line you are
 // working on matters most.
 //
-// A thing hovered lights everything that is the same fact as itself: a line lights the
+// A thing hovered lights everything that is the same fact as itself. A line lights the
 // contract it carries, because that is what crosses it, and the scope seat it lands on,
 // because that is who answers it. Pointing at a line and being shown only the line leaves
-// the two ends of the question -- what crosses, and who serves it -- for the reader to trace
+// the two ends of the question (what crosses, and who serves it) for the reader to trace
 // by eye across whatever else the canvas holds.
 //
 // Nothing here reads the editor's state and nothing here redraws. `redraw()` from a
@@ -148,9 +148,9 @@ export function hoverKey(what) {
 // selected. `wanted` is that thing's own `hoverSet`, already worked out by the caller.
 //
 // It may when nothing is selected, and when the pointer is on the selection itself. It may
-// not when the pointer is on some other point: the selection has already written OWNER and
+// not when the pointer is on some other point. The selection has already written OWNER and
 // CONSUMER on its own two ends and left them there, so a second pair from the pointer lands
-// on a chain -- a > b > c, with (a > b) selected and (b > c) under the pointer -- and the
+// on a chain (a > b > c, with (a > b) selected and (b > c) under the pointer), and the
 // entity in the middle carries both words at once, saying it is the owner and the consumer
 // of nothing in particular. While something is selected, hovering elsewhere says where the
 // pointer is and no more.
@@ -223,7 +223,7 @@ export function clearHighlight(root) {
 // "consumer" only under the pointer meant the two ends of the thing in hand went dark the
 // moment the pointer left the line to reach the panel, which is every time. Its own classes
 // rather than the hover ones, because clearHighlight() takes those off whenever the pointer
-// leaves the canvas -- which, again, is what reaching for the panel is.
+// leaves the canvas, which, again, is what reaching for the panel is.
 export function litSelection(root, design, selected) {
     const wanted = hoverSet(design, selected);
     for (const node of root.querySelectorAll("[data-entity]")) {

@@ -188,8 +188,8 @@ private slots:
 
     // How many rows one question may return.
     //
-    // The number arrives from a console over a connect point as a plain `int` -- the
-    // contract vocabulary sizes strings and lists and has nothing to say about integers --
+    // The number arrives from a console over a connect point as a plain `int` (the
+    // contract vocabulary sizes strings and lists and has nothing to say about integers),
     // and every row it asks for is built into a QVariantList and serialized back over the
     // link. Unbounded, one question was a way to make the monitor materialize its whole
     // table at once, which is the one thing every other stage of this pipeline (the ring,

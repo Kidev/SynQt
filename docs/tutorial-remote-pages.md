@@ -3,23 +3,21 @@
 
 # The light storefront
 
-Every view a SynQt client can show is normally compiled into the bundle a visitor
-downloads. That is the right default, and it is the wrong one for a page that changes
-weekly and that most visitors never open. This tutorial is about the other kind of
-route, the one the web edge delivers on demand, and about being careful with it,
-because a page that arrives at run time is a page that arrived from the network.
+A SynQt client normally compiles every view into the bundle a visitor downloads. That is
+the right default, but not for a page that changes weekly and that most visitors never
+open. This tutorial covers the other kind of route: one the web edge delivers on demand.
+Such a page arrives from the network at run time, so it needs care.
 
-You will build a small storefront called the stall. Its product grid and cart are
-compiled in, like everything you have written so far. Its marketing campaign pages are
-not. They live on the edge, they are fetched the first time somebody opens one, and a
-merchandiser can rewrite one without rebuilding a client or asking a visitor to reload
-anything.
+You will build a small storefront called the stall. Its product grid and cart are compiled
+in, like everything you have written so far. Its campaign pages are not: they live on the
+edge, the client fetches one the first time somebody opens it, and a merchandiser can
+rewrite one without rebuilding the client or making visitors reload.
 
 ## What you will build
 
-A three entity shop. The browser talks only to the web edge. The edge owns the live
-catalog, delivers the campaign pages, and is the only thing that reaches the database
-holding the durable stock.
+A shop with three entities. The browser talks only to the web edge. The edge owns the live
+catalog, delivers the campaign pages, and is the only entity that reaches the database
+holding the stock.
 
 ```mermaid
 flowchart LR
@@ -37,40 +35,37 @@ flowchart LR
 ```
 
 The finished app is
-[`examples/stall`](https://github.com/Kidev/SynQt/tree/main/examples/stall), so you can
-read the whole thing at any point, or run it if a step goes sideways.
+[`examples/stall`](https://github.com/Kidev/SynQt/tree/main/examples/stall). Read it at any
+point, or run it if a step goes wrong.
 
-[Open it in the designer](/designer/#example=stall) to see the finished shape
-before you build it, the entities, the links, and beside each line the contract that
-crosses it. Nothing is installed, and pulling it apart there changes nothing on your
-disk.
+[Open it in the designer](/designer/#example=stall) to see the finished system before you
+build it: the entities, the links, and the contract on each line. The designer runs in
+the browser and changes nothing on your disk.
 
 ## What you will learn
 
-- How a route table splits into pages the bundle carries (`view:`) and pages the edge
-  delivers (`remote:`), and why the choice belongs to the route rather than to the code
-  in it.
-- What a delivered page is allowed to do, `router.palette`, the list of modules such a
-  page may import, and why that list is a trust boundary rather than a convenience.
-- How to paint a delivered page's first frame with real content, using a page seed that
-  runs on the edge, per request, before the page is sent.
-- How caching keeps the second visit cheap. The page body travels once, under a content
-  hash, while the seed stays fresh on every navigation.
-- Why a `scope:` on a delivered page protects that page's markup and never its data,
-  and where the check that does protect data lives.
-- How to give a delivered page a real URL, one a visitor can bookmark, refresh, edit by
-  hand, and reach with the Back button.
+- **Two kinds of route:** pages the bundle carries (`view:`) and pages the edge delivers
+  (`remote:`), and why the route makes that choice, not the code in it.
+- **The palette:** `router.palette` lists the modules a delivered page may import. It is a
+  trust boundary.
+- **Page seeds:** a seed runs on the edge, per request, before the page is sent, so a
+  delivered page's first frame shows real content.
+- **Caching:** the page body travels once, under a content hash, while the seed stays
+  fresh on every navigation.
+- **What a scope protects:** a `scope:` on a delivered page protects the page's markup,
+  never its data, and the check that protects data lives elsewhere.
+- **Real URLs:** a delivered page gets a URL a visitor can bookmark, refresh, edit by hand
+  and reach with the Back button.
 
 ## Before you start
 
 Do [the auction](tutorial.md) first, or at least
 [the base case](tutorial-base-auction.md) and
-[a permanent Hall of Fame](tutorial-hall-of-fame.md). The stall's catalog and its
-database entity are the auction's pattern with different nouns, so this tutorial keeps
-them brief and spends its pages on what is new. If connect points, `Caller`, and a
-database entity behind the edge are already familiar, nothing here will be a surprise.
+[a permanent Hall of Fame](tutorial-hall-of-fame.md). The stall's catalog and database
+entity follow the auction's pattern, so this tutorial covers them briefly and focuses on
+what is new.
 
-Then create this tutorial's project and leave it running:
+Then create the project and leave it running:
 
 ```cli
 synqt new stall
@@ -79,10 +74,10 @@ synqt new stall
 `synqt new` asks nothing and scaffolds the defaults: a client, a web edge, no
 authentication and no other entities.
 ([`synqt create`](build-system-and-cli.md#scaffolding-a-project-synqt-new-and-synqt-create)
-is the twin that asks these as questions.) You will write the route table, the campaign
-page, and the seed yourself, and you can lift the catalog and the `stock` entity from
-[`examples/stall`](https://github.com/Kidev/SynQt/tree/main/examples/stall) when you
-want them.
+does the same but asks these as questions.) You write the route table, the campaign page
+and the seed yourself. Copy the catalog and the `stock` entity from
+[`examples/stall`](https://github.com/Kidev/SynQt/tree/main/examples/stall) when you need
+them.
 
 ```cli
 cd stall
@@ -91,23 +86,23 @@ synqt dev
 
 > [!IMPORTANT]
 > Keep `synqt dev` running in this terminal for the whole tutorial. It watches your
-> files and reloads the browser when you save, and it reloads a delivered page without
-> rebuilding the client, which is the point of half of what follows.
+> files, reloads the browser when you save, and reloads a delivered page without
+> rebuilding the client. Half of what follows relies on that.
 
 ## The three parts
 
-1. [Build it](tutorial-remote-pages-build.md): the route table, the palette, the
-   campaign page on the edge, and the seed that paints its first frame. At the end of
-   it the storefront runs.
-2. [Lighter and live](tutorial-remote-pages-live.md): three hands-on checks that make
-   the weight saving and the live editing concrete, and the one boundary an
-   edge-delivered page never crosses.
-3. [Links that work](tutorial-remote-pages-urls.md): the other half of a route, its
-   URL, and what a visitor may do to the address bar without breaking anything.
+1. [Build it](tutorial-remote-pages-build.md): the route table, the palette, the campaign
+   page on the edge, and the seed that paints its first frame. At the end, the storefront
+   runs.
+2. [Lighter and live](tutorial-remote-pages-live.md): three hands-on checks that show the
+   smaller bundle and the live editing, and the one boundary a delivered page never
+   crosses.
+3. [Links that work](tutorial-remote-pages-urls.md): the other half of a route, its URL,
+   and what a visitor can do to the address bar without breaking anything.
 
 > [!NOTE]
-> This tutorial introduces each idea as you use it. The reference behind it is
+> This tutorial introduces each idea as you use it. The references are
 > [remote pages](remote-pages.md) for what the edge delivers and how,
 > [routes and URLs](routing.md) for the route table and the address bar, and
-> [security](security.md#remote-pages-edge-delivered-qml) for the trust position of a
-> page that arrives at run time.
+> [security](security.md#remote-pages-edge-delivered-qml) for how far to trust a page that
+> arrives at run time.

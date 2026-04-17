@@ -61,7 +61,7 @@ Route Handler returning a `ReadableStream` as `text/event-stream`, and that is w
 connections and writes the frames, so the column measures Next.js rather than something
 standing beside it.
 
-The obvious alternative is deliberately **not** a column here. Bolt `ws` onto a custom
+The obvious alternative is **not** a column here. Bolt `ws` onto a custom
 server and Next.js is not in the data path at all: that is `node-bare` with a Next.js
 process next to it, and printing it under this heading would be measuring one stack and
 labelling it with another's name. If that is the deployment being considered, read the
@@ -79,7 +79,7 @@ what the design costs a real deployment:
   is half of what the other columns' transports can do and it is not free to add.
 
 Next.js runs in production mode against a real `next build`, and every route carries
-`export const dynamic = "force-dynamic"`. That second one is load-bearing: without it Next
+`export const dynamic = "force-dynamic"`. That second one matters: without it Next
 prerenders a handler with no request-dependent input at build time and serves it from disk,
 so `/plaintext` and `/json` would be a static file server measured against two frameworks
 doing work.

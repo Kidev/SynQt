@@ -139,9 +139,9 @@ function blockHead(box, label, help) {
 // The `?` beside a label, and the words it holds.
 //
 // Hidden until the pointer is on the section it belongs to, so a panel of settings reads as
-// settings; hovering the mark is what says what the setting is. Every word is still on the
-// thing it explains, which is the whole point of putting a mark on each one rather than a
-// paragraph at the top: the reader asks about the control they are looking at, and gets the
+// settings. Hovering the mark is what says what the setting is. Every word is still on the
+// thing it explains, which is why each control gets its own mark rather than one paragraph
+// at the top: the reader asks about the control they are looking at, and gets the
 // answer to that question and no others.
 //
 // `host` is what the mark is appended to, and the tip is positioned against whichever
@@ -162,7 +162,7 @@ function asked(host, label, help) {
     return host;
 }
 
-// A control that is not a labelled field -- a switch, a row of them -- with a mark of its own.
+// A control that is not a labelled field (a switch, a row of them) with a mark of its own.
 // The wrapper is what the explanation is measured against, and it is also what holds the mark
 // out at the end of the line, away from the words of the switch itself.
 function helped(node, label, help) {

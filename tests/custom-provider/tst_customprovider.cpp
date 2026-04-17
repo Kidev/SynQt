@@ -68,8 +68,8 @@ private slots:
 
     void anUnfinishedProviderFailsLoudlyRatherThanQuietly()
     {
-        // The scaffold compiles before it is finished, which is deliberate: you can wire
-        // the entity up first. What it must never do is look like it worked. Every
+        // The scaffold compiles before it is finished, so you can wire the entity up
+        // first. What it must never do is look like it worked. Every
         // persistence operation reports itself unimplemented, through the interface.
         ProviderConfig config;
         config.name = QStringLiteral("custom:MyStore");

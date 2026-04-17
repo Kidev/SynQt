@@ -3,24 +3,17 @@
 
 """Everything a monitor entity is made of, written in one go.
 
-A monitor is not one entity but three things that only work together. The entity that keeps
-the history, a client that shows it, and the gate that decides who may download that client.
-Scaffolding one of them and leaving the author to wire the other two would be scaffolding
-the easy part. What makes a console safe is the part that is easy to leave out.
-
-So `synqt add entity ops --type monitor` writes:
+`synqt add entity ops --type monitor` writes:
 
 * the monitor entity, which keeps the history and serves the console on its own port;
 * a console client, marked `console: true`, delivered only to an operator;
-* `monitoring.entity`, which is what makes every service report to it;
-* a `bundles:` block whose anonymous entry is a static sign-in page, so a visitor with no
-  operator session cannot download the console at all;
-* the sign-in page itself.
+* `monitoring.entity`, which makes every service report to it;
+* a `bundles:` block whose anonymous entry is a static sign-in page, so a visitor without an
+  operator session cannot download the console;
+* the sign-in page.
 
-The console's QML is generic. It reads the framework's own `Console` contract,
-whose every type is a string, a number or a bool, so the same console serves an auction, an
-arena, and a system nobody has written yet. A project that adds an entity does not rebuild
-it.
+The console QML is generic: it reads the framework `Console` contract, whose types are
+strings, numbers and bools, so adding an entity does not rebuild it.
 """
 
 from __future__ import annotations
@@ -31,8 +24,7 @@ from typing import Any, Dict, List
 
 from . import appmodel
 
-#: The palette the loading page uses, so a console looks like the rest of SynQt rather than
-#: like a different product bolted on.
+#: The loading-page palette, so the console matches the rest of SynQt.
 BACKGROUND = "#0d1224"
 SURFACE = "#161c33"
 SURFACE_HIGH = "#1e2542"
@@ -46,17 +38,10 @@ BAD = "#ff6b6b"
 
 
 def free_port(config: Dict[str, Any]) -> int:
-    """A port no browser-facing entity in this project already has.
+    """A port no browser-facing entity in this project binds.
 
-    A project gains its second browser-facing server the moment it gains a monitor: the
-    edge serves the application, the monitor serves its console. Both would default to 8443
-    and the first `synqt dev` afterwards would fail to bind one of them, so the scaffolder
-    steps past what is taken rather than writing a collision for `synqt check` to report.
-
-    Taken means bound, not written down. This read only declared ports, so on the commonest
-    project there is -- one whose edge never wrote a `public:` block, because it had no
-    reason to -- it saw nothing taken and handed the monitor the very port that edge was
-    about to bind.
+    The edge and the monitor both default to 8443. An entity that declares no port counts as
+    binding the default.
     """
     taken = {appmodel.public_port(entity) for entity in appmodel.entities(config)
              if appmodel.serves_browser(entity)}
@@ -71,9 +56,7 @@ def monitor_block(name: str, config: Dict[str, Any] | None = None) -> Dict[str, 
     return {
         "name": name,
         "type": "monitor",
-        # Loopback by default, and said out loud in the scaffold. A console that shows every
-        # request a system has served is not something to put on a public interface because
-        # nobody thought about it. Reaching it should mean reaching the machine first.
+        # Loopback by default: reaching the console should mean reaching the machine first.
         "public": {"host": "127.0.0.1", "port": free_port(config or {})},
         "retention": {"max_age_days": 14, "max_bytes": 512 * 1024 * 1024},
     }
@@ -84,31 +67,24 @@ def console_block(name: str, monitor: str) -> Dict[str, Any]:
     return {
         "name": name,
         "type": "client",
-        # One word, because the difference is not a shade of configuration: a console is
-        # delivered by the monitor, gated on `operator`, and reaches the application's own
-        # entities not at all.
+        # A console is delivered by the monitor, gated on `operator`, and reaches no
+        # application entity.
         "console": True,
         "edge": monitor,
     }
 
 
 def bundles_block(console: str) -> Dict[str, str]:
-    """Who may download what, from the monitor's own port.
-
-    The whole gate. An anonymous visitor gets a sign-in page and nothing else. Not a 403 on
-    the console, which would confirm it is there, but a different bundle entirely. The
-    console itself is only addressable once a session holds `operator`.
+    """Who may download what from the monitor port. An anonymous visitor gets the sign-in page
+    (a different bundle, not a 403); the console needs a session holding `operator`.
     """
     return {"anonymous": "signin/", appmodel.MONITOR_SCOPE: console}
 
 
 def signin_page(monitor: str) -> str:
-    """The static page an anonymous visitor gets instead of the console.
-
-    Plain HTML and one fetch, because it is what a browser is handed before anything
-    has been authenticated, so the less of it there is, the less there is to get wrong. It
-    posts to the monitor's own sign-in route and reloads, at which point the delivery gate
-    hands the same URL the console instead.
+    """The static page an anonymous visitor gets instead of the console. Plain HTML and one
+    fetch: it posts to the monitor sign-in route and reloads, and the gate then serves the
+    console.
     """
     return f"""<!-- SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
@@ -160,8 +136,7 @@ def signin_page(monitor: str) -> str:
       window.location.reload();
       return;
     }}
-    // One message for every failure. Saying which half was wrong tells whoever is
-    // guessing which operator names exist.
+    // One message for every failure, so a guesser cannot tell which operator names exist.
     said.textContent = "That did not work.";
     form.password.value = "";
     form.password.focus();
@@ -173,28 +148,21 @@ def signin_page(monitor: str) -> str:
 
 
 def console_qml(monitor: str) -> str:
-    """The console itself: one page, the live tail, a filter, and the health strip.
-
-    Generic by construction. Everything it shows arrives through the framework's `Console`
-    contract as a string, a number or a bool, so nothing here knows what the system it is
-    watching is made of, and a project that adds an entity does not rebuild it.
+    """The console: one page with the live tail, a filter and the health strip. It knows
+    nothing about the system it watches (see the module docstring).
     """
-    # The attached-handler name is the CONTRACT, not the owner: `<Contract>.on<Signal>` is
-    # what the consumer facade registers as a QML type (see synqtc's consumer output). For
-    # the monitor's console point that is the framework's own `Console`, whatever the
-    # monitor entity is called, which is the same reason this file does not change when the
-    # topology does.
+    # The attached-handler name is the contract, `Console`, whatever the monitor is called
+    # (`<Contract>.on<Signal>`, see synqtc's consumer output).
     accessor = appmodel.MONITOR_CONSOLE_CONTRACT
     return f'''// SPDX-FileCopyrightText: 2026 Alexandre \'kidev\' Poumaroux
 // SPDX-License-Identifier: Apache-2.0
 
-// The monitoring console. One page: what every entity is doing right now, what the monitor
-// itself is doing, and a way to ask a different question.
+// The monitoring console: what every entity is doing now, what the monitor itself is
+// doing, and a search.
 //
-// `Server` is the monitor, which is this client\'s edge; `{accessor}` is its contract, which
-// is what an attached signal handler is written against. Every value shown arrives through
-// the framework\'s own `Console` contract, so this file knows nothing about the system it
-// watches.
+// `Server` is the monitor, this client\'s edge; `{accessor}` is its contract, which attached
+// signal handlers name. Every value arrives through the framework `Console` contract, so
+// this file does not depend on the system it watches.
 import SynQt
 import QtQuick.Controls
 import QtQuick.Layouts
@@ -238,9 +206,8 @@ ApplicationWindow {{
             Layout.fillWidth: true
             spacing: 12
 
-            // What the monitor itself is doing. `dropped` is the honest half: the pipeline
-            // drops rather than blocks, so a quiet period and a hole in the record look the
-            // same until something says which it was.
+            // The monitor's own counters. The pipeline drops rather than blocks, and
+            // `dropped` shows whether a quiet period is a gap in the record.
             Repeater {{
                 model: [
                     {{ "label": qsTr("received"), "value": Server.received, "warn": false }},
@@ -284,9 +251,8 @@ ApplicationWindow {{
                 Layout.fillWidth: true
             }}
 
-            // One row per entity the monitor has heard from. An entity that has stopped
-            // reporting is the case a monitor exists to notice, and silence is
-            // indistinguishable from health without a row that says when it was last heard.
+            // One row per entity the monitor has heard from, with when it was last heard,
+            // so an entity that stopped reporting is visible.
             Repeater {{
                 model: Server.entities
 
@@ -350,9 +316,8 @@ ApplicationWindow {{
                 onAccepted: window.ask()
             }}
 
-            // A field rather than a list of entities: the list lives in the `entities`
-            // model, which is a QAbstractItemModel and not something QML can turn into a
-            // combo box's array without the Source publishing a second copy of it.
+            // A text field, not a combo box: the entity list is a QAbstractItemModel, and a
+            // combo box would need the Source to publish a second copy as an array.
             TextField {{
                 id: entityFilter
 
@@ -464,7 +429,7 @@ ApplicationWindow {{
                             text: row.durationMs > 0 ? row.durationMs.toFixed(1) + " ms" : ""
                         }}
 
-                        // One click\'s whole story, across every entity it touched.
+                        // Opens the whole trace, across every entity it touched.
                         Label {{
                             color: window.accent
                             font.pixelSize: 11
@@ -480,9 +445,8 @@ ApplicationWindow {{
         }}
     }}
 
-    // What the last question could not answer, said to the operator who asked it. The
-    // attached handler names the contract, which is the framework\'s own and not this
-    // monitor\'s, so this line is the same in every project.
+    // Shows why the last query was refused. The handler names the framework contract, so
+    // this line is the same in every project.
     {accessor}.onRefused: reason => {{
         search.placeholderText = reason;
     }}
@@ -490,39 +454,23 @@ ApplicationWindow {{
 '''
 
 
-#: Where a monitor's own name goes in the templates :func:`design_asset` publishes.
-#:
-#: Only the sign-in page has one. The console's QML is the same text for every project,
-#: which is not a coincidence to be relied on quietly. It reads the framework's own
-#: `Console` contract, so it has nothing in it to name.
+#: Where the monitor name goes in the templates :func:`design_asset` publishes. Only the
+#: sign-in page has one; the console reads the `Console` contract and names nothing.
 DESIGN_NAME_TOKEN = "__MONITOR_NAME__"
 
 
 def design_asset() -> Dict[str, Any]:
-    """Everything the design editor needs to draw a monitor with no SynQt behind the page.
+    """Everything the hosted design editor needs to draw a monitor without a SynQt backend.
 
-    The hosted editor has no scaffolder. It could not offer a monitor at all, because three
-    of the four things one is made of are files rather than configuration, and a project
-    downloaded with a monitor and no console is a project that cannot be finished: the CLI
-    refuses to complete an entity that already exists. So the row was dimmed and the page
-    told the reader to go and use the CLI.
-
-    This is the other way of answering that, and the one that does not cost a second copy of
-    anything: the scaffolder publishes what it would have written, the editor writes the
-    same bytes, and `tests/test_monitoring.py` fails the build when the two stop matching.
-    The functions below are the ones :func:`scaffold` itself calls, so there is one writer
-    and one answer, read twice.
-
-    The name is left as :data:`DESIGN_NAME_TOKEN` for the editor to substitute, because the
-    editor is what knows what the reader called the thing.
+    The editor writes the same bytes the scaffolder would, and `tests/test_monitoring.py`
+    fails when they diverge. The functions used are the ones :func:`scaffold` calls. The
+    name is left as :data:`DESIGN_NAME_TOKEN` for the editor to substitute.
     """
     console = f"{DESIGN_NAME_TOKEN}-console"
     return {
         "name_token": DESIGN_NAME_TOKEN,
         "console_suffix": "-console",
-        # free_port() beside one web edge that has not written a port, which is what the
-        # editor's output looks like: it writes a `public:` block for a monitor and none for
-        # an edge, so the edge is on the default and the monitor has to step past it.
+        # free_port() beside one web edge with no port, as in the editor output.
         "port": free_port({"entities": [{"name": "web", "type": "web_edge"}]}),
         "retention": monitor_block(DESIGN_NAME_TOKEN)["retention"],
         "bundles": bundles_block(console),
@@ -533,15 +481,10 @@ def design_asset() -> Dict[str, Any]:
 
 
 def scaffold(project_dir: os.PathLike[str] | str, name: str) -> str:
-    """Write the monitor, its console client, the gate, and the key that wires it all up.
-
-    All four or none. A monitor with no console is a store nobody reads. A console with no
-    gate is every request the system has served, served to whoever finds the port, and
-    neither is any use without `monitoring.entity`, which is the one line that makes the
-    other entities report at all.
+    """Write the monitor, its console client, the gate, and `monitoring.entity`. All four or
+    none.
     """
-    # Imported here rather than at module scope. `addentity` imports this module to route
-    # `--type monitor` here, so importing it back at the top is a cycle.
+    # Local import: `addentity` imports this module.
     from . import addentity, appgen, presets, yamledit
     import yaml
 
@@ -561,16 +504,14 @@ def scaffold(project_dir: os.PathLike[str] | str, name: str) -> str:
     if not config_path.exists():
         config_path.write_text("entities: []\n")
 
-    # Spliced into the text, like every other scaffold. The file is the author's, and one
-    # added entity is not a reason to lose their comments and their formatting.
+    # Spliced into the text, keeping the author's comments and formatting.
     text = config_path.read_text()
     text = yamledit.append_item(text, "entities", monitor)
     text = yamledit.append_item(text, "entities", console_block(console, name))
     config_path.write_text(text)
 
-    # The one line that makes every service report. Written last, so a half-written scaffold
-    # leaves a project that is merely missing a monitor rather than one whose entities are
-    # all reporting to an entity that is not there.
+    # Written last, so an interrupted scaffold leaves no entity reporting to a missing
+    # monitor.
     config = yaml.safe_load(config_path.read_text()) or {}
     if not appmodel.monitor_entity(config):
         config_path.write_text(config_path.read_text().rstrip("\n")

@@ -253,9 +253,8 @@ tax. If a later change spends that budget, the answer is a compile-time branch, 
 mutex: an entity that pays for monitoring it has switched off is a tax on every SynQt app.
 
 The other two rows are reported and sanity-checked rather than tightly gated. `record_enabled`
-at ~ 42 ns is a mutex, a move and an integer update, which is the cost of the deliberate
-choice of a plain `QMutex` over a lock-free ring; that choice is what this row exists to keep
-honest. `record_dropping` being *cheaper* than `record_enabled` is not a mistake: a full ring
+at ~ 42 ns is a mutex, a move and an integer update, which is what choosing a plain
+`QMutex` over a lock-free ring costs; that choice is what this row exists to keep honest. `record_dropping` being *cheaper* than `record_enabled` is not a mistake: a full ring
 overwrites in place and never grows, while the enabled path is also competing with a writer
 thread draining it. What matters is that it stays a flat constant, which is what makes an
 entity under a burst degrade by losing events rather than by falling over.
@@ -505,9 +504,9 @@ nothing about whether it is fast. [`vs-node/`](vs-node/README.md) puts it beside
 the workload SynQt exists for: one publisher, N live subscribers, everyone sees every
 change. Five columns, because no one Node column alone is arguable: bare Node built-ins are
 the floor SynQt has to beat and nobody ships them, Socket.IO is what people deploy and is the
-easier comparison, and Next.js is what most readers are already running -- with no WebSocket
-server of its own, so its live path is a Route Handler streaming server-sent events and it is
-the one column not carrying the same protocol as the rest.
+easier comparison, and Next.js is what most readers are already running. Next.js has no
+WebSocket server of its own, so its live path is a Route Handler streaming server-sent events
+and it is the one column carrying a different protocol from the rest.
 
 It measures the other direction too, because that is the direction most application code
 goes: a caller asks the server to do something and waits for the value. There the Next.js

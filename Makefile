@@ -11,13 +11,13 @@
 # That last one is why this file exists. Three things on a developer's machine shadow the
 # tree they are editing, and none of them announces itself:
 #
-#   * `~/.local/bin/synqt` -- an installed CLI. A release binary sitting there answers
+#   * `~/.local/bin/synqt`: an installed CLI. A release binary sitting there answers
 #     `synqt design` with whatever it was built from, months ago. `make cli` replaces it
 #     with an editable install of this checkout.
-#   * `tools/synqt/synqt/framework/` -- a vendored copy of src/ and cmake/ that a wheel
+#   * `tools/synqt/synqt/framework/`: a vendored copy of src/ and cmake/ that a wheel
 #     build leaves behind. A stale one shadows `synqtc` in an interpreter that imports it,
 #     and the whole test suite fails on contracts it parsed fine yesterday.
-#   * `site/` -- MkDocs output. `site/designer/` in particular is a copy of the editor, and
+#   * `site/`: MkDocs output. `site/designer/` in particular is a copy of the editor, and
 #     opening it instead of `synqt design` shows an editor from whenever it was last built.
 #
 # `make doctor` reports all three without changing anything; `make clean-stale` clears them.
@@ -42,7 +42,7 @@ CLI    := $(CURDIR)/tools/synqt
 
 .PHONY: help
 help:
-	@echo "SynQt -- make <target>"
+	@echo "SynQt: make <target>"
 	@echo
 	@echo "  Set up"
 	@echo "    cli            install the CLI from this checkout, editable (replaces any"
@@ -74,10 +74,10 @@ help:
 
 # Editable, so the CLI on PATH is the tree being edited and not a snapshot of it.
 #
-# Through pipx rather than pip: this is an application and not a library, which is what pipx
+# Through pipx rather than pip. This is an application and not a library, which is what pipx
 # is for, and it is what the guide tells a reader to install SynQt with. It is also the only
 # one of the two that works unaided on a distribution whose Python is externally managed
-# (PEP 668) -- `pip install --user` is refused outright on Arch.
+# (PEP 668). `pip install --user` is refused outright on Arch.
 #
 # `--force` because the point of this target is to take over from whatever is answering now,
 # and the usual case is a release binary that pipx did not put there and will not replace on
@@ -211,7 +211,7 @@ lint-mermaid:
 
 # The one node package the CLI's TypeScript backend needs, installed the way its own error
 # message asks for it. Without it that backend cannot run, and the tests covering it skip
-# rather than fail -- which is the quietest way for a capability to go missing.
+# rather than fail, which is the quietest way for a capability to go missing.
 .PHONY: node-deps
 node-deps:
 	@test -d node_modules/ts-morph || npm install --no-save --no-fund --no-audit ts-morph
@@ -236,7 +236,7 @@ docs:
 
 .PHONY: docs-serve
 docs-serve: docs
-	@echo "serving $(DOCS_OUT) on http://127.0.0.1:$(DOCS_PORT) -- Ctrl-C to stop"
+	@echo "serving $(DOCS_OUT) on http://127.0.0.1:$(DOCS_PORT) (Ctrl-C to stop)"
 	@cd $(DOCS_OUT) && $(PYTHON) -m http.server $(DOCS_PORT)
 
 # Clean
@@ -254,8 +254,8 @@ clean:
 	@echo "cleaned build outputs, generated trees and caches"
 	@echo "(node_modules is left alone: re-fetching it is a download, not a rebuild)"
 
-# The copies that answer in place of this checkout. Both are regenerated on demand -- the
-# vendored tree by a wheel build, site/ by `mkdocs build` -- so neither is work to lose.
+# The copies that answer in place of this checkout. Both are regenerated on demand (the
+# vendored tree by a wheel build, site/ by `mkdocs build`), so neither is work to lose.
 .PHONY: clean-stale
 clean-stale:
 	rm -rf tools/synqt/synqt/framework site

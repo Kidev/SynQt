@@ -142,8 +142,8 @@ jobs:
         # Several suites (appgen-native, desktop-client, m8-auth, custom-provider, m1-contract)
         # drive the synqt package over PYTHONPATH to generate what they then compile, so this
         # workflow needs the CLI's runtime deps even though the Python suites themselves live in
-        # tests.yml. Without them two suites died on ModuleNotFoundError: No module named 'yaml'
-        # -- a failure that reads like a broken generator and is really a missing package.
+        # tests.yml. Without them two suites died on ModuleNotFoundError: No module named 'yaml',
+        # a failure that reads like a broken generator and is really a missing package.
         #
         # The `python3` check is for Windows: those scripts all invoke `python3`, which is the
         # only name that exists on Linux/macOS but is a shim setup-python provides on Windows.
@@ -198,16 +198,15 @@ jobs:
               sudo apt-get update
               # libhiredis-dev and libmongoc-dev are what compile the redis and mongodb
               # providers in at all: src/providers/CMakeLists.txt looks for each and leaves
-              # the wrapper out when it is missing, so without these two the Linux column was
-              # not merely skipping their tests, it was building neither file. libpq-dev is
-              # for the QPSQL plugin's client library. All three are optional to the build
-              # and none of the other columns install them, which is the point: the engines
-              # below only run here.
+              # the wrapper out when it is missing, so without these two the Linux column
+              # skipped their tests and built neither file. libpq-dev is for the QPSQL
+              # plugin's client library. All three are optional to the build and none of the
+              # other columns install them: the engines below only run here.
               # libsecret-1-dev is not optional coverage the way the three above are: without
               # it src/client/CMakeLists.txt leaves SecretServiceStore out of the build
               # entirely, so the backend that ships to every Linux desktop visitor
-              # (docs/desktop.md#storing-the-session) was not merely untested here, it was not
-              # compiled. gnome-keyring and dbus are what tests/lib/keyring-session.sh needs to
+              # (docs/desktop.md#storing-the-session) went untested here and uncompiled.
+              # gnome-keyring and dbus are what tests/lib/keyring-session.sh needs to
               # hand the suite a private session bus and a private, unlocked keyring; a runner
               # has neither logged in, and without them every store test skips.
               sudo apt-get install -y libssl-dev libgl1-mesa-dev \
@@ -290,7 +289,7 @@ jobs:
         # workflow's aqt identically keeps the three from drifting onto different Qt-repository
         # knowledge. Revisit once it ships.
         #
-        # shell: bash is load-bearing, not house style. Without it this step runs under the
+        # shell: bash is required here. Without it this step runs under the
         # Windows runner's default shell, PowerShell, where a trailing backslash is not a line
         # continuation: pwsh ran `pip install \` (which reported: Directory '\' is not
         # installable) and then tried to execute the package spec as its own command. Every step
@@ -495,8 +494,8 @@ jobs:
           # One tree, one ctest, then the suites whose entry point is a generator rather than
           # CMake. tests/run-all.sh is the same command a developer runs locally, and
           # tests/CMakeLists.txt is the registry it reads: a suite that is neither built nor
-          # explicitly accounted for fails the configure step, so this workflow no longer needs
-          # a list of its own to drift from. A CMake warning fails the run there too.
+          # explicitly accounted for fails the configure step, so this workflow keeps no list
+          # of its own to drift from. A CMake warning fails the run there too.
           bash tests/run-all.sh
 
       # Linux only: gcov reads counters written by the compiler that produced them, so the

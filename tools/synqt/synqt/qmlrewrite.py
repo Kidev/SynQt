@@ -3,7 +3,7 @@
 
 """Copy every entity's QML into ``generated/``, with the root object made loadable.
 
-A SynQt file is named after the thing it is, and its root object is written as that thing::
+A SynQt file is rooted at its own name::
 
     // web/edge/Edge.qml
     Edge {
@@ -11,35 +11,18 @@ A SynQt file is named after the thing it is, and its root object is written as t
         ...
     }
 
-That reads correctly, and for a connect point it *is* correct. The owner's file is the
-Source of the point, the point's contract compiles to a type of the same name, and
-``import SynQt`` puts that type in scope. An explicit import beats the implicit import of
-the containing directory, so ``Edge`` there is the contract, not the file.
+For a connect point owner, ``Edge`` is the contract type ``import SynQt`` provides, which
+beats the directory import. For an entity that exports nothing there is no such type, and
+QML resolves the name to the file itself: "Edge is instantiated recursively". This pass
+mirrors each entity folder into ``generated/`` and retypes a self-named root to ``QtObject``
+where no type of that name exists. The author's files are never rewritten.
 
-An entity that exports nothing has no such type, and QML resolves the name to the file
-itself. That is not an error the engine can shrug off; it refuses the document with "Edge
-is instantiated recursively", at start-up, with nothing built to point at. So the same
-sentence is either the whole point or a fatal load failure depending on a fact the author
-cannot see from the file.
+``QtObject`` is what the scaffold writes for such an entity
+(:func:`synqt.addentity.entity_qml`). A client ``Main.qml`` is never retyped; it must be a
+window, and :func:`synqt.check.lint_client_root` reports it.
 
-This pass makes the sentence always mean the first thing. It mirrors each entity folder
-into ``generated/`` and retypes a self-named root to ``QtObject`` wherever no type of that
-name exists, leaving the connect point case exactly as written. The author's tree keeps the
-name the author chose, and nothing in it is ever rewritten. The copy the engine loads is
-the one that had to differ, which is the rule the rest of ``generated/`` already follows.
-
-``QtObject`` is the substitute because it is what the scaffold writes for an entity with
-nothing exported (:func:`synqt.addentity.entity_qml`), so this only ever produces a file
-the author could have written by hand. A view that wanted ``Item`` has to say ``Item``:
-guessing a visual base from a file name would be inventing a parent, and the one place it
-would matter most (a client's ``Main.qml``, which has to be a window) is already an error
-that :func:`synqt.check.lint_client_root` reports in those words.
-
-The same pass carries the one pragma SynQt spells its own way. A file there is one of opens
-with ``pragma Shared`` (:data:`synqt.appmodel.SHARED_PRAGMA`), which says what the file is
-for; QML's word is ``Singleton``, which names a pattern. The mirror gets the word the engine
-knows. A file that already says ``pragma Singleton`` is left as it is. It means the same
-thing and the engine reads it directly.
+The pass also writes ``pragma Shared`` (:data:`synqt.appmodel.SHARED_PRAGMA`) as the
+``pragma Singleton`` the engine knows. A file that already says ``Singleton`` is left as is.
 """
 
 from __future__ import annotations
@@ -54,25 +37,18 @@ from synqt import appmodel, qmlscan, writer
 #: What a self-named root becomes when nothing of that name exists to be rooted at.
 FALLBACK_ROOT = "QtObject"
 
-#: An author's ``pragma Shared`` line, exactly as written. Anchored to the start of a line,
-#: because that is the only place a pragma may sit, so the word inside a string or a comment
-#: further down the file is not one of these.
+#: An author's ``pragma Shared`` line, anchored to the start of a line.
 _SHARED_PRAGMA = re.compile(rf"^([ \t]*)pragma([ \t]+){appmodel.SHARED_PRAGMA}\b",
                             re.MULTILINE)
 
-#: The files an entity folder contributes to the engine. Everything else in there is
-#: addressed through its own configuration key and resolved against the project root
-#: (`schema.sql` from the provider block, `.env` from the entity), so copying it would
-#: produce a second, staler copy of a file nothing reads from here.
+#: The files an entity folder contributes to the engine. Others (`schema.sql`, `.env`) are
+#: resolved from the project root through their own keys.
 QML_SUFFIXES = (".qml", ".js")
 
 
 def root_type_span(source: str) -> Optional[Tuple[int, int, str]]:
-    """Where the root object's type name sits in `source`, as ``(start, end, name)``.
-
-    The counterpart of :func:`synqt.qmlscan.root_type`, which answers what the name is;
-    this one answers where it is, so it can be replaced without reformatting anything else
-    in the file. Offsets are into `source` as given, comments and all.
+    """Where the root object type name sits in `source`, as ``(start, end, name)``. The
+    positional counterpart of :func:`synqt.qmlscan.root_type`.
     """
     tokens = qmlscan.tokenize(source)
     for index, token in enumerate(tokens):
@@ -96,11 +72,8 @@ def root_type_span(source: str) -> Optional[Tuple[int, int, str]]:
 
 
 def retyped(source: str, replacement: str) -> str:
-    """`source` with its root object's type replaced by `replacement`.
-
-    Only the type name is touched. The id, the body, the comments above it and the file's
-    own formatting all survive, because what comes back has to still be the file its author
-    reads when the build reports a line number in it.
+    """`source` with its root object type replaced by `replacement`. Only the name changes, so
+    line numbers still match the author's file.
     """
     span = root_type_span(source)
     if span is None:
@@ -110,13 +83,10 @@ def retyped(source: str, replacement: str) -> str:
 
 
 def needs_retyping(relative: str, source: str, contracts: set[str]) -> bool:
-    """Is this file's root object named after the file, with no type of that name?
+    """Is this file rooted at its own name, with no type of that name?
 
-    `contracts` is every contract in the topology, which is the set of names that *do*
-    resolve. A connect point's Source is rooted at its contract by design and is left
-    alone. A file whose root is anything else is left alone too, which is almost all of
-    them. Only QML is considered. A ``.js`` file has no root object, and the first brace in
-    one is a function body rather than a type to rename.
+    `contracts` is every contract in the topology: the names that do resolve. Only QML files
+    are considered.
     """
     if not relative.endswith(".qml"):
         return False
@@ -126,23 +96,16 @@ def needs_retyping(relative: str, source: str, contracts: set[str]) -> bool:
 
 
 def with_engine_pragmas(source: str) -> str:
-    """`source` with ``pragma Shared`` written as the ``pragma Singleton`` QML knows.
-
-    The whitespace on the line comes back as it was, so a file's own layout survives and
-    :func:`synqt.writer.write_if_changed` sees no change in one that had nothing to rewrite.
-    An unknown pragma is a hard load error naming the file and the line, which is the right
-    way for this to fail if a file ever reaches the engine without passing through here.
+    """`source` with ``pragma Shared`` written as ``pragma Singleton``, whitespace kept, so an
+    unchanged file stays byte-identical for :func:`synqt.writer.write_if_changed`.
     """
     return _SHARED_PRAGMA.sub(r"\1pragma\2Singleton", source)
 
 
 def transformed(relative: str, source: str, contracts: set[str], *,
                 retype: bool = True) -> str:
-    """What `relative` looks like in ``generated/``: the engine's pragmas, and a real root.
-
-    `retype` is off for the one file whose root must never be quietly fixed, a client's
-    window. The pragma pass still runs on it, because that half is a spelling and not a
-    guess about what the author meant.
+    """What `relative` looks like in ``generated/``: engine pragmas, and a loadable root.
+    `retype` is off for a client window; the pragma pass still runs.
     """
     if not relative.endswith(".qml"):
         return source
@@ -154,12 +117,8 @@ def transformed(relative: str, source: str, contracts: set[str], *,
 
 def entity_qml_files(project_dir: os.PathLike[str] | str,
                      entity: Dict[str, Any]) -> List[str]:
-    """Every QML and JavaScript file under one entity's folder, project-relative.
-
-    Recursive, because a view's helper components, its singletons and an edge's delivered
-    pages all live in subfolders of the entity that owns them, and every one of them has to
-    land in the mirror. A file resolves its siblings through the directory it was loaded
-    from, so a folder copied by halves is a folder whose imports no longer find each other.
+    """Every QML and JavaScript file under one entity folder, recursively, project-relative. A
+    file resolves its siblings through its directory, so the whole folder is mirrored.
     """
     root = Path(project_dir)
     folder = root / appmodel.entity_dir(entity)
@@ -173,14 +132,9 @@ def entity_qml_files(project_dir: os.PathLike[str] | str,
 
 
 def mirrored_path(relative: str) -> str:
-    """Where a project-relative QML file is mirrored to under ``generated/``.
-
-    A file that is already generated is already there, so it is its own mirror. The
-    framework's own connect points name a `server:` under ``generated/`` outright
-    (:func:`synqt.appmodel.auth_connect_points` writes the auth entity's two Sources
-    there, because nobody authors them), and prefixing that a second time produced
-    ``generated/generated/service/auth/Identity.qml``: a path the topology carried, no
-    engine could load, and every login the promoted edge answered with a 500.
+    """Where a project-relative QML file is mirrored under ``generated/``. A file already under
+    ``generated/`` (a framework `server:`, see :func:`synqt.appmodel.auth_connect_points`)
+    is its own mirror.
     """
     prefix = f"{appmodel.GENERATED_DIR}/"
     if relative == appmodel.GENERATED_DIR or relative.startswith(prefix):
@@ -190,23 +144,17 @@ def mirrored_path(relative: str) -> str:
 
 def write_entity_qml(project_dir: os.PathLike[str] | str,
                      config: Dict[str, Any]) -> List[str]:
-    """Mirror every entity's QML into ``generated/``. Returns the paths it owns.
+    """Mirror every entity QML into ``generated/``. Returns the paths it owns.
 
-    Every entity, not only the ones with something to retype. What the engine loads has to
-    be one whole tree, or a file that was copied would import a sibling that was not. The
-    copies are byte-identical apart from the roots this pass exists to fix, and
-    :func:`synqt.writer.write_if_changed` keeps an unchanged one from moving its timestamp
-    and re-triggering the build.
+    Every entity, so the engine loads one whole tree. Copies are byte-identical except the
+    roots this pass fixes; :func:`synqt.writer.write_if_changed` leaves unchanged files
+    alone.
     """
     root = Path(project_dir)
     contracts = set(appmodel.all_contracts(config))
     written: List[str] = []
     for entity in appmodel.entities(config):
-        # A client's window is the one file this pass must not quietly fix. Retyping
-        # `Main { }` to a QtObject would turn a start-up failure that names the file into a
-        # client that loads, logs nothing and paints a blank page, which is the exact defect
-        # `check.lint_client_root` exists to report. Copy it as written and let the check
-        # say so in its own words.
+        # Never retype a client window: `check.lint_client_root` reports a non-window root.
         window = appmodel.entity_file_path(entity) if appmodel.is_client(entity) else ""
         for relative in entity_qml_files(root, entity):
             source = (root / relative).read_text(encoding="utf-8", errors="replace")

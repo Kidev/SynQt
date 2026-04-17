@@ -1,10 +1,10 @@
 // SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 // SPDX-License-Identifier: Apache-2.0
 
-// The monitoring pipeline baseline: what recording an event costs the entity recording it.
+// The monitoring pipeline baseline. What recording an event costs the entity recording it.
 //
-// SynQt's promise is that monitoring never slows the system down, and the load-bearing half
-// of that promise is the cost at the call site, not the throughput of the writer. Every
+// SynQt's promise is that monitoring never slows the system down. The cost at the call site
+// decides that. The throughput of the writer does not. Every
 // instrumented slot, upgrade and refusal pays this on the request path, so it is measured
 // rather than asserted, and the number is committed so a later change that spends it fails
 // review.

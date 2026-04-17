@@ -3,13 +3,12 @@
 
 # Routes and URLs
 
-A SynQt client is one WebAssembly bundle, but it is not one page. Every view in it has
-a real URL. A visitor can bookmark it, share it, refresh on it, and use Back and Forward
-on it, and the address bar says where they are. This page is how that works, end to end,
-from the table you write in `synqt.yaml` to the first frame a cold deep link paints.
+A SynQt client is one WebAssembly bundle but many pages. Every view has a real URL that a
+visitor can bookmark, share, refresh and navigate with Back and Forward, and the address
+bar shows where they are. This page explains how, from the table you write in `synqt.yaml`
+to the first frame of a cold deep link.
 
-Three pages hold the exact wording of what is summarized here, and each section below
-links to the one that owns its detail:
+Three pages hold the full detail, and each section below links to the relevant one:
 [`router` and `routes`](project-layout-and-config.md#router-and-routes-client-navigation)
 for the configuration, [`Router`](runtime-api.md#client-router) for the QML surface, and
 [deep links and the login resume](security.md#deep-links-and-the-login-resume) for what
@@ -17,9 +16,9 @@ the edge does with a path it has never heard of.
 
 ## The route table
 
-Navigation is configuration. `routes` maps a path to the page shown there, and
-`router` says where a refused or unmatched path lands, what prefix the app is served
-under, and what a delivered page may import:
+Navigation is configuration. `routes` maps each path to its page, and `router` says where
+a refused or unmatched path lands, which prefix the app is served under, and what a
+delivered page may import:
 
 ```yaml
 router:
@@ -40,18 +39,21 @@ routes:
     scope: admin            # below this scope, the router redirects to the fallback
 ```
 
-A route names its page one of two ways, and the key is what differs.
-`view:` is a QML file compiled into the bundle, downloaded once with everything else.
-`remote:` is a QML file the web edge keeps and delivers at navigation time, over the same
-authenticated `wss` link, so it never enters the bundle and changes without a client
-rebuild. [Remote pages](remote-pages.md) is the reference for that half. The two are
-mutually exclusive on one route, and everything else on this page is true of both.
+A route names its page in one of two ways:
+
+- **`view:`** is a QML file compiled into the bundle and downloaded once with everything
+  else.
+- **`remote:`** is a QML file the web edge keeps and delivers when the visitor navigates,
+  over the same authenticated `wss` link. It never enters the bundle, and it changes
+  without a client rebuild. See [remote pages](remote-pages.md).
+
+A route has one or the other, never both. The rest of this page applies to both.
 
 ### Where the table lives
 
-`routes:` at the top level is the table of the project's client. A project holding more than
-one client (a landing page and the application, or an application and an operator console)
-gives each its own, on the entity:
+A top level `routes:` is the table of the project's client. A project with several clients
+(a landing page and the application, or an application and an operator console) gives each
+its own table, on the entity:
 
 ```yaml
 entities:
@@ -62,18 +64,17 @@ entities:
         view: Home.qml
 ```
 
-The top-level list is the shorthand for a project with exactly one client, which is what
-every project written before this had. With two clients both falling back to it, `synqt
-check` refuses the topology rather than picking one, because whichever entity the
-generator rendered first would take the table and the other would compile with nothing in it.
+The top level list is shorthand for a project with exactly one client. If two clients
+would both fall back to it, `synqt check` refuses the topology instead of picking one:
+whichever entity the generator rendered first would take the table, and the other would
+compile with an empty one.
 
-Which client a visitor is served in the first place is a separate question, answered by
+Which client a visitor gets in the first place is a separate question, answered by
 [`bundles:`](project-layout-and-config.md) on the web edge. A route guard decides where a
-visitor may navigate inside the bundle they already hold. A bundle decides which one they
-were given.
+visitor may go inside the bundle they hold; a bundle decides which one they receive.
 
-Nothing in your QML branches on which kind a route is. One `Loader` renders whatever the
-router resolved:
+Your QML never checks what kind a route is. One `Loader` renders whatever the router
+resolves:
 
 ```qml
 Loader {
@@ -84,7 +85,7 @@ Loader {
 
 ## What a URL is made of
 
-An address in a running app has three parts, and the router hands each of them to QML
+An address in a running app has three parts, and the router gives each to QML
 separately:
 
 | In the address bar | In QML | Comes from |
@@ -94,114 +95,107 @@ separately:
 | `?page=2&q=hat` | `Router.query` | the query string, split off before matching. `Router.query` is `{ page: "2", q: "hat" }`. |
 
 Captured parameters and query values arrive percent-decoded, so `/c/summer%20sale` gives
-`Router.params.campaign === "summer sale"`. The three change together, so a binding on any
+`Router.params.campaign === "summer sale"`. All three change together, so a binding on any
 of them sees a consistent set.
 
-Deployment under a prefix is the one part worth stating twice, because it is where an app
-is most often written wrong. With `base: /shop`, a route is still declared as
-`/c/:campaign`, `Router.go("/c/summer-sale")` is still the call to make, and
-`Router.path` still reads `/c/summer-sale`. Only the address bar carries `/shop`. There is
-no second set of paths to keep in step.
+Deploying under a prefix changes nothing in the app. With `base: /shop`, you still declare
+the route as `/c/:campaign`, still call `Router.go("/c/summer-sale")`, and `Router.path`
+still reads `/c/summer-sale`. Only the address bar shows `/shop`, so there is no second set
+of paths to maintain.
 
 ## How a path is matched
 
 A route path is a sequence of segments, each either a literal or a `:name` parameter that
-captures whatever sits in that position. Two rules decide everything else:
+captures whatever is in that position. Two rules decide the rest:
 
-- More literal segments win, whatever the declaration order. `/c/summary` beats
-  `/c/:campaign` even when `/c/:campaign` is written first, so moving a route in
-  `synqt.yaml` never silently changes which page a URL opens.
-- An empty segment is not a segment. `/c` and `/c/` are one route, and `synqt check`
-  refuses a table that declares both rather than leaving one of them unreachable.
+- **More literal segments win,** whatever the declaration order. `/c/summary` beats
+  `/c/:campaign` even when `/c/:campaign` comes first, so reordering routes in
+  `synqt.yaml` never changes which page a URL opens.
+- **Empty segments do not count.** `/c` and `/c/` are the same route, and `synqt check`
+  refuses a table that declares both, instead of leaving one unreachable.
 
 `synqt check` also refuses a path that is not absolute, a parameter name that is not an
-identifier, one path that repeats a parameter name, a `fallback` that is not itself a
-declared route, and a route that claims a path the edge answers itself (its `sync_route`,
-and the login routes when the project has an `identity` section). The full list, with the
-message each one prints, is in
-[validation](project-layout-and-config.md#validation).
+identifier, a path that repeats a parameter name, a `fallback` that is not a declared
+route, and a route that claims a path the edge answers itself (its `sync_route`, and the
+login routes when the project has an `identity` section).
+[Validation](project-layout-and-config.md#validation) lists them all, with each message.
 
 ## The address bar is the router
 
-There is one navigation mode, `history`. The router drives the browser's History API, so
-every route is a real URL rather than a fragment after a `#`.
+There is one navigation mode, `history`: the router drives the browser's History API, so
+every route is a real URL, not a fragment after a `#`.
 
 `Router.go(path)` navigates and adds a history entry. `Router.replace(path)` navigates
-without one, so Back skips the page being left, which is what you want after a redirect or
-a wizard step. `Router.back()` and `Router.forward()` are the Back and Forward buttons,
-and the buttons themselves work because they are the same history.
+without one, so Back skips the page you left, which suits a redirect or a wizard step.
+`Router.back()` and `Router.forward()` do what the browser's buttons do, and the buttons
+work too, since they share the same history.
 
-Two paths through one parameterized route (`/c/spring`, then `/c/summer`) resolve to the
-same component, and the router hands back the same instance rather than rebuilding it. The
-`Loader` keeps its item alive, and only `path`, `params`, and `query` change. A view that
-has to react to that binds `Router.params` rather than doing work in
-`Component.onCompleted`, which will not run a second time.
+Two paths through one route with a parameter (`/c/spring`, then `/c/summer`) resolve to
+the same component, and the router keeps the same instance instead of rebuilding it. The
+`Loader` keeps its item, and only `path`, `params` and `query` change. A view that must
+react binds to `Router.params` instead of working in `Component.onCompleted`, which does
+not run a second time.
 
-`Router.pageStatus` says why the page on screen is the one showing, one of `Ready`, `Loading`
-(only reachable for a remote page, while the edge is being asked for it), `Forbidden`,
-`NotFound`, `Unsupported` (the route needs an accelerated scene graph this browser did
-not give Qt, so the notice shows in the page's place), or `Error`. The
-[table in the runtime API](runtime-api.md#client-router) spells out what each one leaves
-`path` set to.
+`Router.pageStatus` says why the current page is showing: `Ready`, `Loading` (only for a
+remote page, while the edge is asked for it), `Forbidden`, `NotFound`, `Unsupported` (the
+route needs an accelerated scene graph this browser did not give Qt, so a notice shows in
+its place) or `Error`. The [table in the runtime API](runtime-api.md#client-router) says
+what `path` holds in each case.
 
 ## A deep link is a cold start
 
-A visitor who bookmarked `/c/summer-sale`, or who pressed refresh while on it, sends the
-edge a path that no route of the edge's own answers. The edge serves the application shell
-there and the client resolves the path itself, before its link to the edge is even open.
+A visitor who bookmarked `/c/summer-sale`, or refreshed on it, sends the edge a path none
+of its own routes answer. The edge serves the application shell there, and the client
+resolves the path itself, before its link to the edge even opens.
 
-The edge restricts which paths get the shell, because that response is the one
-HTML document in the system:
+The shell is the system's only HTML document, so the edge restricts which paths get it:
 
-- It is registered as a route rather than as a missing-handler hook, so it carries the same
-  CSP, COOP, COEP, session cookie, and cache terms as the root document. Served through
-  Qt's missing-handler path it would go out with none of them.
-- Only `GET` and `HEAD` get it. A `POST` to an unknown URL is a bug or a probe, and
-  answering it with HTML would hide that.
-- A path whose final segment contains a `.` gets a 404 instead, so a missing asset fails
-  as a missing asset rather than as a confusing module load error.
+- **It is a registered route,** not a missing handler hook, so it carries the same CSP,
+  COOP, COEP, session cookie and cache headers as the root document. Through Qt's missing
+  handler path, it would carry none of them.
+- **Only `GET` and `HEAD` get it.** A `POST` to an unknown URL is a bug or a probe, and HTML
+  would hide that.
+- **A path whose last segment contains a `.` gets a 404,** so a missing asset fails as a
+  missing asset, not as a confusing module load error.
 
-The reasoning behind each of those is in
-[deep links and the login resume](security.md#deep-links-and-the-login-resume).
+[Deep links and the login resume](security.md#deep-links-and-the-login-resume) explains
+each rule.
 
-At the moment a deep link resolves, the session holds only the default scope, because the
-link to the edge has not opened yet. A scope-gated deep link therefore resolves
-`Forbidden` at boot, and is resumed the instant the real scope arrives. That is the same
-guard behaving the way it does mid-session, rather than a bug to work around.
+When a deep link resolves, the session holds only the default scope, because the link to
+the edge is not open yet. So a scope-gated deep link resolves `Forbidden` at startup and
+resumes as soon as the real scope arrives. The guard works the same way mid-session.
 
 ## Guards, refusals, and the login resume
 
-A route's `scope:` is a navigation rule. When a session lacks it, the router goes to
-`router.fallback` instead and reports `Forbidden`, and it re-resolves the current route on
-every scope change, in both directions. Gaining scope promotes a route that was refused, and
-losing it evicts a visitor from a page they may no longer see and corrects the address bar
-with them. Neither is a navigation, so neither adds a history entry.
+A route's `scope:` is a navigation rule. When the session lacks it, the router goes to
+`router.fallback` and reports `Forbidden`. It re-resolves the current route on every scope
+change, in both directions: gaining a scope opens a route that was refused, and losing one
+moves the visitor off a page they may no longer see and corrects the address bar. Both
+happen outside navigation, so neither adds a history entry.
 
-A refused path is remembered, so signing in lands the visitor where they were going rather
-than on the home page with no explanation. Only the path is kept, never the query string,
-which may carry a token. The value lives in `sessionStorage`, per tab, and is never sent
-to the server. Because anyone can put a link in front of a visitor, the stored path is
-validated before anything acts on it, against the rules in
+The router remembers a refused path, so signing in takes the visitor where they were going,
+not to the home page without explanation. It keeps only the path, never the query string,
+which may carry a token, in `sessionStorage`, per tab, never sent to the server. Anyone can
+show a visitor a link, so the stored path is validated before use, against the rules in
 [deep links and the login resume](security.md#deep-links-and-the-login-resume).
 
 > [!IMPORTANT]
-> A route guard steers navigation. It is not a secrecy mechanism. The client is one
-> compiled bundle, so every compiled-in view's QML reaches every visitor whatever the
-> guards say, and the data behind a privileged view stays private only because the
-> connect point it reads is scope gated and the owner refuses an under-scoped session.
-> A `scope:` on a `remote:` route does keep that page's markup off an under-scoped
-> machine, since the edge checks before it delivers a byte, but it still protects the
-> markup rather than the data. See
+> A route guard only steers navigation. The client is one compiled
+> bundle, so every compiled-in view's QML reaches every visitor, whatever the guards say.
+> A privileged view's data stays private only because the connect point it reads is
+> scope gated and the owner refuses sessions below that scope. A `scope:` on a `remote:`
+> route does keep that page's markup off the visitor's machine, since the edge checks
+> before delivering a byte, but it protects the markup, not the data. See
 > [route guards](programming-model.md#route-guards-which-client-views-are-reachable).
 
 ## When there is no address bar
 
 A [native desktop build](desktop.md#navigating-without-an-address-bar) of the same client
-runs the same `Router` against the same table, with an in-memory stack in place of the
-browser history. There is no deep link to resolve at startup, so it opens on `/`, and
-`router.base` is a browser concern that it ignores. `Router.go`, `back()`, `forward()`,
-the guards, and the login resume are all unchanged. The resume is held in memory across
-the loopback redirect instead of in `sessionStorage`.
+runs the same `Router` against the same table, with a history stack in memory instead of
+the browser's. It always opens on `/`, with no deep link at startup, and ignores
+`router.base`, which only matters in a browser. `Router.go`, `back()`, `forward()`, the
+guards and the login resume work the same; the resume stays in memory across the loopback
+redirect instead of in `sessionStorage`.
 
 ## Where to go next
 
@@ -209,8 +203,8 @@ the loopback redirect instead of in `sessionStorage`.
   page seed that paints a delivered page's first frame.
 - [Build it](tutorial-remote-pages-build.md) and
   [Links that work](tutorial-remote-pages-urls.md): the
-  [light storefront](tutorial-remote-pages.md) tutorial, where these are hands-on rather
-  than described.
+  [light storefront](tutorial-remote-pages.md) tutorial, where you try all of this
+  yourself.
 - [`Router`](runtime-api.md#client-router): every member, with what each one holds after a
   redirect.
 - [`router` and `routes`](project-layout-and-config.md#router-and-routes-client-navigation):

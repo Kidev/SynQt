@@ -119,7 +119,7 @@ public:
     /// edge keeps a visitor's access and refresh tokens for as long as the process lives,
     /// long after the session they belong to expired.
     ///
-    /// Deliberately not the device credential: a session running out of time is what the
+    /// Not the device credential. A session running out of time is what the
     /// credential exists to survive. Only signing out ends the family (handleLogout).
     void forgetSession(const QByteArray &sessionId);
 
@@ -291,7 +291,7 @@ private:
     /// by anyone who can make the auth entity slow.
     ///
     /// So an answer is kept only while somebody is waiting for it, and a waiter takes its id
-    /// out of this set before it returns -- which also drops any answer that arrives during
+    /// out of this set before it returns, which also drops any answer that arrives during
     /// the same turn but after the wait ended.
     QSet<QString> m_awaited;
     class AwaitScope

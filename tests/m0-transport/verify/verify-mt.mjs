@@ -1,15 +1,15 @@
 // SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 // SPDX-License-Identifier: Apache-2.0
 
-// Multi-threaded WASM proof (the CLIENT-2 gap), the same M0 client, built with the
-// wasm_multithread kit, needs SharedArrayBuffer, which the browser only grants under
-// cross-origin isolation (COOP: same-origin + COEP: require-corp. Exactly the headers
-// the M5 web edge emits when security.cross_origin_isolation is on). This harness:
+// Multi-threaded WASM proof. The same M0 client, built with the wasm_multithread kit, needs
+// SharedArrayBuffer, which the browser grants only under cross-origin isolation (COOP:
+// same-origin + COEP: require-corp, the headers the web edge emits when
+// security.cross_origin_isolation is on). This harness:
 //   1. serves the threaded client WITH those headers and asserts the page is
 //      crossOriginIsolated, SharedArrayBuffer exists, the threaded runtime boots, and
 //      all four QtRO-over-WebSocket paths still work;
 //   2. serves the very same bundle WITHOUT the headers as a control and asserts the page
-//      is NOT isolated; proving the headers are load-bearing, not incidental.
+//      is NOT isolated, which proves the headers are what grant isolation.
 // Exits 0 only if both cases behave as required in every browser that ran.
 //
 // Every engine that launches is driven, because this claim is per-engine: cross-origin
@@ -373,10 +373,10 @@ async function main() {
     for (const { name, isolated, plain } of results) {
         const isolatedOk = isolated.iso.isolated && isolated.iso.sab && isolated.paths.pass;
         const controlOk = !plain.iso.isolated;   // the headers are what unlock isolation
-        // Reported, not enforced. The edge ships `worker-src 'self' blob:`, so an engine
-        // that turns out to need blob: is a finding about that engine, not a broken build:
-        // it would keep working on the shipped policy. Failing the gate here would say the
-        // opposite. The paths above already fail loudly if workers could not start at all.
+        // Reported and never enforced. The edge ships `worker-src 'self' blob:`, so an engine
+        // that turns out to need blob: is a finding about that engine and would keep working
+        // on the shipped policy. Failing the gate here would say the opposite. The paths
+        // above already fail loudly if workers could not start at all.
         const strictOk = isolated.violations.length === 0;
         console.log(`  ${isolatedOk ? "PASS" : "FAIL"}  ${name} isolated: COI + SAB + threaded QtRO paths`);
         console.log(`  ${controlOk ? "PASS" : "FAIL"}  ${name} control: not isolated without the headers`);

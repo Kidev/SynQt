@@ -178,9 +178,8 @@ QJsonObject spanRecord(const TraceEvent &event)
     entry.insert(QStringLiteral("attributes"), attributes);
 
     QJsonObject status;
-    // STATUS_CODE_OK is 1 and STATUS_CODE_ERROR is 2. A refused call is an error span and
-    // not a missing one: the whole point of recording a refusal is that somebody can find
-    // it later.
+    // STATUS_CODE_OK is 1 and STATUS_CODE_ERROR is 2. A refused call is an error span
+    // rather than a missing one: recording a refusal is what lets somebody find it later.
     status.insert(QStringLiteral("code"), event.ok ? 1 : 2);
     if (!event.ok) {
         status.insert(QStringLiteral("message"),

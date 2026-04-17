@@ -134,9 +134,9 @@ QHttpServerResponse notFound()
     return QHttpServerResponse{QHttpServerResponse::StatusCode::NotFound};
 }
 
-/// "You are going too fast", and deliberately not the answer above.
+/// "You are going too fast", and not the answer above.
 ///
-/// Everything else on these routes answers alike on purpose, so nothing learns which half
+/// Everything else on these routes answers alike, so nothing learns which half
 /// of a guess was right. This refusal is decided before the credential is so much as read,
 /// so it says nothing about it, and it must be distinguishable. A legitimate client reading
 /// "too fast" as "this credential is dead" deletes the visitor's stored sign-in over
@@ -756,7 +756,7 @@ QHttpServerResponse IdentityProvider::handleCallback(const QHttpServerRequest &r
     }
 
     if (context.isDesktop()) {
-        // A desktop login ends here, and deliberately not with a cookie: the system browser
+        // A desktop login ends here, and not with a cookie: the system browser
         // is not the app. Leaving it signed in would put a live session in a browser the
         // visitor did not sign in with, on a machine that may not be theirs alone, and
         // nothing would ever end it. What crosses the loopback is a code that stands for the
@@ -776,8 +776,8 @@ QHttpServerResponse IdentityProvider::loopbackRedirect(const LoginContext &conte
                                                        const QString &error) const
 {
     // Checked again here, and not only at login. isLoopbackReturn is the line this flow
-    // turns on: whatever passes it is where a freshly authenticated visitor's browser is
-    // sent. The value arriving here has been out of this process in between -- carried as
+    // turns on. Whatever passes it is where a freshly authenticated visitor's browser is
+    // sent. The value arriving here has been out of this process in between, carried as
     // the `context` the identity engine keeps beside the state, which in provider_entity
     // mode means a round trip to the auth entity and back through JSON. Nothing has gone
     // wrong with that today. But a check whose correctness depends on every hop between two
@@ -997,7 +997,7 @@ QHttpServerResponse IdentityProvider::handleLogout(const QHttpServerRequest &req
 {
     // Signing out is a state change, and this route is reached by a GET, which is what
     // `Session.logout()` does on both clients: the browser navigates to it and the desktop
-    // client fetches it. That makes it a cross-site request forgery target -- another site
+    // client fetches it. That makes it a cross-site request forgery target: another site
     // need only navigate a visitor here to end their session, and with it the device
     // credential that would have kept them signed in. The cookie's SameSite=Lax does not
     // cover it (a top-level navigation is exactly what Lax still sends), and in

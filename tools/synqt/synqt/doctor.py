@@ -139,7 +139,7 @@ def _provider_dependency_lines(provider: str, host_qt: Optional[str]) -> List[st
                      + (f" ({host_qt}/plugins/sqldrivers)" if host_qt else "")
                      + "; queries will fail at run time until it is on QT_PLUGIN_PATH.")
     elif provider == "mysql":
-        # Deliberately not "present": on a stock kit this file IS the unusable prebuilt
+        # Not "present": on a stock kit this file IS the unusable prebuilt
         # one, and reporting it as present would be the reassuring half of the truth.
         lines.append(f"{driver} plugin: a plugin file is in the Qt kit ({plugin}), which "
                      "settles nothing on its own; what matters is the client it was "

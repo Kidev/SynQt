@@ -598,7 +598,7 @@ private slots:
         my.release = false;  // a dev/CI engine over plaintext loopback is allowed
         MysqlProvider mysql{my};
         // AUTO_INCREMENT rather than AUTOINCREMENT, and an indexed key length: the schema is
-        // the engine's, which is the point. What must not differ is the Source above it.
+        // the engine's. What must not differ is the Source above it.
         const QVariantList mysqlRows = runItemsSource(
             &mysql,
             QStringLiteral("CREATE TABLE items (id INT AUTO_INCREMENT PRIMARY KEY, "
@@ -1071,7 +1071,7 @@ private slots:
     /// A redirect is where the allowlisted call ends up, so it is checked like the first hop.
     ///
     /// Qt follows redirects by default (NoLessSafeRedirectPolicy), to any host, carrying the
-    /// original request's headers -- which here are the endpoint's own credential headers,
+    /// original request's headers, which here are the endpoint's own credential headers,
     /// declared in `network.outbound` so a call site never holds the key. So an allowlisted
     /// third party answering 302 (or a path under the prefix that an application composes
     /// from a caller's input, where the target is somebody else's to choose) was a way to
@@ -1260,10 +1260,10 @@ private slots:
 
     // A job that enqueues a job, which is what a batch walking a list a page at a time is.
     //
-    // The drain used to run until the queue was empty, so that shape never gave the event
-    // loop back: the entity stopped answering its connect points, stopped reconnecting and
-    // stopped reporting, with nothing to say why -- the queue is bounded, so it never grew,
-    // and each turn of the loop looked like progress. A pass now runs what was waiting when
+    // A drain that runs until the queue is empty never gives the event
+    // loop back on that shape. The entity stops answering its connect points, stops reconnecting and
+    // stops reporting, with nothing to say why, because the queue is bounded, so it never grows,
+    // and each turn of the loop looks like progress. A pass runs what was waiting when
     // it started and asks for another turn, so the work still finishes and everything else
     // gets served in between.
     //
@@ -1413,8 +1413,8 @@ private slots:
 
     // Clearing a deadline, and the other half of the sentence set() already answers.
     //
-    // `expire(key, 0)` reads two ways -- "no expiry" and "expire now" -- and the two
-    // providers in this family read it differently: the memory one kept the key and Redis
+    // `expire(key, 0)` reads two ways ("no expiry" and "expire now"), and the two
+    // providers in this family read it differently. The memory one kept the key and Redis
     // deleted it, because Redis takes a non-positive EXPIRE as "already expired". The
     // interface says what set() says, which is no expiry, so this pins it on the provider
     // every project gets by default. redisLiveRoundTrip() pins the same line on the other.
@@ -1437,7 +1437,7 @@ private slots:
 
     // A key whose deadline has passed is gone, and expire() may not bring it back.
     //
-    // The entries table is swept lazily -- get() erases what it finds expired -- so an
+    // The entries table is swept lazily (get() erases what it finds expired), so an
     // entry that has run out is still sitting there until somebody reads it. expire()
     // looked the key up and reset its deadline without asking whether the deadline it was
     // replacing had already gone by, which turned a key that had expired an hour ago into
@@ -1464,7 +1464,7 @@ private slots:
     // Each entry holds its place in the recency list rather than being searched for in it,
     // so writing an existing key has to move the node it already has instead of adding a
     // second one naming the same key. A duplicate would make the list disagree with the
-    // table and evict a key that is not the least recently used -- which is a cache quietly
+    // table and evict a key that is not the least recently used, which is a cache quietly
     // dropping live data, and nothing in the eviction test above would notice.
     void memoryCacheKeepsOneRecencyNodePerKey()
     {

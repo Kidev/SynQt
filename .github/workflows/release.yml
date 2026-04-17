@@ -27,7 +27,7 @@
 #     the same image-rot problem.
 # Every row smoke-tests its own frozen binary (help + a toolchain-free scaffold + the providers
 # registry) in the environment it was built in, so the Linux artifact is exercised ON its glibc
-# floor, which is the point of building it there.
+# floor, which is why it is built there.
 
 name: "[RELEASE] Publish a release of the synqt CLI"
 
@@ -246,7 +246,7 @@ jobs:
         # the manylinux /opt/python one: the /opt/python CPythons are built --disable-shared (static
         # libpython), which PyInstaller refuses to freeze ("Python was built without a shared
         # library"). The dnf python (python3.12-libs ships libpython3.12.so) is built against this
-        # image's glibc, so the 2.28 floor is unchanged. The absolute /usr/bin path is deliberate:
+        # image's glibc, so the 2.28 floor is unchanged. The absolute /usr/bin path is required:
         # manylinux puts /opt/python/cpXXX/bin ahead of /usr/bin on PATH, so `command -v python3.12`
         # resolves to the STATIC one and PyInstaller fails; /usr/bin/python3.12 is the dnf shared-lib
         # build. Try 3.12, fall back to 3.11; both are in the Alma 8 appstream on x86_64 and aarch64.
@@ -517,9 +517,20 @@ jobs:
     needs: [installer, version, build-linux, build-native, build-pypi]
     if: ${{ !inputs.dry_run }}
     runs-on: ubuntu-24.04
+    # The tag and the release are created with the app token below, so they are published by
+    # SynQt-Operations. The run's own GITHUB_TOKEN only has to check the tree out.
     permissions:
-      contents: write # create the tag and publish the release
+      contents: read
     steps:
+      # Pinned to a commit because it handles the app's private key.
+      - name: Mint a token for the SynQt-Operations app
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ secrets.SYNQT_CLIENT_ID }}
+          private-key: ${{ secrets.SYNQT_PRIVATE_KEY }}
+          permission-contents: write # create the tag and publish the release
+
       - uses: actions/checkout@v7
 
       - name: Download all build assets
@@ -534,6 +545,7 @@ jobs:
       - name: Publish the release and tag the build commit
         uses: softprops/action-gh-release@v3
         with:
+          token: ${{ steps.app-token.outputs.token }}
           tag_name: ${{ needs.version.outputs.tag }}
           name: SynQt ${{ needs.version.outputs.tag }}
           target_commitish: ${{ github.sha }}

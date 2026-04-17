@@ -12,9 +12,9 @@
 #   * macOS   -> Playwright WebKit on macOS, the closest automatable stand-in for Safari.app
 #     (real Safari.app would need safaridriver + `safaridriver --enable`; that is a follow-up).
 #
-# It runs on dispatch and when the M0 spike or this file changes. There is deliberately no
-# schedule: a run provisions the WASM toolchain and builds a Qt module from source, so it is
-# started when somebody wants the answer rather than on a clock.
+# It runs on dispatch and when the M0 spike or this file changes. There is no schedule: a
+# run provisions the WASM toolchain and builds a Qt module from source, so it is started
+# when somebody wants the answer rather than on a clock.
 #
 # What moves under this workflow is the browser, not the spike: the verifier floats Playwright
 # on ^1.49, so each run resolves whatever engine build is current that day. The engine columns
@@ -35,7 +35,7 @@ on:
     paths:
       # Exactly what a run compiles. The M0 spike is self-contained (its own edge and client,
       # its own QIODevice adapter), so it does not build src/transport or src/client and those
-      # paths deliberately do not appear here: a workflow that runs on a change it cannot
+      # paths do not appear here: a workflow that runs on a change it cannot
       # exercise reads as coverage without being any.
       - "tests/m0-transport/**"
       # The split-origin rig runs here for one reason: this is the only workflow with a
@@ -109,7 +109,7 @@ jobs:
         # and WebKit take the machine's GL and get nothing on a runner where Mesa is absent.
         # A WASM client that cannot create the context does not just fail to draw: Qt ends
         # it with qFatal, which is emscripten's abort(), which sets ABORT, after which every
-        # callback queued through emscripten_async_call is dropped -- the first hop of
+        # callback queued through emscripten_async_call is dropped, which is the first hop of
         # QEventDispatcherWasm::wakeUp(). The socket, the timers and the property pushes
         # carry on and posted events never arrive again, which is the shape of the Firefox
         # stall this matrix has been carrying (tests/m0-transport/FIREFOX-LINUX.md).

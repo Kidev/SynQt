@@ -6,14 +6,14 @@ contract each link carries.
 
 The editor draws this and the inference writes it, so it is the one shape both agree on.
 Everything in it comes from ``synqt.yaml``, which holds the topology and, on each connect
-point, what crosses it. One exception: where a node sits on the canvas is a drawing, not a
+point, what crosses it. One exception. Where a node sits on the canvas is a drawing, not a
 fact about the system, so it lives beside the project in ``.synqt/design.json`` and never
 in the configuration. A project nobody has opened in the editor still lays out, from
-the one rule worth stating by default: the browser on the left, the edge it reaches in the
+the one rule it lays out by default. The browser on the left, the edge it reaches in the
 middle, and everything it must not reach on the right.
 
-The document is deliberately narrower than the configuration. It models the topology and
-the contracts, because that is what there is to draw; it says nothing about TLS files,
+The document is narrower than the configuration. It models the topology and
+the contracts, because that is what there is to draw. It says nothing about TLS files,
 provider settings, scopes or routes. :func:`to_config` therefore takes the configuration it
 came from, so that what the document does not model is carried across rather than dropped:
 validating a plan against a config that had quietly lost every ``scope:`` would be
@@ -176,16 +176,16 @@ def _entity(entity: Dict[str, Any]) -> Dict[str, Any]:
         "targets": [str(target) for target in (entity.get("targets") or [])],
         "identity": bool(entity.get("identity")),
         # Which bundle this edge serves each scope. Read out, because it is the difference
-        # between a client and a gate, and the drawing says which is which: a client an edge
+        # between a client and a gate, and the drawing says which is which. A client an edge
         # hands to a session that has signed in as nobody is drawn as a barrier. Left out of
         # the document, the editor could write this key and never show it, so a project
         # opened in the editor was drawn as though every visitor got the same bundle.
         "bundles": {str(scope): str(name)
                     for scope, name in (entity.get("bundles") or {}).items()
                     if scope and name},
-        # The two a monitor's console client carries: `console` is what makes the monitor
+        # The two a monitor's console client carries. `console` is what makes the monitor
         # deliver this client instead of the application's, and `edge` is which monitor
-        # delivers it. Same reason as `bundles` -- the editor writes both, so it has to read
+        # delivers it. Same reason as `bundles`: the editor writes both, so it has to read
         # both, or opening a project turns its console back into an ordinary client.
         "console": bool(entity.get("console")),
         "edge": str(entity.get("edge") or ""),
@@ -306,7 +306,7 @@ def _link(point: Dict[str, Any], root: Path, seats: Dict[str, Dict[str, Any]],
     # the routing off the project.
     #
     # Present only when there is one. The editor reads the *presence* of the key as "this is a
-    # front" -- an empty block is a switch somebody has just turned on with nothing wired yet --
+    # front" (an empty block is a switch somebody has turned on with nothing wired yet),
     # so handing every ordinary point an empty one made every point in the project a front, and
     # `synqt check` refused the lot.
     behind = appmodel.behind(point)
@@ -344,7 +344,7 @@ def scopes_of(config: Dict[str, Any]) -> List[str]:
     tutorial gates its whole connect point on `player`, which is not one of the four a
     scaffolded project starts with. Without this the editor drew that project against a
     vocabulary it does not use, and a design exported from it wrote a synqt.yaml whose
-    `scopes.order` had no `player` in it -- a project `synqt check` refuses.
+    `scopes.order` had no `player` in it, a project `synqt check` refuses.
     """
     declared = config.get("scopes")
     order = declared.get("order") if isinstance(declared, dict) else None

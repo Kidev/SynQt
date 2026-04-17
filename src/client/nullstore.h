@@ -8,15 +8,12 @@
 
 namespace SynQt {
 
-/// The store for a machine that has none: it reports itself unavailable and holds nothing.
+/// The store for a machine that has none. It reports itself unavailable and holds nothing.
 ///
-/// This is not a degraded mode to be improved on later. It is the answer for the browser
-/// (which has no OS store and needs none, since it keeps the session cookie itself), for a
-/// platform with no supported store, and for a Linux session with no keyring, and on every
-/// one of those the credential simply lives for the life of the process. The temptation it
-/// exists to refuse is a file written "just for now": what makes the device credential safe
-/// to hand out at all is that a copy of it cannot be taken without taking the OS store's
-/// protection with it.
+/// Used by the browser (which keeps the session cookie itself), by a platform with no
+/// supported store, and by a Linux session with no keyring. On each, the credential lives for
+/// the life of the process. The device credential is safe to hand out because a copy cannot
+/// be taken without the OS store's protection.
 class NullStore : public SecureStore
 {
 public:

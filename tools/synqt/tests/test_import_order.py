@@ -3,14 +3,9 @@
 
 """`import SynQt` comes first, in every file the tooling writes and every file in the tree.
 
-The framework's module re-exports QtQuick (src/consumer/moduleimports.h), so `import SynQt`
-is the line a SynQt file cannot do without and the only one most files need. Where a second
-import is genuinely wanted -- Controls for a window, Layouts for a form -- it goes below,
-which puts the explicitly imported module last and therefore in charge of any type name the
-two happen to share.
-
-This is a house rule rather than a load-bearing one, which is exactly why it needs a test:
-nothing breaks when a file drifts, so nothing else would ever say so.
+The module re-exports QtQuick (src/consumer/moduleimports.h). A further import (Controls,
+Layouts) goes below, so the explicit module wins any shared type name. The rule has no
+runtime effect, so only this test enforces it.
 """
 
 from __future__ import annotations
@@ -33,12 +28,7 @@ def _imports(text):
 
 
 def _authored_qml():
-    """Every QML file the repository holds, asked of git rather than of the filesystem.
-
-    Build output, a vendored framework copy, the docs site and a scratch project someone is
-    trying something in are all QML on this disk and none of them is the tree's. What is
-    committed is exactly the set this rule is about, and git is the one thing that knows it.
-    """
+    """Every QML file git tracks; build output and scratch projects are excluded."""
     listed = subprocess.run(["git", "ls-files", "*.qml"], cwd=ROOT,
                             capture_output=True, text=True, check=True)
     for name in sorted(listed.stdout.split()):
@@ -57,9 +47,7 @@ def test_every_qml_file_in_the_tree_puts_the_framework_first():
 
 
 def test_no_file_imports_qtquick_beside_the_framework():
-    """A redundant line, and the one the rule above is worth having for: SynQt brings QtQuick
-    with it, so `import QtQuick` above it decides nothing and only invites a reader to think
-    the order matters."""
+    """No file imports QtQuick beside SynQt, which already brings it."""
     both = []
     for path in _authored_qml():
         lines = _imports(path.read_text(encoding="utf-8"))

@@ -143,7 +143,7 @@ _TRANSPORT_HEADERS = frozenset({"host", "content-length", "connection", "keep-al
 #: reference, for the same reason an identity provider's client secret does: synqt.yaml is
 #: committed, copied and pasted into issues.
 #:
-#: A bare `key` is deliberately not on the list. It would catch `X-Idempotency-Key`, which
+#: A bare `key` is not on the list. It would catch `X-Idempotency-Key`, which
 #: is a request identifier and not a secret, and a rule that refuses a correct config is
 #: one people learn to route around. `x-api-key` is still caught, by `api-key`.
 _CREDENTIAL_HEADERS = ("authorization", "api-key", "apikey", "token", "secret",
@@ -429,9 +429,8 @@ def _shared_messages(declared: List[Dict[str, Any]]) -> List[str]:
     """Refuse a `shared:` that is not a yes-or-no, and one written on a client.
 
     A client is one browser. There is nobody for it to be shared with, so `shared: true`
-    there is not a setting with a surprising effect, it is a sentence that does not mean
-    anything, and reading it in a project would teach the wrong thing about what the word
-    is for.
+    there says nothing at all, rather than saying something with a surprising effect, and
+    reading it in a project would teach the wrong thing about what the word is for.
     """
     messages: List[str] = []
     for entity in declared:
@@ -486,9 +485,9 @@ def validate(config: Dict[str, Any], *, release: bool = False,
     plaintext edge are all legitimate on a developer's localhost and none of them may
     reach a deployment. ``project_dir`` enables the rules that have to look at the disk;
     without it those are skipped rather than guessed at. ``starting`` marks the moment an
-    entity is actually about to run, which is the only point where a missing mesh
-    certificate is a failure rather than a note: certificates are deployment artifacts
-    issued from the CA, and the CA private key is deliberately not on the machine that
+    entity is about to run, which is the only point where a missing mesh
+    certificate is a failure rather than a note. Certificates are deployment artifacts
+    issued from the CA, and the CA private key is not on the machine that
     builds (docs/security.md), so a release build that demanded one would be demanding
     the one thing CI must never hold."""
     messages: List[str] = []
@@ -628,9 +627,9 @@ def validate(config: Dict[str, Any], *, release: bool = False,
         # it, so the connect point is silently unreachable rather than protected.
         scope = connect_point.get("scope")
         # A framework point the monitor owns is gated on the monitor's own vocabulary, not
-        # the project's. That separation is the point: an operator is not a user of the
-        # application, and putting `operator` in the application's `scopes.order` would make
-        # one login reach the other's surface.
+        # the project's. The two vocabularies stay apart because an operator is not a user
+        # of the application, and putting `operator` in the application's `scopes.order`
+        # would make one login reach the other's surface.
         if appmodel.is_framework_point(connect_point) \
                 and appmodel.entity_type(entities.get(owner) or {}) == "monitor":
             scope = None
@@ -964,8 +963,8 @@ def _replica_messages(config: Dict[str, Any],
 def _thread_messages(entities: Dict[str, Any]) -> List[str]:
     """Where `threads:` may be written, and what it has to say.
 
-    One rule, against `replicas:`'s four, and the asymmetry is the point. Replicating an
-    edge is a promise about state that the project has to keep; threading one is a promise
+    One rule, against `replicas:`'s four, and the asymmetry is earned. Replicating an
+    edge is a promise about state that the project has to keep. Threading one is a promise
     about nothing, because the only thing that moves is the socket. So all that is left to
     check is that the key is on the entity it means something to, since a `threads:` that
     quietly does nothing is worse than one that is refused.
@@ -1208,7 +1207,7 @@ def _console_delivery_messages(config: Dict[str, Any]) -> List[str]:
 
     `lint_bundles` validates a web edge's block and stops at the edge, because the rest of
     what it checks is about the application's scope vocabulary and the application's login,
-    and a monitor has neither: `operator` is deliberately not in a project's scopes, and the
+    and a monitor has neither. `operator` is not in a project's scopes, and the
     monitor signs its own operators in. So the console's own delivery went unchecked, and
     the one thing a bundle map can get wrong here is the one thing that matters. A monitor
     with `bundles: {anonymous: ops-console}` serves every request the system has ever
@@ -1566,7 +1565,7 @@ def _public_origin_messages(config: Dict[str, Any], release: bool = False) -> Li
     `redirect_uri` the provider checks character for character, what `self` expands to in
     `security.allowed_origins` when the upgrade compares the browser's `Origin` header, and
     the sync endpoint in the CSP. A value carrying a path, or naming http where the edge
-    terminates TLS, is not a near miss in any of the three -- it refuses every visitor, and
+    terminates TLS, is not a near miss in any of the three. It refuses every visitor, and
     it does it at the moment somebody tries to sign in rather than at startup.
     """
     messages: List[str] = []
@@ -1804,10 +1803,10 @@ def _client_env_messages(name: str, entity: Dict[str, Any]) -> List[str]:
     """No `env:` reference may be reachable from a client target.
 
     An `env:` reference is a promise that a value is resolved from the entity environment
-    at run time. A client has no such environment worth the name: a WASM bundle is served
+    at run time. A client has no such environment worth the name. A WASM bundle is served
     to every visitor and a desktop binary is handed to them, so anything the build could
     resolve there is a value shipped in the artifact. The whole subtree is walked rather
-    than a list of known keys, because the point is that there is no safe key.
+    than a list of known keys, because there is no safe key.
     """
     hits = sorted(_env_references(entity))
     if not hits:
@@ -1842,7 +1841,7 @@ def _provider_secret_messages(name: str, entity: Dict[str, Any]) -> List[str]:
     synqt.yaml is a file people read in review, paste into an issue, and commit. The
     credential belongs in the entity environment, and the config carries only the name of
     the variable that holds it (topologywriter passes the name through verbatim, never the
-    value). A literal here is not a weaker configuration, it is a disclosed password.
+    value). A literal here discloses the password.
     """
     provider = entity.get("provider")
     if not isinstance(provider, dict):
@@ -3444,7 +3443,7 @@ def check_qml_format(project_dir: os.PathLike[str] | str) -> List[str]:
         return ["warn: check.qml_format is on but the project has no .qmlformat.ini; "
                 "skipping (without one qmlformat reads each machine's per-user settings, so "
                 "the check would not be reproducible)"]
-    # -s overrides the per-directory and per-user lookup, which is the whole point.
+    # -s overrides the per-directory and per-user lookup, which is what makes this reproducible.
     unformatted: List[str] = []
     for qml in project_qml_files(project_dir):
         result = subprocess.run([qmlformat, "-s", str(settings), str(qml)],

@@ -147,7 +147,7 @@ void TestThreadedSocket::theSocketMovesAndTheDeviceStaysPut()
     ThreadedLink link;
     QVERIFY(link.connectPair());
 
-    // The whole point of the split: the device QtRO talks to has not moved, so the host,
+    // What the split buys. The device QtRO talks to has not moved, so the host,
     // the Sources and the QML engine behind it are all still where they were.
     QCOMPARE(link.transport()->thread(), QThread::currentThread());
     QCOMPARE(link.channel()->thread(), link.ioThread());

@@ -110,9 +110,9 @@ Tracer *Tracer::instance()
     // trace into a crash.
     //
     // Switched off until something asks for it, which a directly constructed Tracer is
-    // not. The difference is deliberate: this one is process state that the entity runtime
+    // not. They differ because this one is process state that the entity runtime
     // configures from the topology, so an application that never asked for monitoring pays
-    // nothing even if nothing ever configures it; a Tracer somebody constructed is one
+    // nothing even if nothing ever configures it. A Tracer somebody constructed is one
     // they constructed on purpose, and making that silent by default would be a trap.
     static Tracer *tracer{[]() {
         Tracer *made{new Tracer{}};

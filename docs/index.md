@@ -163,37 +163,37 @@ alike, and runs them all together with file watching and hot reload.
 
 ## What it looks like
 
-A chat room, because everyone already knows what one does. Somebody types a line and it
-appears in every window that has the room open, including the ones on other machines.
-That is the part SynQt is for, and below is all of it.
+The example is a chat room. Somebody types a line and it appears in every window that has
+the room open, including the ones on other machines. SynQt exists for that part, and the
+whole system is below.
 
 A finished system is a small mesh of entities. The drawing below is that mesh, drawn by the
-design editor from this very project: three boxes saying which side of the wire each entity
-is on, a shape per entity, and on every line the contract the two ends share. Only the web
-edge faces the internet; everything else sits in the mesh box and is reachable only by the
-entities you allow.
+design editor from this project. Three boxes say which side of the wire each entity is on,
+each entity has a shape, and every line carries the contract the two ends share. Only the
+web edge faces the internet. Everything else sits in the mesh box, and only the entities
+you allow can reach it.
 
-A visitor who has signed in as nobody gets a sign-in page, and the room is not hidden from
-them so much as absent: the point that carries it is gated `scope: user`, so their session
-never acquires it and there is nothing on their side to get past. Signing in fills the same
-window with the room. A moderator gets one member more than everybody else, `erase`, and
-gets it because the contract says so and not because the client decided to offer it.
+A visitor who has not signed in gets a sign-in page. The room is absent rather than hidden,
+because the point that carries it is gated `scope: user`, so their session never acquires
+it and there is nothing on their side to get past. Signing in fills the same window with
+the room. A moderator gets one member more than everybody else, `erase`. The contract
+grants it, so the client has no say in offering it.
 
-Seven files are the whole system: one configuration file, which says what crosses each link,
-one QML file per entity, two more the client's window opens, and the table the database keeps
-the messages in. Hover (or focus)
-an entity to read the file it is, or the mark on a line to read the block that says what
-crosses it, and the card that opens says the rest. The project tree under the drawing opens
-the same files, and one stays open until you move to another. The database opens two, its
-QML and the table that QML queries, since neither says much without the other. The files
-carry no explanatory comments: a line with something to say about itself is marked down its
-left instead, and hovering it says the thing. A line that ends in an arrow opens the page
-covering it, whether that is a page of this guide or the class in the C++ reference.
+Seven files are the whole system: one configuration file that says what crosses each link,
+one QML file per entity, two more that the client's window opens, and the table the
+database keeps the messages in. Hover or focus an entity to read its file, or the mark on
+a line to read the block that says what crosses it. The card that opens says the rest. The
+project tree under the drawing opens the same files, and one stays open until you move to
+another. The database opens two, its QML and the table that QML queries, since neither says
+much without the other. The files carry no explanatory comments. A line with something to
+say about itself is marked down its left instead, and hovering it shows the note. A line
+that ends in an arrow opens the page covering it, whether that is a page of this guide or
+the class in the C++ reference.
 
 The button under it opens this same drawing in the
-[online designer](visual-editor.md), which runs in the browser with nothing installed. It is
-the same code that drew it here, so nothing is lost on the way: pull the mesh apart there,
-add an entity, and export the result as a project.
+[online designer](visual-editor.md), which runs in the browser with nothing installed. The
+same code drew it here, so nothing is lost on the way. Pull the mesh apart there, add an
+entity, and export the result as a project.
 
 <div class="synqt-explorer">
 
@@ -415,10 +415,10 @@ ColumnLayout {
 ```
 
 <ul class="synqt-flow__glossary" hidden>
-<li data-code="model: Server.messages" data-href="programming-model/">A live model, and the whole of the sync. Somebody says something, the owner replaces the rows, and every open tab redraws itself. Nothing here polls.</li>
-<li data-code="required property var model" data-href="programming-model/">A delegate is recycled, so it holds no state of its own. `var model` rather than a property per role, because one of the roles is called `id`, which is a QML keyword.</li>
-<li data-code="line.model.staff" data-href="security/">Not a decision this browser made. `staff` is stamped on the row by the edge, from the session it verified, and it is the only thing in the system that can set it.</li>
-<li data-code="Server.say(draft.text)" data-href="api/?p=classSynQt_1_1ServerAccessor.html">A request, not a command. It runs on the owner, which is free to refuse it. The browser sends the text and nothing else.</li>
+<li data-code="model: Server.messages" data-href="programming-model/">A live model, which is the whole of the sync. Somebody says something, the owner replaces the rows, and every open tab redraws itself. Nothing here polls.</li>
+<li data-code="required property var model" data-href="programming-model/">A delegate is recycled, so it holds no state of its own. It takes `var model` rather than a property per role, because one of the roles is called `id`, which is a QML keyword.</li>
+<li data-code="line.model.staff" data-href="security/">The edge stamps `staff` on the row from the session it verified, and the edge is the only thing in the system that can set it. This browser has no say in it.</li>
+<li data-code="Server.say(draft.text)" data-href="api/?p=classSynQt_1_1ServerAccessor.html">It runs on the owner, which is free to refuse it. The browser sends the text and nothing else.</li>
 </ul>
 
 </div>
@@ -442,9 +442,9 @@ Button {
 ```
 
 <ul class="synqt-flow__glossary" hidden>
-<li data-code="required property int messageId" data-href="programming-model/">Which message this erases, handed down by the row. A delegate is recycled, so the button holds no idea of its own about which line it is sitting on.</li>
-<li data-code="visible: Session.hasScope(&quot;admin&quot;)" data-href="runtime-api/">A courtesy, not a gate: `erase` is not a member of the surface an ordinary session acquired, so hiding the button is only about not offering it.</li>
-<li data-code="Server.erase(control.messageId)" data-href="security/">The contract writes this member `&lt;admin&gt; slot erase`. An ordinary session never acquired it, so this is not a call that gets refused, it is a call there is nothing to make.</li>
+<li data-code="required property int messageId" data-href="programming-model/">Which message this erases, handed down by the row. A delegate is recycled, so the button cannot know on its own which line it is sitting on.</li>
+<li data-code="visible: Session.hasScope(&quot;admin&quot;)" data-href="runtime-api/">A courtesy rather than a gate. `erase` is not a member of the surface an ordinary session acquired, so hiding the button is only about not offering it.</li>
+<li data-code="Server.erase(control.messageId)" data-href="security/">The contract writes this member `&lt;admin&gt; slot erase`. An ordinary session never acquired it, so there is nothing there to call and nothing to refuse.</li>
 </ul>
 
 </div>

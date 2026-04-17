@@ -34,7 +34,7 @@ function built() {
 export async function startNext(port) {
     if (!built()) {
         console.error(
-            `no build in ${APP_DIR}/.next -- run: (cd ${APP_DIR} && npx next build)`);
+            `no build in ${APP_DIR}/.next; run: (cd ${APP_DIR} && npx next build)`);
         process.exit(1);
     }
     const {default: next} = await import("next");

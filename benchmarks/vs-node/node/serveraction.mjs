@@ -10,8 +10,8 @@
 // it. So there are exactly two honest ways to measure this path: drive a browser, or make
 // the same request the browser's runtime makes. This is the second.
 //
-// The alternative -- importing `actions.js` and calling the exported function -- is
-// deliberately not what this does. That measures the function body with Next.js removed
+// The alternative (importing `actions.js` and calling the exported function) is
+// not what this does. That measures the function body with Next.js removed
 // from underneath it, which is the one thing this column exists to keep.
 //
 // The encoding is read out of the build rather than hard-coded, and what is not read out is

@@ -418,8 +418,8 @@ the table.
 
 **Erasing as an ordinary user.** Sign in as somebody who is not in that `moderators` list,
 open the console, and call `Server.erase(1)`. There is no such function. `erase` is gated
-`<admin>` on the contract, so it is not a member of the surface this session acquired: this
-is not a call that was refused, it is a call there was never anything to make.
+`<admin>` on the contract, so it is not a member of the surface this session acquired.
+Nothing refused the call. There was never anything there to call.
 
 **The browser reaching the database.** Add `app` to the `store` point's consumers:
 

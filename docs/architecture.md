@@ -40,7 +40,7 @@ service entity you add as needed.
 A real system is more than a browser and one process. It has durable storage,
 caching, scheduled work, and integrations. Forcing all of that into a single
 server process, or pushing it onto third party products with their own
-deployment and security models, splinters the toolchain and the security story.
+deployment and security models, splinters the toolchain and the security model.
 Making every such component a first class SynQt entity means one toolchain, one
 contract format, one transport mechanism, and one security model across the
 whole system.
@@ -84,7 +84,7 @@ Rationale: QHttpServer gives a small routing server with `route()` for paths,
 `QHttpServerResponse::fromFile()` for assets, and `addAfterRequestHandler()` for
 stamping headers. Using the web edge to both serve the bundle and accept the
 browser connection means one port, one certificate, and one origin, which is the
-cleanest same origin security story (see [security](security.md)).
+simplest same origin arrangement to reason about (see [security](security.md)).
 
 ### Plane B: transport (the secure pipes)
 

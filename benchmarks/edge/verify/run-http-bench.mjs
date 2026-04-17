@@ -6,8 +6,8 @@
 // each cell it holds `connections` concurrent request loops open for the measured window,
 // records every request's latency, and reports requests/sec plus the latency distribution
 // (p50/p90/p99). What makes the numbers comparable across frameworks is the test types and
-// the methodology; warm up, sweep the connection count, report throughput and percentiles --
-// the same shape TechEmpower uses with wrk; this ships no external dependency so it runs
+// the methodology. Warm up, sweep the connection count, report throughput and percentiles,
+// the same shape TechEmpower uses with wrk. This ships no external dependency so it runs
 // anywhere the edge builds. The driver owns the server's lifecycle (spawn, wait, kill) so the
 // whole run is one process with no shell job control. Output matches results/transport-*.json.
 

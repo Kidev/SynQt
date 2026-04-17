@@ -52,9 +52,8 @@ synqt doctor
 ```
 
 > [!TIP]
-> `synqt doctor` is your friend throughout. Whenever something will not build or
-> run, run it first. It checks your toolchain, ports, certificates, and project
-> topology and usually tells you exactly what is wrong.
+> Run `synqt doctor` first whenever something will not build or run. It checks your
+> toolchain, ports, certificates, and project topology, and usually names what is wrong.
 
 ## Create and run a project
 

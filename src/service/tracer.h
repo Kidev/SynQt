@@ -30,9 +30,9 @@ namespace SynQt {
 /// the writer thread.
 ///
 /// The timer that triggers a partial batch lives on that writer thread rather than on
-/// the entity's, and that is the point rather than an implementation detail: an entity
-/// whose event loop is stalled is exactly the entity whose last events matter most, and
-/// a timer parented to a stalled loop never fires.
+/// the entity's, and the guarantee depends on it. An entity whose event loop is stalled is
+/// exactly the entity whose last events matter most, and a timer parented to a stalled loop
+/// never fires.
 class Tracer : public QObject
 {
     Q_OBJECT

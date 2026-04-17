@@ -19,13 +19,13 @@ four kinds of output share almost nothing but the topology they read:
 - :mod:`synqt.authentity` renders the Source QML the auth entity needs when
   ``identity.provider_entity`` promotes identity out of the edge.
 - :mod:`synqt.qmlrewrite` mirrors each entity's own QML into ``generated/``, which is the
-  tree the engines actually load, so a file rooted at its own name resolves.
+  tree the engines load, so a file rooted at its own name resolves.
 
-Nothing is re-exported here: a caller that wants one renderer names the module that
-owns it, so the split stays load bearing rather than a layer behind one facade. A
+Nothing is re-exported here. A caller that wants one renderer names the module that
+owns it, so the split stays real rather than a layer behind one facade. A
 topology this generator cannot read raises :class:`synqt.appmodel.AppGenError`.
 
-Generation is deterministic string rendering (unit-testable without a compiler); the
+Generation is deterministic string rendering (unit-testable without a compiler). The
 actual compilation runs through the CMake presets in :mod:`synqt.build`.
 """
 
@@ -46,7 +46,7 @@ def generate(project_dir: os.PathLike[str] | str, config: Dict[str, Any], *,
     Returns every path this generator owns, whether or not this run had to touch it: each
     file is written only when its content changed (see :mod:`synqt.writer`), so the return
     describes the app's generated surface rather than what the filesystem did. That
-    distinction is the point; a caller wanting the second one would be asking the wrong
+    distinction matters; a caller wanting the second one would be asking the wrong
     question, since an unchanged file is exactly what makes a rebuild free.
     """
     root = Path(project_dir)

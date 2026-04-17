@@ -11,10 +11,10 @@ durable store has nowhere to keep what it enrolled.
 
 A `min_binding` that some machines meet is the opposite case and is only reported. Which
 level a machine reaches is a property of that machine, not of the build, so the edge settles
-it at enrolment; a project can ship all three platforms under a policy only two of them meet,
+it at enrolment. A project can ship all three platforms under a policy only two of them meet,
 and the third signs in per launch instead of failing to build. A floor no store reports at
-all is back in the first group, because it is not a policy about machines, it is the feature
-turned off everywhere.
+all is back in the first group, because it turns the feature off everywhere rather than
+stating a policy about machines.
 """
 
 import unittest
