@@ -47,6 +47,10 @@ private slots:
     void paletteAcceptsAnImportEndedWithASemicolon();
     void paletteAllowsASemicolonAndTheWordImportInsideAStringLiteral();
     void paletteAllowsATemplateLiteralSpanningLines();
+    void paletteRejectsAnImportHiddenByALineSeparatorInAComment();
+    void paletteRejectsAnImportHiddenByAParagraphSeparatorInAComment();
+    void paletteRejectsASecondImportAfterALineSeparator();
+    void paletteAcceptsAPageWrittenWithLineSeparators();
     void paletteAllowsAnIdentifierBeginningWithImport();
 
     void loaderBuildsAComponentFromDeliveredSource();
@@ -229,9 +233,9 @@ void tst_RemotePage::paletteRejectsAnImportHiddenByAFakeBlockComment()
 void tst_RemotePage::paletteRejectsAnImportHiddenByACarriageReturn()
 {
     // A bare "\r" ends a line for QML's lexer, so this page holds two imports and the
-    // engine honors both (measured, it builds the QtQuick type). A scan that splits on
-    // "\n" alone sees one line, reads "QtQuick" as the module of the first import, and
-    // never looks at the rest of it.
+    // engine honors both (it builds the QtQuick type). A scan that splits on "\n" alone
+    // sees one line, reads "QtQuick" as the module of the first import, and never looks at
+    // the rest.
     const QmlPalette palette{{QStringLiteral("QtQuick")}};
     QVERIFY(!palette.isAcceptable(
         QStringLiteral("import QtQuick\rimport Evil\nItem { }\n"), nullptr));
@@ -257,9 +261,9 @@ void tst_RemotePage::paletteAcceptsAPageWrittenWithWindowsLineEndings()
 
 void tst_RemotePage::paletteRejectsAnImportHiddenByAByteOrderMark()
 {
-    // The lexer skips a leading U+FEFF and imports what follows it (measured), so the
-    // scan has to skip it too: a scan that does not sees a first line starting with no
-    // keyword it knows, calls the header over, and refuses nothing.
+    // The lexer skips a leading U+FEFF and imports what follows it, so the scan has to skip
+    // it too: otherwise it sees a first line starting with no keyword it knows, calls the
+    // header over, and refuses nothing.
     const QmlPalette palette{{QStringLiteral("QtQuick")}};
     QVERIFY(!palette.isAcceptable(
         QStringLiteral("\ufeffimport Evil\nItem { }\n"), nullptr));
@@ -314,6 +318,41 @@ void tst_RemotePage::paletteAllowsATemplateLiteralSpanningLines()
         "import QtQuick.Controls`\n"
         "}\n")};
     QVERIFY(palette.isAcceptable(source, nullptr));
+}
+
+void tst_RemotePage::paletteRejectsAnImportHiddenByALineSeparatorInAComment()
+{
+    // U+2028 ends a line for QML's lexer (QQmlJS::Lexer::isLineTerminator), so the
+    // comment stops there and the engine reads the import after it. A scan that ends a
+    // comment only at "\n" swallows the import with the comment and accepts the page.
+    const QmlPalette palette{{QStringLiteral("QtQuick")}};
+    QVERIFY(!palette.isAcceptable(
+        QStringLiteral("import QtQuick\n// a note\u2028import Evil\nItem { }\n"), nullptr));
+}
+
+void tst_RemotePage::paletteRejectsAnImportHiddenByAParagraphSeparatorInAComment()
+{
+    // U+2029 is the other one, and the lexer treats the two alike.
+    const QmlPalette palette{{QStringLiteral("QtQuick")}};
+    QVERIFY(!palette.isAcceptable(
+        QStringLiteral("import QtQuick\n// a note\u2029import Evil\nItem { }\n"), nullptr));
+}
+
+void tst_RemotePage::paletteRejectsASecondImportAfterALineSeparator()
+{
+    // The same terminator between two statements, with no comment to hide behind.
+    const QmlPalette palette{{QStringLiteral("QtQuick")}};
+    QVERIFY(!palette.isAcceptable(
+        QStringLiteral("import QtQuick\u2028import Evil\nItem { }\n"), nullptr));
+}
+
+void tst_RemotePage::paletteAcceptsAPageWrittenWithLineSeparators()
+{
+    // The other half of the rule. A page that ends its lines with U+2028 and imports
+    // only what the palette declared is an ordinary page.
+    const QmlPalette palette{{QStringLiteral("QtQuick")}};
+    QVERIFY(palette.isAcceptable(
+        QStringLiteral("import QtQuick\u2028Item { }\u2028"), nullptr));
 }
 
 void tst_RemotePage::paletteAllowsAnIdentifierBeginningWithImport()
@@ -533,9 +572,9 @@ void tst_RemotePage::routerReportsForbiddenWhenTheEdgeRefuses()
 
 void tst_RemotePage::routerKeepsTheComponentValidAfterLeavingAndReturning()
 {
-    // Pins the Critical 1 fix: RemotePageLoader owns and frees its cached components;
-    // Router must never delete one of them itself, or a revisit hands out (and
-    // deliver()/invalidate() later double-frees) an already-freed pointer.
+    // RemotePageLoader owns and frees its cached components; Router must never delete one
+    // itself, or a revisit hands out (and deliver()/invalidate() later double-frees) an
+    // already-freed pointer.
     QQmlEngine engine;
     SynQt::SynClientConfig config{remoteFixture()};
     config.routes.append(SynQt::RouteConfig{QStringLiteral("/other"),
@@ -558,9 +597,9 @@ void tst_RemotePage::routerKeepsTheComponentValidAfterLeavingAndReturning()
 
     router.go(QStringLiteral("/other"));
     QCOMPARE(router.pageStatus(), SynQt::Router::Ready);
-    // Let any queued deleteLater() run: this is what exposes a double free
-    // (the bug fires here, not at the go() call above). A plain processEvents() alone
-    // does not force a DeferredDelete through. SendPostedEvents does.
+    // Let any queued deleteLater() run: a double free fires here, not at the go() call
+    // above. A plain processEvents() does not force a DeferredDelete through;
+    // SendPostedEvents does.
     QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
     QCoreApplication::processEvents();
 
@@ -573,9 +612,9 @@ void tst_RemotePage::routerKeepsTheComponentValidAfterLeavingAndReturning()
 
 void tst_RemotePage::routerClearsTheComponentBeforeInvalidatingOnPageChanged()
 {
-    // Pins Important 2: onPageChanged must let go of the on-screen component (and
-    // notify) before invalidate() frees it, or a live QML Loader is left pointing at
-    // memory freed on the next event-loop turn.
+    // onPageChanged must let go of the on-screen component (and notify) before invalidate()
+    // frees it, or a live QML Loader is left pointing at memory freed on the next
+    // event-loop turn.
     QQmlEngine engine;
     SynQt::Session session{remoteFixture()};
     SynQt::Router router{remoteFixture(), &session, &engine};
@@ -601,9 +640,9 @@ void tst_RemotePage::routerClearsTheComponentBeforeInvalidatingOnPageChanged()
 
 void tst_RemotePage::routerSendsTheConcretePathToTheEdge()
 {
-    // Pins Minor 3: PagesService matches the concrete path against the declared
-    // patterns and the seed provider needs the real parameters, so pageRequested must
-    // carry "/c/summer", never the pattern "/c/:campaign".
+    // PagesService matches the concrete path against the declared patterns and the seed
+    // provider needs the real parameters, so pageRequested must carry "/c/summer", never
+    // the pattern "/c/:campaign".
     QQmlEngine engine;
     SynQt::Session session{remoteFixture()};
     SynQt::Router router{remoteFixture(), &session, &engine};
@@ -621,9 +660,9 @@ void tst_RemotePage::routerSendsTheConcretePathToTheEdge()
 
 void tst_RemotePage::routerUpdatesTheSeedWhenTheParameterChanges()
 {
-    // Pins Important 4: the same template revisited with a changed parameter keeps the
-    // same cached component (setPageComponent's own early return would emit nothing),
-    // so a seed-only change needs pageChanged emitted for it explicitly.
+    // The same template revisited with a changed parameter keeps the same cached component
+    // (setPageComponent's own early return would emit nothing), so a seed-only change needs
+    // pageChanged emitted explicitly.
     QQmlEngine engine;
     SynQt::Session session{remoteFixture()};
     SynQt::Router router{remoteFixture(), &session, &engine};
@@ -655,11 +694,9 @@ void tst_RemotePage::routerUpdatesTheSeedWhenTheParameterChanges()
 
 void tst_RemotePage::routerKeepsTheSeedWhenACachedPageIsRevisited()
 {
-    // Pins Important 4's intent. Revisiting a page the loader already holds must still
-    // end up showing that page's seed. What guarantees it changed with the staleness fix
-    // (pagesservice.cpp), the edge now sends the seed on notModified too, rather than the
-    // client hoarding the last one it saw. The visitor-visible outcome is the same, and
-    // it is the outcome, not the mechanism, that this pins.
+    // Revisiting a page the loader already holds must still show that page's seed. The edge
+    // sends the seed on notModified too (pagesservice.cpp), rather than the client keeping
+    // the last one it saw. This pins the visitor-visible outcome, not the mechanism.
     QQmlEngine engine;
     SynQt::Session session{remoteFixture()};
     SynQt::Router router{remoteFixture(), &session, &engine};
@@ -790,7 +827,7 @@ void tst_RemotePage::routerClearsTheSeedWhenAHookDeclinesToProduceOne()
 
 void tst_RemotePage::routerRefreshesTheSeedOnANotModifiedReply()
 {
-    // The other half of the staleness fix (pagesservice.cpp), the edge now produces a
+    // The other half of the seed's freshness (pagesservice.cpp): the edge produces a
     // seed on notModified too, because one page file serves every parameterization of
     // its route and so answers every one of them with the same hash. The client must
     // surface that seed-only change, even though the cached component and the Ready
@@ -825,9 +862,8 @@ void tst_RemotePage::routerRefreshesTheSeedOnANotModifiedReply()
 
 void tst_RemotePage::routerClearsThePrivilegedPageOnScopeLoss()
 {
-    // Pins Important 5: a privileged remote page (and its seed) must not survive a
-    // scope loss and be re-shown from the loader's cache before the edge's own
-    // refusal has a chance to arrive.
+    // A privileged remote page (and its seed) must not survive a scope loss and be re-shown
+    // from the loader's cache before the edge's own refusal arrives.
     QQmlEngine engine;
     SynQt::SynClientConfig config{remoteFixture()};
     SynQt::Session session{config};
@@ -855,9 +891,8 @@ void tst_RemotePage::routerClearsThePrivilegedPageOnScopeLoss()
 
 void tst_RemotePage::routerIgnoresALateReplyForAnAbandonedRoute()
 {
-    // Pins Important 3: navigating away clears the pending markers, so a reply that
-    // lands afterward (for the route now abandoned) must not hijack whatever the
-    // visitor has since navigated to.
+    // Navigating away clears the pending markers, so a reply that lands afterward (for the
+    // abandoned route) must not hijack whatever the visitor has since navigated to.
     QQmlEngine engine;
     SynQt::SynClientConfig config{remoteFixture()};
     config.routes.append(SynQt::RouteConfig{QStringLiteral("/other"),

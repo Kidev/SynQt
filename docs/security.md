@@ -619,11 +619,17 @@ page can reach inside the client. Keep it as small as the pages actually need.
 
 Because it is a boundary, the client reads a page exactly as the QML engine's lexer does:
 comments and string literals are removed before anything is judged, a statement ends at a
-semicolon as well as at a line break, every terminator the engine honors counts (a lone
-carriage return, and a leading byte order mark the engine skips), and the `import` keyword
-may not appear anywhere the check did not approve. The last rule is what makes this hold
-under a page written to defeat it: an import the check cannot account for is refused
-without reasoning about how it got there.
+semicolon as well as at a line break, and the `import` keyword may not appear anywhere the
+check did not approve. The last rule is what makes this hold under a page written to defeat
+it: an import the check cannot account for is refused without reasoning about how it got
+there.
+
+"Exactly as the lexer does" is load bearing, and where a line ends is the part of it that
+is easiest to get wrong. The engine ends one at four characters, not two: a line feed, a
+lone carriage return, and U+2028 and U+2029, the Unicode line and paragraph separators. Any
+of them closes a `//` comment, so a page can put an import after one and have a scan that
+knows only the first two read it as part of the comment. All four count here, and so does a
+leading byte order mark, which the engine skips.
 
 Accepted risk: a delivered page reaches the client accessors. A delivered page can
 still reach `Server`, `Session`, `Router`, and `App`, the same context the compiled-in

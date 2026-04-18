@@ -12,9 +12,20 @@ namespace SynQt {
 
 namespace {
 
-/// U+FEFF. The QML lexer skips one at the head of a file, so a page whose first
-/// bytes are the mark still imports whatever follows it.
+/// U+FEFF. The QML lexer skips one at the start of a file, so a page starting with the mark
+/// still imports what follows.
 constexpr char16_t ByteOrderMark{0xFEFF};
+
+/// True for the four characters that end a line for QML's lexer.
+///
+/// `QQmlJS::Lexer::isLineTerminator` also counts U+2028 LINE SEPARATOR and U+2029 PARAGRAPH
+/// SEPARATOR. A scan that ends a line comment only at "\n" would read `// x<U+2028>import
+/// Evil` as one comment, while the engine reads a comment and then an import.
+bool endsLine(QChar character)
+{
+    const char16_t code{character.unicode()};
+    return code == u'\n' || code == u'\r' || code == 0x2028 || code == 0x2029;
+}
 
 const QString &importKeyword()
 {
@@ -28,21 +39,19 @@ const QString &pragmaKeyword()
     return keyword;
 }
 
-/// True for a character that continues an identifier, so "import" is only read as
-/// the keyword when nothing runs into it on either side ("importer" is a name).
+/// True for a character that continues an identifier, so "import" is the keyword only with
+/// nothing adjacent ("importer" is a name).
 bool isIdentifierChar(QChar character)
 {
     return character.isLetterOrNumber() || character == QLatin1Char('_')
         || character == QLatin1Char('$');
 }
 
-/// Consume the string literal opening at index, appending its quotes and dropping
-/// its contents. Returns the index of the last character consumed.
+/// Consume the string literal opening at index, keeping its quotes and dropping its
+/// contents. Returns the index of the last character consumed.
 ///
-/// Emptying the literal is what keeps the rest of this file correct. The scan below
-/// treats ";" as a statement boundary and refuses the "import" keyword wherever it
-/// did not approve it, and a page is entitled to write both inside a string. What
-/// a literal holds is data, never a statement, so it leaves as "".
+/// The scan below treats ";" as a statement boundary and refuses any unapproved "import"
+/// keyword, and a page may write both inside a string, so a literal leaves as "".
 qsizetype consumeString(const QString &source, qsizetype index, QString *out)
 {
     const QChar quote{source.at(index)};
@@ -57,11 +66,10 @@ qsizetype consumeString(const QString &source, qsizetype index, QString *out)
             out->append(quote);
             return scan;
         }
-        if (quote != QLatin1Char('`')
-            && (character == QLatin1Char('\n') || character == QLatin1Char('\r'))) {
-            // Unterminated: only a template literal may hold a line terminator. Close
-            // it here and let the terminator be read as one, so a page that ends a
-            // string by accident cannot swallow the lines after it.
+        if (quote != QLatin1Char('`') && endsLine(character)) {
+            // Unterminated: only a template literal may contain a line terminator. Close it
+            // here and read the terminator as one, so an unclosed string cannot swallow the
+            // following lines.
             out->append(quote);
             return scan - 1;
         }
@@ -71,13 +79,13 @@ qsizetype consumeString(const QString &source, qsizetype index, QString *out)
 }
 
 /// Consume the "/* ... */" comment opening at index, emitting one newline per line
-/// terminator inside it so the statements around it stay apart. Returns the index of
-/// the last character consumed.
+/// terminator inside it so surrounding statements stay apart. Returns the index of the last
+/// character consumed.
 qsizetype consumeBlockComment(const QString &source, qsizetype index, QString *out)
 {
     for (qsizetype scan{index + 2}; scan < source.size(); ++scan) {
         const QChar character{source.at(scan)};
-        if (character == QLatin1Char('\r') || character == QLatin1Char('\n')) {
+        if (endsLine(character)) {
             if (character == QLatin1Char('\r') && scan + 1 < source.size()
                 && source.at(scan + 1) == QLatin1Char('\n')) {
                 ++scan;
@@ -93,17 +101,13 @@ qsizetype consumeBlockComment(const QString &source, qsizetype index, QString *o
     return source.size() - 1;
 }
 
-/// The source as the scan below reads it: comments gone, string literals emptied,
-/// every line terminator the lexer honors written as "\n", and the byte order mark
-/// dropped.
+/// The source as the scan reads it: comments removed, string literals emptied, every line
+/// terminator the lexer honours written as "\n", and the byte order mark dropped.
 ///
-/// Normalizing the terminators is not cosmetic. "\r" alone ends a line for the QML
-/// lexer, so a page written "import QtQuick\rimport Evil" is two imports to the
-/// engine; to a scan that splits on "\n" it is one line whose first token is a
-/// module the palette declared, and the second import is never looked at. The same
-/// goes for the byte order mark: the lexer skips it, so a page starting "
-/// import Evil" imports Evil, while a scan that does not skip it sees a line
-/// beginning with no keyword it knows.
+/// All four terminators matter (endsLine). "\r" alone ends a line for the QML lexer, so
+/// "import QtQuick\rimport Evil" is two imports to the engine but one line to a scan
+/// splitting on "\n". U+2028 and U+2029 can end a line comment early. The lexer also skips
+/// a leading byte order mark, so the scan must too.
 QString stripped(const QString &source)
 {
     QString body;
@@ -114,9 +118,12 @@ QString stripped(const QString &source)
         if (character == QChar{ByteOrderMark}) {
             continue;
         }
-        if (character == QLatin1Char('\r')) {
+        if (endsLine(character)) {
             body.append(QLatin1Char('\n'));
-            if (hasNext && source.at(index + 1) == QLatin1Char('\n')) {
+            // "\r\n" is one terminator, so a page written on Windows gets no empty
+            // statement between lines.
+            if (character == QLatin1Char('\r') && hasNext
+                && source.at(index + 1) == QLatin1Char('\n')) {
                 ++index;
             }
             continue;
@@ -128,11 +135,9 @@ QString stripped(const QString &source)
         }
         if (character == QLatin1Char('/') && hasNext) {
             if (source.at(index + 1) == QLatin1Char('/')) {
-                // Up to, but not including, the terminator: the loop reads that next
-                // and turns it into the "\n" the statement split needs.
+                // Up to the terminator, which the loop reads next and turns into "\n".
                 qsizetype scan{index + 2};
-                while (scan < source.size() && source.at(scan) != QLatin1Char('\n')
-                       && source.at(scan) != QLatin1Char('\r')) {
+                while (scan < source.size() && !endsLine(source.at(scan))) {
                     ++scan;
                 }
                 index = scan - 1;
@@ -148,18 +153,16 @@ QString stripped(const QString &source)
     return body;
 }
 
-/// One statement of the stripped body. Where it starts, and its text with the
-/// surrounding whitespace removed.
+/// One statement of the stripped body: where it starts, and its trimmed text.
 struct Statement
 {
     qsizetype offset{0};
     QString text;
 };
 
-/// Split the body the way the lexer ends a statement. At a line terminator, and at a
-/// semicolon. Both matter. "import QtQuick; import Evil" is two imports to the
-/// engine, and "import QtQuick;" is one perfectly ordinary import that a scan
-/// reading the whole line as a module name would refuse.
+/// Split the body where the lexer ends a statement: at a line terminator and at a
+/// semicolon. "import QtQuick; import Evil" is two imports, and "import QtQuick;" is one
+/// ordinary import.
 QList<Statement> statementsOf(const QString &body)
 {
     QList<Statement> statements;
@@ -185,11 +188,9 @@ QList<Statement> statementsOf(const QString &body)
     return statements;
 }
 
-/// True when line begins with keyword at a real QML token boundary: the next
-/// character (if any) is whitespace, or a quote when quoteEndsKeyword, or the line
-/// ends there. QML's lexer treats any whitespace as a separator, so this must
-/// not require exactly one ASCII space. A lookalike identifier such as "imports" or
-/// "importation" continues with a non-boundary character and is correctly rejected.
+/// True when line begins with keyword at a real QML token boundary: the next character, if
+/// any, is whitespace, or a quote when quoteEndsKeyword. Any whitespace separates, not just
+/// one ASCII space. "imports" and "importation" are rejected.
 bool matchesKeyword(const QString &line, const QString &keyword, bool quoteEndsKeyword)
 {
     if (!line.startsWith(keyword)) {
@@ -266,11 +267,9 @@ bool QmlPalette::isAcceptable(const QString &source, QString *reason) const
         headerEnded = true;
     }
 
-    // Everything above reads the page the way the engine's lexer does, and the whole
-    // boundary rests on that reading being complete. So finish with the claim itself:
-    // the keyword appears nowhere this scan did not approve. An occurrence it cannot
-    // account for is one the engine may still honor, which is the only outcome that
-    // matters, so it is refused without reasoning about how it got there.
+    // The scan above reads the page as the engine's lexer does. Finally check the claim
+    // itself: the keyword appears nowhere the scan did not approve. Any unexplained
+    // occurrence may be honoured by the engine, so it is refused.
     for (qsizetype index{body.indexOf(importKeyword())}; index >= 0;
          index = body.indexOf(importKeyword(), index + 1)) {
         if (approved.contains(index)) {

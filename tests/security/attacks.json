@@ -665,6 +665,13 @@
       "defended_by": "The header is read only from a peer the entity named in network.inbound.trusted_proxies, and within it only the rightmost entry that is not itself a listed hop, since a balancer appends what it saw rather than replacing what the client sent. A surface that names nobody counts the peer that connected and nothing else.",
       "file": "tests/api-inbound/tst_apiinbound.cpp",
       "test": "aForgedForwardedHeaderDoesNotBuyAFreshBudget"
+    },
+    {
+      "id": "palette-import-hidden-by-a-line-separator",
+      "what": "A page the edge delivers is code, and the palette is what bounds the modules it may import. QML's lexer ends a line at U+2028 and U+2029 as well as at a line feed and a carriage return, so a page can close a line comment with one and put an import after it. A scan that ends a comment only at the two terminators people type reads the import as part of the comment, never looks at it, and accepts a page that imports a module the palette never allowed.",
+      "defended_by": "The palette reads the page with the lexer's own notion of where a line ends: all four terminators close a line comment, close an unterminated string literal, and separate two statements.",
+      "file": "tests/remote-pages/tst_remotepage.cpp",
+      "test": "paletteRejectsAnImportHiddenByALineSeparatorInAComment"
     }
   ]
 }
