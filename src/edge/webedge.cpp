@@ -1113,11 +1113,23 @@ bool WebEdge::start()
     // 3. The public transport: TLS by default (a QSslServer bound to QHttpServer), with
     //    connection tracking for the handshake timeout.
     if (m_config.usesTls()) {
+        // Read before anything is bound, and a failure here ends the start rather than
+        // being carried into the configuration. An edge given a certificate it cannot read,
+        // or a key of an algorithm it was not asked for, would otherwise listen on the
+        // public port and fail every handshake, which reads to a visitor as a site that is
+        // down and to an operator as nothing at all.
+        const QSslCertificate certificate{loadCertificate(m_config.certFile)};
+        const QSslKey key{loadPrivateKey(m_config.keyFile)};
+        if (certificate.isNull() || key.isNull()) {
+            m_errorString = QStringLiteral("cannot terminate TLS with %1 and %2")
+                                .arg(m_config.certFile, m_config.keyFile);
+            return false;
+        }
         QSslServer *sslServer{new QSslServer{this}};
         QSslConfiguration configuration{QSslConfiguration::defaultConfiguration()};
-        configuration.setLocalCertificate(loadCertificate(m_config.certFile));
-        configuration.setPrivateKey(loadPrivateKey(m_config.keyFile));
-        // The browser presents no client certificate; only the server is authenticated.
+        configuration.setLocalCertificate(certificate);
+        configuration.setPrivateKey(key);
+        // The browser presents no client certificate. Only the server is authenticated.
         configuration.setPeerVerifyMode(QSslSocket::VerifyNone);
         sslServer->setSslConfiguration(configuration);
         connect(sslServer, &QSslServer::startedEncryptionHandshake, this,

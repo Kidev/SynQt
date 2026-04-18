@@ -247,6 +247,40 @@ private slots:
                  "a deep link served the application shell to an anonymous caller");
     }
 
+    void theEdgeTerminatesTlsWithAnEllipticCurveKey()
+    {
+        // The same edge, over an EC key instead of an RSA one. `certbot --key-type ecdsa`
+        // writes one, and the certificate documentation promises SynQt has no opinion
+        // about where a certificate comes from. It had one: the key was read as RSA, which
+        // decodes with RSA's own PEM reader and answers a null key for anything else, so
+        // the edge listened on the public port with nothing to terminate TLS with and
+        // every handshake failed with nothing in the log naming the file.
+        QQmlEngine engine;
+        WebEdgeConfig config{makeConfig(false)};
+        config.certFile = QStringLiteral(M5_CERT_DIR "/server-ec.crt");
+        config.keyFile = QStringLiteral(M5_CERT_DIR "/server-ec.key");
+        WebEdge edge{config, &engine};
+        QVERIFY2(edge.start(), qPrintable(edge.errorString()));
+
+        QNetworkReply *reply{httpGet(edge.httpOrigin() + QStringLiteral("/"))};
+        QVERIFY(reply != nullptr);
+        QVERIFY(reply->readAll().contains("SYNQT-M5-BUNDLE"));
+    }
+
+    void theEdgeRefusesToStartWithAKeyItCannotRead()
+    {
+        // The other half. An edge told to terminate TLS and unable to says so and stops,
+        // rather than listening on a port whose handshake can never complete. Which reads
+        // to a visitor as a site that is down and to an operator as nothing at all.
+        QQmlEngine engine;
+        WebEdgeConfig config{makeConfig(false)};
+        config.keyFile = QStringLiteral(M5_CERT_DIR "/server.crt");  // a certificate, not a key
+        WebEdge edge{config, &engine};
+        QVERIFY(!edge.start());
+        QVERIFY2(edge.errorString().contains(QStringLiteral("terminate TLS")),
+                 qPrintable(edge.errorString()));
+    }
+
     void oneBundleBehavesExactlyAsBefore()
     {
         QQmlEngine engine;

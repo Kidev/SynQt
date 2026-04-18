@@ -146,22 +146,63 @@ Topology topologyFromJson(const QJsonObject &object)
     return topology;
 }
 
-QSslCertificate loadCertificate(const QString &path)
+namespace {
+
+/// The bytes of a PEM file, or nothing with a word about which file it was.
+///
+/// Said out loud because both callers below answer a file they cannot read with a null
+/// object, and a null certificate or key is not something the Qt API complains about
+/// later. It is a server that listens and then fails every handshake with nothing in the
+/// log naming the file it was given.
+QByteArray pemBytes(const QString &path, const char *what)
 {
+    if (path.isEmpty()) {
+        return QByteArray{};  // nothing was configured. The caller decides whether that is an error
+    }
     QFile file{path};
     if (!file.open(QIODevice::ReadOnly)) {
+        qWarning("SynQt: cannot read the %s at %s: %s", what, qUtf8Printable(path),
+                 qUtf8Printable(file.errorString()));
+        return QByteArray{};
+    }
+    return file.readAll();
+}
+
+} // namespace
+
+QSslCertificate loadCertificate(const QString &path)
+{
+    const QByteArray pem{pemBytes(path, "certificate")};
+    if (pem.isEmpty()) {
         return QSslCertificate{};
     }
-    return QSslCertificate{file.readAll(), QSsl::Pem};
+    const QSslCertificate certificate{pem, QSsl::Pem};
+    if (certificate.isNull()) {
+        qWarning("SynQt: %s holds no PEM certificate", qUtf8Printable(path));
+    }
+    return certificate;
 }
 
 QSslKey loadPrivateKey(const QString &path)
 {
-    QFile file{path};
-    if (!file.open(QIODevice::ReadOnly)) {
+    const QByteArray pem{pemBytes(path, "private key")};
+    if (pem.isEmpty()) {
         return QSslKey{};
     }
-    return QSslKey{file.readAll(), QSsl::Rsa, QSsl::Pem, QSsl::PrivateKey};
+    // Each algorithm in turn, because QSslKey decodes with the reader for the algorithm it
+    // is handed and returns a null key for anything else. Asking only for RSA meant an EC
+    // key, which is what an ACME client asked for `--key-type ecdsa` writes, loaded as
+    // nothing at all and the surface it belonged to listened with no key.
+    for (const QSsl::KeyAlgorithm algorithm : {QSsl::Rsa, QSsl::Ec, QSsl::Dsa, QSsl::Dh}) {
+        const QSslKey key{pem, algorithm, QSsl::Pem, QSsl::PrivateKey};
+        if (!key.isNull()) {
+            return key;
+        }
+    }
+    qWarning("SynQt: %s holds no PEM private key this build can read. An encrypted key has "
+             "to be decrypted before an entity is given it, and a key of an algorithm this "
+             "Qt was built without cannot be read at all.", qUtf8Printable(path));
+    return QSslKey{};
 }
 
 } // namespace SynQt

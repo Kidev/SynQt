@@ -199,6 +199,17 @@ bool ConnectPointHost::start()
         const QSslCertificate ca{loadCertificate(m_credentials.caCertPath)};
         const QSslCertificate cert{loadCertificate(m_credentials.certPath)};
         const QSslKey key{loadPrivateKey(m_credentials.keyPath)};
+        // Said here, where the three paths are, rather than left to present itself as every
+        // consumer failing to verify. A mesh owner with no identity of its own is an owner
+        // nothing can connect to, and the reason is which of these files it did not get.
+        if (ca.isNull() || cert.isNull() || key.isNull()) {
+            m_errorString = QStringLiteral("connect point %1 has no usable mesh identity "
+                                           "(ca %2, cert %3, key %4); run 'synqt mesh init' "
+                                           "and 'synqt mesh cert --all'")
+                                .arg(m_config.name, m_credentials.caCertPath,
+                                     m_credentials.certPath, m_credentials.keyPath);
+            return false;
+        }
         if (!m_server->listenMutualTls(QHostAddress{m_config.endpoint.host},
                                        m_config.endpoint.port, ca, cert, key)) {
             m_errorString = m_server->errorString();

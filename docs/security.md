@@ -698,8 +698,12 @@ system](deploying.md).
 
 Browser link:
 
-- TLS enabled on the web edge with a real certificate; the edge refuses to start
-  otherwise.
+- TLS enabled on the web edge with a real certificate. A release build that neither
+  carries `tls.cert_file` and `tls.key_file` nor declares
+  `public.tls_terminated_upstream` is refused by `synqt check`, and an edge that carries
+  them and cannot read them refuses to start rather than listening on a port whose
+  handshake can never complete. The key may be RSA or elliptic curve; it may not be
+  encrypted, since nothing is there to type a passphrase into.
 - No `origin_model` declared unless a split origin deployment was chosen deliberately;
   `allowed_origins` lists exactly the origins that may open the sync connection.
 - The session is the httpOnly Secure cookie. There is no alternative transport: the

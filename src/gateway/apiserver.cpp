@@ -174,11 +174,20 @@ bool ApiServer::start()
     });
 
     if (!m_config.certFile.isEmpty() && !m_config.keyFile.isEmpty()) {
+        // As on the web edge. A surface told to terminate TLS and unable to refuses to
+        // start, rather than listening on a port whose handshake can never complete.
+        const QSslCertificate certificate{loadCertificate(m_config.certFile)};
+        const QSslKey key{loadPrivateKey(m_config.keyFile)};
+        if (certificate.isNull() || key.isNull()) {
+            m_errorString = QStringLiteral("cannot terminate TLS with %1 and %2")
+                                .arg(m_config.certFile, m_config.keyFile);
+            return false;
+        }
         QSslServer *sslServer{new QSslServer{this}};
         QSslConfiguration configuration{QSslConfiguration::defaultConfiguration()};
-        configuration.setLocalCertificate(loadCertificate(m_config.certFile));
-        configuration.setPrivateKey(loadPrivateKey(m_config.keyFile));
-        // A machine caller presents no client certificate; only the server is
+        configuration.setLocalCertificate(certificate);
+        configuration.setPrivateKey(key);
+        // A machine caller presents no client certificate. Only the server is
         // authenticated here, and the caller authenticates with its API key.
         configuration.setPeerVerifyMode(QSslSocket::VerifyNone);
         sslServer->setSslConfiguration(configuration);

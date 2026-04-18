@@ -93,6 +93,9 @@ Get a certificate for your domain however you normally would. An ACME client suc
 certbot or your host's built in one, a certificate your organisation issues, anything
 that produces a full chain and a private key. SynQt has no opinion and no integration
 here on purpose: certificate renewal is an operational concern with good tools already.
+Two things about the files themselves: PEM, and an RSA or elliptic-curve key that is not
+encrypted, because nothing is there to type a passphrase into. An edge handed a pair it
+cannot read says so and does not start.
 
 Put the two files where `synqt.production.yaml` says they are:
 

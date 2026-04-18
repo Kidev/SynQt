@@ -672,6 +672,13 @@
       "defended_by": "The palette reads the page with the lexer's own notion of where a line ends: all four terminators close a line comment, close an unterminated string literal, and separate two statements.",
       "file": "tests/remote-pages/tst_remotepage.cpp",
       "test": "paletteRejectsAnImportHiddenByALineSeparatorInAComment"
+    },
+    {
+      "id": "an-edge-listening-with-no-key",
+      "what": "An edge is configured to terminate TLS and given a private key it cannot read: an elliptic-curve key where only RSA was asked for, a path that is not a key, a file it cannot open. QSslKey answers a null key and nothing about that looks like an error, so the edge listens on the public port and fails every handshake. To a visitor the site is down; to an operator there is nothing in the log naming the file, and the temptation is to reach for the plaintext port.",
+      "defended_by": "The key is read by trying every algorithm rather than one, so an ordinary EC key works; and an edge told to terminate TLS and unable to refuses to start, naming the two files.",
+      "file": "tests/m5-webedge/tst_m5.cpp",
+      "test": "theEdgeRefusesToStartWithAKeyItCannotRead"
     }
   ]
 }

@@ -145,11 +145,25 @@ struct Topology
 };
 
 /// Read a resolved topology from JSON (the machine form the CLI produces from
-/// synqt.yaml). Kept minimal; the user-facing schema lives in the CLI.
+/// synqt.yaml). Kept minimal. The user-facing schema lives in the CLI.
 Topology topologyFromJson(const QJsonObject &object);
 
-/// Load mesh identity material from PEM files.
+/// Load TLS identity material from PEM files. The mesh CA and entity pair, and the public
+/// certificate a web edge or an inbound API surface terminates with.
+///
+/// Both answer with a null object for a path they cannot read or cannot make sense of, and
+/// both say so on the way past. What each caller does about it is the caller's: an edge
+/// that was told to terminate TLS refuses to start rather than listen on a port whose
+/// handshake can never complete.
 QSslCertificate loadCertificate(const QString &path);
+
+/// The private key at \a path, whatever algorithm it is.
+///
+/// Every algorithm is tried rather than RSA alone. `QSslKey` is told which one to expect
+/// and decodes with that algorithm's PEM reader, so an EC key read as RSA comes back null
+/// and nothing about it looks like an error: the file was there, it parsed as PEM, and the
+/// object is empty. `certbot --key-type ecdsa` produces one, and the certificate
+/// documentation promises SynQt has no opinion about where a certificate comes from.
 QSslKey loadPrivateKey(const QString &path);
 
 } // namespace SynQt
