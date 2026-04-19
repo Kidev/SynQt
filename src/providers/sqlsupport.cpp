@@ -60,15 +60,24 @@ bool applyMigrations(QSqlDatabase &db, const QStringList &steps, QString *error)
         applied = versionResult.rows.first().toMap().value(QStringLiteral("version")).toInt();
     }
     if (applied >= steps.size()) {
-        return true;
+        return true;  // nothing new to apply. Re-running migrate is a no-op
     }
-    db.transaction();
+    if (!db.transaction()) {
+        if (error != nullptr) {
+            *error = db.lastError().text();
+        }
+        return false;
+    }
     for (int step{applied}; step < steps.size(); ++step) {
         const DbResult stepResult{runStatement(db, steps.at(step), {}, false)};
         if (!stepResult.ok) {
             db.rollback();
             if (error != nullptr) {
-                *error = stepResult.error;
+                // Name the step: the engine's message does not say which schema statement
+                // failed.
+                *error = QStringLiteral("migration step %1 failed: %2")
+                             .arg(step + 1)
+                             .arg(stepResult.error);
             }
             return false;
         }

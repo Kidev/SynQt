@@ -3,12 +3,12 @@
 
 #include "sqliteprovider.h"
 
+#include "sqlsupport.h"
+
 #include <QSqlError>
 #include <QSqlQuery>
-#include <QSqlRecord>
 #include <QStringList>
 #include <QUuid>
-#include <QVariantMap>
 
 #include <utility>
 
@@ -16,46 +16,12 @@ namespace SynQt {
 
 namespace {
 
-DbResult runStatement(QSqlDatabase &db, const QString &sql, const QVariantList &params,
-                      bool collectRows)
-{
-    QSqlQuery statement{db};
-    if (!statement.prepare(sql)) {
-        return DbResult::failure(statement.lastError().text());
-    }
-    for (const QVariant &value : params) {
-        statement.addBindValue(value);  // bound, never concatenated -> injection-safe
-    }
-    if (!statement.exec()) {
-        return DbResult::failure(statement.lastError().text());
-    }
-
-    DbResult result;
-    result.ok = true;
-    if (collectRows) {
-        while (statement.next()) {
-            const QSqlRecord record{statement.record()};
-            QVariantMap row;
-            for (int column{0}; column < record.count(); ++column) {
-                row.insert(record.fieldName(column), statement.value(column));
-            }
-            result.rows.append(row);
-        }
-    } else {
-        result.affected = statement.numRowsAffected();
-        result.insertId = statement.lastInsertId();
-    }
-    return result;
-}
-
-/// The journal mode to ask SQLite for, given what the topology asked for.
+/// The journal mode to request, from the topology.
 ///
-/// SQLite takes a PRAGMA value as a bare word, so this is the one setting on this provider
-/// that reaches the engine as SQL text rather than as a bound parameter. It comes from
-/// `synqt.yaml` and not from a caller, so this is not an injection anybody can reach today;
-/// it is refused anyway, because "a string from configuration is concatenated into SQL" is
-/// a sentence that should not be true of this file at all, and a typo in a journal mode is
-/// better answered with a message than with a statement SQLite silently declines.
+/// SQLite takes a PRAGMA value as a bare word, so this setting reaches the engine as SQL
+/// text rather than a bound parameter. It comes from `synqt.yaml`, not from a caller, and
+/// is validated anyway, so no configuration string is concatenated into SQL unchecked and a
+/// typo gets a message.
 QString journalModeOrDefault(const QString &requested)
 {
     static const QStringList modes{QStringLiteral("delete"), QStringLiteral("truncate"),
@@ -102,8 +68,7 @@ bool SqliteProvider::connect(QString *error)
         }
         return false;
     }
-    // WAL journalling (better concurrency, readers do not block a writer) and enforced
-    // foreign keys.
+    // WAL journalling (readers do not block a writer) and enforced foreign keys.
     QSqlQuery pragma{m_db};
     pragma.exec(QStringLiteral("PRAGMA journal_mode=%1")
                     .arg(journalModeOrDefault(m_config.journalMode)));
@@ -188,50 +153,7 @@ bool SqliteProvider::rollback(QString *error)
 
 bool SqliteProvider::migrate(const QStringList &steps, QString *error)
 {
-    const DbResult versionResult{
-        runStatement(m_db, QStringLiteral("SELECT version FROM synqt_migrations"), {}, true)};
-    if (!versionResult.ok) {
-        if (error) {
-            *error = versionResult.error;
-        }
-        return false;
-    }
-    int applied{0};
-    if (!versionResult.rows.isEmpty()) {
-        applied = versionResult.rows.first().toMap().value(QStringLiteral("version")).toInt();
-    }
-
-    if (applied >= steps.size()) {
-        return true;  // nothing new to apply; re-running migrate is a no-op
-    }
-    if (!m_db.transaction()) {
-        if (error) {
-            *error = m_db.lastError().text();
-        }
-        return false;
-    }
-    for (int step{applied}; step < steps.size(); ++step) {
-        const DbResult stepResult{runStatement(m_db, steps.at(step), {}, false)};
-        if (!stepResult.ok) {
-            m_db.rollback();
-            if (error) {
-                *error = QStringLiteral("migration step %1 failed: %2")
-                             .arg(step + 1)
-                             .arg(stepResult.error);
-            }
-            return false;
-        }
-    }
-    runStatement(m_db, QStringLiteral("DELETE FROM synqt_migrations"), {}, false);
-    runStatement(m_db, QStringLiteral("INSERT INTO synqt_migrations(version) VALUES(?)"),
-                 {steps.size()}, false);
-    if (!m_db.commit()) {
-        if (error) {
-            *error = m_db.lastError().text();
-        }
-        return false;
-    }
-    return true;
+    return applyMigrations(m_db, steps, error);
 }
 
 } // namespace SynQt
