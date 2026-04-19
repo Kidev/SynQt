@@ -425,6 +425,71 @@ def _trusted_proxy_messages(declared: List[Dict[str, Any]]) -> List[str]:
     return messages
 
 
+def _is_literal_address(value: str) -> bool:
+    """Would `QHostAddress(QString)` make an address of this?
+
+    `ipaddress` and Qt agree on the plain forms, which is all that is written here: a
+    dotted IPv4 quad or an IPv6 address, with the brackets a URL puts round the second one
+    stripped first, because a configuration file is not a URL and both spellings are typed.
+    """
+    text = value.strip()
+    if text.startswith("[") and text.endswith("]"):
+        text = text[1:-1]
+    try:
+        ipaddress.ip_address(text)
+    except ValueError:
+        return False
+    return True
+
+
+def _bind_address_messages(declared: List[Dict[str, Any]],
+                           connect_points: List[Dict[str, Any]]) -> List[str]:
+    """Every address a listener binds or a mesh link dials has to be an address.
+
+    Each of these reaches the runtime as a `QHostAddress`, which holds an address and
+    resolves nothing. A name goes in and a null address comes out. What follows is an owner
+    that cannot bind and a consumer that dials an empty string and retries forever, and the
+    reason is several files away from the line that caused it. `localhost` is the one that
+    stings, because it is the natural thing to write and it is a name like any other.
+
+    The same rule `trusted_proxies` is already held to, applied to the other three places a
+    literal address is required. Refused rather than resolved. Resolving would pick one of
+    a name's addresses at build time and bake it in, which is a different deployment from
+    the one that was written down.
+    """
+    messages: List[str] = []
+    for entity in declared:
+        name = str(entity.get("name") or "?")
+        blocks = [(entity.get("mesh"), "mesh.host", "host"),
+                  (appmodel.public_settings(entity), "public.host", "host"),
+                  ((entity.get("network") or {}).get("inbound")
+                   if isinstance(entity.get("network"), dict) else None,
+                   "network.inbound.bind", "bind")]
+        for block, where, key in blocks:
+            if not isinstance(block, dict):
+                continue
+            value = block.get(key)
+            if value is None or not str(value).strip():
+                continue
+            if _is_literal_address(str(value)):
+                continue
+            messages.append(
+                f"error: entity '{name}' has {where}: '{value}', which is a name and not "
+                "an address. It is read into a QHostAddress, which resolves nothing, so a "
+                "name binds nothing and dials nothing; write the address (127.0.0.1 for "
+                "this machine, 0.0.0.0 for every interface)")
+    for connect_point in connect_points:
+        value = connect_point.get("host")
+        if value is None or not str(value).strip() or _is_literal_address(str(value)):
+            continue
+        point = appmodel.point_name(connect_point) or "<no owner>"
+        messages.append(
+            f"error: connect point '{point}' has host: '{value}', which is a name and not "
+            "an address. A mesh endpoint is read into a QHostAddress, which resolves "
+            "nothing, so the owner binds nothing and every consumer dials nothing")
+    return messages
+
+
 def _shared_messages(declared: List[Dict[str, Any]]) -> List[str]:
     """Refuse a `shared:` that is not a yes-or-no, and one written on a client.
 
@@ -546,6 +611,8 @@ def validate(config: Dict[str, Any], *, release: bool = False,
     messages += _entity_type_messages(declared)
     messages += _network_messages(declared)
     messages += _trusted_proxy_messages(declared)
+    messages += _bind_address_messages(
+        declared, [cp for cp in config.get("connect_points") or [] if isinstance(cp, dict)])
     messages += _shared_messages(declared)
     messages += _orphan_messages(config, declared)
     messages += _replica_messages(config, entities)

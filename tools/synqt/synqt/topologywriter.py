@@ -3,22 +3,14 @@
 
 """Write the resolved per-entity ``topology.json`` the service runtime reads at startup.
 
-``synqt.yaml`` is the user-facing topology, and the generated service ``main.cpp`` reads a
-machine form (``--topology build/<entity>/topology.json``) that ``EntityRuntime`` and
-``topologyFromJson`` parse (see ``src/service/topology.{h,cpp}``). This module produces
-that machine form: for every service entity it emits its slice of the topology. Its mesh
-credentials, its blueprint/provider/schema (so the runtime injects the right backend
-helper), and every connect point it owns or consumes with a resolved mesh endpoint.
+The generated main reads ``--topology build/<entity>/topology.json``, parsed by
+``EntityRuntime`` and ``topologyFromJson`` (``src/service/topology.{h,cpp}``). Each service
+gets its slice: mesh credentials, its type and provider settings, and every connect point it
+owns or consumes with a resolved endpoint.
 
-The one invariant that makes it correct. A connect point's endpoint (mutual-TLS host+port,
-or a local-socket name) is resolved once, globally, so the owner listens on exactly the
-address its consumers dial. Ports are assigned deterministically from the sorted
-connect-point list, so the same topology always yields the same wiring.
-
-Secrets never land here: a provider's ``password: env:DB_PASSWORD`` is passed through
-verbatim (the env var *name*, not its value), and the runtime resolves it from the entity
-environment. Paths are absolute so the file resolves the same whether an entity is launched
-from the project root (``synqt dev``) or from its deploy directory (``synqt serve``).
+Each endpoint is resolved once, globally, so the owner listens where its consumers dial.
+Ports follow the sorted connect-point list. ``env:`` references are passed through by name.
+Paths are absolute, so the file works from the project root and from a deploy directory.
 """
 
 from __future__ import annotations
@@ -31,8 +23,8 @@ from typing import Any, Dict, List
 
 from . import appmodel, qmlrewrite, writer
 
-# Mesh links start here and count up by sorted connect-point position. Well clear of the
-# edge's public/dev ports (8080/8443) and the usual engine ports (5432/3306/6379).
+# Mesh ports count up from here, clear of the edge (8080/8443) and engine (5432/3306/6379)
+# ports.
 MESH_PORT_BASE = 9440
 
 
@@ -45,9 +37,9 @@ def _is_edge(entity: Dict[str, Any]) -> bool:
 
 
 def _service_entities(config: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """Entities that resolve a topology at startup. Every non-client entity except the web
-    edge, whose generated main takes --bundle/--qml-dir/--port, not --topology. (When the
-    edge composes EntityRuntime for its mesh-side links, drop the edge exclusion here.)"""
+    """Entities that read a topology at startup: every non-client entity except the web edge,
+    whose main takes --bundle/--qml-dir/--port.
+    """
     return [e for e in _entities(config)
             if appmodel.is_service(e) and not _is_edge(e)]
 
@@ -69,15 +61,11 @@ def _owner_entity(config: Dict[str, Any], connect_point: Dict[str, Any]) -> Dict
 
 
 def mesh_settings(config: Dict[str, Any], connect_point: Dict[str, Any]) -> Dict[str, Any]:
-    """The mesh keys that govern one link. ``transport``, ``host``, ``port``, ``socket``.
+    """The mesh keys that govern one link: ``transport``, ``host``, ``port``, ``socket``.
 
-    Two places may set them, and both are documented. The owner entity's ``mesh:`` block
-    says how other entities reach that entity at all ("the private interface is
-    10.0.0.10:9443"), which is the common case and the one a reader writes first. A
-    connect point may then override any of those keys for its own link, which is what
-    lets one entity own a loopback link and a cross-host one at the same time. The more
-    specific declaration wins, key by key, so an entity-wide ``host`` still applies to a
-    connect point that names only its own ``port``."""
+    The owner entity ``mesh:`` block sets them for every link to it; a connect point may
+    override any key for its own link. The more specific value wins, key by key.
+    """
     entity_mesh = _owner_entity(config, connect_point).get("mesh")
     entity_mesh = entity_mesh if isinstance(entity_mesh, dict) else {}
     settings: Dict[str, Any] = {}
@@ -89,12 +77,12 @@ def mesh_settings(config: Dict[str, Any], connect_point: Dict[str, Any]) -> Dict
 
 
 def resolve_endpoints(config: Dict[str, Any], project_name: str) -> Dict[str, Dict[str, Any]]:
-    """Map each connect-point name to the one endpoint its owner and consumers share.
+    """Map each connect-point name to the endpoint its owner and consumers share.
 
-    Mutual TLS (the default) gets a host+port, loopback unless the owner says otherwise;
-    ``transport: local`` gets a per-project socket name. Position in the name-sorted list
-    fixes the port, so a connect point keeps its port when unrelated ones are added,
-    removed, or switch transport."""
+    Mutual TLS (the default) gets a host and port, loopback unless the owner says otherwise;
+    ``transport: local`` gets a per-project socket name. The position in the name-sorted
+    list fixes the port.
+    """
     endpoints: Dict[str, Dict[str, Any]] = {}
     ordered = sorted((cp for cp in _connect_points(config) if appmodel.point_name(cp)),
                      key=appmodel.point_name)
@@ -112,13 +100,10 @@ def resolve_endpoints(config: Dict[str, Any], project_name: str) -> Dict[str, Di
     return endpoints
 
 
-# Hosts that name this machine, and so cannot put a link on the wire. Everything else is
-# treated as a cross-host link, which is the safe direction to be wrong in: a link wrongly
-# called cross-host is held to mutual TLS, which it would have used anyway.
-#
-# The wildcards 0.0.0.0 and :: are not on this list. They read like "local"
-# and mean the opposite: an owner bound to one of them is listening on every interface the
-# machine has, which is the most exposed a link can be, not the least.
+# Hosts that name this machine. Anything else counts as cross-host, which is held to mutual
+# TLS. The wildcards 0.0.0.0 and :: are not local: they listen on every interface.
+# `localhost` is here for this question only; `synqt check` refuses it as a mesh host
+# (_bind_address_messages).
 LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
 
 
@@ -131,8 +116,9 @@ def is_cross_host(endpoint: Dict[str, Any]) -> bool:
 
 def _schema_steps(root: Path, entity: Dict[str, Any]) -> List[str]:
     """The forward-only migration steps a relational entity applies at startup: an inline
-    ``schema`` list wins. Otherwise the entity's ``schema.sql`` split into one statement per
-    step (line comments stripped, empty statements dropped)."""
+    ``schema`` list, else ``schema.sql`` split into statements (line comments stripped,
+    empty statements dropped).
+    """
     inline = entity.get("schema")
     if isinstance(inline, list):
         return [str(step) for step in inline if str(step).strip()]
@@ -144,23 +130,18 @@ def _schema_steps(root: Path, entity: Dict[str, Any]) -> List[str]:
 
 
 def _path(path: Path) -> str:
-    """An absolute path as topology.json carries it. Forward slashes on every platform.
-
-    Qt accepts '/' everywhere, including Windows, so one separator keeps a generated
-    topology readable and diffable across a mixed team instead of flipping to backslashes
-    (which JSON then escapes, so 'C:\\\\app\\\\synqt\\\\mesh\\\\ca.crt' is what a developer
-    would have to read) purely because of the machine that ran the build."""
+    """An absolute path as topology.json carries it, with forward slashes on every platform. Qt
+    accepts '/' everywhere.
+    """
     return path.resolve().as_posix()
 
 
 def _server_file(root: Path, connect_point: Dict[str, Any],
                  owners: Dict[str, Dict[str, Any]]) -> str:
-    """The absolute path to the owner-side Source QML (the runtime loads it only for a
-    connect point this entity owns. Harmless in a consumer's slice).
-
-    The mirror under ``generated/`` rather than the author's file: that is the copy whose
-    root object the engine can instantiate, and it is the whole folder, so the Source still
-    finds its siblings beside it (:mod:`synqt.qmlrewrite`)."""
+    """The absolute path of the owner-side Source QML, in the mirror under ``generated/`` whose
+    root object the engine can instantiate (:mod:`synqt.qmlrewrite`). Ignored in a consumer
+    slice.
+    """
     owner = owners.get(str(connect_point.get("owner") or ""))
     if owner is None:
         declared = connect_point.get("server")
@@ -173,17 +154,15 @@ def entity_topology(config: Dict[str, Any], entity: Dict[str, Any], project_dir:
                     endpoints: Dict[str, Dict[str, Any]],
                     consumed_only: bool = False) -> Dict[str, Any]:
     """The resolved topology JSON for one entity (matches ``topologyFromJson``).
-
-    ``consumed_only`` narrows the topology to connect points this entity *consumes but does
-    not own*; the shape an edge's EntityRuntime uses for its mesh side, since the edge's
-    owned (browser-facing) connect points are hosted by WebEdge, not the runtime."""
+    ``consumed_only`` keeps only points this entity consumes and does not own, for an edge
+    runtime's mesh side.
+    """
     root = Path(project_dir)
     name = entity.get("name")
     mesh = root / "synqt" / "mesh"
     topology: Dict[str, Any] = {
         "entity": name,
-        # One of this entity for everybody, or one per caller. Written only when it is not
-        # the default, so a topology stays as short as the configuration it came from.
+        # Written only when not the default.
         **({} if appmodel.is_shared(entity) else {"shared": False}),
         "credentials": {
             "ca": _path(mesh / "ca.crt"),
@@ -192,13 +171,12 @@ def entity_topology(config: Dict[str, Any], entity: Dict[str, Any], project_dir:
         },
     }
 
-    # `service` is the default on both sides, so writing it would only add a line the
-    # runtime already assumes. Every other type is what selects the entity's helper.
+    # `service` is the default on both sides; any other type selects the helper.
     entity_type = appmodel.entity_type(entity)
     if entity_type != appmodel.PLAIN_TYPE:
         topology["type"] = entity_type
-    # The provider block for the type. An external `provider` (env, refs intact), or the
-    # embedded `settings` (sqlite). The runtime prefers `provider`, then `settings`.
+    # An external `provider` (env references intact), or the embedded `settings` (sqlite).
+    # The runtime prefers `provider`.
     if entity.get("provider"):
         topology["provider"] = entity["provider"]
     elif entity.get("settings"):
@@ -206,28 +184,19 @@ def entity_topology(config: Dict[str, Any], entity: Dict[str, Any], project_dir:
     schema = _schema_steps(root, entity)
     if schema:
         topology["schema"] = schema
-    # The outbound allowlist, whenever the entity declared one. Written even when it is
-    # empty, because the key being there is what gives the entity its `Http` helper and an
-    # empty list is what makes every call it tries fail by name. Leaving the key out is a
-    # different thing, and means the entity does not call out at all.
+    # The outbound allowlist, empty included: the key installs `Http`, the empty list
+    # refuses every call by name.
     if appmodel.declares_outbound(entity):
-        # The records, not only the prefixes. A named entry is what `Http.api(name)`
-        # resolves, and its headers are what the runtime attaches. An `env:` header value
-        # is passed through as written, exactly like a provider password, so this file
-        # carries the name of a secret and never the secret.
+        # The full records: a named entry is what `Http.api(name)` resolves. `env:` header
+        # values are passed through by name.
         topology["network"] = {"outbound": appmodel.outbound_endpoints(entity)}
-    # Where this entity keeps what an unreachable monitor did not take. Inside the project,
-    # under the entity's own build directory. A spool is a copy of the record, and a copy of
-    # the record living somewhere the project does not own is a copy nobody is watching.
-    # Written only for an entity that reports, so nothing else grows a state
-    # directory it never uses.
+    # Where this entity spools events an unreachable monitor did not take, under its build
+    # directory. Only for an entity that reports.
     if appmodel.monitor_entity(config) and name != appmodel.monitor_entity(config) \
             and not appmodel.is_client(entity):
         topology["monitoring"] = {"spool_dir": _path(root / "build" / str(name) / "state")}
-        # How much each category records. Carried into the resolved topology rather than
-        # compiled in, because turning a category up is something an operator does during
-        # an incident and a monitoring system you must rebuild to switch on is useless
-        # during the one you needed it for.
+        # Per-category levels, read at startup so an operator can change them without a
+        # rebuild.
         levels = appmodel.trace_levels(config)
         if levels:
             topology["monitoring"]["levels"] = levels
@@ -248,9 +217,7 @@ def entity_topology(config: Dict[str, Any], entity: Dict[str, Any], project_dir:
             "owner": owner,
             "consumers": consumers,
             "server": _server_file(root, connect_point, owners),
-            # A point whose contract ships in a runtime library. The runtime installs no QML
-            # accessor for one: it is taken by the C++ that adopts it, and the auth entity
-            # owns two, which one accessor could not be both of.
+            # A framework point, taken by the C++ that adopts it; no QML accessor.
             **({"framework": True} if appmodel.is_framework_point(connect_point) else {}),
             "endpoint": endpoints.get(appmodel.point_name(connect_point),
                                       {"transport": "mtls", "host": "127.0.0.1",
@@ -267,13 +234,13 @@ def _consumes_over_mesh(config: Dict[str, Any], entity_name: str) -> bool:
 
 
 def write(project_dir: os.PathLike[str] | str, config: Dict[str, Any]) -> List[str]:
-    """Write ``build/<entity>/topology.json`` for every service entity, and for a web edge
-    that reaches services over the mesh (its consumed side only). Returns the paths written
-    (project-relative), so a connect-point change reflects in the wiring before launch."""
+    """Write ``build/<entity>/topology.json`` for every service entity, and for a web edge that
+    consumes over the mesh (its consumed side only). Returns the project-relative paths
+    written.
+    """
     root = Path(project_dir)
-    # The links `identity.provider_entity` implies are resolved like any other, so the auth
-    # entity listens where its edges dial and `synqt check` holds them to the same mesh
-    # rules. See appmodel.with_auth_connect_points.
+    # The links `identity.provider_entity` implies are resolved like any other (see
+    # appmodel.with_auth_connect_points).
     config = appmodel.with_auth_connect_points(config)
     config = appmodel.with_monitoring_connect_points(config)
     project_name = config.get("project", {}).get("name", "app")
@@ -289,8 +256,7 @@ def write(project_dir: os.PathLike[str] | str, config: Dict[str, Any]) -> List[s
         writer.write_if_changed(out_dir / "topology.json",
                                 json.dumps(topology, indent=2) + "\n")
         written.append(f"build/{name}/topology.json")
-    # The edge is not a service (WebEdge, not EntityRuntime, hosts its browser-facing side),
-    # but when it consumes over the mesh its EntityRuntime needs a topology of that side.
+    # An edge that consumes over the mesh needs a topology for its EntityRuntime.
     for entity in _entities(config):
         name = entity.get("name")
         if not name or not _is_edge(entity) or not _consumes_over_mesh(config, name):
