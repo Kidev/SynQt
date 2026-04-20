@@ -4,11 +4,8 @@
 #ifndef SYNQT_MYSQLPROVIDER_H
 #define SYNQT_MYSQLPROVIDER_H
 
-#include "ipersistenceprovider.h"
+#include "pooledsqlprovider.h"
 #include "providerconfig.h"
-#include "sqlconnectionpool.h"
-
-#include <memory>
 
 namespace SynQt {
 
@@ -16,52 +13,36 @@ namespace SynQt {
 /// IPersistenceProvider interface as sqlite, so the connect point Source is unchanged when
 /// an entity switches to MySQL/MariaDB. It connects over verified TLS (a configured CA,
 /// requiring the server certificate be validated) and REFUSES a plaintext or unverified
-/// connection in release; only dev on localhost may relax that. Credentials come from the
+/// connection in release. Only dev on localhost may relax that. Credentials come from the
 /// entity env only and are never logged. Parameters are always bound (`?`), never
-/// concatenated. Connections are drawn from a bounded SqlConnectionPool (poolSize).
+/// concatenated. Connections are drawn from a bounded SqlConnectionPool (poolSize), which
+/// with the statement, transaction and migration paths is PooledSqlProvider's, shared with
+/// the postgres provider.
 ///
 /// Licensing (see [Licensing](https://synqt.org/licensing/)): the QMYSQL plugin is built
 /// against MariaDB Connector/C (LGPLv2.1), never Oracle's GPLv2-only libmysqlclient,
 /// which cannot be legally conveyed alongside the LGPLv3 Qt modules in the same entity.
-class MysqlProvider final : public IPersistenceProvider
+class MysqlProvider final : public PooledSqlProvider
 {
 public:
     explicit MysqlProvider(ProviderConfig config);
     ~MysqlProvider() override;
 
     bool connect(QString *error) override;
-    void disconnect() override;
-    bool isHealthy() const override;
-    DbResult query(const QString &sql, const QVariantList &params) override;
-    DbResult exec(const QString &sql, const QVariantList &params) override;
-    bool begin(QString *error) override;
-    bool commit(QString *error) override;
-    bool rollback(QString *error) override;
-    bool migrate(const QStringList &steps, QString *error) override;
     QString name() const override;
 
-    /// The insecure-connection guard, exposed for testing: true when this config must be
+    /// The insecure-connection guard, exposed for testing. True when this config must be
     /// refused (release + a non-loopback host + TLS disabled or no CA to verify against).
     bool refusesInsecure() const;
 
     /// The QMYSQL connect-option string this configuration produces, or an empty string with
     /// \a error set when the driver cannot express what was asked for. A pure function of the
-    /// configuration, so the mapping can be asserted without an engine: it is the one place
-    /// where "the entity believes it has TLS" and "the driver was told to use TLS"
-    /// could drift apart.
+    /// configuration, so tests can assert that the TLS the entity requests is what the driver is
+    /// told.
     static QString connectOptions(const ProviderConfig &config, QString *error);
 
 private:
-    DbResult runOnLease(const QString &sql, const QVariantList &params, bool collectRows);
-
     ProviderConfig m_config;
-    // Declared before the lease below, and it has to be: members are destroyed in reverse,
-    // so this order is what makes `m_txLease` release itself back into a pool that is still
-    // there. Swapped, an entity destroyed mid-transaction would run ~Lease against a pool
-    // that had already gone.
-    std::unique_ptr<SqlConnectionPool> m_pool;
-    SqlConnectionPool::Lease m_txLease;  ///< valid only while a transaction is open
-    bool m_inTransaction{false};
 };
 
 } // namespace SynQt

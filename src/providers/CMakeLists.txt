@@ -21,6 +21,8 @@ qt_add_library(SynQtProviders STATIC
     sqliteprovider.h
     sqlconnectionpool.cpp
     sqlconnectionpool.h
+    pooledsqlprovider.cpp
+    pooledsqlprovider.h
     sqlsupport.cpp
     sqlsupport.h
     postgresprovider.cpp
