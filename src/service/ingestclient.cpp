@@ -136,29 +136,13 @@ void IngestClient::trimLocked()
         return;
     }
     // Read what is there, keep the newest that fit, write it back. Not the cheapest way to
-    // bound a file, and it does not need to be: this runs only once the spool is already over its
+    // bound a file, and it does not need to be. This runs only once the spool is already over its
     // cap, which means the monitor has been gone long enough that the entity has bigger
     // problems than the cost of a rewrite.
-    QList<QVariantList> batches;
-    QFile file{m_spoolPath};
-    if (!file.open(QIODevice::ReadOnly)) {
-        return;
-    }
-    QDataStream stream{&file};
-    stream.setVersion(QDataStream::Qt_6_0);
-    while (!stream.atEnd()) {
-        quint32 version{0};
-        QVariantList events;
-        stream >> version >> events;
-        if (stream.status() != QDataStream::Ok || version != kSpoolVersion) {
-            break;
-        }
-        batches.append(events);
-    }
-    file.close();
+    const QList<QVariantList> batches{readSpoolLocked()};
 
     // Newest first while measuring, so what survives is the end of the record rather than
-    // its beginning: the events just before a crash are the ones worth having.
+    // its beginning. The events just before a crash are the ones worth having.
     QList<QVariantList> kept;
     qint64 bytes{0};
     for (qsizetype index{batches.size() - 1}; index >= 0; --index) {
@@ -190,9 +174,14 @@ void IngestClient::trimLocked()
     rewritten.commit();
 }
 
-/// Read every batch the spool file holds and take the file with them. The caller holds
-/// m_spoolMutex.
-QList<QVariantList> IngestClient::takeSpooledLocked()
+/// Every batch the spool file holds, oldest first. The caller holds m_spoolMutex.
+///
+/// A batch this cannot read ends the walk rather than being skipped over. The file is a
+/// sequence and not an index, so a record that does not parse is not one bad entry: it is
+/// the point past which nothing can be located, and reading on from there would be reading
+/// the middle of a batch as the start of one. A version this build does not know is the
+/// same answer for the same reason.
+QList<QVariantList> IngestClient::readSpoolLocked() const
 {
     QList<QVariantList> batches;
     if (m_spoolPath.isEmpty() || !QFileInfo::exists(m_spoolPath)) {
@@ -213,7 +202,13 @@ QList<QVariantList> IngestClient::takeSpooledLocked()
         }
         batches.append(events);
     }
-    file.close();
+    return batches;
+}
+
+/// The same, and the file goes with it. The caller holds m_spoolMutex.
+QList<QVariantList> IngestClient::takeSpooledLocked()
+{
+    const QList<QVariantList> batches{readSpoolLocked()};
     QFile::remove(m_spoolPath);
     return batches;
 }
@@ -319,23 +314,9 @@ qint64 IngestClient::droppedBatches() const
 qint64 IngestClient::spooledEvents() const
 {
     QMutexLocker locker{&m_spoolMutex};
-    if (m_spoolPath.isEmpty() || !QFileInfo::exists(m_spoolPath)) {
-        return 0;
-    }
-    QFile file{m_spoolPath};
-    if (!file.open(QIODevice::ReadOnly)) {
-        return 0;
-    }
-    QDataStream stream{&file};
-    stream.setVersion(QDataStream::Qt_6_0);
     qint64 total{0};
-    while (!stream.atEnd()) {
-        quint32 version{0};
-        QVariantList events;
-        stream >> version >> events;
-        if (stream.status() != QDataStream::Ok || version != kSpoolVersion) {
-            break;
-        }
+    const QList<QVariantList> batches{readSpoolLocked()};
+    for (const QVariantList &events : batches) {
         total += events.size();
     }
     return total;

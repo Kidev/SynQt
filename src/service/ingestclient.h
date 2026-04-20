@@ -72,7 +72,13 @@ private:
     bool send(const QList<TraceEvent> &batch);
     void spool(const QList<TraceEvent> &batch);
     void replay();
-    /// Read the spool out and take the file with it. The caller holds m_spoolMutex.
+    /// Every batch the spool file holds, oldest first. The caller holds m_spoolMutex.
+    ///
+    /// One reader for the three things that read it (bounding the file, taking it, and
+    /// counting what is in it), because a record written by one build and read by another
+    /// is exactly the place three copies of a parse drift apart.
+    QList<QVariantList> readSpoolLocked() const;
+    /// The same, and the file goes with it. The caller holds m_spoolMutex.
     QList<QVariantList> takeSpooledLocked();
     /// Put back what a replay took and could not deliver, ahead of anything spooled since.
     /// The caller holds m_spoolMutex.
