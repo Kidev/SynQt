@@ -155,6 +155,11 @@ std::string StubIdentityServer::signIdToken(const QString &nonce) const
     return ec ? std::string{} : token;
 }
 
+void StubIdentityServer::setRefreshOmitsExpiry(bool omits)
+{
+    m_refreshOmitsExpiry = omits;
+}
+
 void StubIdentityServer::omitIdTokenClaim(const QString &claim)
 {
     m_omittedClaims.insert(claim);
@@ -249,7 +254,9 @@ QHttpServerResponse StubIdentityServer::handleToken(const QHttpServerRequest &re
         QJsonObject refreshed;
         refreshed.insert(QStringLiteral("access_token"), accessToken);
         refreshed.insert(QStringLiteral("token_type"), QStringLiteral("Bearer"));
-        refreshed.insert(QStringLiteral("expires_in"), 3600);
+        if (!m_refreshOmitsExpiry) {
+            refreshed.insert(QStringLiteral("expires_in"), 3600);
+        }
         refreshed.insert(QStringLiteral("refresh_token"), rotatedRefresh);
         return QHttpServerResponse{QJsonObject{refreshed}};
     }

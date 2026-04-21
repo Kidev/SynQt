@@ -16,6 +16,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QJsonValue>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QNetworkRequest>
@@ -480,11 +481,20 @@ bool OAuthBackend::refreshOne(const QString &key)
     if (!freshId.isEmpty()) {
         after->idToken = freshId;
     }
-    if (object.contains(QStringLiteral("expires_in"))) {
-        const qint64 expiresIn{
-            static_cast<qint64>(object.value(QStringLiteral("expires_in")).toDouble())};
-        after->expiresAtMs = QDateTime::currentMSecsSinceEpoch() + expiresIn * 1000;
-    }
+    // A lifetime the provider named, or none at all, and never the one that expired.
+    //
+    // `expires_in` is RECOMMENDED and not REQUIRED (RFC 6749 section 5.1), so a provider may
+    // conform and leave it out. Keeping the old value then leaves the entry permanently past
+    // its threshold. The sweep picks it up again on its next pass, refreshes it again, gets
+    // no lifetime again, and spends a refresh token against the provider once per interval
+    // for the life of the session. Zero is what the exchange already writes for a token
+    // whose expiry the provider did not give (see exchange()), and refreshExpiring() skips
+    // an entry at zero, because a deadline nothing knows is not one a timer can act on.
+    const QJsonValue expiresIn{object.value(QStringLiteral("expires_in"))};
+    after->expiresAtMs = expiresIn.isDouble()
+        ? QDateTime::currentMSecsSinceEpoch()
+              + static_cast<qint64>(expiresIn.toDouble()) * 1000
+        : 0;
     return true;
 }
 

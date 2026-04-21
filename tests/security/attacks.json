@@ -679,6 +679,13 @@
       "defended_by": "The key is read by trying every algorithm rather than one, so an ordinary EC key works; and an edge told to terminate TLS and unable to refuses to start, naming the two files.",
       "file": "tests/m5-webedge/tst_m5.cpp",
       "test": "theEdgeRefusesToStartWithAKeyItCannotRead"
+    },
+    {
+      "id": "a-refresh-sweep-that-never-stops",
+      "what": "An identity provider answers a refresh without naming how long the new token lasts, which RFC 6749 section 5.1 permits (`expires_in` is RECOMMENDED, not REQUIRED). The edge kept the expiry the refresh replaced, so the entry stayed inside the sweep's margin: the next pass refreshed it again, and every pass after that, spending a rotating refresh token against the provider once per interval for the life of every such session. The load is on a third party and grows with the number of signed-in users, and a provider that rate-limits or that invalidates a rotated pair sees it as abuse from the deployment.",
+      "defended_by": "A refresh writes the lifetime the provider named or none at all, never the one that expired, which is what the code exchange already did; the sweep skips an entry whose expiry nobody named.",
+      "file": "tests/m8-auth/tst_m8.cpp",
+      "test": "aRefreshThatNamesNoLifetimeIsNotSweptAgain"
     }
   ]
 }

@@ -42,6 +42,7 @@
 #include <QRegularExpression>
 #include <QRemoteObjectDynamicReplica>
 #include <QRemoteObjectNode>
+#include <QScopeGuard>
 #include <QSemaphore>
 #include <QSslCertificate>
 #include <QSslKey>
@@ -1332,6 +1333,45 @@ private slots:
         QVERIFY2(after != before, "refresh must yield a new access token");
         QVERIFY2(m_edge->sessionManager()->isLive(token),
                  "a server-side refresh must not disturb the session");
+    }
+
+    // A provider that names no lifetime is a conforming provider: `expires_in` is
+    // RECOMMENDED and not REQUIRED (RFC 6749 section 5.1). Keeping the expiry the refresh
+    // replaced left the entry permanently inside the sweep's margin, so the next pass
+    // refreshed it again, and the one after that, spending a refresh token against a third
+    // party once per interval for the life of the session and getting nothing back.
+    void aRefreshThatNamesNoLifetimeIsNotSweptAgain()
+    {
+        m_stub->setRefreshOmitsExpiry(true);
+        const auto restore{qScopeGuard([this]() { m_stub->setRefreshOmitsExpiry(false); })};
+
+        const Response callback{completeLogin(QStringLiteral("?provider=stub"))};
+        QCOMPARE(callback.status, 302);
+        const QByteArray token{sessionToken(callback.setCookie)};
+        QVERIFY(!token.isEmpty());
+
+        OAuthBackend *backend{m_edge->identityProvider()->backend()};
+        QVERIFY(backend != nullptr);
+        const auto accessToken{[&]() {
+            return backend->tokens(QString::fromLatin1(token))
+                .value(QStringLiteral("access_token")).toString();
+        }};
+
+        // Asserted on this entry rather than on what the sweep returns. A sweep walks every
+        // session the backend holds, and the suite has signed in several by here.
+        const QString issued{accessToken()};
+        QVERIFY(!issued.isEmpty());
+
+        // The exchange named 3600 seconds, so a wide margin makes this entry due once.
+        backend->refreshExpiring(4000);
+        const QString refreshed{accessToken()};
+        QVERIFY2(refreshed != issued, "the entry was due and should have been refreshed");
+
+        // And the answer named no lifetime, so there is nothing left for a timer to act on.
+        backend->refreshExpiring(4000);
+        QCOMPARE(accessToken(), refreshed);
+        QVERIFY2(m_edge->sessionManager()->isLive(token),
+                 "leaving a token alone must not disturb the session");
     }
 
     // An elevation rotates the session credential (SessionManager::setScope, which
