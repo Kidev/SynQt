@@ -11,7 +11,16 @@ namespace {
 
 QPointer<QObject> &acting()
 {
-    static QPointer<QObject> caller;
+    // Per thread, though one entity is one event loop and every slot runs on it. The cost
+    // is a thread-local lookup on a path that already crosses the network, and what it buys
+    // is that "whose session does an outbound call carry" stops being a fact about how the
+    // runtime happens to be scheduled today. A plain static holding that answer is right
+    // until the first slot runs somewhere else, and wrong in the direction where one
+    // caller's session travels under another caller's call.
+    //
+    // Not a QObject, so none of the caveat in WebSocketTransport's thread_local applies: a
+    // QPointer whose target is gone is already null and destroying it does nothing.
+    static thread_local QPointer<QObject> caller;
     return caller;
 }
 

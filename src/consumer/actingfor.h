@@ -25,8 +25,9 @@ namespace SynQt {
 /// continuation, is outside the object's life and carries nothing, which is right: by then
 /// the entity is acting on its own behalf.
 ///
-/// One entity is one event loop, so this is a plain static rather than thread-local
-/// storage, and it nests: the object restores whatever it displaced.
+/// One entity is one event loop, so nothing here is contended; the storage is per thread
+/// anyway, so that stays true of a runtime that one day runs a slot somewhere else. It
+/// nests: the object restores whatever it displaced.
 ///
 /// \sa SynQt::Caller::forwardedSession, SynQt::Caller::assumeSession
 class ActingFor
