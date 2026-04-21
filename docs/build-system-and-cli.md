@@ -117,7 +117,8 @@ Rules the tooling enforces:
 synqt new <name>        # Scaffold a new project, every answer a flag.
 synqt create            # Scaffold a new project, asking the questions instead.
 synqt design            # Edit the topology as a graph, in a browser on this machine.
-synqt dev               # Build the entities, start them locally, watch and hot reload.
+synqt dev               # Build the entities, start them locally, watch and hot reload
+                        # (--no-watch runs them without watching).
 synqt build             # Production build of every entity artifact.
 synqt build --deploy --sign <identity>   # ... and run the platform deploy step on a
 synqt build --deploy --unsigned          #     desktop client, signed or knowingly not.
@@ -133,11 +134,15 @@ synqt test              # Build and run the project's own QML tests (see testing
 synqt clean             # Remove build outputs (keeps the toolchain cache and the CA).
 synqt doctor            # Diagnose toolchain, ports, certificates, versions, topology.
 synqt version           # Print the CLI version and the pinned toolchain.
+synqt --version         #   ... just the CLI version, for a script that parses it.
 
 synqt add entity <name> [--type <type>]          # Scaffold a new entity (a plain service by default).
 synqt add entity <name> --type <type> --provider <engine>
                                                   # Scaffold an entity backed by a chosen engine.
 synqt add auth <provider> [--required]           # Add secure by default user authentication.
+synqt add auth <provider> --provider-entity <name>
+                                                 # ... with the identity engine on that
+                                                 # entity rather than in the edge.
 synqt add connect-point <owner> [--consumers a,b]
                                                  # Scaffold the connect point an entity
                                                  # exports: the entry in synqt.yaml with a
@@ -147,12 +152,19 @@ synqt add provider <name> --family <fam>         # Scaffold a provider for a fam
 
 synqt providers         # List available providers per entity type.
 synqt mesh ...          # Certificate authority and entity certificates.
-synqt monitor operator add <name>
+synqt monitor operator add <name> [--password-stdin]
                         # Mint one operator credential for the monitoring console and
-                        # print the line to put in the monitor's environment.
+                        # print the line to put in the monitor's environment. It asks
+                        # for the password; --password-stdin reads it instead, for a
+                        # script that has one already.
 
 synqt docker init       # Generate the Dockerfile, compose file, and container profile.
-synqt docker up         # Build the images and start one container per entity.
+                        # It asks for each secret the topology needs; --no-input leaves
+                        # a placeholder for every one instead. --subnet picks the private
+                        # network the containers address each other on.
+synqt docker up         # Build the images and start one container per entity
+                        # (--no-build starts what is already built, --detach puts them
+                        # in the background).
 synqt docker down       # Stop them (--volumes also discards the CA and engine data).
 synqt docker ca         # Copy out the development CA, to trust the browser link.
 ```

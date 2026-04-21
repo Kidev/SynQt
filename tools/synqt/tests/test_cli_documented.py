@@ -1,16 +1,8 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-"""Every subcommand the CLI has appears in the CLI reference, and nothing else does.
-
-Written after `docs/build-system-and-cli.md` spent a long time describing a `synqt new`
-that "asks a short, security relevant set of questions" and a getting-started page that
-listed three of them. The CLI has never prompted. Prose drifts silently. Asking the
-parser is the only way this stays true, so the page is checked against
-`build_parser()` rather than against a second hand-maintained list.
-
-The reverse direction matters as much: a command in the docs that no longer exists sends
-a reader to a command that errors out, which is worse than an undocumented one.
+"""Every subcommand and option the CLI has appears in the CLI reference, and nothing else does.
+The page (`docs/build-system-and-cli.md`) is checked against `build_parser()`.
 """
 
 import re
@@ -21,8 +13,7 @@ from synqt import cli
 
 DOCS = Path(__file__).resolve().parents[3] / "docs" / "build-system-and-cli.md"
 
-# `--version` is an option on the top-level parser rather than a subcommand, and it is in
-# the reference. Listing it here keeps the page complete without pretending it is a verb.
+# `--version` is a top-level option, and it is in the reference.
 _NOT_SUBCOMMANDS = {"--version"}
 
 
@@ -42,6 +33,24 @@ def _parser_subcommands():
     return found
 
 
+def _parser_options():
+    """Every long option the parser accepts, with where it lives. `--help` is excluded."""
+    found = {}
+
+    def walk(parser, prefix=""):
+        for action in parser._actions:
+            if action.__class__.__name__ == "_SubParsersAction":
+                for name, sub in action.choices.items():
+                    walk(sub, f"{prefix} {name}".strip())
+                continue
+            for option in action.option_strings:
+                if option.startswith("--") and option != "--help":
+                    found.setdefault(option, set()).add(prefix or "synqt")
+
+    walk(cli.build_parser())
+    return found
+
+
 def _documented_commands(text):
     """The `synqt <command>` invocations shown in the reference's command block."""
     block = re.search(r"^## The `synqt` command line tool\n+```cli\n(.*?)^```", text,
@@ -58,8 +67,7 @@ def _documented_commands(text):
             found.add(head)
             continue
         found.add(head)
-        # `synqt mesh ...` stands in for the whole mesh family, which has its own
-        # section. A literal "..." is not a child command.
+        # `synqt mesh ...` stands for the mesh family.
         if tail and not tail.startswith("-"):
             found.add(f"{head} {tail}")
     return found
@@ -76,8 +84,7 @@ class CliReferenceTest(unittest.TestCase):
         self.assertFalse(missing, f"undocumented in {DOCS.name}: {sorted(missing)}")
 
     def test_no_documented_command_is_imaginary(self):
-        # A `mesh <sub>` shown in the block must exist. The block's own "mesh ..." line
-        # contributes only "mesh", which does.
+        # Every `mesh <sub>` shown must exist.
         imaginary = self.documented - self.real - _NOT_SUBCOMMANDS
         self.assertFalse(imaginary, f"documented but not a command: {sorted(imaginary)}")
 
@@ -86,9 +93,16 @@ class CliReferenceTest(unittest.TestCase):
         for child in sorted(c for c in self.real if c.startswith("mesh ")):
             self.assertIn(f"synqt {child}", self.text)
 
+    def test_every_option_is_documented(self):
+        """Every flag the parser accepts is named somewhere on the page."""
+        undocumented = sorted(option for option in _parser_options()
+                              if option not in self.text)
+        self.assertFalse(
+            undocumented,
+            f"accepted by the CLI and undocumented in {DOCS.name}: {undocumented}")
+
     def test_the_page_does_not_claim_the_cli_prompts_outside_create(self):
-        # `synqt create` is the only command that reads the terminal. Any other claim of
-        # asking is the defect this file exists for.
+        # Only `synqt create` is described as asking questions.
         for match in re.finditer(r"`synqt (new|dev|build|add [a-z-]+)`[^.]{0,60}\basks\b",
                                  self.text):
             self.fail(f"the reference says a non-interactive command asks: {match.group(0)!r}")
