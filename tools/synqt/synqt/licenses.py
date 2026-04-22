@@ -32,6 +32,25 @@ _MODULE_LICENSE = {
     "Qt for WebAssembly platform": "GPL-3.0-only",
 }
 
+#: The CMake component a Qt module is linked as, for the client target.
+#:
+#: One table rather than two lists. `cmakegen` writes the client's
+#: `target_link_libraries` line and this file names the same modules in the notice, and the
+#: two had drifted: the client links `Qt6::Network` (Qt WebSockets pulls it, and a native
+#: build reaches for it directly) and the notice did not say so. The effective license was
+#: unaffected, Qt Network being LGPLv3, but the file's whole claim is that it lists what the
+#: entity links. test_m10 holds the two to this table.
+CLIENT_MODULES = {
+    "Qt6::Core": "Qt Core",
+    "Qt6::Gui": "Qt Gui",
+    "Qt6::Network": "Qt Network",
+    "Qt6::Qml": "Qt Qml",
+    "Qt6::Quick": "Qt Quick",
+    "Qt6::QuickControls2": "Qt Quick Controls",
+    "Qt6::RemoteObjects": "Qt RemoteObjects",
+    "Qt6::WebSockets": "Qt WebSockets",
+}
+
 # Third-party (non-Qt) libraries a bundled provider or entity type may link.
 _THIRD_PARTY = {
     "jwt-cpp": "MIT", "picojson": "BSD-2-Clause", "OpenSSL": "Apache-2.0",
@@ -52,8 +71,7 @@ def entity_modules(entity: Dict[str, Any], target: str = "wasm",
     entity_type = appmodel.entity_type(entity)
 
     if entity_type == "client":
-        modules = ["Qt Core", "Qt Gui", "Qt Qml", "Qt Quick", "Qt Quick Controls",
-                   "Qt RemoteObjects", "Qt WebSockets"]
+        modules = list(CLIENT_MODULES.values())
         # The WASM platform port is GPLv3; a native desktop build links the desktop kit.
         if target == "wasm":
             modules.append("Qt for WebAssembly platform")

@@ -4,6 +4,7 @@
 """M10: the mesh CA tooling, the license generation, and the new/check/build/doctor flow."""
 
 import os
+import re
 import stat
 import subprocess
 import tempfile
@@ -15,6 +16,7 @@ from pathlib import Path
 import yaml
 
 from synqt import build as buildmod
+from synqt import cmakegen
 from synqt import appmodel
 from synqt import check, config as configmod, doctor, licenses, mesh, newproject, toolchain
 
@@ -335,6 +337,30 @@ class LicenseTest(unittest.TestCase):
                                  [m for m in modules if m in expected])
                 for module in expected:
                     self.assertIn(module, modules)
+
+    def test_the_client_notice_names_every_module_the_client_links(self):
+        """The Qt components cmakegen links into the client are the ones the notice lists.
+
+        Two files naming the same set is two lists to keep in step, and they had already
+        drifted: the client links `Qt6::Network` and the notice did not mention it. The
+        effective license was right either way, which is exactly why nobody noticed, and
+        the file's claim is that it says what the entity links.
+        """
+        config = {"project": {"name": "app", "qt_version": "6.11.1"},
+                  "entities": [{"name": "app", "type": "client"},
+                               {"name": "edge", "type": "web_edge"}]}
+        text = cmakegen.render_root_cmakelists(config, Path("/tmp/synqt"))
+        block = re.search(r"target_link_libraries\(app PRIVATE(.*?)\)", text, re.DOTALL)
+        self.assertIsNotNone(block, "no client link line to read")
+        linked = set(re.findall(r"Qt6::[A-Za-z0-9_]+", block.group(1)))
+        self.assertTrue(linked, "the client link line names no Qt module")
+
+        unknown = linked - set(licenses.CLIENT_MODULES)
+        self.assertFalse(unknown, f"linked into the client and not in CLIENT_MODULES: "
+                                  f"{sorted(unknown)}")
+        modules = licenses.entity_modules(config["entities"][0], target="wasm")
+        for component in sorted(linked):
+            self.assertIn(licenses.CLIENT_MODULES[component], modules)
 
 
 class CheckTest(unittest.TestCase):

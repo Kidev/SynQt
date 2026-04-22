@@ -56,7 +56,11 @@ QString MongoDocumentProvider::name() const
 
 bool MongoDocumentProvider::refusesInsecure() const
 {
-    // A document store off-host must ride TLS in release; only dev may relax it.
+    // No loopback exemption here, unlike the relational and cache providers, and it is not
+    // an oversight. Where this engine is lives inside the connection string, not in
+    // `host`, so `isLoopbackHost()` would be answering about a field a mongo config does
+    // not set and would exempt every deployment. A release entity says `tls: true` and the
+    // uri backs it up (checked below), or it does not start.
     return m_config.release && !m_config.tls;
 }
 
