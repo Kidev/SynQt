@@ -67,9 +67,11 @@ This is the only link an internet client touches. Its defenses are unchanged in
 spirit from the single server design and are summarized here.
 
 Transport. All production browser traffic is TLS (https for delivery, wss for
-sync), on one port and one certificate on the web edge. The edge refuses to start
-in a release build with TLS disabled. Plaintext is permitted only for `synqt dev`
-on localhost.
+sync), on one port and one certificate on the web edge. A release build with neither a
+`tls` block nor `public.tls_terminated_upstream` is refused by `synqt check`, before
+anything is built. An edge that carries a certificate and key and cannot read them
+refuses to start rather than listening on a port whose handshake can never complete.
+Plaintext is permitted only for `synqt dev` on localhost.
 
 Authentication. The user logs in through a server side flow on the edge, using Qt
 Network Authorization with PKCE (on by default since 6.8) and a random state value
