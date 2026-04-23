@@ -578,7 +578,7 @@ def validate(config: Dict[str, Any], *, release: bool = False,
     # `identity.provider_entity` implies. Checked before the expansion, because a collision
     # with a declared connect point is exactly what the expansion silently steps around.
     messages += _provider_entity_messages(config, entities)
-    messages += _monitor_entity_messages(config, entities)
+    messages += _monitor_entity_messages(config, entities, release)
     messages += _console_delivery_messages(config)
     config = appmodel.with_auth_connect_points(config)
     config = appmodel.with_monitoring_connect_points(config)
@@ -1345,8 +1345,8 @@ def _unreported_monitor_messages(owner: str,
     return found
 
 
-def _monitor_entity_messages(config: Dict[str, Any],
-                             entities: Dict[str, Any]) -> List[str]:
+def _monitor_entity_messages(config: Dict[str, Any], entities: Dict[str, Any],
+                             release: bool = False) -> List[str]:
     """`monitoring.entity` names a real monitor entity, and only implies one link.
 
     Adding a monitor is one line, so the link every service consumes is synthesized rather
@@ -1388,7 +1388,7 @@ def _monitor_entity_messages(config: Dict[str, Any],
             f"error: connect point '{appmodel.MONITOR_POINT}' collides with the one "
             f"monitoring.entity implies; rename it, because the monitor '{owner}' owns "
             f"'{appmodel.MONITOR_POINT}' and every service consumes it")
-    messages += _monitor_export_messages(owner, entity)
+    messages += _monitor_export_messages(owner, entity, release)
     messages += _monitor_reach_messages(config, owner, entity)
     messages += _monitor_consumer_messages(config, owner, entities)
     return messages
@@ -1549,13 +1549,15 @@ def _trace_level_messages(levels: Any) -> List[str]:
     return messages
 
 
-def _monitor_export_messages(owner: str, entity: Dict[str, Any]) -> List[str]:
+def _monitor_export_messages(owner: str, entity: Dict[str, Any],
+                             release: bool = False) -> List[str]:
     """The monitor's `export:` block: where the events also go.
 
     Off unless it is written, so everything here is about a block somebody wrote on
-    purpose. What it has to catch is the settings that fail as silence: an exporter with no
-    destination sends nothing and says nothing, and a file exporter with no cap grows until
-    the monitor has filled the disk of the machine it is watching.
+    purpose. What it has to catch is the settings that fail as silence. An exporter with no
+    destination sends nothing and says nothing, a file exporter with no cap grows until the
+    monitor has filled the disk of the machine it is watching, and a collector reached over
+    plaintext is refused by the runtime, so a release build that names one exports nothing.
     """
     settings = entity.get("export")
     if settings is None:
@@ -1588,10 +1590,19 @@ def _monitor_export_messages(owner: str, entity: Dict[str, Any]) -> List[str]:
                     "http(s) URL; OTLP over HTTP is what this exports, and the endpoint is "
                     "the collector's base URL with no signal path on it")
             elif endpoint.startswith("http://") and not _is_loopback_url(endpoint):
+                # A batch is the record of everything the system did and refused, and the
+                # request carrying it carries the collector's API key. The runtime refuses
+                # this endpoint outright (SynQt::isExportableCollector), so a release build
+                # that configured it would export nothing. Said here as an error rather than
+                # discovered as silence. Outside a release build it stays a warning, because
+                # a lab pointed at a collector on the next desk is worth being told about
+                # once and is not a reason to stop mid-edit.
+                severity = "error" if release else "warn"
                 messages.append(
-                    f"warn: entity '{owner}': export.otlp.endpoint '{endpoint}' is "
-                    "plaintext to a host that is not loopback, so every event and the API "
-                    "key with it cross the network in the clear; use https")
+                    f"{severity}: entity '{owner}': export.otlp.endpoint "
+                    f"'{endpoint}' is plaintext to a host that is not loopback, so "
+                    "every event and the API key with it cross the network in the "
+                    "clear; use https, or a collector on this machine")
 
     jsonl = settings.get("jsonl")
     if jsonl is not None:

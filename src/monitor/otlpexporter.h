@@ -44,17 +44,14 @@ QJsonObject otlpTracesRequest(const QList<TraceEvent> &events);
 /// filters work without a mapping nobody wrote down.
 int otlpSeverityNumber(Severity severity);
 
-/// Ship the same events to an OpenTelemetry collector, over HTTP with JSON encoding.
-///
-/// JSON rather than protobuf on purpose. It is a supported OTLP encoding, every collector
-/// accepts it, and it needs nothing but `QNetworkAccessManager`: no protobuf dependency,
-/// no generated stubs, no second licence to think about. The cost is bytes on a link
-/// inside the operator's own network, which is the cheapest thing being traded here.
-///
-/// It hangs off the monitor and never off an entity. An entity's reporting path is a ring
-/// and a batching writer thread, and putting an HTTP client behind that would make a slow
-/// collector into the entity's problem. Here, the worst a dead collector can do is fill an
-/// in-flight slot and get its batch dropped.
+/// Whether this collector may be spoken to at all: https anywhere, http only to this machine.
+/// A batch is the entity's security record and the request carries the collector's API key.
+/// `synqt check` applies the same rule and refuses it outright in a release build.
+bool isExportableCollector(const QUrl &endpoint);
+
+/// Ship the same events to an OpenTelemetry collector, over HTTP with JSON encoding (a
+/// supported OTLP encoding that needs only QNetworkAccessManager). It hangs off the monitor,
+/// never an entity, so a dead collector can only drop its own in-flight batch.
 class OtlpExporter : public IEventExporter
 {
 public:
@@ -72,10 +69,16 @@ public:
     /// credential, so it lives where every other credential in SynQt lives.
     static QHash<QString, QString> headersFromEnvironment();
 
+    /// Whether the configured endpoint was refused (isExportableCollector). A refused
+    /// exporter posts nothing and counts every event it is handed as dropped, so the
+    /// accounting says the collector is not being fed rather than implying it is.
+    bool isRefused() const;
+
 private:
     void post(const QString &signalPath, const QJsonObject &body, qint64 count);
 
     OtlpSettings m_settings;
+    bool m_refused{false};
     QNetworkAccessManager m_network;
     int m_inFlight{0};
     qint64 m_exported{0};

@@ -21,15 +21,14 @@ def _config(export=None):
     }
 
 
-def _monitor_findings(export):
+def _monitor_findings(export, release=False):
     config = _config(export)
     entities = {entity["name"]: entity for entity in config["entities"]}
-    return check._monitor_entity_messages(config, entities)
+    return check._monitor_entity_messages(config, entities, release)
 
 
 def test_a_monitor_with_no_export_block_is_the_normal_case():
-    # The store is the answer for a deployment that wants no second thing to operate, so
-    # exporting is opt-in and its absence is never a finding.
+    # Exporting is opt-in; its absence is not a finding.
     assert _monitor_findings(None) == []
 
 
@@ -40,8 +39,7 @@ def test_a_collector_endpoint_is_accepted():
 def test_an_otlp_block_with_no_endpoint_is_refused():
     findings = _monitor_findings({"otlp": {"timeout_ms": 1000}})
     assert len(findings) == 1
-    # It fails as silence otherwise, which is the worst way for a monitoring setting to
-    # fail. The dashboard is empty and nothing anywhere says why.
+    # An exporter without a destination is refused.
     assert findings[0].startswith("error:")
     assert "names no endpoint" in findings[0]
 
@@ -65,6 +63,22 @@ def test_plaintext_to_a_collector_on_this_machine_is_not():
     assert _monitor_findings({"otlp": {"endpoint": "http://localhost:4318"}}) == []
 
 
+def test_a_release_build_refuses_plaintext_to_a_remote_collector():
+    # A plaintext remote collector is refused in a release build; the runtime would refuse
+    # it.
+    findings = _monitor_findings({"otlp": {"endpoint": "http://collector.internal:4318"}},
+                                 release=True)
+    assert len(findings) == 1
+    assert findings[0].startswith("error:")
+
+
+def test_a_release_build_still_allows_https_and_this_machine():
+    assert _monitor_findings({"otlp": {"endpoint": "https://api.honeycomb.io"}},
+                             release=True) == []
+    assert _monitor_findings({"otlp": {"endpoint": "http://127.0.0.1:4318"}},
+                             release=True) == []
+
+
 def test_a_jsonl_file_with_no_cap_is_warned_about():
     findings = _monitor_findings({"jsonl": {"path": "build/ops/events.jsonl",
                                             "max_bytes": 0}})
@@ -86,8 +100,7 @@ def test_an_unknown_export_key_is_refused():
 def test_a_monitor_that_exports_nothing_links_no_network_client():
     config = _config(None)
     source = maingen.render_monitor_main(config, config["entities"][2])
-    # Not merely unused: the header is not included, so a monitor with no `export:` block
-    # compiles without the exporters at all.
+    # Without `export:` the exporter header is not included.
     assert "otlpexporter.h" not in source
     assert "jsonlexporter.h" not in source
     assert "addExporter" not in source
@@ -100,8 +113,8 @@ def test_the_collectors_api_key_is_read_from_the_environment_and_never_from_the_
     assert 'otlpSettings.endpoint = QUrl{QStringLiteral("https://api.honeycomb.io")}' in source
     assert "otlpSettings.maxInFlight = 4;" in source
     assert "otlpSettings.timeoutMs = 2000;" in source
-    # A credential in `synqt.yaml` is a credential in a repository, so there is no key to
-    # write there. The generated main reads it from this entity's own environment.
+    # The credential comes from the entity environment; there is no key for it in
+    # synqt.yaml.
     assert "OtlpExporter::headersFromEnvironment()" in source
     assert "service.addExporter(&otlpExporter);" in source
 
@@ -120,6 +133,5 @@ def test_the_jsonl_file_carries_its_bound_into_the_generated_main():
 def test_exporting_is_wired_after_the_store_and_not_instead_of_it():
     config = _config({"jsonl": {"path": "build/ops/state/events.jsonl"}})
     source = maingen.render_monitor_main(config, config["entities"][2])
-    # SynQt's own history is what the console reads and what an operator has when nothing
-    # else is running. An exporter is a place events also go, never the place they go.
+    # SynQt's own history always records; an exporter is an additional destination.
     assert source.index("EventStore store{") < source.index("addExporter")

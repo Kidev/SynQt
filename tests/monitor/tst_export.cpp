@@ -382,6 +382,45 @@ private slots:
         QCOMPARE(exporter.exported() + exporter.dropped(), 50);
     }
 
+    void aPlaintextCollectorOnAnotherHostIsRefusedAndNotQuietlyFed()
+    {
+        // A batch is the record of every refusal, every caller and every peer, and the
+        // request carrying it carries the collector's API key. Over http to another
+        // machine that is a plaintext feed of the system's security events, so the
+        // exporter refuses the endpoint rather than posting to it. Refused loudly: the
+        // events are counted as dropped, so the monitor's own accounting says the cold
+        // tier is not being fed.
+        OtlpSettings settings;
+        settings.endpoint = QUrl{QStringLiteral("http://collector.internal:4318")};
+        QTest::ignoreMessage(QtCriticalMsg,
+                             "SynQt: refusing to export to 'http://collector.internal:4318': "
+                             "OTLP over plaintext http to a host that is not this one puts "
+                             "every event and the collector's API key on the network in the "
+                             "clear. Use https, or a collector on localhost.");
+        OtlpExporter exporter{settings};
+        QVERIFY(exporter.isRefused());
+
+        exporter.take({record(QStringLiteral("web"), QStringLiteral("placeBid")),
+                       record(QStringLiteral("web"), QStringLiteral("closeLot"))});
+        QCOMPARE(exporter.exported(), 0);
+        QCOMPARE(exporter.dropped(), 2);
+    }
+
+    void httpsAnywhereAndPlaintextOnlyToThisMachine()
+    {
+        // A collector on localhost or in the same pod is the ordinary deployment and its
+        // traffic never reaches a network, so it is not refused.
+        QVERIFY(isExportableCollector(QUrl{QStringLiteral("https://api.honeycomb.io")}));
+        QVERIFY(isExportableCollector(QUrl{QStringLiteral("http://127.0.0.1:4318")}));
+        QVERIFY(isExportableCollector(QUrl{QStringLiteral("http://localhost:4318")}));
+        QVERIFY(isExportableCollector(QUrl{QStringLiteral("http://[::1]:4318")}));
+
+        QVERIFY(!isExportableCollector(QUrl{QStringLiteral("http://collector.internal:4318")}));
+        QVERIFY(!isExportableCollector(QUrl{QStringLiteral("http://10.0.0.9:4318")}));
+        // Not a scheme this exports over, so not one to treat as safe by omission.
+        QVERIFY(!isExportableCollector(QUrl{QStringLiteral("ftp://127.0.0.1/")}));
+    }
+
     void headersComeFromTheEnvironmentAndNeverFromTheProjectFile()
     {
         qputenv(OtlpExporter::headerVariable(),

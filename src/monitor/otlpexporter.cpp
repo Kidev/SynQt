@@ -12,23 +12,22 @@ namespace SynQt {
 
 namespace {
 
-/// The instrumentation scope every record carries, so a collector holding events from more
-/// than one framework can tell whose they are.
+/// The instrumentation scope on every record, so a collector can tell SynQt's events from
+/// other frameworks'.
 const QString &scopeName()
 {
     static const QString name{QStringLiteral("synqt")};
     return name;
 }
 
-/// A 64-bit fixed integer, as proto3's JSON mapping writes one: a string. A collector
-/// reading `timeUnixNano` as a number rejects the record, so this is not cosmetic.
+/// A 64-bit fixed integer in proto3's JSON mapping: a string. A collector rejects
+/// `timeUnixNano` as a number.
 QString nanoString(qint64 milliseconds, qint64 microsecondsBefore = 0)
 {
     return QString::number((milliseconds * 1000000LL) - (microsecondsBefore * 1000LL));
 }
 
-/// One OTLP `AnyValue`. The type is kept rather than flattened to a string: a count
-/// exported as "2" is a count no dashboard can add up.
+/// One OTLP `AnyValue`, keeping its type: a count exported as "2" cannot be summed.
 QJsonObject anyValue(const QVariant &value)
 {
     QJsonObject wrapped;
@@ -77,8 +76,7 @@ QJsonObject stringAttribute(const QString &key, const QString &value)
 }
 
 /// The resource an entity's events belong to. `service.name` is the OpenTelemetry
-/// convention and the field every dashboard already groups by, so a SynQt entity arrives
-/// in a collector as a service without anybody configuring a mapping.
+/// convention dashboards group by, so an entity appears as a service with no mapping.
 QJsonObject resourceFor(const QString &entity)
 {
     QJsonArray attributes;
@@ -98,8 +96,8 @@ QJsonObject scopeObject()
     return scope;
 }
 
-/// Group a batch by entity, keeping the order the entities were first seen so a collector
-/// receives them in the order they happened rather than in hash order.
+/// Group a batch by entity, in first-seen order, so the collector receives them in the
+/// order they happened.
 QList<QString> entityOrder(const QList<TraceEvent> &events, bool spans)
 {
     QList<QString> order;
@@ -118,8 +116,8 @@ QJsonObject logRecord(const TraceEvent &event)
 {
     QJsonObject entry;
     entry.insert(QStringLiteral("timeUnixNano"), nanoString(event.timestampMs));
-    // The same instant. SynQt records when the event happened, and it happened in the
-    // process that observed it, so there is no second clock to report.
+    // The same instant: the event is observed in the process that records it, so there is
+    // no second clock.
     entry.insert(QStringLiteral("observedTimeUnixNano"), nanoString(event.timestampMs));
     entry.insert(QStringLiteral("severityNumber"), otlpSeverityNumber(event.severity));
     entry.insert(QStringLiteral("severityText"), severityName(event.severity));
@@ -128,18 +126,15 @@ QJsonObject logRecord(const TraceEvent &event)
     entry.insert(QStringLiteral("body"), body);
 
     QJsonArray attributes;
-    // '=' and not '{}': QJsonArray has an initializer-list constructor, so brace-init
-    // would build an array holding an array rather than copying one.
+    // '=' not '{}': brace-init would build an array holding the array.
     attributes = attributeList(event.attributes);
-    // Prefixed, because `category` is a word a collector may already be using for
-    // something of its own, and namespacing an attribute is the convention for exactly
-    // this.
+    // Prefixed, since a collector may already use `category`; namespacing attributes is the
+    // convention.
     attributes.append(stringAttribute(QStringLiteral("synqt.category"),
                                       categoryName(event.category)));
     if (event.untrusted) {
-        // Kept across the boundary. A browser-reported fact stays marked as one wherever
-        // it ends up, because nothing downstream may treat it as something this process
-        // saw (docs/security.md, the two identity systems).
+        // Kept across the boundary: a browser-reported fact stays marked as one, so nothing
+        // downstream treats it as observed by this process (docs/security.md).
         attributes.append(stringAttribute(QStringLiteral("synqt.untrusted"),
                                           QStringLiteral("true")));
     }
@@ -163,9 +158,8 @@ QJsonObject spanRecord(const TraceEvent &event)
         entry.insert(QStringLiteral("parentSpanId"), event.parentSpanId);
     }
     entry.insert(QStringLiteral("name"), event.message);
-    // SPAN_KIND_INTERNAL. A slot crossing a link is a server span from the callee's side,
-    // but the record does not carry which side it was written on, and guessing wrong puts
-    // false client/server pairs in a collector's service map.
+    // SPAN_KIND_INTERNAL. The record does not say which side of a link it was written on,
+    // and a wrong guess would put false client/server pairs in the collector's service map.
     entry.insert(QStringLiteral("kind"), 1);
     entry.insert(QStringLiteral("startTimeUnixNano"),
                  nanoString(event.timestampMs, event.durationUs));
@@ -178,8 +172,8 @@ QJsonObject spanRecord(const TraceEvent &event)
     entry.insert(QStringLiteral("attributes"), attributes);
 
     QJsonObject status;
-    // STATUS_CODE_OK is 1 and STATUS_CODE_ERROR is 2. A refused call is an error span
-    // rather than a missing one: recording a refusal is what lets somebody find it later.
+    // STATUS_CODE_OK is 1 and STATUS_CODE_ERROR is 2. A refused call is an error span, so
+    // it can be found.
     status.insert(QStringLiteral("code"), event.ok ? 1 : 2);
     if (!event.ok) {
         status.insert(QStringLiteral("message"),
@@ -268,10 +262,30 @@ QJsonObject otlpTracesRequest(const QList<TraceEvent> &events)
     return request;
 }
 
+bool isExportableCollector(const QUrl &endpoint)
+{
+    if (endpoint.scheme() == QLatin1String("https")) {
+        return true;
+    }
+    const QString host{endpoint.host()};
+    return endpoint.scheme() == QLatin1String("http")
+        && (host == QLatin1String("localhost") || host == QLatin1String("127.0.0.1")
+            || host == QLatin1String("::1"));
+}
+
 OtlpExporter::OtlpExporter(const OtlpSettings &settings)
     : m_settings{settings}
+    , m_refused{settings.endpoint.isValid() && !isExportableCollector(settings.endpoint)}
 {
     m_network.setTransferTimeout(qMax(1, m_settings.timeoutMs));
+    if (m_refused) {
+        // Logged once at startup, not per batch. The events are still stored and served to
+        // the console; only the cold tier is off, and dropped() counts it.
+        qCritical("SynQt: refusing to export to '%s': OTLP over plaintext http to a host "
+                  "that is not this one puts every event and the collector's API key on "
+                  "the network in the clear. Use https, or a collector on localhost.",
+                  qUtf8Printable(m_settings.endpoint.toString()));
+    }
 }
 
 OtlpExporter::~OtlpExporter() = default;
@@ -314,9 +328,18 @@ qint64 OtlpExporter::dropped() const
     return m_dropped;
 }
 
+bool OtlpExporter::isRefused() const
+{
+    return m_refused;
+}
+
 void OtlpExporter::take(const QList<TraceEvent> &events)
 {
     if (events.isEmpty() || !m_settings.endpoint.isValid()) {
+        return;
+    }
+    if (m_refused) {
+        m_dropped += events.size();
         return;
     }
     qint64 logs{0};
@@ -342,9 +365,8 @@ void OtlpExporter::post(const QString &signalPath, const QJsonObject &body, qint
         return;
     }
     if (m_inFlight >= qMax(1, m_settings.maxInFlight)) {
-        // Dropped rather than queued. An exporter that buffers in front of a collector
-        // which stopped answering is how a monitoring tool takes the machine down with the
-        // thing it was watching.
+        // Dropped at once: buffering in front of a dead collector would take the
+        // machine down with it.
         m_dropped += count;
         return;
     }
@@ -362,8 +384,8 @@ void OtlpExporter::post(const QString &signalPath, const QJsonObject &body, qint
                                         QJsonDocument{body}.toJson(QJsonDocument::Compact))};
     m_inFlight += 1;
     m_exported += count;
-    // The reply is the connection's context, so nothing here outlives the exporter: the
-    // network manager is a member, and destroying it disconnects every reply it made.
+    // The reply is the connection's context, so nothing outlives the exporter: the network
+    // manager is a member, and destroying it disconnects its replies.
     QObject::connect(reply, &QNetworkReply::finished, reply, [this, reply]() {
         m_inFlight -= 1;
         reply->deleteLater();

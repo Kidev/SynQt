@@ -686,6 +686,13 @@
       "defended_by": "A refresh writes the lifetime the provider named or none at all, never the one that expired, which is what the code exchange already did; the sweep skips an entry whose expiry nobody named.",
       "file": "tests/m8-auth/tst_m8.cpp",
       "test": "aRefreshThatNamesNoLifetimeIsNotSweptAgain"
+    },
+    {
+      "id": "a-plaintext-feed-of-the-security-record",
+      "what": "A monitor is pointed at an OpenTelemetry collector on another host over plaintext http. Every batch is the whole record of what the system did: which member each caller called, which upgrades were refused and for what reason, which mesh peer connected under which certificate subject. The request carrying it also carries the collector's API key. Anyone on the path reads the security record of the deployment and holds the credential for the store keeping it, and can forge records into that store.",
+      "defended_by": "The exporter refuses the endpoint at startup and says so once, counting every event it is then handed as dropped so the accounting never implies a collector is being fed; https is accepted anywhere and plaintext only to this machine, where the traffic reaches no network. `synqt check` reports the same rule, and refuses it outright for a release build.",
+      "file": "tests/monitor/tst_export.cpp",
+      "test": "aPlaintextCollectorOnAnotherHostIsRefusedAndNotQuietlyFed"
     }
   ]
 }
