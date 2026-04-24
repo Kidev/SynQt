@@ -700,6 +700,13 @@
       "defended_by": "None of the nine properties is CONSTANT; all of them notify on one signal, raised when the caller is adopted and when an elevation rotates the session, and only when something an accessor reads actually moved.",
       "file": "tests/m7-caller/tst_memberscope.cpp",
       "test": "aBindingOnTheCallerFollowsWhoIsCallingNow"
+    },
+    {
+      "id": "a-credential-written-into-the-record",
+      "what": "A credential reaches a trace call under its own name, and is then held for as long as the record is: an application chasing a refusal writes `Log.warn(\"refused\", { authorization: header })`, or a call site added later records a cookie beside the reason it was rejected. Whoever can read the monitoring console, the JSONL file, or the collector the events are exported to now holds a live bearer token or session cookie, without having attacked anything.",
+      "defended_by": "Every event passes through Tracer::record, past anything QML can reach, and an attribute whose name names a credential is recorded as `[redacted]` with its name kept. It is the backstop under the call-site rule that the framework records handles rather than secrets, not a substitute for it: names are read, values never are.",
+      "file": "tests/monitor/tst_pipeline.cpp",
+      "test": "aValueUnderASecretNameIsNeverWhatIsRecorded"
     }
   ]
 }

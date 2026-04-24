@@ -10,6 +10,7 @@
 
 #include <QMutex>
 #include <QObject>
+#include <QStringList>
 
 #include <atomic>
 #include <functional>
@@ -20,19 +21,13 @@ QT_END_NAMESPACE
 
 namespace SynQt {
 
-/// Where an entity's events go: a level check, a bounded ring, and one thread that
-/// batches what it finds there and hands it to a sink.
+/// Where an entity's events go: a level check, a bounded ring, and one thread that batches
+/// what it finds there and hands it to a sink.
 ///
-/// The contract this class exists to keep is that recording never blocks the entity.
-/// `record()` is a relaxed atomic load, a mutex around a move, and at most one queued
-/// call. There is no disk in it, no socket, and no allocation that grows with load. The
-/// batching, the serialization and whatever the sink does with the batch all happen on
-/// the writer thread.
-///
-/// The timer that triggers a partial batch lives on that writer thread rather than on
-/// the entity's, and the guarantee depends on it. An entity whose event loop is stalled is
-/// exactly the entity whose last events matter most, and a timer parented to a stalled loop
-/// never fires.
+/// Recording never blocks the entity: `record()` is a relaxed atomic load, a mutex around a
+/// move and at most one queued call. Batching, serialization and the sink run on the writer
+/// thread, and so does the partial-batch timer, so it still fires when the entity's own loop
+/// is stalled.
 class Tracer : public QObject
 {
     Q_OBJECT
@@ -50,6 +45,20 @@ public:
     static constexpr int MaxMessageChars{512};
     static constexpr int MaxAttributeChars{512};
     static constexpr int MaxAttributes{32};
+
+    /// Whether an attribute of this name has its value replaced before the event is recorded
+    /// (isSecretAttributeName).
+    ///
+    /// A backstop: the framework's own call sites never record a credential. This catches an
+    /// application's `Log.warn("refused", {authorization: header})` and similar. Matched on the
+    /// name, case-insensitively, as a substring (`token` covers `access_token` and
+    /// `refreshToken`; `cookie` covers `set-cookie`). Values and messages are never inspected.
+    static const QStringList &secretAttributeNames();
+    static bool isSecretAttributeName(const QString &name);
+
+    /// What a redacted value is recorded as. The key stays, so the record says a value
+    /// was held back rather than looking as though there was none.
+    static QString redacted();
 
     explicit Tracer(QObject *parent = nullptr);
     ~Tracer() override;
@@ -124,6 +133,7 @@ private:
     void wake();
     void deliver();
     static void bound(TraceEvent &event);
+    static void redact(TraceEvent &event);
     void applyLevels();
 
     /// The severity stored for a category that is switched off. Above `Severity::Fatal`,
@@ -148,13 +158,9 @@ private:
     Sink m_sink;
 };
 
-/// Record one event on the process tracer, if anything is listening for it.
-///
-/// The shape every instrumented call site in the framework uses. The level check is
-/// inline and the event is built only after it passes, so a site whose category is
-/// switched off costs one relaxed atomic load and a comparison. That is the number
-/// benchmarks/monitor holds to a budget, and it is why the instrumentation can be
-/// unconditional rather than compiled out.
+/// Record one event on the process tracer, if anything is listening for it. The level check
+/// is inline and the event is built only after it passes, so a disabled category costs one
+/// relaxed atomic load and a comparison (benchmarks/monitor).
 inline void trace(Category category, Severity severity, const QString &message,
                   const QVariantMap &attributes = QVariantMap())
 {

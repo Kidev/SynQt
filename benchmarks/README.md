@@ -242,8 +242,8 @@ per measurement:
 | path | p50 | p99 |
 |------|-----|-----|
 | `record_disabled` | 0.2 ns | 0.2 ns |
-| `record_enabled` | 42 ns | 208 ns |
-| `record_dropping` | 19 ns | 22 ns |
+| `record_enabled` | 60 ns | 97 ns |
+| `record_dropping` | 38 ns | 39 ns |
 
 **The budget is on the first row: the disabled path must stay under 25 ns.** It is the
 number the whole design rests on, because every instrumented call site in every SynQt
@@ -253,11 +253,18 @@ tax. If a later change spends that budget, the answer is a compile-time branch, 
 mutex: an entity that pays for monitoring it has switched off is a tax on every SynQt app.
 
 The other two rows are reported and sanity-checked rather than tightly gated. `record_enabled`
-at ~ 42 ns is a mutex, a move and an integer update, which is what choosing a plain
+at ~ 60 ns is a mutex, a move and an integer update, which is what choosing a plain
 `QMutex` over a lock-free ring costs; that choice is what this row exists to keep honest. `record_dropping` being *cheaper* than `record_enabled` is not a mistake: a full ring
 overwrites in place and never grows, while the enabled path is also competing with a writer
 thread draining it. What matters is that it stays a flat constant, which is what makes an
 entity under a burst degrade by losing events rather than by falling over.
+
+About 14 ns of both rows is the redaction pass (`Tracer::isSecretAttributeName`), which
+reads every attribute name before the event is recorded and replaces the value of one that
+names a credential. It was measured on this same host at 43 ns and 21 ns without it. That
+is the price of the guarantee in [security](../docs/security.md) that a secret handed to a
+trace call is not what ends up in the record, and it is paid only by an entity that has
+switched a category on: the budget row above did not move.
 
 The run also reports the ring's accounting: with a live sink nothing was dropped
 (1 005 000 delivered, 0 dropped), and with no sink at all 996 808 of 1 005 000 were dropped

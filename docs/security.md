@@ -651,14 +651,32 @@ page protects the page's markup, never the data the page later reads.
   entity's build. A client target that references an `env:` value is a build error,
   so a secret cannot reach the browser through configuration.
 - Each entity holds only the secrets it needs. The OAuth2 client secret lives on the
-  edge; the database file path and any data encryption key live on the database.
+  edge, and the database file path and any data encryption key live on the database.
 - The mesh CA private key is the system's most sensitive secret. It is used only to
   issue entity certs (on a developer machine or in a CI secret store), never shipped
   to a running entity, and never committed. A running entity holds only its own
   cert and key plus the CA certificate to verify peers. Entity private keys live in
   `synqt/mesh/` as `<entity>.key`, with restrictive permissions, and are git ignored.
-- Secrets are never logged. The logging layer redacts known secret keys and never
-  logs authorization headers, cookies, tokens, or certificate private material.
+- Secrets are never logged, and two separate things hold that. The framework's own call
+  sites record a handle rather than the thing itself. A session is the SHA-256 handle
+  `Caller.session.key` and never the credential the browser sends, a refused upgrade
+  records the reason and the peer and never the cookie or header it was refused for, a
+  mesh peer is its verified certificate subject, and tokens and certificate private
+  material reach no trace call at all. Under that, the pipeline redacts: every event
+  passes through `Tracer::record`, which replaces the value of any attribute whose name
+  names a credential (`password`, `secret`, `token`, `authorization`, `cookie`,
+  `credential`, `api_key`, `private_key`, `bearer`, matched case-insensitively anywhere
+  in the name, so `set-cookie`, `refreshToken` and `clientSecret` are all covered) with
+  `[redacted]`, keeping the name so the record says a value was held back rather than
+  reading as though there was none. It runs past anything QML can reach, which is what
+  makes it cover [`Log`](runtime-api.md#log-what-an-entity-records-about-itself) too: an application that writes
+  `Log.warn("refused", { authorization: header })` does not put a bearer token in the
+  operator's console. Two things it deliberately does not do. It does not read values,
+  because a filter that guesses at what a value looks like misses and then reads as a
+  guarantee; and it does not read the message, which is prose an operator wrote and
+  searches on. So it is the backstop under the call-site discipline and not a substitute
+  for it: a credential you pass under a name that does not say what it is still gets
+  recorded, exactly as it would in any other log.
 
 ## Supply chain
 

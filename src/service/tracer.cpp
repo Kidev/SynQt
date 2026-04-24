@@ -5,7 +5,9 @@
 
 #include <QDateTime>
 #include <QMutexLocker>
+#include <QPair>
 #include <QRandomGenerator>
+#include <QStringView>
 #include <QThread>
 #include <QTimer>
 
@@ -21,9 +23,51 @@ namespace {
 /// against an entity's own working set: 8192 events at roughly 200 bytes each.
 constexpr int kRingCapacity{8192};
 
+/// The letters of `text`, as one bit per letter of the alphabet.
+///
+/// A necessary condition for a substring. A needle cannot be inside a key whose set of
+/// letters does not contain the needle's. Non-letters are ignored on both sides, which
+/// keeps the condition necessary (never sufficient) and lets one mask stand for
+/// `api_key`, `api-key` and `apiKey` at once. What it buys is that the ordinary case,
+/// an attribute called `member` or `peer` or `origin`, is decided by one pass over a
+/// short string and a handful of integer ands, with no case-folded copy allocated and
+/// no substring search run.
+quint32 letterMask(QStringView text)
+{
+    quint32 mask{0};
+    for (const QChar character : text) {
+        char16_t code{character.unicode()};
+        if (code >= u'A' && code <= u'Z') {
+            code = static_cast<char16_t>(code + (u'a' - u'A'));
+        }
+        if (code >= u'a' && code <= u'z') {
+            mask |= (1u << static_cast<unsigned>(code - u'a'));
+        }
+    }
+    return mask;
+}
+
+/// The masks of the needles, in the order `Tracer::secretAttributeNames` lists them, and
+/// contiguous so the loop that reads them touches one cache line and no QString at all.
+/// The names themselves are reached only for a needle whose mask passed, which for an
+/// ordinary attribute is none of them.
+const QList<quint32> &secretMasks()
+{
+    static const QList<quint32> masks{[]() {
+        QList<quint32> built;
+        const QStringList &names{Tracer::secretAttributeNames()};
+        built.reserve(names.size());
+        for (const QString &name : names) {
+            built.append(letterMask(name));
+        }
+        return built;
+    }()};
+    return masks;
+}
+
 /// Lower-case hex of a fixed width, which is what W3C trace context asks for, with the
 /// all-zero value the specification forbids replaced rather than retried: a collector
-/// drops a traceparent carrying it, and one bit is not worth a loop.
+/// drops a traceparent carrying it, and one bit does not justify a loop.
 ///
 /// The all-zero test is a scan and not a regular expression. Two of these are minted for
 /// every span, so a `QRegularExpression` built here is a pattern compiled per span, on a
@@ -234,11 +278,83 @@ void Tracer::record(TraceEvent event)
         QMutexLocker locker{&m_mutex};
         event.entity = m_entity;
     }
+    // Before the bound, so a credential long enough to be truncated is replaced rather
+    // than recorded as its first 512 characters.
+    redact(event);
     bound(event);
     m_ring.push(std::move(event));
     const int pending{m_pending.fetch_add(1, std::memory_order_relaxed) + 1};
     if (pending >= m_batchEvents.load(std::memory_order_relaxed)) {
         wake();
+    }
+}
+
+const QStringList &Tracer::secretAttributeNames()
+{
+    // Short. Every entry is a word that means "this is the credential
+    // itself" wherever it appears in a name, which is what makes matching it as a
+    // substring safe. `key` and `id` are not here, because `session.key` is a handle and
+    // `client_id` is public, and redacting either would take an operator's own evidence
+    // away while teaching them that a redaction marker means nothing much.
+    static const QStringList names{QStringLiteral("password"),
+                                   QStringLiteral("passphrase"),
+                                   QStringLiteral("secret"),
+                                   QStringLiteral("token"),
+                                   QStringLiteral("authorization"),
+                                   QStringLiteral("cookie"),
+                                   QStringLiteral("credential"),
+                                   QStringLiteral("apikey"),
+                                   QStringLiteral("api_key"),
+                                   QStringLiteral("api-key"),
+                                   QStringLiteral("privatekey"),
+                                   QStringLiteral("private_key"),
+                                   QStringLiteral("private-key"),
+                                   QStringLiteral("bearer")};
+    return names;
+}
+
+bool Tracer::isSecretAttributeName(const QString &name)
+{
+    const QList<quint32> &masks{secretMasks()};
+    const quint32 mask{letterMask(name)};
+    const quint32 *scan{masks.constData()};
+    const quint32 *end{scan + masks.size()};
+    for (; scan != end; ++scan) {
+        if ((mask & *scan) == *scan
+            && name.contains(secretAttributeNames().at(scan - masks.constData()),
+                             Qt::CaseInsensitive)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+QString Tracer::redacted()
+{
+    return QStringLiteral("[redacted]");
+}
+
+void Tracer::redact(TraceEvent &event)
+{
+    // Measured before anything is rewritten, the same way `bound` is and for the same
+    // reason: `QVariantMap::begin` detaches, and the overwhelmingly common event carries
+    // nothing to redact. The scan reads keys only, so it costs one pass over each of at
+    // most a handful of short strings.
+    bool found{false};
+    for (auto it{event.attributes.cbegin()}; it != event.attributes.cend(); ++it) {
+        if (isSecretAttributeName(it.key())) {
+            found = true;
+            break;
+        }
+    }
+    if (!found) {
+        return;
+    }
+    const QString marker{redacted()};
+    for (auto it{event.attributes.begin()}; it != event.attributes.end(); ++it) {
+        if (isSecretAttributeName(it.key())) {
+            it.value() = marker;
+        }
     }
 }
 

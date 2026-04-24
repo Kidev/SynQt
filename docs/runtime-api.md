@@ -774,9 +774,17 @@ whoever reads the record filters and searches it, and `Log.info("saved " + count
 makes both a substring hunt where `Log.info("saved rows", { rows: count })` does not.
 
 Which entity said it is stamped by the runtime, past anything QML can reach, so an entity
-cannot record itself under another entity's name. Where the records go and who may read
-them is [monitoring](monitoring.md); with no monitor configured nothing is recorded and the
-level check is all a call site costs.
+cannot record itself under another entity's name. The same place holds a value back: an
+attribute whose name names a credential (`password`, `secret`, `token`, `authorization`,
+`cookie`, `credential`, `api_key`, `private_key`, `bearer`, matched anywhere in the name
+and in any case) is recorded as `[redacted]`, so `Log.warn("refused", { authorization:
+header })` does not put a bearer token in the console. It reads names and never values, so
+it is a backstop rather than a licence: a credential under a name that does not say so is
+recorded like anything else, and the message is prose and is never touched. See
+[security](security.md#logging-and-observability).
+
+Where the records go and who may read them is [monitoring](monitoring.md); with no monitor
+configured nothing is recorded and the level check is all a call site costs.
 
 ---
 

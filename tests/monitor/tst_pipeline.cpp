@@ -377,6 +377,98 @@ private slots:
         QVERIFY(!user->traceContext().isValid());
     }
 
+    /// A credential handed to a trace call is not what gets recorded.
+    ///
+    /// The framework's own call sites record handles, and that is the property; this is
+    /// the backstop under it, for an application's `Log` and for a call site added later.
+    void aValueUnderASecretNameIsNeverWhatIsRecorded()
+    {
+        QMutex mutex;
+        QList<TraceEvent> delivered;
+
+        Tracer tracer;
+        tracer.setSink([&mutex, &delivered](const QList<TraceEvent> &batch) {
+            QMutexLocker locker{&mutex};
+            delivered.append(batch);
+        });
+
+        // What an application writes when it is trying to work out why a request was
+        // refused, and what a log then holds forever afterwards.
+        TraceEvent event;
+        event.category = Category::Application;
+        event.severity = Severity::Warning;
+        event.message = QStringLiteral("refused");
+        event.attributes.insert(QStringLiteral("Authorization"),
+                                QStringLiteral("Bearer ya29.a0AfB_real_token"));
+        event.attributes.insert(QStringLiteral("set-cookie"),
+                                QStringLiteral("synqt_session=abcdef; HttpOnly"));
+        event.attributes.insert(QStringLiteral("refreshToken"), QStringLiteral("1//0eXyZ"));
+        event.attributes.insert(QStringLiteral("clientSecret"), QStringLiteral("s3cr3t"));
+        event.attributes.insert(QStringLiteral("x-api-key"), QStringLiteral("k-1234"));
+        event.attributes.insert(QStringLiteral("db.password"), QStringLiteral("hunter2"));
+        // And the things an operator is reading the record for, which stay.
+        event.attributes.insert(QStringLiteral("member"), QStringLiteral("placeBid"));
+        event.attributes.insert(QStringLiteral("session"), QStringLiteral("9f86d081"));
+        event.attributes.insert(QStringLiteral("client_id"), QStringLiteral("app-42"));
+        tracer.record(event);
+        tracer.flush();
+
+        QMutexLocker locker{&mutex};
+        QCOMPARE(delivered.size(), 1);
+        const QVariantMap recorded{delivered.first().attributes};
+        for (const QString &name : {QStringLiteral("Authorization"),
+                                    QStringLiteral("set-cookie"),
+                                    QStringLiteral("refreshToken"),
+                                    QStringLiteral("clientSecret"),
+                                    QStringLiteral("x-api-key"),
+                                    QStringLiteral("db.password")}) {
+            // The name stays. A record that shed the key would read as a request that
+            // never carried one.
+            QVERIFY2(recorded.contains(name), qPrintable(name));
+            QCOMPARE(recorded.value(name).toString(), Tracer::redacted());
+        }
+        QCOMPARE(recorded.value(QStringLiteral("member")).toString(),
+                 QStringLiteral("placeBid"));
+        QCOMPARE(recorded.value(QStringLiteral("session")).toString(),
+                 QStringLiteral("9f86d081"));
+        QCOMPARE(recorded.value(QStringLiteral("client_id")).toString(),
+                 QStringLiteral("app-42"));
+    }
+
+    /// The names it holds back, and the ones it must not. A redaction that took an
+    /// operator's own evidence away would teach them the marker means nothing much.
+    void theNamesHeldBackAreTheOnesThatMeanTheCredentialItself()
+    {
+        for (const QString &name : {QStringLiteral("password"),
+                                    QStringLiteral("PASSWORD"),
+                                    QStringLiteral("passphrase"),
+                                    QStringLiteral("client_secret"),
+                                    QStringLiteral("access_token"),
+                                    QStringLiteral("authToken"),
+                                    QStringLiteral("Authorization"),
+                                    QStringLiteral("proxy-authorization"),
+                                    QStringLiteral("Cookie"),
+                                    QStringLiteral("credentials"),
+                                    QStringLiteral("apiKey"),
+                                    QStringLiteral("api_key"),
+                                    QStringLiteral("private_key"),
+                                    QStringLiteral("bearer")}) {
+            QVERIFY2(Tracer::isSecretAttributeName(name), qPrintable(name));
+        }
+        for (const QString &name : {QStringLiteral("member"),
+                                    QStringLiteral("session"),
+                                    QStringLiteral("key"),
+                                    QStringLiteral("id"),
+                                    QStringLiteral("client_id"),
+                                    QStringLiteral("peer"),
+                                    QStringLiteral("origin"),
+                                    QStringLiteral("scope"),
+                                    QStringLiteral("reason"),
+                                    QStringLiteral("connectPoint")}) {
+            QVERIFY2(!Tracer::isSecretAttributeName(name), qPrintable(name));
+        }
+    }
+
     void whatOneEventMayCarryIsBounded()
     {
         QMutex mutex;
