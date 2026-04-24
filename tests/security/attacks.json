@@ -693,6 +693,13 @@
       "defended_by": "The exporter refuses the endpoint at startup and says so once, counting every event it is then handed as dropped so the accounting never implies a collector is being fed; https is accepted anywhere and plaintext only to this machine, where the traffic reaches no network. `synqt check` reports the same rule, and refuses it outright for a release build.",
       "file": "tests/monitor/tst_export.cpp",
       "test": "aPlaintextCollectorOnAnotherHostIsRefusedAndNotQuietlyFed"
+    },
+    {
+      "id": "the-caller-before-this-one",
+      "what": "A shared entity answers everybody from one Source, and the Caller in that Source's QML is re-pointed at whoever is calling before each slot runs. Its properties were declared CONSTANT, so QML never re-read them: a binding such as `text: Caller.identity.name`, or any gate written against `Caller.scope`, kept the answer for the first caller of the process and served it to every caller after. What shows on one visitor's page, and what a member is published against, is then another visitor's identity and another visitor's scope.",
+      "defended_by": "None of the nine properties is CONSTANT; all of them notify on one signal, raised when the caller is adopted and when an elevation rotates the session, and only when something an accessor reads actually moved.",
+      "file": "tests/m7-caller/tst_memberscope.cpp",
+      "test": "aBindingOnTheCallerFollowsWhoIsCallingNow"
     }
   ]
 }

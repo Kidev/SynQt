@@ -355,33 +355,35 @@ entities:
 
 `shared: true` is one Source for the whole entity. Every caller acquires a mirror of it, so
 all of them see the same props and the same rows, and each slot still runs with that
-caller's `Caller` bound: the mirror is what the caller acquired, so `Caller.hasScope(...)`
+caller's `Caller` bound. The mirror is what the caller acquired, so `Caller.hasScope(...)`
 still gates, `Caller.entity` still names the calling entity, and `Caller.emit<Signal>`
-still reaches that caller and nobody else. It is the natural home for anything everybody
-sees: an auction, a leaderboard, the live state of a game.
+still reaches that caller and nobody else. It is the home for anything everybody
+sees, such as an auction, a leaderboard, or the live state of a game.
 
 `shared: false` is one Source per caller. What it holds is that caller's alone. A browser
 caller is a session, so their second tab continues what the first tab was using and a
-private window gets its own; a mesh caller is the calling entity, so each consuming entity
+private window gets its own. A mesh caller is the calling entity, so each consuming entity
 gets its own. It suits a draft, a wizard's half-filled form, or a per-player slice of a
 world.
 
-It is the entity's answer and not a connect point's, because an entity is one thing
+It is the entity's answer rather than a connect point's, because an entity is one thing
 everybody reaches or one thing per caller, and it cannot be both at once for two of its own
 surfaces. A point that writes `instance:` is refused by `synqt check`, which names the
 entity to write `shared:` on instead.
 
 Two things follow from that:
 
-- **The entity's own `pragma Shared` file is one either way.** It is the entity itself,
-  not a caller's view of it, so it is where state that everybody shares lives when the
+- **The entity's own `pragma Shared` file is one either way.** It is the entity itself
+  rather than a caller's view of it, so it is where state that everybody shares lives when the
   entity is not shared. A not-shared edge with a public feed keeps the feed there and each
   session's Source publishes it.
 - **On a shared entity, `Caller` is whoever is calling right now.** Read it in the slot.
   If the work finishes on a later turn, keep what you need in a local first
   (`const who = Caller.session`), because the object itself will have moved on to the next
-  caller. On an entity that is not shared there is a Source per caller and its `Caller`
-  never changes.
+  caller. A binding is the one thing that does not need the local, because `Caller`'s properties
+  say when they move, so `text: Caller.identity.name` follows the caller being served
+  rather than freezing on the first one. On an entity that is not shared there is a Source
+  per caller and its `Caller` never changes.
 
 A Source holds live state rather than storage, whichever answer you give. A per-caller
 Source lasts as long as that caller has at least one link open and is gone once they all

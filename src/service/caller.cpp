@@ -70,9 +70,12 @@ Caller *Caller::forUser(const QString &contract, SessionManager *sessions,
                 [caller](const QByteArray &from, const QByteArray &to) {
                     if (caller->m_sessionId == from) {
                         caller->m_sessionId = to;
-                        // A rotation is a privilege change; that is the only thing that
-                        // causes one. Whoever gates on this caller's scope is told.
+                        // A rotation is a privilege change. That is the only thing that
+                        // causes one. Whoever gates on this caller's scope is told, and
+                        // so is anything bound to the rest of it: the scope, the
+                        // identity and the id all moved together.
                         Q_EMIT caller->scopeChanged();
+                        Q_EMIT caller->callerChanged();
                     }
                 });
     }
@@ -320,6 +323,17 @@ void Caller::adopt(QObject *other)
     // starts again at every shared entity, so a request that crosses one arrives in the
     // console as two unrelated traces instead of one story. A shared entity is exactly the
     // shape a busy edge has.
+    //
+    // Measured before it is assigned, over exactly the fields the accessors read, so a
+    // run of calls from one session emits nothing. A shared entity adopts on every call,
+    // and telling QML the caller changed when it did not would re-evaluate every binding
+    // on it for each one. The Source, the trace and the scope vocabulary are left out of
+    // the comparison, because no property is built from them.
+    const bool changed{m_sessions != from->m_sessions || m_sessionId != from->m_sessionId
+                       || m_forwarded != from->m_forwarded || m_entity != from->m_entity
+                       || m_isUser != from->m_isUser
+                       || m_entityVerified != from->m_entityVerified};
+
     m_sessions = from->m_sessions;
     m_sessionId = from->m_sessionId;
     m_forwarded = from->m_forwarded;
@@ -330,6 +344,10 @@ void Caller::adopt(QObject *other)
     m_isUser = from->m_isUser;
     m_entityVerified = from->m_entityVerified;
     m_hierarchical = from->m_hierarchical;
+
+    if (changed) {
+        Q_EMIT callerChanged();
+    }
 }
 
 } // namespace SynQt

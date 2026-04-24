@@ -157,11 +157,15 @@ Rectangle {
 ```
 
 QML works out what a binding depends on from the properties it reads, so a binding
-that only *calls* a method has no dependencies and is evaluated once and never
-again. `hasScope` is therefore a property whose value is the check, not a plain
-method: reading it is what registers the dependency on the scope, and the call
+that only calls a method has no dependencies and is evaluated once and never
+again. `hasScope` is therefore a property whose value is the check rather than a plain
+method. Reading it registers the dependency on the scope, and the call
 spelling is unchanged. `Caller.hasScope` on the service side is an ordinary method,
-because a `Caller` is one call's snapshot and none of it changes under a binding.
+because a slot reads it once, in the slot, against the caller of that call.
+`Caller`'s own properties do change under a binding. An elevation moves them, and on a
+[shared entity](programming-model.md#how-many-of-an-entity-there-are-shared) so does
+the next caller, so a binding that reads `Caller.scope` or `Caller.identity` is told and
+re-evaluated rather than left showing the caller before this one.
 
 !!! note "Client-side scope checks are UX only"
     Hiding a button with `Session.hasScope(...)` is a convenience, never the

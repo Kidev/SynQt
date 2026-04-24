@@ -18,12 +18,18 @@
 #include <QAbstractItemModel>
 #include <QByteArray>
 #include <QObject>
+#include <QQmlComponent>
+#include <QQmlContext>
+#include <QQmlEngine>
 #include <QSignalSpy>
 #include <QString>
 #include <QStringList>
 #include <QTest>
+#include <QUrl>
 #include <QVariantList>
 #include <QVariantMap>
+
+#include <memory>
 
 using namespace SynQt;
 
@@ -189,8 +195,72 @@ private slots:
         QCOMPARE(mirror->auditLog()->rowCount(), 0);
     }
 
+    /// A binding on `Caller` follows whoever is calling now, and not the first one.
+    ///
+    /// This is the shared entity's shape: one Source, one Caller in its QML context, and
+    /// `adopt` re-pointing that Caller at the caller of the slot about to run. QML that
+    /// reads `Caller.scope` or `Caller.identity` in a binding has to be told when it
+    /// moves. Told once and never again, a moderator's page would go on displaying the
+    /// first visitor's name while the entity answered the second, which is not a stale
+    /// value but somebody else's.
+    void aBindingOnTheCallerFollowsWhoIsCallingNow()
+    {
+        const QVariantMap ada{{QStringLiteral("sub"), QStringLiteral("ada")}};
+        Caller *held{Caller::forUser(
+            QString{}, m_sessions,
+            m_sessions->createSession(QStringLiteral("moderator"), ada), nullptr, this)};
+        held->setScopeOrder(vocabulary(), true);
+
+        QQmlEngine engine;
+        engine.rootContext()->setContextProperty(QStringLiteral("Caller"), held);
+        QQmlComponent component{&engine};
+        component.setData(QByteArrayLiteral(
+                              "import QtQml\n"
+                              "QtObject {\n"
+                              "    property string seenScope: Caller.scope\n"
+                              "    property string seenSub: Caller.identity ? "
+                              "Caller.identity.sub : \"\"\n"
+                              "}\n"),
+                          QUrl{});
+        const std::unique_ptr<QObject> page{component.create()};
+        QVERIFY2(page != nullptr, qPrintable(component.errorString()));
+        QCOMPARE(page->property("seenScope").toString(), QStringLiteral("moderator"));
+        QCOMPARE(page->property("seenSub").toString(), QStringLiteral("ada"));
+
+        const QVariantMap grace{{QStringLiteral("sub"), QStringLiteral("grace")}};
+        Caller *arriving{Caller::forUser(
+            QString{}, m_sessions,
+            m_sessions->createSession(QStringLiteral("admin"), grace), nullptr, this)};
+        arriving->setScopeOrder(vocabulary(), true);
+        held->adopt(arriving);
+
+        QCOMPARE(page->property("seenScope").toString(), QStringLiteral("admin"));
+        QCOMPARE(page->property("seenSub").toString(), QStringLiteral("grace"));
+    }
+
+    /// Adopting the caller already held changes nothing, so it says nothing.
+    ///
+    /// A shared entity adopts on every call, and most calls in a row are the same
+    /// person's. Telling QML the caller changed when it did not would re-evaluate every
+    /// binding on it once per call for no reason.
+    void adoptingTheSameCallerTwiceSaysNothingTheSecondTime()
+    {
+        Caller *held{Caller::forUser(
+            QString{}, m_sessions, m_sessions->createSession(QStringLiteral("anonymous")),
+            nullptr, this)};
+        const QByteArray session{m_sessions->createSession(QStringLiteral("moderator"))};
+        Caller *first{Caller::forUser(QString{}, m_sessions, session, nullptr, this)};
+        Caller *second{Caller::forUser(QString{}, m_sessions, session, nullptr, this)};
+
+        QSignalSpy moved{held, SIGNAL(callerChanged())};
+        held->adopt(first);
+        QCOMPARE(moved.count(), 1);  // a different session: everything a binding reads moved
+        held->adopt(second);
+        QCOMPARE(moved.count(), 1);  // the same one again: nothing did
+    }
+
     /// Fail closed. A Source that answers no caller at all cannot check a scope, so it
-    /// publishes nothing gated; only the runtime saying "this one holds the shared state"
+    /// publishes nothing gated. Only the runtime saying "this one holds the shared state"
     /// makes a Source ungated, and nothing says it by accident.
     void aSourceWithNoCallerPublishesNothingGated()
     {

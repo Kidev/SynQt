@@ -33,15 +33,21 @@ namespace SynQt {
 class Caller : public QObject
 {
     Q_OBJECT
-    Q_PROPERTY(bool isUser READ isUser CONSTANT)
-    Q_PROPERTY(bool isEntity READ isEntity CONSTANT)
-    Q_PROPERTY(bool isEntityVerified READ isEntityVerified CONSTANT)
-    Q_PROPERTY(bool hasSession READ hasSession CONSTANT)
-    Q_PROPERTY(QString id READ id CONSTANT)
-    Q_PROPERTY(QVariant session READ session CONSTANT)
-    Q_PROPERTY(QVariant identity READ identity CONSTANT)
-    Q_PROPERTY(QString scope READ scope CONSTANT)
-    Q_PROPERTY(QString entity READ entity CONSTANT)
+    // All nine notify on one signal, and none of them is CONSTANT. A Caller is one
+    // call's answer, but the object outlives the call. `adopt` re-points it at whoever is
+    // calling now, and an elevation rotates the session under it. A binding that read
+    // `Caller.scope` once and was never told would go on showing the first caller's
+    // answer while the entity served the next one, which is the wrong person's identity
+    // on the screen rather than merely a stale one.
+    Q_PROPERTY(bool isUser READ isUser NOTIFY callerChanged)
+    Q_PROPERTY(bool isEntity READ isEntity NOTIFY callerChanged)
+    Q_PROPERTY(bool isEntityVerified READ isEntityVerified NOTIFY callerChanged)
+    Q_PROPERTY(bool hasSession READ hasSession NOTIFY callerChanged)
+    Q_PROPERTY(QString id READ id NOTIFY callerChanged)
+    Q_PROPERTY(QVariant session READ session NOTIFY callerChanged)
+    Q_PROPERTY(QVariant identity READ identity NOTIFY callerChanged)
+    Q_PROPERTY(QString scope READ scope NOTIFY callerChanged)
+    Q_PROPERTY(QString entity READ entity NOTIFY callerChanged)
 
 public:
     /// Builds a Caller for a connect point's contract. A contract with a generated
@@ -165,8 +171,17 @@ Q_SIGNALS:
     /// and one that goes out of reach is withdrawn.
     void scopeChanged();
 
+    /// Every property above may now answer differently.
+    ///
+    /// Two things cause it. An elevation, which rotates the session this Caller names
+    /// and is also a scopeChanged, and `adopt`, where one Source's Caller becomes the
+    /// caller of the slot about to run. The second is the one that matters for a binding.
+    /// It is emitted only when something an accessor reads moved, so a run of
+    /// calls from the same session costs nothing.
+    void callerChanged();
+
 protected:
-    /// The generated `\<Contract\>Caller` subclass constructs through this; its typed
+    /// The generated `\<Contract\>Caller` subclass constructs through this. Its typed
     /// emit<Signal>(...) methods forward to the inherited emitSignal.
     explicit Caller(QObject *parent);
 
