@@ -11,6 +11,7 @@
 #include "proxypolicy.h"
 
 #include <QAbstractOAuth>
+#include <QAbstractOAuth2>
 #include <QDateTime>
 #include <QEventLoop>
 #include <QJsonArray>
@@ -186,15 +187,22 @@ OAuthBackend::BeginResult OAuthBackend::begin(const QString &providerName,
 
     // OpenID Connect: bind the ID token to this request with a nonce carried in the
     // authorization request and checked on the returned ID token.
+    //
+    // Through Qt's own nonce rather than by adding a parameter, and the difference is not
+    // cosmetic. `NonceMode::Automatic` is the default, and it puts a nonce of Qt's own in
+    // the request whenever the scope contains `openid`. A second one inserted here went
+    // into the same QMultiMap, so the authorization request carried the parameter twice,
+    // with two different values. RFC 6749 section 3.1 says a request parameter MUST NOT
+    // be included more than once, and a provider that enforces it answers invalid_request
+    // rather than signing anybody in. One that does not enforce it picks whichever value
+    // it reads first, which is a coin toss on whether the ID token's nonce then matches
+    // the one recorded here. Setting the mode explicitly and handing Qt the value keeps
+    // this framework's own random token and leaves exactly one nonce in the request.
     QString nonce;
     if (provider->useIdToken) {
         nonce = randomToken();
-        flow->setModifyParametersFunction(
-            [nonce](QAbstractOAuth::Stage stage, QMultiMap<QString, QVariant> *parameters) {
-                if (stage == QAbstractOAuth::Stage::RequestingAuthorization) {
-                    parameters->insert(QStringLiteral("nonce"), nonce);
-                }
-            });
+        flow->setNonceMode(QAbstractOAuth2::NonceMode::Enabled);
+        flow->setNonce(nonce);
     }
 
     QUrl authorizeUrl;

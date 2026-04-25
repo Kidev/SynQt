@@ -1852,6 +1852,31 @@ private slots:
         QCOMPARE(get(authorize).status, 302);
     }
 
+    /// One nonce in the authorization request, not two.
+    ///
+    /// Qt's own `NonceMode::Automatic` already puts a nonce in the request whenever the
+    /// scope contains `openid`, so a second one added beside it went into the same
+    /// multi-map and the request carried the parameter twice with two different values.
+    /// RFC 6749 section 3.1 says a parameter MUST NOT appear more than once: a provider
+    /// that enforces it answers invalid_request and nobody signs in, and one that does
+    /// not picks whichever value it reads first, which decides by coin toss whether the
+    /// ID token's nonce matches the one the edge recorded.
+    void anAuthorizationRequestCarriesOneNonce()
+    {
+        const Response login{
+            get(QUrl{edgeUrl(QStringLiteral("/auth/login?provider=stub-oidc"))})};
+        QCOMPARE(login.status, 302);
+
+        const QUrlQuery query{QUrl{login.location}.query()};
+        const QStringList nonces{query.allQueryItemValues(QStringLiteral("nonce"))};
+        QCOMPARE(nonces.size(), 1);
+        QVERIFY(!nonces.first().isEmpty());
+
+        // And the one that is there is the one the framework minted, because that is the
+        // value the returned ID token is checked against.
+        QCOMPARE(nonces.first().size(), 64);  // randomToken(): 32 bytes as hex
+    }
+
     void devStubRefusedWithoutGate()
     {
         // A second edge with the dev gate OFF must refuse the dev stub provider entirely.

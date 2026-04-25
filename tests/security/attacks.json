@@ -707,6 +707,13 @@
       "defended_by": "Every event passes through Tracer::record, past anything QML can reach, and an attribute whose name names a credential is recorded as `[redacted]` with its name kept. It is the backstop under the call-site rule that the framework records handles rather than secrets, not a substitute for it: names are read, values never are.",
       "file": "tests/monitor/tst_pipeline.cpp",
       "test": "aValueUnderASecretNameIsNeverWhatIsRecorded"
+    },
+    {
+      "id": "two-nonces-in-one-authorization-request",
+      "what": "An OpenID Connect authorization request carries the `nonce` parameter twice, with two different values: Qt puts one in whenever the scope contains `openid`, and the framework added a second beside it. RFC 6749 section 3.1 forbids a repeated parameter, so a provider that enforces it answers invalid_request and nobody signs in at all; one that does not enforce it echoes whichever value it read first into the ID token, which decides by coin toss whether the nonce check the edge then runs can pass. A nonce that may or may not match is not a replay defence, and a login that fails on the strict providers is a login that only ever worked against a lenient stub.",
+      "defended_by": "The framework hands Qt its own random token through setNonce and sets NonceMode::Enabled, rather than inserting a parameter beside the one Qt generates, so exactly one nonce leaves the edge and it is the one the returned ID token is checked against.",
+      "file": "tests/m8-auth/tst_m8.cpp",
+      "test": "anAuthorizationRequestCarriesOneNonce"
     }
   ]
 }
