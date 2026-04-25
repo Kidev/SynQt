@@ -234,8 +234,8 @@
     },
     {
       "id": "dev-stub-identity-in-a-real-build",
-      "what": "The development identity stub, which signs anybody in as anybody, ships.",
-      "defended_by": "It refuses to run unless a gate is set explicitly.",
+      "what": "The development sign-in ships. It authenticates whoever asks as one of the people the project configured, with no password and no third party involved, so an edge that ran it in production would hand a session to anyone who found the login route.",
+      "defended_by": "Three gates, and each closes on its own. The server is started only by an edge given --dev, which `synqt dev` passes and no build, `synqt serve`, unit or container ever does. StubIdentityServer refuses to be constructed without an acknowledgement that can only be written on purpose. And the runtime refuses the devStub provider entry itself without the same flag, so an edge that somehow held the server still answers the login route with 403.",
       "file": "tests/m8-auth/tst_m8.cpp",
       "test": "devStubRefusedWithoutGate"
     },

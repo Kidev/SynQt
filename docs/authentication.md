@@ -80,6 +80,57 @@ synqt add auth github --required
 which sets `identity.required: true`, so an unauthenticated browser cannot acquire
 any scoped connect point and is sent to login first.
 
+## The development sign-in
+
+Registering an OAuth app is a poor fit for the first afternoon of a project, and until
+it is done there is no way to reach a scope-gated route at all. So `synqt dev` can
+run a provider of its own:
+
+```cli
+synqt add auth dev
+```
+
+which writes one block:
+
+```yaml
+identity:
+  dev_stub:
+    users:
+      - { sub: dev, login: dev, name: Developer, email: dev@localhost }
+      - { sub: mod, login: mod, name: Moderator, email: moderator@localhost }
+```
+
+That is the whole configuration. The framework writes the provider entry it becomes,
+because every field follows from where the server is. The endpoints are its own routes on
+`127.0.0.1`, the issuer is the address it answers at, and the client id is a constant.
+`port` is the one thing you may want to move, and `synqt check` refuses a
+value another entity already serves on.
+
+**Nothing about the login is faked except the provider.** The random state, the PKCE
+challenge, the code exchange, the ID token and its signature check against the JWKS, the
+[mapping hook](#the-identity-mapping-hook), the session and its httpOnly cookie are the
+ones a real provider's login goes through. That is deliberate: a development sign-in that
+took a shortcut past the flow would be exercising something other than what ships.
+
+It is also why a dev user is an *identity* rather than a scope. Sign in as one of the
+people above and you get whatever your own `map.qml` returns for them, so to reach
+`moderator` you add somebody your hook maps there. With more than one person configured
+the sign-in asks which of them you are; with exactly one it does not ask.
+
+Three gates keep it out of anything that ships, and they are independent:
+
+- The server starts only under `--dev`. `synqt dev` passes it; `synqt build`, `synqt
+  serve`, a systemd unit and a container never do.
+- `StubIdentityServer` refuses to be constructed without an acknowledgement that can only
+  be written on purpose, so it cannot be reached by accident from anywhere else.
+- The runtime refuses the provider entry itself unless the same flag is set. An edge that
+  somehow held the server would still sign nobody in. The login route answers 403.
+
+`synqt check --release` reports that a project carries one, and says that it is inert
+rather than refusing the build, because leaving the block in place is the ordinary thing
+to do: the development sign-in and the real provider live side by side, and which one a
+visitor gets is decided by how the edge was started.
+
 ## Two identities, never conflated
 
 SynQt has two separate identity systems. Keeping them distinct is itself a security

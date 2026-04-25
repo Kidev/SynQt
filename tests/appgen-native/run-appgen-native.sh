@@ -217,11 +217,17 @@ trap cleanup_promoted EXIT
 export GITHUB_CLIENT_SECRET="appgen-native-not-a-real-secret"
 export QT_QPA_PLATFORM=offscreen
 # `exec` so the subshell is replaced by the entity: $! is then the process itself, and the
-# cleanup above actually stops it instead of stopping a shell that was wrapping it.
-(cd "$PROMOTED" && exec ./out/auth >"$WORK/promoted-auth.log" 2>&1) &
+# cleanup above stops it instead of stopping a shell that was wrapping it.
+#
+# --dev on the auth entity as well as on the edge, which is what `synqt dev` passes it
+# (run.dev_command) and for the reason the check below establishes. The promotion moves the
+# token exchange here, so this is the process that reads a provider entry and decides
+# whether it may be spoken to. Without the flag it refuses the development sign-in and the
+# edge answers the login route with 403, which is exactly what a deployment does.
+(cd "$PROMOTED" && exec ./out/auth --dev >"$WORK/promoted-auth.log" 2>&1) &
 auth_pid=$!
 sleep 2
-# --dev only for the plaintext loopback listener: the fixture's TLS certificate names a
+# --dev only for the plaintext loopback listener. The fixture's TLS certificate names a
 # deployed host, exactly as a real project's does. The QML directory is the mirror under
 # generated/, which is what `synqt dev` passes and what the edge defaults to: the author's
 # tree happens to work for this fixture's own Edge.qml and would not for an entity whose
@@ -318,10 +324,66 @@ if [ "$promoted_leak" -ne 0 ]; then
     echo "APPGEN-NATIVE GATE: NO-GO"
     exit 1
 fi
+
+# The development sign-in, in the arrangement it has the most to prove itself against. The
+# server runs inside the edge and the entity that dials it is a different process, so what
+# a green answer here says is that the generated edge started it under --dev, that the auth
+# entity was given endpoints pointing at it, and that the two agreed on the port and the
+# shared secret with nothing between them to agree through. `synqt serve` passes no --dev,
+# so the same tree deployed answers this with a 403.
+promoted_dev="$(PYTHONPATH="$REPO_ROOT/tools/synqt" python3 - <<'PY'
+import urllib.request
+request = urllib.request.Request("http://127.0.0.1:18443/auth/login?provider=dev")
+class Keep(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *args):
+        return None
+try:
+    with urllib.request.build_opener(Keep).open(request, timeout=2) as reply:
+        print("%d %s" % (reply.status, reply.headers.get("Location", "")))
+except urllib.error.HTTPError as error:
+    print("%d %s" % (error.code, error.headers.get("Location", "")))
+except Exception:
+    print("")
+PY
+)"
+echo "  dev login -> ${promoted_dev:-<no answer>}"
+case "$promoted_dev" in
+    302*"http://127.0.0.1:8789/authorize"*"code_challenge"*"state="*) ;;
+    *)
+        echo "  the edge must answer the development sign-in with an authorization redirect"
+        echo "  to the stub it started; see $WORK/promoted-{auth,web}.log"
+        echo "APPGEN-NATIVE GATE: NO-GO"
+        exit 1 ;;
+esac
+
+# And the stub is answering at the other end of that redirect. Two people are configured,
+# so it asks which rather than picking one.
+promoted_chooser="$(SYNQT_LOCATION="${promoted_dev#302 }" python3 - <<'PY'
+import os
+import urllib.request
+try:
+    with urllib.request.urlopen(os.environ["SYNQT_LOCATION"], timeout=2) as reply:
+        body = reply.read().decode("utf-8", "replace")
+    print("%d %s" % (reply.status, "both" if ("Developer" in body and "Moderator" in body)
+                     else "partial"))
+except Exception:
+    print("")
+PY
+)"
+echo "  dev chooser -> ${promoted_chooser:-<no answer>}"
+case "$promoted_chooser" in
+    "200 both") ;;
+    *)
+        echo "  the development sign-in must offer both configured people"
+        echo "APPGEN-NATIVE GATE: NO-GO"
+        exit 1 ;;
+esac
+
 cleanup_promoted
 echo "  promoted pair : OK (both mesh links up, the edge holds no client id, no provider"
 echo "                  endpoint and no secret; the auth entity holds the first two and"
-echo "                  reads the secret from its own environment)"
+echo "                  reads the secret from its own environment; the development"
+echo "                  sign-in runs in the edge and the auth entity reaches it)"
 
 echo "== [6/8] A front: an edge that owns a point it does not implement =="
 # A front hands each caller to the entity serving people of their scope, so the edge has no

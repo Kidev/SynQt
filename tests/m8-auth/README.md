@@ -21,10 +21,12 @@ browser only ever ends with an httpOnly session cookie.
   signature is checked with the no-throw `rs256::verify(..., ec)` so no exception crosses the
   boundary.
 - `StubIdentityServer` (`src/edge`); a dev-only provider (`/authorize`, `/token`,
-  `/userinfo`, `/jwks`) that authenticates a preconfigured user, verifies the PKCE S256
-  verifier and the client secret, and issues a real RS256-signed ID token. It is gated so it
-  can never ship: it takes a `DevOnly` acknowledgement, and the runtime refuses a `devStub`
-  provider unless `identity.allow_dev_stub` is on (only `synqt dev` sets it).
+  `/userinfo`, `/jwks`) that authenticates one of the preconfigured people, verifies the
+  PKCE S256 verifier and the client secret, and issues a real RS256-signed ID token. With
+  more than one person configured, `/authorize` asks which; with one it does not. It is
+  gated so it can never ship: it takes a `DevOnly` acknowledgement, the runtime refuses a
+  `devStub` provider unless `identity.allow_dev_stub` is on (only `synqt dev` sets it), and
+  the generated edge starts the server only under `--dev`.
 
 ## What the tests check (`tst_m8.cpp`)
 
@@ -40,6 +42,10 @@ browser only ever ends with an httpOnly session cookie.
 4. unknownStateRejected: a forged state is refused (400) before any token exchange.
 5. devStubRefusedWithoutGate: with the dev gate off, the dev stub provider is refused
    (403).
+6. theDevSignInSignsInWhoeverWasPicked: with two people configured, `/authorize` answers a
+   page rather than a redirect, and picking the second one yields tokens whose ID-token
+   claims and `/userinfo` body are that person's.
+7. oneDevUserIsSignedInWithoutBeingAsked: with one, `/authorize` redirects straight back.
 
 ## The desktop half (`tst_desktop.cpp`)
 

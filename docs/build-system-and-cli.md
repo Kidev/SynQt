@@ -143,6 +143,8 @@ synqt add auth <provider> [--required]           # Add secure by default user au
 synqt add auth <provider> --provider-entity <name>
                                                  # ... with the identity engine on that
                                                  # entity rather than in the edge.
+synqt add auth dev                               # the development sign-in: no OAuth app to
+                                                 # register, `synqt dev` only.
 synqt add connect-point <owner> [--consumers a,b]
                                                  # Scaffold the connect point an entity
                                                  # exports: the entry in synqt.yaml with a
@@ -389,9 +391,14 @@ synqt add entity orders --type relational    # each further entity, named
 synqt add entity sessions --type cache
 ```
 
-`--auth` on `synqt new` records which provider you mean and marks the edge accordingly;
-`synqt add auth` is what writes the `identity:` section, the mapping hook and the
+`--auth` on `synqt new` records which provider you mean and marks the edge accordingly.
+`synqt add auth` writes the `identity:` section, the mapping hook and the
 `.env.example` entry, and it prints the steps only you can do.
+
+`dev` is the one provider name that means something else. It writes the
+[development sign-in](authentication.md#the-development-sign-in) instead of a provider to
+register, so a scope-gated route can be exercised on the first afternoon of a project. It
+sits beside a real provider rather than replacing one, and it cannot run in a build.
 
 There is no flag on `synqt new` for a starting entity. An entity is something somebody
 named, so such a flag has to carry a name and a type at once, and the pair it took
@@ -432,12 +439,16 @@ than a menu item offered to someone who has not.
   service links keep mutual TLS in development with no setup and no certificate
   friction, and there is no key that turns it off. The edge serves the client
   bundle over plaintext HTTP bound to localhost.
-- It runs a dev only stub identity provider that can mint a session at any
-  configured scope for testing, gated behind dev mode so it can never ship.
+- It runs the [development sign-in](authentication.md#the-development-sign-in), when the
+  project configures one, so a scope-gated route can be exercised before there is an OAuth
+  app to register. It runs inside the edge, under `--dev` alone, and a shipped edge refuses
+  the provider even if it somehow held the server.
 - It watches every entity folder. A change to client QML triggers an
   incremental client rebuild and a browser reload. A change to a contract
   regenerates the contract layer and rebuilds every entity that uses it. A change to
-  a service entity's QML reloads that entity without dropping the dev page.
+  a service entity's QML reloads that entity without dropping the dev page. A change
+  to an [edge-delivered page](remote-pages.md) is pushed to the browser without a
+  rebuild at all; a built or served edge watches nothing.
 
 Hot reload skips the heavier ahead of time compilation to keep the loop fast;
 `synqt build` does the full optimized compilation for release.

@@ -724,7 +724,7 @@ def validate(config: Dict[str, Any], *, release: bool = False,
     messages += _mesh_policy_messages(config, endpoints, release)
     messages += _edge_tls_messages(entities, web_edges, release)
     messages += _desktop_client_messages(config, entities, clients, release)
-    messages += _identity_messages(config)
+    messages += _identity_messages(config, release)
     if project_dir is not None:
         messages += _mesh_certificate_messages(config, entities, endpoints, project_dir,
                                                starting)
@@ -943,7 +943,7 @@ def _desktop_client_messages(config: Dict[str, Any], entities: Dict[str, Any],
     return messages
 
 
-def _identity_messages(config: Dict[str, Any]) -> List[str]:
+def _identity_messages(config: Dict[str, Any], release: bool = False) -> List[str]:
     """Every configured identity provider needs a client secret before the edge starts.
 
     Left to the first login this is a bad failure: the edge comes up, serves the app, and
@@ -975,6 +975,88 @@ def _identity_messages(config: Dict[str, Any]) -> List[str]:
         messages += _insecure_endpoint_messages(name, provider)
         messages += _id_token_messages(name, provider)
     messages += _device_session_messages(config)
+    messages += _dev_stub_messages(config, release)
+    return messages
+
+
+def _dev_stub_messages(config: Dict[str, Any], release: bool) -> List[str]:
+    """`identity.dev_stub`: the development sign-in, and what it may say.
+
+    Everything about the entry it produces is written by the framework, so the only
+    things a project can get wrong here are the port and the people. A user with no
+    `sub` is the one worth refusing outright: `sub` is what an identity is keyed on
+    everywhere downstream, so a hook that maps by it would answer the default scope for
+    every dev user and the sign-in would look broken rather than misconfigured.
+    """
+    if not appmodel.has_dev_stub(config):
+        return []
+    block = appmodel.identity_settings(config).get("dev_stub")
+    if not isinstance(block, (dict, bool)):
+        return ["error: identity.dev_stub must be a block or true, e.g. "
+                "'dev_stub: {users: [{sub: dev, login: dev, email: dev@localhost}]}'"]
+
+    messages: List[str] = []
+    settings = appmodel.identity_dev_stub(config)
+    for key in settings:
+        if key not in ("port", "users"):
+            messages.append(f"error: identity.dev_stub: unknown key '{key}' "
+                            "(want port or users)")
+
+    declared_port = settings.get("port")
+    if declared_port is not None:
+        try:
+            port = int(declared_port)
+        except (TypeError, ValueError):
+            port = -1
+        if not 1 <= port <= 65535:
+            messages.append(
+                f"error: identity.dev_stub.port must be a port number, not {declared_port!r}")
+
+    users = settings.get("users")
+    if users is not None and not isinstance(users, list):
+        messages.append("error: identity.dev_stub.users must be a sequence of identities, "
+                        "each with a sub and whatever else your mapping hook reads")
+    elif isinstance(users, list):
+        for index, user in enumerate(users):
+            if not isinstance(user, dict):
+                messages.append(f"error: identity.dev_stub.users[{index}] must be a block "
+                                "naming an identity (sub, login, name, email)")
+                continue
+            for key in user:
+                if key not in appmodel.DEV_STUB_USER_FIELDS:
+                    messages.append(
+                        f"error: identity.dev_stub.users[{index}]: unknown field '{key}' "
+                        "(want " + ", ".join(appmodel.DEV_STUB_USER_FIELDS) + "). These "
+                        "are the fields of the identity object, so what the mapping hook "
+                        "reads here is what it reads from a real provider")
+            if not str(user.get("sub") or "").strip():
+                messages.append(
+                    f"error: identity.dev_stub.users[{index}] has no sub; that is what an "
+                    "identity is keyed on, so a mapping hook would answer the default "
+                    "scope for this one and the sign-in would look broken")
+
+    # A port clash is the failure this one is written to catch. The edge would start, the
+    # dev sign-in would refuse to listen, and the whole run would end on a message about
+    # a port rather than about a login.
+    dev_port = appmodel.dev_stub_port(config)
+    for entity in appmodel.entities(config):
+        declared = appmodel.public_settings(entity).get("port")
+        try:
+            served = int(declared)
+        except (TypeError, ValueError):
+            continue  # not a port. The rule that owns that says so
+        if served == dev_port:
+            messages.append(
+                f"error: identity.dev_stub.port {dev_port} is the port entity "
+                f"'{entity.get('name')}' serves on; the development sign-in binds it too, "
+                "so one of the two would not come up")
+
+    if release:
+        messages.append(
+            "warn: identity.dev_stub configures a development sign-in, which a release "
+            "build does not run: the server starts only under 'synqt dev' and the runtime "
+            "refuses the provider beside it without the same flag. Nothing here ships, "
+            "and nothing here signs anybody in once it has shipped")
     return messages
 
 
@@ -1678,11 +1760,18 @@ def _derived_origin_messages(config: Dict[str, Any], release: bool) -> List[str]
 
     Derived, the origin comes out as localhost, which is right for a development run and
     for nothing a deployment does. It would then be the `redirect_uri` handed to the
-    identity provider, and a provider compares that whole: the browser is sent to an
+    identity provider, and a provider compares that whole. The browser is sent to an
     address it cannot come back from, and the app sits on its sign-in screen. A warning
     rather than an error, because the same file is what `synqt serve` runs on this machine.
     """
     if not release:
+        return []
+    # A project whose only provider is the development sign-in has no third party to tell
+    # anything to. That provider is refused in a build, and the redirect_uri this is about
+    # is never sent anywhere. Saying it anyway would be advice about a provider that does
+    # not exist, on the one build where the sign-in cannot run at all.
+    real = [one for one in appmodel.identity_providers(config) if not one.get("dev_stub")]
+    if not real:
         return []
     messages: List[str] = []
     for entity in appmodel.web_edges(config):

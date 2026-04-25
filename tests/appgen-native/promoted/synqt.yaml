@@ -64,3 +64,12 @@ identity:
     - name: github
       client_id: "Iv1.0123456789abcdef"
       client_secret: env:GITHUB_CLIENT_SECRET
+  # The development sign-in, beside the real provider rather than instead of it. Here
+  # because the promotion is the arrangement it has the most to prove itself against: the
+  # server runs in the edge and the entity that dials it is a different process, so a green
+  # run says the generated edge starts it under --dev and the generated auth entity reaches
+  # it over loopback with the endpoints the framework wrote.
+  dev_stub:
+    users:
+      - { sub: dev, login: dev, name: Developer, email: dev@localhost }
+      - { sub: mod, login: mod, name: Moderator, email: moderator@localhost }

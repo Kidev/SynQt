@@ -42,6 +42,12 @@ def _secret_env(provider: str) -> str:
 # "no endpoint, and you will hear about it" with "an endpoint that does not exist".
 TEMPLATED_PROVIDERS = ("github", "google")
 
+#: The name that means the development sign-in rather than a provider to register. It
+#: writes `identity.dev_stub` and no provider entry. Everything about that entry (its
+#: endpoints, its issuer, its client id) is decided by the fact that the stub runs on
+#: loopback in the edge, so the framework writes it and there is nothing to type wrong.
+DEV_STUB_NAME = "dev"
+
 
 def provider_template(provider: str) -> Dict[str, Any]:
     """The provider entry, mapping raw provider fields to the normalized identity.
@@ -118,14 +124,15 @@ def hook_path(config: Dict[str, Any]) -> str:
 def identity_section(provider: str, required: bool, provider_entity: str,
                      hook: str = DEFAULT_HOOK) -> Dict[str, Any]:
     """The full ``identity`` section, hardened by default."""
-    return {
+    development = provider == DEV_STUB_NAME
+    section: Dict[str, Any] = {
         "required": required,
         "provider_entity": provider_entity,
         "flow": "authorization_code",  # server-side Authorization Code + PKCE
         "callback": "/auth/callback",
         "login": "/auth/login",
         "logout": "/auth/logout",
-        "providers": [provider_template(provider)],
+        "providers": [] if development else [provider_template(provider)],
         "session": {
             "cookie_name": "synqt_session",
             "same_site": "lax",  # lax for same_origin; the framework sets httpOnly + Secure
@@ -134,6 +141,17 @@ def identity_section(provider: str, required: bool, provider_entity: str,
         },
         "mapping": {"hook": hook},
     }
+    if development:
+        # Two people, because one is what you get for free and the reason to configure
+        # any is to exercise more than one scope. What each of them becomes is the
+        # mapping hook's answer, the same hook a real provider's identity goes through.
+        section["dev_stub"] = {
+            "users": [{"sub": "dev", "login": "dev", "name": "Developer",
+                       "email": "dev@localhost"},
+                      {"sub": "mod", "login": "mod", "name": "Moderator",
+                       "email": "moderator@localhost"}],
+        }
+    return section
 
 
 MAP_HOOK = """// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
@@ -161,7 +179,21 @@ IdentityMapping {
 
 def manual_steps(provider: str, provider_entity: str = "",
                  hook: str = DEFAULT_HOOK) -> str:
-    # `secret_env` is the NAME of the variable to set: the step tells the reader where to
+    if provider == DEV_STUB_NAME:
+        # There is no app to register and no secret to place, which is the whole appeal.
+        # What is left is the two things that are the project's own: who the sign-in
+        # offers, and what the hook makes of them.
+        return (
+            "The development sign-in is configured. It runs under 'synqt dev' only: "
+            "'synqt serve' passes no flag, and a shipped edge refuses the provider even "
+            "if it had one.\n"
+            "  1. Edit identity.dev_stub.users in synqt.yaml to be the people your app "
+            "cares about.\n"
+            f"  2. Edit {hook} to give each of them a scope; that hook is the one a real "
+            "provider's identity goes through too.\n"
+            "  3. Run 'synqt add auth <provider>' when you want the real thing; the "
+            "development sign-in can stay beside it.")
+    # `secret_env` is the NAME of the variable to set. The step tells the reader where to
     # put a value this process never sees.
     secret_env = _secret_env(provider)
     # Where the client secret lives depends on where identity runs. In process it is the
@@ -220,15 +252,19 @@ def scaffold(project_dir: os.PathLike[str] | str, provider: str, *, required: bo
     config_path.write_text(yamledit.set_scalar(existing, "identity", section))
 
     # Document the variable to set, with no value: the line written here is
-    # `GITHUB_CLIENT_SECRET=`, so it is discoverable and there is nothing to commit.
-    env_example = root / ".env.example"
-    secret_env = _secret_env(provider)
-    lines: List[str] = []
-    if env_example.exists():
-        lines = env_example.read_text().splitlines()
-    if not any(line.startswith(secret_env + "=") for line in lines):
-        lines.append(f"{secret_env}=")
-        env_example.write_text("\n".join(lines) + "\n")
+    # `GITHUB_CLIENT_SECRET=`, so it is discoverable and there is nothing to commit. The
+    # development sign-in gets none, because `synqt dev` mints its shared secret per run
+    # and hands it to everything it starts: there is no value for anybody to place, and
+    # so none to forget to.
+    if provider != DEV_STUB_NAME:
+        env_example = root / ".env.example"
+        secret_env = _secret_env(provider)
+        lines: List[str] = []
+        if env_example.exists():
+            lines = env_example.read_text().splitlines()
+        if not any(line.startswith(secret_env + "=") for line in lines):
+            lines.append(f"{secret_env}=")
+            env_example.write_text("\n".join(lines) + "\n")
 
     # Scaffold the mapping hook (never overwrite an edited one).
     hook = root / hook_relative

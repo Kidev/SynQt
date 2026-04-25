@@ -401,6 +401,11 @@ def _identity_provider_block(provider: Dict[str, Any], index: int, *,
         flag = _bool_literal(f"identity provider '{name}' use_id_token",
                              provider["use_id_token"])
         lines.append(f"        {var}.useIdToken = {flag};")
+    if provider.get("dev_stub"):
+        # The development sign-in, and the runtime refuses it unless the process was
+        # started with --dev. It is written here rather than left implicit so the refusal
+        # is a property of the entry and not of which port it happens to name.
+        lines.append(f"        {var}.devStub = true;")
     scopes = provider.get("scopes")
     if isinstance(scopes, list) and scopes:
         lines.append("        %s.scopes = {%s};"
@@ -412,6 +417,66 @@ def _identity_provider_block(provider: Dict[str, Any], index: int, *,
                  f'qEnvironmentVariable("{cxx_string_literal(variable)}");')
     lines.append(f"        {target}.providers.append({var});")
     return "    {\n" + "\n".join(lines) + "\n    }"
+
+
+def _dev_stub_lines(config: Dict[str, Any]) -> List[str]:
+    """The development sign-in, started in this process and only under `--dev`.
+
+    In the edge rather than in `synqt dev`, because the browser has to reach it and the
+    edge is what the browser already has open, and in the edge rather than in the auth
+    entity when identity is promoted, because `StubIdentityServer` is an HTTP server and
+    putting one inside a plain service would change that entity's Qt licence position for
+    a development convenience (see docs/licensing.md). The auth entity dials it over
+    loopback like any other provider.
+
+    Three gates, and they are independent. The server starts only with `--dev`, which
+    `synqt serve` and every deployment never pass. `StubIdentityServer` refuses to be
+    constructed without an acknowledgement that can only be written on purpose. And the
+    runtime refuses the `devStub` provider entry itself unless the same flag is set, so
+    an edge that somehow held the server would still not sign anybody in.
+    """
+    if not appmodel.has_dev_stub(config):
+        return []
+    port = appmodel.dev_stub_port(config)
+    users = appmodel.dev_stub_users(config)
+    lines = [
+        "    // The development sign-in (`identity.dev_stub`), in this process and under",
+        "    // --dev alone. Everything about the login except the provider is the shipped",
+        "    // flow: the state, the PKCE challenge, the code exchange, the ID token and its",
+        "    // signature check, the mapping hook, the session and its cookie.",
+        "    if (parser.isSet(devOption)) {",
+        "        StubIdentityServer *devIdentity{",
+        "            new StubIdentityServer{StubIdentityServer::DevOnly{}, &app}};",
+        "        devIdentity->setClientCredentials(",
+        '            QStringLiteral("%s"),' % cxx_string_literal(appmodel.DEV_STUB_CLIENT_ID),
+        '            qEnvironmentVariable("%s"));' % cxx_string_literal(
+            appmodel.DEV_STUB_SECRET_VARIABLE),
+        '        devIdentity->setIssuer(QStringLiteral("http://127.0.0.1:%d"));' % port,
+    ]
+    for index, user in enumerate(users):
+        # One insert per line rather than one long brace list, so a long name or address
+        # cannot push generated code past the column limit the rest of it keeps to.
+        variable = f"devUser{index}"
+        lines.append(f"        QVariantMap {variable};")
+        for field in appmodel.DEV_STUB_USER_FIELDS:
+            if field in user:
+                lines.append(
+                    '        %s.insert(QStringLiteral("%s"), QStringLiteral("%s"));'
+                    % (variable, cxx_string_literal(field),
+                       cxx_string_literal(str(user[field]))))
+        call = "setUser" if index == 0 else "addUser"
+        lines.append(f"        devIdentity->{call}({variable});")
+    lines += [
+        f"        if (!devIdentity->start({port})) {{",
+        '            qCritical().noquote()',
+        '                << QStringLiteral("the development sign-in could not listen on "',
+        f'                                  "port {port}; something else is holding it, or "',
+        '                                  "set identity.dev_stub.port to another one");',
+        "            return 1;",
+        "        }",
+        "    }",
+    ]
+    return lines
 
 
 def _identity_lines(config: Dict[str, Any], edge: Dict[str, Any]) -> List[str]:
@@ -971,10 +1036,15 @@ def render_edge_main(config: Dict[str, Any], edge: Dict[str, Any],
                         "in the binary this compiles to.\n"
                         + "\n".join(identity_lines)) if identity_lines else ""
 
+    dev_stub_lines = _dev_stub_lines(config) if identity_lines else []
+    dev_stub_section = ("\n" + "\n".join(dev_stub_lines) + "\n") if dev_stub_lines else ""
+
     includes = ['#include "envfile.h"', '#include "moduleimports.h"',
                 '#include "webedge.h"', '#include "webedgeconfig.h"']
     if identity_lines:
         includes.append('#include "identityconfig.h"')
+    if dev_stub_lines:
+        includes.append('#include "stubidentityserver.h"')
     if mesh_consumed:
         includes += ['#include "entityruntime.h"', '#include "topology.h"']
     # WebEdge only forward-declares these two, and the auth adoption below calls through
@@ -1232,7 +1302,7 @@ int main(int argc, char *argv[])
         // process is not the one answering at.
         config.origin.clear();
     }}
-
+{dev_stub_section}
 {cp_section}{pages_block}
 
     WebEdge edge{{config, &engine}};

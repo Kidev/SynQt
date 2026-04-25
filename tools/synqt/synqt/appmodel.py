@@ -1130,21 +1130,122 @@ def identity_enabled(config: Dict[str, Any], entity: Dict[str, Any]) -> bool:
     return declared is not False
 
 
+#: The name the development sign-in's synthesized provider answers to, so a login route
+#: can ask for it and a mapping hook can tell it apart from a real one.
+DEV_STUB_PROVIDER = "dev"
+
+#: The loopback port the development sign-in listens on. Fixed rather than negotiated,
+#: because two processes have to agree on it with nothing between them to agree through:
+#: the edge serves it, and under `identity.provider_entity` the auth entity dials it.
+DEV_STUB_PORT = 8789
+
+#: Where the development sign-in's shared secret comes from. `synqt dev` mints one per
+#: run and puts it in the environment of everything it launches. Unset, both ends read
+#: the same empty string and still agree, which is what makes running an edge with --dev
+#: by hand work.
+DEV_STUB_SECRET_VARIABLE = "SYNQT_DEV_CLIENT_SECRET"
+
+#: The client id the stub expects. Not a credential. The stub is a fake provider bound to
+#: loopback, and the secret above is the half that is checked.
+DEV_STUB_CLIENT_ID = "synqt-dev"
+
+#: Who you are when the project configured nobody. One person, so /authorize signs them
+#: in without asking, and a project that wants a second scope adds a second entry.
+DEV_STUB_DEFAULT_USER = {"sub": "dev",
+                         "login": "dev",
+                         "name": "Developer",
+                         "email": "dev@localhost"}
+
+#: The identity fields a configured development user may set. They are the fields of the
+#: normalized identity object, so what a mapping hook reads here is what it reads from a
+#: real provider.
+DEV_STUB_USER_FIELDS = ("sub", "login", "name", "email")
+
+
+def identity_dev_stub(config: Dict[str, Any]) -> Dict[str, Any]:
+    """The declared ``identity.dev_stub`` block, empty when there is no development
+    sign-in."""
+    block = identity_settings(config).get("dev_stub")
+    if block is True:
+        return {}  # `dev_stub: true`, the shortest way to ask for the defaults
+    return dict(block) if isinstance(block, dict) else {}
+
+
+def has_dev_stub(config: Dict[str, Any]) -> bool:
+    """Whether the project configures the development sign-in at all."""
+    return identity_settings(config).get("dev_stub") not in (None, False)
+
+
+def dev_stub_port(config: Dict[str, Any]) -> int:
+    """The loopback port the development sign-in listens on."""
+    declared = identity_dev_stub(config).get("port")
+    try:
+        port = int(declared)
+    except (TypeError, ValueError):
+        return DEV_STUB_PORT
+    return port if 1 <= port <= 65535 else DEV_STUB_PORT
+
+
+def dev_stub_users(config: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Who the development sign-in offers, always at least one.
+
+    A scope is what the project's own mapping hook returns for an identity, so the way to
+    reach a scope in development is to configure somebody the hook maps there. That keeps
+    the hook on the path. What is exercised under `synqt dev` is the mapping that ships.
+    """
+    declared = identity_dev_stub(config).get("users")
+    if not isinstance(declared, list):
+        return [dict(DEV_STUB_DEFAULT_USER)]
+    users: List[Dict[str, Any]] = []
+    for entry in declared:
+        if not isinstance(entry, dict):
+            continue
+        user = {field: str(entry[field]) for field in DEV_STUB_USER_FIELDS
+                if entry.get(field) is not None}
+        if user:
+            users.append(user)
+    return users or [dict(DEV_STUB_DEFAULT_USER)]
+
+
+def dev_stub_provider(config: Dict[str, Any]) -> Dict[str, Any]:
+    """The provider entry the development sign-in is, written by the framework.
+
+    Not by the project, because every field of it is decided by the fact that the stub
+    runs here. The endpoints are the stub's own routes on loopback, the issuer is the
+    address it answers at, and the client id is a constant. Leaving them to be typed would
+    make a development sign-in a thing to configure wrong.
+    """
+    base = f"http://127.0.0.1:{dev_stub_port(config)}"
+    return {"name": DEV_STUB_PROVIDER,
+            "dev_stub": True,
+            "authorize_url": f"{base}/authorize",
+            "token_url": f"{base}/token",
+            "userinfo_url": f"{base}/userinfo",
+            "jwks_url": f"{base}/jwks",
+            "issuer": base,
+            "use_id_token": True,
+            "scopes": ["openid", "email", "profile"],
+            "client_id": DEV_STUB_CLIENT_ID,
+            "client_secret": f"env:{DEV_STUB_SECRET_VARIABLE}",
+            "sub_field": "sub"}
+
+
 def identity_providers(config: Dict[str, Any]) -> List[Dict[str, Any]]:
     """The configured providers, in order. A non-mapping entry is not a provider.
 
     A provider named after one `synqt add auth` knows gets that template's endpoints
     filled in underneath whatever the project spelled out, so the short form the tutorials
     write (a name, a client id, a secret) means the same thing as the long form the
-    scaffolder writes. One table, read here and written there: an edge generated from the
+    scaffolder writes. One table, read here and written there. An edge generated from the
     short form would otherwise carry a github provider with no authorize URL, and fail at
     the first login rather than at generation.
+
+    The development sign-in is appended rather than written, and last rather than first,
+    so the provider a login route reaches for by default stays the project's own.
     """
     providers = identity_settings(config).get("providers")
-    if not isinstance(providers, list):
-        return []
     resolved: List[Dict[str, Any]] = []
-    for provider in providers:
+    for provider in providers if isinstance(providers, list) else []:
         if not isinstance(provider, dict):
             continue
         entry = dict(provider)
@@ -1154,6 +1255,8 @@ def identity_providers(config: Dict[str, Any]) -> List[Dict[str, Any]]:
             template.update(entry)
             entry = template
         resolved.append(entry)
+    if has_dev_stub(config):
+        resolved.append(dev_stub_provider(config))
     return resolved
 
 

@@ -199,16 +199,17 @@ synqt serve --profile production
 ```
 
 `synqt serve` starts each entity from the project root in that order and returns. It does
-not supervise: it will not restart an entity that dies. Use it to bring a staging box up
-by hand; use systemd, an orchestrator, or your process manager of choice for anything
-that has to stay up, with `process-manifest.json` as its input. Note that `synqt serve`
-passes no `--dev` flag to anything, which is what keeps the development stub identity
-provider out of a running deployment.
+not supervise, so it will not restart an entity that dies. Use it to bring a staging box
+up by hand. Use systemd, an orchestrator, or your process manager of choice for anything
+that has to stay up, with `process-manifest.json` as its input. `synqt serve`
+passes no `--dev` flag to anything, which keeps the
+[development sign-in](authentication.md#the-development-sign-in) and the plaintext
+localhost link out of a running deployment.
 
 ## 7. The public edge
 
-The web edge is what the internet reaches, and the database is not. Two things have to be
-true of it, and validation enforces the first:
+The internet reaches the web edge and nothing else. Two things have to be true of the
+edge, and validation enforces the first:
 
 - **TLS is terminated somewhere and the configuration says where.** Either the edge
   carries `tls.cert_file` and `tls.key_file` and terminates it itself, or it declares

@@ -82,17 +82,32 @@ login  -> 302 https://github.com/login/oauth/authorize?client_id=Iv1.0123456789a
 Every value in that redirect (the client id, the endpoint, the PKCE challenge) came from the
 auth entity over the mesh. The phase then reads both binaries and requires the edge to
 contain none of the client id, the provider endpoint, or the secret, and the auth entity to
-contain the first two and not the third; it reads the secret from its own environment. The
-second half of that pairing is what keeps the check honest: without it, a generator that
-simply dropped the provider would pass the first half, and that is a broken login rather
+contain the first two and not the third. It reads the secret from its own environment. The
+second half of that pairing is what makes the check meaningful. Without it, a generator
+that dropped the provider would pass the first half, and that is a broken login rather
 than a secure one.
 
-Two things about the phase itself are worth knowing, because both silently produce a green
-run that proves nothing. The binary search counts matches instead of using `grep -q`: the
-script runs under `set -o pipefail`, and `strings | grep -q` reports failure when grep exits
-early and `strings` dies of SIGPIPE, which reads exactly like "the secret is absent". And
-each entity is launched with `exec` inside its subshell, so `$!` is the process rather than a
-shell wrapping it and the cleanup actually stops it.
+The same fixture carries the [development sign-in](../../docs/authentication.md), because
+the promotion is the arrangement it has the most to prove itself against. The server runs
+inside the edge and the entity that dials it is a different process, with nothing between
+them to agree through. The phase asks the edge for that login too and follows the redirect
+to the stub, which must answer with the chooser naming both configured people.
+
+```
+dev login -> 302 http://127.0.0.1:8789/authorize?...&code_challenge=...&state=...
+```
+
+That is also where the `--dev` on the auth entity's own command line comes from. The
+promotion moves the token exchange there, so that process is the one that decides whether
+a provider entry may be spoken to. Started without it, as `synqt serve` and every
+deployment start it, the edge answers this login with 403.
+
+Two details of the phase itself guard against a green run that proves nothing. The binary
+search counts matches instead of using `grep -q`. The script runs under `set -o pipefail`,
+and `strings | grep -q` reports failure when grep exits early and `strings` dies of
+SIGPIPE, which reads exactly like "the secret is absent". And each entity is launched with
+`exec` inside its subshell, so `$!` is the process rather than a shell wrapping it and the
+cleanup stops it.
 
 ## Run it
 

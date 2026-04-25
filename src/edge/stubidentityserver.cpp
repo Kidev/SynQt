@@ -28,6 +28,9 @@ namespace SynQt {
 
 namespace {
 
+/// How /authorize is told which of the configured people the browser picked.
+const QString kUserParameter{QStringLiteral("synqt_user")};
+
 QString randomId()
 {
     return QString::fromLatin1(
@@ -59,10 +62,11 @@ QString bigNumBase64Url(const BIGNUM *value)
 StubIdentityServer::StubIdentityServer(DevOnly, QObject *parent)
     : QObject{parent}
 {
-    m_user = QVariantMap{{QStringLiteral("id"), 1001},
-                         {QStringLiteral("login"), QStringLiteral("octocat")},
-                         {QStringLiteral("name"), QStringLiteral("The Octocat")},
-                         {QStringLiteral("email"), QStringLiteral("octocat@example.com")}};
+    m_users.append(QVariantMap{{QStringLiteral("id"), 1001},
+                               {QStringLiteral("login"), QStringLiteral("octocat")},
+                               {QStringLiteral("name"), QStringLiteral("The Octocat")},
+                               {QStringLiteral("email"),
+                                QStringLiteral("octocat@example.com")}});
 }
 
 StubIdentityServer::~StubIdentityServer() = default;
@@ -75,7 +79,17 @@ void StubIdentityServer::setClientCredentials(const QString &clientId, const QSt
 
 void StubIdentityServer::setUser(const QVariantMap &user)
 {
-    m_user = user;
+    m_users = {user};
+}
+
+void StubIdentityServer::addUser(const QVariantMap &user)
+{
+    m_users.append(user);
+}
+
+int StubIdentityServer::userCount() const
+{
+    return static_cast<int>(m_users.size());
 }
 
 void StubIdentityServer::setIssuer(const QString &issuer)
@@ -125,7 +139,8 @@ void StubIdentityServer::ensureKeys()
     m_kid = QStringLiteral("stub-key-1");
 }
 
-std::string StubIdentityServer::signIdToken(const QString &nonce) const
+std::string StubIdentityServer::signIdToken(const QString &nonce,
+                                            const QVariantMap &user) const
 {
     auto builder{jwt::create()};
     builder.set_issuer(m_issuer.toStdString())
@@ -133,15 +148,20 @@ std::string StubIdentityServer::signIdToken(const QString &nonce) const
         .set_issued_at(std::chrono::system_clock::now())
         .set_key_id(m_kid.toStdString())
         .set_payload_claim("email",
-            jwt::claim(m_user.value(QStringLiteral("email")).toString().toStdString()))
+            jwt::claim(user.value(QStringLiteral("email")).toString().toStdString()))
         .set_payload_claim("name",
-            jwt::claim(m_user.value(QStringLiteral("name")).toString().toStdString()))
+            jwt::claim(user.value(QStringLiteral("name")).toString().toStdString()))
         .set_payload_claim("preferred_username",
-            jwt::claim(m_user.value(QStringLiteral("login")).toString().toStdString()));
+            jwt::claim(user.value(QStringLiteral("login")).toString().toStdString()));
     // Both are required claims, and both are here rather than in the chain above so a test
     // can ask this stub to behave like a provider that does not send one (omitIdTokenClaim).
     if (!m_omittedClaims.contains(QStringLiteral("sub"))) {
-        builder.set_subject(m_user.value(QStringLiteral("id")).toString().toStdString());
+        // `sub` where a configuration wrote one, `id` where a GitHub-shaped profile did.
+        // One accessor rather than two shapes of dev user to remember.
+        const QVariant subject{user.contains(QStringLiteral("sub"))
+                                   ? user.value(QStringLiteral("sub"))
+                                   : user.value(QStringLiteral("id"))};
+        builder.set_subject(subject.toString().toStdString());
     }
     if (!m_omittedClaims.contains(QStringLiteral("exp"))) {
         builder.set_expires_at(std::chrono::system_clock::now() + std::chrono::seconds(3600));
@@ -195,8 +215,54 @@ bool StubIdentityServer::start(quint16 port)
 
 QHttpServerResponse StubIdentityServer::handleAuthorize(const QHttpServerRequest &request)
 {
-    // A real provider authenticates the user here; the stub approves the preconfigured
-    // user immediately and redirects back with an authorization code.
+    // A real provider authenticates the user here. With one person configured the stub
+    // approves them and redirects straight back. With several it asks which, because
+    // which one you are is the whole reason to configure more than one.
+    const QUrlQuery query{request.url().query()};
+    const QString picked{query.queryItemValue(kUserParameter)};
+    if (m_users.size() > 1 && picked.isEmpty()) {
+        return chooser(request);
+    }
+    bool numeric{false};
+    const int index{picked.toInt(&numeric)};
+    return grant(request, (numeric && index >= 0 && index < m_users.size()) ? index : 0);
+}
+
+QHttpServerResponse StubIdentityServer::chooser(const QHttpServerRequest &request) const
+{
+    // Every value written into this page comes from the project's own configuration and
+    // is escaped anyway. The stub is a development server and its page is still a page.
+    QString body{QStringLiteral(
+        "<!doctype html><meta charset=\"utf-8\">"
+        "<title>Sign in (development)</title>"
+        "<style>body{font:16px system-ui;margin:3rem auto;max-width:28rem}"
+        "a{display:block;padding:.75rem 1rem;margin:.5rem 0;border:1px solid #ccc;"
+        "border-radius:.5rem;text-decoration:none;color:inherit}"
+        "small{color:#666}</style>"
+        "<h1>Sign in</h1>"
+        "<p><small>The development sign-in. Nothing here exists outside "
+        "<code>synqt dev</code>.</small></p>")};
+    for (qsizetype index{0}; index < m_users.size(); ++index) {
+        const QVariantMap user{m_users.at(index)};
+        QUrl choice{request.url()};
+        QUrlQuery query{choice.query()};
+        query.removeAllQueryItems(kUserParameter);
+        query.addQueryItem(kUserParameter, QString::number(index));
+        choice.setQuery(query);
+        const QString label{user.value(QStringLiteral("name")).toString().isEmpty()
+                                ? user.value(QStringLiteral("login")).toString()
+                                : user.value(QStringLiteral("name")).toString()};
+        body += QStringLiteral("<a href=\"%1\">%2<br><small>%3</small></a>")
+                    .arg(choice.toString(QUrl::FullyEncoded).toHtmlEscaped(),
+                         label.toHtmlEscaped(),
+                         user.value(QStringLiteral("email")).toString().toHtmlEscaped());
+    }
+    return QHttpServerResponse{QByteArrayLiteral("text/html; charset=utf-8"),
+                               body.toUtf8()};
+}
+
+QHttpServerResponse StubIdentityServer::grant(const QHttpServerRequest &request, int user)
+{
     const QUrlQuery query{request.url().query()};
     const QString redirectUri{query.queryItemValue(QStringLiteral("redirect_uri"),
                                                     QUrl::FullyDecoded)};
@@ -206,6 +272,7 @@ QHttpServerResponse StubIdentityServer::handleAuthorize(const QHttpServerRequest
     PendingCode pending;
     pending.codeChallenge = query.queryItemValue(QStringLiteral("code_challenge"));
     pending.nonce = query.queryItemValue(QStringLiteral("nonce"));
+    pending.user = user;
     m_codes.insert(code, pending);
 
     QUrl location{redirectUri};
@@ -245,11 +312,11 @@ QHttpServerResponse StubIdentityServer::handleToken(const QHttpServerRequest &re
                                        QByteArrayLiteral("{\"error\":\"invalid_grant\"}"),
                                        QHttpServerResponse::StatusCode::BadRequest};
         }
-        const QString subject{m_refreshTokens.take(presented)};  // rotate: the old one is spent
+        const int user{m_refreshTokens.take(presented)};  // rotate: the old one is spent
         const QString accessToken{randomId() + randomId()};
         const QString rotatedRefresh{randomId()};
-        m_accessTokens.insert(accessToken, subject);
-        m_refreshTokens.insert(rotatedRefresh, subject);
+        m_accessTokens.insert(accessToken, user);
+        m_refreshTokens.insert(rotatedRefresh, user);
 
         QJsonObject refreshed;
         refreshed.insert(QStringLiteral("access_token"), accessToken);
@@ -288,18 +355,17 @@ QHttpServerResponse StubIdentityServer::handleToken(const QHttpServerRequest &re
         }
     }
 
-    const QString subject{m_user.value(QStringLiteral("login")).toString()};
     const QString accessToken{randomId() + randomId()};
     const QString refreshToken{randomId()};
-    m_accessTokens.insert(accessToken, subject);
-    m_refreshTokens.insert(refreshToken, subject);
+    m_accessTokens.insert(accessToken, pending.user);
+    m_refreshTokens.insert(refreshToken, pending.user);
 
     QJsonObject tokens;
     tokens.insert(QStringLiteral("access_token"), accessToken);
     tokens.insert(QStringLiteral("token_type"), QStringLiteral("Bearer"));
     tokens.insert(QStringLiteral("expires_in"), 3600);
     tokens.insert(QStringLiteral("refresh_token"), refreshToken);
-    const std::string idToken{signIdToken(pending.nonce)};
+    const std::string idToken{signIdToken(pending.nonce, m_users.at(pending.user))};
     if (!idToken.empty()) {
         tokens.insert(QStringLiteral("id_token"), QString::fromStdString(idToken));
     }
@@ -310,11 +376,12 @@ QHttpServerResponse StubIdentityServer::handleUserinfo(const QHttpServerRequest 
 {
     const QByteArray authorization{request.value("Authorization")};
     const QByteArray prefix{QByteArrayLiteral("Bearer ")};
-    if (!authorization.startsWith(prefix)
-        || !m_accessTokens.contains(QString::fromUtf8(authorization.mid(prefix.size())))) {
+    const QString presented{QString::fromUtf8(authorization.mid(prefix.size()))};
+    if (!authorization.startsWith(prefix) || !m_accessTokens.contains(presented)) {
         return QHttpServerResponse{QHttpServerResponse::StatusCode::Unauthorized};
     }
-    return QHttpServerResponse{QJsonObject::fromVariantMap(m_user)};
+    return QHttpServerResponse{
+        QJsonObject::fromVariantMap(m_users.at(m_accessTokens.value(presented)))};
 }
 
 QHttpServerResponse StubIdentityServer::handleJwks(const QHttpServerRequest &)

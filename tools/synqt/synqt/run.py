@@ -11,6 +11,7 @@ on a public interface. test builds and runs the project's CTest suite.
 from __future__ import annotations
 
 import os
+import secrets
 import shutil
 import subprocess
 import time
@@ -248,6 +249,14 @@ def _launch_entities(root: Path, config: Dict[str, Any], launch_order: List[str]
     processes: List[Tuple[str, subprocess.Popen]] = []
     missing: List[str] = []
     env = launch_env(root)
+    if appmodel.has_dev_stub(config):
+        # The shared secret the development sign-in's token endpoint checks, minted per
+        # run and given to everything this starts. Not a credential in any real sense (a
+        # fake provider on loopback), but a fresh one per run means another process on
+        # this machine cannot spend a code against it, and both ends read one variable so
+        # there is nothing to keep in step. Unset, both would read the same empty string
+        # and still agree, which is what makes running an edge with --dev by hand work.
+        env[appmodel.DEV_STUB_SECRET_VARIABLE] = secrets.token_urlsafe(24)
     for name in launch_order:
         entity = next(e for e in config["entities"] if e.get("name") == name)
         if host_binary(root, name) is None:
@@ -267,6 +276,22 @@ def _terminate(processes: List[Tuple[str, subprocess.Popen]]) -> None:
             process.wait(timeout=5)
         except subprocess.TimeoutExpired:
             process.kill()
+
+
+def dev_summary(config: Dict[str, Any], url: str, launched: List[str]) -> str:
+    """What `synqt dev` says once everything is up.
+
+    The development sign-in is named here because it is the one thing about a dev run that
+    is invisible from the page. Who it offers, and that none of it is in a build.
+    """
+    summary = (f"synqt dev: serving {url} (plaintext localhost).\n"
+               f"  Launched: {', '.join(launched)} (edge last, on the dev port).")
+    if appmodel.has_dev_stub(config):
+        people = ", ".join(user.get("login") or user.get("sub", "")
+                           for user in appmodel.dev_stub_users(config))
+        summary += (f"\n  Development sign-in on port {appmodel.dev_stub_port(config)}: "
+                    f"{people}. Not in a build.")
+    return summary
 
 
 def dev(project_dir: os.PathLike[str] | str, *, port: int = 8080,
@@ -301,9 +326,7 @@ def dev(project_dir: os.PathLike[str] | str, *, port: int = 8080,
     if open_browser:
         webbrowser.open(url)
 
-    summary = (f"synqt dev: serving {url} (plaintext localhost).\n"
-               f"  Launched: {', '.join(name for name, _ in processes)} "
-               f"(edge last, on the dev port).")
+    summary = dev_summary(config, url, [name for name, _ in processes])
     if not block:
         return summary
 

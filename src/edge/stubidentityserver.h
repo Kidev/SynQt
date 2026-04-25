@@ -5,6 +5,7 @@
 #define SYNQT_STUBIDENTITYSERVER_H
 
 #include <QHash>
+#include <QList>
 #include <QObject>
 #include <QSet>
 #include <QString>
@@ -27,9 +28,15 @@ namespace SynQt {
 /// refuses to start unless the caller passes the explicit dev acknowledgement, and the
 /// runtime also refuses a devStub provider entry in a shipped edge (see IdentityProvider).
 ///
-/// It serves /authorize (immediately redirects back with a code), /token (verifies the
-/// client secret and the PKCE S256 verifier, issues tokens and a signed ID token),
-/// /userinfo (Bearer-guarded profile), and /jwks (the ID-token signing key).
+/// It serves /authorize (redirects back with a code, after asking which of the configured
+/// people you are when there is more than one), /token (verifies the client secret and the
+/// PKCE S256 verifier, issues tokens and a signed ID token), /userinfo (Bearer-guarded
+/// profile), and /jwks (the ID-token signing key).
+///
+/// Nothing else about the login is faked. The state, the PKCE challenge, the code
+/// exchange, the ID-token signature check against the JWKS, the mapping hook, the session
+/// and its cookie are the ones a real provider's login goes through, which is the point:
+/// what runs under `synqt dev` is the shipped flow with a stand-in at one end of it.
 class StubIdentityServer : public QObject
 {
     Q_OBJECT
@@ -42,7 +49,15 @@ public:
     ~StubIdentityServer() override;
 
     void setClientCredentials(const QString &clientId, const QString &clientSecret);
-    void setUser(const QVariantMap &user);  ///< the profile /userinfo returns
+    void setUser(const QVariantMap &user);  ///< the profile /userinfo returns. Forgets the rest
+    /// Offer one more person to sign in as. With two or more, /authorize asks which.
+    ///
+    /// A dev sign-in is worth having because an app's scopes are worth exercising, and a
+    /// scope is what the mapping hook returns for an identity. So the way to reach a scope
+    /// here is to configure somebody the project's own hook maps there, which keeps the
+    /// hook on the path rather than handing out a scope beside it.
+    void addUser(const QVariantMap &user);
+    int userCount() const;
     void setIssuer(const QString &issuer);   ///< iss for the ID token
 
     /// Leave a claim out of the ID tokens this stub signs ("exp", "sub").
@@ -78,22 +93,29 @@ private:
     {
         QString codeChallenge;
         QString nonce;
+        int user{0};  ///< which of m_users the browser picked
     };
+
+    /// The page /authorize serves when more than one person is configured: one link per
+    /// user, back to this same request with the choice on it.
+    QHttpServerResponse chooser(const QHttpServerRequest &request) const;
+    /// Redirect back to the caller with a fresh code for `user`.
+    QHttpServerResponse grant(const QHttpServerRequest &request, int user);
 
     QHttpServer *m_server{nullptr};
     QTcpServer *m_tcp{nullptr};
     quint16 m_port{0};
     QString m_clientId{QStringLiteral("stub-client")};
     QString m_clientSecret{QStringLiteral("stub-secret")};
-    QVariantMap m_user;
+    QList<QVariantMap> m_users;               ///< at least one; /authorize asks past the first
     QString m_issuer;
-    QHash<QString, PendingCode> m_codes;      ///< code -> PKCE challenge + nonce
-    QHash<QString, QString> m_accessTokens;   ///< access token -> subject
-    QHash<QString, QString> m_refreshTokens;  ///< refresh token -> subject (for the refresh grant)
+    QHash<QString, PendingCode> m_codes;      ///< code -> PKCE challenge + nonce + user
+    QHash<QString, int> m_accessTokens;       ///< access token -> user
+    QHash<QString, int> m_refreshTokens;      ///< refresh token -> user (for the refresh grant)
 
     /// RSA signing material for the ID token, generated at start(). n/e feed the JWKS.
     void ensureKeys();
-    std::string signIdToken(const QString &nonce) const;
+    std::string signIdToken(const QString &nonce, const QVariantMap &user) const;
     std::string m_publicKeyPem;
     std::string m_privateKeyPem;
     QString m_kid;

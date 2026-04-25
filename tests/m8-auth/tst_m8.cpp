@@ -1738,6 +1738,120 @@ private slots:
         QVERIFY(forged.setCookie.isEmpty());
     }
 
+    /// With more than one person configured, /authorize asks which, and signs in the one
+    /// that was picked.
+    ///
+    /// The reason to configure a second dev user is to reach a second scope, and a scope
+    /// is what the mapping hook returns for an identity. So the whole feature comes down
+    /// to this. The identity the edge ends up holding is the one the browser chose, and
+    /// not the first one in the list.
+    void theDevSignInSignsInWhoeverWasPicked()
+    {
+        StubIdentityServer stub{StubIdentityServer::DevOnly{}};
+        stub.setClientCredentials(QStringLiteral("stub-client"), QStringLiteral("stub-secret"));
+        QVariantMap first;
+        first.insert(QStringLiteral("sub"), QStringLiteral("ada"));
+        first.insert(QStringLiteral("login"), QStringLiteral("ada"));
+        first.insert(QStringLiteral("name"), QStringLiteral("Ada"));
+        first.insert(QStringLiteral("email"), QStringLiteral("ada@localhost"));
+        QVariantMap second;
+        second.insert(QStringLiteral("sub"), QStringLiteral("grace"));
+        second.insert(QStringLiteral("login"), QStringLiteral("grace"));
+        second.insert(QStringLiteral("name"), QStringLiteral("Grace"));
+        second.insert(QStringLiteral("email"), QStringLiteral("grace@localhost"));
+        stub.setUser(first);
+        stub.addUser(second);
+        QVERIFY(stub.start());
+        stub.setIssuer(stub.baseUrl());
+        QCOMPARE(stub.userCount(), 2);
+
+        QUrl authorize{stub.baseUrl() + QStringLiteral("/authorize")};
+        QUrlQuery query;
+        query.addQueryItem(QStringLiteral("client_id"), QStringLiteral("stub-client"));
+        query.addQueryItem(QStringLiteral("response_type"), QStringLiteral("code"));
+        query.addQueryItem(QStringLiteral("redirect_uri"),
+                           edgeUrl(QStringLiteral("/auth/callback")));
+        authorize.setQuery(query);
+
+        // No choice on the request, so it is a page and not a redirect: with two people
+        // configured the stub cannot know which one you are, and guessing would make the
+        // second entry decoration.
+        const Response asked{get(authorize)};
+        QCOMPARE(asked.status, 200);
+        QVERIFY(asked.body.contains("Ada"));
+        QVERIFY(asked.body.contains("Grace"));
+
+        // Picking the second one is a redirect back with a code, and the identity that
+        // code buys is that person's.
+        QUrl picked{authorize};
+        QUrlQuery chosen{query};
+        chosen.addQueryItem(QStringLiteral("synqt_user"), QStringLiteral("1"));
+        picked.setQuery(chosen);
+        const Response redirected{get(picked)};
+        QCOMPARE(redirected.status, 302);
+        const QString code{QUrlQuery{QUrl{redirected.location}.query()}
+                               .queryItemValue(QStringLiteral("code"))};
+        QVERIFY(!code.isEmpty());
+
+        QUrlQuery form;
+        form.addQueryItem(QStringLiteral("grant_type"), QStringLiteral("authorization_code"));
+        form.addQueryItem(QStringLiteral("code"), code);
+        form.addQueryItem(QStringLiteral("client_id"), QStringLiteral("stub-client"));
+        form.addQueryItem(QStringLiteral("client_secret"), QStringLiteral("stub-secret"));
+        QNetworkRequest request{QUrl{stub.baseUrl() + QStringLiteral("/token")}};
+        request.setHeader(QNetworkRequest::ContentTypeHeader,
+                          QStringLiteral("application/x-www-form-urlencoded"));
+        QNetworkReply *reply{m_browser.post(request,
+                                            form.toString(QUrl::FullyEncoded).toUtf8())};
+        QEventLoop loop;
+        connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+        loop.exec();
+        const QJsonObject tokens{QJsonDocument::fromJson(reply->readAll()).object()};
+        reply->deleteLater();
+
+        const QString access{tokens.value(QStringLiteral("access_token")).toString()};
+        QVERIFY(!access.isEmpty());
+
+        // Both halves of what a provider answers, because a project may read either.
+        QNetworkRequest profile{QUrl{stub.baseUrl() + QStringLiteral("/userinfo")}};
+        profile.setRawHeader("Authorization", ("Bearer " + access).toUtf8());
+        QNetworkReply *userinfo{m_browser.get(profile)};
+        QEventLoop second_loop;
+        connect(userinfo, &QNetworkReply::finished, &second_loop, &QEventLoop::quit);
+        second_loop.exec();
+        const QJsonObject who{QJsonDocument::fromJson(userinfo->readAll()).object()};
+        userinfo->deleteLater();
+        QCOMPARE(who.value(QStringLiteral("sub")).toString(), QStringLiteral("grace"));
+
+        const QString idToken{tokens.value(QStringLiteral("id_token")).toString()};
+        QVERIFY(!idToken.isEmpty());
+        const QJsonObject claims{
+            QJsonDocument::fromJson(
+                QByteArray::fromBase64(idToken.split(QLatin1Char('.')).at(1).toUtf8(),
+                                       QByteArray::Base64UrlEncoding))
+                .object()};
+        QCOMPARE(claims.value(QStringLiteral("sub")).toString(), QStringLiteral("grace"));
+        QCOMPARE(claims.value(QStringLiteral("email")).toString(),
+                 QStringLiteral("grace@localhost"));
+    }
+
+    /// One person configured, and /authorize does not ask.
+    void oneDevUserIsSignedInWithoutBeingAsked()
+    {
+        StubIdentityServer stub{StubIdentityServer::DevOnly{}};
+        stub.setClientCredentials(QStringLiteral("stub-client"), QStringLiteral("stub-secret"));
+        QVERIFY(stub.start());
+        QCOMPARE(stub.userCount(), 1);
+
+        QUrl authorize{stub.baseUrl() + QStringLiteral("/authorize")};
+        QUrlQuery query;
+        query.addQueryItem(QStringLiteral("client_id"), QStringLiteral("stub-client"));
+        query.addQueryItem(QStringLiteral("redirect_uri"),
+                           edgeUrl(QStringLiteral("/auth/callback")));
+        authorize.setQuery(query);
+        QCOMPARE(get(authorize).status, 302);
+    }
+
     void devStubRefusedWithoutGate()
     {
         // A second edge with the dev gate OFF must refuse the dev stub provider entirely.

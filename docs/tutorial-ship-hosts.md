@@ -3,20 +3,17 @@
 
 # Where the binaries go
 
-A SynQt deployment is a project directory rather than a binary.
+A SynQt deployment is a whole project directory.
 
-Every entity resolves its runtime files relative to the directory it was started from,
-exactly as they are spelled in `synqt.yaml`. Its topology under `build/<entity>/`, its
-certificate under `synqt/mesh/`, its secrets in its own `.env`, its schema and its data
-in its own folder, and, for the edge, the client bundle under `build/client/`. Copy
-`build/edge/edge` somewhere on its own and it starts, looks for all of that, and finds
-none of it.
-
-The rest of this page is bookkeeping.
+Every entity finds its runtime files relative to the directory it starts from, exactly as
+`synqt.yaml` spells them: its topology under `build/<entity>/`, its certificate under
+`synqt/mesh/`, its secrets in its own `.env`, its schema and data in its own folder, and,
+for the edge, the client bundle under `build/client/`. Copy `build/edge/edge` somewhere
+alone and it starts, looks for all of that, and finds none of it.
 
 ## Step 1: The shape on each host
 
-Take the artifact your pipeline produced and prune it to what each host runs.
+Take the artifact your pipeline produced and keep only what each host runs.
 
 The edge host:
 
@@ -55,41 +52,38 @@ The books host:
     data/             # the SQLite file lives here
 ```
 
-Three things about those trees.
+Three points about these trees:
 
-The entity source directories travel, but only for what an entity reads at run time.
-`db/relational/books/` on a host means `.env`, `schema.sql` and `data/`. It does not mean the QML,
-which is compiled into the binary and is not on the host at all.
-
-`synqt.yaml` travels because the paths the entities use are the paths it spells. So
-does the profile, because the entity resolves the same layering the build did.
-
-The data is not in `build/`. A relational entity opens the file its `settings` name,
-under its own directory, which is why `synqt clean` cannot take your database with it and
-why your backup job points at `db/relational/books/data/` rather than at the build output.
+- **Entity source directories travel, but only for run time files.** On a host,
+  `db/relational/books/` holds `.env`, `schema.sql` and `data/`. The QML is compiled into
+  the binary, so it is not on the host.
+- **`synqt.yaml` travels,** because the entities use the paths it spells. So does the
+  profile, because each entity resolves the same layers the build did.
+- **The data is not in `build/`.** A relational entity opens the file its `settings` name,
+  in its own directory. So `synqt clean` cannot delete your database, and your backup job
+  points at `db/relational/books/data/`, not at the build output.
 
 ## Step 2: Qt has to be there
 
-`synqt build` does not run a deployment step for service binaries, so a service host
-needs the pinned Qt kit present, at the same path the build used or baked into the
-image. Two ways to get that right, and one way to get it wrong:
+`synqt build` runs no deployment step for service binaries, so a service host needs the
+pinned Qt kit, at the path the build used or inside the image. There are two right ways
+and one wrong way:
 
-- A container image built from the same base as your build machine. Least surprising,
-  and the answer if you are going anywhere near an orchestrator later.
-- The same toolchain directory on the host. Copy `synqt/toolchain/` along with the
-  rest, or run `synqt build` on the host once to populate it. Heavier, but it needs no
-  container runtime.
-- Never a host with a distribution Qt of a nearby version. The binaries were
-  compiled against one Qt and will load whatever the linker finds, and the failures from
-  a near miss are worse than the failure from an absence.
+- **A container image built from the same base as your build machine.** The least
+  surprising option, and the right one if you plan to use an orchestrator.
+- **The same toolchain directory on the host.** Copy `synqt/toolchain/` with the rest, or
+  run `synqt build` on the host once to fill it. Heavier, but needs no container runtime.
+- **Never a distribution Qt of a nearby version.** The binaries were compiled against one
+  Qt and load whatever the linker finds. A near miss fails in worse ways than a missing
+  library.
 
-The desktop client is the exception. It carries its own Qt, because
-[Cutting a release](tutorial-ship-release.md) runs the platform step that puts it there.
+The desktop client is the exception: it carries its own Qt, which the platform step in
+[Cutting a release](tutorial-ship-release.md) bundles.
 
 ## Step 3: Read the start plan
 
-Every build writes `build/process-manifest.json`. It is the input your process manager
-wants:
+Every build writes `build/process-manifest.json`, the input your process manager
+needs:
 
 ```json
 {
@@ -116,43 +110,40 @@ wants:
 }
 ```
 
-It answers the three questions a supervisor has.
+It answers a supervisor's three questions:
 
-`start_order` is owners before consumers. A consumer retries, so starting out of order is
-not fatal. It turns a clean boot into a wait, and turns a first deploy into a debugging
-session about whether the link works.
-
-`bind` says which single entity faces the public interface. Exactly one does. If you ever
-find a second, something is wrong with the topology rather than with the host.
-
-And each entry names the material that entity expects, which is the list to check before
-concluding that a start failure is a code problem. It usually is not.
+- **`start_order`** lists owners before consumers. A consumer retries, so starting out of
+  order is not fatal, but it turns a clean boot into a wait, and a first deploy into a
+  debugging session about whether the link works.
+- **`bind`** names the one entity that faces the public interface. If you ever find a
+  second, the topology is wrong, not the host.
+- **Each entry names the files that entity expects.** Check that list before deciding a
+  start failure is a code problem; it usually is not.
 
 ## Step 4: Start it by hand, once
 
-Before writing any service unit, prove the tree is right:
+Before writing any service unit, check that the tree is right:
 
 ```cli
 cd /srv/gavel
 synqt doctor --profile production
 ```
 
-`doctor` reports the resolved toolchain, which entities have a certificate and which do
-not, any selected provider whose driver is missing, and which Qt licence mode you are in
-along with what it obliges. Fix whatever it names. Then:
+`doctor` reports the resolved toolchain, which entities have a certificate, any selected
+provider whose driver is missing, and your Qt license mode with its obligations. Fix
+whatever it names. Then:
 
 ```cli
 synqt serve --profile production
 ```
 
-`synqt serve` starts each entity from the project root in manifest order and returns. Open
-the site. Take a bid. Close a lot and confirm the Hall of Fame remembers it.
+`synqt serve` starts each entity from the project root in manifest order, then returns.
+Open the site, place a bid, close a lot, and check that the Hall of Fame remembers it.
 
-Two things `synqt serve` is not. It does **not supervise**: it will not restart an entity
-that dies, which is why the next step exists. And it passes **no `--dev` flag** to
-anything, which is what keeps the development stub identity provider out of a running
-deployment. Use it to bring a staging box up by hand and to answer "does this tree work
-at all"; use a process manager for anything that has to stay up.
+`synqt serve` does not supervise: it does not restart an entity that dies, hence the next
+step. It also passes `--dev` to nothing, which keeps the development sign-in and the
+plaintext localhost link out of a deployment. Use it to bring up a staging machine by hand
+and to check the tree works. Use a process manager for anything that must stay up.
 
 ## Step 5: Keep it alive
 
@@ -187,7 +178,7 @@ ReadWritePaths=/srv/gavel/db/relational/books/data
 WantedBy=multi-user.target
 ```
 
-On the edge host, `/etc/systemd/system/gavel-edge.service`, the same shape with three
+On the edge host, `/etc/systemd/system/gavel-edge.service` has the same shape with three
 differences:
 
 ```ini
@@ -217,9 +208,9 @@ CapabilityBoundingSet=CAP_NET_BIND_SERVICE
 WantedBy=multi-user.target
 ```
 
-`After=` on the database unit encodes `start_order`, and it is advisory in the way the
-manifest describes. The edge would retry anyway, but a boot where the link is up
-immediately is a boot you can read.
+`After=` on the database unit follows `start_order`, and like the manifest it is only
+advice: the edge would retry anyway. But a boot where the link comes up at once gives
+logs you can read.
 
 ```cli
 sudo systemctl enable --now gavel-books
@@ -228,60 +219,59 @@ sudo systemctl enable --now gavel-edge
 
 ## Step 6: Close the doors
 
-The topology says the database is private. The network should agree.
+The topology says the database is private. Make the network agree.
 
-- The public host exposes one port, the edge's, and neither the mesh port nor SSH to the
-  world if you can help it.
-- The database host exposes its mesh port to the edge host only, through a security
-  group, a firewall rule, or a private subnet, whichever your hosting gives you.
-- Mesh links are mutual TLS wherever they run, so a database reachable by accident is
-  not immediately fatal. That is a second line rather than the first one. See [network
-  segmentation and the database](security.md#network-segmentation-and-the-database).
+- **The public host exposes one port, the edge's.** If you can, expose neither the mesh
+  port nor SSH to the world.
+- **The database host exposes its mesh port only to the edge host,** through a security
+  group, a firewall rule or a private subnet, whatever your hosting offers.
+- **Mesh links use mutual TLS everywhere,** so a database reachable by accident is not
+  immediately fatal. That is the second line of defense, not the first. See
+  [network segmentation and the database](security.md#network-segmentation-and-the-database).
 
 ## Try it, then think
 
 > [!QUESTION]
-> A colleague wants to run the edge from `/usr/local/bin`, the way a normal daemon
-> works. They copy `build/edge/edge` there, write a unit with no `WorkingDirectory`, and
-> start it. It fails. Before reading on: what does it fail to find first, and why is
-> that the right failure?
+> A colleague wants to run the edge from `/usr/local/bin`, like a normal daemon. They copy
+> `build/edge/edge` there, write a unit with no `WorkingDirectory`, and start it. It fails.
+> Before reading on: what does it fail to find first, and why is that the right
+> failure?
 
 <details class="solution" markdown>
 <summary>Solution</summary>
 
-It fails on its topology. `build/edge/topology.json` is the file the entity reads at
-startup to learn what it owns, what it consumes, and where its peers are, and it looks
-for it at a path relative to where it was started. From `/`, that path does not exist.
+It fails on its topology. The entity reads `build/edge/topology.json` at startup to learn
+what it owns, what it consumes and where its peers are, and it looks for the file relative
+to where it started. From `/`, that path does not exist.
 
-Had it got past that, the next failure would have been the certificate, then the bundle,
-then the env file, four failures in a row that all mean the same thing.
+Past that, it would fail on the certificate, then the bundle, then the env file: four
+failures in a row with one cause.
 
-The right fix is for the unit to set `WorkingDirectory` to the project root, rather
-than making the paths absolute, because the project root is the deployment.
-Everything an entity needs is described relative to it, in one file a person can read,
-so you can look at a host and see the whole system rather than a binary on its own.
+Fix it by setting the unit's `WorkingDirectory` to the project root, not by making the
+paths absolute, because the project root is the deployment. Everything an entity needs is
+described relative to it, in one readable file, so you can look at a host and see the
+whole system.
 
-If you want the binary on a path, symlink it. The link's target still runs with whatever
-working directory the unit sets.
+To have the binary on a path, symlink it. It still runs with the working directory the
+unit sets.
 
 </details>
 
 ## Advice worth taking now
 
-- Back up `db/relational/books/data/` rather than `build/`. The build is reproducible from a commit.
-  The data is not reproducible from anything.
-- Give each host the same project root path. `/srv/gavel` on both means one unit
-  template, one runbook, and one place your muscle memory takes you.
-- Log to the journal and leave it there. The entities write to standard error, and
-  systemd captures it. Resist the urge to add file logging before you have a reason,
-  because the reason usually turns out to be a missing metric rather than a missing file.
-- Keep the previous release directory. The project root becomes
-  `/srv/gavel-2026-08-03/` with `/srv/gavel` a symlink to it, and a rollback becomes
-  moving the symlink and restarting. [Cutting a release](tutorial-ship-release.md) picks
-  that up.
-- Run the [security checklist](security.md#security-checklist-use-before-every-deploy)
-  before you call it done. It is short, and it is written to be read at deploy time
-  rather than at design time.
+- **Back up `db/relational/books/data/`, not `build/`.** A commit reproduces the build;
+  nothing reproduces the data.
+- **Use the same project root path on every host.** `/srv/gavel` on both means one unit
+  template and one runbook.
+- **Log to the journal.** The entities write to standard error, and systemd captures it.
+  Do not add file logging without a reason; the reason usually turns out to be a missing
+  metric, not a missing file.
+- **Keep the previous release directory.** Make the project root
+  `/srv/gavel-2026-08-03/`, with `/srv/gavel` a symlink to it, so a rollback means moving
+  the symlink and restarting. [Cutting a release](tutorial-ship-release.md) builds on
+  this.
+- **Run the [security checklist](security.md#security-checklist)** before you call it
+  done. It is short, and meant for deploy time.
 
-Next: [Cutting a release](tutorial-ship-release.md), and what changes when the second
-deploy happens.
+Next: [Cutting a release](tutorial-ship-release.md), and what changes on the second
+deploy.
