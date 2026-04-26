@@ -681,6 +681,13 @@
       "test": "theEdgeRefusesToStartWithAKeyItCannotRead"
     },
     {
+      "id": "an-edge-listening-with-a-key-its-backend-cannot-present",
+      "what": "The same dead port by another road. The key is read, so nothing about it looks wrong, but the TLS backend this build runs on cannot hand it to the platform: a backend with no key API of its own converts the certificate and the key into a PKCS#12 blob, and Qt writes an algorithm identifier for RSA and DSA and for nothing else, so an elliptic-curve key arrives malformed, the platform import fails, and the socket is left with no identity. The edge listens on the public port and every handshake fails, which is the state the file check was added to prevent, reached without ever failing that check.",
+      "defended_by": "Reading the key is not the last question asked of it. A web edge, an inbound API surface and a mesh owner each ask whether the active TLS backend can present the key they just read, and refuse to start naming the file and the backend when it cannot.",
+      "file": "tests/m5-webedge/tst_m5.cpp",
+      "test": "theEdgeTerminatesTlsWithAnEllipticCurveKey"
+    },
+    {
       "id": "a-refresh-sweep-that-never-stops",
       "what": "An identity provider answers a refresh without naming how long the new token lasts, which RFC 6749 section 5.1 permits (`expires_in` is RECOMMENDED, not REQUIRED). The edge kept the expiry the refresh replaced, so the entry stayed inside the sweep's margin: the next pass refreshed it again, and every pass after that, spending a rotating refresh token against the provider once per interval for the life of every such session. The load is on a third party and grows with the number of signed-in users, and a provider that rate-limits or that invalidates a rotated pair sees it as abuse from the deployment.",
       "defended_by": "A refresh writes the lifetime the provider named or none at all, never the one that expired, which is what the code exchange already did; the sweep skips an entry whose expiry nobody named.",

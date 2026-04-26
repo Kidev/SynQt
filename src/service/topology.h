@@ -70,16 +70,12 @@ struct ConnectPointConfig
     /// installed for one: the auth entity owns two, and one accessor cannot be both.
     bool framework{false};
 
-    /// Whether the owning entity is shared, copied onto every point it owns because the
-    /// host is what reads it. It is the entity's property and not the point's: an entity
-    /// is one thing everybody reaches, or one thing per caller, and it cannot be both at
-    /// once for two of its own surfaces.
+    /// Whether the owning entity is shared, copied onto every point it owns because the host
+    /// reads it. It belongs to the entity.
     ///
-    /// Shared (the default) is one Source for the whole entity. Every caller acquires a
-    /// mirror of it, so all of them see the same props and the same rows, and each slot
-    /// still runs with that caller's Caller bound. Not shared is one Source per caller,
-    /// with everything it holds that caller's alone. A browser caller is a session, so
-    /// their second tab continues the Source their first tab has been using.
+    /// Shared (the default) is one Source for the whole entity: every caller acquires a mirror
+    /// of it, and each slot still runs with that caller's Caller bound. Not shared is one Source
+    /// per caller; a browser caller is a session, so a second tab continues the first tab's.
     bool shared{true};
 
     MeshEndpoint endpoint;
@@ -108,14 +104,9 @@ struct Topology
     QVariantMap provider;
     QStringList schema;
 
-    /// Where this entity is allowed to call out to (`network.outbound`), and the whole of
-    /// what it may reach. `Http` refuses anything not under one of these prefixes.
-    ///
-    /// It is here, in the resolved topology, rather than in the entity's own code, because
-    /// where an entity may connect is a deployment's decision and has to be reviewable in
-    /// one file next to the mesh links it is the counterpart of. So is what it sends: an
-    /// entry may name headers (an API key as an `env:` reference), and the runtime attaches
-    /// them, so the entity's QML never holds the credential it calls with.
+    /// Where this entity may call out to (`network.outbound`); `Http` refuses anything not under
+    /// one of these prefixes. An entry may name headers (an API key as an `env:` reference) that
+    /// the runtime attaches, so the entity's QML never holds the credential.
     QList<OutboundEndpoint> outbound;
     /// Whether the entity declared `network.outbound` at all. The list being empty and the
     /// key being absent are different. The first installs `Http` and lets it reach nowhere,
@@ -130,14 +121,9 @@ struct Topology
     /// How large the monitoring spool may grow before its oldest batches are dropped. A
     /// monitor that never comes back must not fill the disk of the entity it was watching.
     qint64 spoolCapBytes{4 * 1024 * 1024};
-    /// The lowest severity each category records, by category name ("call", "data", ...)
-    /// and severity name ("debug", "warning", ...). What is not named keeps the default,
-    /// and a category set to "off" records nothing.
-    ///
-    /// A deployment setting, not a build one. A monitoring system you have to rebuild to
-    /// turn up is useless during the incident you need it for, so the levels are read at
-    /// startup and the instrumentation is compiled into every build either way (its
-    /// disabled cost is measured in benchmarks/monitor).
+    /// The lowest severity each category records, by category name ("call", "data", ...) and
+    /// severity name ("debug", "warning", ...). Unnamed categories keep the default; "off"
+    /// records nothing. Read at startup, so changing a level needs no rebuild.
     QMap<QString, QString> traceLevels;
 
     QList<ConnectPointConfig> owned() const;
@@ -148,23 +134,22 @@ struct Topology
 /// synqt.yaml). Kept minimal. The user-facing schema lives in the CLI.
 Topology topologyFromJson(const QJsonObject &object);
 
-/// Load TLS identity material from PEM files. The mesh CA and entity pair, and the public
-/// certificate a web edge or an inbound API surface terminates with.
-///
-/// Both answer with a null object for a path they cannot read or cannot make sense of, and
-/// both say so on the way past. What each caller does about it is the caller's: an edge
-/// that was told to terminate TLS refuses to start rather than listen on a port whose
-/// handshake can never complete.
+/// Load TLS identity material from PEM files: the mesh CA and entity pair, and the public
+/// certificate a web edge or an inbound API surface terminates with. Both return a null
+/// object, with a warning, for a path they cannot read or parse; an edge told to terminate
+/// TLS then refuses to start.
 QSslCertificate loadCertificate(const QString &path);
 
-/// The private key at \a path, whatever algorithm it is.
-///
-/// Every algorithm is tried rather than RSA alone. `QSslKey` is told which one to expect
-/// and decodes with that algorithm's PEM reader, so an EC key read as RSA comes back null
-/// and nothing about it looks like an error: the file was there, it parsed as PEM, and the
-/// object is empty. `certbot --key-type ecdsa` produces one, and the certificate
-/// documentation promises SynQt has no opinion about where a certificate comes from.
+/// The private key at \a path, whatever its algorithm. Every algorithm is tried, since
+/// `QSslKey` decodes with the expected algorithm's reader and returns a silent null for any
+/// other (an EC key read as RSA).
 QSslKey loadPrivateKey(const QString &path);
+
+/// Why the TLS backend this build runs on cannot present \a key, or an empty string when it
+/// can. Only the OpenSSL backend passes the key through; the others import a PKCS#12 blob
+/// whose qtbase builder writes an algorithm identifier for RSA and DSA only, so an EC key
+/// fails every handshake.
+QString unusableKeyReason(const QSslKey &key);
 
 } // namespace SynQt
 

@@ -722,16 +722,22 @@ Browser link:
   carries `tls.cert_file` and `tls.key_file` nor declares
   `public.tls_terminated_upstream` is refused by `synqt check`, and an edge that carries
   them and cannot read them refuses to start rather than listening on a port whose
-  handshake can never complete. The key may be RSA or elliptic curve; it may not be
-  encrypted, since nothing is there to type a passphrase into.
-- No `origin_model` declared unless a split origin deployment was chosen deliberately;
+  handshake can never complete. The key may be RSA or elliptic curve. It may not be
+  encrypted, since nothing is there to type a passphrase into. An elliptic-curve key
+  needs a Qt whose TLS backend is OpenSSL, which is what a Linux build uses. The
+  backends that have no key API of their own (Secure Transport on macOS, Schannel on a
+  Windows build with no OpenSSL beside it) hand the pair to the platform as a PKCS#12
+  blob that Qt writes for RSA and DSA only, so an edge running on one of those refuses
+  an elliptic-curve key at startup and names it rather than listening with an identity
+  the handshake never gets.
+- No `origin_model` declared unless a split origin deployment was chosen on purpose, and
   `allowed_origins` lists exactly the origins that may open the sync connection.
-- The session is the httpOnly Secure cookie. There is no alternative transport: the
+- The session is the httpOnly Secure cookie. There is no alternative transport. The
   subprotocol is refused for a toolkit reason recorded with the config keys.
-- CSP is the restrictive default; any widening is reviewed.
+- CSP is the restrictive default, and any widening is reviewed.
 - A private deployment maps its default scope to a gate through
   [`bundles:`](project-layout-and-config.md), so an unauthenticated visitor is served the
-  gate and no file of any other bundle. A route `scope:` alone does not do this: it is a
+  gate and no file of any other bundle. A route `scope:` alone does not do this. It is a
   navigation guard, so the QML of a privileged view still ships to every visitor when one
   bundle serves everybody. A file outside the caller's bundle answers 404, never 403.
 - Cross origin isolation matches the threading mode.

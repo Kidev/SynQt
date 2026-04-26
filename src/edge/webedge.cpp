@@ -1125,6 +1125,15 @@ bool WebEdge::start()
                                 .arg(m_config.certFile, m_config.keyFile);
             return false;
         }
+        // Read is not the same as usable. A backend with no key API of its own carries an
+        // RSA or DSA key only (see unusableKeyReason). Said here rather than discovered as
+        // a handshake that always fails.
+        const QString unusable{unusableKeyReason(key)};
+        if (!unusable.isEmpty()) {
+            m_errorString = QStringLiteral("cannot terminate TLS with %1: %2")
+                                .arg(m_config.keyFile, unusable);
+            return false;
+        }
         QSslServer *sslServer{new QSslServer{this}};
         QSslConfiguration configuration{QSslConfiguration::defaultConfiguration()};
         configuration.setLocalCertificate(certificate);

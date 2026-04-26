@@ -32,9 +32,8 @@ ConnectPointHost::ConnectPointHost(ConnectPointConfig config, MeshCredentials cr
     , m_credentials{std::move(credentials)}
     , m_engine{engine}
 {
-    // Both halves, connected once. A gate watched only through its refusals looks healthy
-    // when it is refusing everybody, which is how `identity.required` refused every
-    // visitor for months. The accepted link is the event that says the gate still opens.
+    // Both outcomes: a gate observed only through refusals looks healthy while refusing
+    // everybody.
     connect(this, &ConnectPointHost::connectionRefused, this, [this](const QString &entity) {
         trace(Category::Authorization, Severity::Warning, QStringLiteral("consumer refused"),
               {{QStringLiteral("connectPoint"), m_config.name},
@@ -84,8 +83,8 @@ QObject *ConnectPointHost::createSource(QObject *caller, QObject *parent, QStrin
         context->setContextProperty(it.key(), it.value());
     }
     QQmlComponent component{m_engine, QUrl::fromLocalFile(m_config.serverFile)};
-    // Asked before creating: create() on a component that failed to compile prints its own
-    // "Component is not ready" first, which says less than the error built below.
+    // Checked before create(), whose own "Component is not ready" says less than the error
+    // below.
     QObject *source{component.isReady() ? component.create(context) : nullptr};
     if (!source) {
         if (error) {
@@ -104,9 +103,9 @@ QObject *ConnectPointHost::sharedSource(QString *error)
     if (m_sharedSource) {
         return m_sharedSource;
     }
-    // The Caller in a shared Source's context starts as nobody and is made to be whoever is
-    // calling, one forwarded call at a time (SynQt::Caller::adopt). It is minted here rather
-    // than in a mirror so the QML context that names it is built once, with the Source.
+    // A shared Source's Caller starts as nobody and becomes the current caller for each
+    // forwarded call (SynQt::Caller::adopt). Minted here so its context is built once, with
+    // the Source.
     Caller *caller{Caller::forEntity(m_config.contract, QString{}, false, nullptr, this)};
     QObject *source{createSource(caller, this, error)};
     if (!source) {
@@ -115,8 +114,8 @@ QObject *ConnectPointHost::sharedSource(QString *error)
     }
     caller->setParent(source);
     SourceFactory::bindCaller(source, caller);
-    // Holds the state for every peer at once, so no `<scope>` gate applies to it. Each
-    // peer's mirror gates what that peer sees.
+    // It holds the state for every peer, so no `<scope>` gate applies; each peer's mirror
+    // gates.
     SourceFactory::holdsSharedState(source);
     m_sharedSource = source;
     m_sharedCaller = caller;
@@ -125,11 +124,10 @@ QObject *ConnectPointHost::sharedSource(QString *error)
 
 QObject *ConnectPointHost::sourceForPeer(const MeshPeer &peer, QString *error)
 {
-    // One object per consuming entity, whatever number of links it opens, parented to the
-    // host because it outlives any one of them. What that object is depends on the owner:
-    // its own Source when the owner is not shared, and a mirror of the one shared Source
-    // when it is. Either way it is what this entity's links acquire, and the Caller bound
-    // to it is this entity.
+    // One object per consuming entity, however many links it opens, parented to the host
+    // because it outlives any link: the owner's own Source when the owner is not shared, or
+    // a mirror of the shared Source. Either way this entity's links acquire it, and its
+    // Caller is this entity.
     PeerSource &entry{m_peerSources[peer.entity]};
     if (entry.source) {
         return entry.source;
@@ -154,8 +152,8 @@ QObject *ConnectPointHost::sourceForPeer(const MeshPeer &peer, QString *error)
         source = createSource(caller, this, error);
         if (source) {
             caller->setSource(source);
-            // The Source is told its Caller as well as the other way round, so a slot can
-            // name whoever it is answering when it calls on to the next entity in the chain.
+            // The Source knows its Caller too, so a slot can name whom it answers when it
+            // calls the next entity in the chain.
             SourceFactory::bindCaller(source, caller);
         }
     }
@@ -183,15 +181,13 @@ void ConnectPointHost::releasePeerSource(const QString &entity)
 
 bool ConnectPointHost::start()
 {
-    // A per-caller point instantiates nothing here. It mints a Source, with a Caller bound
-    // to the calling entity, per accepted peer, so the owner can authorize each entity in
-    // its slots. See onPeerConnected(). There is nothing to build before a caller exists.
+    // A per-caller point builds nothing here: it mints a Source per accepted peer, with a
+    // Caller bound to that entity (see onPeerConnected()).
     //
-    // A shared point is the opposite case, and it is why this is not left to the first
-    // caller. The Source is the entity. It holds what outlives any one caller, and its
-    // `Component.onCompleted` is where an entity subscribes to what it consumes or starts
-    // its own work. Built lazily, an entity would sit inert until somebody connected and
-    // would have missed everything that happened before that.
+    // A shared point is built now. Its Source is the entity: it holds what outlives any
+    // caller, and its `Component.onCompleted` is where the entity subscribes to what it
+    // consumes and starts its work. Built lazily, it would miss everything before the first
+    // connection.
     m_server = new MeshServer{this};
     connect(m_server, &MeshServer::peerConnected, this, &ConnectPointHost::onPeerConnected);
 
@@ -199,9 +195,9 @@ bool ConnectPointHost::start()
         const QSslCertificate ca{loadCertificate(m_credentials.caCertPath)};
         const QSslCertificate cert{loadCertificate(m_credentials.certPath)};
         const QSslKey key{loadPrivateKey(m_credentials.keyPath)};
-        // Said here, where the three paths are, rather than left to present itself as every
-        // consumer failing to verify. A mesh owner with no identity of its own is an owner
-        // nothing can connect to, and the reason is which of these files it did not get.
+        // Reported here, where the three paths are: a mesh owner without its own identity
+        // cannot be connected to, and every consumer would otherwise fail to verify with no
+        // hint.
         if (ca.isNull() || cert.isNull() || key.isNull()) {
             m_errorString = QStringLiteral("connect point %1 has no usable mesh identity "
                                            "(ca %2, cert %3, key %4); run 'synqt mesh init' "
@@ -210,14 +206,23 @@ bool ConnectPointHost::start()
                                      m_credentials.certPath, m_credentials.keyPath);
             return false;
         }
+        // And the same second check as on the public surfaces: a readable key is not
+        // necessarily one this build's TLS backend can present (see unusableKeyReason).
+        const QString unusable{unusableKeyReason(key)};
+        if (!unusable.isEmpty()) {
+            m_errorString = QStringLiteral("connect point %1 cannot present the key at %2: "
+                                           "%3")
+                                .arg(m_config.name, m_credentials.keyPath, unusable);
+            return false;
+        }
         if (!m_server->listenMutualTls(QHostAddress{m_config.endpoint.host},
                                        m_config.endpoint.port, ca, cert, key)) {
             m_errorString = m_server->errorString();
             return false;
         }
     } else {
-        // Local socket. Colocation-trusted. The peer name is the single configured
-        // consumer (a local link is used for a co-located, equally trusted pair).
+        // Local socket, trusted by colocation. The peer name is the single configured
+        // consumer.
         if (!m_server->listenLocal(m_config.endpoint.socketName,
                                    m_config.consumers.value(0))) {
             m_errorString = m_server->errorString();
@@ -252,27 +257,23 @@ void ConnectPointHost::onPeerConnected(QIODevice *device, const MeshPeer &peer)
     }
     emit consumerAttached(peer.entity);
 
-    // Claimed before the Source is reached for, and released when the link goes away, so
-    // this entity's Source lives exactly as long as it has a link open.
+    // Claimed before the Source is fetched and released when the link goes, so this
+    // entity's Source lives exactly while it has a link.
     const QString entity{peer.entity};
     ++m_peerSources[entity].connections;
     connect(device, &QObject::destroyed, this,
             [this, entity]() { releasePeerSource(entity); });
 
-    // Everything this link owns hangs off one object, and the two things under it are added
-    // in the order they have to be destroyed in. The node first, the socket second. QObject
-    // destroys its children in the order they were added, and QtRO writes a RemoveObject to
-    // every connection as a host node goes, so the socket has to outlive the node that is
-    // still talking to it. Hanging the node off the socket instead put that write after
-    // ~QSslSocket had already run. WebEdge::hostConnection arranges a browser link the same
-    // way and for the same reason.
+    // Everything this link owns hangs off one object, with children added in destruction
+    // order: the node first, then the socket. QObject destroys children in insertion order,
+    // and QtRO writes a RemoveObject to every connection as a host node is destroyed, so
+    // the socket must outlive the node. WebEdge::hostConnection does the same.
     QObject *link{new QObject{this}};
     QRemoteObjectHost *node{new QRemoteObjectHost{link}};
     device->setParent(link);
-    // MeshServer hands the device over rather than reclaiming it, so this is what ends the
-    // link: the socket drops, the object above goes, and the node and the socket are
-    // destroyed in that order. Connected to the concrete socket because QIODevice has no
-    // notion of a peer hanging up.
+    // MeshServer hands over the device, so this ends the link: the socket drops, the object
+    // above goes, and the node and socket are destroyed in that order. Connected to the
+    // concrete socket, since QIODevice has no peer-disconnect signal.
     const auto endLink{[link]() { link->deleteLater(); }};
     if (QAbstractSocket *socket{qobject_cast<QAbstractSocket *>(device)}) {
         connect(socket, &QAbstractSocket::disconnected, link, endLink);
@@ -280,7 +281,7 @@ void ConnectPointHost::onPeerConnected(QIODevice *device, const MeshPeer &peer)
         connect(local, &QLocalSocket::disconnected, link, endLink);
     }
 
-    // A Caller carrying the certificate-verified entity name, for the owner's per-slot
+    // A Caller with the certificate-verified entity name, for the owner's per-slot
     // authorization.
     node->setHostUrl(QUrl{QStringLiteral("synqt-cp-%1:///%2")
                               .arg(m_config.name,

@@ -183,6 +183,12 @@ bool ApiServer::start()
                                 .arg(m_config.certFile, m_config.keyFile);
             return false;
         }
+        const QString unusable{unusableKeyReason(key)};
+        if (!unusable.isEmpty()) {
+            m_errorString = QStringLiteral("cannot terminate TLS with %1: %2")
+                                .arg(m_config.keyFile, unusable);
+            return false;
+        }
         QSslServer *sslServer{new QSslServer{this}};
         QSslConfiguration configuration{QSslConfiguration::defaultConfiguration()};
         configuration.setLocalCertificate(certificate);

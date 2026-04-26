@@ -3,21 +3,18 @@
 
 # Two authorities
 
-A deployed SynQt system uses two completely separate kinds of certificate, and confusing
-them is an easy way to end up with something that either does not start or is not as
-private as it looks.
+A deployed SynQt system uses two separate kinds of certificate. Mix them up and the system
+either does not start or is less private than it looks.
 
-- **The public certificate.** For the browser. Issued by an authority the world already
-  trusts, for a name in DNS. One of these, on the web edge, and nothing else in the
-  system has one.
-- **The mesh certificates.** For your entities. Issued by an authority you created, for
-  names that mean nothing outside your project. One per service entity, and no browser
-  will ever see one.
+- **The public certificate** is for the browser. An authority the world already trusts
+  issues it, for a name in DNS. Only the web edge has one.
+- **The mesh certificates** are for your entities. An authority you created issues them,
+  for names that mean nothing outside your project. Each service entity has one, and no
+  browser ever sees them.
 
 They answer different questions. The public certificate answers "is this really
-gavel.example.com". The mesh certificates answer "is the thing calling `recordWinner`
-really the web edge". No public authority can answer the second question, which is why
-you are about to become an authority.
+gavel.example.com?" A mesh certificate answers "is the caller of `recordWinner` really the
+web edge?" No public authority can answer the second, so you become an authority.
 
 ## Step 1: Create the authority
 
@@ -27,9 +24,9 @@ On your own machine, in the project directory:
 synqt mesh init
 ```
 
-That writes `synqt/mesh/ca.key` and `synqt/mesh/ca.crt`, restricts the key to your user,
-and adds the ignore rules that keep the key out of git. Read the output. If it tells you
-the permissions could not be set on this platform, believe it and fix it before going on.
+This writes `synqt/mesh/ca.key` and `synqt/mesh/ca.crt`, restricts the key to your user,
+and adds the ignore rules that keep the key out of git. Read the output: if it says the
+permissions could not be set on this platform, fix that before you go on.
 
 Now issue one certificate per service entity:
 
@@ -39,37 +36,38 @@ synqt mesh status
 ```
 
 ```text
-ca                valid until 2029-09-05  (1128 days)
-books.crt         valid until 2027-09-05  (398 days)
-edge.crt          valid until 2027-09-05  (398 days)
+Certificates in synqt/mesh:
+  books: valid until 2027-09-05 (397 days)
+  ca: valid until 2028-10-07 (795 days)
+  edge: valid until 2027-09-05 (397 days)
 ```
 
-Each entity certificate carries the entity name as its subject. That is the whole
-mechanism behind `Caller.entity`. When the database checks `Caller.entity === "edge"`, it
-is reading a name out of a certificate the other end proved it holds the key for, issued
-by an authority both of them verify against.
+Each entity certificate carries the entity name as its subject, and that is how
+`Caller.entity` works. When the database checks `Caller.entity === "edge"`, it reads the
+name from a certificate whose key the other end proved it holds, issued by an authority
+both ends verify against.
 
-There is no certificate for the client. A browser authenticates with a user session,
-never with a mesh identity, and the two are never interchangeable. If you find yourself
-wanting to issue one, what you want is a scope.
+The client gets no certificate. A browser authenticates with a user session, never with a
+mesh identity, and the two never substitute for each other. If you want to issue one to a
+client, you want a scope instead.
 
 ## Step 2: Decide where the key lives, once
 
-This is the decision on this page. Everything else is a command.
+This is the one decision on this page; the rest are commands.
 
-The CA private key never goes on a host that runs an entity, and never into CI.
-Anyone holding `ca.key` can mint a certificate that says `web` on it, and every entity in
-your system will believe them.
+The CA private key never goes on a host that runs an entity, and never into CI. Anyone
+holding `ca.key` can create a certificate that says `edge`, and every entity in your system
+will believe it.
 
-Practically, pick one:
+Pick one:
 
-- For a solo project, the key stays on your machine, backed up somewhere encrypted that is
-  not the repository. Issuing is something you do before a deploy.
-- For a team, the key lives in a secret store (a password manager with file support, a
-  cloud KMS, a hardware token), and issuing is a step somebody runs, logs, and
-  can be asked about later.
+- **Solo project:** the key stays on your machine, with an encrypted backup outside the
+  repository. You issue certificates before a deploy.
+- **Team:** the key lives in a secret store (a password manager with file support, a cloud
+  KMS, a hardware token), and issuing is a step someone runs and logs, so it can be
+  audited later.
 
-What each host gets is the small half:
+Each host gets only what it needs:
 
 | File | Edge host | Database host | Your machine | CI |
 |------|-----------|---------------|--------------|-----|
@@ -78,26 +76,29 @@ What each host gets is the small half:
 | `synqt/mesh/edge.crt` and `.key` | yes | no | yes | no |
 | `synqt/mesh/books.crt` and `.key` | no | yes | yes | no |
 
-A database host has no reason to hold the edge's key, and giving it one for convenience
-means a compromise of the database is a compromise of the edge.
+A database host has no reason to hold the edge's key. Giving it one for convenience means
+a compromised database compromises the edge too.
 
 > [!WARNING]
-> `synqt/mesh/*.key` is git ignored by `synqt mesh init` and by the scaffolder. Check
-> that it stayed ignored before your first push. A private key in git history is not
-> removed by deleting the file, and the only real remedy is to issue a new authority and
-> re-issue everything under it.
+> `synqt mesh init` and the scaffolder make git ignore `synqt/mesh/*.key`. Check that it
+> is still ignored before your first push. Deleting the file does not remove a private key
+> from git history; the only fix is a new authority and new certificates for everything
+> under it.
 
 ## Step 3: The certificate the browser wants
 
-Get a certificate for your domain however you normally would. An ACME client such as
-certbot or your host's built in one, a certificate your organisation issues, anything
-that produces a full chain and a private key. SynQt has no opinion and no integration
-here on purpose: certificate renewal is an operational concern with good tools already.
-Two things about the files themselves: PEM, and an RSA or elliptic-curve key that is not
-encrypted, because nothing is there to type a passphrase into. An edge handed a pair it
-cannot read says so and does not start.
+Get a certificate for your domain the usual way: an ACME client such as certbot or your
+host's built-in one, a certificate your organization issues, anything that produces a full
+chain and a private key. SynQt leaves renewal to those tools, because good ones already
+exist.
 
-Put the two files where `synqt.production.yaml` says they are:
+The files must be PEM, with an unencrypted RSA or elliptic curve key, since nobody is there
+to type a passphrase. An edge given a pair it cannot read says so and does not start. The
+same goes for a key its Qt cannot present: an elliptic curve key needs the OpenSSL TLS
+backend, so if you run the edge on macOS, where Qt uses Secure Transport, request an RSA
+key (`certbot --key-type rsa`).
+
+Put the two files where the edge's `tls:` block in `synqt.yaml` says they are:
 
 ```text
 gavel/
@@ -105,9 +106,9 @@ gavel/
   certs/edge/privkey.pem
 ```
 
-Those paths are relative to the project root, like everything else an entity reads.
+The paths are relative to the project root, like everything an entity reads.
 
-The alternative is to let something in front of the edge terminate TLS:
+Alternatively, let something in front of the edge terminate TLS:
 
 ```yaml
 # synqt.production.yaml, instead of the tls block
@@ -118,23 +119,22 @@ entities:
       origin: https://gavel.example.com
 ```
 
-Then the edge listens plaintext on loopback and your reverse proxy owns the public
-certificate. Both are supported, and a release build refuses to guess between them.
+Then the edge listens in plaintext on loopback, and your reverse proxy holds the public
+certificate. Both setups work, and a release build refuses to guess which you mean.
 
 > [!IMPORTANT]
-> If a proxy is in front, do not let it rewrite response headers. The edge computes the
-> Content-Security-Policy from your topology, including the exact `wss://` origin of the
-> sync endpoint, and it emits the cross origin isolation headers when the client is built
-> multi threaded. A proxy that helpfully replaces those breaks the client, and it breaks
-> it in the browser rather than in your logs. [Content-Security-Policy](csp.md) has the
-> detail.
+> With a proxy in front, do not let it rewrite response headers. The edge computes the
+> Content-Security-Policy from your topology, including the sync endpoint's exact `wss://`
+> origin, and sends the cross origin isolation headers when the client is multi threaded.
+> A proxy that replaces them breaks the client, and the failure shows in the browser, not
+> in your logs. See [Content-Security-Policy](csp.md).
 
 ## Step 4: The secrets, which are not certificates
 
-The auction signs people in through GitHub, so the edge holds an OAuth client secret,
-and the database holds nothing interesting yet. Neither goes in `synqt.yaml`.
+The auction signs people in through GitHub, so the edge holds an OAuth client secret; the
+database has no secret yet. Secrets never go in `synqt.yaml`.
 
-A value that is a secret is declared as a reference:
+Declare a secret as a reference:
 
 ```yaml
 identity:
@@ -151,25 +151,23 @@ and resolved at start from the entity's own env file:
 GITHUB_CLIENT_SECRET=the-real-value
 ```
 
-Two rules are enforced rather than recommended, and they change what mistakes are
-possible:
+Two rules are enforced, not just recommended, and they rule out whole classes of mistake:
 
-- A provider password or connection URI, and an identity provider's `client_secret`, are
-  rejected unless they are `env:` references. You cannot paste a literal secret into
-  the topology, so it cannot end up in the repository by being convenient.
-- Any `env:` reference reachable from a client target is rejected outright. A secret
-  cannot reach the browser by being named in the wrong section, because the section it
-  would have to be named in is refused.
+- **A provider password or connection URI, and an identity provider's `client_secret`,
+  must be `env:` references.** You cannot paste a literal secret into the topology, so it
+  cannot slip into the repository.
+- **An `env:` reference reachable from a client target is rejected.** A secret cannot
+  reach the browser by being named in the wrong section, because that section is
+  refused.
 
-Each entity directory has an `.env.example` listing which names that entity expects. Copy
-it to `.env` on the host, fill it in, and keep the file mode tight (`chmod 600`).
+Each entity directory has an `.env.example` listing the names that entity expects. Copy it
+to `.env` on the host, fill it in, and restrict its permissions (`chmod 600`).
 
 ## Step 5: Watch it refuse
 
-Certificates are the one thing `synqt check` does not enforce, because the
-CA is not supposed to exist on a build machine. The check happens at start instead. See
-it now, before it happens to you at three in the morning. Move the database certificate
-aside and try to start.
+Certificates are checked at start, not by `synqt check`, because the CA must not exist on
+a build machine. See it now rather than at three in the morning:
+move the database certificate aside and try to start.
 
 ```cli
 mv synqt/mesh/books.crt /tmp/
@@ -183,57 +181,55 @@ synqt: refusing to continue with an invalid configuration (run 'synqt check' for
 full report).
 ```
 
-Put it back. That message carries the design. The failure names the entity, the directory
-and the command, and it happens before anything listens on a port. Plain `synqt check`
-reports the same thing as a warning, because a development run has its own certificates.
-`synqt serve` starting a deployment is what makes it an error.
+Put it back. The failure names the entity, the directory and the command, and it happens
+before anything listens on a port. Plain `synqt check` reports the same problem as a
+warning, because a development run has its own certificates; `synqt serve` makes it an
+error when it starts a deployment.
 
 ## Try it, then think
 
 > [!QUESTION]
-> The edge and the database will run on the same host at first, to keep the first deploy
-> simple. Mutual TLS on a loopback link seems like ceremony, since nothing untrusted can reach
-> `127.0.0.1`. Is there a way to turn it off, and should you?
+> The edge and the database will share a host at first, to keep the first deploy simple.
+> Mutual TLS on a loopback link seems pointless, since nothing untrusted can reach
+> `127.0.0.1`. Can you turn it off, and should you?
 
 <details class="solution" markdown>
 <summary>Solution</summary>
 
-There is, and it is `transport: local`, which swaps the TLS socket for a Unix domain
-socket restricted to the user the entities run as. It is faster, it is a documented
-option, and it is never chosen for you.
+You can: `transport: local` replaces the TLS socket with a Unix domain socket restricted
+to the user the entities run as. It is faster and documented, and SynQt never picks it
+for you.
 
-What it costs is the meaning of `Caller.entity`. On a local link the operating system
-tells you which user connected rather than which entity, so any process running as that
-same user can claim to be the edge. The database's `Caller.entity === "edge"` check
-stops being an authentication and becomes an assumption about who else is on the box.
-`synqt check` flags every local link for exactly that reason.
+It costs the meaning of `Caller.entity`. On a local link the OS reports which user
+connected, not which entity, so any process of that user can claim to be the edge. The
+consumer list, and any `Caller.entity === "edge"` check, stop authenticating anything and
+become an assumption about who else is on the machine. That is why `synqt check` flags every local
+link.
 
-Mutual TLS on loopback costs a handshake per connection, which happens once per link and
-not once per call. Take the ceremony. When the database moves to its own host next week,
-nothing about its trust position changes.
+Mutual TLS on loopback costs one handshake per connection, once per link, not per call.
+Keep it. When the database moves to its own host next week, its trust position stays the
+same.
 
-[The entity to entity links](security.md#the-entity-to-entity-links-the-mesh) has the
-full comparison.
+[The entity to entity links](security.md#the-entity-to-entity-links-the-mesh) has the full
+comparison.
 
 </details>
 
 ## Advice worth taking now
 
-- Put the expiry in a calendar. Entity certificates are good for 398 days and the CA
-  for twice that. `synqt mesh status` warns 30 days out, but only if somebody runs it. A
-  reminder that fires a month before the first expiry costs nothing and saves an outage
-  that will look, from the logs, like a networking fault.
-- Rotating an entity is easy, so do it that way. `synqt mesh rotate books` issues a
-  new leaf from the same authority. Copy the new pair to that host and restart that one
-  entity. Its peers verify against the CA certificate, which did not change, so nothing
-  else needs to know.
-- Rotating the authority is a scheduled change. Every entity trusts exactly one CA
-  certificate, so there is no overlap period to hide behind. A new authority means new
-  leaves everywhere and a coordinated restart. Plan it as a maintenance window rather
-  than discovering it during one.
-- Never reuse the development CA. `synqt dev` maintains a throwaway authority under
+- **Put the expiry in a calendar.** Entity certificates last 398 days, the CA twice that.
+  `synqt mesh status` warns 30 days ahead, but only if someone runs it. A reminder a month
+  before the first expiry costs nothing, and prevents an outage that looks like a network
+  fault in the logs.
+- **Rotate one entity at a time.** `synqt mesh rotate books` issues a new leaf from the same
+  authority. Copy the new pair to that host and restart that entity. Its peers verify
+  against the unchanged CA certificate, so nothing else needs to change.
+- **Schedule an authority rotation.** Every entity trusts exactly one CA certificate, so
+  an authority rotation has no overlap period. A new authority means new leaves everywhere and a
+  coordinated restart; plan a maintenance window for it.
+- **Never reuse the development CA.** `synqt dev` keeps a throwaway authority under
   `synqt/mesh/dev/` so development keeps mutual TLS with no setup. It is separate, and a
-  release build will not accept it.
+  release build refuses it.
 
-Next: [Where the binaries go](tutorial-ship-hosts.md), and the shape that makes all of
-these paths resolve.
+Next: [Where the binaries go](tutorial-ship-hosts.md), and the layout that makes these
+paths resolve.

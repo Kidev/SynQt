@@ -7,6 +7,7 @@
 // stalls its upgrade past the handshake timeout, and rejects an oversized frame.
 
 #include "sessionmanager.h"
+#include "topology.h"
 #include "webedge.h"
 #include "webedgeconfig.h"
 #include "websockettransport.h"
@@ -23,6 +24,7 @@
 #include <QRemoteObjectNode>
 #include <QSignalSpy>
 #include <QSslConfiguration>
+#include <QSslKey>
 #include <QSslSocket>
 #include <QTest>
 #include <QUrl>
@@ -255,16 +257,44 @@ private slots:
         // decodes with RSA's own PEM reader and answers a null key for anything else, so
         // the edge listened on the public port with nothing to terminate TLS with and
         // every handshake failed with nothing in the log naming the file.
+        //
+        // Reading it is only the first half. A Qt TLS backend with no key API of its own
+        // (Secure Transport on macOS, Schannel on Windows) hands the pair to the platform
+        // as a PKCS#12 blob, and qtbase's builder for that blob writes an algorithm
+        // identifier for RSA and DSA and for nothing else, so an EC key arrives malformed
+        // and the socket ends up with no identity at all. That is the same dead port by
+        // another road, which is why the edge asks the second question too and refuses
+        // where the answer is no. The two branches below are one rule: an edge either
+        // terminates TLS with the key it was given or does not listen.
         QQmlEngine engine;
         WebEdgeConfig config{makeConfig(false)};
         config.certFile = QStringLiteral(M5_CERT_DIR "/server-ec.crt");
         config.keyFile = QStringLiteral(M5_CERT_DIR "/server-ec.key");
         WebEdge edge{config, &engine};
+
+        const QString unusable{
+            SynQt::unusableKeyReason(SynQt::loadPrivateKey(config.keyFile))};
+        // Stated rather than taken on trust. The rule the branch turns on is the backend,
+        // so a wrong answer from unusableKeyReason() cannot quietly turn this test into
+        // its own opposite.
+        QCOMPARE(unusable.isEmpty(),
+                 QSslSocket::activeBackend() == QLatin1String("openssl"));
+
+        if (!unusable.isEmpty()) {
+            QVERIFY(!edge.start());
+            QVERIFY2(edge.errorString().contains(QStringLiteral("terminate TLS")),
+                     qPrintable(edge.errorString()));
+            QVERIFY2(edge.errorString().contains(config.keyFile),
+                     qPrintable(edge.errorString()));
+            return;
+        }
+
         QVERIFY2(edge.start(), qPrintable(edge.errorString()));
 
         QNetworkReply *reply{httpGet(edge.httpOrigin() + QStringLiteral("/"))};
         QVERIFY(reply != nullptr);
-        QVERIFY(reply->readAll().contains("SYNQT-M5-BUNDLE"));
+        QVERIFY2(reply->readAll().contains("SYNQT-M5-BUNDLE"),
+                 qPrintable(reply->errorString()));
     }
 
     void theEdgeRefusesToStartWithAKeyItCannotRead()
