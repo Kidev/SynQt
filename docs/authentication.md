@@ -40,6 +40,15 @@ Concretely, the defaults baked in by `synqt add auth`:
   JWT or JWKS API at all, so the framework performs the verification with the
   pinned `jwt-cpp` library (MIT, via vcpkg), fetching and caching the provider JWKS
   with QNetworkAccessManager; no hand rolled cryptography.
+- A nonce on every OpenID Connect authorization request, checked against the `nonce`
+  claim of the ID token that comes back. It is what binds that token to this login
+  rather than to one replayed from somewhere else, and it is a separate control from
+  the state above: state protects the callback, the nonce protects the token. Exactly
+  one is sent, which is worth saying because Qt adds one of its own whenever the scope
+  contains `openid`: the framework hands Qt its own random value rather than a second
+  parameter beside it, since a request carrying `nonce` twice is malformed
+  ([RFC 6749 section 3.1](https://www.rfc-editor.org/rfc/rfc6749#section-3.1)) and a
+  provider that enforces that refuses the login outright.
 - Session expiry and rotation: a bounded lifetime, and a fresh session id when
   privilege changes, to limit the value of a stolen session and prevent session
   fixation.
@@ -166,7 +175,7 @@ sequenceDiagram
     participant E as Web edge
     participant P as Identity provider (OAuth2/OIDC)
     B->>E: Session.login() navigates to the login route
-    Note over E: start Authorization Code flow, PKCE + random state
+    Note over E: start Authorization Code flow, PKCE + random state (+ nonce for OIDC)
     E-->>B: redirect to provider
     B->>P: authenticate
     P-->>B: redirect to edge callback (authorization code)
@@ -177,7 +186,7 @@ sequenceDiagram
     opt ID token used for identity
         E->>P: fetch JWKS
         P-->>E: signing keys
-        Note over E: verify ID token signature
+        Note over E: verify ID token signature, iss, aud, exp and nonce
     end
     Note over E: map identity to scope (web/edge/identity/map.qml), create session
     E-->>B: set httpOnly Secure SameSite session cookie

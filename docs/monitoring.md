@@ -77,6 +77,18 @@ SHA-256, never by the value a browser sends. An upgrade is recorded as a decisio
 reason, never as the request that carried it. A provider password, an OAuth token and an
 `Authorization` header never reach the pipeline at all.
 
+That is a property of the call sites, and under it the pipeline has a backstop for the one
+place an application decides what a record carries. Every event passes through the same
+function on its way to the ring, and an attribute whose *name* names a credential
+(`password`, `secret`, `token`, `authorization`, `cookie`, `credential`, `api_key`,
+`private_key`, `bearer`, matched anywhere in the name and in any case) is recorded as
+`[redacted]`, with the name kept so the record says a value was held back rather than
+reading as though there was none. So `Log.warn("refused", { authorization: header })` does
+not put a bearer token in this console. It reads names and never values, because a filter
+that guesses at what a value looks like misses and then reads as a guarantee, and it never
+touches the message, which is prose you wrote and search on. Keep credentials out of what
+you pass it, the same as any log. This catches the ones that get through.
+
 **No call arguments, unless a member asks.** A recorded call carries the shape of the call:
 which member, whether a person or an entity called it, how many arguments there were, how
 long it took, and which check refused it. It does not carry what the arguments were,

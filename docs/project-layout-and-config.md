@@ -1006,37 +1006,40 @@ before there is an OAuth app to register. Both keys are optional (`dev_stub: tru
 the defaults) and the provider entry it produces is written by the framework rather than
 by the project. Every part of the login except the provider is the one that ships, and a
 `users` entry names an identity rather than a scope, so what each of them becomes is the
-mapping hook's answer. It is gated three ways and cannot run in a built deployment;
-`synqt check --release` says a project carries one rather than refusing it.
+mapping hook's answer. `synqt check` refuses a `users` entry with no `sub` (a mapping hook
+keys on it, so that entry would land on the default scope and look broken), a field the
+identity object does not have, and a `port` another entity already serves on. It is gated
+three ways and cannot run in a built deployment. `synqt check --release` says a project
+carries one rather than refusing it.
 
 `refresh` times the server side access token renewal described in
 [authentication](authentication.md#session-lifecycle). The values above are the
-defaults, and they suit a provider issuing hour long tokens; one issuing short lived
+defaults, and they suit a provider issuing hour long tokens. One issuing short lived
 tokens needs a wider `margin_seconds`, and a non-positive `interval_seconds` turns the
-sweep off. The keys are read by whichever entity holds the tokens, which is the edge
+sweep off. Whichever entity holds the tokens reads the keys, which is the edge
 normally and the auth entity when `provider_entity` is set.
 
 `provider_entity` moves identity to an entity of its own, and moving it is the whole
-change: that entity comes to own an `identity` and a `sessions` connect point, every web
+change. That entity comes to own an `identity` and a `sessions` connect point, every web
 edge that serves login consumes both over the mesh, and `synqt build` writes the two
 links, the Source QML on each, and the entity's `main.cpp`. Nothing is declared for them
 and nothing is hand written, so a project holds one line where a rewrite would otherwise
 be. Declaring a connect point named `identity` or `sessions` yourself is refused rather
 than worked around, since a promotion wired half way around a name collision would look
-like it worked. The named entity has to exist and has to be a service of its own: naming
+like it worked. The named entity has to exist and has to be a service of its own. Naming
 the web edge is refused because that is what leaving it empty already means, and naming
 the client is refused because the client holds no secret and no mesh certificate.
 
-A promoted edge is given provider
-*names* and nothing else: no client id, no provider endpoint, no secret, and no token.
+A promoted edge is given provider names and nothing else. It holds no client id, no
+provider endpoint, no secret, and no token.
 It drives the browser facing half (the login and callback routes, the session cookie) and
 asks the auth entity for every step that needs a secret. See
 [Where identity runs](authentication.md#where-identity-runs-at-the-edge-or-as-its-own-entity).
 
 `desktop_session` is the one key here that puts something on a visitor's disk, which is
 why it is asked for rather than defaulted to. Under `device`, a native client keeps a
-rotating, single-use *device credential* in the OS secure store and spends it at the
-next launch for a fresh session; the session's own lifetime does not change. `store` is
+rotating, single-use device credential in the OS secure store and spends it at the
+next launch for a fresh session. The session's own lifetime does not change. `store` is
 an ordinary provider block (the same keys an entity's `provider:` takes, `env:`
 references included), and it has to be one a second edge could reach if the deployment
 ever runs two. The full treatment, including what each platform binds the credential to
