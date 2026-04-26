@@ -3,90 +3,90 @@
   "node_version": "v22.22.0",
   "host": "linux 7.1.5-arch1-2",
   "arch": "x64",
-  "recorded": "2026-08-15T17:11:23.644Z",
+  "recorded": "2026-09-04T17:00:47.590Z",
   "rss_available": true,
   "stack": "node-socketio",
   "path": "socket.io 4.x, websocket transport, no compression",
   "hz": 30,
   "saturated": false,
-  "seconds": 10,
+  "seconds": 5,
   "payload_bytes": 256,
   "sweep": [
     {
       "subscribers": 10,
       "propagation": {
         "unit": "ms",
-        "samples": 3000,
-        "min": 0.161,
-        "p50": 0.363,
-        "p95": 0.648,
-        "p99": 0.7850299999999993,
-        "max": 0.918,
-        "mean": 0.38823166666666625
+        "samples": 1500,
+        "min": 0.2,
+        "p50": 0.6595,
+        "p95": 0.9581499999999998,
+        "p99": 1.0620100000000001,
+        "max": 1.14,
+        "mean": 0.6663873333333339
       },
-      "throughput_msgs_per_sec": 285.687077421198,
-      "cpu_ms_per_1k": 82.06733333333334,
-      "rss_bytes_per_conn": 819609.6,
-      "rss_total_bytes": 107610112,
-      "delivered": 3000,
-      "expected": 3000
+      "throughput_msgs_per_sec": 272.6281352235551,
+      "cpu_ms_per_1k": 128.87666666666664,
+      "rss_bytes_per_conn": 859340.8,
+      "rss_total_bytes": 109883392,
+      "delivered": 1500,
+      "expected": 1500
     },
     {
       "subscribers": 50,
       "propagation": {
         "unit": "ms",
-        "samples": 15000,
-        "min": 0.54,
-        "p50": 0.932,
-        "p95": 1.237,
-        "p99": 1.311,
-        "max": 1.431,
-        "mean": 0.9402127333333317
+        "samples": 7500,
+        "min": 0.617,
+        "p50": 1.342,
+        "p95": 1.7430499999999993,
+        "p99": 1.8290300000000006,
+        "max": 2.09,
+        "mean": 1.334641600000003
       },
-      "throughput_msgs_per_sec": 1428.43538710599,
-      "cpu_ms_per_1k": 20.763533333333342,
-      "rss_bytes_per_conn": 261570.56,
-      "rss_total_bytes": 112492544,
-      "delivered": 15000,
-      "expected": 15000
+      "throughput_msgs_per_sec": 1363.3884748227595,
+      "cpu_ms_per_1k": 30.626666666666658,
+      "rss_bytes_per_conn": 278691.84,
+      "rss_total_bytes": 115224576,
+      "delivered": 7500,
+      "expected": 7500
     },
     {
       "subscribers": 100,
       "propagation": {
         "unit": "ms",
-        "samples": 30000,
-        "min": 1.014,
-        "p50": 1.575,
-        "p95": 1.983,
-        "p99": 2.193,
-        "max": 2.723,
-        "mean": 1.5785550333333203
+        "samples": 15000,
+        "min": 1.189,
+        "p50": 2.2975000000000003,
+        "p95": 2.995,
+        "p99": 3.2870200000000005,
+        "max": 3.666,
+        "mean": 2.3133676666666636
       },
-      "throughput_msgs_per_sec": 2856.87077421198,
-      "cpu_ms_per_1k": 16.943766666666672,
-      "rss_bytes_per_conn": 265134.08,
-      "rss_total_bytes": 125927424,
-      "delivered": 30000,
-      "expected": 30000
+      "throughput_msgs_per_sec": 2726.776949645519,
+      "cpu_ms_per_1k": 26.974533333333337,
+      "rss_bytes_per_conn": 231546.88,
+      "rss_total_bytes": 124444672,
+      "delivered": 15000,
+      "expected": 15000
     },
     {
       "subscribers": 250,
       "propagation": {
         "unit": "ms",
-        "samples": 75000,
-        "min": 2.491,
-        "p50": 3.784,
-        "p95": 4.659,
-        "p99": 4.849009999999995,
-        "max": 5.818,
-        "mean": 3.768104133333316
+        "samples": 37500,
+        "min": 2.888,
+        "p50": 5.315,
+        "p95": 6.895,
+        "p99": 7.079,
+        "max": 7.469,
+        "mean": 5.368851413333325
       },
-      "throughput_msgs_per_sec": 7142.857142857143,
-      "cpu_ms_per_1k": 15.54392,
-      "rss_bytes_per_conn": 196165.632,
-      "rss_total_bytes": 148455424,
-      "delivered": 75000,
-      "expected": 75000
+      "throughput_msgs_per_sec": 6816.942374113797,
+      "cpu_ms_per_1k": 23.679679999999998,
+      "rss_bytes_per_conn": 178667.52,
+      "rss_total_bytes": 145956864,
+      "delivered": 37500,
+      "expected": 37500
     }
   ]
 }

@@ -5,34 +5,34 @@
     "iterations": 500000,
     "path": "sessionmanager-lookup-and-scope-check",
     "qt_version": "6.11.1",
-    "recorded": "2026-07-14T09:14:05Z",
+    "recorded": "2026-09-04T16:06:05Z",
     "sweep": [
         {
-            "create_ns": 635.045,
-            "hasscope_hier_ns": 44.477754,
-            "hasscope_set_ns": 34.517518,
-            "lookup_hit_ns": 28.294798,
-            "lookup_miss_ns": 49.002646,
+            "create_ns": 1191.365,
+            "hasscope_hier_ns": 47.788124,
+            "hasscope_set_ns": 35.38494,
+            "lookup_hit_ns": 30.075124,
+            "lookup_miss_ns": 51.322906,
             "sessions": 1000,
-            "snapshot_ms": 0.323128
+            "snapshot_ms": 0.314918
         },
         {
-            "create_ns": 595.1972,
-            "hasscope_hier_ns": 52.460704,
-            "hasscope_set_ns": 42.389088,
-            "lookup_hit_ns": 38.83757,
-            "lookup_miss_ns": 45.923566,
+            "create_ns": 1009.1644,
+            "hasscope_hier_ns": 52.76438,
+            "hasscope_set_ns": 42.579808,
+            "lookup_hit_ns": 39.64432,
+            "lookup_miss_ns": 47.024406,
             "sessions": 10000,
-            "snapshot_ms": 3.002
+            "snapshot_ms": 3.221946
         },
         {
-            "create_ns": 618.33493,
-            "hasscope_hier_ns": 60.48501,
-            "hasscope_set_ns": 50.975254,
-            "lookup_hit_ns": 78.961754,
-            "lookup_miss_ns": 50.691434,
+            "create_ns": 1041.82958,
+            "hasscope_hier_ns": 65.891922,
+            "hasscope_set_ns": 55.593228,
+            "lookup_hit_ns": 70.978478,
+            "lookup_miss_ns": 52.995758,
             "sessions": 100000,
-            "snapshot_ms": 39.07313
+            "snapshot_ms": 37.651619
         }
     ]
 }

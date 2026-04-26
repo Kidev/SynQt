@@ -15,7 +15,7 @@ later change that regresses one is visible in review; re-run on a fixed runner t
 A committed number is not a guard until something reads it. [`baselines.py`](baselines.py)
 is what reads them, and it separates two kinds of claim.
 
-Absolute numbers are facts about one machine. A 23-microsecond p50 describes the
+Absolute numbers are facts about one machine. A 17-microsecond p50 describes the
 author's workstation. Held against a shared CI runner, which is a different CPU,
 virtualised, and sharing a host with strangers, it would fail constantly for reasons that
 have nothing to do with the commit under review, and a gate that flaps gets switched off.
@@ -91,8 +91,8 @@ replica to the new row count and is indicative of bulk-transfer cost, not a byte
 ### Baseline captured on this checkout
 
 `results/transport-kidevPC_.json` (Qt 6.11.1, Arch Linux x86_64), the reference point on the
-author's machine: slot RTT p50 ~ 23 us (64 B) / 27 us (4 KB), one-way push/signal p50 ~ 14-15
-us, pipelined throughput ~ 1.7x10^5 calls/s, model replication ~ 0.1 / 0.5 / 25 ms for 1 / 100
+author's machine: slot RTT p50 ~ 17 us (64 B) / 20 us (4 KB), one-way push/signal p50 ~ 12-13
+us, pipelined throughput ~ 1.6x10^5 calls/s, model replication ~ 0.1 / 0.5 / 23 ms for 1 / 100
 / 10 000 rows. Re-run on the same runner and compare `results/transport-<host>.json` field by
 field; a regressed p95/p99 or a throughput drop is the signal to investigate.
 
@@ -163,11 +163,11 @@ explicit fast path; measure it, do not assume it." The harness prints that delta
 ### Baseline captured on this checkout
 
 `results/mesh-kidevPC_.json` (Qt 6.11.1, Arch Linux x86_64): steady-state per-message cost is
-close between the modes; slot RTT p50 ~ 26 us (mTLS) vs 15 us (local), property push p50 ~ 16 us
-vs 8 us, throughput ~ 2.8x10^5 vs 3.4x10^5 calls/s; so once a link is up, mutual TLS on loopback
+close between the modes; slot RTT p50 ~ 23 us (mTLS) vs 15 us (local), property push p50 ~ 14 us
+vs 8 us, throughput ~ 2.9x10^5 vs 3.5x10^5 calls/s; so once a link is up, mutual TLS on loopback
 is cheap (a ~1.2-1.8x overhead on already-microsecond operations). The gap is in connection
 setup: the mutual-TLS handshake-plus-verify costs ~ 3.6 ms p50 against ~ 0.03 ms for the
-local socket; a ~113x difference. That is the honest justification for the opt-in local
+local socket; a ~109x difference. That is the honest justification for the opt-in local
 fast path: it matters for connection-heavy or short-lived-link patterns, not for the steady state
 of a long-lived mesh link, where the mTLS default costs almost nothing. Cross-host mutual TLS
 cannot be stood up in one process; its cost is these loopback figures plus real network latency
@@ -193,27 +193,27 @@ work, measured from a large batch) swept over N, plus the full-table `snapshot()
 
 | sessions | lookup_hit | lookup_miss | hasScope_set | hasScope_hier | create | snapshot |
 |----------|-----------|-------------|--------------|---------------|--------|----------|
-| 1 000 | 28 ns | 49 ns | 34 ns | 44 ns | 635 ns | 0.3 ms |
-| 10 000 | 39 ns | 46 ns | 42 ns | 52 ns | 595 ns | 3.0 ms |
-| 100 000 | 79 ns | 51 ns | 51 ns | 60 ns | 618 ns | 39 ms |
+| 1 000 | 30 ns | 51 ns | 35 ns | 48 ns | 1 191 ns | 0.3 ms |
+| 10 000 | 40 ns | 47 ns | 43 ns | 53 ns | 1 009 ns | 3.2 ms |
+| 100 000 | 71 ns | 53 ns | 56 ns | 66 ns | 1 042 ns | 38 ms |
 
 The request-path operations are what matter, and they hold up: lookup and `hasScope` stay in
 the tens of nanoseconds across a 100x growth in live sessions (the mild rise at 100k is cache,
-not algorithm; the `QHash` is O(1)). Hierarchical scope checks cost ~ 9 ns more than set-based
-(the rank `indexOf` in the vocabulary). `createSession()` is now flat at ~ 600 ns regardless of
-table size (token mint + hash insert), and one operation remains O(N) by design:
+not algorithm; the `QHash` is O(1)). Hierarchical scope checks cost ~ 10-13 ns more than
+set-based (the rank `indexOf` in the vocabulary). `createSession()` is now flat at ~ 1.0-1.2 us
+regardless of table size (token mint + hash insert), and one operation remains O(N) by design:
 
 - `createSession()` used to call a full-table `purgeExpired()` on every create, making it
   O(live sessions); an earlier baseline measured ~ 306 us at 100k. It now keeps an
   insertion-ordered `{createdMs, id}` expiry queue and drains only the actually-expired front
   (a fixed TTL means sessions expire in creation order), so minting is amortized O(1);
-  ~ 618 ns at 100k, a ~500x improvement, holding flat across the sweep above. `lookup()` and
+  ~ 1.0 us at 100k, a ~290x improvement, holding flat across the sweep above. `lookup()` and
   `snapshot()` remain the correctness authority for expiry (they re-check the TTL), so the queue
   is a pure memory reclaimer that can safely lag but never returns or drops a live session. This
   is the "future amortized purge" the prior baseline flagged, now landed; the flat `create`
   column is the evidence.
 - `snapshot()` walks the whole live table (it is the late-join replay to a newly-connected
-  consumer), so 39 ms at 100k sessions is expected; it runs once per consumer connect, off the
+  consumer), so 38 ms at 100k sessions is expected; it runs once per consumer connect, off the
   per-request path.
 
 ## monitor: what tracing costs the entity being traced (monitoring)
@@ -241,9 +241,9 @@ per measurement:
 
 | path | p50 | p99 |
 |------|-----|-----|
-| `record_disabled` | 0.2 ns | 0.2 ns |
-| `record_enabled` | 60 ns | 97 ns |
-| `record_dropping` | 38 ns | 39 ns |
+| `record_disabled` | 0.2 ns | 0.3 ns |
+| `record_enabled` | 59 ns | 221 ns |
+| `record_dropping` | 37 ns | 38 ns |
 
 **The budget is on the first row: the disabled path must stay under 25 ns.** It is the
 number the whole design rests on, because every instrumented call site in every SynQt
@@ -259,7 +259,12 @@ overwrites in place and never grows, while the enabled path is also competing wi
 thread draining it. What matters is that it stays a flat constant, which is what makes an
 entity under a burst degrade by losing events rather than by falling over.
 
-About 14 ns of both rows is the redaction pass (`Tracer::isSecretAttributeName`), which
+`record_enabled` is also the one row with a wide tail, and it moves between runs: its p99 was
+97 ns on the previous baseline and 221 ns on this one while its median did not move (60 ns to
+59 ns). That is the shape of a contended `QMutex`, where the tail is the scheduler's and not
+the code's. Only the median is worth reading here, and the gate is on the disabled row.
+
+About 16 ns of both rows is the redaction pass (`Tracer::isSecretAttributeName`), which
 reads every attribute name before the event is recorded and replaces the value of one that
 names a credential. It was measured on this same host at 43 ns and 21 ns without it. That
 is the price of the guarantee in [security](../docs/security.md) that a secret handed to a
@@ -307,26 +312,28 @@ CPU is the number to read here: it is where the O(N^2) lives:
 
 | N | mode | slice (rows/session) | rows/tick | publish CPU p50 | publish CPU p99 |
 |---|------|----------------------|-----------|-----------------|-----------------|
-| 25 | per_session_naive | 25 | 625 | 0.73 ms | 0.90 ms |
-| 25 | per_session_interest | 16 | 400 | 0.49 ms | 0.62 ms |
-| 50 | per_session_naive | 50 | 2 500 | 3.32 ms | 3.64 ms |
-| 50 | per_session_interest | 16 | 800 | 1.24 ms | 1.77 ms |
-| 100 | per_session_naive | 100 | 10 000 | **12.4 ms** | 14.6 ms |
-| 100 | per_session_interest | 16 | 1 600 | **2.37 ms** | 2.80 ms |
+| 25 | per_session_naive | 25 | 625 | 0.69 ms | 0.72 ms |
+| 25 | per_session_interest | 16 | 400 | 0.46 ms | 0.49 ms |
+| 50 | per_session_naive | 50 | 2 500 | 2.60 ms | 2.79 ms |
+| 50 | per_session_interest | 16 | 800 | 0.91 ms | 0.98 ms |
+| 100 | per_session_naive | 100 | 10 000 | **10.7 ms** | 11.5 ms |
+| 100 | per_session_interest | 16 | 1 600 | **1.93 ms** | 2.31 ms |
 
-The naive per-session CPU is quadratic in N; 0.17 -> 0.73 -> 3.32 -> 12.4 ms across N = 10 -> 25 ->
-50 -> 100 (a 10x N is a ~ 75x cost, i.e. N^2); exactly the O(N^2) the tutorial flags, because each
+The naive per-session CPU is quadratic in N; 0.13 -> 0.69 -> 2.60 -> 10.7 ms across N = 10 -> 25 ->
+50 -> 100 (a 10x N is a ~ 82x cost, i.e. N^2); exactly the O(N^2) the tutorial flags, because each
 of N sessions rebuilds a slice of all N entities. Interest management flattens it: capping each
 slice at the k = 16 nearest holds the per-session payload constant, so total work is O(N*k) and the
-publish CPU grows *linearly* (0.16 -> 0.49 -> 1.24 -> 2.37 ms). At N = 100 that is a 5.3x cheaper
-publish and 6.25x less payload (1 600 vs 10 000 rows/tick), and it keeps the tick inside a frame
-budget the naive path (12.4 ms) is already eating half of. This is where the arena saturates on a
-single edge, and it is the number that justifies the per-caller Source plus interest management.
-`shared` is cheapest of all (one model, 1.58 ms at N = 100) but cannot filter per player, so it is
-only viable when every client legitimately needs the whole world. Propagation latency is reported
-alongside (and tracks the same ordering; interest lowest, naive highest, at every N >= 25); its
-low-N floor reflects QtRO's outbound property-change coalescing, so the CPU columns are the primary
-characterization.
+publish CPU grows *linearly* (0.13 -> 0.46 -> 0.91 -> 1.93 ms; at N = 10 the two modes are the same
+measurement, because k = 16 is more entities than the world holds). At N = 100 that is a 5.5x
+cheaper publish and 6.25x less payload (1 600 vs 10 000 rows/tick). Against the arena's 30 Hz
+tick that is 6% of the budget rather than 32%, which is the difference between a loop with room
+in it and one already spending a third of every tick publishing. This is where the arena
+saturates on a single edge, and it is the number that justifies the per-caller Source plus
+interest management. `shared` is cheapest of all (one model, 1.18 ms at N = 100) but cannot
+filter per player, so it is only viable when every client legitimately needs the whole world.
+Propagation latency is reported alongside (and tracks the same ordering; interest lowest, naive
+highest, at every N >= 25); its low-N floor reflects QtRO's outbound property-change coalescing,
+so the CPU columns are the primary characterization.
 
 ### What the socket threads move, and what this harness cannot see
 
@@ -335,15 +342,15 @@ Sweeping `--threads` at N = 100 (Qt 6.11.1, Arch Linux x86_64, 120 ticks, warmup
 
 | mode | 1 thread | 2 | 4 | 8 |
 |------|---------:|--:|--:|--:|
-| shared | 1.47 | **0.74** | 0.76 | 0.74 |
-| per_session_interest | 2.52 | 2.35 | 2.34 | 2.31 |
-| per_session_naive | 12.1 | 11.2 | 11.1 | 11.1 |
+| shared | 1.14 | **0.53** | 0.49 | 0.49 |
+| per_session_interest | 1.91 | 1.71 | 1.70 | 1.70 |
+| per_session_naive | 10.7 | 10.1 | 9.90 | 9.87 |
 
 `shared` halves at two threads and then stops moving. Its
 owner-side work is a single revision bump, so nearly all of what was being measured was
-per-socket framing and writing, once per consumer; moving that off leaves the model build,
-which no number of socket threads can touch. Four runs at each point: 1.467 / 1.457 / 1.430 /
-1.425 against 0.755 / 0.683 / 0.696 / 0.694, so the 2.1x is the measurement and not the
+per-socket framing and writing, once per consumer. Moving that off leaves the model build,
+which no number of socket threads can touch. Four runs at each point: 1.106 / 1.143 / 1.242 /
+1.055 against 0.489 / 0.519 / 0.549 / 0.542, so the 2.2x is the measurement and not the
 run.
 
 The other two modes barely move, for the same reason read the other way round. Their
@@ -396,18 +403,18 @@ cache's hit/miss/set cost plus that its bounded LRU holds its bound under overfi
 
 | Metric | Value |
 |--------|-------|
-| `sqlite_write_autocommit` | p50 9 us, p99 18 us (~ 103 k rows/s) |
-| `sqlite_write_batched` (one txn) | ~ 418 k rows/s |
+| `sqlite_write_autocommit` | p50 8 us, p99 14 us (~ 114 k rows/s) |
+| `sqlite_write_batched` (one txn) | ~ 456 k rows/s |
 | `sqlite_read_point` (indexed) | p50 4 us, p99 5 us |
 | `sqlite_write_contended` (2nd writer active) | p50 8 us, p99 13 us, 0 of 2000 writes refused |
 | write lock held 1000 ms | **no busy timeout: refused. 5000 ms busy timeout: waited, landed** |
-| `cache_get_hit` / `cache_get_miss` / `cache_set` | 93 / 68 / 98 ns/op |
-| `cache_set_under_eviction` | ~ 1.3 us/op |
+| `cache_get_hit` / `cache_get_miss` / `cache_set` | 86 / 72 / 94 ns/op |
+| `cache_set_under_eviction` | ~ 0.18 us/op |
 
 Reading it: WAL with the default `synchronous=NORMAL` does not fsync per commit, so autocommit
-writes are cheap (single-digit microseconds) and a single bulk transaction reaches ~ 418 k
+writes are cheap (single-digit microseconds) and a single bulk transaction reaches ~ 456 k
 rows/s. With a second connection hammering the same file, the single writer's median is
-unchanged (8 us against 9), which is the contention reading worth having.
+unchanged (7.5 us against 8.4), which is the contention reading worth having.
 
 The safety claim is the row under it, and it is an arranged experiment rather than a race: a third
 connection takes the WAL write lock and holds it for a second, and during that second two writers
@@ -423,10 +430,13 @@ sub-millisecond and none failed. A flat "no write was refused" went next, when t
 starved the writer for the whole timeout: SQLite's busy handler is not a queue, so a rival writing
 in a tight loop can hold a second writer off indefinitely, and that is SQLite's documented shape
 rather than a regression. Both the refusal count and the worst single write are still recorded;
-they are reported and not enforced. The memory cache is ~93 ns/op on the hot path and holds its
-bound exactly under 2x overfill (oldest evicted, newest kept). `cache_set_under_eviction` is more
-expensive (~ 1.3 us) because the LRU recency list evicts from the front; O(bound) per evicting
-set; it is cheap at the default bound but a note for very large cache bounds.
+they are reported and not enforced. The memory cache is ~86 ns/op on the hot path and holds its
+bound exactly under 2x overfill (oldest evicted, newest kept). `cache_set_under_eviction` costs
+~ 0.18 us, about twice a plain set and no more: the recency order is a `std::list` in which every
+entry holds its own iterator, so touching one and evicting the oldest are both O(1) and the extra
+is one erase plus one hash removal. An earlier baseline measured ~ 1.3 us here, when the recency
+order was a `QList<QString>` scanned with `removeOne()` on every access; that cost scaled with the
+bound, and this one does not.
 
 ## client: bundle weight and frame time (M6)
 
@@ -445,9 +455,52 @@ the single- vs multi-threaded frame cost is directly comparable.
 ./benchmarks/client/run-bench.sh --blobs 2000 --ramp 15
 ```
 
-It needs a real display and the WASM kits, so it runs on a workstation rather than a headless
-runner. Bundle sizing, the scene, and the browser driver have all been exercised against a
-served page; only the committed numeric baseline waits on a host with a display.
+It needs the WASM kits and a GPU the browser will use, so it runs on a workstation rather than
+a headless runner. The driver itself is headless Chromium. What it cannot be given is a
+software rasteriser, because a frame time measured against one says nothing about a real client.
+
+### Baseline captured on this checkout
+
+`results/client-bundle-{single,multi}-kidevPC_.json` and
+`results/client-frametime-{single,multi}-kidevPC_.json` (Qt 6.11.1, Emscripten 4.0.7,
+Chromium under COOP/COEP, and both kits reported `crossOriginIsolated`, so the threaded one
+really did get its `SharedArrayBuffer`).
+
+What the bench scene's bundle weighs, which is the framework plus a small 2D scene and no
+application:
+
+| kit | raw | gzip | Brotli |
+|-----|----:|-----:|-------:|
+| `wasm_singlethread` | 20 552 956 | 7 145 808 | **5 080 373** |
+| `wasm_multithread` | 21 385 624 | 7 532 696 | **5 325 392** |
+
+Brotli is the figure that crosses the wire, so ~5.1 MB single-threaded and ~5.3 MB threaded:
+threads cost 245 KB, about 4.8%. Nearly all of it is the `.wasm` (5.0 of the 5.1 MB); the
+loader and the generated JS together are under 70 KB. Cold start, navigation to first
+rendered frame, is 1 232 ms single-threaded and 1 256 ms threaded.
+
+`results/client-bundle-arena-kidevPC_.json` is the same measurement on a real application
+rather than the bench scene: the [arena](../examples/arena) client, single-threaded,
+weighs 26 194 290 raw and **6 766 822 Brotli**. So a finished multiplayer client is 1.7 MB
+of Brotli above the floor, which is the useful way to read the scene's number; the floor is
+what Qt and the framework cost, and an application adds its own QML and the Qt modules it
+reaches for on top.
+
+Frame time as the scene fills, p50 in ms (the compositor caps at 60 Hz, so 16.67 ms is the
+floor and means the frame had time to spare):
+
+| blobs | 150 | 275 | 400 | 550 | 675 | 825 | 1 000 | 1 250 | ~1 560 | 1 975 |
+|-------|----:|----:|----:|----:|----:|----:|------:|------:|-------:|------:|
+| single | 17.6 | 16.7 | 16.7 | 16.7 | 17.1 | 16.9 | 23.4 | 30.1 | 40.5 | 50.8 |
+| multi | 17.6 | 16.7 | 16.7 | 16.7 | 16.7 | 17.7 | 22.8 | 30.8 | 39.0 | 52.3 |
+
+Both kits hold 60 Hz to about 825 moving, interpolated blobs and then fall off together:
+43 fps at 1 000, 33 at 1 250, 20 at 1 975. **The threaded kit is not faster.** The two
+columns agree inside the noise at every size, which is the honest reading: this scene's
+per-frame cost is QML bindings and scene-graph work on the render thread, and threading the
+WebAssembly heap does not divide that. The reason to build the threaded kit is what it
+unblocks elsewhere, not frame rate here; it costs 245 KB and requires cross-origin
+isolation, and this table is what it buys in return.
 
 ## capstone: the arena end to end under load
 
@@ -466,6 +519,41 @@ the N where per-session payload stops being flat (the real single-edge ceiling) 
 
 It sustains a fixed-rate loop and many live connections, so it belongs on a host that permits
 sustained load; the committed baseline was measured on one.
+
+### Baseline captured on this checkout
+
+`results/capstone-kidevPC_.json` (Qt 6.11.1, Arch Linux x86_64; 30 Hz target, 5 s windows,
+`interest_k=16`). Every player is a real node on the real transport, and every one of them
+was live for the whole window at every size (`players_not_counted` is 0 throughout):
+
+| players | rows/session | rows/tick | publish CPU p50 | tick jitter p50 | snapshots delivered | RSS |
+|--------:|-------------:|----------:|----------------:|----------------:|--------------------:|----:|
+| 10 | 10 | 100 | 0.43 ms | 0.01 ms | 30.0 Hz | 88 MB |
+| 25 | 16 | 400 | 1.68 ms | 0.01 ms | 30.0 Hz | 90 MB |
+| 50 | 16 | 800 | 3.45 ms | 0.02 ms | 30.0 Hz | 91 MB |
+| 100 | 16 | 1 600 | 6.94 ms | 3.29 ms | 30.1 Hz | 96 MB |
+| 200 | 16 | 3 200 | 14.7 ms | 49.7 ms | **13.0 Hz** | 397 MB |
+
+Interest management does what the fanout harness says it does: from 25 players on, each one
+receives 16 rows a tick no matter how many others are playing, so the per-session payload is
+flat and only the *number* of sessions grows. That makes the total linear, and the publish
+CPU column is linear with it, 0.43 -> 1.68 -> 3.45 -> 6.94 -> 14.7 ms.
+
+**The ceiling is between 100 and 200 players on one edge process.** At 100 the loop still
+holds its cadence (30.1 Hz delivered against a 30 Hz target) while spending 6.9 ms of each
+33 ms tick publishing, with 3.3 ms of jitter, which is a loop with margin left but not much.
+At 200 it is over: 14.7 ms of publish CPU per tick, 49.7 ms of median jitter (the loop is
+missing more ticks than it hits), 13.0 Hz actually delivered, and resident memory jumping
+from 96 MB to 397 MB as the unsent work backs up. Nothing fails and nothing disconnects; the
+simulation just runs slower than it promised, which is the failure mode a fixed-rate
+authoritative server has.
+
+That is the honest ceiling of a version-1 single-edge deployment for *this* workload, and it
+is a per-process number, not a per-machine one. It is also the number the two scaling keys
+answer: [`threads: N`](../docs/deploying.md#running-one-edge-on-more-than-one-core) moves the
+delivery half of that publish CPU off the loop, and `replicas: N` runs more of these
+processes. Neither divides the simulation itself, which is one world on one thread by
+construction.
 
 The snapshot rate counts snapshots a player was handed, by the replica's own change signal.
 Subtracting the published tick instead would have been wrong in the direction that matters:
@@ -490,16 +578,16 @@ benchmarks/remote-pages/run.sh --out benchmarks/results/remote-pages-$(hostname)
 
 ### Baseline captured on this checkout
 
-Qt 6.11.1, Emscripten 4.0.7, the `wasm_singlethread` kit, recorded 2026-07-23:
+Qt 6.11.1, Emscripten 4.0.7, the `wasm_singlethread` kit, recorded 2026-09-04:
 
 | variant     | raw bytes | gzip bytes | Brotli bytes |
 | ----------- | --------- | ---------- | ------------ |
-| remote      | 26092721  | 9581701    | 6746398      |
-| compiled-in | 26108258  | 9584939    | 6749377      |
-| **saving**  | **15537** | **3238**   | **2979**     |
+| remote      | 26137545  | 9597540    | 6755645      |
+| compiled-in | 26153020  | 9603525    | 6758900      |
+| saving      | 15475     | 5985       | 3255         |
 
-Read that as what those two small pages weigh in this one small demo, not as a figure for SynQt in
-general: the saving is a function of how much of an application is rarely visited, so it grows with
+Read that as what those two small pages weigh in this one small demo rather than as a figure for SynQt in
+general. The saving is a function of how much of an application is rarely visited, so it grows with
 every seldom-reached page an app keeps on the edge.
 [The harness README](remote-pages/README.md) says the same at
 length, and says why the harness needs the WebAssembly kit and so belongs on a workstation.
@@ -545,8 +633,8 @@ Node as scaling 1.14x when it scales 3.86x. Neither looked wrong from the outsid
 `buildtime/` is the one part of the plan that is not a measurement harness. Nothing needed
 instrumenting; the build steps already exist and [`measure.py`](buildtime/measure.py) times
 around them. Per entity it reports a clean build (empty directory to linked artifact), a
-no-op build (`synqt build` again, nothing changed), and a touched build (one QML
-file's timestamp moved), plus contract generation timed on its own as a subprocess, because
+no-op build (`synqt build` again, nothing changed), and a touched build (one QML file
+edited, then reverted), plus contract generation timed on its own as a subprocess, because
 that is how the build invokes it.
 
 ```sh
@@ -564,10 +652,10 @@ in this repository. The only thing that can see it is a clock.
 `results/buildtime-kidevPC_.json` (Qt 6.11.1, Arch Linux x86_64, 32 CPUs, release,
 `examples/gavel`):
 
-| target   | clean  | no-op  | touched | contract generation |
-|----------|--------|--------|---------|---------------------|
-| web      | 14.6 s | 0.08 s | 0.08 s  | 93 ms for 3 contracts (p50) |
-| database | 13.3 s | 0.08 s | 0.08 s  | |
+| target | type | clean | no-op | touched | contract generation |
+|--------|------|-------|-------|---------|---------------------|
+| `edge` | `web_edge` | 28.5 s | 0.10 s | 0.10 s | 64 ms for 2 contracts (p50) |
+| `books` | `relational` | 15.0 s | 0.10 s | 0.10 s | |
 
 The first run of this harness found a real defect, and the fix took two rounds. Codegen
 runs at CMake configure time (`cmake/SynQtContracts.cmake`) and `synqt build` reconfigures
@@ -582,37 +670,45 @@ the root `CMakeLists.txt`, the presets, and every entity's `main.cpp`, identical
 all, so every one of them arrived at the compiler looking new. Routing those writes through
 `synqt.writer.write_if_changed` and skipping the explicit CMake configure when neither the
 command nor the preset changed took a no-op from 4.3 s to 0.08 s, a 55x difference on
-the same tree. A real change still rebuilds, which is the half worth checking: adding a
+the same tree. A real change still rebuilds, which is the half to check. Adding a
 `prop` to a contract relinks in 4.9 s and adding a scope to `synqt.yaml` in 3.2 s, both with
 a new binary timestamp, while a no-op leaves the binary alone.
 
-The 50% band alone would have called all of that a pass, so the gate now also carries
+The 50% band alone would have called all of that a pass, so the gate also carries
 `a_no_op_build_compiles_nothing` at 5%; the pre-fix numbers fail it and the current ones
-clear it by 6x.
+clear it by 7x.
 
 `touched` matches `no-op` here because both entities are services: their Source QML is
-loaded from disk at runtime rather than compiled in, so moving its timestamp correctly
-rebuilds nothing. The number to watch on that row is the client's, which does compile its
-QML (`--include-client`).
+loaded from disk at runtime rather than compiled in, so editing it correctly rebuilds
+nothing. The number to watch on that row is the client's, which does compile its QML
+(`--include-client`).
+
+That row also has to be a real edit rather than a `touch()`, and for a while it was not.
+`synqt build` copies an entity's QML into `generated/` through `write_if_changed`, which
+compares content, so moving a timestamp leaves the generated copy alone and the compiler
+correctly does nothing: the client's touched column came back at 0.13 s, *below* its own
+no-op, and would have been published as the edit-rebuild cycle. The harness appends a
+comment line and reverts it afterwards.
 
 The client row found the second no-op defect this harness exists for. A clean
-WebAssembly client build costs 68.4 s, a touched `Main.qml` 52.9 s, and
-a no-op 0.12 s. That last number was 38.6 s when it was first measured, with
+WebAssembly client build costs 61.5 s, an edited `Main.qml` 50.7 s, and
+a no-op 0.13 s. That last number was 38.6 s when it was first measured, with
 the compiler doing nothing at all: `synqt build` recompressed the whole bundle on every
 invocation, and Brotli over a 30 MB `.wasm` is tens of seconds of one core. Precompression
 now skips an asset whose `.br` and `.gz` are already newer than it, which is what makes a
-client no-op 320x cheaper and takes 4.7 s off every edit-rebuild cycle. No test in the
+client no-op ~300x cheaper and takes 4.7 s off every edit-rebuild cycle. No test in the
 suite could have caught it.
 
-What remains in the client's 52.9 s is not a defect, and the gate says so in its own band.
-Timed step by step, a touched `Main.qml` costs 16.9 s to compile the one translation unit
-qmlcachegen produces from it and 36.3 s in the Emscripten link that follows. No edit avoids
-that link, so a WebAssembly client is held to `touched < 90%` of a clean build rather than
-the 50% a service is held to, while the no-op band that catches real unincrementality stays
-strict for both.
+What remains in the client's 50.7 s is not a defect, and the gate says so in its own band.
+Timed step by step on an earlier run of this harness, an edited `Main.qml` cost 16.9 s to
+compile the one translation unit qmlcachegen produces from it and 36.3 s in the Emscripten
+link that follows. No edit avoids that link, so a WebAssembly client is held to
+`touched < 90%` of a clean build (it lands at 83%) rather than the 50% a service is held
+to, while the no-op band that catches real unincrementality stays strict for both.
 
-Contract generation is a rounding error at this size, 0.7% of a clean build, which is the
-useful thing to know about it: `.syn` lowering is not where build time goes.
+Contract generation is a rounding error at this size, 0.4% of the smallest clean build,
+which is the useful thing to know about it: lowering an `export:` block to a `.syn` and
+running the compiler over it is not where build time goes.
 
 ## Coverage of the benchmarking plan
 

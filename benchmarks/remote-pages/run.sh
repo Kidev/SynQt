@@ -49,6 +49,18 @@ synqt_cli() {
 }
 
 EXAMPLE="$REPO_ROOT/examples/stall"
+
+# Which entity is the client, and where its bundle lands, are both the topology's to say,
+# and they are not the same string. Asking it here keeps this harness working when the
+# example renames one, rather than building nothing and weighing nothing.
+read -r CLIENT BUNDLE <<< "$(PYTHONPATH="$REPO_ROOT/tools/synqt" python3 -c '
+import sys, yaml
+from synqt import appmodel
+config = yaml.safe_load(open(sys.argv[1]))
+entity = next(e for e in appmodel.entities(config) if appmodel.is_client(e))
+print(entity["name"], appmodel.bundle_output_dir(config, entity))
+' "$EXAMPLE/synqt.yaml")"
+
 WORK="$(mktemp -d)"
 cleanup() { rm -rf "$WORK"; }
 trap cleanup EXIT
@@ -60,26 +72,28 @@ trap cleanup EXIT
 cp -a "$EXAMPLE" "$WORK/remote"
 cp -a "$EXAMPLE" "$WORK/compiled-in"
 
-python3 - "$WORK/compiled-in" <<'PY'
+PYTHONPATH="$REPO_ROOT/tools/synqt" python3 - "$WORK/compiled-in" <<'PY'
 import pathlib
 import shutil
 import sys
 
 import yaml
 
+from synqt import appmodel
+
 project = pathlib.Path(sys.argv[1])
 config = yaml.safe_load((project / "synqt.yaml").read_text())
-client = next(entity["name"] for entity in config["entities"]
-              if entity.get("kind") == "client")
-edge = next(entity["name"] for entity in config["entities"]
-            if entity.get("capability") == "web_edge")
+entities = appmodel.entities(config)
+client = next(entity for entity in entities if appmodel.is_client(entity))
+edge = next(entity for entity in entities if appmodel.is_edge(entity))
 for route in config.get("routes", []):
     page = route.get("remote")
     if not page:
         continue
     # A compiled-in view is named relative to the client directory, so the page QML moves
-    # there; the edge no longer delivers it, so `remote:` and its `seed:` are dropped.
-    shutil.copy2(project / edge / "pages" / page, project / client / page)
+    # there. The edge no longer delivers it, so `remote:` and its `seed:` are dropped.
+    shutil.copy2(project / appmodel.entity_dir(edge) / "pages" / page,
+                 project / appmodel.entity_dir(client) / page)
     route["view"] = page
     route.pop("remote", None)
     route.pop("seed", None)
@@ -93,9 +107,9 @@ build_and_measure() {
     local label="$2"
     local out="$3"
     echo "== build client ($label) ==" >&2
-    synqt_cli build --client wasm --entity client --project-dir "$project" --release >&2
+    synqt_cli build --client wasm --entity "$CLIENT" --project-dir "$project" --release >&2
     bash "$REPO_ROOT/benchmarks/client/measure-bundle.sh" \
-        "$project/build/client" "$label" --out "$out"
+        "$project/$BUNDLE" "$label" --out "$out"
 }
 
 build_and_measure "$WORK/remote" "stall-remote" "$WORK/remote.json"

@@ -5,7 +5,7 @@
   "node_version": "v22.22.0",
   "host": "Linux 7.1.5-arch1-2",
   "arch": "x86_64",
-  "recorded": "2026-08-15T17:13:05Z",
+  "recorded": "2026-09-04T16:34:24Z",
   "subscribers": 200,
   "seconds": 10,
   "saturated": true,
@@ -13,69 +13,69 @@
     {
       "count": 1,
       "subscribers": 200,
-      "throughput_msgs_per_sec": 89151.08489151085,
-      "delivered": 891600,
-      "expected": 891600,
+      "throughput_msgs_per_sec": 97230.27697230277,
+      "delivered": 972400,
+      "expected": 972400,
       "propagation": {
         "unit": "ms",
-        "samples": 891600,
+        "samples": 972400,
         "min": 0.0,
-        "p50": 1.8047310000001453,
-        "p95": 2.2701345599996117,
-        "p99": 2.2701345599996117,
-        "max": 2.2701345599996117,
-        "mean": 1.8047310000001453
+        "p50": 1.7300515000005254,
+        "p95": 2.164214160000151,
+        "p99": 2.164214160000151,
+        "max": 2.164214160000151,
+        "mean": 1.7300515000005254
       }
     },
     {
       "count": 2,
       "subscribers": 200,
-      "throughput_msgs_per_sec": 198750.0,
-      "delivered": 1987500,
-      "expected": 1987500,
+      "throughput_msgs_per_sec": 216100.0,
+      "delivered": 2161000,
+      "expected": 2161000,
       "propagation": {
         "unit": "ms",
-        "samples": 1987500,
+        "samples": 2161000,
         "min": 0.0,
-        "p50": 0.788786000000313,
-        "p95": 1.007310009999592,
-        "p99": 1.007310009999592,
-        "max": 1.007310009999592,
-        "mean": 0.788786000000313
+        "p50": 0.8022410000001546,
+        "p95": 0.973947150000157,
+        "p99": 0.973947150000157,
+        "max": 0.973947150000157,
+        "mean": 0.8022410000001546
       }
     },
     {
       "count": 4,
       "subscribers": 200,
-      "throughput_msgs_per_sec": 415635.0,
-      "delivered": 4156350,
-      "expected": 4156350,
+      "throughput_msgs_per_sec": 484205.0,
+      "delivered": 4842050,
+      "expected": 4842050,
       "propagation": {
         "unit": "ms",
-        "samples": 4156350,
+        "samples": 4842050,
         "min": 0.0,
-        "p50": 0.37375800000037995,
-        "p95": 0.48781801999997354,
-        "p99": 0.48781801999997354,
-        "max": 0.48781801999997354,
-        "mean": 0.37375800000037995
+        "p50": 0.35635699999984355,
+        "p95": 0.46256451000009197,
+        "p99": 0.46256451000009197,
+        "max": 0.46256451000009197,
+        "mean": 0.35635699999984355
       }
     },
     {
       "count": 8,
       "subscribers": 200,
-      "throughput_msgs_per_sec": 852460.0,
-      "delivered": 8524600,
-      "expected": 8524600,
+      "throughput_msgs_per_sec": 996292.5,
+      "delivered": 9962925,
+      "expected": 9962925,
       "propagation": {
         "unit": "ms",
-        "samples": 8524600,
+        "samples": 9962925,
         "min": 0.0,
-        "p50": 0.18039800000004472,
-        "p95": 0.24717499999981374,
-        "p99": 0.24717499999981374,
-        "max": 0.24717499999981374,
-        "mean": 0.18039800000004472
+        "p50": 0.17341400000010618,
+        "p95": 0.22511900000087917,
+        "p99": 0.22511900000087917,
+        "max": 0.22511900000087917,
+        "mean": 0.17341400000010618
       }
     }
   ],
@@ -83,69 +83,69 @@
     {
       "count": 1,
       "subscribers": 200,
-      "throughput_msgs_per_sec": 118368.16318368164,
-      "delivered": 1183800,
-      "expected": 1183800,
+      "throughput_msgs_per_sec": 120807.9192080792,
+      "delivered": 1208200,
+      "expected": 1208200,
       "propagation": {
         "unit": "ms",
-        "samples": 1183800,
+        "samples": 1208200,
         "min": 0.0,
-        "p50": 1.179,
-        "p95": 1.713,
-        "p99": 1.713,
-        "max": 1.713,
-        "mean": 1.179
+        "p50": 1.156,
+        "p95": 1.719,
+        "p99": 1.719,
+        "max": 1.719,
+        "mean": 1.156
       }
     },
     {
       "count": 2,
       "subscribers": 200,
-      "throughput_msgs_per_sec": 223250.0,
-      "delivered": 2232500,
-      "expected": 2232500,
+      "throughput_msgs_per_sec": 226010.0,
+      "delivered": 2260100,
+      "expected": 2260100,
       "propagation": {
         "unit": "ms",
-        "samples": 2232500,
+        "samples": 2260100,
         "min": 0.0,
-        "p50": 0.619,
-        "p95": 0.928,
-        "p99": 0.928,
-        "max": 0.928,
-        "mean": 0.619
+        "p50": 0.611,
+        "p95": 0.925,
+        "p99": 0.925,
+        "max": 0.925,
+        "mean": 0.611
       }
     },
     {
       "count": 4,
       "subscribers": 200,
-      "throughput_msgs_per_sec": 457315.0,
-      "delivered": 4573150,
-      "expected": 4573150,
+      "throughput_msgs_per_sec": 459545.0,
+      "delivered": 4595450,
+      "expected": 4595450,
       "propagation": {
         "unit": "ms",
-        "samples": 4573150,
+        "samples": 4595450,
         "min": 0.0,
-        "p50": 0.305,
-        "p95": 0.467,
-        "p99": 0.467,
-        "max": 0.467,
-        "mean": 0.305
+        "p50": 0.303,
+        "p95": 0.471,
+        "p99": 0.471,
+        "max": 0.471,
+        "mean": 0.303
       }
     },
     {
       "count": 8,
       "subscribers": 200,
-      "throughput_msgs_per_sec": 859411.6940805919,
-      "delivered": 8594225,
-      "expected": 8594225,
+      "throughput_msgs_per_sec": 873562.5,
+      "delivered": 8735625,
+      "expected": 8735625,
       "propagation": {
         "unit": "ms",
-        "samples": 8594225,
+        "samples": 8735625,
         "min": 0.0,
-        "p50": 0.16,
-        "p95": 0.318,
-        "p99": 0.318,
-        "max": 0.318,
-        "mean": 0.16
+        "p50": 0.158,
+        "p95": 0.314,
+        "p99": 0.314,
+        "max": 0.314,
+        "mean": 0.158
       }
     }
   ]

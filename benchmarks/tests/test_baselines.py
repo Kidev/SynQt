@@ -81,8 +81,8 @@ def assert_fails(document, invariant):
 
 
 def test_a_full_table_purge_on_create_is_caught():
-    """The real one. `createSession()` used to walk every live session, costing 306 us at
-    100k against 600 ns now. Putting that back must fail the amortized-O(1) claim."""
+    """The real one. A `createSession()` that walks every live session costs 306 us at
+    100k against ~1.0 us for the expiry queue. That shape must fail the amortized-O(1) claim."""
     document = load_kind("sessions")
     biggest = max(document["sweep"], key=lambda row: row["sessions"])
     biggest["create_ns"] = 306_000.0

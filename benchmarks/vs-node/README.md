@@ -192,15 +192,16 @@ processes, 10 second windows:
 
 | processes | SynQt | Node (bare) | worst p99, SynQt | worst p99, Node |
 |---|---|---|---|---|
-| 1 | 89,151 msg/s | 118,368 msg/s | 2.270 ms | 1.713 ms |
-| 2 | 198,750 msg/s | 223,250 msg/s | 1.007 ms | 0.928 ms |
-| 4 | 415,635 msg/s | 457,315 msg/s | 0.488 ms | 0.467 ms |
-| 8 | 852,460 msg/s (9.56x) | 859,412 msg/s (7.26x) | 0.247 ms | 0.318 ms |
+| 1 | 97,230 msg/s | 120,808 msg/s | 2.164 ms | 1.719 ms |
+| 2 | 216,100 msg/s | 226,010 msg/s | 0.974 ms | 0.925 ms |
+| 4 | 484,205 msg/s | 459,545 msg/s | 0.463 ms | 0.471 ms |
+| 8 | 996,292 msg/s (10.25x) | 873,562 msg/s (7.23x) | 0.225 ms | 0.314 ms |
 
-Node's bare column is ahead on raw saturating throughput at every process count, by 33% on
-one process narrowing to under 1% on eight. SynQt scales better (9.56x against 7.26x) and
-holds the lower tail latency once there are eight processes, which is the same fact twice:
-what SynQt gives up is per-process efficiency, not the ability to use the machine.
+Node's bare column is ahead on one process by 24% and on two by 5%, and behind on four by
+5% and on eight by 14%; the lines cross between two processes and four. SynQt scales better
+(10.25x against 7.23x) and holds the lower tail latency from four processes on, which is the
+same fact twice: what SynQt gives up is per-process efficiency, not the ability to use the
+machine.
 
 That is the result, printed at the same size as everything else: a stack that only
 publishes the benchmarks it wins is not publishing benchmarks. The gap is
@@ -209,18 +210,16 @@ attributed rather than left as a mystery in
 
 ### What each column is actually better at
 
-From the paced table, same host. Every column but Next.js was recorded on 2026-08-15 and the
-Next.js one on 2026-08-29, because it was added later: same machine, same Node 22.22, same
-sweep, but not the same run, so read that pair with a little more slack than the rest.
+From the paced table, same host, and every column from the same run of the same sweep.
 
 | | SynQt | vs Node (bare) | vs Socket.IO | vs Next.js (SSE) |
 |---|---|---|---|---|
-| Latency, N=10 | 0.150 ms | **1.5x better** | **2.4x better** | **3.5x better** |
-| Latency, N=250 | 3.236 ms | 1.67x worse | **1.2x better** | **2.2x better** |
-| CPU / 1k msgs, N=10 | 16.3 ms | **3.5x better** | **5.0x better** | **7.9x better** |
-| CPU / 1k msgs, N=250 | 13.7 ms | 1.6x worse | **1.1x better** | **2.8x better** |
-| Marginal KiB / conn, N=250 | 61.3 | **1.4x better** | **2.4x better** | **1.2x better** |
-| Users / GiB, N=250 | 17,096 | **1.4x better** | **2.4x better** | **1.2x better** |
+| Latency, N=10 | 0.231 ms | **1.6x better** | **2.9x better** | **3.1x better** |
+| Latency, N=250 | 4.043 ms | 1.55x worse | **1.3x better** | **1.5x better** |
+| CPU / 1k msgs, N=10 | 26.3 ms | **2.6x better** | **4.9x better** | **4.6x better** |
+| CPU / 1k msgs, N=250 | 18.8 ms | 1.58x worse | **1.3x better** | **1.8x better** |
+| Marginal KiB / conn, 100 -> 250 | 61.7 | **2.0x better** | **2.3x better** | **3.1x better** |
+| Users / GiB, from that slope | 16,986 | **2.0x better** | **2.3x better** | **3.1x better** |
 
 Four things this says, none of which is "SynQt is faster":
 
@@ -232,7 +231,7 @@ Four things this says, none of which is "SynQt is faster":
   ones. Two cost curves cross there, rather than two noisy numbers averaging out;
   [the next section](#what-the-gap-against-node-is-made-of) separates them.
 - **Against Next.js, SynQt is ahead on every row at every size, and the CPU rows are the
-  wide ones**: 7.9x at ten subscribers, 2.8x at two hundred and fifty. Read that as a fact
+  wide ones**: 4.6x at ten subscribers, 1.8x at two hundred and fifty. Read that as a fact
   about the path rather than about Next.js the framework, and note what it is *not*: the
   base64 is done once per publish, not once per subscriber, so it is not where the marginal
   cost lives. What each subscriber costs is an enqueue into a `ReadableStream`, Next's
@@ -270,22 +269,21 @@ Arch Linux, x86_64, Qt 6.11.1 against Node 22.22, **100** subscribers, 6 second 
 
 | cores | SynQt `threads:` | one value? | SynQt `replicas:` | Node `cluster` |
 |---|---|---|---|---|
-| 1 | 107,517 msg/s | yes | 108,233 | 110,467 |
-| 2 | 189,150 msg/s | yes | 239,192 | 234,075 |
-| 4 | 189,967 msg/s | yes | 505,325 | 463,958 |
-| 8 | 175,050 msg/s | yes | 1,023,340 | 861,700 |
+| 1 | 112,350 msg/s | yes | 108,250 | 117,067 |
+| 2 | 179,050 msg/s | yes | 248,258 | 236,558 |
+| 4 | 200,200 msg/s | yes | 507,004 | 465,950 |
+| 8 | 175,717 msg/s | yes | 1,029,866 | 870,748 |
 
-Read down the first column, not across the row. Threading is worth 1.76x from one core to
-two and nothing after it, and it costs a little by eight. Its distinction is that every
-row still delivers one value to all 100 subscribers, which is the case `replicas:` and
-`cluster` cannot serve at all.
+Read down the first column, not across the row. Threading is worth 1.6x from one core to
+two and 1.8x by four, and then it gives some of that back at eight. Its distinction is that
+every row still delivers one value to all 100 subscribers, which is the case `replicas:`
+and `cluster` cannot serve at all.
 
-Two cautions before quoting any of this. These runs used 100 subscribers and 6 second
+One caution before quoting any of this: these runs used 100 subscribers and 6 second
 windows, and [the sweep table above](#reading-the-result-honestly) used 200 and 10, so the
-two tables are different workloads and reading one against the other is a mistake. And the
-one-core rows disagree with that table about who leads, which is unexplained here: it could
-be the subscriber count, the window, or the socket-option and read-path changes that landed
-between them. It is written down as unattributed rather than guessed at.
+two tables are different workloads and reading one against the other is a mistake. The
+`replicas:` and `cluster` columns here are both higher than their counterparts there for
+that reason alone, and not because anything got faster between them.
 
 ## What the gap against Node is made of
 
@@ -298,25 +296,28 @@ Run over the same sweep, that splits one number into two costs that behave diffe
 
 | propagation p50 | N=10 | N=50 | N=100 | N=250 |
 |---|---|---|---|---|
-| Qt, bare `QWebSocket` | 0.121 ms | 0.529 ms | 1.008 ms | 2.687 ms |
-| Node, bare | 0.221 ms | 0.525 ms | 0.904 ms | 1.938 ms |
-| SynQt, over QtRemoteObjects | 0.150 ms | 0.589 ms | 1.147 ms | 3.236 ms |
+| Qt, bare `QWebSocket` | 0.189 ms | 0.661 ms | 1.234 ms | 3.235 ms |
+| Node, bare | 0.375 ms | 0.739 ms | 1.231 ms | 2.614 ms |
+| SynQt, over QtRemoteObjects | 0.231 ms | 0.792 ms | 1.548 ms | 4.043 ms |
 
 Fitting `cost per publish = fixed + N x marginal` across those four sizes separates them,
 and the two halves point in opposite directions:
 
 | | fixed, per publish | marginal, per subscriber |
 |---|---|---|
-| Qt, bare `QWebSocket` | ~0 | 10.7 us |
-| Node, bare | 167 us | **7.1 us** |
-| SynQt, over QtRemoteObjects | ~0 | 13.0 us |
-| Socket.IO | 202 us | 14.3 us |
+| Qt, bare `QWebSocket` | 23 us | 12.8 us |
+| Node, bare | 282 us | **9.3 us** |
+| SynQt, over QtRemoteObjects | 13 us | 16.0 us |
+| Socket.IO | 399 us | 19.6 us |
 
 **Qt has by far the lower fixed cost and Node has the lower marginal cost, so which one
-wins is a question about how many subscribers share a value.** Node carries about 170
+wins is a question about how many subscribers share a value.** Node carries about 280
 microseconds of overhead before it has sent anything, which is why it loses badly at ten
-subscribers, and then adds only 7.1 microseconds per subscriber, which is why it wins from
-somewhere between fifty and a hundred onwards and pulls further ahead after that.
+subscribers, and then adds only 9.3 microseconds per subscriber, which is why it wins from
+somewhere between fifty and a hundred onwards and pulls further ahead after that. Do not
+read the two Qt intercepts against each other: at a couple of tens of microseconds they are
+inside what a four-point fit can resolve, and all the fit is entitled to say about them is
+that both are an order of magnitude under Node's.
 
 An earlier version of this section measured one subscriber count, 40, which is almost
 exactly where the two curves cross, and concluded from it that Qt's socket stack was 8%
@@ -325,14 +326,14 @@ from a marginal one.
 
 Two separable things follow, and they want different work:
 
-**QtRemoteObjects costs a steady 20% or so on top of Qt's own socket path**: 2.3
-microseconds per subscriber, 1.11x to 1.24x on latency and 1.19x to 1.29x on CPU, at every
+**QtRemoteObjects costs a steady 25% or so on top of Qt's own socket path**: 3.3
+microseconds per subscriber, 1.20x to 1.25x on latency and 1.21x to 1.31x on CPU, at every
 size measured. That cost buys something concrete: the Node column carries an opaque
 buffer to a callback and the receiver casts it, while the QtRO column carries a typed
 property change against a schema, resolves it on a replica that stays in sync, coalesces pushes that
 overtake each other, and lands in a slot where `Caller` is already known.
 
-**Qt's own per-subscriber cost is 3.6 microseconds above Node's**, which is the larger half
+**Qt's own per-subscriber cost is 3.4 microseconds above Node's**, which is the larger half
 of the gap and has nothing to do with SynQt. That is where beating Node at real fan-out
 sizes has to start.
 
@@ -441,20 +442,20 @@ are the committed baselines under `benchmarks/results/vs-call-*.json`.
 
 | | 1 caller | 8 | 32 | 128 |
 |---|---|---|---|---|
-| latency p50, SynQt | 0.020 ms | 0.123 ms | 0.515 ms | 2.445 ms |
-| latency p50, Node bare | 0.119 ms | 0.897 ms | 3.788 ms | 17.371 ms |
-| latency p50, Next.js Server Function | 0.769 ms | 5.256 ms | 19.082 ms | 84.083 ms |
-| latency p99, Next.js Server Function | 1.862 ms | 7.984 ms | 24.710 ms | 120.154 ms |
-| calls / core-second, SynQt | 55,484 | 74,448 | 71,573 | 58,343 |
-| calls / core-second, Node bare | 5,712 | 6,517 | 6,378 | 5,895 |
-| calls / core-second, Next.js Server Function | 932 | 1,171 | 1,330 | 1,166 |
+| latency p50, SynQt | 0.019 ms | 0.118 ms | 0.500 ms | 2.339 ms |
+| latency p50, Node bare | 0.116 ms | 0.854 ms | 3.524 ms | 16.129 ms |
+| latency p50, Next.js Server Function | 0.755 ms | 5.249 ms | 18.683 ms | 73.783 ms |
+| latency p99, Next.js Server Function | 1.761 ms | 7.502 ms | 23.507 ms | 84.461 ms |
+| calls / core-second, SynQt | 57,304 | 77,809 | 73,525 | 61,473 |
+| calls / core-second, Node bare | 6,037 | 7,017 | 7,065 | 6,470 |
+| calls / core-second, Next.js Server Function | 956 | 1,203 | 1,387 | 1,313 |
 
 That is a wide gap and it is two separate facts stacked on top of each other, so read it as
 two:
 
-**Next.js Server Functions cost five to six times what the same Node process costs
-answering a plain JSON POST** (6.1x at one caller, 4.8x at thirty-two, on both the latency
-and the per-core rows). Both columns are the same runtime on the same transport doing the
+**Next.js Server Functions cost five to six and a half times what the same Node process
+costs answering a plain JSON POST** (6.5x at one caller, 5.3x at thirty-two, on both the
+latency and the per-core rows). Both columns are the same runtime on the same transport doing the
 same nothing, so that factor is React's machinery around the call: resolving the action id,
 decoding the arguments out of the flight format, encoding the result back into it. This is
 the comparison with no asymmetry in it at all, and it is the one to quote.
@@ -468,8 +469,8 @@ advantage for you depends on whether your client is a long-lived app or a series
 requests, and this table cannot answer that.
 
 What the table does support: **a Server Function is not a cheap call.** It costs a little
-under a millisecond with nothing else on the machine, and at 128 callers its p50 is 84 ms
-against 17 ms for the same Node process without the framework. Its throughput stops
+under a millisecond with nothing else on the machine, and at 128 callers its p50 is 74 ms
+against 16 ms for the same Node process without the framework. Its throughput stops
 improving after about 32 callers while its latency goes on climbing, which is the shape of a
 stack that is already CPU-bound and is queueing: the `calls / core-second` row says the same
 thing more directly, at roughly a thousand a core across the whole sweep.

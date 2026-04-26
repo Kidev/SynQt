@@ -4,66 +4,67 @@
 # TechEmpower-style HTTP benchmark of the SynQt web edge (QHttpServer + QSQLITE).
 # Load generator: wrk -t4 -c256 -d15s (the industry-standard driver, for cross-framework
 # comparison). Routes named as TechEmpower test types. See benchmarks/edge/.
-# Host: Arch Linux, x86_64, 32 CPUs. Qt 6.11.1. Date: 2026-07-13.
-# Summary (req/s): plaintext 74.4k, json 71.2k, single-query 52.6k, 20-queries 19.2k,
-#                  20-updates 13.6k, fortunes 40.8k; avg latency 3.4-18.7ms, tight tails.
+# Host: Arch Linux, x86_64, 32 CPUs. Qt 6.11.1. Date: 2026-09-04.
+# Summary (req/s): plaintext 75.1k, json 70.4k, single-query 55.0k, 20-queries
+#                  20.4k, 20-updates 14.3k, fortunes 43.6k; avg latency
+#                  3.4-17.8ms, tight tails.
 
-$ wrk -t4 -c256 -d15s http://127.0.0.1:8480/json
+$ wrk -t4 -c256 -d15s "http://127.0.0.1:8480/json"
 Running 15s test @ http://127.0.0.1:8480/json
   4 threads and 256 connections
   Thread Stats   Avg      Stdev     Max   +/- Stdev
-    Latency     3.58ms  135.33us   7.51ms   95.01%
-    Req/Sec    17.94k   512.30    23.78k    90.33%
-  1071380 requests in 15.05s, 149.18MB read
-Requests/sec: 71208.64
-Transfer/sec:      9.91MB
+    Latency     3.63ms  126.68us   6.22ms   97.30%
+    Req/Sec    17.72k   468.44    27.46k    94.83%
+  1058078 requests in 15.04s, 147.32MB read
+Requests/sec:  70352.86
+Transfer/sec:      9.80MB
 
-$ wrk -t4 -c256 -d15s http://127.0.0.1:8480/plaintext
+$ wrk -t4 -c256 -d15s "http://127.0.0.1:8480/plaintext"
 Running 15s test @ http://127.0.0.1:8480/plaintext
   4 threads and 256 connections
   Thread Stats   Avg      Stdev     Max   +/- Stdev
-    Latency     3.43ms  117.45us   5.88ms   94.68%
-    Req/Sec    18.76k   405.46    21.26k    82.83%
-  1119816 requests in 15.04s, 134.56MB read
-Requests/sec: 74439.08
-Transfer/sec:      8.94MB
+    Latency     3.39ms   97.39us   7.41ms   93.32%
+    Req/Sec    18.91k   413.10    24.01k    89.67%
+  1129223 requests in 15.03s, 135.69MB read
+Requests/sec:  75107.95
+Transfer/sec:      9.03MB
 
-$ wrk -t4 -c256 -d15s http://127.0.0.1:8480/db
+$ wrk -t4 -c256 -d15s "http://127.0.0.1:8480/db"
 Running 15s test @ http://127.0.0.1:8480/db
   4 threads and 256 connections
   Thread Stats   Avg      Stdev     Max   +/- Stdev
-    Latency     4.84ms  207.27us   9.59ms   92.83%
-    Req/Sec    13.25k   449.50    16.30k    85.33%
-  791407 requests in 15.05s, 113.05MB read
-Requests/sec: 52575.86
-Transfer/sec:      7.51MB
+    Latency     4.63ms  153.31us   9.23ms   98.82%
+    Req/Sec    13.88k   360.89    20.70k    95.50%
+  828869 requests in 15.06s, 118.40MB read
+Requests/sec:  55042.59
+Transfer/sec:      7.86MB
 
 $ wrk -t4 -c256 -d15s "http://127.0.0.1:8480/queries?queries=20"
 Running 15s test @ http://127.0.0.1:8480/queries?queries=20
   4 threads and 256 connections
   Thread Stats   Avg      Stdev     Max   +/- Stdev
-    Latency    13.22ms  519.86us  26.72ms   92.01%
-    Req/Sec     4.85k   303.60     6.51k    50.83%
-  289515 requests in 15.06s, 208.90MB read
-Requests/sec: 19227.22
-Transfer/sec:     13.87MB
+    Latency    12.53ms  556.70us  24.34ms   98.10%
+    Req/Sec     5.13k   115.41     5.76k    89.00%
+  306381 requests in 15.05s, 221.06MB read
+Requests/sec:  20362.33
+Transfer/sec:     14.69MB
 
 $ wrk -t4 -c256 -d15s "http://127.0.0.1:8480/updates?queries=20"
 Running 15s test @ http://127.0.0.1:8480/updates?queries=20
   4 threads and 256 connections
   Thread Stats   Avg      Stdev     Max   +/- Stdev
-    Latency    18.72ms  696.40us  39.18ms   95.09%
-    Req/Sec     3.43k   297.18     3.88k    68.50%
-  205045 requests in 15.05s, 147.95MB read
-Requests/sec: 13627.68
-Transfer/sec:      9.83MB
+    Latency    17.80ms  669.05us  34.09ms   97.98%
+    Req/Sec     3.61k   290.56     3.88k    68.17%
+  215436 requests in 15.05s, 155.44MB read
+Requests/sec:  14317.65
+Transfer/sec:     10.33MB
 
-$ wrk -t4 -c256 -d15s http://127.0.0.1:8480/fortunes
+$ wrk -t4 -c256 -d15s "http://127.0.0.1:8480/fortunes"
 Running 15s test @ http://127.0.0.1:8480/fortunes
   4 threads and 256 connections
   Thread Stats   Avg      Stdev     Max   +/- Stdev
-    Latency     6.24ms  225.44us  12.94ms   93.13%
-    Req/Sec    10.27k   282.80    14.07k    88.50%
-  613611 requests in 15.06s, 792.93MB read
-Requests/sec: 40752.79
-Transfer/sec:     52.66MB
+    Latency     5.86ms  177.47us  11.06ms   95.30%
+    Req/Sec    10.98k   249.81    12.16k    79.50%
+  655540 requests in 15.03s, 846.48MB read
+Requests/sec:  43608.33
+Transfer/sec:     56.31MB

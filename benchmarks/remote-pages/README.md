@@ -31,18 +31,18 @@ that run:
 
 | variant      | raw bytes  | gzip bytes | Brotli bytes |
 | ------------ | ---------- | ---------- | ------------ |
-| remote       | 26092721   | 9581701    | 6746398      |
-| compiled-in  | 26108258   | 9584939    | 6749377      |
-| **saving**   | **15537**  | **3238**   | **2979**     |
+| remote       | 26137545   | 9597540    | 6755645      |
+| compiled-in  | 26153020   | 9603525    | 6758900      |
+| saving       | 15475      | 5985       | 3255         |
 
-## This is a measurement, not a claim
+## This is a measurement rather than a claim
 
 The saving above is what two small pages weigh in one small demo. It understates what a real
 application saves, because the saving is entirely a function of how much of the app is rarely
-visited: a storefront with dozens of seldom-reached campaign, help, legal, and admin pages
+visited. A storefront with dozens of seldom-reached campaign, help, legal, and admin pages
 keeps all of them off every first load, and the saving grows with each one. A demo with two
-tiny pages is the floor of the effect, not a representative figure. Read the number as "these
-specific pages, on this build" and re-measure on your own application to learn its saving; do
+tiny pages is the floor of the effect rather than a representative figure. Read the number as "these
+specific pages, on this build" and re-measure on your own application to learn its saving. Do
 not extrapolate this figure to a claim about SynQt in general.
 
 ## Reproduce

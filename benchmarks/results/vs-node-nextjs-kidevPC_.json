@@ -3,90 +3,90 @@
   "node_version": "v22.22.0",
   "host": "linux 7.1.5-arch1-2",
   "arch": "x64",
-  "recorded": "2026-08-29T22:15:40.602Z",
+  "recorded": "2026-09-04T17:01:14.686Z",
   "rss_available": true,
   "stack": "node-nextjs",
   "path": "Next.js 16 App Router, Route Handler streaming server-sent events",
   "hz": 30,
   "saturated": false,
-  "seconds": 10,
+  "seconds": 5,
   "payload_bytes": 256,
   "sweep": [
     {
       "subscribers": 10,
       "propagation": {
         "unit": "ms",
-        "samples": 3000,
-        "min": 0.163,
-        "p50": 0.526,
-        "p95": 0.956,
-        "p99": 1.2320599999999986,
-        "max": 1.569,
-        "mean": 0.5585826666666653
+        "samples": 1500,
+        "min": 0.183,
+        "p50": 0.705,
+        "p95": 0.9910999999999999,
+        "p99": 1.1850100000000001,
+        "max": 1.825,
+        "mean": 0.7059133333333353
       },
-      "throughput_msgs_per_sec": 285.687077421198,
-      "cpu_ms_per_1k": 129.439,
-      "rss_bytes_per_conn": 711475.2,
-      "rss_total_bytes": 103546880,
-      "delivered": 3000,
-      "expected": 3000
+      "throughput_msgs_per_sec": 272.72727272727275,
+      "cpu_ms_per_1k": 121.94199999999996,
+      "rss_bytes_per_conn": 576716.8,
+      "rss_total_bytes": 125730816,
+      "delivered": 1500,
+      "expected": 1500
     },
     {
       "subscribers": 50,
       "propagation": {
         "unit": "ms",
-        "samples": 15000,
-        "min": 0.571,
-        "p50": 1.493,
-        "p95": 2.2830499999999994,
-        "p99": 3.06201,
-        "max": 5.082,
-        "mean": 1.5387941333333295
+        "samples": 7500,
+        "min": 0.541,
+        "p50": 1.56,
+        "p95": 2.205,
+        "p99": 2.4710200000000007,
+        "max": 2.981,
+        "mean": 1.559994133333333
       },
-      "throughput_msgs_per_sec": 1428.2993715482764,
-      "cpu_ms_per_1k": 43.5754,
-      "rss_bytes_per_conn": 245432.32,
-      "rss_total_bytes": 108703744,
-      "delivered": 15000,
-      "expected": 15000
+      "throughput_msgs_per_sec": 1363.3884748227595,
+      "cpu_ms_per_1k": 57.381999999999984,
+      "rss_bytes_per_conn": 689356.8,
+      "rss_total_bytes": 154431488,
+      "delivered": 7500,
+      "expected": 7500
     },
     {
       "subscribers": 100,
       "propagation": {
         "unit": "ms",
-        "samples": 30000,
-        "min": 0.923,
-        "p50": 2.627,
-        "p95": 4.1290499999999986,
-        "p99": 5.426039999999993,
-        "max": 7.303,
-        "mean": 2.7258090666666703
+        "samples": 15000,
+        "min": 0.982,
+        "p50": 2.711,
+        "p95": 3.75,
+        "p99": 3.95101,
+        "max": 4.347,
+        "mean": 2.7235995999999916
       },
-      "throughput_msgs_per_sec": 2856.3267637817767,
-      "cpu_ms_per_1k": 35.57186666666667,
-      "rss_bytes_per_conn": 429424.64,
-      "rss_total_bytes": 139374592,
-      "delivered": 30000,
-      "expected": 30000
+      "throughput_msgs_per_sec": 2726.776949645519,
+      "cpu_ms_per_1k": 35.76286666666667,
+      "rss_bytes_per_conn": 317644.8,
+      "rss_total_bytes": 151728128,
+      "delivered": 15000,
+      "expected": 15000
     },
     {
       "subscribers": 250,
       "propagation": {
         "unit": "ms",
-        "samples": 75000,
-        "min": 2.665,
-        "p50": 7.0085,
-        "p95": 10.488050000000003,
-        "p99": 12.610009999999994,
-        "max": 15.29,
-        "mean": 7.144199999999895
+        "samples": 37500,
+        "min": 2.583,
+        "p50": 6.236,
+        "p95": 8.758,
+        "p99": 9.535010000000002,
+        "max": 11.996,
+        "mean": 6.313158773333337
       },
-      "throughput_msgs_per_sec": 7142.17693552995,
-      "cpu_ms_per_1k": 38.61864,
-      "rss_bytes_per_conn": 216301.568,
-      "rss_total_bytes": 150507520,
-      "delivered": 75000,
-      "expected": 75000
+      "throughput_msgs_per_sec": 6815.703380588877,
+      "cpu_ms_per_1k": 33.77018666666667,
+      "rss_bytes_per_conn": 244498.432,
+      "rss_total_bytes": 181088256,
+      "delivered": 37500,
+      "expected": 37500
     }
   ]
 }

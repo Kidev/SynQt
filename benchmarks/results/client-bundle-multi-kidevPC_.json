@@ -5,7 +5,7 @@
   "host": "Arch Linux",
   "arch": "x86_64",
   "qt_version": "6.11.1",
-  "recorded": "2026-07-31T02:25:36Z",
+  "recorded": "2026-09-04T16:37:35Z",
   "files": [
     {
       "name": "clientbench.html",
@@ -21,9 +21,9 @@
     },
     {
       "name": "clientbench.wasm",
-      "raw": 21028405,
-      "gzip": 7444205,
-      "brotli": 5250642
+      "raw": 21028399,
+      "gzip": 7444208,
+      "brotli": 5249179
     },
     {
       "name": "a.out.js",
@@ -50,7 +50,7 @@
       "brotli": 775
     }
   ],
-  "total_raw": 21385630,
-  "total_gzip": 7532693,
-  "total_brotli": 5326855
+  "total_raw": 21385624,
+  "total_gzip": 7532696,
+  "total_brotli": 5325392
 }

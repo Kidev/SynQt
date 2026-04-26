@@ -8,15 +8,17 @@ nothing to instrument. The build steps already exist and this times around them.
 reports, per entity:
 
 * **clean**: an empty build directory to a linked artifact. The number a new contributor
-  or a cold CI runner actually waits for.
+  or a cold CI runner waits for.
 * **no-op**: `synqt build` again with nothing changed. This should be nearly free, and
   it is the number that says whether the build is incremental at all.
-* **touched**: one QML file's timestamp moved, then build again. The edit-rebuild cycle,
-  and what `synqt dev` pays on every hot reload.
+* **touched**: one QML file edited (a comment line appended, then reverted), then build
+  again. The edit-rebuild cycle, and what `synqt dev` pays on every hot reload. It has to
+  be a real edit. The generated copy of an entity's QML is written only when the content
+  differs, so a timestamp alone changes nothing downstream.
 
-The no-op is the interesting one and the reason this exists. A build system that quietly
+The no-op is the reason this exists. A build system that quietly
 rebuilds everything when nothing changed still passes every correctness test in the
-repository; the only thing that catches it is a clock. Codegen runs at CMake configure
+repository, and the only thing that catches it is a clock. Codegen runs at CMake configure
 time (`cmake/SynQtContracts.cmake`), so anything that rewrites a generated header on every
 configure invalidates every translation unit that includes it, and the cost lands on every
 edit of every day.
@@ -43,6 +45,11 @@ from typing import Any, Dict, List, Optional
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_QT_HOST = "/opt/Qt/6.11.1/gcc_64"
+
+# This module reads the topology through `synqt.appmodel`, so it needs the CLI on the path
+# whether or not the caller put it there. `build_env()` below sets it for the subprocesses;
+# this is for the import in this process.
+sys.path.insert(0, str(REPO_ROOT / "tools" / "synqt"))
 
 
 def host_label() -> str:
@@ -102,11 +109,36 @@ def build_env(qt_host: str) -> Dict[str, str]:
     return env
 
 
+def written_contracts(project: Path, env: Dict[str, str]) -> List[Path]:
+    """Write the project's contracts the way the build does, and return the files.
+
+    A contract is not a file the author keeps: the connect point's ``export:`` block in
+    ``synqt.yaml`` is the contract, and the build writes it out under ``generated/``
+    before the compiler ever sees it. So the files are produced here first, into the
+    project itself, exactly where a build puts them.
+    """
+    script = (
+        "import json, sys, yaml\n"
+        "from synqt import contractgen\n"
+        "project = sys.argv[1]\n"
+        "config = yaml.safe_load(open(sys.argv[2], encoding='utf-8'))\n"
+        "print(json.dumps(contractgen.write_contracts(project, config)))\n"
+    )
+    completed = subprocess.run(
+        [sys.executable, "-c", script, str(project), str(project / "synqt.yaml")],
+        cwd=str(REPO_ROOT), env=env, capture_output=True, text=True, check=False,
+    )
+    if completed.returncode != 0:
+        sys.stderr.write(completed.stderr[-4000:])
+        raise SystemExit(f"could not write the contracts of {project}")
+    return [project / relative for relative in json.loads(completed.stdout)]
+
+
 def time_contract_generation(project: Path, env: Dict[str, str], repeats: int) -> Dict[str, Any]:
     """Time `synqtc` over the project's contracts, as a subprocess, as the build runs it."""
-    contracts = sorted((project / "shared").glob("*.syn"))
+    contracts = sorted(written_contracts(project, env))
     if not contracts:
-        raise SystemExit(f"no contracts under {project / 'shared'}")
+        raise SystemExit(f"no connect point in {project / 'synqt.yaml'} declares an export")
     out_dir = REPO_ROOT / "build" / "bench-buildtime" / "codegen"
     samples: List[float] = []
     for _ in range(repeats):
@@ -131,19 +163,43 @@ def entities_of(project: Path, include_client: bool) -> List[Dict[str, str]]:
     """Read the topology rather than guessing: which entities exist, and which are clients."""
     import yaml
 
+    from synqt import appmodel
+
     config = yaml.safe_load((project / "synqt.yaml").read_text(encoding="utf-8"))
     targets: List[Dict[str, str]] = []
-    for entity in config.get("entities", []):
-        kind = entity.get("kind", "service")
-        if kind == "client" and not include_client:
+    for entity in appmodel.entities(config):
+        if appmodel.is_client(entity) and not include_client:
             continue
-        targets.append({"target": entity["name"], "kind": kind})
+        targets.append({
+            "target": entity["name"],
+            "kind": appmodel.entity_type(entity),
+            "dir": appmodel.entity_dir(entity),
+        })
     return targets
 
 
-def first_qml(project: Path, entity: str) -> Optional[Path]:
-    files = sorted((project / entity).glob("*.qml"))
+def first_qml(project: Path, entity: Dict[str, str]) -> Optional[Path]:
+    """The QML file the touched-build measurement edits."""
+    files = sorted((project / entity["dir"]).glob("*.qml"))
     return files[0] if files else None
+
+
+def time_one_edit(qml: Path, command: List[str], env: Dict[str, str]) -> float:
+    """Append a comment line to `qml`, time the rebuild, and put the file back.
+
+    It has to be a real edit. `synqt build` copies an entity's QML into ``generated/``
+    through `synqt.writer.write_if_changed`, which compares content, so moving a
+    timestamp alone leaves the generated copy untouched and correctly rebuilds nothing;
+    a `touch()` here measured 0.1 s and would have reported it as the edit-rebuild cycle.
+    The file is restored byte for byte afterwards, and the generated copy follows on the
+    next build.
+    """
+    original = qml.read_bytes()
+    try:
+        qml.write_bytes(original.rstrip(b"\n") + b"\n\n// buildtime benchmark: one edit\n")
+        return run(command, REPO_ROOT, env)
+    finally:
+        qml.write_bytes(original)
 
 
 def measure_entity(
@@ -160,10 +216,9 @@ def measure_entity(
     noop = run(command, REPO_ROOT, env)
 
     touched: Optional[float] = None
-    qml = first_qml(project, name)
+    qml = first_qml(project, entity)
     if qml is not None:
-        qml.touch()
-        touched = run(command, REPO_ROOT, env)
+        touched = time_one_edit(qml, command, env)
 
     row: Dict[str, Any] = {
         "target": name,
@@ -217,11 +272,11 @@ def main(argv: Optional[List[str]] = None) -> int:
           f"p95={generation['p95']:.1f} ms")
 
     sweep: List[Dict[str, Any]] = []
-    print(f"\n{'target':<12} {'kind':<8} {'clean':>9} {'no-op':>9} {'touched':>9}")
+    print(f"\n{'target':<12} {'type':<12} {'clean':>9} {'no-op':>9} {'touched':>9}")
     for entity in entities_of(project, args.include_client):
         row = measure_entity(project, entity, env, build_flags)
         sweep.append(row)
-        print(f"{row['target']:<12} {row['kind']:<8} {row['clean_s']:>8.2f}s "
+        print(f"{row['target']:<12} {row['kind']:<12} {row['clean_s']:>8.2f}s "
               f"{row['noop_s']:>8.2f}s {row.get('touched_s', float('nan')):>8.2f}s")
 
     document = {

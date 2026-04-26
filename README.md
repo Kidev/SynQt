@@ -123,13 +123,13 @@ Node 22.22. Deliveries per second:
 
 | processes | SynQt | Node, built-ins only | Node, Socket.IO |
 |---|---|---|---|
-| 1 | 108k | 110k | 62k |
-| 2 | 239k | 234k | |
-| 4 | 505k | 464k | |
-| 8 | 1.02M | 862k | |
+| 1 | 108k | 117k | 59k |
+| 2 | 248k | 237k | |
+| 4 | 507k | 466k | |
+| 8 | 1.03M | 871k | |
 
 Both runtimes run one thread per process and add capacity by running more processes. SynQt
-trails the built-ins column by 2% on one process and leads it by 19% on eight. That column
+trails the built-ins column by 8% on one process and leads it by 18% on eight. That column
 is `node:http` with a hand written WebSocket implementation, which is faster than what most
 deployments run; Socket.IO is the usual choice, and the sweep measures it on one process
 only. Next.js is measured too and is not in this table, because it ships no WebSocket server:
@@ -142,12 +142,12 @@ process, where all 100 subscribers still share a single value:
 
 | cores | `threads: N`, one process, one shared value | `replicas: N`, N processes, one value each |
 |---|---|---|
-| 1 | 108k | 108k |
-| 2 | 189k | 239k |
-| 4 | 190k | 505k |
-| 8 | 175k | 1.02M |
+| 1 | 112k | 108k |
+| 2 | 179k | 248k |
+| 4 | 200k | 507k |
+| 8 | 176k | 1.03M |
 
-The threads column stops improving after two cores. The processes column keeps scaling, and
+The threads column stops improving after four cores. The processes column keeps scaling, and
 it cannot answer the case in the left column: making N processes agree on one value costs a
 broadcast between them that these numbers do not include.
 
@@ -158,9 +158,9 @@ caller with nothing else on the machine, then a hundred and twenty-eight at once
 
 | | SynQt slot | Node, plain JSON POST | Next.js Server Function |
 |---|---|---|---|
-| latency p50, 1 caller | 0.020 ms | 0.119 ms | 0.769 ms |
-| latency p50, 128 callers | 2.4 ms | 17.4 ms | 84.1 ms |
-| calls per core-second | ~55k | ~5.7k | ~0.9k |
+| latency p50, 1 caller | 0.019 ms | 0.116 ms | 0.755 ms |
+| latency p50, 128 callers | 2.3 ms | 16.1 ms | 73.8 ms |
+| calls per core-second | ~57k | ~6.0k | ~1.0k |
 
 Two things are stacked in that gap and they are worth separating. React's machinery around a
 server action costs five to six times what the same Node process costs answering a plain

@@ -480,8 +480,8 @@ def _check_mesh(document: Mapping[str, Any], checks: List[Check]) -> None:
 
     if mtls_setup and local_setup:
         # The whole justification for keeping `transport: local` as an explicit opt-in.
-        # The benchmarking plan says measure it rather than assume it; the baseline is
-        # ~113x, so the gate only asks that the ordering survives.
+        # The benchmarking plan says measure it rather than assume it. The baseline is
+        # ~109x, so the gate only asks that the ordering survives.
         factor = _ratio(mtls_setup["p50"], local_setup["p50"])
         checks.append(
             Check(
@@ -541,9 +541,9 @@ def _check_sessions(document: Mapping[str, Any], checks: List[Check]) -> None:
             )
         )
 
-    # The one that matters most. createSession() used to run a full-table purge, making
-    # it O(live sessions), 306 us at 100k. The expiry queue made it amortized O(1) at
-    # ~600 ns. Reintroducing the walk would show up here as a 500x spread, so a 5x band
+    # The one that matters most. A createSession() that runs a full-table purge is
+    # O(live sessions), 306 us at 100k. The expiry queue makes it amortized O(1) at
+    # ~1.0 us. Reintroducing the walk would show up here as a ~290x spread, so a 5x band
     # catches it with room to spare and no chance of flapping.
     creates = [row["create_ns"] for row in sweep]
     spread = _ratio(max(creates), min(creates))
@@ -769,8 +769,8 @@ def _check_persistence(document: Mapping[str, Any], checks: List[Check]) -> None
                 "persistence.eviction_costs_more_than_a_hit",
                 True,
                 f"cache set under eviction {evicting['value']:.4g} ns/op against a "
-                f"{hit['value']:.3g} ns/op hit (O(bound) recency list; a note for very "
-                f"large bounds)",
+                f"{hit['value']:.3g} ns/op hit (one list erase and one hash removal on "
+                f"top of a set; O(1), so it does not grow with the bound)",
                 enforced=False,
             )
         )
