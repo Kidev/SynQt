@@ -35,7 +35,7 @@ echo "== [2/4] build the monitor and the reporting edge (host kit) =="
 cmake -S "$WORK/project" -B "$WORK/native" -G Ninja \
     -DCMAKE_PREFIX_PATH="$QT_HOST" \
     -DSYNQT_ROOT="$REPO_ROOT" \
-    -DCMAKE_BUILD_TYPE=Release
+    -DCMAKE_BUILD_TYPE=RelWithDebInfo
 cmake --build "$WORK/native"
 
 for entity in ops web; do
@@ -63,17 +63,17 @@ fi
 echo
 echo "== [3/4] build the console for the browser (WebAssembly kit) =="
 "$QT_WASM/bin/qt-cmake" -S "$WORK/project" -B "$WORK/wasm" -G Ninja \
-    -DSYNQT_ROOT="$REPO_ROOT" -DCMAKE_BUILD_TYPE=Release
+    -DSYNQT_ROOT="$REPO_ROOT" -DCMAKE_BUILD_TYPE=RelWithDebInfo
 cmake --build "$WORK/wasm"
 
-# The bundle the operator scope is served: only the console's own files, in a directory of
+# The bundle the operator scope is served. Only the console's own files, in a directory of
 # their own. Two clients build into one binary directory, and a bundle holding both would
 # serve the application's client to whoever asked for the console's.
 mkdir -p "$WORK/bundle-console"
 cp "$WORK/wasm/ops-console.js" "$WORK/wasm/ops-console.wasm" "$WORK/wasm/qtloader.js" \
     "$WORK/bundle-console/"
 # The page the browser loads first, rendered by the same code `synqt build` uses. It has no
-# inline script the CSP cannot allow: its hashes are collected from the bundle at startup.
+# inline script the CSP cannot allow. Its hashes are collected from the bundle at startup.
 python3 tools/wasm-shell.py --target ops-console --out "$WORK/bundle-console"
 
 echo

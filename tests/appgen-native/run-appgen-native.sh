@@ -72,7 +72,7 @@ echo "== [2/8] Configure + build every entity with the native host kit =="
 cmake -S "$SRC" -B "$SRC/build" -G Ninja \
     -DCMAKE_PREFIX_PATH="$QT_HOST" \
     -DSYNQT_ROOT="$REPO_ROOT" \
-    -DCMAKE_BUILD_TYPE=Release
+    -DCMAKE_BUILD_TYPE=RelWithDebInfo
 cmake --build "$SRC/build"
 
 echo "== [3/8] Assert each generated entity produced a native executable =="
@@ -110,7 +110,7 @@ PY
 cmake -S "$ROUTED" -B "$ROUTED/build" -G Ninja \
     -DCMAKE_PREFIX_PATH="$QT_HOST" \
     -DSYNQT_ROOT="$REPO_ROOT" \
-    -DCMAKE_BUILD_TYPE=Release
+    -DCMAKE_BUILD_TYPE=RelWithDebInfo
 cmake --build "$ROUTED/build" --target app
 
 routed_exe="$(native_exe_path "$ROUTED/build/app")"
@@ -185,7 +185,7 @@ PY
 cmake -S "$PROMOTED" -B "$PROMOTED/out" -G Ninja \
     -DCMAKE_PREFIX_PATH="$QT_HOST" \
     -DSYNQT_ROOT="$REPO_ROOT" \
-    -DCMAKE_BUILD_TYPE=Release
+    -DCMAKE_BUILD_TYPE=RelWithDebInfo
 cmake --build "$PROMOTED/out"
 
 rc=0
@@ -412,7 +412,7 @@ PY
 cmake -S "$FRONTED" -B "$FRONTED/build" -G Ninja \
     -DCMAKE_PREFIX_PATH="$QT_HOST" \
     -DSYNQT_ROOT="$REPO_ROOT" \
-    -DCMAKE_BUILD_TYPE=Release
+    -DCMAKE_BUILD_TYPE=RelWithDebInfo
 cmake --build "$FRONTED/build"
 
 for entity in gate lobby backoffice; do
@@ -452,7 +452,7 @@ PY
 cmake -S "$GATEWAY" -B "$GATEWAY/out" -G Ninja \
     -DCMAKE_PREFIX_PATH="$QT_HOST" \
     -DSYNQT_ROOT="$REPO_ROOT" \
-    -DCMAKE_BUILD_TYPE=Release
+    -DCMAKE_BUILD_TYPE=RelWithDebInfo
 cmake --build "$GATEWAY/out"
 
 rc=0
@@ -606,7 +606,7 @@ MONPY
 cmake -S "$MONITORED" -B "$MONITORED/build" -G Ninja \
     -DCMAKE_PREFIX_PATH="$QT_HOST" \
     -DSYNQT_ROOT="$REPO_ROOT" \
-    -DCMAKE_BUILD_TYPE=Release
+    -DCMAKE_BUILD_TYPE=RelWithDebInfo
 cmake --build "$MONITORED/build"
 
 monitored_rc=0
