@@ -29,6 +29,38 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 option(SYNQT_WARNINGS_AS_ERRORS "Fail the build on a compiler warning" ON)
 option(SYNQT_LTO "Link-time optimisation for release builds" OFF)
 
+option(SYNQT_COMPILER_CACHE "Route the compiler through ccache/sccache when one is installed" ON)
+
+# A compiler cache, because this tree compiles the same objects many times over. Every
+# generated application add_subdirectory()s the framework from ${SYNQT_ROOT}, so one CI run
+# builds SynQtService and friends about ten times. Once for the whole-tree suite, six times
+# for tests/appgen-native's topologies, and once each for custom-provider, desktop-client
+# and monitor-console. The redundancy is WITHIN one run, so this pays off on a cold cache
+# too. A cache restored between runs is a bonus on top of that, not the mechanism.
+#
+# sccache on MSVC and ccache elsewhere. Ccache does not handle MSVC's /Zi debug format, and
+# sccache is the build that does. Silent when neither is installed, because a
+# message(WARNING) here would fail tests/run-all.sh, which treats a CMake warning as a
+# defect.
+if(SYNQT_COMPILER_CACHE AND NOT CMAKE_C_COMPILER_LAUNCHER AND NOT CMAKE_CXX_COMPILER_LAUNCHER)
+    if(MSVC)
+        find_program(SYNQT_CACHE_PROGRAM sccache)
+    else()
+        find_program(SYNQT_CACHE_PROGRAM ccache)
+    endif()
+    if(SYNQT_CACHE_PROGRAM)
+        set(CMAKE_C_COMPILER_LAUNCHER "${SYNQT_CACHE_PROGRAM}")
+        set(CMAKE_CXX_COMPILER_LAUNCHER "${SYNQT_CACHE_PROGRAM}")
+        # sccache cannot cache a separate .pdb, so ask MSVC to embed debug info instead.
+        # Without this every compile is a miss and the cache is pure overhead.
+        if(MSVC)
+            set(CMAKE_MSVC_DEBUG_INFORMATION_FORMAT "Embedded")
+            add_link_options(/DEBUG:NONE)
+        endif()
+        message(STATUS "SynQt: compiling through ${SYNQT_CACHE_PROGRAM}")
+    endif()
+endif()
+
 # MSVC is true for clang-cl as well, and this branch relies on that: the Windows gate under
 # tools/windows-check drives clang-cl, and it has to be told about the same warnings in
 # the same spelling as cl.exe, not in GCC's.
