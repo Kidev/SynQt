@@ -284,11 +284,31 @@ jobs:
           tar -C dist -czf "out/$asset" synqt
           echo "asset=$asset" >> "$GITHUB_OUTPUT"
 
+      # Uploading is retried once because it is the only step here that can fail after all
+      # the work is already done. On 2026-09-04 the macOS x86_64 row built, smoke-tested and
+      # packaged its binary, then lost it when CreateArtifact could not resolve the artifact
+      # endpoint (ENOTFOUND), while checkout and every PyPI download in that same job reached
+      # the network fine. `release` needs the whole matrix, so one blip discards five good
+      # binaries and forces a full re-run. Actions has no step-level retry, so the attempt is
+      # soft-failed and repeated; if the second one fails too the job fails for real. The
+      # retry overwrites, because an attempt that dies after CreateArtifact leaves the
+      # artifact registered under the name the retry is about to reuse.
       - uses: actions/upload-artifact@v7
+        id: upload
+        continue-on-error: true
         with:
           name: ${{ steps.package.outputs.asset }}
           path: out/${{ steps.package.outputs.asset }}
           if-no-files-found: error
+
+      - name: Retry the upload if the artifact endpoint blipped
+        if: steps.upload.outcome == 'failure'
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.package.outputs.asset }}
+          path: out/${{ steps.package.outputs.asset }}
+          if-no-files-found: error
+          overwrite: true
 
   # macOS and Windows: native runner builds. Their compatibility floor is the setup-python
   # interpreter's deployment target, not the runner OS, so they do not need the container treatment.
@@ -417,11 +437,23 @@ jobs:
           fi
           echo "asset=$asset" >> "$GITHUB_OUTPUT"
 
+      # Retried once for the reason given on the build-linux upload above.
       - uses: actions/upload-artifact@v7
+        id: upload
+        continue-on-error: true
         with:
           name: ${{ steps.package.outputs.asset }}
           path: out/${{ steps.package.outputs.asset }}
           if-no-files-found: error
+
+      - name: Retry the upload if the artifact endpoint blipped
+        if: steps.upload.outcome == 'failure'
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.package.outputs.asset }}
+          path: out/${{ steps.package.outputs.asset }}
+          if-no-files-found: error
+          overwrite: true
 
   # The same CLI as a Python distribution, for `pipx install synqt`. One job builds it and a
   # separate one uploads it, which is the split the PyPA guide asks for: only the upload job
@@ -500,7 +532,10 @@ jobs:
           print(f"{wheel}: {len(names)} files, framework and assets present")
           PY
 
+      # Retried once for the reason given on the build-linux upload above.
       - uses: actions/upload-artifact@v7
+        id: upload
+        continue-on-error: true
         with:
           # The release job downloads every artifact of this run, so the sdist and the wheel
           # are attached to the GitHub release as well as uploaded to PyPI. Same bytes, two
@@ -508,6 +543,15 @@ jobs:
           name: pypi-distributions
           path: dist/
           if-no-files-found: error
+
+      - name: Retry the upload if the artifact endpoint blipped
+        if: steps.upload.outcome == 'failure'
+        uses: actions/upload-artifact@v7
+        with:
+          name: pypi-distributions
+          path: dist/
+          if-no-files-found: error
+          overwrite: true
 
   # Publishing is the only step a dry run skips: `build-linux`/`build-native`/`build-pypi` still
   # run, so a dry run fully exercises the build and smoke tests and leaves the artifacts on the

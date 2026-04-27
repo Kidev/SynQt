@@ -16,7 +16,7 @@ Running 15s test @ http://127.0.0.1:8480/json
     Latency     3.63ms  126.68us   6.22ms   97.30%
     Req/Sec    17.72k   468.44    27.46k    94.83%
   1058078 requests in 15.04s, 147.32MB read
-Requests/sec:  70352.86
+Requests/sec: 70352.86
 Transfer/sec:      9.80MB
 
 $ wrk -t4 -c256 -d15s "http://127.0.0.1:8480/plaintext"
@@ -26,7 +26,7 @@ Running 15s test @ http://127.0.0.1:8480/plaintext
     Latency     3.39ms   97.39us   7.41ms   93.32%
     Req/Sec    18.91k   413.10    24.01k    89.67%
   1129223 requests in 15.03s, 135.69MB read
-Requests/sec:  75107.95
+Requests/sec: 75107.95
 Transfer/sec:      9.03MB
 
 $ wrk -t4 -c256 -d15s "http://127.0.0.1:8480/db"
@@ -36,7 +36,7 @@ Running 15s test @ http://127.0.0.1:8480/db
     Latency     4.63ms  153.31us   9.23ms   98.82%
     Req/Sec    13.88k   360.89    20.70k    95.50%
   828869 requests in 15.06s, 118.40MB read
-Requests/sec:  55042.59
+Requests/sec: 55042.59
 Transfer/sec:      7.86MB
 
 $ wrk -t4 -c256 -d15s "http://127.0.0.1:8480/queries?queries=20"
@@ -46,7 +46,7 @@ Running 15s test @ http://127.0.0.1:8480/queries?queries=20
     Latency    12.53ms  556.70us  24.34ms   98.10%
     Req/Sec     5.13k   115.41     5.76k    89.00%
   306381 requests in 15.05s, 221.06MB read
-Requests/sec:  20362.33
+Requests/sec: 20362.33
 Transfer/sec:     14.69MB
 
 $ wrk -t4 -c256 -d15s "http://127.0.0.1:8480/updates?queries=20"
@@ -56,7 +56,7 @@ Running 15s test @ http://127.0.0.1:8480/updates?queries=20
     Latency    17.80ms  669.05us  34.09ms   97.98%
     Req/Sec     3.61k   290.56     3.88k    68.17%
   215436 requests in 15.05s, 155.44MB read
-Requests/sec:  14317.65
+Requests/sec: 14317.65
 Transfer/sec:     10.33MB
 
 $ wrk -t4 -c256 -d15s "http://127.0.0.1:8480/fortunes"
@@ -66,5 +66,5 @@ Running 15s test @ http://127.0.0.1:8480/fortunes
     Latency     5.86ms  177.47us  11.06ms   95.30%
     Req/Sec    10.98k   249.81    12.16k    79.50%
   655540 requests in 15.03s, 846.48MB read
-Requests/sec:  43608.33
+Requests/sec: 43608.33
 Transfer/sec:     56.31MB
