@@ -12,9 +12,24 @@
 #
 #   QT_HOST=/path/to/qt/gcc_64 tests/run-all.sh
 #
-# BUILD_DIR overrides where the tree lands (default build/all).
+# BUILD_DIR overrides where the tree lands (default build/all), and SYNQT_PHASES runs one
+# phase instead of all three (see the block below it).
 
 set -euo pipefail
+
+# Which phases to run. `all` is the default and is what a developer gets by typing
+# `tests/run-all.sh`; CI splits the phases across parallel jobs so its wall clock is the
+# longest phase rather than their sum. Validated rather than defaulted-on-typo: a job that
+# asked for "generated" and got the whole tree instead would pass while proving nothing
+# about the suites it was meant to run.
+SYNQT_PHASES="${SYNQT_PHASES:-all}"
+case "$SYNQT_PHASES" in
+all | tree | generated) ;;
+*)
+    echo "error: SYNQT_PHASES must be all, tree, or generated (got '$SYNQT_PHASES')" >&2
+    exit 2
+    ;;
+esac
 
 # The host kit directory is named for the host, not for what it builds, so one Linux default
 # makes this fail on macOS looking for a kit that was never going to be there.
@@ -43,13 +58,24 @@ export QT_FORCE_STDERR_LOGGING=1
 mkdir -p "$BUILD_DIR"
 log="$BUILD_DIR/configure-build.log"
 
-echo "== [1/3] configure and build the tree =="
-# pipefail is set, so the exit status is cmake's and not tee's; without it a failing
+if [ "$SYNQT_PHASES" = "generated" ]; then
+    echo "== [1/3] configure the tree (no build: see below) =="
+else
+    echo "== [1/3] configure and build the tree =="
+fi
+# pipefail is set, so the exit status is cmake's and not tee's. Without it a failing
 # configure would look like a pass.
 cmake -S . -B "$BUILD_DIR" -G Ninja \
     -DCMAKE_PREFIX_PATH="$QT_HOST" \
     -DCMAKE_BUILD_TYPE=RelWithDebInfo 2>&1 | tee "$log"
-cmake --build "$BUILD_DIR" 2>&1 | tee -a "$log"
+# The configure step is what writes $BUILD_DIR/script-suites.txt, so it runs in every phase
+# and CI never holds a second copy of the suite list. The build is what phase [2/3] needs;
+# the generated-output suites each configure a tree of their own from $REPO_ROOT and link
+# nothing out of this one, so building it for them would be a second full compile of the
+# framework for no test.
+if [ "$SYNQT_PHASES" != "generated" ]; then
+    cmake --build "$BUILD_DIR" 2>&1 | tee -a "$log"
+fi
 
 # A CMake warning is a defect, not decoration. The two this gate was built for were a real
 # incomplete-linking report (a SynQt library publicly links a Qt module the consumer's scope
@@ -61,10 +87,15 @@ if grep -q "CMake Warning" "$log"; then
     exit 1
 fi
 
+# Phase [2/3], guarded but not indented. The block contains a quoted heredoc,
+# and bash only accepts its terminator at column zero, so indenting the body would end the
+# heredoc nowhere. The `fi` below carries the condition again so the pair reads at a glance.
+if [ "$SYNQT_PHASES" != "generated" ]; then
+
 echo
 echo "== [2/3] run the suites =="
-# Serial on purpose: several suites bind fixed ports and start real servers, so -j needs an
-# audit of what they listen on, not just a flag.
+# Serial, because several suites bind fixed ports and start real servers, so -j needs an
+# audit of what they listen on rather than only a flag.
 if ! ctest --test-dir "$BUILD_DIR" --output-on-failure; then
     # ctest prints a failing test's captured output and nothing else, so a test that exits
     # non-zero having written nothing reports as a blank line. The usual cause of that on
@@ -114,6 +145,14 @@ if [ -f "$trace" ]; then
     echo "----- m3 crash-safe trace ($trace) -----"
     cat "$trace"
     echo "----- end m3 crash-safe trace -----"
+fi
+
+fi # SYNQT_PHASES != generated
+
+if [ "$SYNQT_PHASES" = "tree" ]; then
+    echo
+    echo "== [3/3] skipped (SYNQT_PHASES=tree) =="
+    exit 0
 fi
 
 echo
