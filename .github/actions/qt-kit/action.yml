@@ -1,0 +1,334 @@
+# SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+# SPDX-License-Identifier: Apache-2.0
+
+# Everything a job needs before it can build SynQt: the Python the run scripts drive the CLI
+# with, CMake and Ninja, MSVC on PATH, OpenSSL and the other native dependencies Qt's
+# configure looks for, the jwt-cpp headers, the pinned Qt 6.11.1 host kit, and a compiler
+# cache.
+#
+# It exists because ctest.yml runs three jobs that need the identical setup. Three copies of
+# eleven steps is three lists to drift, which is the failure this repository already keeps a
+# suite registry to prevent, so the steps live here once.
+#
+# Everything the steps read is an `inputs:` value, and nothing is read out of the calling
+# job's `env:`. That is not a style preference: inside a composite action the `env`
+# expression context holds only what the action itself sets, so `${{ env.QT_VERSION }}` here
+# would resolve to the empty string and aqt would be asked to install version "" into an
+# empty directory, silently. The shell bodies that want these as environment variables get
+# them from a per-step `env:` block for the same reason.
+#
+# The caller still checks the repository out first, since a local action cannot be resolved
+# before its own tree is on disk.
+
+name: Qt host kit
+description: Install the pinned Qt host kit, the native dependencies, and a compiler cache
+
+inputs:
+  label:
+    description: Short platform name (linux, macos, windows); part of every cache key
+    required: true
+  phase:
+    description: >
+      Which test phase this job runs (tree, generated, coverage). Only the compiler-cache
+      key uses it: the three phases compile different things, and the coverage build is
+      Debug and instrumented, so one shared entry would be three jobs evicting each other.
+    required: true
+  aqt_host:
+    description: aqtinstall host name (linux, mac, windows)
+    required: true
+  aqt_arch:
+    description: aqtinstall architecture (linux_gcc_64, clang_64, win64_msvc2022_64)
+    required: true
+  kit_dir:
+    description: Directory the kit installs into under $QT_ROOT/$QT_VERSION
+    required: true
+  qt_version:
+    description: Qt version to install
+    required: true
+  qt_root:
+    description: Directory the Qt kit is installed into
+    required: true
+  qt_modules:
+    description: Space-separated aqt module names to add to the kit
+    required: true
+  jwt_cpp_version:
+    description: jwt-cpp tag to clone
+    required: true
+  aqt_commit:
+    description: aqtinstall commit to install from
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@v7
+      with:
+        python-version: "3.12"
+
+    - name: Install the CLI's Python dependencies
+      # Several suites (appgen-native, desktop-client, m8-auth, custom-provider, m1-contract)
+      # drive the synqt package over PYTHONPATH to generate what they then compile, so this
+      # workflow needs the CLI's runtime deps even though the Python suites themselves live in
+      # tests.yml. Without them two suites died on ModuleNotFoundError: No module named 'yaml',
+      # a failure that reads like a broken generator and is really a missing package.
+      #
+      # The `python3` check is for Windows: those scripts all invoke `python3`, which is the
+      # only name that exists on Linux/macOS but is a shim setup-python provides on Windows.
+      # Asserting it here fails in one obvious place if that ever stops being true, instead of
+      # as a "command not found" in the middle of whichever suite happens to run first.
+      shell: bash
+      run: |
+        set -eu
+        python -m pip install --upgrade pip
+        python -m pip install pyyaml
+        if ! python3 -c 'import yaml' 2>/dev/null; then
+          echo "::error::python3 does not resolve to the interpreter the run scripts need"
+          exit 1
+        fi
+        echo "python3 -> $(python3 --version) with pyyaml"
+
+    - name: Install build tools (CMake + Ninja)
+      uses: lukka/get-cmake@v4.4.2
+
+    - name: Put MSVC on PATH (Windows)
+      # The run scripts configure with -G Ninja on every platform, which keeps one build
+      # recipe rather than a second Windows-only one; Ninja needs cl.exe already on PATH, which
+      # is what this does (the Visual Studio generator would find MSVC itself, but only by
+      # making Windows configure differently from the other two). Pinned to the commit behind
+      # the 1.3.1 tag rather than the floating v1, for the reason given in browser-matrix.yml.
+      if: runner.os == 'Windows'
+      uses: mlocati/setup-msvc@ade6aff3df872d66c12a63dcacdddf0041cb2693
+      with:
+        architecture: x64
+
+    - name: Install the native dependencies Qt needs to configure
+      # OpenSSL: SynQtService links it (mesh mutual TLS) and the mesh tests shell out to the
+      # openssl CLI to mint throwaway certs. Linux gets the apt dev package; macOS gets
+      # Homebrew's and exports OPENSSL_ROOT_DIR so CMake's find_package(OpenSSL) resolves the
+      # keg, not the headerless system LibreSSL. Windows takes the runner image's own
+      # Shining Light build, whose location is probed rather than assumed (the image has moved
+      # it between OpenSSL-Win64 and OpenSSL across versions) so a miss fails here, naming the
+      # problem, instead of inside a find_package 20 minutes later.
+      #
+      # OpenGL (Linux only): Qt6GuiConfig hard-requires WrapOpenGL, so without the dev files
+      # Qt6Gui sets Qt6Gui_FOUND to FALSE and every component that depends on it (Qml, Quick,
+      # NetworkAuth) disappears with it; find_package fails naming the dependent component,
+      # not the missing library, which is what makes this one slow to read. libgl1-mesa-dev
+      # pulls the libglvnd dev files, so it covers all three of CMake's OPENGL_opengl_LIBRARY,
+      # OPENGL_glx_LIBRARY, and OPENGL_INCLUDE_DIR. macOS has OpenGL in the SDK, and the
+      # Windows kit ships the opengl32sw software rasteriser.
+      shell: bash
+      run: |
+        set -eu
+        case "${{ runner.os }}" in
+          Linux)
+            sudo apt-get update
+            # libhiredis-dev and libmongoc-dev are what compile the redis and mongodb
+            # providers in at all: src/providers/CMakeLists.txt looks for each and leaves
+            # the wrapper out when it is missing, so without these two the Linux column
+            # skipped their tests and built neither file. libpq-dev is for the QPSQL
+            # plugin's client library. All three are optional to the build and none of the
+            # other columns install them: the engines below only run here.
+            # libsecret-1-dev is not optional coverage the way the three above are: without
+            # it src/client/CMakeLists.txt leaves SecretServiceStore out of the build
+            # entirely, so the backend that ships to every Linux desktop visitor
+            # (docs/desktop.md#storing-the-session) went untested here and uncompiled.
+            # gnome-keyring and dbus are what tests/lib/keyring-session.sh needs to
+            # hand the suite a private session bus and a private, unlocked keyring; a runner
+            # has neither logged in, and without them every store test skips.
+            sudo apt-get install -y libssl-dev libgl1-mesa-dev \
+                libhiredis-dev libmongoc-dev libpq-dev \
+                libsecret-1-dev gnome-keyring dbus
+            # The store tests skip on a machine with no store, which is correct there and
+            # useless here: this column is the one that has one. Fail if it does not, rather
+            # than reporting green over a package that quietly stopped installing.
+            if ! pkg-config --exists libsecret-1; then
+              echo "::error::libsecret-1 is missing, so the Linux secure store would not be built"
+              exit 1
+            fi
+            echo "SYNQT_REQUIRE_SECURE_STORE=1" >> "$GITHUB_ENV"
+            ;;
+          macOS)
+            brew install openssl@3
+            echo "OPENSSL_ROOT_DIR=$(brew --prefix openssl@3)" >> "$GITHUB_ENV"
+            ;;
+          Windows)
+            found=""
+            for root in "/c/Program Files/OpenSSL-Win64" "/c/Program Files/OpenSSL"; do
+              if [ -f "$root/include/openssl/ssl.h" ]; then
+                found="$root"
+                break
+              fi
+            done
+            if [ -z "$found" ]; then
+              echo "installing OpenSSL (not present on the image)"
+              choco install openssl --no-progress --yes
+              for root in "/c/Program Files/OpenSSL-Win64" "/c/Program Files/OpenSSL"; do
+                if [ -f "$root/include/openssl/ssl.h" ]; then
+                  found="$root"
+                  break
+                fi
+              done
+            fi
+            if [ -z "$found" ]; then
+              echo "::error::no OpenSSL development headers found on this Windows image"
+              exit 1
+            fi
+            # CMake needs a native path, not the MSYS one bash just matched with. cygpath -m
+            # gives C:/... with forward slashes: -w would give backslashes, which CMake treats
+            # as escapes inside a string.
+            echo "OPENSSL_ROOT_DIR=$(cygpath -m "$found")" >> "$GITHUB_ENV"
+            echo "using OpenSSL at $found"
+            ;;
+        esac
+
+    - name: Provide jwt-cpp headers
+      # jwt-cpp (MIT, header-only) verifies OIDC ID-token signatures in the M8 auth path.
+      # The headers stay where they are cloned and the path is exported, rather than copied into
+      # /usr/local/include and left for CMake to stumble on: that implicit system prefix is
+      # searched on the Linux runner but not on the macOS one, so every macOS suite that links
+      # the service runtime failed on headers that were sitting on disk the whole time. An exported
+      # path is also the same mechanism OPENSSL_ROOT_DIR uses above, and needs no sudo.
+      shell: bash
+      env:
+        # Restated from the input rather than inherited: a composite action's steps do not
+        # get the calling job's env context, and an unset branch here would clone whatever
+        # the default branch happens to be that day.
+        JWT_CPP_VERSION: ${{ inputs.jwt_cpp_version }}
+      run: |
+        set -eu
+        git clone --depth 1 --branch "$JWT_CPP_VERSION" https://github.com/Thalhammer/jwt-cpp "$RUNNER_TEMP/jwt-cpp"
+        include="$RUNNER_TEMP/jwt-cpp/include"
+        # As with OPENSSL_ROOT_DIR: hand CMake a native C:/... path, since the MSYS /d/a/_temp
+        # form bash uses here means nothing to it.
+        if [ "${{ runner.os }}" = "Windows" ]; then
+          include="$(cygpath -m "$include")"
+        fi
+        echo "JWT_CPP_INCLUDE_DIR=$include" >> "$GITHUB_ENV"
+
+    - name: Cache the Qt kit
+      id: qt-cache
+      uses: actions/cache@v6
+      with:
+        path: ${{ inputs.qt_root }}
+        # Hashing this file as well as the workflow: the module list and the install recipe
+        # moved here, so a change to either has to miss the cache. Hashing only the workflow
+        # would restore a kit built from a module list that no longer exists.
+        key: qt-${{ inputs.label }}-${{ inputs.qt_version }}-${{ hashFiles('.github/workflows/ctest.yml', '.github/actions/qt-kit/action.yml') }}
+
+    - name: Install aqtinstall
+      if: steps.qt-cache.outputs.cache-hit != 'true'
+      # From the repository at a pinned commit, not PyPI: the release that knows the current Qt
+      # 6.11 layout is not published yet, and the last released line (3.1.x) cannot resolve the
+      # WASM kit at all (see browser-matrix.yml, which explains the pin). Installing every
+      # workflow's aqt identically keeps the three from drifting onto different Qt-repository
+      # knowledge. Revisit once it ships.
+      #
+      # shell: bash is required here. Without it this step runs under the
+      # Windows runner's default shell, PowerShell, where a trailing backslash is not a line
+      # continuation: pwsh ran `pip install \` (which reported: Directory '\' is not
+      # installable) and then tried to execute the package spec as its own command. Every step
+      # in this workflow that spans lines therefore names its shell.
+      shell: bash
+      run: |
+        python -m pip install \
+          "aqtinstall @ git+https://github.com/miurahr/aqtinstall.git@${{ inputs.aqt_commit }}"
+
+    - name: Install the Qt host kit and its add-on modules
+      if: steps.qt-cache.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        # As above: these are the action's inputs, not the job's env, because a composite
+        # action sees none of the latter. Handing aqt an empty version and an empty output
+        # directory is the silent failure this guards against.
+        QT_VERSION: ${{ inputs.qt_version }}
+        QT_ROOT: ${{ inputs.qt_root }}
+        QT_MODULES: ${{ inputs.qt_modules }}
+      run: |
+        set -eu
+        host="${{ inputs.aqt_host }}"
+        arch="${{ inputs.aqt_arch }}"
+        kit="$QT_ROOT/$QT_VERSION/${{ inputs.kit_dir }}"
+
+        python -m aqt install-qt "$host" desktop "$QT_VERSION" "$arch" --outputdir "$QT_ROOT"
+        for m in $QT_MODULES; do
+          python -m aqt install-qt "$host" desktop "$QT_VERSION" "$arch" -m "$m" --outputdir "$QT_ROOT" \
+            || echo "prebuilt $m unavailable; will try a source build"
+        done
+
+        # Verify every required module resolved; source-build any the prebuilt kit omitted. This
+        # is the same mechanism browser-matrix.yml uses for QtRemoteObjects on the WASM kit.
+        pkg_for() {
+          case "$1" in
+            qtwebsockets)   echo Qt6WebSockets ;;
+            qtremoteobjects) echo Qt6RemoteObjects ;;
+            qthttpserver)   echo Qt6HttpServer ;;
+            qtnetworkauth)  echo Qt6NetworkAuth ;;
+            qttasktree)     echo Qt6TaskTree ;;
+            qtquick3d)      echo Qt6Quick3D ;;
+            qtshadertools)  echo Qt6ShaderTools ;;
+          esac
+        }
+        for m in $QT_MODULES; do
+          pkg="$(pkg_for "$m")"
+          # An unmapped module would resolve to an empty package name, whose Config.cmake can
+          # never exist, so the check below would silently "fall back" to a source build for a
+          # module that is probably installed fine. Fail on the typo instead.
+          if [ -z "$pkg" ]; then
+            echo "::error::QT_MODULES lists '$m' but pkg_for() has no package name for it"
+            exit 1
+          fi
+          if [ -f "$kit/lib/cmake/$pkg/${pkg}Config.cmake" ]; then
+            echo "$m present ($pkg)"
+            continue
+          fi
+          echo "$m missing; building it from source into the kit"
+          python -m aqt install-src "$host" "$QT_VERSION" --archives "$m" --outputdir "$QT_ROOT"
+          src="$QT_ROOT/$QT_VERSION/Src/$m"
+          # qt-cmake is a shell script everywhere except Windows, where it is qt-cmake.bat.
+          qt_cmake="$kit/bin/qt-cmake"
+          [ -f "$qt_cmake" ] || qt_cmake="$kit/bin/qt-cmake.bat"
+          "$qt_cmake" -S "$src" -B "$RUNNER_TEMP/$m-build" -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$kit"
+          cmake --build "$RUNNER_TEMP/$m-build"
+          cmake --install "$RUNNER_TEMP/$m-build"
+        done
+
+    - name: Install the compiler cache
+      # ccache everywhere but MSVC, which needs sccache: ccache cannot handle the separate
+      # .pdb MSVC writes for /Zi, and cmake/SynQtBuildFlags.cmake switches MSVC to embedded
+      # debug information when it finds sccache, for exactly that reason. Not fatal if the
+      # install fails: the CMake side is silent when no cache binary is found, so the build
+      # still runs, just at full price.
+      shell: bash
+      run: |
+        set -u
+        case "${{ runner.os }}" in
+          Linux)   sudo apt-get install -y ccache || true ;;
+          macOS)   brew install ccache || true ;;
+          Windows) choco install sccache --no-progress --yes || true ;;
+        esac
+        # The default ceiling is 5 GiB and the cache actions cap an entry at 10 GiB, so 4 GiB
+        # leaves room for the archive without evicting a run's own earlier objects: one run
+        # compiles the framework about ten times over across the suites.
+        if command -v ccache >/dev/null 2>&1; then
+          ccache --max-size=4G
+          ccache --zero-stats
+          ccache --version | head -1
+        elif command -v sccache >/dev/null 2>&1; then
+          sccache --version
+        else
+          echo "::warning::no compiler cache installed; this job will compile at full price"
+        fi
+
+    - name: Restore the compiler cache
+      uses: actions/cache@v6
+      with:
+        path: ${{ runner.os == 'Windows' && '~/AppData/Local/Mozilla/sccache' || '~/.cache/ccache' }}
+        # Keyed per job and per phase so the three do not race to write one entry, and with the
+        # commit in the key so every run saves a fresh entry rather than restoring the first
+        # one forever. restore-keys is what makes it a cache rather than a lottery: a run with
+        # no exact match takes the newest entry for the same job and phase and warms from that.
+        key: cc-${{ inputs.label }}-${{ inputs.phase }}-${{ github.sha }}
+        restore-keys: |
+          cc-${{ inputs.label }}-${{ inputs.phase }}-

@@ -1,0 +1,156 @@
+# SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+# SPDX-License-Identifier: Apache-2.0
+
+# The real database, cache and document engines the M9 provider proofs need, plus the QMYSQL
+# plugin rebuilt against MariaDB Connector/C. Two jobs in ctest.yml run the tree's ctest
+# suites (the ordinary one and the instrumented coverage one), and both want these, so they
+# live here once rather than as two copies that drift apart.
+#
+# Everything here is Linux-only and best-effort, exactly as it was when it sat inline: an
+# engine that does not come up leaves its proof skipping, which is what it did before this
+# workflow named one at all, and never a red build over infrastructure.
+#
+# The steps export their results through GITHUB_ENV, which a composite action writes to the
+# calling job the same way an inline step does, so the run step downstream sees SYNQT_TEST_*
+# and QT_PLUGIN_PATH without anything being passed back explicitly.
+
+name: Live provider engines
+description: Start the throwaway engines the live provider proofs need, and build QMYSQL against Connector/C
+
+inputs:
+  qt_version:
+    description: Qt version, to locate the kit and its sources
+    required: true
+  qt_root:
+    description: Directory the Qt kit is installed into
+    required: true
+  kit_dir:
+    description: Directory the kit installs into under $QT_ROOT/$QT_VERSION
+    required: true
+
+runs:
+  using: composite
+  steps:
+    # The mysql proof needs one thing more than an engine, and it is a licensing consequence:
+    # Qt's prebuilt QMYSQL plugin is linked against Oracle's libmysqlclient, which SynQt may
+    # not convey alongside the LGPLv3 Qt modules and which does not load against MariaDB
+    # Connector/C either (the versioned symbols are Oracle's). So the plugin is rebuilt here
+    # against Connector/C, which is the only build of it the provider can legally use. See
+    # tools/qmysql-plugin/build-qmysql-plugin.sh and docs/licensing.md.
+    #
+    # Cached because the build needs the Qt *source* tree, which is a large download to
+    # produce one small shared object. A stale cache degrades to a skip rather than a wrong
+    # result: tst_m9 checks the plugin by calling addDatabase(), so a plugin that will not
+    # load reports itself as such and sends you here.
+    - name: Cache the QMYSQL plugin built against Connector/C
+      if: runner.os == 'Linux'
+      id: qmysql-cache
+      uses: actions/cache@v6
+      with:
+        path: ~/.cache/synqt-qmysql
+        key: qmysql-${{ runner.os }}-${{ inputs.qt_version }}-${{ hashFiles('tools/qmysql-plugin/build-qmysql-plugin.sh') }}
+
+    - name: Build the QMYSQL plugin against MariaDB Connector/C (best effort)
+      # Best effort for the same reason the engines below are: a plugin that fails to build
+      # leaves the live mysql proof skipping exactly as it does today, and that is not worth
+      # a red build. It warns rather than passing over in silence.
+      if: runner.os == 'Linux'
+      shell: bash
+      env:
+        QT_HOST: ${{ inputs.qt_root }}/${{ inputs.qt_version }}/${{ inputs.kit_dir }}
+        QT_SRC: ${{ inputs.qt_root }}/${{ inputs.qt_version }}/Src
+        # Read by the aqt call below and by tools/qmysql-plugin/build-qmysql-plugin.sh.
+        # Restated from the inputs because a composite action's steps do not inherit the
+        # calling job's env, and an empty version here would install nothing, silently.
+        QT_VERSION: ${{ inputs.qt_version }}
+        QT_ROOT: ${{ inputs.qt_root }}
+        CACHED: ${{ steps.qmysql-cache.outputs.cache-hit }}
+      run: |
+        set -u
+        # The runtime library is needed either way: a cached plugin still links against it.
+        sudo apt-get install -y libmariadb-dev || true
+        if [ "$CACHED" = "true" ] && [ -n "$(find "$HOME/.cache/synqt-qmysql" -name 'libqsqlmysql.so' 2>/dev/null)" ]; then
+          echo "QMYSQL plugin restored from cache"
+        else
+          if python -m aqt install-src linux "$QT_VERSION" --archives qtbase \
+              --outputdir "$QT_ROOT"; then
+            tools/qmysql-plugin/build-qmysql-plugin.sh ||
+                echo "::warning::the QMYSQL plugin did not build; the live mysql proof will skip"
+          else
+            echo "::warning::the Qt sources did not install; the live mysql proof will skip"
+          fi
+        fi
+        if [ -n "$(find "$HOME/.cache/synqt-qmysql" -name 'libqsqlmysql.so' 2>/dev/null)" ]; then
+          echo "QT_PLUGIN_PATH=$HOME/.cache/synqt-qmysql" >> "$GITHUB_ENV"
+        fi
+
+    # The provider family interfaces make one claim that cannot be checked without the real
+    # engine: that the same connect point Source, pointed at a different engine by config
+    # alone, behaves identically. tests/m9-providers already contains those proofs, gated on
+    # SYNQT_TEST_* naming a reachable server, and until now nothing in CI ever named one, so
+    # they had never run anywhere but on a developer's machine.
+    #
+    # Plain `docker run` rather than a job-level `services:` block, because services need a
+    # Linux runner and this job is also scheduled on macOS and Windows, where declaring them
+    # fails the whole job. Docker on the Linux runner is the same mechanism .run-for-me.sh
+    # uses locally, so the two paths do not drift.
+    #
+    # Best-effort on purpose: every failure here is swallowed and the SYNQT_TEST_* variables
+    # are exported only for an engine that answered. An engine that does not come up leaves
+    # the suite exactly as it is without this step, skipping cleanly, so the worst case is
+    # the coverage this step was meant to add and never a red build over infrastructure.
+    - name: Start throwaway engines for the live provider proofs (best effort)
+      if: runner.os == 'Linux'
+      shell: bash
+      run: |
+        set -u
+        docker run --rm -d --name synqt-pg -e POSTGRES_PASSWORD=synqt \
+            -e POSTGRES_USER=synqt -e POSTGRES_DB=synqt -p 5432:5432 postgres:16 || true
+        docker run --rm -d --name synqt-redis -p 6379:6379 redis:7 || true
+        docker run --rm -d --name synqt-mongo -p 27017:27017 mongo:7 || true
+        # MariaDB, never Oracle's mysql image: the provider is built against Connector/C, and
+        # the server the proof runs against should be the one its users will run.
+        docker run --rm -d --name synqt-mysql -e MARIADB_ROOT_PASSWORD=synqt \
+            -e MARIADB_USER=synqt -e MARIADB_PASSWORD=synqt -e MARIADB_DATABASE=synqt \
+            -p 3306:3306 mariadb:11 || true
+
+        ready() {  # name, probe command
+          for _ in $(seq 1 30); do
+            if docker exec "$1" ${@:2} >/dev/null 2>&1; then return 0; fi
+            sleep 1
+          done
+          echo "::warning::$1 did not become ready; its live proof will skip"
+          return 1
+        }
+        if ready synqt-pg pg_isready -U synqt; then
+          {
+            echo "SYNQT_TEST_PG_HOST=127.0.0.1"
+            echo "SYNQT_TEST_PG_PORT=5432"
+            echo "SYNQT_TEST_PG_DB=synqt"
+            echo "SYNQT_TEST_PG_USER=synqt"
+            echo "SYNQT_TEST_PG_PASSWORD=synqt"
+          } >> "$GITHUB_ENV"
+        fi
+        if ready synqt-redis redis-cli ping; then
+          {
+            echo "SYNQT_TEST_REDIS_HOST=127.0.0.1"
+            echo "SYNQT_TEST_REDIS_PORT=6379"
+          } >> "$GITHUB_ENV"
+        fi
+        if ready synqt-mongo mongosh --quiet --eval 'db.runCommand({ping:1})'; then
+          {
+            echo "SYNQT_TEST_MONGO_URI=mongodb://127.0.0.1:27017"
+            echo "SYNQT_TEST_MONGO_DB=synqt"
+          } >> "$GITHUB_ENV"
+        fi
+        # healthcheck.sh ships in the mariadb image; --connect proves it answers a client
+        # connection rather than merely having started a process.
+        if ready synqt-mysql healthcheck.sh --connect; then
+          {
+            echo "SYNQT_TEST_MYSQL_HOST=127.0.0.1"
+            echo "SYNQT_TEST_MYSQL_PORT=3306"
+            echo "SYNQT_TEST_MYSQL_DB=synqt"
+            echo "SYNQT_TEST_MYSQL_USER=synqt"
+            echo "SYNQT_TEST_MYSQL_PASSWORD=synqt"
+          } >> "$GITHUB_ENV"
+        fi
