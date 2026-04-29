@@ -43,6 +43,11 @@ BUILD_DIR="${BUILD_DIR:-build/all}"
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
+# One run of this script compiles the framework about ten times over, so it is worth the
+# compiler cache being able to see that. See the file for what it turns off and why.
+# shellcheck source=tests/lib/compiler-cache.sh
+. "$REPO_ROOT/tests/lib/compiler-cache.sh"
+
 # On Windows a QtTest binary writes its entire log to the debugger, not to standard output,
 # whenever it is not attached to a console: QPlainTestLogger::outputMessage() calls
 # OutputDebugStringA() and RETURNS, writing nothing to the stream

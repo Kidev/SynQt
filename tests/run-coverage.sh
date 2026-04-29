@@ -48,6 +48,11 @@ HALVES="${HALVES:-both}"
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
+# One run of this script compiles the framework about ten times over, so it is worth the
+# compiler cache being able to see that. See the file for what it turns off and why.
+# shellcheck source=tests/lib/compiler-cache.sh
+. "$REPO_ROOT/tests/lib/compiler-cache.sh"
+
 case "$HALVES" in
     both) do_cxx=1; do_py=1 ;;
     cxx)  do_cxx=1; do_py=0 ;;
