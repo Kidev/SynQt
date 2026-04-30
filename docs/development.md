@@ -289,12 +289,92 @@ QT_HOST=/opt/Qt/6.11.1/gcc_64 tests/run-all.sh
 ```
 
 That builds the framework and every host kit suite once, runs them under a single `ctest`,
-and then runs the three suites that have to run a generator before there is anything to
-compile (`custom-provider`, `appgen-native`, `desktop-client`). It is the same command
+and then runs the four suites that have to run a generator before there is anything to
+compile (`custom-provider`, `appgen-native`, `desktop-client`, `monitor-console`). It is
+the same command
 [`ctest.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/ctest.yml) runs. A
 CMake warning fails it, because the two this gate was built for (an incomplete linking
 report, and a Qt module missing from the kit) had been scrolling past in green builds for
 as long as the workflow existed.
+
+### Running one phase, and why CI does
+
+`SYNQT_PHASES` runs part of that instead of all of it:
+
+```sh
+SYNQT_PHASES=tree tests/run-all.sh       # configure, build, and run the tree's ctest suites
+SYNQT_PHASES=generated tests/run-all.sh  # only the suites that compile generated output
+```
+
+Unset means `all`, which is what a developer typing `tests/run-all.sh` gets and what this
+page describes everywhere else. Anything other than those three is refused rather than
+defaulted, because a CI job that asked for `generated` and got the whole tree would pass
+while proving nothing about the suites it was there to run.
+
+`generated` configures the shared tree but does not build it. All it needs from that tree
+is `script-suites.txt`, which the configure step writes and which is why CI keeps no second
+copy of the suite list. Each of those suites then compiles a tree of its own from the
+repository root and links nothing out of the shared one.
+
+CI runs `tree`, `generated` and the coverage build as three concurrent jobs, so the column
+costs the longest of them rather than their sum.
+
+### The compiler cache
+
+Every build in this repository routes the compiler through `ccache`, or `sccache` under
+MSVC, whenever one is installed. The switch is in
+[`cmake/SynQtBuildFlags.cmake`](https://github.com/Kidev/SynQt/blob/main/cmake/SynQtBuildFlags.cmake),
+which the root `CMakeLists.txt` includes and which `synqt build` writes into every
+application it generates, so it reaches the tree build, all six `appgen-native` topologies,
+and a user's project alike. It is silent when no cache binary is present, because a
+`message(WARNING)` there would fail the run, since this suite treats a CMake warning as a
+defect. `-DSYNQT_COMPILER_CACHE=OFF` turns it off for a bisect.
+
+It pays off within a single run as well as between runs, and the two phases get very
+different things from it. Every generated application `add_subdirectory()`s the framework
+from `${SYNQT_ROOT}`, so `generated` compiles `SynQtService` and friends nine times over,
+while `tree` compiles each object exactly once. Measured on a 32-core Linux host, cold cache:
+
+| Phase | Wall clock | ccache hits |
+|---|---|---|
+| `tree` | 215 s | 0 of 291 |
+| `generated` | 272 s | 505 of 1016 (49.7%) |
+
+and on the cache those two runs left behind:
+
+| Phase | Wall clock | ccache hits |
+|---|---|---|
+| `tree` | 201 s | 85 of 291 (29.2%) |
+| `generated` | 113 s | 991 of 1016 (97.5%) |
+
+The `tree` warm figure is pessimistic by construction. That run was given a different build
+directory, and the tree compiles generated sources that carry their own path, so those miss
+on content. CI reuses one build directory, where they do not.
+
+For comparison, all measured the same way on the same host:
+
+| | Wall clock |
+|---|---|
+| Everything in series, no cache (what CI did) | 506 s |
+| Everything in series, cold cache | 466 s |
+| The two jobs in parallel, cold cache | 272 s |
+| The two jobs in parallel, warm cache | 201 s |
+
+Most of that is the split rather than the cache, and on this host that is expected, since
+32 cores make a compile cheap, so removing a redundant one saves less than running two
+phases at once does. A CI runner has four, where the same redundancy costs proportionally
+more.
+
+One thing had to be turned off to get any of that, and
+[`tests/lib/compiler-cache.sh`](https://github.com/Kidev/SynQt/blob/main/tests/lib/compiler-cache.sh)
+is where it happens. ccache hashes the working directory whenever the compiler emits debug
+information, which every build here does, so two builds of one target from one source tree
+share nothing if they were configured into different directories. With ccache installed and
+nothing else done, `appgen-native` reported 0 hits out of 676 compiles. `CCACHE_NOHASHDIR`
+took the same suite to 330 hits and 191 seconds to 153. `tests/run-all.sh` and
+`tests/run-coverage.sh` export it, rather than the CMake setting it, because the cost is a
+cached object carrying another build's compilation directory in its debug info, which is a
+fair trade for a test run and not one to impose on somebody's application.
 
 To run one suite, which is usually what you want while working on it, run its script:
 
