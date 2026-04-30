@@ -61,7 +61,55 @@ if(SYNQT_COMPILER_CACHE AND NOT CMAKE_C_COMPILER_LAUNCHER AND NOT CMAKE_CXX_COMP
     endif()
 endif()
 
-# MSVC is true for clang-cl as well, and this branch relies on that: the Windows gate under
+option(SYNQT_STRIP "Leave no symbols in the linked binaries" OFF)
+option(SYNQT_DEV_TOOLS "Compile the development-only sources into the framework" OFF)
+
+# Stripping, because a release artifact has no use for a symbol table and every reason not
+# to ship one: it is the map an attacker reads first, and on the WebAssembly client it is
+# bytes every visitor downloads. `synqt build --release` turns this on. Nothing else does.
+#
+# Not a build type. CMake's `Release` and `MinSizeRel` both still emit a symbol table and
+# CMake has no portable setting for this, so each branch below is the flag that linker
+# takes rather than one spelling hopefully understood by all of them.
+if(SYNQT_STRIP)
+    if(MSVC)
+        # MSVC keeps debug information in a separate .pdb and the linker writes one only when
+        # asked, so the whole of stripping here is not asking. /OPT:REF and /OPT:ICF are
+        # already on for the release configurations below.
+        add_link_options(/DEBUG:NONE)
+    elseif(EMSCRIPTEN)
+        # The name section is what matters in a .wasm. Without --strip-all it carries every
+        # function's name, which is both the map and the bytes. ASSERTIONS is already off at
+        # -O1 and above. Saying so explicitly makes a `--custom Debug --strip` build say
+        # what it is.
+        add_link_options(-sASSERTIONS=0)
+        add_link_options("SHELL:-Wl,--strip-all")
+    elseif(APPLE)
+        # ld64 has no --strip-all. -x drops the local symbols and -S the debug map, which is
+        # what `strip -x -S` does and as far as a linked Mach-O goes without breaking dynamic
+        # linking.
+        add_link_options("SHELL:-Wl,-x" "SHELL:-Wl,-S")
+    else()
+        add_link_options("SHELL:-Wl,--strip-all")
+    endif()
+endif()
+
+# The development-only sources. The stub identity provider, and every other capability that
+# must not exist in a shipped artifact. OFF by default, so a bare `cmake` produces a
+# production-shaped build and only `synqt dev` (with the suites that test those sources)
+# turns it on.
+#
+# It gates the source list rather than a runtime branch, and that is the entire point. A
+# capability behind an `if (devMode)` is still in the binary. It can be reached through a bug
+# in the check, through a flag someone passes, or read out of the strings. A file
+# CMake never names is not compiled, not linked, and not there. The definition below is what
+# lets a development-only header refuse to be included in a build that did not ask for one.
+# See src/edge/CMakeLists.txt for the list, and docs/security.md for what this defends.
+if(SYNQT_DEV_TOOLS)
+    add_compile_definitions(SYNQT_DEV_TOOLS)
+endif()
+
+# MSVC is true for clang-cl as well, and this branch relies on that. The Windows gate under
 # tools/windows-check drives clang-cl, and it has to be told about the same warnings in
 # the same spelling as cl.exe, not in GCC's.
 if(MSVC)
