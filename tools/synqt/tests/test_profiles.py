@@ -1,12 +1,8 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-"""What a build profile means. The build type each environment resolves it to, whether the
-binaries keep their symbols, and which directory the result lands in.
-
-The table these pin is the answer to "what does --release do", and it is not
-one answer. A visitor downloads the WebAssembly client over a network before a line of it
-runs, and nobody downloads a service.
+"""What a build profile means: the build type per environment, whether binaries are stripped,
+and the output directory. The client release is MinSizeRel, a service release Release.
 """
 
 import unittest
@@ -24,16 +20,14 @@ class BuildTypeTest(unittest.TestCase):
         self.assertEqual(profiles.build_type("debug", "host"), "Debug")
 
     def test_custom_is_taken_literally_and_not_resolved_per_environment(self):
-        # The escape hatch does no resolving. A user naming a build type gets that type in
-        # every environment, or it would not be an escape hatch.
+        # `--custom` gives its build type to every environment.
         self.assertEqual(profiles.build_type("custom", "wasm", "RelWithDebInfo"),
                          "RelWithDebInfo")
         self.assertEqual(profiles.build_type("custom", "host", "RelWithDebInfo"),
                          "RelWithDebInfo")
 
     def test_custom_refuses_a_type_cmake_does_not_have(self):
-        # CMake does not warn about an unknown CMAKE_BUILD_TYPE; it silently supplies no
-        # optimisation flags at all, so the refusal has to happen here.
+        # An unknown CMAKE_BUILD_TYPE is refused; CMake would silently apply no flags.
         with self.assertRaises(ValueError) as caught:
             profiles.build_type("custom", "host", "Fast")
         self.assertIn("Fast", str(caught.exception))
@@ -59,9 +53,7 @@ class StripTest(unittest.TestCase):
 
 class BuildDirTest(unittest.TestCase):
     def test_each_profile_gets_its_own_directory(self):
-        # Not tidiness. A release build and a development build compile different files, so
-        # one directory would mean a full rebuild on every switch and a tree holding objects
-        # the configuration it now has never asked for.
+        # Separate directories: release and development trees compile different files.
         self.assertEqual(profiles.build_dir("host", "debug"), "build/host-debug")
         self.assertEqual(profiles.build_dir("host", "release"), "build/host-release")
 
@@ -69,6 +61,13 @@ class BuildDirTest(unittest.TestCase):
         self.assertEqual(profiles.build_dir("wasm", "release", "wasm"), "build/wasm-release")
         self.assertEqual(profiles.build_dir("wasm", "debug", "wasm_multithread"),
                          "build/wasm-multithread-debug")
+
+    def test_a_development_tree_says_so_in_its_name(self):
+        # The `-dev` suffix is in the directory name.
+        self.assertEqual(profiles.build_dir("host", "debug", dev_tools=True),
+                         "build/host-debug-dev")
+        self.assertNotEqual(profiles.build_dir("host", "debug", dev_tools=True),
+                            profiles.build_dir("host", "debug"))
 
     def test_no_two_profiles_share_a_directory(self):
         for environment, kit in (("host", ""), ("wasm", "wasm"), ("wasm", "wasm_multithread")):

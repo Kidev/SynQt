@@ -21,7 +21,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 import yaml
 
-from . import appmodel, clientshell, cmakegen, config as configmod, toolchain
+from . import appmodel, clientshell, cmakegen, config as configmod, profiles, toolchain
 
 
 def launch_env(root: Path) -> Dict[str, str]:
@@ -73,13 +73,39 @@ def _executable(directory: Path, name: str) -> Optional[Path]:
     return None
 
 
-def host_binary(root: Path, name: str) -> Optional[Path]:
-    """The compiled host executable for one entity, or None if it was never built."""
-    return _executable(root / "build" / "host", name)
+def host_build_dir(root: Path, profile_name: str = "debug",
+                   dev_tools: bool = False) -> Path:
+    """Where one profile's host binaries are.
+
+    Each profile builds into its own directory (see profiles.build_dir), so "where is the
+    binary" is no longer one answer and every caller has to say which build it means.
+    """
+    return root / profiles.build_dir("host", profile_name, dev_tools=dev_tools)
 
 
-def host_artifact(root: Path, name: str) -> Optional[Path]:
-    """What a deploy step should copy for one entity: the .app bundle on macOS, otherwise the
+def host_binary(root: Path, name: str, profile_name: str = "debug",
+                dev_tools: bool = False) -> Optional[Path]:
+    """The compiled host executable for one entity, or None if that profile never built it."""
+    return _executable(host_build_dir(root, profile_name, dev_tools), name)
+
+
+def built_profiles(root: Path, name: str) -> List[str]:
+    """Which profiles have this entity built, so a miss can say what is there instead.
+
+    Without it, asking for a profile nobody built reports the entity as never built, which
+    sends the reader looking for a build failure that did not happen.
+    """
+    found = []
+    for candidate in profiles.PROFILES:
+        for dev in (False, True):
+            if host_binary(root, name, candidate, dev):
+                found.append(candidate + ("-dev" if dev else ""))
+    return found
+
+
+def host_artifact(root: Path, name: str, profile_name: str = "debug",
+                  dev_tools: bool = False) -> Optional[Path]:
+    """What a deploy step should copy for one entity. The .app bundle on macOS, otherwise the
     executable itself.
 
     Distinct from host_binary() because the two answers differ on exactly one platform, and
@@ -87,10 +113,10 @@ def host_artifact(root: Path, name: str) -> Optional[Path]:
     produces a file that cannot be launched as an app, cannot be signed, and is not what
     macdeployqt operates on.
     """
-    bundle = root / "build" / "host" / f"{name}.app"
+    bundle = host_build_dir(root, profile_name, dev_tools) / f"{name}.app"
     if bundle.is_dir():
         return bundle
-    return host_binary(root, name)
+    return host_binary(root, name, profile_name, dev_tools)
 
 
 def _deployed_binary(root: Path, name: str) -> Optional[Path]:
@@ -200,14 +226,16 @@ def _bundle_arguments(root: Path, edge: Dict[str, Any],
 
 
 def dev_command(root: Path, entity: Dict[str, Any], config: Dict[str, Any],
-                port: int) -> List[str]:
+                port: int, profile_name: str = "debug",
+                dev_tools: bool = True) -> List[str]:
     """The argv to launch one entity for `synqt dev` (plaintext localhost), run from the
     project root so the relative bundle/topology defaults resolve. The edge gets the
     served bundle, the owner Source QML directory, and the dev port; a service gets its
     resolved topology JSON."""
     name = entity.get("name")
-    resolved = host_binary(root, name)
-    binary = str(resolved) if resolved else str(root / "build" / "host" / name)
+    resolved = host_binary(root, name, profile_name, dev_tools)
+    binary = str(resolved) if resolved else str(
+        host_build_dir(root, profile_name, dev_tools) / name)
     if appmodel.is_edge(entity):
         return ([binary] + _bundle_arguments(root, entity, config)
                 + ["--qml-dir", str(root / appmodel.GENERATED_DIR),
@@ -243,7 +271,8 @@ def _launch_order(config: Dict[str, Any]) -> List[str]:
 
 
 def _launch_entities(root: Path, config: Dict[str, Any], launch_order: List[str],
-                     port: int) -> Tuple[List[Tuple[str, subprocess.Popen]], List[str]]:
+                     port: int, profile_name: str = "debug"
+                     ) -> Tuple[List[Tuple[str, subprocess.Popen]], List[str]]:
     """Start each entity for `synqt dev` (plaintext localhost). Returns the running
     processes and the names of any entity whose binary is not built yet."""
     processes: List[Tuple[str, subprocess.Popen]] = []
@@ -259,11 +288,14 @@ def _launch_entities(root: Path, config: Dict[str, Any], launch_order: List[str]
         env[appmodel.DEV_STUB_SECRET_VARIABLE] = secrets.token_urlsafe(24)
     for name in launch_order:
         entity = next(e for e in config["entities"] if e.get("name") == name)
-        if host_binary(root, name) is None:
+        # The development tree, always. `synqt dev` is the only command that builds one
+        # and the only one that launches from it.
+        if host_binary(root, name, profile_name, dev_tools=True) is None:
             missing.append(name)
             continue
-        processes.append((name, subprocess.Popen(dev_command(root, entity, config, port),
-                                                  cwd=str(root), env=env)))
+        processes.append((name, subprocess.Popen(
+            dev_command(root, entity, config, port, profile_name, dev_tools=True),
+            cwd=str(root), env=env)))
     return processes, missing
 
 
@@ -294,7 +326,8 @@ def dev_summary(config: Dict[str, Any], url: str, launched: List[str]) -> str:
     return summary
 
 
-def dev(project_dir: os.PathLike[str] | str, *, port: int = 8080,
+def dev(project_dir: os.PathLike[str] | str, *, profile_name: str = "debug",
+        port: int = 8080,
         open_browser: bool = True, block: bool = True, client: str = "wasm",
         watch: bool = True, profile: Optional[str] = None) -> str:
     """Serve the built client at the web edge over plaintext localhost and open a browser.
@@ -312,7 +345,7 @@ def dev(project_dir: os.PathLike[str] | str, *, port: int = 8080,
         return "synqt dev: no web_edge entity in the topology; nothing to serve."
 
     launch_order = _launch_order(config)
-    processes, missing = _launch_entities(root, config, launch_order, port)
+    processes, missing = _launch_entities(root, config, launch_order, port, profile_name)
     if missing:
         _terminate(processes)
         return ("synqt dev: these entities are not built (run 'synqt build' first): "
@@ -335,7 +368,11 @@ def dev(project_dir: os.PathLike[str] | str, *, port: int = 8080,
         names = " and ".join(configmod.config_filenames(profile))
         print(f"  Watching *.qml and {names} for changes (hot reload on). "
               "Press Ctrl-C to stop.")
-        state = {"processes": processes, "config": config, "profile": profile}
+        # `profile` is the configuration layer and `profile_name` is the build profile.
+        # The watcher needs both: the first to reload synqt.yaml, the second so a rebuild
+        # goes into the tree these processes were launched from.
+        state = {"processes": processes, "config": config, "profile": profile,
+                 "profile_name": profile_name}
         _watch_loop(root, state, port, client)
         return "synqt dev: stopped."
 
@@ -478,10 +515,12 @@ def _hot_reload(root: Path, state: Dict[str, Any], port: int, client: str,
     # `fallback:` is typed), which reaches the generator and raises a bare AttributeError
     # that no narrow tuple lists. Letting any such exception out would hit `_watch_loop`'s
     # finally and tear down every child process on a half-finished save. `except Exception`
-    # reports the message and survives; it does not catch KeyboardInterrupt or SystemExit
+    # reports the message and survives. It does not catch KeyboardInterrupt or SystemExit
     # (those are BaseException, not Exception), so Ctrl-C still stops the session cleanly.
     try:
-        note, _, _ = buildmod.compile_incremental(root, config, client=client)
+        note, _, _ = buildmod.compile_incremental(root, config, client=client,
+                                                  profile_name=state.get("profile_name",
+                                                                         "debug"))
     except (buildmod.BuildError, appmodel.AppGenError) as error:
         print(f"  {error}\n  (keeping the running processes; fix and save again)")
         return
@@ -553,7 +592,10 @@ def test(project_dir: os.PathLike[str] | str) -> int:
               "https://synqt.org/testing/.")
         return 0
 
-    host_build = root / "build" / "host"
+    # The default profile's tree, which is what `synqt build` with no flag configures. Not
+    # the development one: an app test drives a connect point's Source through SynQt.Test
+    # and needs nothing that SYNQT_DEV_TOOLS adds.
+    host_build = host_build_dir(root, "debug")
     if not (host_build / "CTestTestfile.cmake").exists():
         print("synqt test: no configured test build. Run 'synqt build' first "
               "(the host preset configures the test targets).")

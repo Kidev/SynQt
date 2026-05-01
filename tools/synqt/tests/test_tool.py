@@ -212,9 +212,9 @@ class BuildLayoutTest(unittest.TestCase):
         config["entities"][0]["targets"] = ["wasm", "desktop"]
         (root / "synqt.yaml").write_text(yaml.safe_dump(config, sort_keys=False))
 
-        # Desktop (host kit) only; the browser client compiles through the separate wasm
+        # Desktop (host kit) only. The browser client compiles through the separate wasm
         # kit and is covered compile-free by AssembleBundleTest.
-        buildmod.build(root, release=True, client="desktop")
+        buildmod.build(root, profile_name="release", client="desktop")
         # The host's own folder, not a hard-coded "linux": a desktop build is native, so it lands
         # under the platform it was built on. This test previously asserted linux/ and so could
         # only ever have passed on Linux.

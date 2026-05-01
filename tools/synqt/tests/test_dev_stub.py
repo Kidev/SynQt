@@ -1,8 +1,9 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-"""The development sign-in (`identity.dev_stub`), what it configures, what it refuses,
-and the three gates that keep it out of anything that ships."""
+"""The development sign-in (`identity.dev_stub`): what it configures, what it refuses, and the
+three gates that keep it out of anything that ships.
+"""
 
 import tempfile
 import unittest
@@ -48,13 +49,11 @@ class TheProviderTheFrameworkWrites(unittest.TestCase):
         self.assertTrue(provider["dev_stub"])
         for key in ("authorize_url", "token_url", "userinfo_url", "jwks_url", "issuer"):
             self.assertTrue(provider[key].startswith("http://127.0.0.1:"), key)
-        # The same rule every other provider follows. A secret is a name here, never a
-        # value, even when the value is a stand-in.
+        # The secret is a variable name, as for every provider.
         self.assertTrue(provider["client_secret"].startswith("env:"))
 
     def test_the_project_provider_stays_first(self):
-        # The login route reaches for the first provider, and that has to go on meaning
-        # the real one after somebody turns the development sign-in on.
+        # The first provider stays the project's own.
         github = {"name": "github", "client_id": "x", "client_secret": "env:S"}
         names = [one["name"] for one in appmodel.identity_providers(
             _config(True, providers=[github]))]
@@ -73,9 +72,8 @@ class TheProviderTheFrameworkWrites(unittest.TestCase):
                          appmodel.DEV_STUB_PORT)
 
     def test_the_entry_passes_the_checks_every_provider_passes(self):
-        # http is refused for an identity endpoint everywhere except loopback, and a
-        # provider read through an ID token has to name an issuer and a key set. The
-        # synthesized entry is held to all of it rather than exempted from any of it.
+        # The synthesized entry meets every provider rule: loopback-only http, an issuer and
+        # a key set.
         self.assertEqual(_findings(_config(True)), [])
 
 
@@ -87,8 +85,7 @@ class WhoTheSignInOffers(unittest.TestCase):
         self.assertEqual([one["sub"] for one in users], ["ada", "grace"])
 
     def test_a_field_the_identity_object_does_not_have_is_dropped(self):
-        # Whatever survives here is what the mapping hook reads, and the hook reads an
-        # identity. A `scope:` written beside a dev user would look like it worked.
+        # A `scope:` on a dev user is refused: the mapping hook decides scopes.
         users = appmodel.dev_stub_users(_config(
             {"users": [{"sub": "ada", "scope": "admin"}]}))
         self.assertEqual(users, [{"sub": "ada"}])
@@ -125,8 +122,7 @@ class WhatTheCheckRefuses(unittest.TestCase):
         self.assertIn("must be a port number", findings[0])
 
     def test_the_port_an_entity_already_serves_on(self):
-        # Both would bind it and one would lose, and the run would end on a message about
-        # a port rather than about a login.
+        # The dev sign-in port must not equal the edge port.
         config = _config({"port": 8443},
                          entities=[{"name": "web", "type": "web_edge",
                                     "public": {"host": "127.0.0.1", "port": 8443}},
@@ -147,9 +143,8 @@ class WhatTheCheckRefuses(unittest.TestCase):
 
 class WhatTheEdgeIsGenerated(unittest.TestCase):
     def _edge_main(self, config):
-        # dev_tools=True throughout this class: these tests describe what `synqt dev`
-        # generates, which is the only build that may carry a development sign-in at all.
-        # WhatAReleaseBuildGenerates below is the other half.
+        # dev_tools=True: what `synqt dev` generates. WhatAReleaseBuildGenerates is the
+        # other half.
         return maingen.render_edge_main(config, config["entities"][0], dev_tools=True)
 
     def test_the_server_starts_in_the_edge_and_only_under_dev(self):
@@ -190,12 +185,8 @@ class WhatTheEdgeIsGenerated(unittest.TestCase):
 
 
 class WhatAReleaseBuildGenerates(unittest.TestCase):
-    """The build profile decides, not the project file.
-
-    `identity.dev_stub` in synqt.yaml is a request for a development sign-in. Whether the
-    build may carry one is a separate question, and `synqt build` answers no to it whatever
-    the project asked for, which is why the type is not named in the main it generates and
-    not compiled into the SynQtEdge that main links (tests/dev-exclusion).
+    """The build profile decides, not the project file. `synqt build` never names the type, and
+    the release SynQtEdge does not contain it (tests/dev-exclusion).
     """
 
     def test_a_release_main_never_names_the_stub_even_when_the_project_asks_for_one(self):
@@ -225,8 +216,7 @@ class WhatTheScaffoldWrites(unittest.TestCase):
         self.assertEqual(identity["providers"], [])
         self.assertEqual([one["sub"] for one in identity["dev_stub"]["users"]],
                          ["dev", "mod"])
-        # Nothing to register and no secret to place, so the steps are about the two
-        # things that are the project's own.
+        # Only the users and the hook are left to do.
         self.assertNotIn("Register an OAuth app", message)
         self.assertIn("identity.dev_stub.users", message)
         self.assertFalse((root / ".env.example").exists())
@@ -241,8 +231,7 @@ class WhatTheScaffoldWrites(unittest.TestCase):
 
 
 class WhatDevHandsTheProcesses(unittest.TestCase):
-    """`synqt dev` starts the entities. The environment it hands them is what carries the
-    development sign-in's shared secret to both ends of it."""
+    """`synqt dev` passes the development sign-in shared secret to every process it starts."""
 
     def _environments(self, config):
         """The env each launched process was given, with nothing started."""
@@ -256,7 +245,8 @@ class WhatDevHandsTheProcesses(unittest.TestCase):
         original_popen = run.subprocess.Popen
         original_binary = run.host_binary
         run.subprocess.Popen = _Popen
-        run.host_binary = lambda _root, name: Path("/nonexistent") / str(name)
+        run.host_binary = (lambda _root, name, *_args, **_kwargs:
+                           Path("/nonexistent") / str(name))
         try:
             run._launch_entities(root, config, ["web"], 8080)
         finally:
@@ -272,8 +262,7 @@ class WhatDevHandsTheProcesses(unittest.TestCase):
         self.assertEqual(len(first), 1)
         secret = first[0].get(appmodel.DEV_STUB_SECRET_VARIABLE)
         self.assertTrue(secret)
-        # Fresh per run, so another process on this machine cannot spend a code against
-        # a development token endpoint by knowing what the last run used.
+        # Fresh per run.
         self.assertNotEqual(secret, second[0].get(appmodel.DEV_STUB_SECRET_VARIABLE))
 
     def test_a_project_with_no_dev_sign_in_is_handed_nothing(self):
@@ -298,9 +287,7 @@ class WhatDevSays(unittest.TestCase):
 
 class WhatARealProviderIsAskedForAndADevelopmentOneIsNot(unittest.TestCase):
     def test_a_release_build_is_not_told_about_a_redirect_uri_nobody_will_use(self):
-        # The origin advice is about the `redirect_uri` a provider compares. A project
-        # whose only sign-in is the development one has no provider to compare anything,
-        # and that sign-in is refused in a build anyway.
+        # No origin advice when the only sign-in is the development one.
         config = _config(True)
         self.assertEqual(check._derived_origin_messages(config, True), [])
 

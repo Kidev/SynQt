@@ -23,7 +23,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from . import (appgen, appmodel, clientbuild, clientcache, clientshell,
                config as configmod, deploy as deploymod, licenses, manifest, presets,
-               run, toolchain, topologywriter, writer)
+               profiles, run, toolchain, topologywriter, writer)
 
 
 class BuildError(Exception):
@@ -259,10 +259,26 @@ def _configure_if_needed(configure: List[str], build_dir: Path, project_dir: Pat
     return True
 
 
+def _preset_name(environment: str, profile_name: str, dev_tools: bool) -> str:
+    """Which generated configure preset this build uses.
+
+    `host` and `wasm` are the default profile, which is debug. The others are written beside
+    them by presets.write(). The development tree is its own preset rather than an option on
+    another one, so that nothing reaches SYNQT_DEV_TOOLS=ON without naming it.
+    """
+    if dev_tools:
+        return f"{environment}-dev"
+    if profile_name == "debug":
+        return environment
+    return f"{environment}-{profile_name}"
+
+
 def _cmake_build(project_dir: Path, resolved: Dict[str, Optional[str]],
                  host_targets: List[str], client_targets: List[str],
                  config: Dict[str, Any], edge_url: Optional[str] = None,
-                 verbose: bool = False) -> str:
+                 verbose: bool = False, profile_name: str = "debug",
+                 custom_type: str = "", strip: bool = False,
+                 dev_tools: bool = False) -> str:
     """Compile the host targets (services + optional desktop client) and, when the wasm
     client is requested, the browser client through the pinned Emscripten Qt kit. A desktop
     client build bakes in edge_url (build.desktop.edge_url) as SYNQT_EDGE_URL."""
@@ -281,18 +297,23 @@ def _cmake_build(project_dir: Path, resolved: Dict[str, Optional[str]],
     # provisioned synqt/toolchain path, but a developer with a system Qt (resolved via
     # /opt/Qt or QTDIR) has not populated it. Passing the resolved prefix makes the build
     # work either way without editing the preset.
-    # -S names the project itself: its root CMakeLists.txt includes the generated build,
+    # -S names the project itself. Its root CMakeLists.txt includes the generated build,
     # and cmake reads presets from the top-level source directory.
-    host_configure = [cmake, "-S", str(root), "--preset", "host"]
+    # The preset carries the build type, the strip switch and SYNQT_DEV_TOOLS, so the CLI
+    # and a contributor typing `cmake --preset host-release` configure the same tree. The
+    # preset for this profile was written by presets.write() in the caller.
+    host_preset = _preset_name("host", profile_name, dev_tools)
+    host_configure = [cmake, "-S", str(root), "--preset", host_preset]
     if resolved.get("host_qt"):
         host_configure.append(f"-DCMAKE_PREFIX_PATH={resolved['host_qt']}")
     if edge_url:
         host_configure.append(f"-DSYNQT_EDGE_URL={edge_url}")
     try:
         if host_targets:
-            _configure_if_needed(host_configure, project_dir / "build" / "host",
-                                 project_dir, verbose)
-            build_command = [cmake, "--build", str(project_dir / "build" / "host")]
+            host_dir = project_dir / profiles.build_dir("host", profile_name,
+                                                        dev_tools=dev_tools)
+            _configure_if_needed(host_configure, host_dir, project_dir, verbose)
+            build_command = [cmake, "--build", str(host_dir)]
             for target in host_targets:
                 build_command += ["--target", target]
             if verbose:
@@ -303,18 +324,24 @@ def _cmake_build(project_dir: Path, resolved: Dict[str, Optional[str]],
             # installs the Emscripten toolchain file). The root CMakeLists guards the
             # service targets behind `if(NOT EMSCRIPTEN)`, so only the client is built.
             qt_cmake = Path(resolved["wasm_qt"]) / "bin" / "qt-cmake"
-            # One build directory per kit: qt-cmake's toolchain choice is cached on the
+            # One build directory per kit. Qt-cmake's toolchain choice is cached on the
             # first configure, so a shared directory would silently keep the other kit's.
-            wasm_dir = project_dir / clientbuild.wasm_build_dir(config)
-            # QT_HOST_PATH is passed explicitly, never left to the kit: a cross-compiled Qt has
+            wasm_dir = project_dir / clientbuild.wasm_build_dir(config, profile_name,
+                                                                 dev_tools)
+            # QT_HOST_PATH is passed explicitly, never left to the kit. A cross-compiled Qt has
             # to be told where its host tools (moc, rcc, qmlcachegen) live. The kit bakes in the
             # path from the machine Qt itself was built on (/home/qt/work/install), and aqt
-            # rewrites that only when it installs a host-specific kit; the WebAssembly kit is
+            # rewrites that only when it installs a host-specific kit. The WebAssembly kit is
             # published host-independently (all_os/wasm), so nothing rewrites it and the
-            # configure dies on "please set the QT_HOST_PATH cache variable". We already
-            # resolved the host kit, so say so rather than depend on an installer's patching.
+            # configure dies on "please set the QT_HOST_PATH cache variable". The host kit
+            # is already resolved here, so say so rather than depend on an installer's patching.
             _configure_if_needed([str(qt_cmake), "-S", str(root), "-B", str(wasm_dir),
-                                  "-G", "Ninja", "-DCMAKE_BUILD_TYPE=Release",
+                                  "-G", "Ninja",
+                                  "-DCMAKE_BUILD_TYPE=%s" % profiles.build_type(
+                                      profile_name, "wasm", custom_type),
+                                  "-DSYNQT_STRIP=%s" % (
+                                      "ON" if profiles.strips(profile_name, strip) else "OFF"),
+                                  "-DSYNQT_DEV_TOOLS=%s" % ("ON" if dev_tools else "OFF"),
                                   f"-DQT_HOST_PATH={resolved['host_qt']}"],
                                  wasm_dir, project_dir, verbose)
             wasm_build = [cmake, "--build", str(wasm_dir)]
@@ -389,20 +416,21 @@ def _targets_for(config: Dict[str, Any], client: str) -> Tuple[List[Dict[str, An
 
 
 def compile_incremental(project_dir: os.PathLike[str] | str, config: Dict[str, Any], *,
-                        client: str = "wasm") -> Tuple[str, List[str], List[str]]:
+                        client: str = "wasm", profile_name: str = "debug",
+                        dev_tools: bool = True) -> Tuple[str, List[str], List[str]]:
     """Regenerate the app from the topology and run an incremental cmake build, then
     reinstall the host binaries so a restarted service picks up the new build. Used by
     ``synqt dev``'s watcher (cmake --build is incremental). Returns the compile note plus
     the host and client target lists that were built."""
     root = Path(project_dir).resolve()
     resolved = toolchain.resolve(root, threads=clientbuild.client_threads(config))
-    appgen.generate(root, config)
-    presets.write(root, config)
+    appgen.generate(root, config, dev_tools=dev_tools)
+    presets.write(root, config, profile_name=profile_name, dev_tools=dev_tools)
     topologywriter.write(root, config)  # the machine topology each service reads at startup
     _, host_targets, client_targets = _targets_for(config, client)
     edge_url = _desktop_edge_url(config) if "desktop" in client_targets else None
     note = _cmake_build(root, resolved, host_targets, client_targets, config=config,
-                        edge_url=edge_url)
+                        edge_url=edge_url, profile_name=profile_name, dev_tools=dev_tools)
     build_dir = root / "build"
     for entity in config.get("entities", []):
         name = entity.get("name")
@@ -412,9 +440,9 @@ def compile_incremental(project_dir: os.PathLike[str] | str, config: Dict[str, A
             if "desktop" in _client_targets(entity, client):
                 _install_binary(build_dir, name,
                                 root / appmodel.desktop_output_dir(config, entity)
-                                / desktop_platform())
+                                / desktop_platform(), profile_name, dev_tools)
         else:
-            _install_binary(build_dir, name, build_dir / name)
+            _install_binary(build_dir, name, build_dir / name, profile_name, dev_tools)
     return note, host_targets, client_targets
 
 
@@ -496,7 +524,8 @@ def _deploy_note(root: Path, name: str, out: Path) -> str:
         "with linuxdeploy or an AppImage recipe. The binary is %s.\n" % (out / name))
 
 
-def _install_binary(build_dir: Path, entity_name: str, dest: Path) -> bool:
+def _install_binary(build_dir: Path, entity_name: str, dest: Path,
+                    profile_name: str = "debug", dev_tools: bool = False) -> bool:
     """Copy a compiled host binary into its deploy directory so `synqt serve` finds it
     alongside its THIRD-PARTY-LICENSES. Returns True when a binary was installed.
 
@@ -509,7 +538,7 @@ def _install_binary(build_dir: Path, entity_name: str, dest: Path) -> bool:
     inside it would have been worse, silently producing a deploy folder holding something that
     is no longer an app.
     """
-    compiled = run.host_artifact(build_dir.parent, entity_name)
+    compiled = run.host_artifact(build_dir.parent, entity_name, profile_name, dev_tools)
     if compiled is None:
         return False
     dest.mkdir(parents=True, exist_ok=True)
@@ -609,12 +638,21 @@ def _selected_entities(config: Dict[str, Any], entity: Optional[str]) -> List[Di
     return selected
 
 
-def build(project_dir: os.PathLike[str] | str, *, release: bool = True,
+def build(project_dir: os.PathLike[str] | str, *, profile_name: str = "debug",
+          custom_type: str = "", strip: bool = False, dev_tools: bool = False,
           client: str = "wasm", qt_license_mode: str = "open_source",
           entity: Optional[str] = None, threads: Optional[str] = None,
           verbose: bool = False, profile: Optional[str] = None,
           deploy: bool = False, sign: Optional[str] = None) -> str:
-    # Resolve to an absolute path: the cmake invocations below run with cwd set to the
+    """Build every selected entity for one profile.
+
+    `profile_name` is the build profile (`debug`, `release` or `custom`) and `profile` is
+    the configuration layer that `--profile NAME` selects. They are unrelated and the names
+    are unfortunately close. The first decides how this is compiled and the second decides
+    what is compiled. `dev_tools` is never true from `synqt build`, whatever the profile:
+    only `synqt dev` builds a tree that carries development-only code.
+    """
+    # Resolve to an absolute path. The cmake invocations below run with cwd set to the
     # project dir, so a relative --project-dir would otherwise be joined against itself.
     root = Path(project_dir).resolve()
     config = clientbuild.with_threads(load_config(root, profile), threads)
@@ -624,14 +662,15 @@ def build(project_dir: os.PathLike[str] | str, *, release: bool = True,
     selected = _selected_entities(config, entity)
 
     # Regenerate the app from the current topology so a connect-point change is reflected
-    # in the CMakeLists, the CMakePresets, and the per-entity main before we compile. This
+    # in the CMakeLists, the CMakePresets, and the per-entity main before compiling. This
     # keeps `synqt build` self-sufficient on any project (a docs example, a hand-authored
     # tree), not only one scaffolded by `synqt new`.
-    appgen.generate(root, config)
-    presets.write(root, config)
+    appgen.generate(root, config, dev_tools=dev_tools)
+    presets.write(root, config, profile_name=profile_name, custom_type=custom_type,
+                  strip=strip, dev_tools=dev_tools)
     topologywriter.write(root, config)  # the machine topology each service reads at startup
 
-    # Only among the selected entities: `--entity web` must not compile the client too.
+    # Only among the selected entities. `--entity web` must not compile the client too.
     # Every selected client, not the first one: a project may hold a gate and an
     # application, and building only whichever was declared first would leave the other
     # with no bundle while reporting success.
@@ -650,7 +689,9 @@ def build(project_dir: os.PathLike[str] | str, *, release: bool = True,
             host_targets.append(client_entity.get("name"))
     edge_url = _desktop_edge_url(config) if "desktop" in client_targets else None
     compile_note = _cmake_build(root, resolved, host_targets, client_targets,
-                                config=config, edge_url=edge_url, verbose=verbose)
+                                config=config, edge_url=edge_url, verbose=verbose,
+                                profile_name=profile_name, custom_type=custom_type,
+                                strip=strip, dev_tools=dev_tools)
 
     produced: List[str] = []
     deploy_notes: List[str] = []
@@ -666,20 +707,20 @@ def build(project_dir: os.PathLike[str] | str, *, release: bool = True,
                 if target == "desktop":
                     # The host's own folder (windows/, macos/, linux/ per docs/desktop.md). A
                     # desktop client is native, so the only one this build can fill is this
-                    # host's; the others come from that platform's own run of the same command.
+                    # host's. The others come from that platform's own run of the same command.
                     out = out / desktop_platform()
                 out.mkdir(parents=True, exist_ok=True)
                 (out / "THIRD-PARTY-LICENSES").write_text(
                     licenses.generate(entity, target=target,
                                       qt_license_mode=qt_license_mode, config=config))
-                # The desktop client compiles on the host; place it beside its licenses.
+                # The desktop client compiles on the host. Place it beside its licenses.
                 # Installed before the note is written, so the note can name the artifact that
-                # is actually there rather than the one this build expected to produce.
+                # is there rather than the one this build expected to produce.
                 if target == "desktop":
-                    _install_binary(build_dir, name, out)
+                    _install_binary(build_dir, name, out, profile_name, dev_tools)
                     if deploy:
                         # Asked for explicitly, so a failure here is a failed build rather than
-                        # a warning: the developer said they wanted a deployed tree, and one
+                        # a warning. The developer said they wanted a deployed tree, and one
                         # that silently is not deployed is the "looks finished" outcome the
                         # default position exists to avoid.
                         deploy_notes.append(
@@ -695,10 +736,13 @@ def build(project_dir: os.PathLike[str] | str, *, release: bool = True,
             out.mkdir(parents=True, exist_ok=True)
             (out / "THIRD-PARTY-LICENSES").write_text(
                 licenses.generate(entity, qt_license_mode=qt_license_mode, config=config))
-            _install_binary(build_dir, name, out)  # so `synqt serve` can launch it
+            # into build/<entity>/, which is what `synqt serve` launches: the deploy
+            # layout holds whichever profile was built last. It is the artifact
+            # tree, and an artifact does not carry a profile in its path.
+            _install_binary(build_dir, name, out, profile_name, dev_tools)
             produced.append(f"build/{name}/")
 
-    # Only when this build produced the bundle: with --entity web the client dir may still
+    # Only when this build produced the bundle. With --entity web the client dir may still
     # hold an older bundle, and recompressing it would report work this build did not do.
     bundle_dirs = [build_dir.parent / destination
                    for destination in client_bundle_targets(config).values()]
@@ -707,7 +751,13 @@ def build(project_dir: os.PathLike[str] | str, *, release: bool = True,
                      if directory.exists()) if built_wasm_client else 0
     write_process_manifest(config, build_dir)
 
-    summary = [f"Built {len(produced)} entity artifact(s) ({'release' if release else 'debug'}):"]
+    # The profile, named rather than reduced to two words. A line that reads "release"
+    # or "debug" from a flag that reaches nothing else is the only place the profile
+    # exists, and it is as often wrong as right.
+    described = custom_type if profile_name == "custom" else profile_name
+    if dev_tools:
+        described += ", with development code"
+    summary = [f"Built {len(produced)} entity artifact(s) ({described}):"]
     summary += [f"  - {item}" for item in produced]
     summary.append(f"  {compile_note}")
     if compressed:

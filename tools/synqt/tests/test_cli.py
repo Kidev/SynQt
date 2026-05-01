@@ -480,16 +480,16 @@ class HostBinaryTest(unittest.TestCase):
 
     def setUp(self):
         self.root = Path(tempfile.mkdtemp())
-        (self.root / "build" / "host").mkdir(parents=True)
+        (self.root / "build" / "host-debug").mkdir(parents=True)
 
     def test_finds_a_suffixless_binary(self):
-        (self.root / "build" / "host" / "web").write_bytes(b"\x7fELF")
+        (self.root / "build" / "host-debug" / "web").write_bytes(b"\x7fELF")
         self.assertEqual(run.host_binary(self.root, "web").name, "web")
 
     def test_finds_a_windows_exe(self):
-        # The bug this pins: looking only for the bare name finds nothing on Windows, so every
+        # The bug this pins. Looking only for the bare name finds nothing on Windows, so every
         # entity of a perfectly good build reports as missing and `synqt dev` starts nothing.
-        (self.root / "build" / "host" / "web.exe").write_bytes(b"MZ")
+        (self.root / "build" / "host-debug" / "web.exe").write_bytes(b"MZ")
         self.assertEqual(run.host_binary(self.root, "web").name, "web.exe")
 
     def test_returns_none_when_not_built(self):
@@ -501,7 +501,7 @@ class HostBinaryTest(unittest.TestCase):
         # hand-off in docs/desktop.md is possible at all), and what runs is the executable
         # inside it. Resolving only the bare name found a directory, not a file, and reported
         # a client that had built and installed correctly as never built.
-        bundle = self.root / "build" / "host" / "client.app" / "Contents" / "MacOS"
+        bundle = self.root / "build" / "host-debug" / "client.app" / "Contents" / "MacOS"
         bundle.mkdir(parents=True)
         (bundle / "client").write_bytes(b"\xcf\xfa\xed\xfe")
         resolved = run.host_binary(self.root, "client")
@@ -513,7 +513,7 @@ class HostBinaryTest(unittest.TestCase):
         # The two answers differ on exactly one platform, and conflating them loses the app:
         # a deploy that copies only Contents/MacOS/client produces something that cannot be
         # launched, cannot be signed, and is not what macdeployqt operates on.
-        bundle = self.root / "build" / "host" / "client.app" / "Contents" / "MacOS"
+        bundle = self.root / "build" / "host-debug" / "client.app" / "Contents" / "MacOS"
         bundle.mkdir(parents=True)
         (bundle / "client").write_bytes(b"\xcf\xfa\xed\xfe")
         self.assertEqual(run.host_artifact(self.root, "client").name, "client.app")
@@ -522,7 +522,7 @@ class HostBinaryTest(unittest.TestCase):
 
     def test_artifact_falls_back_to_the_plain_binary(self):
         # Everywhere but macOS there is no bundle, and the artifact is the executable itself.
-        (self.root / "build" / "host" / "web").write_bytes(b"\x7fELF")
+        (self.root / "build" / "host-debug" / "web").write_bytes(b"\x7fELF")
         self.assertEqual(run.host_artifact(self.root, "web").name, "web")
 
 
@@ -553,7 +553,9 @@ class DevLaunchTest(unittest.TestCase):
         return next(e for e in self.config["entities"] if e["name"] == name)
 
     def _build(self, *names):
-        binaries = self.root / "build" / "host"
+        # `synqt dev` builds and launches from the development tree, which is the only one
+        # that carries SYNQT_DEV_TOOLS, and its directory says so (profiles.build_dir).
+        binaries = self.root / "build" / "host-debug-dev"
         binaries.mkdir(parents=True, exist_ok=True)
         for name in names:
             (binaries / name).write_bytes(b"\x7fELF")

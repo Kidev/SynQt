@@ -71,7 +71,7 @@ class ConfigureSkipping(unittest.TestCase):
     def setUp(self):
         self._dir = TemporaryDirectory()
         self.root = Path(self._dir.name)
-        self.build_dir = self.root / "build" / "host"
+        self.build_dir = self.root / "build" / "host-debug"
         self.build_dir.mkdir(parents=True)
         self.runs = []
         self._real_run = build._run
@@ -151,7 +151,7 @@ class IncompatibleCache(unittest.TestCase):
     def setUp(self):
         self._dir = TemporaryDirectory()
         self.root = Path(self._dir.name)
-        self.build_dir = self.root / "build" / "host"
+        self.build_dir = self.root / "build" / "host-debug"
         self.build_dir.mkdir(parents=True)
         (self.root / "generated").mkdir(parents=True, exist_ok=True)
         (self.root / "CMakePresets.json").write_text(json.dumps({

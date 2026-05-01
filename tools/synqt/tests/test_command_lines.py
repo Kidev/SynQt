@@ -266,7 +266,7 @@ def test_a_configured_build_reaches_ctest_and_returns_what_it_said(tmp_path, mon
     tests = tmp_path / "tests"
     tests.mkdir()
     (tests / "tst_Auction.qml").write_text("TestCase {}\n")
-    host = tmp_path / "build" / "host"
+    host = tmp_path / "build" / "host-debug"
     host.mkdir(parents=True)
     (host / "CTestTestfile.cmake").write_text("")
     ran = []

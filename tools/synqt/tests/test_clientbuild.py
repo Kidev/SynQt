@@ -1,12 +1,10 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-"""The multi-threaded WASM client under cross-origin isolation (CLIENT-2).
+"""The multi-threaded WASM client under cross-origin isolation.
 
-One knob (``build.client_threads``) drives the whole chain. The Qt WebAssembly kit, the
-CMake preset, the edge's emitted COOP/COEP + worker-src headers, and the check that the
-pairing holds. These tests pin that single source of truth end to end on the CLI side (the
-edge's header emission itself is covered by the M5 web-edge C++ test).
+``build.client_threads`` drives the kit, the CMake preset, the edge COOP/COEP and worker-src
+headers, and the pairing check. The edge header emission is covered by tests/m5-webedge.
 """
 
 import json
@@ -53,13 +51,8 @@ class ResolveTest(unittest.TestCase):
 
 
 class WasmBuildDirTest(unittest.TestCase):
-    """The two kits must never share a build directory.
-
-    qt-cmake picks the kit by injecting CMAKE_TOOLCHAIN_FILE, which CMake reads on the
-    FIRST configure and caches forever. Pointed at a directory another kit configured, it
-    silently keeps the old toolchain. Flipping build.client_threads to multi then yields a
-    single-threaded client while the edge advertises COOP/COEP. No error, no clue, and
-    only a browser can tell. One directory per kit is what makes the knob real.
+    """The two kits never share a build directory: qt-cmake's CMAKE_TOOLCHAIN_FILE is cached on
+    first configure, so a shared directory keeps the old kit.
     """
 
     def test_each_kit_gets_its_own_build_dir(self):
@@ -79,8 +72,7 @@ class WasmBuildDirTest(unittest.TestCase):
                 presets.write(root, config)
                 data = json.loads((root / "CMakePresets.json").read_text())
                 wasm = next(p for p in data["configurePresets"] if p["name"] == "wasm")
-                # The preset's binaryDir must agree with its toolchainFile, or driving
-                # CMake through the preset reintroduces the stale-cache trap.
+                # The preset binaryDir matches its toolchainFile.
                 self.assertIn(kit, wasm["binaryDir"])
                 self.assertIn(clientbuild.wasm_build_dir(config), wasm["binaryDir"])
 
@@ -112,8 +104,7 @@ class EdgeMainTest(unittest.TestCase):
         self.assertIn("config.crossOriginIsolation = false;", self._edge_main(_single()))
 
     def test_multi_edge_turns_isolation_on(self):
-        # The generated edge flips crossOriginIsolation on, so WebEdge emits COOP/COEP and the
-        # worker-src CSP entry the threaded loader needs (verified in the M5 C++ test).
+        # The generated edge turns on crossOriginIsolation (verified in tests/m5-webedge).
         self.assertIn("config.crossOriginIsolation = true;", self._edge_main(_multi()))
 
 
@@ -126,8 +117,8 @@ class ValidationTest(unittest.TestCase):
         self.assertTrue(any("client_threads must be" in m for m in messages))
 
     def test_multi_with_isolation_off_warns_but_does_not_fail(self):
-        # The scaffold writes cross_origin_isolation. false. Opting into multi threads must
-        # not break the build. It is auto-upgraded, with a warning.
+        # The scaffold writes `cross_origin_isolation: false`; `multi` upgrades it with a
+        # warning.
         config = _multi()  # security.cross_origin_isolation is False
         ok, messages = check.validate(config)
         self.assertTrue(ok, messages)
@@ -143,13 +134,7 @@ class ValidationTest(unittest.TestCase):
 
 
 class AsyncifyTest(unittest.TestCase):
-    """``build.client_asyncify``: the opt-in that gives the WebAssembly client's posted
-    events a second delivery path, at the cost of about a third more bundle.
-
-    It is off and unwritten by default, which is exactly why it needs pinning: an option
-    nothing scaffolds is an option nothing exercises, and a link flag that silently stops
-    being emitted looks identical to one that works.
-    """
+    """``build.client_asyncify``: off and unwritten by default, so the link flags are pinned."""
 
     def _client_cmake(self, config):
         root = Path(tempfile.mkdtemp())
@@ -167,14 +152,12 @@ class AsyncifyTest(unittest.TestCase):
         self.assertTrue(clientbuild.client_asyncify(config))
         text = self._client_cmake(config)
         self.assertIn("-sASYNCIFY", text)
-        # Emscripten's recommended pairing, and a stack deep enough for Qt's dispatch
-        # stack to sit above the suspend point.
+        # Emscripten's recommended pairing, and a stack deep enough for Qt's dispatch.
         self.assertIn("-sASYNCIFY_STACK_SIZE=131072", text)
         self.assertIn("-Os", text)
 
     def test_the_flags_stay_inside_the_emscripten_branch(self):
-        # A desktop client build must not see them. Asyncify is an Emscripten link-time
-        # transform and the native kit has no such option.
+        # A desktop build never gets them.
         config = _single()
         config["build"] = {"client_asyncify": True}
         text = self._client_cmake(config)
@@ -183,8 +166,7 @@ class AsyncifyTest(unittest.TestCase):
         self.assertGreater(text.index("endif()", emscripten), text.index("-sASYNCIFY"))
 
     def test_a_non_boolean_is_an_error(self):
-        # "false" is truthy in Python, so a string here would quietly link the expensive
-        # build. Catch it rather than let the bundle grow by a third in silence.
+        # The string "false" is refused.
         config = _single()
         config["build"] = {"client_asyncify": "false"}
         ok, messages = check.validate(config)
@@ -238,9 +220,8 @@ class ToolchainAndDoctorTest(unittest.TestCase):
 
 
 class ThreadOverrideTest(unittest.TestCase):
-    """`synqt build --threads` overriding build.client_threads for one build. It has to move
-    the whole chain, not only the kit. A threaded client served without cross-origin
-    isolation gets no SharedArrayBuffer and quietly runs on one thread (pitfall 13).
+    """`synqt build --threads` moves the whole chain, cross-origin isolation included (pitfall
+    13).
     """
 
     def test_no_override_returns_the_config_untouched(self):
@@ -251,7 +232,9 @@ class ThreadOverrideTest(unittest.TestCase):
         overridden = clientbuild.with_threads(_single(), "multi")
         self.assertEqual(clientbuild.client_threads(overridden), "multi")
         self.assertEqual(clientbuild.wasm_kit(overridden), "wasm_multithread")
-        self.assertEqual(clientbuild.wasm_build_dir(overridden), "build/wasm-multithread")
+        # The kit half of the directory key moved; test_profiles.py pins the profile half.
+        self.assertEqual(clientbuild.wasm_build_dir(overridden),
+                         "build/wasm-multithread-debug")
         # Forced on despite security.cross_origin_isolation: false in _single().
         self.assertTrue(clientbuild.cross_origin_isolation(overridden))
 
@@ -262,8 +245,7 @@ class ThreadOverrideTest(unittest.TestCase):
         self.assertEqual(clientbuild.wasm_kit(overridden), "wasm_singlethread")
 
     def test_override_does_not_mutate_the_callers_config(self):
-        # The same dict is written back and read by the rest of the build. A one-off CLI
-        # choice must not leak into it and look like a project setting.
+        # The override does not leak into the project config.
         config = _single()
         clientbuild.with_threads(config, "multi")
         self.assertEqual(clientbuild.client_threads(config), "single")

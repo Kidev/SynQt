@@ -1,12 +1,9 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-"""The per-entity topology.json writer. The machine form the service runtime reads.
-
-Covers the shared-endpoint invariant (owner and consumer agree on host+port), the
-local-socket path, type/provider/schema pass-through (with secrets kept as env:
-references), and that the writer emits a file for every service entity but not the client
-or the edge.
+"""The per-entity topology.json writer: the shared endpoint of owner and consumer, the local
+socket path, type, provider and schema pass-through (secrets as env: references), and a file
+for every service entity but not the client or the edge.
 """
 
 import json
@@ -21,8 +18,7 @@ from synqt import newproject, topologywriter
 
 
 def _config():
-    """A three-entity system: client -> edge -> database, plus a local-socket link to a
-    second service, to exercise both mesh transports."""
+    """Client -> edge -> database, plus a local-socket link to a second service."""
     return {
         "project": {"name": "shop"},
         "entities": [
@@ -92,8 +88,7 @@ class EntityTopologyTest(unittest.TestCase):
         topology = topologywriter.entity_topology(
             self.config, self.config["entities"][2], self.root, self.endpoints)
         self.assertEqual(topology["type"], "relational")
-        # The provider block is carried through. The secret stays an env: reference, never
-        # resolved into the file.
+        # The provider block is carried through with the secret as an env: reference.
         self.assertEqual(topology["provider"]["name"], "postgres")
         self.assertEqual(topology["provider"]["password"], "env:DB_PASSWORD")
 
@@ -110,8 +105,7 @@ class EntityTopologyTest(unittest.TestCase):
         self.assertNotIn("--", topology["schema"][0])  # the comment was stripped
 
     def test_a_consumer_slice_lists_the_connect_point_it_consumes(self):
-        # The web edge consumes `items`. Its slice must carry that connect point (deny by
-        # default is derived from this list) with the same endpoint the owner listens on.
+        # The edge slice carries `items` with the owner's endpoint.
         web = topologywriter.entity_topology(
             self.config, self.config["entities"][1], self.root, self.endpoints)
         items = next(cp for cp in web["connect_points"] if cp["name"] == "database")
@@ -133,17 +127,14 @@ class WriteTest(unittest.TestCase):
         self.assertIn("build/jobs/topology.json", written)
         # The client always reads its config from the served page, never a topology.
         self.assertNotIn("build/client/topology.json", written)
-        # The edge reaches the database over the mesh (it consumes `items`), so it now gets
-        # a topology for that mesh side. Its browser-facing side stays with WebEdge.
+        # The edge gets a topology for its mesh side; WebEdge keeps the browser side.
         self.assertIn("build/web/topology.json", written)
         # The emitted file parses and names its entity.
         emitted = json.loads((root / "build" / "database" / "topology.json").read_text())
         self.assertEqual(emitted["entity"], "database")
 
     def test_edge_topology_is_its_mesh_consumed_side_only(self):
-        # The edge owns `todo` (browser-facing, hosted by WebEdge) and consumes `items` over
-        # the mesh. Its topology must list only `items`, or EntityRuntime would try to host
-        # `todo` too and collide with WebEdge.
+        # Only `items`: EntityRuntime must not host `todo`, which WebEdge hosts.
         root = Path(tempfile.mkdtemp())
         topologywriter.write(root, _config())
         edge = json.loads((root / "build" / "web" / "topology.json").read_text())
@@ -152,8 +143,7 @@ class WriteTest(unittest.TestCase):
         self.assertEqual(edge["entity"], "web")
 
     def test_an_edge_with_no_mesh_side_gets_no_topology(self):
-        # An edge that consumes nothing over the mesh (only owns browser-facing points) needs
-        # no EntityRuntime and thus no topology.
+        # An edge that consumes nothing over the mesh gets no topology.
         config = _config()
         config["connect_points"] = [
             {"owner": "web", "consumers": ["client"]}]
@@ -167,11 +157,8 @@ class WriteTest(unittest.TestCase):
         root = parent / "app"
         # Wire the edge to the relational entity so there is a real mesh link.
         config = yaml.safe_load((root / "synqt.yaml").read_text())
-        # The point says what crosses it. Declaring `items` and saying nothing leaves a
-        # project that cannot configure, and build() raises on that rather than returning
-        # the CMake failure as a note and carrying on writing the topology
-        # this asserts on. So the fixture has to be a project that
-        # builds, which is the only version of it that proves anything.
+        # The fixture declares what crosses `items`, so the project builds and the topology
+        # is written.
         config["connect_points"] = [
             {"owner": "orders", "consumers": ["edge"],
              "export": "prop int count\n"}]
@@ -179,7 +166,7 @@ class WriteTest(unittest.TestCase):
         owner = root / "db" / "relational" / "orders"
         owner.mkdir(parents=True, exist_ok=True)
 
-        buildmod.build(root, release=True, client="wasm")
+        buildmod.build(root, profile_name="release", client="wasm")
         topology_path = root / "build" / "orders" / "topology.json"
         self.assertTrue(topology_path.exists())
         topology = json.loads(topology_path.read_text())

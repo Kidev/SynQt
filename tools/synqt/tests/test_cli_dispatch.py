@@ -3,14 +3,9 @@
 
 """What each `synqt` command calls, and what it does when that fails.
 
-Every other test in this directory drives a module directly. This one drives the entry
-point, because the wiring between the two is real code with real decisions in it: which
-command reaches which function, what is passed along with it, when a command refuses to
-continue, and which failures come back as a message and an exit code rather than a
-traceback. None of that is exercised by calling `build.build()` yourself.
-
-The work each command does is stubbed. The point here is the dispatch, not a second copy
-of the tests that already cover the scaffolders, the builder, and the validator.
+Drives the entry point: which command reaches which function, with what arguments, when it
+refuses to continue, and which failures become a message and an exit code instead of a
+traceback. The work each command does is stubbed.
 """
 
 from __future__ import annotations
@@ -66,9 +61,9 @@ class TestNoCommand:
         assert len(out.strip().splitlines()) == 3
 
     def test_the_version_flag_still_answers_for_the_people_who_type_it(self):
-        """Kept, and kept out of the help. `synqt version` is the documented spelling
-        because every other thing this CLI does is a verb, but `--version` is what every
-        other tool on the machine answers to and erroring on it helps nobody."""
+        """`--version` still answers, hidden from the help; `synqt version` is the documented
+        form.
+        """
         assert "--version" not in cli.build_parser().format_help()
 
     def test_version_prints_three_lines_and_exits(self):
@@ -95,9 +90,7 @@ class TestSimpleCommands:
         assert seen == {"parent_dir": str(tmp_path), "name": "acme", "auth": "github"}
 
     def test_new_has_no_flag_for_a_starting_entity(self, tmp_path):
-        """An entity is something somebody named, and a flag on project creation had to
-        carry the name and the type at once. `synqt add entity <name> --type <type>` is
-        the one shape that says it, so `new` no longer has a second."""
+        """`new` has no starting-entity flag; `synqt add entity <name> --type <type>` does that."""
         err = io.StringIO()
         with redirect_stderr(err), pytest.raises(SystemExit) as exit_info:
             cli.main(["new", "acme", "--parent-dir", str(tmp_path), "--blueprint", "cache"])
@@ -304,7 +297,8 @@ class TestBuildAndDev:
         assert "plaintext edge in release" in err
         assert "invalid configuration" in err
 
-    def test_build_forwards_its_flags_and_is_release_by_default(self, tmp_path, monkeypatch):
+    def test_build_forwards_its_flags_and_is_a_debug_build_by_default(self, tmp_path,
+                                                                      monkeypatch):
         seen = {}
         monkeypatch.setattr(checkmod, "validate", lambda *a, **k: (True, []))
         monkeypatch.setattr(buildmod, "build",
@@ -312,18 +306,22 @@ class TestBuildAndDev:
 
         assert _run(["build", "--project-dir", _project(tmp_path),
                      "--client", "desktop", "--entity", "web", "--threads", "multi"])[0] == 0
-        assert seen["release"] is True
+        # Debug unless asked, and the flag reaches the build.
+        assert seen["profile_name"] == "debug"
+        assert seen["dev_tools"] is False
         assert seen["client"] == "desktop"
         assert seen["entity"] == "web"
         assert seen["threads"] == "multi"
 
-    def test_debug_beats_the_release_default(self, tmp_path, monkeypatch):
+    def test_release_is_asked_for_and_never_assumed(self, tmp_path, monkeypatch):
         seen = {}
         monkeypatch.setattr(checkmod, "validate", lambda *a, **k: (True, []))
         monkeypatch.setattr(buildmod, "build",
                             lambda project_dir, **kwargs: seen.update(kwargs) or "built")
-        assert _run(["build", "--project-dir", _project(tmp_path), "--debug"])[0] == 0
-        assert seen["release"] is False
+        assert _run(["build", "--project-dir", _project(tmp_path), "--release"])[0] == 0
+        assert seen["profile_name"] == "release"
+        assert seen["strip"] is False   # implied by the profile, not by this flag
+        assert seen["custom_type"] == ""
 
     def test_dev_issues_the_development_ca_before_it_validates(self, tmp_path, monkeypatch):
         order = []
@@ -358,15 +356,16 @@ class TestBuildAndDev:
 
         assert _run(["dev", "--project-dir", _project(tmp_path),
                      "--port", "9001", "--no-open", "--no-watch"])[0] == 0
-        assert built["release"] is False
+        # `synqt dev` is the only command that builds a tree carrying development code.
+        assert built["profile_name"] == "debug"
+        assert built["dev_tools"] is True
         assert ran["port"] == 9001
         assert ran["open_browser"] is False
         assert ran["watch"] is False
 
     def test_a_directory_that_is_not_a_project_is_left_to_the_command_to_report(
             self, tmp_path, monkeypatch):
-        # No synqt.yaml. Validation has nothing to read, so it must not be the thing that
-        # reports the problem. The builder is, in its own words.
+        # No synqt.yaml: the builder reports it, not validation.
         monkeypatch.setattr(buildmod, "build",
                             lambda *a, **k: (_ for _ in ()).throw(
                                 buildmod.BuildError("no synqt.yaml here")))
@@ -415,10 +414,8 @@ class TestDesign:
                         "profile": "ci"}
 
     def test_design_opens_a_project_that_does_not_check_out(self, tmp_path, monkeypatch):
-        # A topology the validator refuses is exactly what somebody opens the
-        # editor to fix. Validating first would lock the one tool that repairs it behind the
-        # damage. The page shows the same verdict on arrival, and Apply is what the rules
-        # gate, not the door.
+        # `design` does not validate first: the editor is where a refused topology gets
+        # fixed, and the rules gate Apply.
         monkeypatch.setattr(checkmod, "validate", lambda *a, **k: (False, ["error: nope"]))
         served = []
         monkeypatch.setattr(designmod, "serve", lambda *a, **k: served.append(True) or "done")
@@ -461,8 +458,7 @@ class TestErrorReporting:
         assert "Traceback" not in err
 
     def test_a_failure_nobody_declared_is_not_swallowed(self, tmp_path, monkeypatch):
-        # An unexpected exception has to reach the developer with its traceback intact.
-        # Turning every failure into "synqt new: ..." would hide the bugs worth seeing.
+        # An unexpected exception keeps its traceback.
         def explode(*a, **k):
             raise RuntimeError("something nobody planned for")
 
@@ -474,9 +470,7 @@ class TestErrorReporting:
 class TestValidationReporting:
     def test_a_layer_over_synqt_yaml_is_named_before_the_verdict(self, tmp_path,
                                                                  monkeypatch):
-        # Which files were layered is the first thing to check when a build refuses a
-        # configuration that looks fine in synqt.yaml alone, so every layer beyond the base
-        # file announces itself.
+        # Every layer beyond the base file is announced.
         project = _project(tmp_path)
         (tmp_path / "synqt.ci.yaml").write_text("project:\n  name: acme-ci\n", encoding="utf-8")
         monkeypatch.setattr(checkmod, "validate", lambda *a, **k: (True, ["warn: careful"]))
@@ -487,8 +481,7 @@ class TestValidationReporting:
         assert "warn: careful" in out
 
     def test_synqt_yaml_on_its_own_announces_nothing(self, tmp_path, monkeypatch):
-        # The base file is not news. Naming it on every build would train people to skip
-        # the line that matters when there is a layer over it.
+        # The base file is not announced.
         monkeypatch.setattr(checkmod, "validate", lambda *a, **k: (True, []))
         monkeypatch.setattr(buildmod, "build", lambda *a, **k: "built")
         _, out, _ = _run(["build", "--project-dir", _project(tmp_path)])
@@ -505,9 +498,9 @@ class TestValidationReporting:
 
 
 class TestDocker:
-    """`synqt docker` writes a compose file and then runs somebody else's binary, so the
-    dispatch has two jobs. Refuse a project the validator already rejects before four
-    minutes of image build finds out, and hand the right argv to the compose it found."""
+    """`synqt docker` refuses a project the validator rejects before building an image, and
+    hands the compose binary the right argv.
+    """
 
     def test_init_refuses_a_project_the_validator_already_rejects(self, tmp_path,
                                                                   monkeypatch):
@@ -540,8 +533,7 @@ class TestDocker:
         assert seen["source"] is None
 
     def test_up_prints_the_command_before_it_runs_it(self, tmp_path, monkeypatch):
-        """It is somebody else's binary and its first run downloads a Qt kit, so saying
-        what is about to run is the difference between a long step and a hang."""
+        """`up` prints the command before running it; the first run downloads a Qt kit."""
         monkeypatch.setattr(dockermod, "up_command",
                             lambda project_dir, **named: ["docker", "compose", "up"])
         monkeypatch.setattr(dockermod, "run", lambda project_dir, command: 0)
@@ -557,8 +549,7 @@ class TestDocker:
 
     def test_ca_prints_what_it_wrote_and_runs_no_compose_command(self, tmp_path,
                                                                   monkeypatch):
-        """It reads one file out of the volume and hands over a command to run by hand.
-        Trusting an authority is a decision about the machine, so nothing here makes it."""
+        """`ca` copies the certificate and prints the trust command; it runs nothing."""
         monkeypatch.setattr(dockermod, "export_ca",
                             lambda project_dir: "Wrote synqt/mesh/docker-ca.crt")
         monkeypatch.setattr(dockermod, "run", lambda project_dir, command: 99)
@@ -578,9 +569,7 @@ class TestDocker:
 
 
 class TestInfer:
-    """`synqt infer` reads contracts back out of a project's QML. It reports by default and
-    writes only when asked, which is the line worth holding. A command that rewrote
-    shared/ because somebody ran it to look would be a command nobody runs twice."""
+    """`synqt infer` reports by default and writes only when asked."""
 
     def _edges(self, monkeypatch, written=()):
         monkeypatch.setattr(infermod, "collect", lambda *a, **k: ["an edge"])

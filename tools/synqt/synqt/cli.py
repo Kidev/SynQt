@@ -12,13 +12,13 @@ import json
 import shutil
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from . import (addauth, addcontract, addentity, addprovider, appmodel,
                build as buildmod, check as checkmod, clientbuild,
                config as configmod, create, deploy as deploymod, design as designmod,
                docker as dockermod, doctor, infer as infermod, mesh,
-               monitorops, newproject,
+               monitorops, newproject, profiles,
                run as runmod, typebackend, version as versionmod)
 
 
@@ -132,8 +132,29 @@ def build_parser() -> argparse.ArgumentParser:
             p.add_argument("--types", default="auto", choices=list(typebackend.MODES),
                            help="who answers what type an expression has (default: auto)")
         if name in ("dev", "build"):
-            p.add_argument("--release", action="store_true", default=(name == "build"))
-            p.add_argument("--debug", action="store_true")
+            # The build profile. Not on `serve`: that command launches build/<entity>/, the
+            # deploy layout, which holds whichever profile was built last and carries no
+            # profile in its path. A flag there would name a directory serve never reads.
+            #
+            # Mutually exclusive, and defaulting to debug. A flag that reaches nothing but
+            # the word printed in the summary makes every build the same build and one of
+            # the two words a lie. The
+            # flag picks the build, and a build nobody asked to be a release is not one.
+            profile_flags = p.add_mutually_exclusive_group()
+            profile_flags.add_argument(
+                "--release", dest="profile_name", action="store_const", const="release",
+                help="optimise for each artifact's own environment, and leave no symbols")
+            profile_flags.add_argument(
+                "--debug", dest="profile_name", action="store_const", const="debug",
+                help="the default: symbols kept, nothing optimised away")
+            profile_flags.add_argument(
+                "--custom", dest="custom_type", metavar="TYPE",
+                choices=list(profiles.CUSTOM_TYPES),
+                help="name a CMake build type yourself (%s)" % ", ".join(
+                    profiles.CUSTOM_TYPES))
+            p.set_defaults(profile_name="debug", custom_type=None)
+            p.add_argument("--strip", action="store_true",
+                           help="leave no symbols in the binaries; implied by --release")
             # `none` builds the service entities and no client at all. It is what a
             # container image wants when the browser bundle is coming from somewhere else
             # (`synqt docker init --client host`), and it is the difference between a build
@@ -281,6 +302,20 @@ def build_parser() -> argparse.ArgumentParser:
     for ap in (auth, entity, provider, connect_point):
         ap.add_argument("--project-dir", default=".")
     return parser
+
+
+def resolved_profile(args: argparse.Namespace) -> Tuple[str, str]:
+    """The profile these arguments ask for, as `(profile_name, custom_type)`.
+
+    `--custom` is the escape hatch, so it wins: it sets `custom_type` rather than
+    `profile_name`, and a user who named a build type gets that type in every environment
+    with no per-environment resolution at all. Everything else is `profile_name`, which
+    argparse has already defaulted to `debug`.
+    """
+    custom = getattr(args, "custom_type", None)
+    if custom:
+        return "custom", custom
+    return getattr(args, "profile_name", "debug"), ""
 
 
 def _fails_validation(project_dir: str, *, release: bool, starting: bool = False,
@@ -441,7 +476,14 @@ def main(argv: Optional[List[str]] = None) -> int:
             print(f"Removed {' and '.join(removed) or 'nothing'} "
                   "(kept the toolchain cache and the CA).")
         elif args.command in ("build", "dev"):
-            release = args.release and not args.debug
+            profile_name, custom_type = resolved_profile(args)
+            # The validation gate asks a narrower question than the build profile does:
+            # which rules bind a *shipped* artifact (TLS to the browser, mutual TLS
+            # off-machine, a wss desktop edge URL). Those are the release profile's rules and
+            # nobody else's, so a debug build is held to the localhost ones. This line
+            # changed meaning without changing shape when the default became debug: before,
+            # every `synqt build` ran the strict set.
+            release = profile_name == "release"
             if args.command == "dev":
                 # Development keeps mutual TLS with a throwaway dev CA. Issued before the
                 # validation below rather than after, so the certificate rule sees the
@@ -471,7 +513,9 @@ def main(argv: Optional[List[str]] = None) -> int:
                 print("error: --sign and --unsigned only mean something with --deploy.")
                 return 1
             try:
-                print(buildmod.build(args.project_dir, release=release, client=args.client,
+                print(buildmod.build(args.project_dir, profile_name=profile_name,
+                                     custom_type=custom_type, strip=args.strip,
+                                     dev_tools=(args.command == "dev"), client=args.client,
                                      entity=getattr(args, "entity", None),
                                      threads=getattr(args, "threads", None),
                                      verbose=args.verbose, profile=args.profile,
@@ -486,7 +530,8 @@ def main(argv: Optional[List[str]] = None) -> int:
                 print()
                 print(runmod.dev(args.project_dir, port=args.port,
                                  open_browser=not args.no_open, client=args.client,
-                                 watch=not args.no_watch, profile=args.profile))
+                                 watch=not args.no_watch, profile=args.profile,
+                                 profile_name=profile_name))
         elif args.command == "serve":
             # `synqt serve` runs the built artifacts as a deployment, so it holds them to
             # the release rules even though it does not build anything.

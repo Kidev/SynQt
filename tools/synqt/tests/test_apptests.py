@@ -199,8 +199,8 @@ class BuildsBeforeItRunsTest(unittest.TestCase):
 
     def test_the_target_is_built_before_ctest_is_asked_to_run_it(self):
         root = _project(with_tests=True)
-        (root / "build" / "host").mkdir(parents=True)
-        (root / "build" / "host" / "CTestTestfile.cmake").write_text("")
+        (root / "build" / "host-debug").mkdir(parents=True)
+        (root / "build" / "host-debug" / "CTestTestfile.cmake").write_text("")
         code, commands = self._ran(root)
         self.assertEqual(code, 0)
         self.assertEqual(len(commands), 2, commands)
@@ -211,8 +211,8 @@ class BuildsBeforeItRunsTest(unittest.TestCase):
 
     def test_a_build_that_fails_does_not_report_a_test_run(self):
         root = _project(with_tests=True)
-        (root / "build" / "host").mkdir(parents=True)
-        (root / "build" / "host" / "CTestTestfile.cmake").write_text("")
+        (root / "build" / "host-debug").mkdir(parents=True)
+        (root / "build" / "host-debug" / "CTestTestfile.cmake").write_text("")
         commands = []
 
         def record(argv, *args, **kwargs):

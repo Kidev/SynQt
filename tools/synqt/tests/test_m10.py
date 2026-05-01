@@ -474,7 +474,7 @@ class NewBuildDoctorTest(unittest.TestCase):
     def test_build_emits_per_entity_dirs_with_accurate_licenses(self):
         newproject.scaffold(self.parent, "app", auth="github")
         root = self.parent / "app"
-        summary = buildmod.build(root, release=True, client="wasm")
+        summary = buildmod.build(root, profile_name="release", client="wasm")
         self.assertTrue((root / "build" / "client" / "THIRD-PARTY-LICENSES").exists())
         self.assertTrue((root / "build" / "edge" / "THIRD-PARTY-LICENSES").exists())
         # The edge that runs identity links Network Authorization -> GPLv3, jwt-cpp noted.
@@ -609,7 +609,7 @@ class BuildEntitySelectionTest(unittest.TestCase):
         # configure) reported "no output captured" and named the command, which is the one
         # thing the reader already had.
         error = subprocess.CalledProcessError(
-            returncode=1, cmd=["cmake", "--build", "build/host", "--target", "edge"],
+            returncode=1, cmd=["cmake", "--build", "build/host-debug", "--target", "edge"],
             output="[3/9] Building CXX object edge/CMakeFiles/edge.dir/main.cpp.o\n"
                    "FAILED: edge/CMakeFiles/edge.dir/main.cpp.o\n"
                    "main.cpp:12:5: error: use of undeclared identifier 'Caller'\n"
