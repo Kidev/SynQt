@@ -40,14 +40,21 @@ from . import (appmodel, authentity, cmakegen, contractgen, graphics as graphics
 
 
 def generate(project_dir: os.PathLike[str] | str, config: Dict[str, Any], *,
-             synqt_root: os.PathLike[str] | str | None = None) -> List[str]:
+             synqt_root: os.PathLike[str] | str | None = None,
+             dev_tools: bool = False) -> List[str]:
     """Write the root CMakeLists and one main.cpp per entity.
 
     Returns every path this generator owns, whether or not this run had to touch it: each
     file is written only when its content changed (see :mod:`synqt.writer`), so the return
     describes the app's generated surface rather than what the filesystem did. That
-    distinction matters; a caller wanting the second one would be asking the wrong
+    distinction matters. A caller wanting the second one would be asking the wrong
     question, since an unchanged file is exactly what makes a rebuild free.
+
+    `dev_tools` says whether this is a build that may carry development-only code. Only
+    `synqt dev` passes it true; `synqt build` never does, whatever its profile. It reaches
+    the edge's main, which is where a development sign-in would otherwise be constructed.
+    It defaults to False so a caller that has not been taught about profiles generates a
+    main with no development code in it.
     """
     root = Path(project_dir)
     synqt_root = Path(synqt_root) if synqt_root else appmodel.framework_root()
@@ -117,7 +124,7 @@ def generate(project_dir: os.PathLike[str] | str, config: Dict[str, Any], *,
         elif appmodel.entity_type(entity) == "monitor":
             source = maingen.render_monitor_main(config, entity, singletons)
         elif appmodel.is_edge(entity):
-            source = maingen.render_edge_main(config, entity, singletons)
+            source = maingen.render_edge_main(config, entity, singletons, dev_tools)
         else:
             source = maingen.render_service_main(config, entity, singletons)
         writer.write_if_changed(main_dir / "main.cpp", source)

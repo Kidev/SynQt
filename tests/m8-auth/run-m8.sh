@@ -13,8 +13,12 @@ REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$REPO_ROOT"
 
 echo "== [1/2] edge OAuth/OIDC login (native, dev stub provider) =="
+# -DSYNQT_DEV_TOOLS=ON: this tree compiles the development-only sources, because the
+# suites that test them construct them directly. A shipped build never does, and
+# tests/dev-exclusion is what proves the difference is real.
 cmake -S tests/m8-auth -B build/m8-auth -G Ninja \
-    -DCMAKE_PREFIX_PATH="$QT_HOST" -DCMAKE_BUILD_TYPE=RelWithDebInfo
+    -DCMAKE_PREFIX_PATH="$QT_HOST" -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+    -DSYNQT_DEV_TOOLS=ON
 cmake --build build/m8-auth
 ctest --test-dir build/m8-auth --output-on-failure
 

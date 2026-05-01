@@ -27,8 +27,6 @@ qt_add_library(SynQtEdge STATIC
     identitymapping.h
     identityprovider.cpp
     identityprovider.h
-    stubidentityserver.cpp
-    stubidentityserver.h
     pageseed.h
     pagestore.cpp
     pagestore.h
@@ -44,6 +42,22 @@ qt_add_library(SynQtEdge STATIC
 )
 
 set_target_properties(SynQtEdge PROPERTIES AUTOMOC ON)
+
+# The development sign-in, and only in a development build.
+#
+# Not a runtime branch. A capability that exists in the binary can be reached through a bug
+# in whatever checks the flag, through an argument someone passes, or simply read out of the
+# strings by anyone holding the artifact; a file CMake never names is not compiled, not
+# linked, and not there. `synqt dev` configures with SYNQT_DEV_TOOLS=ON and `synqt build`
+# never does, the header refuses to be included without it, and the generated main does not
+# emit the call for a release profile. tests/dev-exclusion reads the symbol tables of both
+# builds and proves the difference. See cmake/SynQtBuildFlags.cmake and docs/security.md.
+if(SYNQT_DEV_TOOLS)
+    target_sources(SynQtEdge PRIVATE
+        stubidentityserver.cpp
+        stubidentityserver.h
+    )
+endif()
 
 target_include_directories(SynQtEdge PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 

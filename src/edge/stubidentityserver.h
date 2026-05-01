@@ -1,6 +1,14 @@
 // SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 // SPDX-License-Identifier: Apache-2.0
 
+// Development-only, and this is the guard that says so at compile time rather than at link
+// time. It sits above every #include so that a translation unit that reaches here in a
+// release build fails naming the mistake rather than on whichever Qt header it could
+// not find afterwards.
+#ifndef SYNQT_DEV_TOOLS
+#error "stubidentityserver.h is development-only. It is compiled into SynQtEdge only when CMake is configured with -DSYNQT_DEV_TOOLS=ON, which `synqt dev` does and `synqt build` never does. If you are reading this from a release build, something is including a development header: fix the include rather than turning the option on."
+#endif
+
 #ifndef SYNQT_STUBIDENTITYSERVER_H
 #define SYNQT_STUBIDENTITYSERVER_H
 

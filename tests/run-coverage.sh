@@ -75,7 +75,8 @@ echo "== [1/4] configure and build an instrumented tree =="
 cmake -S . -B "$BUILD_DIR" -G Ninja \
     -DCMAKE_PREFIX_PATH="$QT_HOST" \
     -DCMAKE_BUILD_TYPE=Debug \
-    -DSYNQT_COVERAGE=ON
+    -DSYNQT_COVERAGE=ON \
+    -DSYNQT_DEV_TOOLS=ON
 cmake --build "$BUILD_DIR"
 
 echo

@@ -989,7 +989,19 @@ int main(int argc, char *argv[])
 
 
 def render_edge_main(config: Dict[str, Any], edge: Dict[str, Any],
-                     singletons: Optional[List[str]] = None) -> str:
+                     singletons: Optional[List[str]] = None,
+                     dev_tools: bool = False) -> str:
+    """The edge's `main.cpp`.
+
+    `dev_tools` is the build profile, not the project's configuration, and the two are
+    different questions. `identity.dev_stub` in synqt.yaml is a request for a development
+    sign-in. `dev_tools` is whether this build is one that may have it. Only `synqt dev`
+    passes it, so a release main does not name the type at all and the release SynQtEdge it
+    links does not contain it (src/edge/CMakeLists.txt, tests/dev-exclusion).
+
+    It defaults to False because that is the safe direction to be wrong in: a caller that
+    has not been taught about profiles generates a main with no development code in it.
+    """
     name = edge.get("name", "web")
     client_facing = appmodel.client_facing(config, name)
     contracts = appmodel.contracts_of(client_facing)
@@ -1036,7 +1048,9 @@ def render_edge_main(config: Dict[str, Any], edge: Dict[str, Any],
                         "in the binary this compiles to.\n"
                         + "\n".join(identity_lines)) if identity_lines else ""
 
-    dev_stub_lines = _dev_stub_lines(config) if identity_lines else []
+    # Two conditions, and both have to hold. The project asked for a development
+    # sign-in, and this build is one that may carry it.
+    dev_stub_lines = _dev_stub_lines(config) if (identity_lines and dev_tools) else []
     dev_stub_section = ("\n" + "\n".join(dev_stub_lines) + "\n") if dev_stub_lines else ""
 
     includes = ['#include "envfile.h"', '#include "moduleimports.h"',

@@ -147,7 +147,10 @@ class WhatTheCheckRefuses(unittest.TestCase):
 
 class WhatTheEdgeIsGenerated(unittest.TestCase):
     def _edge_main(self, config):
-        return maingen.render_edge_main(config, config["entities"][0])
+        # dev_tools=True throughout this class: these tests describe what `synqt dev`
+        # generates, which is the only build that may carry a development sign-in at all.
+        # WhatAReleaseBuildGenerates below is the other half.
+        return maingen.render_edge_main(config, config["entities"][0], dev_tools=True)
 
     def test_the_server_starts_in_the_edge_and_only_under_dev(self):
         source = self._edge_main(_config(True))
@@ -184,6 +187,27 @@ class WhatTheEdgeIsGenerated(unittest.TestCase):
             providers=[{"name": "github", "client_id": "x", "client_secret": "env:S"}]))
         self.assertNotIn("StubIdentityServer", source)
         self.assertNotIn("devStub", source)
+
+
+class WhatAReleaseBuildGenerates(unittest.TestCase):
+    """The build profile decides, not the project file.
+
+    `identity.dev_stub` in synqt.yaml is a request for a development sign-in. Whether the
+    build may carry one is a separate question, and `synqt build` answers no to it whatever
+    the project asked for, which is why the type is not named in the main it generates and
+    not compiled into the SynQtEdge that main links (tests/dev-exclusion).
+    """
+
+    def test_a_release_main_never_names_the_stub_even_when_the_project_asks_for_one(self):
+        source = maingen.render_edge_main(_config(True), _config(True)["entities"][0])
+        self.assertNotIn("StubIdentityServer", source)
+        self.assertNotIn("stubidentityserver.h", source)
+
+    def test_the_same_project_does_get_one_from_a_development_build(self):
+        # Without this the test above would pass on a generator that emits nothing at all.
+        source = maingen.render_edge_main(_config(True), _config(True)["entities"][0],
+                                          dev_tools=True)
+        self.assertIn("StubIdentityServer", source)
 
 
 class WhatTheScaffoldWrites(unittest.TestCase):

@@ -72,7 +72,8 @@ fi
 # configure would look like a pass.
 cmake -S . -B "$BUILD_DIR" -G Ninja \
     -DCMAKE_PREFIX_PATH="$QT_HOST" \
-    -DCMAKE_BUILD_TYPE=RelWithDebInfo 2>&1 | tee "$log"
+    -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+    -DSYNQT_DEV_TOOLS=ON 2>&1 | tee "$log"
 # The configure step is what writes $BUILD_DIR/script-suites.txt, so it runs in every phase
 # and CI never holds a second copy of the suite list. The build is what phase [2/3] needs;
 # the generated-output suites each configure a tree of their own from $REPO_ROOT and link

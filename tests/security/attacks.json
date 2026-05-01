@@ -721,6 +721,13 @@
       "defended_by": "The framework hands Qt its own random token through setNonce and sets NonceMode::Enabled, rather than inserting a parameter beside the one Qt generates, so exactly one nonce leaves the edge and it is the one the returned ID token is checked against.",
       "file": "tests/m8-auth/tst_m8.cpp",
       "test": "anAuthorizationRequestCarriesOneNonce"
+    },
+    {
+      "id": "a-shipped-edge-carries-the-development-sign-in",
+      "what": "The stub identity provider signs anybody in as a preconfigured person with no password, and it was compiled into every SynQtEdge, held back only by runtime checks: a --dev flag, an allowDevStub field, and a tag type on its constructor. Three runtime gates are three chances to be wrong about a binary that still contains the thing. A bug in any check, an argument someone passes, or a reader of the artifact strings reaches a login that mints any identity.",
+      "defended_by": "The sources are named in src/edge/CMakeLists.txt only under SYNQT_DEV_TOOLS, which synqt dev sets and synqt build never does; the header refuses to be included by a build that did not set it; and the generated edge main does not emit the construction for a release profile. The runtime gates all remain, but they are now the third layer rather than the only one, and what a release artifact contains no longer depends on any of them.",
+      "file": "tests/dev-exclusion/run-dev-exclusion.sh",
+      "test": "aReleaseEdgeDoesNotContainTheDevelopmentSignIn"
     }
   ]
 }
