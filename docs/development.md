@@ -320,6 +320,25 @@ repository root and links nothing out of the shared one.
 CI runs `tree`, `generated` and the coverage build as three concurrent jobs, so the column
 costs the longest of them rather than their sum.
 
+### Configuring by hand
+
+Two options matter if you drive CMake directly rather than through the CLI, and both default
+to off, so a bare `cmake` produces a production-shaped build:
+
+- `-DSYNQT_STRIP=ON` leaves no symbol table in the linked binaries. `synqt build --release`
+  turns it on and nothing else does.
+- `-DSYNQT_DEV_TOOLS=ON` compiles the development-only sources into the framework. **This
+  tree configures with it on**, because the suites that test those sources construct them
+  directly, and so does `synqt dev`. Nothing that ships ever does; see
+  [Development code is absent from a release build](security.md#development-code-is-absent-from-a-release-build)
+  for what that buys and
+  [`tests/dev-exclusion`](https://github.com/Kidev/SynQt/tree/main/tests/dev-exclusion) for
+  the proof.
+
+A generated project also carries presets for each profile, so `cmake --preset host-release`
+configures what `synqt build --release` configures and `cmake --preset host-dev` what
+`synqt dev` does.
+
 ### The compiler cache
 
 Every build in this repository routes the compiler through `ccache`, or `sccache` under

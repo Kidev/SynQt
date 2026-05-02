@@ -678,6 +678,47 @@ page protects the page's markup, never the data the page later reads.
   for it: a credential you pass under a name that does not say what it is still gets
   recorded, exactly as it would in any other log.
 
+## Development code is absent from a release build
+
+A development convenience that ships is not a convenience, it is a back door, and SynQt has
+one worth naming: the stub identity provider signs anybody in as a preconfigured person with
+no password. It exists so a developer can exercise the whole login flow without registering
+an OAuth application. It must never be in anything you deploy.
+
+The usual way to arrange that is a runtime check, and SynQt has three of them: the server
+starts only under `--dev`, which `synqt serve` and every built artifact never pass; it
+refuses to be constructed without an acknowledgement that can only be written on purpose;
+and the runtime refuses the `devStub` provider entry unless the same flag is set. Three
+gates is better than one, and it is still the wrong shape. A capability that is *in* the
+binary can be reached through a bug in whichever check is doing the work, through an
+argument someone passes, or simply read out of the strings by anybody holding the artifact.
+
+So the release build does not contain it. Three independent layers, in the order they fail:
+
+1. **CMake never names the file.** `src/edge/CMakeLists.txt` adds the development sources to
+   `SynQtEdge` only under `SYNQT_DEV_TOOLS`, which `synqt dev` sets and `synqt build` never
+   does, whatever its profile. Not compiled, not linked, not there.
+2. **The header refuses to be included.** It carries an `#error` above every `#include`, so a
+   translation unit that reaches for it in a release build fails naming the mistake, rather
+   than compiling and failing later at link on an undefined symbol.
+3. **The generator does not emit the call.** The edge's `main.cpp` names the type only when
+   it is generated for a development build, so a project that asked for a development
+   sign-in in its `synqt.yaml` still gets a release main that has never heard of one.
+
+Each layer is enough on its own, which is the point of having three: none of them depends on
+another being right.
+
+This is a claim about a compiled artifact, so it is proven by reading one.
+[`tests/dev-exclusion`](https://github.com/Kidev/SynQt/tree/main/tests/dev-exclusion)
+configures the framework twice and reads both symbol tables: the release archive must not
+contain the development sign-in, the development archive must, and the header must refuse
+the probe. The middle assertion is not padding; without it the first would pass on an
+archive that contains nothing at all.
+
+The rule generalises, and applying it is not optional for new code: anything that must not
+exist in production goes in a file the release CMake does not name, with the `#error` guard
+at the top, and its symbol is added to the list `tests/dev-exclusion` checks.
+
 ## Supply chain
 
 - Qt and Emscripten are pinned in `project.qt_version` and resolved to exact

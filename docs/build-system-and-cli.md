@@ -310,12 +310,55 @@ project follows, and a
 `MaxColumnWidth` makes qmlformat wrap wherever the limit lands rather than where the
 expression means something.
 
-Common flags: `--release` / `--debug`, `--client wasm|desktop|all|none` (which client
-target to build or run; see [desktop clients](desktop.md)), `--verbose` (echo every
+Common flags: the build profile below, `--client wasm|desktop|all|none` (which client
+target to build or run, see [desktop clients](desktop.md)), `--verbose` (echo every
 build command and stream its output, instead of the one line summary), and
-`--project-dir <path>` (act on a project other than the working directory; accepted by
+`--project-dir <path>` (act on a project other than the working directory, accepted by
 every command that reads a project, so every one except `new` and `create`, which take
 `--parent-dir` instead, and `providers` and `version`, which read no project at all).
+
+### The build profile
+
+`synqt build` and `synqt dev` take one of three, and they are mutually exclusive:
+
+| Flag | What it builds |
+|---|---|
+| none, or `--debug` | The default. Symbols kept, nothing optimised away. |
+| `--release` | Optimised for each artifact's own environment, and stripped. |
+| `--custom <TYPE>` | The CMake build type you name: `Debug`, `Release`, `RelWithDebInfo` or `MinSizeRel`. |
+
+`--release` is not one setting, because the right release build of a WebAssembly bundle is
+not the right release build of a service:
+
+| Artifact | `--release` builds it | Why |
+|---|---|---|
+| The browser client | `MinSizeRel` (`-Os`) | Every visitor downloads it over a network before a line of it runs, so its size is its latency. |
+| A service, the web edge, a monitor | `Release` (`-O3`) | Nothing downloads a service. Throughput is the whole cost. |
+| The native desktop client | `Release` (`-O3`) | Launched from local disk rather than fetched per use. |
+
+`--release` also strips, so the binaries carry no symbol table at all. A symbol table is the
+first thing a reader of a shipped artifact looks at, and on the WebAssembly client it is
+bytes every visitor pays for. On a scaffolded project's web edge, measured, that is 34.6 MB
+and 17,863 symbols debug against 1.05 MB and none released. `--strip` asks for it on any
+profile. `--custom` does not strip unless you ask, because naming a build type is usually
+something you do to debug.
+
+**Each profile builds into its own directory**, `build/host-<profile>` and
+`build/<kit>-<profile>`, so a release build and a development one can both be built without
+either overwriting the other. `synqt dev` adds `-dev` to the name, because that tree is the
+only one that compiles the development-only code (see
+[Development code is absent from a release build](security.md#development-code-is-absent-from-a-release-build)).
+
+`synqt serve` takes no profile flag. It launches `build/<entity>/`, the deploy layout, which
+holds whichever profile was built last and carries no profile in its path.
+
+The same profiles are generated as CMake presets, so a contributor driving CMake directly
+gets the build the CLI produces rather than one that happens to resemble it:
+
+```cli
+cmake --preset host-release   # what `synqt build --release` configures
+cmake --preset host-dev       # what `synqt dev` configures
+```
 
 `--client none` builds the service entities and no client. It is what a container image
 wants when the browser bundle comes from somewhere else
