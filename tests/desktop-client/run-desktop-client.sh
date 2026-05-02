@@ -86,7 +86,7 @@ for entity in config["entities"]:
 config.setdefault("build", {}).setdefault("desktop", {})["edge_url"] = edge_url
 (app / "synqt.yaml").write_text(yaml.safe_dump(config, sort_keys=False))
 
-# Generate the CMakePresets (host preset -> build/host) the tooling configures against, then run
+# Generate the CMakePresets (the host preset) the tooling configures against, then run
 # the real incremental build path for the desktop client. appgen + topologywriter run inside it.
 presets.write(app, config)
 note, host_targets, client_targets = build.compile_incremental(app, config, client="desktop")
@@ -110,10 +110,16 @@ echo "== [2/4] Assert the desktop client compiled and installed =="
 # tooling picks it from the host, so ask the tooling rather than hard-code one of the three.
 PLATFORM="$(PYTHONPATH="$REPO_ROOT/tools/synqt" python3 -c \
     'from synqt import build; print(build.desktop_platform())')"
-HOST_BIN="$(native_exe_path "$SRC/build/host/$CLIENT")"
+# build.compile_incremental is `synqt dev`'s rebuild path, so it builds the development
+# tree, and that tree's directory says so: profiles.build_dir() names it host-<profile>-dev.
+# Asking for the name rather than spelling it here means the suite follows the CLI if the
+# layout moves again.
+HOST_DIR="$SRC/$(PYTHONPATH="$REPO_ROOT/tools/synqt" python3 -c \
+    "from synqt import profiles; print(profiles.build_dir('host', 'debug', dev_tools=True))")"
+HOST_BIN="$(native_exe_path "$HOST_DIR/$CLIENT")"
 INSTALLED="$(native_exe_path "$SRC/build/client-desktop/$PLATFORM/$CLIENT")"
 rc=0
-assert_native_exe "$SRC/build/host/$CLIENT" "compiled " || rc=1
+assert_native_exe "$HOST_DIR/$CLIENT" "compiled " || rc=1
 assert_native_exe "$SRC/build/client-desktop/$PLATFORM/$CLIENT" "installed" || rc=1
 
 # Steps 3 and 4 both read the built binary, so stop here rather than report confusing

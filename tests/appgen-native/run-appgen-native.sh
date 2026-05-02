@@ -172,8 +172,13 @@ for message in messages:
 if not ok:
     raise SystemExit("the promoted fixture does not pass synqt check")
 config = yaml.safe_load((app / "synqt.yaml").read_text())
-print("  appgen wrote:", ", ".join(appgen.generate(app, config, synqt_root=repo)))
-# A real project mesh, because both links are mutual TLS like any other: the auth entity is
+# dev_tools=True: this is the topology that exercises the development sign-in end to
+# end, so it is a development build and both halves of it have to say so. `synqt build`
+# never passes it (docs/security.md). What this phase tests is the tree `synqt dev`
+# produces, which is the only one the stub provider is compiled into.
+print("  appgen wrote:", ", ".join(appgen.generate(app, config, synqt_root=repo,
+                                                   dev_tools=True)))
+# A real project mesh, because both links are mutual TLS like any other. The auth entity is
 # reached over a verified link or not at all.
 mesh.init(app)
 print("  " + mesh.cert_all(app, ["edge", "auth"]).replace("\n", "\n  "))
@@ -185,7 +190,8 @@ PY
 cmake -S "$PROMOTED" -B "$PROMOTED/out" -G Ninja \
     -DCMAKE_PREFIX_PATH="$QT_HOST" \
     -DSYNQT_ROOT="$REPO_ROOT" \
-    -DCMAKE_BUILD_TYPE=RelWithDebInfo
+    -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+    -DSYNQT_DEV_TOOLS=ON
 cmake --build "$PROMOTED/out"
 
 rc=0
