@@ -174,6 +174,34 @@ class ScopeTest(unittest.TestCase):
         config["connect_points"][0]["scope"] = "user"
         self.assertEqual(errors(config), [])
 
+    def test_sign_in_without_declared_scopes_is_refused(self):
+        # Which is what lets the test above keep meaning what it says. An empty
+        # `scopes.order` reads as "this project has no scope rules" in every caller, so a
+        # project that signs people in and forgot to declare its vocabulary gets no scope
+        # validation at all and no complaint about it either. The edge that serves the
+        # login is the one named, because it is the entity that mints the sessions.
+        config = base_config(identity={"providers": [
+            {"name": "github", "client_id": "abc", "client_secret": "env:GITHUB_SECRET"}]})
+        found = errors(config)
+        self.assertTrue(any("scopes.order" in m and "web" in m for m in found), found)
+
+    def test_a_signing_in_project_that_declares_its_scopes_passes(self):
+        config = base_config(scopes={"order": ["anonymous", "user"]},
+                             identity={"providers": [
+                                 {"name": "github", "client_id": "abc",
+                                  "client_secret": "env:GITHUB_SECRET"}]})
+        self.assertEqual(errors(config), [])
+
+    def test_an_edge_that_opts_out_of_the_login_does_not_demand_scopes(self):
+        # `identity: false` on an edge is the documented way to say this one serves no
+        # login. A project where every edge says that has no sign-in to hold a scope.
+        config = base_config(identity={"providers": [
+            {"name": "github", "client_id": "abc", "client_secret": "env:GITHUB_SECRET"}]})
+        for entity in config["entities"]:
+            if entity["name"] == "web":
+                entity["identity"] = False
+        self.assertEqual(errors(config), [])
+
 
 class ClientEnvTest(unittest.TestCase):
     def test_an_env_reference_anywhere_under_a_client_is_rejected(self):
@@ -243,9 +271,14 @@ class DesktopClientTest(unittest.TestCase):
 
 class IdentityTest(unittest.TestCase):
     def identity(self, **provider):
+        # With `scopes.order`, because a project that serves a login has to declare one
+        # (ScopeTest.test_sign_in_without_declared_scopes_is_refused). Without it every
+        # case here that asserts a clean config would be asserting on that rule instead of
+        # on the provider rule it is about.
         entry = {"name": "github", "client_id": "abc", "client_secret": "env:GITHUB_SECRET"}
         entry.update(provider)
-        return base_config(identity={"providers": [entry]})
+        return base_config(scopes={"order": ["anonymous", "user"]},
+                           identity={"providers": [entry]})
 
     def test_a_configured_provider_needs_a_client_secret(self):
         found = errors(self.identity(client_secret=""))

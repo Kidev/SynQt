@@ -32,6 +32,10 @@ def base_config(**identity):
         ],
         "connect_points": [{"owner": "web", "consumers": ["client"]}],
         "build": {"desktop": {"edge_url": "wss://app.example/sync"}},
+        # A project that serves a login has to declare the scopes its sessions can hold;
+        # without this every clean-config assertion here would be asserting on that rule
+        # instead of on the device-session rule it is about.
+        "scopes": {"order": ["anonymous", "user"]},
         "identity": {
             "providers": [{"name": "github", "client_id": "id", "client_secret": "env:S"}],
         },

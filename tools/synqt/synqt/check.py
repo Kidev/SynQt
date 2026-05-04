@@ -626,6 +626,29 @@ def validate(config: Dict[str, Any], *, release: bool = False,
     endpoints = topologywriter.resolve_endpoints(config, project_name)
     scope_order = _scope_order(config)
 
+    # An entity that signs anybody in must have declared what the project's scopes are.
+    # Without this the empty list is ambiguous. It means both "this project has no sign-in"
+    # and "this project has a sign-in and forgot to say what its scopes are", and every
+    # scope rule downstream reads it as the first and turns itself off. A project could
+    # carry a login, a mapping hook returning scope names nobody declared, connect points
+    # gated on scopes nobody can hold, and a clean `synqt check`.
+    #
+    # `identity_enabled` is the predicate rather than a second one written here: it is what
+    # maingen asks before emitting the login routes at all, so what this refuses and what
+    # the build would have served cannot drift apart. The monitor is not
+    # included. Its console gate declares its own two scopes in the generated main and
+    # never consults `scopes.order` (maingen.render_monitor_main). `identity_enabled`
+    # answers for a web edge and is asked nothing else, which is why `is_edge` comes first:
+    # it does not test the entity's type, so on its own it would say yes for the client.
+    if not scope_order:
+        for entity in appmodel.entities(config):
+            if not appmodel.is_edge(entity) or not appmodel.identity_enabled(config, entity):
+                continue
+            messages.append(
+                f"error: entity '{entity.get('name')}' serves a sign-in but the project "
+                f"declares no scopes; add scopes.order to synqt.yaml, because the scope a "
+                f"session ends up holding has to be one of them")
+
     for connect_point in config.get("connect_points", []):
         owner = connect_point.get("owner")
         name = appmodel.point_name(connect_point) or "<no owner>"

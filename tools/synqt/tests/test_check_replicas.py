@@ -38,6 +38,8 @@ def replicated(count=4, **edge_keys):
             {"owner": "web", "consumers": ["client"], "behind": {"anonymous": "desk"}},
             {"owner": "desk", "consumers": ["web"]},
         ],
+        # See test_device_session.base_config: a login needs a declared vocabulary.
+        "scopes": {"order": ["anonymous", "user"]},
         "identity": {"provider_entity": "auth",
                      "providers": [{"name": "github", "client_id": "x",
                                     "client_secret": "env:GITHUB_CLIENT_SECRET"}]},
