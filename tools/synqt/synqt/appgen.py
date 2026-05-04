@@ -1,32 +1,23 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-"""Generate the buildable app from the declared topology: the multi-binary root
-``CMakeLists.txt`` and one ``main.cpp`` per entity, into the project's ``generated/``
-directory and nowhere else.
+"""Generate the buildable app from the declared topology into the project's ``generated/``
+directory.
 
-This is the piece that turns ``synqt.yaml`` into something the pinned toolchain can
-compile, and it is the entry point the rest of the CLI calls: :func:`generate` writes
-everything an entity needs to build. The work is split by what it emits, because the
-four kinds of output share almost nothing but the topology they read:
+:func:`generate` is the entry point the CLI calls. The work is split by output:
 
-- :mod:`synqt.appmodel` reads the topology (entities, connect points, scopes, routes,
-  views, the client's QML files) and refuses one it cannot read. Nothing there emits.
-- :mod:`synqt.cmakegen` renders the root ``CMakeLists.txt``.
+- :mod:`synqt.appmodel` reads the topology and refuses what it cannot read.
+- :mod:`synqt.cmakegen` renders the CMake.
 - :mod:`synqt.maingen` renders the client, edge and service ``main.cpp``.
-- :mod:`synqt.clientshell` renders what the browser loads before the client does:
-  ``index.html``, ``synqt-boot.js``, the shell cache worker, and the dev reload hook.
-- :mod:`synqt.authentity` renders the Source QML the auth entity needs when
-  ``identity.provider_entity`` promotes identity out of the edge.
-- :mod:`synqt.qmlrewrite` mirrors each entity's own QML into ``generated/``, which is the
-  tree the engines load, so a file rooted at its own name resolves.
+- :mod:`synqt.clientshell` renders ``index.html``, ``synqt-boot.js``, the shell cache worker
+  and the dev reload hook.
+- :mod:`synqt.authentity` renders the auth entity Source QML under
+  ``identity.provider_entity``.
+- :mod:`synqt.qmlrewrite` mirrors each entity QML into ``generated/``, the tree the engines
+  load.
 
-Nothing is re-exported here. A caller that wants one renderer names the module that
-owns it, so the split stays real rather than a layer behind one facade. A
-topology this generator cannot read raises :class:`synqt.appmodel.AppGenError`.
-
-Generation is deterministic string rendering (unit-testable without a compiler). The
-actual compilation runs through the CMake presets in :mod:`synqt.build`.
+Nothing is re-exported here. Errors raise :class:`synqt.appmodel.AppGenError`. Rendering is
+deterministic; compilation runs through the presets in :mod:`synqt.build`.
 """
 
 from __future__ import annotations
@@ -36,65 +27,47 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from . import (appmodel, authentity, cmakegen, contractgen, graphics as graphicsmod,
-               maingen, qmlrewrite, writer)
+               maingen, qmlrewrite, scopegen, writer)
 
 
 def generate(project_dir: os.PathLike[str] | str, config: Dict[str, Any], *,
              synqt_root: os.PathLike[str] | str | None = None,
              dev_tools: bool = False) -> List[str]:
-    """Write the root CMakeLists and one main.cpp per entity.
+    """Write the CMake and one main.cpp per entity.
 
-    Returns every path this generator owns, whether or not this run had to touch it: each
-    file is written only when its content changed (see :mod:`synqt.writer`), so the return
-    describes the app's generated surface rather than what the filesystem did. That
-    distinction matters. A caller wanting the second one would be asking the wrong
-    question, since an unchanged file is exactly what makes a rebuild free.
-
-    `dev_tools` says whether this is a build that may carry development-only code. Only
-    `synqt dev` passes it true; `synqt build` never does, whatever its profile. It reaches
-    the edge's main, which is where a development sign-in would otherwise be constructed.
-    It defaults to False so a caller that has not been taught about profiles generates a
-    main with no development code in it.
+    Returns every path this generator owns, written or unchanged (files are written only
+    when their content changes, see :mod:`synqt.writer`). `dev_tools` allows
+    development-only code in the edge main; only `synqt dev` passes it.
     """
     root = Path(project_dir)
     synqt_root = Path(synqt_root) if synqt_root else appmodel.framework_root()
-    # `identity.provider_entity` implies two mesh links (the auth entity owns identity and
-    # sessions. Every edge consumes them). Expanded once here so the CMake, every main.cpp
-    # and the Source QML below all see the same topology.
+    # Expand the links `identity.provider_entity` implies once, for every output below.
     config = appmodel.with_auth_connect_points(config)
-    # And the ingest link `monitoring.entity` implies (the monitor owns it. Every
-    # service consumes it, and no client does).
+    # And the ingest link `monitoring.entity` implies.
     config = appmodel.with_monitoring_connect_points(config)
-    # Resolved once, here, so the client's route table and the edge's page list are
-    # generated from one decision. What the scan concluded is reported by `synqt check`
-    # (check.lint_graphics), which runs the same resolution.
+    # Resolved once for the client route table and the edge page list. `synqt check` reports
+    # it (check.lint_graphics).
     config, _ = graphicsmod.resolve(config, root)
     written: List[str] = []
-    # Everything below lands here and nowhere else, so an entity's own folder holds only
-    # what its author wrote (appmodel.GENERATED_DIR).
+    # Everything lands here (appmodel.GENERATED_DIR).
     generated = appmodel.generated_dir(root)
     generated.mkdir(parents=True, exist_ok=True)
 
-    # The contracts first. Everything below points a compiler at them, and a connect point
-    # declares its shape in `synqt.yaml` rather than in a file of its own.
+    # Contracts first; everything below points the compiler at them.
     written += contractgen.write_contracts(root, config)
 
     writer.write_if_changed(generated / appmodel.GENERATED_CMAKE,
                             cmakegen.render_root_cmakelists(config, synqt_root, root))
     written.append(f"{appmodel.GENERATED_DIR}/{appmodel.GENERATED_CMAKE}")
 
-    # The one CMake file that is the project's own, at its root. It includes the generated
-    # one and is never rewritten over. It has to be at the root rather than in generated/
-    # because qmlcachegen names a compiled QML file after its path relative to the
-    # directory that declared the module (see cmakegen.render_project_cmakelists).
+    # The project's own root CMake file, written once (see
+    # cmakegen.render_project_cmakelists).
     project_cmake = root / "CMakeLists.txt"
     if not project_cmake.exists():
         writer.write_if_changed(project_cmake, cmakegen.render_project_cmakelists(config))
     written.append("CMakeLists.txt")
 
-    # The test runner, whenever the project has tests to run. Its own directory, because
-    # repc writes its output into the *directory's* binary dir and the test target owns
-    # every contract at ROLE source, exactly as each owning entity does.
+    # The test runner, in its own directory (see cmakegen._tests_cmake).
     if appmodel.test_qml_files(root):
         tests = generated / "tests"
         tests.mkdir(parents=True, exist_ok=True)
@@ -110,15 +83,13 @@ def generate(project_dir: os.PathLike[str] | str, config: Dict[str, Any], *,
             continue
         entity_dir = root / appmodel.entity_dir(entity)
         entity_dir.mkdir(parents=True, exist_ok=True)
-        # The generated main mirrors the entity's folder under generated/, so two entities
-        # of the same type keep separate mains and the author's folder gains nothing.
+        # The main mirrors the entity folder under generated/.
         main_dir = generated / appmodel.entity_dir(entity)
         main_dir.mkdir(parents=True, exist_ok=True)
         singletons = appmodel.discover_singletons(entity_dir)
         if appmodel.is_client(entity):
-            # The same QML module URI the client target is configured with in
-            # render_root_cmakelists (qt_add_qml_module URI ...), so a compiled-in route's
-            # qrc URL matches where qmlcachegen puts the view.
+            # The client module URI, as in render_root_cmakelists, so compiled route URLs
+            # match.
             uri = appmodel.qml_uri_for(config, entity)
             source = maingen.render_client_main(config, uri, entity)
         elif appmodel.entity_type(entity) == "monitor":
@@ -130,9 +101,8 @@ def generate(project_dir: os.PathLike[str] | str, config: Dict[str, Any], *,
         writer.write_if_changed(main_dir / "main.cpp", source)
         written.append(f"{appmodel.GENERATED_DIR}/{appmodel.entity_dir(entity)}/main.cpp")
 
-        # The auth entity's Sources: one bridge per framework connect point it owns, from
-        # the connect point's own `server:` path, so the file and the topology cannot
-        # disagree about where it is.
+        # The auth entity Sources, one per framework point it owns, at the point `server:`
+        # path.
         for connect_point in appmodel.owned_by(config, name):
             if not appmodel.is_framework_point(connect_point):
                 continue
@@ -141,9 +111,20 @@ def generate(project_dir: os.PathLike[str] | str, config: Dict[str, Any], *,
             writer.write_if_changed(root / relative, source_qml)
             written.append(relative)
 
-    # Last, because it mirrors what is in the entity folders and the loop above just wrote
-    # the auth entity's Sources into one of them. This is the tree every engine loads from,
-    # so a file that arrives after it would be a file nothing runs.
+    # The scope enum, beside the mapping hook so the hook needs no import. Only for a
+    # project with a hook.
+    hook = appmodel.identity_mapping_hook(config)
+    if hook:
+        # Beside the mirrored hook under generated/, the tree the engine loads
+        # (mirrored_path).
+        relative = qmlrewrite.mirrored_path(scopegen.scope_qml_path(hook))
+        scope_file = root / relative
+        scope_file.parent.mkdir(parents=True, exist_ok=True)
+        writer.write_if_changed(scope_file, scopegen.render_scope_qml(
+            appmodel.scope_vocab(config)))
+        written.append(relative)
+
+    # Last: it mirrors the entity folders, including the auth Sources written above.
     written += qmlrewrite.write_entity_qml(root, config)
 
     return written
