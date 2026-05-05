@@ -369,6 +369,11 @@ private:
         config.identity.providerEntity = QStringLiteral("auth");
         config.identity.allowDesktopLogin = true;
         config.identity.mappingHook = QStringLiteral(M8_SRCDIR "/web/identity/map.qml");
+        // The vocabulary the hook's Scope.Value members were generated from. Required
+        // beside the hook, not optional: the edge resolves the answer as an index into
+        // this list, so an edge that has the hook and not the list refuses every login.
+        config.scopeOrder = {QStringLiteral("anonymous"), QStringLiteral("user"),
+                             QStringLiteral("moderator"), QStringLiteral("admin")};
         IdentityProviderConfig nameOnly;
         nameOnly.name = QStringLiteral("stub");
         config.identity.providers = {nameOnly};
@@ -640,14 +645,29 @@ private:
 
     QString edgeUrl(const QString &path) const
     {
-        return QStringLiteral("http://127.0.0.1:%1%2").arg(m_edgePort).arg(path);
+        return urlFor(m_edgePort, path);
+    }
+
+    static QString urlFor(quint16 port, const QString &path)
+    {
+        return QStringLiteral("http://127.0.0.1:%1%2").arg(port).arg(path);
     }
 
     // Run the whole browser round trip (login -> provider -> callback) and return the
-    // callback response; capture the authorization request query if asked.
+    // callback response. Capture the authorization request query if asked.
     Response completeLogin(const QString &providerQuery, QUrlQuery *authQuery = nullptr)
     {
-        const Response login{get(QUrl{edgeUrl(QStringLiteral("/auth/login") + providerQuery)})};
+        return completeLoginOn(m_edgePort, providerQuery, authQuery);
+    }
+
+    // The same round trip against an edge other than the fixture's. A test that needs a
+    // different mapping hook needs a different edge, because the hook is read once when the
+    // provider is built. The cookie jar is shared and does not need separating, since the
+    // login-state cookie is scoped to the host and port the second edge bound.
+    Response completeLoginOn(quint16 port, const QString &providerQuery,
+                             QUrlQuery *authQuery = nullptr)
+    {
+        const Response login{get(QUrl{urlFor(port, QStringLiteral("/auth/login") + providerQuery)})};
         if (authQuery) {
             *authQuery = QUrlQuery{QUrl{login.location}.query()};
         }
@@ -684,6 +704,11 @@ private slots:
         config.identity.enabled = true;
         config.identity.allowDevStub = true;
         config.identity.mappingHook = QStringLiteral(M8_SRCDIR "/web/identity/map.qml");
+        // The vocabulary map.qml's Scope.Value enum was generated from, in the same order,
+        // because the hook's answer is resolved as an index into this list. A real project
+        // gets both from scopes.order (maingen writes this line, scopegen writes the enum).
+        config.scopeOrder = {QStringLiteral("anonymous"), QStringLiteral("user"),
+                             QStringLiteral("moderator"), QStringLiteral("admin")};
         config.identity.providers = {
             stubProvider(m_stub->baseUrl()),
             stubOidcProvider(m_stub->baseUrl(), QStringLiteral("stub-oidc"), m_stub->baseUrl()),
@@ -1471,6 +1496,11 @@ private slots:
         edgeConfig.identity.enabled = true;
         edgeConfig.identity.providerEntity = QStringLiteral("auth");
         edgeConfig.identity.mappingHook = QStringLiteral(M8_SRCDIR "/web/identity/map.qml");
+        // The vocabulary the hook's Scope.Value members were generated from. Required
+        // beside the hook, not optional: the edge resolves the answer as an index into
+        // this list, so an edge that has the hook and not the list refuses every login.
+        edgeConfig.scopeOrder = {QStringLiteral("anonymous"), QStringLiteral("user"),
+                                 QStringLiteral("moderator"), QStringLiteral("admin")};
         IdentityProviderConfig nameOnly;
         nameOnly.name = QStringLiteral("stub");
         edgeConfig.identity.providers = {nameOnly};
@@ -1905,10 +1935,11 @@ private slots:
 
     void brokenScopeMappingHookIsReported()
     {
-        // A hook that does not compile silently means "no mapping", and no mapping means
-        // every authenticated session gets the default scope. That is a permissions change,
-        // so it has to be said out loud rather than left to a stray Qt warning. The edge
-        // still starts: a login that lands on the default scope beats an edge that is down.
+        // A hook that does not compile silently means "no mapping", and no mapping now means
+        // every login is refused rather than every session getting the default scope. Either
+        // way it is a permissions change, so it has to be said out loud rather than left to
+        // a stray Qt warning. The edge still starts. An edge that refuses logins and serves
+        // everything else beats an edge that is down, and the warning names the file.
         QQmlEngine engine;
         WebEdgeConfig config;
         config.bundleDir = QStringLiteral(M8_SRCDIR "/bundle");
@@ -1924,6 +1955,87 @@ private slots:
                                  "identity mapping hook .*broken\\.qml failed to load")});
         WebEdge edge{config, &engine};
         QVERIFY2(edge.start(), qPrintable(edge.errorString()));
+    }
+
+    // An edge exactly like the fixture's, but reading the named mapping hook, so a test can
+    // ask what a different hook does to a real login. Returned by pointer because WebEdge is
+    // not movable and the caller needs it alive for the round trip.
+    std::unique_ptr<WebEdge> edgeWithHook(QQmlEngine *engine, const QString &hook)
+    {
+        WebEdgeConfig config;
+        config.bundleDir = QStringLiteral(M8_SRCDIR "/bundle");
+        config.host = QStringLiteral("127.0.0.1");
+        config.port = 0;
+        config.identity.enabled = true;
+        config.identity.allowDevStub = true;
+        config.identity.mappingHook = hook;
+        config.scopeOrder = {QStringLiteral("anonymous"), QStringLiteral("user"),
+                             QStringLiteral("moderator"), QStringLiteral("admin")};
+        config.identity.providers = {stubProvider(m_stub->baseUrl())};
+        auto edge = std::make_unique<WebEdge>(config, engine);
+        return edge;
+    }
+
+    void aHookAnswerOutsideTheVocabularyFailsTheLoginClosed()
+    {
+        // The vocabulary has four scopes, so 4 is one past the end. Before the answer was an
+        // index into a declared list, mapScope turned whatever the hook returned into a
+        // string and used it, so a hook out of step with scopes.order minted a session
+        // holding a scope no check could satisfy. The visitor was locked out of everything
+        // and nothing anywhere reported why.
+        QQmlEngine engine;
+        std::unique_ptr<WebEdge> edge{
+            edgeWithHook(&engine, QStringLiteral(M8_SRCDIR "/web/identity/outofrange.qml"))};
+        QVERIFY2(edge->start(), qPrintable(edge->errorString()));
+
+        QTest::ignoreMessage(QtWarningMsg,
+                             QRegularExpression{QStringLiteral(
+                                 "refusing a login the identity mapping hook could not place"
+                                 ".*returned 4")});
+        const Response callback{completeLoginOn(edge->serverPort(), QString{})};
+        QCOMPARE(callback.status, 302);
+        QVERIFY2(sessionToken(callback.setCookie).isEmpty(),
+                 "a login the hook could not place must set no session cookie");
+    }
+
+    void aHookThatDoesNotAnswerFailsTheLoginClosed()
+    {
+        // There used to be a `return QStringLiteral("user")` here, so a hook that failed
+        // outright handed out an authenticated scope to everybody who signed in.
+        QQmlEngine engine;
+        std::unique_ptr<WebEdge> edge{
+            edgeWithHook(&engine, QStringLiteral(M8_SRCDIR "/web/identity/noanswer.qml"))};
+        QVERIFY2(edge->start(), qPrintable(edge->errorString()));
+
+        QTest::ignoreMessage(QtWarningMsg,
+                             QRegularExpression{QStringLiteral(
+                                 "refusing a login the identity mapping hook could not place"
+                                 ".*no scopeFor")});
+        const Response callback{completeLoginOn(edge->serverPort(), QString{})};
+        QCOMPARE(callback.status, 302);
+        QVERIFY2(sessionToken(callback.setCookie).isEmpty(),
+                 "a hook with no scopeFor must sign nobody in");
+    }
+
+    void aHookAnswerInsideTheVocabularyResolvesByIndex()
+    {
+        // Not padding. A gate tested only by refusals passes when it refuses everything,
+        // which is how identity.required refused everybody in this tree for months. This is
+        // the case that proves the two above are a bounds check and not an outage: the same
+        // edge, a hook that answers in range, and a session that holds that scope.
+        QQmlEngine engine;
+        std::unique_ptr<WebEdge> edge{
+            edgeWithHook(&engine, QStringLiteral(M8_SRCDIR "/web/identity/map.qml"))};
+        QVERIFY2(edge->start(), qPrintable(edge->errorString()));
+
+        const Response callback{completeLoginOn(edge->serverPort(), QString{})};
+        QCOMPARE(callback.status, 302);
+        const QByteArray token{sessionToken(callback.setCookie)};
+        QVERIFY(!token.isEmpty());
+        const SessionRecord *record{edge->sessionManager()->lookup(token)};
+        QVERIFY(record != nullptr);
+        // Scope.Value.Moderator is 2, and scopeOrder[2] is "moderator".
+        QCOMPARE(record->scope, QStringLiteral("moderator"));
     }
 };
 

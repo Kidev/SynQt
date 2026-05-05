@@ -265,10 +265,13 @@ private slots:
         config.identity.allowDevStub = true;
         config.identity.allowDesktopLogin = true;
         config.identity.providers = {stubProvider(m_stub->baseUrl())};
-        // The scope on a redeemed session comes back through this hook, every time, from the
-        // identity stored with the family. Without it every redemption would hand out the
-        // default scope, which would pass most of these tests just as happily.
+        // The scope on a redeemed session comes back through this hook, every time, from
+        // the identity stored with the family, and is resolved as an index into the
+        // vocabulary below rather than trusted as a name. An edge given neither refuses
+        // every redemption, which is the fail-closed answer and not a scope nobody wrote.
         config.identity.mappingHook = QStringLiteral(M8_SRCDIR "/web/identity/map.qml");
+        config.scopeOrder = {QStringLiteral("anonymous"), QStringLiteral("user"),
+                             QStringLiteral("moderator"), QStringLiteral("admin")};
         config.identity.device.enabled = true;
         config.identity.device.store.name = QStringLiteral("sqlite");
         config.identity.device.store.file = storeFile();

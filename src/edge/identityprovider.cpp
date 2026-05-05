@@ -22,6 +22,7 @@
 #include <QHttpServerResponse>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QMetaMethod>
 #include <QMetaObject>
 #include <QQmlComponent>
 #include <QScopeGuard>
@@ -276,12 +277,13 @@ IdentityProvider::IdentityProvider(IdentityConfig config, SessionManager *sessio
         if (m_mapping) {
             m_mapping->setParent(this);
         } else {
-            // Loud, because the failure is quiet otherwise: without the hook every
-            // authenticated session gets the default scope, which is a permissions change
-            // nobody asked for. The hook's own file and QML diagnostic, nothing from the
-            // provider payload it would have read.
-            qWarning("SynQt: identity mapping hook %s failed to load: %s; every session "
-                     "gets the default scope until it does",
+            // Loud, because the failure is quiet otherwise. Without the hook there is
+            // nothing to give a session a scope, so every login is refused until the file
+            // loads. That is the fail-closed direction and still a change nobody asked for,
+            // and the edge stays up so the rest of the site keeps serving. The hook's own
+            // file and QML diagnostic, nothing from the provider payload it would have read.
+            qWarning("SynQt: identity mapping hook %s failed to load: %s; every login is "
+                     "refused until it does",
                      qUtf8Printable(m_config.mappingHook),
                      qUtf8Printable(m_mappingComponent->errorString()));
         }
@@ -744,7 +746,21 @@ QHttpServerResponse IdentityProvider::handleCallback(const QHttpServerRequest &r
         return redirectTo(m_config.appRoute, {buildStateCookie(QByteArray{}, true)});
     }
 
-    const QString scope{mapScope(exchange.identity)};
+    // A login that cannot be given one of the project's declared scopes fails here, closed.
+    // A `return QStringLiteral("user")` fallback at the end of mapScope would let a hook
+    // that fails outright hand out an authenticated scope, and without the vocabulary as
+    // a list to resolve against, a typo in the hook would produce a session holding a scope no
+    // check can satisfy, which locks the visitor out of everything with nothing logged.
+    QString scopeError;
+    const QString scope{mapScope(exchange.identity, &scopeError)};
+    if (scope.isEmpty()) {
+        qWarning("SynQt: refusing a login the identity mapping hook could not place: %s",
+                 qPrintable(scopeError));
+        if (context.isDesktop()) {
+            return loopbackRedirect(context, QString{}, QStringLiteral("access_denied"));
+        }
+        return redirectTo(m_config.appRoute, {buildStateCookie(QByteArray{}, true)});
+    }
     const QByteArray sessionId{m_sessions->createSession(scope, exchange.identity)};
 
     // Move the tokens under the stable session id so refresh can find them, and keep them
@@ -934,7 +950,17 @@ QHttpServerResponse IdentityProvider::handleDevice(const QHttpServerRequest &req
     // is the reason that identity is a column instead of a lookup: somebody demoted from
     // moderator yesterday must not carry moderator for the remaining 29 days of a credential
     // issued while they still were one.
-    const QString scope{mapScope(redemption.identity)};
+    QString scopeError;
+    const QString scope{mapScope(redemption.identity, &scopeError)};
+    if (scope.isEmpty()) {
+        // Same answer as every other refusal on this route, for the same reason: this one
+        // is a project error rather than a stolen credential, but telling the two apart on
+        // the wire would tell whoever found a file on a disk which half of it still works.
+        // The log is where the difference is reported, because it is read by the project.
+        qWarning("SynQt: refusing a device redemption the identity mapping hook could not "
+                 "place: %s", qPrintable(scopeError));
+        return notFound();
+    }
     const QByteArray sessionId{m_sessions->createSession(scope, redemption.identity)};
     bindFamily(sessionId, redemption.next.family);
     return sessionAnswer(sessionId, redemption.next.family, redemption.next.secret,
@@ -1046,20 +1072,71 @@ QHttpServerResponse IdentityProvider::handleLogout(const QHttpServerRequest &req
     return redirectTo(m_config.appRoute, {expired});
 }
 
-QString IdentityProvider::mapScope(const QVariantMap &identity)
+void IdentityProvider::setScopeOrder(const QStringList &scopeOrder)
 {
-    if (m_mapping) {
+    m_scopeOrder = scopeOrder;
+}
+
+QString IdentityProvider::mapScope(const QVariantMap &identity, QString *error)
+{
+    const auto fail = [error](const QString &reason) {
+        if (error) {
+            *error = reason;
+        }
+        return QString{};
+    };
+
+    if (!m_mapping) {
+        return fail(QStringLiteral("the project declares no identity mapping hook"));
+    }
+
+    const QMetaObject *meta{m_mapping->metaObject()};
+    const int methodIndex{meta->indexOfMethod("scopeFor(QVariant)")};
+    if (methodIndex < 0) {
+        return fail(QStringLiteral("the mapping hook has no scopeFor(identity)"));
+    }
+
+    // Two shapes, because a QML function's return annotation is part of its metaobject
+    // signature: `function scopeFor(identity): int` registers a method returning int, and
+    // an unannotated one registers a method returning QVariant. Asking for the wrong one
+    // fails the invocation outright ("return type mismatch"), which would report a
+    // correct hook as a missing one. The annotated form is what the scaffold writes and
+    // what the docs show. The other is read too, so an older hook says what it means
+    // rather than being refused for how it was spelled.
+    const QMetaMethod method{meta->method(methodIndex)};
+    bool isNumber{false};
+    int index{-1};
+    if (method.returnMetaType() == QMetaType::fromType<int>()) {
+        isNumber = method.invoke(m_mapping, Qt::DirectConnection, Q_RETURN_ARG(int, index),
+                                 Q_ARG(QVariant, QVariant{identity}));
+        if (!isNumber) {
+            return fail(QStringLiteral("the mapping hook's scopeFor(identity) could not be "
+                                       "called"));
+        }
+    } else {
         QVariant result;
-        if (QMetaObject::invokeMethod(m_mapping, "scopeFor", Qt::DirectConnection,
-                                      Q_RETURN_ARG(QVariant, result),
-                                      Q_ARG(QVariant, QVariant{identity}))) {
-            const QString scope{result.toString()};
-            if (!scope.isEmpty()) {
-                return scope;
-            }
+        if (!method.invoke(m_mapping, Qt::DirectConnection, Q_RETURN_ARG(QVariant, result),
+                           Q_ARG(QVariant, QVariant{identity}))) {
+            return fail(QStringLiteral("the mapping hook's scopeFor(identity) could not be "
+                                       "called"));
+        }
+        // The hook returns a member of the generated Scope.Value enum, whose value is the
+        // scope's index in scopes.order (synqt.scopegen writes both the enum and the list
+        // the edge is handed). So what follows is a bounds check and nothing else: there is
+        // no spelling to compare, and no answer outside the range can name a declared scope.
+        index = result.toInt(&isNumber);
+        if (!isNumber) {
+            return fail(QStringLiteral("the mapping hook returned '%1', which is not a "
+                                       "Scope.Value member")
+                            .arg(result.toString()));
         }
     }
-    return QStringLiteral("user");  // any successfully authenticated user
+    if (index < 0 || index >= static_cast<int>(m_scopeOrder.size())) {
+        return fail(QStringLiteral("the mapping hook returned %1, which is not one of the "
+                                   "%2 scopes this project declares")
+                        .arg(index).arg(m_scopeOrder.size()));
+    }
+    return m_scopeOrder.at(index);
 }
 
 QByteArray IdentityProvider::buildStateCookie(const QByteArray &value, bool expire) const

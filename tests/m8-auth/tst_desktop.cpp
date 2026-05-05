@@ -208,6 +208,12 @@ private slots:
         config.port = 0;
         config.identity.enabled = true;
         config.identity.allowDevStub = true;
+        // The mapping hook that gives a session its scope, and the vocabulary its
+        // Scope.Value members were generated from. An edge with a login and neither
+        // refuses every login, because there is nothing to resolve an answer against.
+        config.identity.mappingHook = QStringLiteral(M8_SRCDIR "/web/identity/map.qml");
+        config.scopeOrder = {QStringLiteral("anonymous"), QStringLiteral("user"),
+                             QStringLiteral("moderator"), QStringLiteral("admin")};
         // What the generated edge sets when a client entity lists the `desktop` target.
         config.identity.allowDesktopLogin = true;
         config.identity.providers = {stubProvider(m_stub->baseUrl())};
@@ -497,6 +503,9 @@ private slots:
         config.port = 0;
         config.identity.enabled = true;
         config.identity.allowDevStub = true;
+        config.identity.mappingHook = QStringLiteral(M8_SRCDIR "/web/identity/map.qml");
+        config.scopeOrder = {QStringLiteral("anonymous"), QStringLiteral("user"),
+                             QStringLiteral("moderator"), QStringLiteral("admin")};
         config.identity.providers = {stubProvider(m_stub->baseUrl())};
         // allowDesktopLogin left at its default, which is the default of every project
         // that does not list the desktop target.
@@ -534,6 +543,9 @@ private slots:
         config.identity.enabled = true;
         config.identity.allowDevStub = true;
         config.identity.allowDesktopLogin = true;
+        config.identity.mappingHook = QStringLiteral(M8_SRCDIR "/web/identity/map.qml");
+        config.scopeOrder = {QStringLiteral("anonymous"), QStringLiteral("user"),
+                             QStringLiteral("moderator"), QStringLiteral("admin")};
         config.identity.claimTtlSeconds = 1;
         config.identity.providers = {stubProvider(m_stub->baseUrl())};
 

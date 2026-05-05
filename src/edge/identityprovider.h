@@ -10,6 +10,7 @@
 
 #include <QHash>
 #include <QObject>
+#include <QStringList>
 #include <QPointer>
 #include <QSet>
 #include <QString>
@@ -94,6 +95,13 @@ public:
     /// (or the configured store would not open). Exposed for the tests and for the edge,
     /// which ends a session's family when that session is signed out.
     DeviceRegistry *devices() const;
+
+    /// The scopes this project declared, lowest authority first. It is the vocabulary the
+    /// mapping hook's answer is resolved against: the hook returns a member of the
+    /// generated Scope.Value enum, whose value is the scope's index in this list. Left
+    /// unset, the list is empty and every login is refused, which is the honest answer for
+    /// an edge nobody told what its scopes are.
+    void setScopeOrder(const QStringList &scopeOrder);
 
     /// The edge's public origin (e.g. https://host:port), used to form the callback
     /// redirect_uri. Set once the edge has bound its port.
@@ -189,7 +197,11 @@ private:
     void bindRemoteSession(const QString &state, const QByteArray &sessionId);
     void releaseRemoteTokens(const QByteArray &sessionId);
 
-    QString mapScope(const QVariantMap &identity);
+    /// The scope this identity signs in at, or an empty string when the project's mapping
+    /// hook did not answer with one of the scopes the project declared, with *error set to
+    /// why. There is no fallback on purpose: a login that cannot be given a declared scope
+    /// fails, rather than being given a scope nobody wrote down.
+    QString mapScope(const QVariantMap &identity, QString *error = nullptr);
     /// The one answer both desktop routes give: the session, the cookie name to present it
     /// under, and the device credential to store in place of whatever was just spent (absent
     /// when the project persists nothing or this client's store was below the floor).
@@ -221,9 +233,10 @@ private:
     QPointer<QObject> m_remote;            ///< Identity Replica in provider_entity mode
     QQmlComponent *m_mappingComponent{nullptr};
     QObject *m_mapping{nullptr};
+    QStringList m_scopeOrder;   ///< the project's declared vocabulary. See setScopeOrder
 
     DeviceRegistry *m_devices{nullptr};     ///< null unless the project persists sessions
-    const ClientAddress *m_clientAddress{nullptr};  ///< the edge's; null means the peer
+    const ClientAddress *m_clientAddress{nullptr};  ///< the edge's. Null means the peer
 
     /// Claims minted by this process, when identity runs in process. In provider_entity
     /// mode this stays empty and the auth entity holds them, because the native client
