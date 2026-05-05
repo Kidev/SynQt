@@ -189,8 +189,20 @@ class ScopeTest(unittest.TestCase):
         config = base_config(scopes={"order": ["anonymous", "user"]},
                              identity={"providers": [
                                  {"name": "github", "client_id": "abc",
-                                  "client_secret": "env:GITHUB_SECRET"}]})
+                                  "client_secret": "env:GITHUB_SECRET"}],
+                                 "mapping": {"hook": "web/identity/map.qml"}})
         self.assertEqual(errors(config), [])
+
+    def test_sign_in_without_a_mapping_hook_is_refused(self):
+        # The hook is what turns an identity into one of those scopes. Declaring the
+        # vocabulary and naming nothing that picks from it leaves the edge with nothing to
+        # ask, so it refuses every login. A runtime failure for a build-time mistake.
+        config = base_config(scopes={"order": ["anonymous", "user"]},
+                             identity={"providers": [
+                                 {"name": "github", "client_id": "abc",
+                                  "client_secret": "env:GITHUB_SECRET"}]})
+        found = errors(config)
+        self.assertTrue(any("identity.mapping.hook" in m and "web" in m for m in found), found)
 
     def test_an_edge_that_opts_out_of_the_login_does_not_demand_scopes(self):
         # `identity: false` on an edge is the documented way to say this one serves no
@@ -278,7 +290,8 @@ class IdentityTest(unittest.TestCase):
         entry = {"name": "github", "client_id": "abc", "client_secret": "env:GITHUB_SECRET"}
         entry.update(provider)
         return base_config(scopes={"order": ["anonymous", "user"]},
-                           identity={"providers": [entry]})
+                           identity={"providers": [entry],
+                                     "mapping": {"hook": "web/identity/map.qml"}})
 
     def test_a_configured_provider_needs_a_client_secret(self):
         found = errors(self.identity(client_secret=""))

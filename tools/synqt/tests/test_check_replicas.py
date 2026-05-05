@@ -1,18 +1,10 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-"""`replicas:` is a promise the project cannot keep on its own.
+"""`replicas:` requires that nothing a browser reaches lives in one process.
 
-Running N edge processes is safe exactly when nothing a browser reaches lives in any one of
-them. Three keys already move that state off the edge (identity.provider_entity, behind:,
-and a device store every replica can read), and these rules are what prove they were used.
-Without them the failure is silent. Two tabs of one session land on different processes and
-disagree, a visitor is signed in on one and anonymous on the next, and nothing anywhere says
-why.
-
-The other half of this file matters as much as the first: none of it fires at `replicas: 1`
-or with the key absent, which is every project that exists today. A scaling feature that
-makes the un-scaled case harder has taken something from everybody to give to a few.
+identity.provider_entity, `behind:` and a shared device store move that state off the edge;
+these rules check they are used. None of it fires at `replicas: 1` or with the key absent.
 """
 
 import unittest
@@ -38,9 +30,10 @@ def replicated(count=4, **edge_keys):
             {"owner": "web", "consumers": ["client"], "behind": {"anonymous": "desk"}},
             {"owner": "desk", "consumers": ["web"]},
         ],
-        # See test_device_session.base_config: a login needs a declared vocabulary.
+        # See test_device_session.base_config. A login needs a declared vocabulary.
         "scopes": {"order": ["anonymous", "user"]},
         "identity": {"provider_entity": "auth",
+                     "mapping": {"hook": "web/identity/map.qml"},
                      "providers": [{"name": "github", "client_id": "x",
                                     "client_secret": "env:GITHUB_CLIENT_SECRET"}]},
     }
@@ -123,8 +116,7 @@ class Refusals(unittest.TestCase):
         self.assertFalse(errors_about(config, "device credential"), messages(config))
 
     def test_identity_absent_needs_no_provider_entity(self):
-        # A project with no login has no sessions to share, so the rule that exists to
-        # protect them must not fire and demand an auth entity nobody needs.
+        # No login, no sessions to share, no auth entity required.
         config = replicated()
         del config["identity"]
         self.assertFalse(errors_about(config, "provider_entity"), messages(config))
@@ -135,10 +127,8 @@ class Refusals(unittest.TestCase):
 
 
 class TheBaseCaseIsUntouched(unittest.TestCase):
-    """The governing constraint of the whole feature, written as a test.
-
-    Every rule above is dormant below two replicas. Not "usually quiet": dormant. These two
-    take a project that violates every one of them and assert silence.
+    """Every rule is dormant below two replicas, even for a project that would violate all of
+    them.
     """
 
     def _violates_everything(self, config):

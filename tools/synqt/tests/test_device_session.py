@@ -1,20 +1,10 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-"""`identity.desktop_session: device`: what it has to be given, and what it emits.
+"""`identity.desktop_session: device`: what it needs and what it emits.
 
-Something starts living on a visitor's disk, so the two ways of configuring this into doing
-nothing at all are refused rather than tolerated. Both have the same symptom as the feature
-working perfectly and nobody staying signed in, which is why neither is allowed to be a
-warning: a project with no desktop client has nothing that could enrol, and one with no
-durable store has nowhere to keep what it enrolled.
-
-A `min_binding` that some machines meet is the opposite case and is only reported. Which
-level a machine reaches is a property of that machine, not of the build, so the edge settles
-it at enrolment. A project can ship all three platforms under a policy only two of them meet,
-and the third signs in per launch instead of failing to build. A floor no store reports at
-all is back in the first group, because it turns the feature off everywhere rather than
-stating a policy about machines.
+Refused: no desktop client, no durable store, and a `min_binding` no store reports. A floor
+some machines meet is reported, since the edge settles it at enrolment.
 """
 
 import unittest
@@ -32,12 +22,11 @@ def base_config(**identity):
         ],
         "connect_points": [{"owner": "web", "consumers": ["client"]}],
         "build": {"desktop": {"edge_url": "wss://app.example/sync"}},
-        # A project that serves a login has to declare the scopes its sessions can hold;
-        # without this every clean-config assertion here would be asserting on that rule
-        # instead of on the device-session rule it is about.
+        # `scopes.order` is set, so the assertions are about the device-session rule.
         "scopes": {"order": ["anonymous", "user"]},
         "identity": {
             "providers": [{"name": "github", "client_id": "id", "client_secret": "env:S"}],
+            "mapping": {"hook": "web/identity/map.qml"},
         },
     }
     config["identity"].update(identity)
@@ -96,10 +85,7 @@ class DeviceSessionCheckTest(unittest.TestCase):
         self.assertTrue(any("min_binding" in m for m in found), found)
 
     def test_a_floor_no_store_reports_is_refused(self):
-        # Not a warning. Nothing SynQt ships reports 'hardware', so it does not describe a
-        # subset of machines the way 'application' does. It turns persistence off for all of
-        # them, which is indistinguishable from the feature being on and nobody staying
-        # signed in.
+        # An error: no shipped store reports 'hardware'.
         found = messages(device_config(min_binding="hardware"), "error:")
         self.assertTrue(any("min_binding" in m for m in found), found)
 
@@ -123,9 +109,7 @@ class DeviceSessionEmissionTest(unittest.TestCase):
         self.assertIn('config.identity.device.store.name = QStringLiteral("sqlite")', source)
 
     def test_a_relative_store_path_resolves_against_the_project(self):
-        # Not against the working directory. A relative path there is a different database
-        # per launcher and a fresh one under a service manager, which signs everybody out
-        # with no error anywhere.
+        # Against the project root, not the working directory.
         source = self.edge_main(device_config())
         self.assertIn('qmlDir + QStringLiteral("/") + QStringLiteral(".synqt/devices.db")',
                       source)

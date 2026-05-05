@@ -17,8 +17,8 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 import yaml
 
 from . import (addentity, appmodel, clientcache, config as configmod, contractgen,
-               designdoc, graphics, infer, qmlscan, toolchain, topologywriter,
-               typebackend)
+               designdoc, graphics, infer, qmlscan, scopegen, toolchain,
+               topologywriter, typebackend)
 
 
 def _duplicate_messages(names: List[Any], what: str, consequence: str) -> List[str]:
@@ -648,6 +648,20 @@ def validate(config: Dict[str, Any], *, release: bool = False,
                 f"error: entity '{entity.get('name')}' serves a sign-in but the project "
                 f"declares no scopes; add scopes.order to synqt.yaml, because the scope a "
                 f"session ends up holding has to be one of them")
+
+    # And it must name the hook that picks one. The hook is what turns a provider's identity
+    # into a scope. Without it the edge has nothing to ask and refuses every login (see
+    # IdentityProvider::mapScope, which never guesses).
+    # That refusal is correct and it is also invisible until somebody signs in, so the same
+    # missing piece is an error while the project is being written.
+    if not appmodel.identity_mapping_hook(config):
+        for entity in appmodel.entities(config):
+            if not appmodel.is_edge(entity) or not appmodel.identity_enabled(config, entity):
+                continue
+            messages.append(
+                f"error: entity '{entity.get('name')}' serves a sign-in but the project "
+                f"names no identity.mapping.hook; without it nothing decides what scope a "
+                f"session gets, so every login is refused")
 
     for connect_point in config.get("connect_points", []):
         owner = connect_point.get("owner")
@@ -2747,6 +2761,53 @@ def _qml_root_type(source: str) -> Optional[str]:
     return qmlscan.root_type(source)
 
 
+def lint_mapping_hook(config: Dict[str, Any],
+                      project_dir: os.PathLike[str] | str) -> List[str]:
+    """Every `Scope.Value.X` in the identity mapping hook names a member the build emits.
+
+    The hook returns a member of the generated Scope.Value enum and the edge resolves it as
+    an index into `scopes.order`, so a member the generator never wrote is an answer no
+    index can be found for and a login that fails closed. That failure is correct and it is
+    also late: the project is deployed, somebody signs in, and the message is in the edge's
+    log. Here the same mistake is one character from the fix.
+
+    Tokenized rather than pattern-matched, because `Scope.Value.Admin` written in a comment
+    or inside a string is not a reference, and refusing it would make a comment fail a
+    build. `qmlscan` is the lexer every other QML rule here reads with.
+    """
+    hook = appmodel.identity_mapping_hook(config)
+    if not hook:
+        return []
+    path = Path(project_dir) / hook
+    if not path.is_file():
+        return [f"error: identity.mapping.hook names '{hook}', which is not a file"]
+    try:
+        declared = {member for _, member in scopegen.members(appmodel.scope_vocab(config))}
+    except ValueError as error:
+        # A vocabulary that cannot be turned into an enum at all. Reported here rather than
+        # left to fail inside the generator, where the file it names is one nobody wrote.
+        return [f"error: scopes.order cannot be generated: {error}"]
+
+    messages: List[str] = []
+    tokens = qmlscan.tokenize(path.read_text(encoding="utf-8", errors="replace"))
+    # Five tokens: Scope . Value . Member. qmlscan emits each `.` as its own punct token,
+    # so the members sit at a fixed offset rather than needing the text re-split.
+    for index in range(len(tokens) - 4):
+        run = tokens[index:index + 5]
+        if [token.kind for token in run] != ["ident", "punct", "ident", "punct", "ident"]:
+            continue
+        if run[0].text != "Scope" or run[1].text != "." or run[2].text != "Value" \
+                or run[3].text != ".":
+            continue
+        named = run[4].text
+        if named in declared:
+            continue
+        messages.append(
+            f"error: {hook}:{run[4].line} returns Scope.Value.{named}, which scopes.order "
+            f"does not declare; this project's members are {', '.join(sorted(declared))}")
+    return _unique(messages)
+
+
 def lint_client_root(project_dir: os.PathLike[str] | str) -> List[str]:
     """Check that every client entity's Main.qml root is a window.
 
@@ -3711,6 +3772,7 @@ def check_project(project_dir: os.PathLike[str] | str, *, release: bool = False,
     loading_messages = lint_loading(project_dir)
     client_root_messages = lint_client_root(project_dir)
     source_messages = lint_connect_point_sources(config, project_dir)
+    source_messages += lint_mapping_hook(config, project_dir)
     caller_messages = lint_caller_use(config, project_dir)
     # Once per client entity, because a client may hold its own route table and a table
     # nobody validates is a table that fails in a visitor's browser. Two clients falling
