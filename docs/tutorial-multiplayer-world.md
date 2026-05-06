@@ -76,10 +76,10 @@ IdentityMapping {
     // The guest list. Only these GitHub usernames may enter the arena.
     readonly property var approved: ["octocat", "your-github-username"]
 
-    function scopeFor(identity) {
+    function scopeFor(identity): int {
         if (approved.indexOf(identity.login) !== -1)
-            return "player"
-        return "anonymous"     // signed in, but not on the guest list
+            return Scope.Value.Player
+        return Scope.Value.Anonymous     // signed in, but not on the guest list
     }
 }
 ```
@@ -89,9 +89,13 @@ below) is the stable subject id GitHub assigns, which is what keys a player even
 they change their display name. Everyone who signs in gets a real identity, but only
 approved logins reach the `player` scope, and the connect point below requires it.
 
+`Scope.Value` comes from this project's `scopes.order: [anonymous, player]`, generated
+beside the hook. Two members, because this game has two kinds of visitor, and no way to
+return a third by accident.
+
 ## Step 3: The edge owns the arena, once
 
-Here is the heart of the game. The edge holds the one authoritative arena: the roster
+This is the heart of the game. The edge holds the one authoritative arena, the roster
 of players (with private bookkeeping the browser never sees), the pellets, and a
 simulation loop that moves every blob, feeds it, and resolves who eats whom.
 

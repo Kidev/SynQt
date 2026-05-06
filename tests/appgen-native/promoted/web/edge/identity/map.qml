@@ -6,7 +6,7 @@ import SynQt
 // The scope mapping stays on the EDGE even when identity is promoted: the auth entity
 // verifies who someone is, and each edge decides what that means in its own system.
 IdentityMapping {
-    function scopeFor(identity) {
-        return "user";
+    function scopeFor(identity): int {
+        return Scope.Value.User;
     }
 }

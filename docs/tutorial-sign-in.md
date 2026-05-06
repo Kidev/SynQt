@@ -197,20 +197,25 @@ function closeLot(nextItem) {
 ```
 
 Make yourself the auctioneer by mapping your identity to the admin scope. Open
-`web/edge/identity/map.qml` (scaffolded by `synqt add auth`) and return `"admin"` for
-your own account:
+`web/edge/identity/map.qml` (scaffolded by `synqt add auth`) and return
+`Scope.Value.Admin` for your own account:
 
 ```qml
 import SynQt
 
 IdentityMapping {
-    function scopeFor(identity) {
+    function scopeFor(identity): int {
         const auctioneers = ["you@example.com"]   // your GitHub email
-        if (auctioneers.indexOf(identity.email) !== -1) return "admin"
-        return "user"   // everyone else who signs in
+        if (auctioneers.indexOf(identity.email) !== -1) return Scope.Value.Admin
+        return Scope.Value.User   // everyone else who signs in
     }
 }
 ```
+
+`Scope.Value` is generated from the `scopes.order` in your `synqt.yaml` and written
+beside this file, so `Admin` is there because `admin` is declared there. Misspell it and
+`synqt check` says which member does not exist and which ones do, rather than letting you
+find out when somebody signs in and can reach nothing.
 
 Add an auctioneer control to `client/app/Main.qml`, visible only to admins:
 

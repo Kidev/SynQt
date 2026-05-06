@@ -101,17 +101,17 @@ IdentityMapping {
     // is a change to data rather than a deploy. `assignments` is a pushed property on a
     // connect point the edge consumes: the directory owns it, the edge already holds the
     // current value, and reading it here costs nothing.
-    function scopeFor(identity) {
+    function scopeFor(identity): int {
         const role = Directory.roles.assignments[identity.sub] ?? "";
         if (role === "owner") {
-            return "admin";
+            return Scope.Value.Admin;
         }
         if (role === "support") {
-            return "moderator";
+            return Scope.Value.Moderator;
         }
         // Authenticated, and nothing more. A provider saying who someone is has never
         // been the same as this system saying what they may do.
-        return "user";
+        return Scope.Value.User;
     }
 }
 ```
@@ -136,11 +136,17 @@ It must tolerate a missing field. `identity.email` is nullable because a provide
 simply not give you one. A hook that keys authorization on an email is a hook that
 grants the wrong scope on the day someone signs up without one.
 
+It returns a member, not a name. `Scope.Value` is generated from `scopes.order` and sits
+beside the hook, so the set of things this function can return is the set of scopes the
+project declared. A directory answering `"supervisor"` for a role the project never
+declared cannot be turned into a scope here at all, which is what keeps a change in
+somebody else's data out of this system's authorization decisions.
+
 ## Level 3: A login system that is not OAuth2 at all
 
-Now the interesting case: a staff directory that authenticates a username and password
-over LDAP, a hardware token service, a legacy ticket system. No authorization endpoint, no
-ID token, nothing to configure.
+The remaining case is a staff directory that authenticates a username and password
+over LDAP, a hardware token service, or a legacy ticket system, with no authorization
+endpoint, no ID token, and nothing to configure.
 
 This is an ordinary entity problem, and SynQt already has an answer for those. Build the
 login system as an entity, give it a connect point, and let the edge consume it. What that

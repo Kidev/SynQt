@@ -399,8 +399,9 @@ IdentityMapping {
 
     readonly property var moderators: ["octocat"]
 
-    function scopeFor(identity) {
-        return mapping.moderators.indexOf(identity.login) >= 0 ? "admin" : "user";
+    function scopeFor(identity): int {
+        return mapping.moderators.indexOf(identity.login) >= 0
+            ? Scope.Value.Admin : Scope.Value.User;
     }
 }
 ```

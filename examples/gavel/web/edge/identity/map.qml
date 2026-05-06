@@ -8,13 +8,17 @@ import SynQt
 // own account to become the auctioneer ("admin"). Key on identity.login (the GitHub
 // username) or identity.sub (the stable id) rather than identity.email, which a GitHub
 // account can keep private (see docs/authentication.md#the-identity-object).
+// The return value is a member of Scope.Value, generated from scopes.order in
+// synqt.yaml and written beside this file. An enum rather than a string, so a scope
+// this project never declared cannot be spelled here: the edge resolves the answer
+// as an index into the same list and refuses the login when it is out of range.
 IdentityMapping {
     readonly property var auctioneers: ["your-github-username"]   // the admins
 
-    function scopeFor(identity) {
+    function scopeFor(identity): int {
         if (auctioneers.indexOf(identity.login) !== -1) {
-            return "admin";
+            return Scope.Value.Admin;
         }
-        return "user";   // everyone else who signs in
+        return Scope.Value.User;   // everyone else who signs in
     }
 }
