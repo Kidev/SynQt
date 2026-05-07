@@ -39,6 +39,11 @@ def promoted_config(**overrides):
         ],
         "identity": {
             "provider_entity": "auth",
+            # The hook stays on the edge even when identity is promoted: the auth entity
+            # says who somebody is, each edge decides what that means in its own system.
+            # Required, like scopes.order above, or the project serves a login with nothing
+            # to give a session a scope (check.validate refuses that).
+            "mapping": {"hook": "web/edge/identity/map.qml"},
             "providers": [{"name": "github", "client_id": "Iv1.abc",
                            "client_secret": "env:GITHUB_CLIENT_SECRET"}],
         },
