@@ -313,3 +313,37 @@ def test_dev_passes_a_bare_bundle_for_a_project_with_no_block():
                            {"name": "app", "type": "client"}]}
     argv = runmod.dev_command(Path("/p"), config["entities"][0], config, 8443)
     assert _bundle_values(argv) == [str(Path("/p") / "build" / "client")]
+
+
+# The development scope picker's flag
+
+
+def _edge_config():
+    return {"entities": [{"name": "web", "type": "web_edge"},
+                         {"name": "app", "type": "client"}]}
+
+
+def test_dev_does_not_pass_the_picker_flag_unless_it_was_asked_for():
+    config = _edge_config()
+    argv = runmod.dev_command(Path("/p"), config["entities"][0], config, 8443)
+    assert "--identity-picker" not in argv, argv
+    # But --dev is still there, because that is what makes a development edge a development
+    # edge. The picker is a choice inside that, not a second gate beside it.
+    assert "--dev" in argv, argv
+
+
+def test_dev_passes_the_picker_flag_when_asked():
+    config = _edge_config()
+    argv = runmod.dev_command(Path("/p"), config["entities"][0], config, 8443,
+                              identity_picker=True)
+    assert "--identity-picker" in argv, argv
+    assert "--dev" in argv, argv
+
+
+def test_only_the_edge_is_offered_the_picker():
+    # A service has no browser to show a page to, and passing an option its main does not
+    # declare would make it exit on its own command line.
+    config = {"entities": [{"name": "db", "type": "relational"}]}
+    argv = runmod.dev_command(Path("/p"), config["entities"][0], config, 8443,
+                              identity_picker=True)
+    assert "--identity-picker" not in argv, argv

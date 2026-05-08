@@ -6,6 +6,9 @@
 #include "caller.h"
 #include "cookies.h"
 #include "identityprovider.h"
+#ifdef SYNQT_DEV_TOOLS
+#include "identitypicker.h"
+#endif
 #include "pageseed.h"
 #include "pagesedgesource.h"
 #include "pagesservice.h"
@@ -638,6 +641,24 @@ QHttpServerResponse WebEdge::handleSignIn(const QHttpServerRequest &request)
     return response;
 }
 
+#ifdef SYNQT_DEV_TOOLS
+QHttpServerResponse WebEdge::handlePick(const QHttpServerRequest &request)
+{
+    // The picker decides whether the choice names a scope this project declared and mints
+    // the session; the cookie is this edge's business, formed the one way every session
+    // cookie on this edge is formed.
+    QByteArray minted;
+    QHttpServerResponse response{m_picker->choose(request, &minted)};
+    if (minted.isEmpty()) {
+        return response;  // refused; the picker said why and minted nothing
+    }
+    QHttpHeaders headers{response.headers()};
+    headers.append(QHttpHeaders::WellKnownHeader::SetCookie, cookieFor(minted));
+    response.setHeaders(std::move(headers));
+    return response;
+}
+#endif
+
 QByteArray WebEdge::issueSessionCookie()
 {
     return cookieFor(m_sessionManager->createSession());
@@ -1092,6 +1113,24 @@ bool WebEdge::start()
             return handleSignIn(request);
         });
     }
+#ifdef SYNQT_DEV_TOOLS
+    // The development scope picker, which stands in for every sign-in above. Registered
+    // only when `synqt dev --identity-picker` asked for it. A route that was registered and
+    // then refused would still be a route, answering differently from one that does not
+    // exist and telling a caller it is there. Nothing built passes the flag, and a release
+    // SynQtEdge does not contain the class, so this whole block compiles to nothing there.
+    if (m_config.identityPicker) {
+        m_picker = new IdentityPicker{m_sessionManager, m_config.scopeOrder, this};
+        m_httpServer->route(IdentityPicker::route(), QHttpServerRequest::Method::Get,
+                            [this]() {
+            return m_picker->page();
+        });
+        m_httpServer->route(IdentityPicker::route(), QHttpServerRequest::Method::Post,
+                            [this](const QHttpServerRequest &request) {
+            return handlePick(request);
+        });
+    }
+#endif
     // Delivery of the bundle itself, only when this edge is the app's origin.
     if (m_config.serveClient) {
         registerBundleRoutes();

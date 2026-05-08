@@ -735,6 +735,13 @@
       "defended_by": "The hook returns a member of the generated Scope.Value enum rather than a string, and IdentityProvider::mapScope resolves that member as an index into the declared vocabulary the edge was given: an answer outside the range names no scope and fails the login closed, with the reason logged, and there is no fallback left for a hook that does not answer. synqt check refuses a member scopes.order does not declare before the build, and refuses a project that serves a sign-in while declaring no scopes or naming no hook.",
       "file": "tests/m8-auth/tst_m8.cpp",
       "test": "aHookAnswerOutsideTheVocabularyFailsTheLoginClosed"
+    },
+    {
+      "id": "a-development-edge-serves-the-scope-picker-to-anybody",
+      "what": "The development scope picker mints a session at any scope the project declares, with no credential of any kind: that is what it is for, and it is why reaching it from anything but a developer's own `synqt dev` would be a complete authorization bypass. A route that exists and refuses is still a route, and it answers differently from a path the edge does not serve, so a caller guessing /synqt/dev/identity learns whether the edge has one.",
+      "defended_by": "Three layers, none of which is the only one. The picker's sources are named in src/edge/CMakeLists.txt only under SYNQT_DEV_TOOLS, so a release SynQtEdge does not contain the class (proven by adding IdentityPicker to tests/dev-exclusion's DEV_SYMBOLS); the header refuses to be included by a build that did not set it; and the routes are registered only when `synqt dev --identity-picker` set WebEdgeConfig::identityPicker, which nothing built and nothing served passes. Inside the POST, the chosen scope is bounds-checked against the declared vocabulary, so an edited form cannot name a scope the project never declared.",
+      "file": "tests/m5-webedge/tst_m5.cpp",
+      "test": "aDevEdgeWithoutTheFlagHasNoPickerRoute"
     }
   ]
 }

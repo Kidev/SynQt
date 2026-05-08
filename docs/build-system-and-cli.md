@@ -501,6 +501,21 @@ with the same file watching and hot reload against the same dev edge. The native
 loop skips the Emscripten link step, so it is faster to iterate on than the
 WebAssembly one; see [desktop clients](desktop.md).
 
+`synqt dev --identity-picker` replaces every sign-in the project has with one page at
+`/synqt/dev/identity` listing the scopes in `scopes.order`. Pick one and you hold a
+session at it, with a synthesized identity. It exists to make "what does this look like
+to a moderator" a click rather than a login, and it is not a substitute for the real
+flow: it skips OAuth entirely, so no PKCE, no code exchange, no ID token and no JWKS run
+under it. That is why `identity.dev_stub` is kept beside it. The stub proves the flow
+against a fake provider; the picker skips the flow.
+
+It is development-only in the strong sense. `synqt dev` builds the edge with
+`SYNQT_DEV_TOOLS`, which is the only configuration in which the picker's sources are
+compiled at all, so a `synqt build` artifact does not contain the class the flag would
+register (`tests/dev-exclusion` proves that by reading both symbol tables). The flag is
+the third of three layers, not the only one; see
+[Development code is absent from a release build](security.md#development-code-is-absent-from-a-release-build).
+
 ## How QML becomes WebAssembly (the client entity)
 
 1. The contract generator turns each connect point's `export:` block into a `.syn` under

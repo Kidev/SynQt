@@ -196,6 +196,13 @@ def build_parser() -> argparse.ArgumentParser:
                                 "(multi implies cross-origin isolation)")
         if name == "dev":
             p.add_argument("--desktop", action="store_true", help="run the client natively")
+            # Every sign-in the project has, replaced by one page listing its scopes. Only
+            # on `dev`, and only as a flag. The edge it starts is built with
+            # SYNQT_DEV_TOOLS, so it is the only edge that contains the picker at all, and
+            # nothing `synqt build` produces can be asked for it.
+            p.add_argument("--identity-picker", action="store_true",
+                           help="replace every sign-in with a picker listing the "
+                                "project's scopes (development only)")
             p.add_argument("--port", type=int, default=8080, help="the local dev port")
             p.add_argument("--no-open", action="store_true", help="do not open a browser")
             p.add_argument("--no-watch", action="store_true",
@@ -531,7 +538,8 @@ def main(argv: Optional[List[str]] = None) -> int:
                 print(runmod.dev(args.project_dir, port=args.port,
                                  open_browser=not args.no_open, client=args.client,
                                  watch=not args.no_watch, profile=args.profile,
-                                 profile_name=profile_name))
+                                 profile_name=profile_name,
+                                 identity_picker=args.identity_picker))
         elif args.command == "serve":
             # `synqt serve` runs the built artifacts as a deployment, so it holds them to
             # the release rules even though it does not build anything.

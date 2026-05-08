@@ -681,14 +681,17 @@ page protects the page's markup, never the data the page later reads.
 ## Development code is absent from a release build
 
 A development convenience that ships is not a convenience, it is a back door, and SynQt has
-one worth naming: the stub identity provider signs anybody in as a preconfigured person with
-no password. It exists so a developer can exercise the whole login flow without registering
-an OAuth application. It must never be in anything you deploy.
+two worth naming. The stub identity provider signs anybody in as a preconfigured person with
+no password, so a developer can exercise the whole login flow without registering an OAuth
+application. The scope picker (`synqt dev --identity-picker`) goes further: it skips the flow
+entirely and mints a session at whichever scope you click. Both exist because they make
+development faster, and neither must be in anything you deploy.
 
-The usual way to arrange that is a runtime check, and SynQt has three of them: the server
+The usual way to arrange that is a runtime check, and SynQt has several: the stub server
 starts only under `--dev`, which `synqt serve` and every built artifact never pass; it
 refuses to be constructed without an acknowledgement that can only be written on purpose;
-and the runtime refuses the `devStub` provider entry unless the same flag is set. Three
+the runtime refuses the `devStub` provider entry unless the same flag is set; and the
+picker's routes are registered only when `--identity-picker` came alongside `--dev`. More
 gates is better than one, and it is still the wrong shape. A capability that is *in* the
 binary can be reached through a bug in whichever check is doing the work, through an
 argument someone passes, or simply read out of the strings by anybody holding the artifact.
@@ -703,19 +706,24 @@ So the release build does not contain it. Three independent layers, in the order
    than compiling and failing later at link on an undefined symbol.
 3. **The generator does not emit the call.** The edge's `main.cpp` names the type only when
    it is generated for a development build, so a project that asked for a development
-   sign-in in its `synqt.yaml` still gets a release main that has never heard of one.
+   sign-in in its `synqt.yaml` still gets a release main that has never heard of one. The
+   picker's flag is the same shape from the other side. The option is parsed in every edge
+   and there is nothing behind it to switch on in one that was not compiled with the
+   development sources.
 
-Each layer is enough on its own, which is the point of having three: none of them depends on
+Each layer is enough on its own, which is the point of having three. None of them depends on
 another being right.
 
 This is a claim about a compiled artifact, so it is proven by reading one.
 [`tests/dev-exclusion`](https://github.com/Kidev/SynQt/tree/main/tests/dev-exclusion)
-configures the framework twice and reads both symbol tables: the release archive must not
-contain the development sign-in, the development archive must, and the header must refuse
-the probe. The middle assertion is not padding; without it the first would pass on an
-archive that contains nothing at all.
+configures the framework twice and reads both symbol tables. The release archive must not
+contain the development sign-ins, the development archive must, and the header must refuse
+the probe. The middle assertion is not padding. Without it the first would pass on an
+archive that contains nothing at all. Both `StubIdentityServer` and `IdentityPicker` are on
+that list, which makes adding a third development-only type one word rather than a
+second test.
 
-The rule generalises, and applying it is not optional for new code: anything that must not
+The rule generalises, and applying it is not optional for new code. Anything that must not
 exist in production goes in a file the release CMake does not name, with the `#error` guard
 at the top, and its symbol is added to the list `tests/dev-exclusion` checks.
 

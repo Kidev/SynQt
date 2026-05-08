@@ -54,6 +54,8 @@ set_target_properties(SynQtEdge PROPERTIES AUTOMOC ON)
 # builds and proves the difference. See cmake/SynQtBuildFlags.cmake and docs/security.md.
 if(SYNQT_DEV_TOOLS)
     target_sources(SynQtEdge PRIVATE
+        identitypicker.cpp
+        identitypicker.h
         stubidentityserver.cpp
         stubidentityserver.h
     )

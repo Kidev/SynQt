@@ -33,9 +33,9 @@ rm -rf "$BUILD_ROOT"
 # fails before creating its directory still has somewhere to say why.
 mkdir -p "$BUILD_ROOT"
 
-# The symbols this suite is about. One line per development-only type, so adding a second
-# one (the identity picker is next) is adding a name here rather than writing a second test.
-DEV_SYMBOLS="StubIdentityServer"
+# The symbols this suite is about. One name per development-only type, so adding another is
+# adding a word here rather than writing a second test.
+DEV_SYMBOLS="StubIdentityServer IdentityPicker"
 
 configure_and_build() {  # directory, SYNQT_DEV_TOOLS value
     cmake -S . -B "$1" -G Ninja \

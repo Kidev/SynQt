@@ -141,6 +141,26 @@ private:
         return reply;
     }
 
+    QNetworkReply *httpPost(const QString &url, const QByteArray &form)
+    {
+        QNetworkRequest request{QUrl{url}};
+        request.setSslConfiguration(insecureClientConfig());
+        useOnlyTheCookiesNamedHere(request);
+        request.setHeader(QNetworkRequest::ContentTypeHeader,
+                          QByteArrayLiteral("application/x-www-form-urlencoded"));
+        QNetworkReply *reply{m_nam.post(request, form)};
+        QSignalSpy finished{reply, &QNetworkReply::finished};
+        if (!finished.wait(5000)) {
+            return nullptr;
+        }
+        return reply;
+    }
+
+    static int statusOf(QNetworkReply *reply)
+    {
+        return reply ? reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt() : 0;
+    }
+
     static QByteArray sessionCookie(QNetworkReply *reply)
     {
         // Set-Cookie: synqt_session=TOKEN; HttpOnly; ... -> "synqt_session=TOKEN".
@@ -1355,6 +1375,109 @@ private slots:
         // A frame larger than maxMessageBytes (4096) must be rejected and the socket closed.
         socket.sendBinaryMessage(QByteArray(8192, 'x'));
         QTRY_VERIFY_WITH_TIMEOUT(disconnectedSpy.count() >= 1, 3000);
+    }
+
+    // The development scope picker. These are the runtime half of a claim with two halves:
+    // that a RELEASE SynQtEdge does not contain the picker at all is proven in
+    // tests/dev-exclusion, by reading two symbol tables, because it is a claim about a
+    // compiled artifact and cannot be made from inside one. What belongs here is what a
+    // development edge does with and without the flag.
+
+    void aDevEdgeWithoutTheFlagHasNoPickerRoute()
+    {
+        // Not "refuses": not registered. Nothing built passes --identity-picker and `synqt
+        // serve` has no flag for it, so this is the shape every edge but one has.
+        //
+        // The claim is made on the answers rather than on a status code, and that is worth
+        // saying because the obvious test is wrong here. This edge serves a client bundle,
+        // so an unmatched GET falls through to index.html and comes back 200 whether the
+        // route exists or not. A test that compared 404 would have been asserting the
+        // absence of a route by a number that never says anything about routes. What does
+        // say something is that the GET is not the picker's page, and that the POST, which
+        // is the only half that could mint anything, is refused and mints nothing.
+        QQmlEngine engine;
+        WebEdgeConfig config{makeGatedConfig()};
+        WebEdge edge{config, &engine};
+        QVERIFY2(edge.start(), qPrintable(edge.errorString()));
+
+        QNetworkReply *page{httpGet(edge.httpOrigin()
+                                    + QStringLiteral("/synqt/dev/identity"))};
+        QVERIFY(page != nullptr);
+        QVERIFY2(!page->readAll().contains("Development sign-in"),
+                 "an edge that was not asked for the picker must not serve its page");
+
+        QNetworkReply *picked{httpPost(edge.httpOrigin()
+                                       + QStringLiteral("/synqt/dev/identity"),
+                                       QByteArrayLiteral("scope=2"))};
+        QCOMPARE(statusOf(picked), 404);
+        QVERIFY2(sessionCookie(picked).isEmpty(),
+                 "an edge with no picker must not hand out a session for a posted scope");
+    }
+
+    void aDevEdgeServesThePicker()
+    {
+        QQmlEngine engine;
+        WebEdgeConfig config{makeGatedConfig()};
+        config.identityPicker = true;
+        WebEdge edge{config, &engine};
+        QVERIFY2(edge.start(), qPrintable(edge.errorString()));
+
+        QNetworkReply *picker{httpGet(edge.httpOrigin()
+                                      + QStringLiteral("/synqt/dev/identity"))};
+        QCOMPARE(statusOf(picker), 200);
+        QVERIFY(picker != nullptr);
+        // The same marker the test above asserts the absence of, so the pair is about one
+        // page and not about two different things that happen to share a path.
+        // The list is this project's declared vocabulary, not a fixed one: makeGatedConfig
+        // declares anonymous/user/moderator, and a picker that offered "admin" would be
+        // offering a scope no gate in this project can be satisfied by.
+        const QByteArray page{picker->readAll()};
+        QVERIFY2(page.contains("Development sign-in"), page.constData());
+        QVERIFY2(page.contains("moderator"), page.constData());
+        QVERIFY2(!page.contains("admin"), page.constData());
+    }
+
+    void aDevEdgePicksAScopeAndHandsBackASession()
+    {
+        // The accept case, and it is not padding: a gate tested only by refusals passes
+        // when it refuses everything, which is how identity.required refused everybody in
+        // this tree for months. moderator is index 2 in makeGatedConfig's vocabulary.
+        QQmlEngine engine;
+        WebEdgeConfig config{makeGatedConfig()};
+        config.identityPicker = true;
+        WebEdge edge{config, &engine};
+        QVERIFY2(edge.start(), qPrintable(edge.errorString()));
+
+        QNetworkReply *picked{httpPost(edge.httpOrigin()
+                                       + QStringLiteral("/synqt/dev/identity"),
+                                       QByteArrayLiteral("scope=2"))};
+        QCOMPARE(statusOf(picked), 200);
+        const QByteArray cookie{sessionCookie(picked)};
+        QVERIFY2(cookie.startsWith("synqt_session="), cookie.constData());
+
+        // And the session it named holds that scope, rather than the cookie merely
+        // being well formed.
+        const QByteArray token{cookie.mid(QByteArrayLiteral("synqt_session=").size())};
+        const SynQt::SessionRecord *record{edge.sessionManager()->lookup(token)};
+        QVERIFY(record != nullptr);
+        QCOMPARE(record->scope, QStringLiteral("moderator"));
+    }
+
+    void aDevEdgeRefusesAScopeTheProjectNeverDeclared()
+    {
+        // The page offers three, so 7 is not on it. The form is the visitor's to edit, so
+        // the bound is checked where the session is minted and not where it is drawn.
+        QQmlEngine engine;
+        WebEdgeConfig config{makeGatedConfig()};
+        config.identityPicker = true;
+        WebEdge edge{config, &engine};
+        QVERIFY2(edge.start(), qPrintable(edge.errorString()));
+
+        QNetworkReply *picked{httpPost(edge.httpOrigin()
+                                       + QStringLiteral("/synqt/dev/identity"),
+                                       QByteArrayLiteral("scope=7"))};
+        QCOMPARE(statusOf(picked), 400);
+        QVERIFY(sessionCookie(picked).isEmpty());
     }
 };
 

@@ -237,7 +237,7 @@ five commits without ever running.
 | [`m2-transport`](https://github.com/Kidev/SynQt/tree/main/tests/m2-transport)           | The `WebSocketTransport` carries a replica over a real WebSocket. |
 | [`m3-mesh`](https://github.com/Kidev/SynQt/tree/main/tests/m3-mesh)                | Mesh mutual TLS by default, plus the opt in local socket, with wrong or missing certificates rejected at the handshake. |
 | [`m4-topology`](https://github.com/Kidev/SynQt/tree/main/tests/m4-topology)            | The entity runtime resolves the topology and refuses a link that is not declared (deny by default). |
-| [`m5-webedge`](https://github.com/Kidev/SynQt/tree/main/tests/m5-webedge)             | The web edge serves the bundle with the right headers and runs the upgrade verifier before a socket exists. |
+| [`m5-webedge`](https://github.com/Kidev/SynQt/tree/main/tests/m5-webedge)             | The web edge serves the bundle with the right headers and runs the upgrade verifier before a socket exists. Also the development scope picker's runtime half: a development edge serves it only when `--identity-picker` asked, and refuses a scope the project never declared. It configures with `SYNQT_DEV_TOOLS`, because a picker that is not compiled cannot be asked what it does. |
 | [`m6-client`](https://github.com/Kidev/SynQt/tree/main/tests/m6-client)              | The client runtime and the counter example, synced across two clients. |
 | [`m6-clientupdate`](https://github.com/Kidev/SynQt/tree/main/tests/m6-clientupdate)        | The `App` accessor: an update no one handles reloads immediately, an app that handles `App.onUpdateReady` owns the timing, and the attached-handler syntax resolves in real QML. |
 | [`m7-caller`](https://github.com/Kidev/SynQt/tree/main/tests/m7-caller)              | Sessions, scopes, and the `Caller` accessor, on the three entity todo authorization matrix. |
@@ -251,7 +251,7 @@ five commits without ever running.
 | [`fix2-arena`](https://github.com/Kidev/SynQt/tree/main/tests/fix2-arena)             | The multiplayer arena tutorial as an acceptance fixture. |
 | [`appgen-native`](https://github.com/Kidev/SynQt/tree/main/tests/appgen-native)          | The generated CMake and mains actually compile for every entity, the monitor included: it is a mesh owner and a browser-facing server at once, so nothing but a build says whether its two halves assemble into one binary. |
 | [`monitor-console`](https://github.com/Kidev/SynQt/tree/main/tests/monitor-console) | The monitoring console in a real browser, against a monitor the scaffolder wrote when the suite ran. It drives the delivery gate (a bundle outside the caller's scope is a 404, not a 403), the sign-in form and its inline script under the strict CSP, and the console itself, and it reads the monitor's own record to prove the console reached it. Written after everything else was green; it found seven defects, four of them outside monitoring (see the suite's README). |
-| [`dev-exclusion`](https://github.com/Kidev/SynQt/tree/main/tests/dev-exclusion) | Development-only code is absent from a release build rather than disabled inside it. It configures the framework twice, once with `SYNQT_DEV_TOOLS` and once without, and reads the symbol tables: the release archive must not contain the development sign-in, the development archive must, and a development header must refuse to be included by a build that did not ask for one. |
+| [`dev-exclusion`](https://github.com/Kidev/SynQt/tree/main/tests/dev-exclusion) | Development-only code is absent from a release build rather than disabled inside it. It configures the framework twice, once with `SYNQT_DEV_TOOLS` and once without, and reads the symbol tables: the release archive must not contain the development sign-ins, the development archive must, and a development header must refuse to be included by a build that did not ask for one. `DEV_SYMBOLS` in that suite is the list, so covering a new development-only type is a word rather than a test. |
 | [`desktop-client`](https://github.com/Kidev/SynQt/tree/main/tests/desktop-client)         | The native desktop client target compiles, installs, boots, and, once deployed with `--deploy`, carries its own Qt rather than the host's. |
 | [`fix3-stall`](https://github.com/Kidev/SynQt/tree/main/tests/fix3-stall)             | Edge delivered pages end to end, seeded by the production per connection `Caller`. |
 | [`url-routing`](https://github.com/Kidev/SynQt/tree/main/tests/url-routing)            | The route table and the single page application fallback. |
@@ -327,9 +327,10 @@ to off, so a bare `cmake` produces a production-shaped build:
 
 - `-DSYNQT_STRIP=ON` leaves no symbol table in the linked binaries. `synqt build --release`
   turns it on and nothing else does.
-- `-DSYNQT_DEV_TOOLS=ON` compiles the development-only sources into the framework. **This
-  tree configures with it on**, because the suites that test those sources construct them
-  directly, and so does `synqt dev`. Nothing that ships ever does; see
+- `-DSYNQT_DEV_TOOLS=ON` compiles the development-only sources into the framework, today
+  the stub identity provider and the scope picker. This tree configures with it on,
+  because the suites that test those sources construct them directly, and so does `synqt
+  dev`. Nothing that ships ever does. See
   [Development code is absent from a release build](security.md#development-code-is-absent-from-a-release-build)
   for what that buys and
   [`tests/dev-exclusion`](https://github.com/Kidev/SynQt/tree/main/tests/dev-exclusion) for

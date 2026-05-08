@@ -279,8 +279,22 @@ class TestIdentity(unittest.TestCase):
 
     def test_no_identity_block_emits_nothing(self):
         source = render(base_config())
-        self.assertNotIn("config.identity", source)
+        # `config.identity.`, with the dot, because that is the IdentityConfig struct and
+        # this test is about that struct not being configured. A bare "config.identity"
+        # prefix-matches any field whose name merely starts with it, which is how this
+        # assertion started failing on `config.identityPicker`: a separate field, on
+        # WebEdgeConfig rather than on IdentityConfig, emitted for every edge because every
+        # edge parses --identity-picker and only a development build has anything behind it.
+        self.assertNotIn("config.identity.", source)
         self.assertNotIn('#include "identityconfig.h"', source)
+
+    def test_the_picker_gate_is_emitted_whether_or_not_there_is_a_login(self):
+        # It replaces every sign-in a project has, and a project with no OAuth login still
+        # has scopes to pick from, so it is not conditional on `identity:`. What makes it
+        # safe is that nothing built passes the flag and a release SynQtEdge does not
+        # contain the picker at all (tests/dev-exclusion).
+        for source in (render(base_config()), render(self.config_with_login())):
+            self.assertIn("config.identityPicker = parser.isSet(devOption)", source)
 
     def test_an_unimplemented_flow_is_refused(self):
         with self.assertRaises(appmodel.AppGenError) as caught:

@@ -149,6 +149,17 @@ struct WebEdgeConfig
     QString cookieName{QStringLiteral("synqt_session")};
     bool identityRequired{false};
 
+    /// Serve the development scope picker at `/synqt/dev/identity`, in place of whatever
+    /// sign-in the project has.
+    ///
+    /// Set only by `synqt dev --identity-picker`. Nothing built and nothing served passes
+    /// it, and `synqt serve` has no flag for it. It is the runtime layer of three: the
+    /// picker's sources are named in `src/edge/CMakeLists.txt` only under
+    /// `SYNQT_DEV_TOOLS`, so a release SynQtEdge does not contain the class this would
+    /// register, and the routes below are not registered when this is false. See
+    /// docs/security.md and tests/dev-exclusion.
+    bool identityPicker{false};
+
     /// Scope vocabulary (for per-connect-point gating and Caller.hasScope).
     QStringList scopeOrder{QStringLiteral("anonymous")};
     bool scopesHierarchical{true};

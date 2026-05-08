@@ -1265,8 +1265,14 @@ int main(int argc, char *argv[])
         QStringLiteral("TLS private key (PEM)."), QStringLiteral("file"){key_default}}};
     const QCommandLineOption devOption{{QStringLiteral("dev"),
         QStringLiteral("Development mode: watch edge-delivered pages and hot reload.")}};
+    // Only `synqt dev --identity-picker` passes this. The routes it turns on exist only in
+    // an edge compiled with SYNQT_DEV_TOOLS, which `synqt build` never configures, so in a
+    // shipped edge the option parses and there is nothing behind it to switch on.
+    const QCommandLineOption pickerOption{{QStringLiteral("identity-picker"),
+        QStringLiteral("Development sign-in: serve a scope picker in place of every "
+                       "sign-in this project has.")}};
     parser.addOptions({{bundleOption, qmlDirOption, portOption, certOption, keyOption,
-        devOption}});{topology_option}
+        devOption, pickerOption}});{topology_option}
     parser.process(app);
 {env_section}
     // `import SynQt` brings QtQuick with it, so this edge's files need one import line
@@ -1297,6 +1303,9 @@ int main(int argc, char *argv[])
     config.certFile = parser.value(certOption);
     config.keyFile = parser.value(keyOption);
     config.devWatch = parser.isSet(devOption);
+    // Both, because the picker rides the development gate rather than replacing it: --dev
+    // is what makes any synthesized identity possible at all.
+    config.identityPicker = parser.isSet(devOption) && parser.isSet(pickerOption);
     config.scopeOrder = {{{scope_literal}}};
     config.scopesHierarchical = {hierarchical_literal};
     config.crossOriginIsolation = {coi_literal};
