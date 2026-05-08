@@ -8,6 +8,7 @@
 #include <QDateTime>
 #include <QHttpServerRequest>
 #include <QHttpServerResponse>
+#include <QRandomGenerator>
 #include <QUrlQuery>
 
 namespace SynQt {
@@ -35,12 +36,39 @@ QByteArray pageFor(const QStringList &scopeOrder)
         html += "<form method=\"post\" action=\"" + IdentityPicker::route().toUtf8() + "\">\n"
                 "<input type=\"hidden\" name=\"scope\" value=\""
                 + QString::number(index).toUtf8() + "\">\n"
+                // The per-tab box is read by the form it sits in, so whichever scope button
+                // is pressed carries the checkbox beside it. One box per form rather than
+                // one for the page, because a single box outside every form is a box no
+                // form submits.
+                "<label><input type=\"checkbox\" name=\"this_tab_only\" value=\"1\" "
+                "id=\"this-tab-only-" + scope.toHtmlEscaped().toUtf8()
+                + "\"> this tab only</label>\n"
                 "<button type=\"submit\" data-scope=\"" + scope.toHtmlEscaped().toUtf8()
                 + "\">" + scope.toHtmlEscaped().toUtf8() + "</button>\n"
                 "</form>\n";
     }
     html += "</body>\n</html>\n";
     return html;
+}
+
+/// A name for one tab's cookie. Random rather than counted, so two developers on one edge
+/// do not collide, and letters and digits only because it lands in a cookie name (WebEdge
+/// validates the same alphabet on the way back in, and refuses anything else).
+///
+/// Not a credential. It says which cookie to read, and the cookie still holds the session
+/// id. Generated with QRandomGenerator::system() anyway, because a value that is trivially
+/// predictable invites the next reader to start treating it as one.
+QByteArray freshNonce()
+{
+    QByteArray nonce;
+    nonce.reserve(16);
+    static const char kAlphabet[]{"abcdefghijklmnopqrstuvwxyz0123456789"};
+    for (int index{0}; index < 16; ++index) {
+        const quint32 pick{QRandomGenerator::system()->bounded(
+            static_cast<quint32>(sizeof(kAlphabet) - 1))};
+        nonce.append(kAlphabet[pick]);
+    }
+    return nonce;
 }
 
 }  // namespace
@@ -81,7 +109,7 @@ QVariantMap IdentityPicker::identityFor(const QString &scope) const
 }
 
 QHttpServerResponse IdentityPicker::choose(const QHttpServerRequest &request,
-                                           QByteArray *sessionId)
+                                           Choice *choice)
 {
     const QUrlQuery form{QString::fromUtf8(request.body())};
     const QString picked{form.queryItemValue(QStringLiteral("scope"), QUrl::FullyDecoded)};
@@ -101,8 +129,11 @@ QHttpServerResponse IdentityPicker::choose(const QHttpServerRequest &request,
 
     const QString scope{m_scopeOrder.at(index)};
     const QByteArray minted{m_sessions->createSession(scope, identityFor(scope))};
-    if (sessionId) {
-        *sessionId = minted;
+    if (choice) {
+        choice->sessionId = minted;
+        if (!form.queryItemValue(QStringLiteral("this_tab_only")).isEmpty()) {
+            choice->tabNonce = freshNonce();
+        }
     }
     qInfo("SynQt: the development picker signed somebody in as '%s'", qUtf8Printable(scope));
     return QHttpServerResponse{QByteArrayLiteral("text/plain"), QByteArrayLiteral("ok")};

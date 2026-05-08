@@ -148,6 +148,11 @@ private:
         useOnlyTheCookiesNamedHere(request);
         request.setHeader(QNetworkRequest::ContentTypeHeader,
                           QByteArrayLiteral("application/x-www-form-urlencoded"));
+        // Stop at the redirect rather than following it. Qt 6 follows by default, which
+        // would hand back the 200 from wherever the 303 pointed and make a test of "where
+        // does this send the tab" a test of "did that page load".
+        request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
+                             QNetworkRequest::ManualRedirectPolicy);
         QNetworkReply *reply{m_nam.post(request, form)};
         QSignalSpy finished{reply, &QNetworkReply::finished};
         if (!finished.wait(5000)) {
@@ -1461,6 +1466,80 @@ private slots:
         const SynQt::SessionRecord *record{edge.sessionManager()->lookup(token)};
         QVERIFY(record != nullptr);
         QCOMPARE(record->scope, QStringLiteral("moderator"));
+    }
+
+    void twoTabsHoldTwoSessionsInOneCookieJar()
+    {
+        // The acceptance criterion for per-tab mode, and the reason it is done by cookie
+        // *name*: RFC 6265 scopes a cookie to a host and not a port, so two tabs in one
+        // browser share one jar however they were opened. One shared session and one
+        // per-tab session in the same jar is the smallest case that shows the difference.
+        QQmlEngine engine;
+        WebEdgeConfig config{makeGatedConfig()};
+        config.identityPicker = true;
+        WebEdge edge{config, &engine};
+        QVERIFY2(edge.start(), qPrintable(edge.errorString()));
+        const QString route{edge.httpOrigin() + QStringLiteral("/synqt/dev/identity")};
+
+        // Tab one asks for a session of its own, at moderator (index 2).
+        QNetworkReply *tab{httpPost(route, QByteArrayLiteral("scope=2&this_tab_only=1"))};
+        QCOMPARE(statusOf(tab), 303);
+        const QByteArray tabCookie{sessionCookie(tab)};
+        QVERIFY2(tabCookie.startsWith("synqt_session_"), tabCookie.constData());
+        // And it is told where to go, because the nonce has to be in the URL for the edge
+        // to know on the next request which cookie is this tab's.
+        const QByteArray location{tab->rawHeader("Location")};
+        QVERIFY2(location.startsWith("/?s="), location.constData());
+        const QByteArray nonce{location.mid(QByteArrayLiteral("/?s=").size())};
+        QCOMPARE(tabCookie.left(tabCookie.indexOf('=')),
+                 QByteArrayLiteral("synqt_session_") + nonce);
+
+        // Tab two asks for the ordinary shared session, at user (index 1).
+        QNetworkReply *shared{httpPost(route, QByteArrayLiteral("scope=1"))};
+        QCOMPARE(statusOf(shared), 200);
+        const QByteArray sharedCookie{sessionCookie(shared)};
+        QVERIFY2(sharedCookie.startsWith("synqt_session="), sharedCookie.constData());
+
+        // Two cookies, two sessions, two scopes. The per-tab one did not become the shared
+        // one, which is what a second sign-in through one cookie name does.
+        const QByteArray tabToken{
+            tabCookie.mid(tabCookie.indexOf('=') + 1)};
+        const QByteArray sharedToken{
+            sharedCookie.mid(QByteArrayLiteral("synqt_session=").size())};
+        QVERIFY(tabToken != sharedToken);
+        const SynQt::SessionRecord *tabRecord{edge.sessionManager()->lookup(tabToken)};
+        const SynQt::SessionRecord *sharedRecord{edge.sessionManager()->lookup(sharedToken)};
+        QVERIFY(tabRecord != nullptr);
+        QVERIFY(sharedRecord != nullptr);
+        QCOMPARE(tabRecord->scope, QStringLiteral("moderator"));
+        QCOMPARE(sharedRecord->scope, QStringLiteral("user"));
+    }
+
+    void aTabNonceThatIsNotATokenIsIgnored()
+    {
+        // The nonce becomes part of a cookie name in a Set-Cookie header, so a value
+        // carrying a ';' or a newline would write attributes, or a whole second header,
+        // that nothing here intended. Rejected values fall back to the shared cookie name
+        // rather than being sanitized into a different name, because a name nobody asked
+        // for is a session nobody can find.
+        QQmlEngine engine;
+        WebEdgeConfig config{makeGatedConfig()};
+        WebEdge edge{config, &engine};
+        QVERIFY2(edge.start(), qPrintable(edge.errorString()));
+
+        for (const QString &bad : {QStringLiteral("a;Path=/"), QStringLiteral("a b"),
+                                   QStringLiteral("a%0d%0aSet-Cookie:%20x=y"),
+                                   QString{33, QLatin1Char('a')}}) {
+            QNetworkReply *page{httpGet(edge.httpOrigin() + QStringLiteral("/?s=") + bad)};
+            QVERIFY(page != nullptr);
+            const QByteArray cookie{sessionCookie(page)};
+            // Either no cookie at all, or the shared one: never a name built from the
+            // rejected value.
+            QVERIFY2(cookie.isEmpty() || cookie.startsWith("synqt_session="),
+                     qPrintable(bad + QStringLiteral(" -> ") + QString::fromUtf8(cookie)));
+            QVERIFY2(!page->rawHeader("Set-Cookie").contains("Set-Cookie:"),
+                     page->rawHeader("Set-Cookie").constData());
+        }
     }
 
     void aDevEdgeRefusesAScopeTheProjectNeverDeclared()

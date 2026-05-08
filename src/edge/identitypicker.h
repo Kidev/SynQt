@@ -53,11 +53,21 @@ public:
 
     QHttpServerResponse page() const;
 
-    /// Take the choice. On success `*sessionId` is the session that was minted and the
-    /// answer is 200; on refusal it is left empty and the answer says why. The edge sets
-    /// the cookie, because this class never forms one: there is one place that decides what
-    /// a session cookie looks like on this edge, and the picker cannot drift from it.
-    QHttpServerResponse choose(const QHttpServerRequest &request, QByteArray *sessionId);
+    /// What one POST asked for: a session, and whether it is this tab's alone.
+    struct Choice
+    {
+        QByteArray sessionId;  ///< empty when the choice was refused
+        /// Set when the visitor asked for a session scoped to this tab. The edge puts the
+        /// session under `synqt_session_<nonce>` and sends the tab to `/?s=<nonce>`, so two
+        /// tabs in one browser hold two sessions. Empty for the ordinary shared session.
+        QByteArray tabNonce;
+    };
+
+    /// Take the choice. On success the returned Choice names the session that was minted;
+    /// on refusal its `sessionId` is empty and the answer says why. The edge sets the
+    /// cookie, because this class never forms one: there is one place that decides what a
+    /// session cookie looks like on this edge, and the picker cannot drift from it.
+    QHttpServerResponse choose(const QHttpServerRequest &request, Choice *choice);
 
 private:
     /// The identity a picked scope stands for. Deliberately unable to collide with anything

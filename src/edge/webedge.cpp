@@ -551,10 +551,14 @@ QByteArray WebEdge::computeCsp() const
 
 namespace {
 
-/// The password gate's budget: attempts per visitor address, and how long a window lasts.
+/// The password gate's budget. Attempts per visitor address, and how long a window lasts.
 /// Generous for somebody typing a password and mistyping it, far below what a guesser
 /// needs, and low enough that the derivations behind them cannot fill the event loop.
 constexpr int kMaxSignInsPerWindow{10};
+
+/// How long a per-tab nonce may be. It becomes part of a cookie name, so it is bounded for
+/// the same reason every other request-shaped input here is. A caller chooses it.
+constexpr int kMaxTabNonce{32};
 constexpr qint64 kSignInWindowMs{60 * 1000};
 /// How many addresses the window table may name before it is dropped and started again.
 constexpr int kMaxRateEntries{4096};
@@ -625,7 +629,7 @@ QHttpServerResponse WebEdge::handleSignIn(const QHttpServerRequest &request)
                                    QByteArrayLiteral("no"),
                                    QHttpServerResponder::StatusCode::Unauthorized};
     }
-    const QByteArray presented{sessionIdFromCookie(request.value("Cookie"))};
+    const QByteArray presented{sessionIdOf(request)};
     QByteArray elevated{m_sessionManager->setScope(presented, m_config.signInScope)};
     if (elevated.isEmpty()) {
         // No live session to raise: they arrived without one, which a browser that fetched
@@ -635,7 +639,8 @@ QHttpServerResponse WebEdge::handleSignIn(const QHttpServerRequest &request)
     }
     QHttpServerResponse response{QByteArrayLiteral("text/plain"), QByteArrayLiteral("ok")};
     QHttpHeaders headers{response.headers()};
-    headers.append(QHttpHeaders::WellKnownHeader::SetCookie, cookieFor(elevated));
+    headers.append(QHttpHeaders::WellKnownHeader::SetCookie,
+                   cookieFor(elevated, tabNonce(request)));
     response.setHeaders(std::move(headers));
     emit signInAccepted(name);
     return response;
@@ -645,15 +650,31 @@ QHttpServerResponse WebEdge::handleSignIn(const QHttpServerRequest &request)
 QHttpServerResponse WebEdge::handlePick(const QHttpServerRequest &request)
 {
     // The picker decides whether the choice names a scope this project declared and mints
-    // the session; the cookie is this edge's business, formed the one way every session
+    // the session. The cookie is this edge's business, formed the one way every session
     // cookie on this edge is formed.
-    QByteArray minted;
-    QHttpServerResponse response{m_picker->choose(request, &minted)};
-    if (minted.isEmpty()) {
-        return response;  // refused; the picker said why and minted nothing
+    IdentityPicker::Choice choice;
+    QHttpServerResponse refusal{m_picker->choose(request, &choice)};
+    if (choice.sessionId.isEmpty()) {
+        return refusal;  // refused. The picker said why and minted nothing
     }
+
+    // A shared choice answers in place. The tab keeps the URL it is on and the cookie it
+    // was handed is the whole change. A per-tab choice has to move, because the
+    // nonce lives in the URL. It is the only thing one tab carries that its siblings do
+    // not, and the edge needs it on every later request to know which cookie is this tab's.
+    const bool perTab{!choice.tabNonce.isEmpty()};
+    const QByteArray target{QByteArrayLiteral("/?s=") + choice.tabNonce};
+    QHttpServerResponse response{
+        perTab ? QHttpServerResponse{QByteArrayLiteral("text/plain"), target,
+                                     QHttpServerResponder::StatusCode::SeeOther}
+               : QHttpServerResponse{QByteArrayLiteral("text/plain"),
+                                     QByteArrayLiteral("ok")}};
     QHttpHeaders headers{response.headers()};
-    headers.append(QHttpHeaders::WellKnownHeader::SetCookie, cookieFor(minted));
+    headers.append(QHttpHeaders::WellKnownHeader::SetCookie,
+                   cookieFor(choice.sessionId, choice.tabNonce));
+    if (perTab) {
+        headers.append(QHttpHeaders::WellKnownHeader::Location, target);
+    }
     response.setHeaders(std::move(headers));
     return response;
 }
@@ -666,23 +687,27 @@ QByteArray WebEdge::issueSessionCookie()
 
 QByteArray WebEdge::sessionCookieFor(const QHttpServerRequest &request)
 {
-    const QByteArray presented{sessionIdFromCookie(request.value("Cookie"))};
+    // Under this tab's cookie name throughout, both branches. A rotated or fresh session
+    // written back under the shared name would leave the tab reading one cookie and the
+    // edge writing another, which is the whole failure this funnel exists to prevent.
+    const QByteArray nonce{tabNonce(request)};
+    const QByteArray presented{sessionIdOf(request)};
     if (m_sessionManager->isLive(presented)) {
-        return QByteArray{};  // it holds a live session; leave the one it has alone
+        return QByteArray{};  // it holds a live session. Leave the one it has alone
     }
     // The one case where a browser holding a dead id is not a browser starting over: its
     // session was rotated under it by a scope change (Caller.setScope in a slot), which no
     // slot call can put in a cookie. Hand it the id its session became, rather than a new
     // anonymous session, which would sign a signed-in visitor out on their next reload.
     if (const QByteArray rotated{m_sessionManager->rotationOf(presented)}; !rotated.isEmpty()) {
-        return cookieFor(rotated);
+        return cookieFor(rotated, nonce);
     }
-    return issueSessionCookie();
+    return cookieFor(m_sessionManager->createSession(), nonce);
 }
 
-QByteArray WebEdge::cookieFor(const QByteArray &token)
+QByteArray WebEdge::cookieFor(const QByteArray &token, const QByteArray &nonce)
 {
-    QByteArray cookie{m_config.cookieName.toUtf8() + "=" + token + "; HttpOnly; Path=/"};
+    QByteArray cookie{cookieNameFor(nonce) + "=" + token + "; HttpOnly; Path=/"};
     if (m_config.originModel == QLatin1String("split_origin")) {
         // No `Partitioned` (CHIPS), and that is measured rather than assumed:
         // tests/split-origin proves that a partitioned cookie survives third-party cookie
@@ -704,6 +729,42 @@ QByteArray WebEdge::cookieFor(const QByteArray &token)
 QByteArray WebEdge::sessionIdFromCookie(const QByteArray &cookieHeader) const
 {
     return cookieValue(cookieHeader, m_config.cookieName.toUtf8());
+}
+
+QByteArray WebEdge::tabNonce(const QHttpServerRequest &request)
+{
+    const QUrlQuery query{request.url().query()};
+    const QString value{query.queryItemValue(QStringLiteral("s"), QUrl::FullyDecoded)};
+    if (value.isEmpty() || value.size() > kMaxTabNonce) {
+        return QByteArray{};
+    }
+    // Validated because it becomes part of a cookie *name* in a Set-Cookie header. Anything
+    // outside this alphabet could carry a ';' and write attributes, or a newline and write a
+    // second header, that nothing here intended. ASCII letters and digits only, and the
+    // length is bounded, so what reaches the header is a token by construction.
+    //
+    // It is not a credential and is not checked for authenticity. It says which
+    // cookie to read, and the cookie still holds the session id, which is the thing a caller
+    // would have to steal. Guessing a nonce buys nothing a caller does not already have.
+    for (const QChar character : value) {
+        if (character.unicode() > 127 || !character.isLetterOrNumber()) {
+            return QByteArray{};
+        }
+    }
+    return value.toLatin1();
+}
+
+QByteArray WebEdge::cookieNameFor(const QByteArray &nonce) const
+{
+    if (nonce.isEmpty()) {
+        return m_config.cookieName.toUtf8();
+    }
+    return m_config.cookieName.toUtf8() + '_' + nonce;
+}
+
+QByteArray WebEdge::sessionIdOf(const QHttpServerRequest &request) const
+{
+    return cookieValue(request.value("Cookie"), cookieNameFor(tabNonce(request)));
 }
 
 void WebEdge::stampResponse(const QHttpServerRequest &request, QHttpServerResponse &response)
@@ -842,7 +903,7 @@ QString WebEdge::bundleForScope(const QString &scope) const
 
 QString WebEdge::bundleFor(const QHttpServerRequest &request) const
 {
-    const QByteArray sessionId{sessionIdFromCookie(request.value("Cookie"))};
+    const QByteArray sessionId{sessionIdOf(request)};
     const SessionRecord *record{m_sessionManager->lookup(sessionId)};
     return bundleForScope(record ? record->scope : QString{});
 }
@@ -1449,8 +1510,8 @@ QHttpServerWebSocketUpgradeResponse WebEdge::verifyUpgrade(const QHttpServerRequ
             403, QByteArrayLiteral("origin not allowed"));
     }
 
-    // 2. Session credential: the cookie must map to a live session.
-    const QByteArray sessionId{sessionIdFromCookie(request.value("Cookie"))};
+    // 2. Session credential. The cookie must map to a live session.
+    const QByteArray sessionId{sessionIdOf(request)};
     if (!m_sessionManager->isLive(sessionId)) {
         emit upgradeRejected(QStringLiteral("no valid session"));
         return QHttpServerWebSocketUpgradeResponse::deny(

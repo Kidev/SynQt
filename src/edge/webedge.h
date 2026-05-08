@@ -179,8 +179,29 @@ private:
     /// re-keyed by a scope change under it, and a fresh session for everyone else.
     QByteArray sessionCookieFor(const QHttpServerRequest &request);
     /// The session cookie for a token, with this project's origin-model attributes.
-    QByteArray cookieFor(const QByteArray &token);
+    QByteArray cookieFor(const QByteArray &token, const QByteArray &nonce = {});
     QByteArray sessionIdFromCookie(const QByteArray &cookieHeader) const;
+
+    /// Which tab this request belongs to, from `?s=<nonce>`, or empty for the ordinary
+    /// case of a browser with one session for the whole host.
+    ///
+    /// Not development-only. Reading a session out of a named cookie is ordinary session
+    /// handling and compiles into every build. Only the development picker's *use* of it
+    /// is gated, and that use lives in identitypicker.cpp. Putting this behind the
+    /// development gate would leave a release edge unable to read a cookie it had just
+    /// set, and the failure would look like a session bug rather than a build one.
+    static QByteArray tabNonce(const QHttpServerRequest &request);
+
+    /// The cookie name a request's session is under. The configured name, or that name
+    /// suffixed with the tab's nonce. Cookie *name* is the axis because it is the only one
+    /// available: RFC 6265 scopes a cookie to a host and not a port, so two tabs on one
+    /// host share a jar however they were opened.
+    QByteArray cookieNameFor(const QByteArray &nonce) const;
+
+    /// The session id this request presents, under whichever cookie name is its tab's. The
+    /// one funnel. A site that keeps reading the fixed name is a tab that silently falls
+    /// back to the shared session.
+    QByteArray sessionIdOf(const QHttpServerRequest &request) const;
     /// Hand the verified session id for this peer to hostConnection(), and drop any
     /// entry whose socket never arrived, so a refused or abandoned upgrade cannot make
     /// the map grow without bound.
