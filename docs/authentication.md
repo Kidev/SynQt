@@ -124,10 +124,14 @@ took a shortcut past the flow would be exercising something other than what ship
 It is also why a dev user is an *identity* rather than a scope. Sign in as one of the
 people above and you get whatever your own `map.qml` returns for them, so to reach
 `moderator` you add somebody your hook maps there. With more than one person configured
-the sign-in asks which of them you are; with exactly one it does not ask.
+the sign-in asks which of them you are. With exactly one it does not ask.
 
-Three gates keep it out of anything that ships, and they are independent:
+Gates keep it out of anything that ships, and they are independent:
 
+- The sources are not compiled into a release build at all. `src/edge/CMakeLists.txt`
+  names them only under `SYNQT_DEV_TOOLS`, which `synqt dev` sets and `synqt build` never
+  does, and the header refuses to be included by a build that did not. See
+  [Development code is absent from a release build](security.md#development-code-is-absent-from-a-release-build).
 - The server starts only under `--dev`. `synqt dev` passes it; `synqt build`, `synqt
   serve`, a systemd unit and a container never do.
 - `StubIdentityServer` refuses to be constructed without an acknowledgement that can only
@@ -137,8 +141,52 @@ Three gates keep it out of anything that ships, and they are independent:
 
 `synqt check --release` reports that a project carries one, and says that it is inert
 rather than refusing the build, because leaving the block in place is the ordinary thing
-to do: the development sign-in and the real provider live side by side, and which one a
-visitor gets is decided by how the edge was started.
+to do. The development sign-in and the real provider live side by side, and how the edge
+was started decides which one a visitor gets.
+
+### Skipping the flow: the scope picker
+
+The development sign-in above proves the flow. Sometimes you want the opposite, to skip
+the flow and be a moderator for the next thirty seconds to see what the page looks like.
+
+```cli
+synqt dev --identity-picker
+```
+
+replaces every sign-in the project has with one page at `/synqt/dev/identity` listing the
+scopes in `scopes.order`. Click one and you hold a session at it, with a synthesized
+identity whose `sub` is `synqt-dev:<scope>:<epoch-ms>` so it can never collide with
+anything a real provider issues.
+
+It skips OAuth entirely. There is no PKCE, no code exchange, no ID token and no JWKS, and
+it does not consult the mapping hook, because it exists to pick the scope directly.
+`identity.dev_stub` therefore stays beside it. The stub proves the flow and the picker
+skips it. Use the stub when the question is about signing in and the picker when the
+question is about what a scope can see.
+
+The chosen scope is still bounds-checked against `scopes.order`, so editing the form and
+posting a larger number does not mint a scope the project never declared.
+
+### Two tabs, two people
+
+Tick **this tab only** and the session is scoped to the tab you clicked in, so you can
+hold two identities in one browser and watch them interact: a moderator deleting the
+message a user is looking at, in two tabs side by side, without a second browser profile
+or a private window.
+
+The mechanism is the cookie's *name*. RFC 6265 scopes a cookie to a host and not a port,
+so two tabs on one host share one jar however they were opened, and there is no other axis
+available: the WebSocket subprotocol alternative is not reachable on Qt 6.11
+(`tests/m5-webedge/tst_m5.cpp::theUpgradePathCannotNegotiateASubprotocol` pins that). So a
+per-tab choice sends the tab to `/?s=<nonce>` and puts its session under
+`synqt_session_<nonce>`; the edge reads `s` from the page request and from the sync URL to
+know which of the cookies in the jar is this tab's.
+
+The nonce is not a credential and nothing treats it as one. It names which cookie to read,
+and the cookie still holds the session id, which is the thing anybody would have to steal.
+It is validated on arrival, because it becomes part of a cookie name in a `Set-Cookie`
+header and a value carrying a `;` or a newline would write attributes, or a second header,
+that nothing intended.
 
 ## Two identities, never conflated
 

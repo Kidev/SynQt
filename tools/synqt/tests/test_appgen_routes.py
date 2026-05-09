@@ -22,6 +22,16 @@ def test_route_carries_a_component_url():
     assert 'qrc:/qt/qml/Shop/Cart.qml' in source
 
 
+def test_the_client_carries_its_tab_nonce_onto_the_sync_url():
+    # The browser sends every host cookie on the upgrade, so the per-tab nonce must be on it
+    # too or the socket reads the shared session.
+    source = maingen.render_client_main({"name": "shop"}, uri="Shop")
+    assert "QString tabNonce()" in source
+    assert 'query.addQueryItem(QStringLiteral("s"), nonce)' in source
+    # And it is read from the page the browser is on, not invented.
+    assert 'location["search"]' in source
+
+
 def test_view_name_without_extension_still_resolves():
     config = {"name": "shop", "routes": [{"path": "/", "view": "Main"}]}
     source = maingen.render_client_main(config, uri="Shop")
@@ -57,9 +67,7 @@ _SINGLETON = "pragma Singleton\nimport QtQuick\n\nQtObject {}\n"
 
 
 def test_a_view_written_with_a_leading_dot_slash_is_one_view_not_two():
-    # './About.qml' and 'About.qml' are the same file, and the generator must spell it
-    # one way. A literal './' would otherwise land in both the resource alias and the
-    # compiled-in qrc:/qt/qml/Shop/./About.qml, which is a second entry for one file.
+    # './About.qml' and 'About.qml' are one file, spelled one way.
     source = maingen.render_client_main(
         {"name": "shop", "routes": [{"path": "/about", "view": "./About.qml"}]}, uri="Shop")
     assert "qrc:/qt/qml/Shop/About.qml" in source
@@ -71,8 +79,7 @@ def test_a_view_written_with_a_leading_dot_slash_is_one_view_not_two():
 
 
 def test_a_view_in_a_subdirectory_keeps_its_subdirectory():
-    # A view is named relative to the client entity's directory, so 'views/Home.qml' is
-    # aliased into the module at that same relative path and the route's URL matches it.
+    # 'views/Home.qml' is aliased at the same relative path.
     source = maingen.render_client_main(
         {"name": "shop", "routes": [{"path": "/", "view": "views/Home.qml"}]}, uri="Shop")
     assert "qrc:/qt/qml/Shop/views/Home.qml" in source
@@ -83,9 +90,8 @@ def test_a_view_in_a_subdirectory_keeps_its_subdirectory():
 
 
 def test_a_route_with_no_view_is_refused_at_generation():
-    # A route with no view must not default to Main.qml, which is the window. A Loader on
-    # Router.pageComponent inside Main.qml would then load the window inside itself.
-    # `synqt check` reports it earlier, but nothing makes `synqt build` run the check.
+    # A route without a view does not default to Main.qml, the window. The generator refuses
+    # it, since `synqt build` does not run the check.
     with pytest.raises(appmodel.AppGenError) as raised:
         maingen.render_client_main({"name": "shop", "routes": [{"path": "/admin"}]},
                                   uri="Shop")
@@ -97,9 +103,7 @@ def test_a_route_with_no_view_is_refused_at_generation():
 
 
 def test_a_view_reaching_outside_the_client_directory_is_refused_at_generation():
-    # The escape rule `synqt check` enforces has to hold here too: nothing makes
-    # `synqt build` run the check, and a '../web/A.qml' view would otherwise land in the
-    # resource alias and in qrc:/qt/qml/Shop/../web/A.qml, neither of which names a file.
+    # The escape rule holds in the generator too.
     for view in ("../web/A.qml", "..\\web\\A.qml", "/etc/A.qml", "C:/x/B.qml",
                  "C:\\x\\B.qml"):
         with pytest.raises(appmodel.AppGenError) as raised:
@@ -112,8 +116,7 @@ def test_a_view_reaching_outside_the_client_directory_is_refused_at_generation()
 
 
 def test_the_escape_predicate_takes_the_views_that_are_really_paths():
-    # A legal POSIX filename that happens to start with a letter and a colon is a view,
-    # not a Windows drive path. The separator after the colon is what tells them apart.
+    # 'a:b.qml' is a view, not a drive path.
     for accepted in ("Home.qml", "./Home.qml", "views/Home.qml", "Home", "a:b.qml",
                      "views/a:b.qml"):
         assert not appmodel.view_escapes_client_directory(accepted), accepted
@@ -123,9 +126,7 @@ def test_the_escape_predicate_takes_the_views_that_are_really_paths():
 
 
 def test_two_qml_files_with_one_base_name_are_refused():
-    # Qt names a QML type after the file whatever directory it sits in, and every file
-    # goes into the one module-root qmldir, so both of these register as `Header` and one
-    # silently shadows the other. A silent shadow is the worst outcome, so refuse.
+    # Two files that register one type name are refused.
     with pytest.raises(appmodel.AppGenError) as raised:
         _client_project({"Main.qml": _ITEM, "pages/Header.qml": _ITEM,
                          "widgets/Header.qml": _ITEM})
@@ -136,16 +137,14 @@ def test_two_qml_files_with_one_base_name_are_refused():
 
 
 def test_a_route_view_that_is_also_on_disk_is_not_a_collision():
-    # The route view and the swept file are one relative path, so the list holds it once
-    # and the shadow rule must not read that as two types.
+    # A route view that is also a swept file is listed once.
     cmake = _client_project({"Main.qml": _ITEM, "views/Home.qml": _ITEM},
                             routes=[{"path": "/", "view": "views/Home"}])
     assert cmake.count("PROPERTIES QT_RESOURCE_ALIAS views/Home.qml)") == 1
 
 
 def test_a_hidden_qml_file_is_never_swept_in():
-    # The dot rule covers the file as well as the directory. Client/app/.Scratch.qml is an
-    # editor's leftover, and compiling it in would register a type for it.
+    # Dot-prefixed files are skipped (client/app/.Scratch.qml).
     cmake = _client_project({"Main.qml": _ITEM, ".Scratch.qml": _ITEM,
                             "parts/.Old.qml": _ITEM})
     assert "Scratch" not in cmake
@@ -153,8 +152,7 @@ def test_a_hidden_qml_file_is_never_swept_in():
 
 
 def test_a_views_helper_components_are_compiled_in_too():
-    # A view that instantiates a sibling Card.qml needs that file inside the same module,
-    # or it fails to load exactly the way a view outside the module does.
+    # A sibling Card.qml is in the module.
     cmake = _client_project({"Main.qml": _ITEM, "Home.qml": _ITEM, "Card.qml": _ITEM,
                              "parts/Badge.qml": _ITEM},
                             routes=[{"path": "/", "view": "Home.qml"}])
@@ -164,16 +162,14 @@ def test_a_views_helper_components_are_compiled_in_too():
 
 
 def test_a_singleton_is_marked_as_one():
-    # Without QT_QML_SINGLETON_TYPE the module registers Theme.qml as an ordinary type
-    # and a view reading `Theme.color` does not compile.
+    # Theme.qml is marked QT_QML_SINGLETON_TYPE.
     cmake = _client_project({"Main.qml": _ITEM, "Theme.qml": _SINGLETON})
     assert "PROPERTIES QT_QML_SINGLETON_TYPE TRUE QT_RESOURCE_ALIAS Theme.qml)" in cmake
     assert "PROPERTIES QT_RESOURCE_ALIAS Main.qml)" in cmake
 
 
 def test_build_output_under_the_client_is_never_swept_in():
-    # `synqt build` and a stray CMake run both leave copies of the QML under the entity;
-    # compiling those back in would duplicate every type in the module.
+    # Build output under the entity is not compiled in.
     cmake = _client_project({"Main.qml": _ITEM, "build/Main.qml": _ITEM,
                              "generated/Gen.qml": _ITEM, ".cache/Old.qml": _ITEM})
     assert "build/Main.qml" not in cmake
@@ -189,21 +185,18 @@ def test_a_route_view_on_disk_is_listed_once():
 
 
 def test_without_a_project_directory_the_module_is_main_and_the_route_views():
-    # A caller rendering CMake from a config alone (no app on disk) still gets exactly
-    # what this generator has always emitted.
+    # Rendering from a config alone gives the route views only.
     cmake = _client_cmake([{"path": "/", "view": "Home.qml"}])
     assert cmake.count("QT_RESOURCE_ALIAS") == 2
 
 
 def test_every_route_view_is_in_the_clients_qml_module():
-    # A view outside the QML module is outside the resource system, so the qrc URL the
-    # route table carries resolves to nothing and the router reports Error.
+    # Every view is inside the QML module.
     cmake = _client_cmake([{"path": "/", "view": "Home.qml"},
                            {"path": "/cart", "view": "Cart.qml"}])
     assert '"${SYNQT_GENERATED}/client/app/Home.qml"' in cmake
     assert '"${SYNQT_GENERATED}/client/app/Cart.qml"' in cmake
-    # Each file is listed by absolute path, so each needs the alias that puts it at the
-    # module root: that is the half of the URL qrc:/qt/qml/Shop/Home.qml the route needs.
+    # Each absolute path gets its module-root alias.
     assert "PROPERTIES QT_RESOURCE_ALIAS Home.qml)" in cmake
     assert "PROPERTIES QT_RESOURCE_ALIAS Cart.qml)" in cmake
 
@@ -226,9 +219,7 @@ def test_main_is_never_listed_twice():
 
 
 def test_a_project_with_no_routes_compiles_an_empty_table():
-    # No manufactured "/" -> Main.qml route: that view is the window, so a Loader bound
-    # to Router.pageComponent inside it would load the window again. With no table
-    # pageComponent stays null and an app that does not route is untouched.
+    # No manufactured "/" -> Main.qml route.
     source = maingen.render_client_main({"name": "shop"}, uri="Shop")
     assert "config.routes = {};" in source
     cmake = _client_cmake([])
@@ -254,8 +245,7 @@ def test_router_fallback_defaults_to_root_and_is_configurable():
 
 
 def test_framework_root_honors_a_valid_synqt_root(tmp_path, monkeypatch):
-    # An installed CLI outside the checkout points at a framework via SYNQT_ROOT rather than
-    # deriving the wrong path from its own site-packages location.
+    # SYNQT_ROOT names the framework for an installed CLI.
     (tmp_path / "src").mkdir()
     (tmp_path / "cmake").mkdir()
     monkeypatch.setenv("SYNQT_ROOT", str(tmp_path))
@@ -263,8 +253,7 @@ def test_framework_root_honors_a_valid_synqt_root(tmp_path, monkeypatch):
 
 
 def test_framework_root_rejects_a_root_without_sources(tmp_path, monkeypatch):
-    # A misresolved root fails here with an actionable message, not as a later CMake
-    # "${SYNQT_ROOT}/cmake/... not found".
+    # A wrong root fails here with a clear message.
     monkeypatch.setenv("SYNQT_ROOT", str(tmp_path))
     with pytest.raises(appmodel.AppGenError):
         appmodel.framework_root()
@@ -274,10 +263,7 @@ def test_framework_root_rejects_a_root_without_sources(tmp_path, monkeypatch):
 
 
 def test_the_client_is_given_the_login_and_logout_routes():
-    # Session.login() and Session.logout() are answered by SynClient, which needs to know
-    # where to go. Without these two lines the actions had nowhere to reach, and logout in
-    # particular reset the client's own idea of who it was while the session stayed alive
-    # at the edge with its cookie still in the browser.
+    # The login and logout routes reach the client config.
     config = {
         "name": "shop",
         "identity": {"providers": [{"name": "github"}]},
@@ -288,8 +274,7 @@ def test_the_client_is_given_the_login_and_logout_routes():
 
 
 def test_the_client_follows_the_routes_the_project_declared():
-    # The same block the edge is generated from, so the two cannot disagree about where a
-    # project's login lives.
+    # From the same block the edge is generated from.
     config = {
         "name": "shop",
         "identity": {"providers": [{"name": "github"}],
@@ -301,8 +286,7 @@ def test_the_client_follows_the_routes_the_project_declared():
 
 
 def test_a_project_with_no_identity_gets_no_routes():
-    # Both stay empty, which is what makes calling either action a warning rather than a
-    # request to a route this edge does not serve.
+    # Without identity both stay empty and calling either warns.
     source = maingen.render_client_main({"name": "shop"}, uri="Shop")
     assert "loginRoute" not in source
     assert "logoutRoute" not in source
@@ -334,8 +318,7 @@ def test_routes_for_drops_non_mapping_entries():
 
 
 def test_routes_for_treats_an_empty_own_list_as_declared():
-    # A client that declares `routes: []` has no routes, and must not silently inherit
-    # the shorthand. An empty table is a statement, not an omission.
+    # `routes: []` on a client does not inherit the shorthand.
     config = {"routes": [{"path": "/", "view": "Global.qml"}],
               "entities": [{"name": "app", "type": "client", "routes": []}]}
     assert appmodel.routes_for(config, config["entities"][0]) == []

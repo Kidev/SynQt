@@ -856,6 +856,7 @@ def render_client_main(config: Dict[str, Any], uri: str,
 #include <QQmlContext>
 #include <QString>
 #include <QUrl>
+#include <QUrlQuery>
 
 #include <memory>
 
@@ -869,7 +870,30 @@ using namespace SynQt;
 
 namespace {{
 
-QUrl resolveEdgeUrl()
+/// The session nonce this tab was given, from `?s=` on the page URL, or empty.
+///
+/// Not development-only. A session read out of a named cookie is ordinary session
+/// handling and every build does it. Only the way a development picker hands one out is
+/// gated. Passed along rather than validated here, because the edge validates it again on
+/// arrival and two answers to "is this nonce well formed" is one answer too many.
+QString tabNonce()
+{{
+#ifdef Q_OS_WASM
+    const emscripten::val location{{emscripten::val::global("window")["location"]}};
+    const QString search{{QString::fromStdString(location["search"].as<std::string>())}};
+    if (search.isEmpty()) {{
+        return QString{{}};
+    }}
+    const QUrlQuery query{{search.startsWith(QLatin1Char('?')) ? search.mid(1) : search}};
+    return query.queryItemValue(QStringLiteral("s"), QUrl::FullyDecoded);
+#else
+    // A native desktop client has no page URL and no browser cookie jar to share, so it
+    // has nothing to disambiguate. Its session is its own already.
+    return QString{{}};
+#endif
+}}
+
+QUrl syncUrl()
 {{
 #ifdef Q_OS_WASM
     // Read through Embind, never emscripten_run_script, which uses eval() and would
@@ -899,6 +923,22 @@ QUrl resolveEdgeUrl()
     // A native desktop client is told its edge (build.desktop.edge_url).
     return QUrl{{QStringLiteral(SYNQT_EDGE_URL)}};
 #endif
+}}
+
+QUrl resolveEdgeUrl()
+{{
+    QUrl url{{syncUrl()}};
+    // The tab's nonce rides the sync URL as well as the page URL, because the upgrade is a
+    // separate request and the browser sends every cookie for the host on it. Without this
+    // the edge would read the shared cookie on the socket while the page reads this tab's,
+    // and a per-tab session would work for everything but the one link it exists for.
+    const QString nonce{{tabNonce()}};
+    if (!nonce.isEmpty()) {{
+        QUrlQuery query{{url.query()}};
+        query.addQueryItem(QStringLiteral("s"), nonce);
+        url.setQuery(query);
+    }}
+    return url;
 }}
 
 }} // namespace
