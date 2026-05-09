@@ -1442,6 +1442,57 @@ private slots:
         QVERIFY2(!page.contains("admin"), page.constData());
     }
 
+    void thePickerCoversEverySignInSurfaceInTheProject()
+    {
+        // A flag that covers one of two sign-in surfaces is worse than one that covers
+        // neither, because the uncovered surface still shows a real login and reads as a
+        // bug in the flag. There are two surfaces on this edge. The OAuth login, which runs
+        // in process by default and on a dedicated entity when identity.provider_entity
+        // names one, and the password gate behind signInPath, whose one user is the
+        // monitor. The picker is registered above both of them and depends on neither, and
+        // this is what says so rather than the shape of the code saying it.
+
+        // Promoted identity. This edge holds no secret and no OAuth engine, because the
+        // auth entity owns them and the edge reaches identity over the mesh. The picker
+        // does not go with them. It mints sessions through the session manager, which every
+        // edge has.
+        QQmlEngine engine;
+        WebEdgeConfig promoted{makeGatedConfig()};
+        promoted.identity.enabled = true;
+        promoted.identity.providerEntity = QStringLiteral("auth");
+        promoted.identityPicker = true;
+        WebEdge promotedEdge{promoted, &engine};
+        QVERIFY2(promotedEdge.start(), qPrintable(promotedEdge.errorString()));
+
+        QNetworkReply *promotedPage{httpGet(promotedEdge.httpOrigin()
+                                            + QStringLiteral("/synqt/dev/identity"))};
+        QCOMPARE(statusOf(promotedPage), 200);
+        QVERIFY2(promotedPage->readAll().contains("Development sign-in"),
+                 "an edge whose identity lives on another entity must still serve the "
+                 "picker, because that is the sign-in it is standing in for");
+        QNetworkReply *promotedPick{httpPost(promotedEdge.httpOrigin()
+                                             + QStringLiteral("/synqt/dev/identity"),
+                                             QByteArrayLiteral("scope=2"))};
+        QCOMPARE(statusOf(promotedPick), 200);
+        const QByteArray promotedCookie{sessionCookie(promotedPick)};
+        QVERIFY2(promotedCookie.startsWith("synqt_session="), promotedCookie.constData());
+
+        // The other surface. A password gate, no OAuth at all. The monitor's shape.
+        WebEdgeConfig gated{makeGatedConfig()};
+        gated.signInPath = QStringLiteral("/monitor/signin");
+        gated.signInScope = QStringLiteral("moderator");
+        gated.signIn = [](const QString &, const QString &) { return false; };
+        gated.identityPicker = true;
+        WebEdge gatedEdge{gated, &engine};
+        QVERIFY2(gatedEdge.start(), qPrintable(gatedEdge.errorString()));
+
+        QNetworkReply *gatedPage{httpGet(gatedEdge.httpOrigin()
+                                         + QStringLiteral("/synqt/dev/identity"))};
+        QCOMPARE(statusOf(gatedPage), 200);
+        QVERIFY2(gatedPage->readAll().contains("Development sign-in"),
+                 "an edge whose sign-in is a password gate must serve the picker too");
+    }
+
     void aDevEdgePicksAScopeAndHandsBackASession()
     {
         // The accept case, and it is not padding: a gate tested only by refusals passes
