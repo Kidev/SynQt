@@ -167,6 +167,43 @@ question is about what a scope can see.
 The chosen scope is still bounds-checked against `scopes.order`, so editing the form and
 posting a larger number does not mint a scope the project never declared.
 
+### Being somebody in particular: `.dev-identities`
+
+Picking a scope covers "let me be an admin for a minute". It does not cover "let me be
+Alice again", which is what working on anything keyed to a person needs. A
+`.dev-identities` file at the project root is that list:
+
+```yaml
+- email: alice@example.com
+  scope: admin
+- email: bob@example.com
+  scope: user
+```
+
+The picker offers each of them beside the scopes. Clicking one signs you in as that
+person: `sub` is `synqt-dev:<email>`, so it is stable across restarts and a project that
+stores rows against a `sub` sees the same person on the next run.
+
+Unlike the scope mode, **the mapping hook is consulted**, because seeing what your own
+rule makes of somebody is the reason to name them. The scope in the file is what the
+picker lists; the hook's answer is what the session gets. Where they differ the page shows
+both, and where the hook refuses the identity the picker refuses it too: a development
+sign-in that granted what the project's own rule denies would be a shortcut to a state the
+application cannot reach. A project with no mapping hook has nothing to ask, and the page
+says so rather than letting the file's scope read as an answer the hook agreed with.
+
+The file is read by `synqt dev`, not by the edge: that side already parses YAML and
+already knows which scopes the project declares, so what reaches the edge is a checked
+list. An entry that names an undeclared scope, or is missing a field, is dropped and
+reported on the picker's own page (and in the terminal), never taken as a reason to stop
+serving the picker. A typo in a convenience file should cost you the entry, not the
+sign-in.
+
+`synqt dev` adds `.dev-identities` to the project's `.gitignore` the first time it reads
+one. It names the people who work on one machine; committing it would put a colleague's
+address in the repository and hand every clone a picker offering names that mean nothing
+on it.
+
 ### Two tabs, two people
 
 Tick **this tab only** and the session is scoped to the tab you clicked in, so you can

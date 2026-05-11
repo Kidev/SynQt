@@ -1519,6 +1519,126 @@ private slots:
         QCOMPARE(record->scope, QStringLiteral("moderator"));
     }
 
+    void aNamedDevelopmentIdentityIsOfferedAndSignsInAsThatPerson()
+    {
+        // `.dev-identities` in its useful shape. The picker lists the address, and pressing
+        // it mints a session for a person rather than for a bare scope, so a project that
+        // stores anything against `sub` sees the same person on the next run.
+        QQmlEngine engine;
+        WebEdgeConfig config{makeGatedConfig()};
+        config.identityPicker = true;
+        config.devIdentities = {{QStringLiteral("moderator"),
+                                 QStringLiteral("alice@example.com")}};
+        config.devIdentityProblems = {QStringLiteral(".dev-identities entry 2 (bob) names "
+                                                     "scope 'wizard'")};
+        WebEdge edge{config, &engine};
+        QVERIFY2(edge.start(), qPrintable(edge.errorString()));
+
+        QNetworkReply *page{httpGet(edge.httpOrigin()
+                                    + QStringLiteral("/synqt/dev/identity"))};
+        const QByteArray body{page->readAll()};
+        QVERIFY2(body.contains("alice@example.com"), body.constData());
+        // And what could not be used is on the page too, because the developer who notices
+        // a missing name is looking here, not at the terminal that started this an hour ago.
+        QVERIFY2(body.contains("wizard"), body.constData());
+
+        QNetworkReply *picked{httpPost(edge.httpOrigin()
+                                       + QStringLiteral("/synqt/dev/identity"),
+                                       QByteArrayLiteral("identity=0"))};
+        QCOMPARE(statusOf(picked), 200);
+        const QByteArray cookie{sessionCookie(picked)};
+        QVERIFY2(cookie.startsWith("synqt_session="), cookie.constData());
+        const QByteArray token{cookie.mid(QByteArrayLiteral("synqt_session=").size())};
+        const SynQt::SessionRecord *record{edge.sessionManager()->lookup(token)};
+        QVERIFY(record != nullptr);
+        QCOMPARE(record->scope, QStringLiteral("moderator"));
+        // The identity is that person's, and its `sub` is derived from the address so it
+        // survives a restart. A picked scope's is timestamped and does not.
+        QCOMPARE(record->identity.value(QStringLiteral("email")).toString(),
+                 QStringLiteral("alice@example.com"));
+        QCOMPARE(record->identity.value(QStringLiteral("sub")).toString(),
+                 QStringLiteral("synqt-dev:alice@example.com"));
+    }
+
+    void aPostedNamedIdentityIndexIsBoundsChecked()
+    {
+        // The list came from a file, and the page draws one button per entry. A larger
+        // number posted by hand must not reach past it, exactly as a posted scope index
+        // must not reach past the vocabulary.
+        QQmlEngine engine;
+        WebEdgeConfig config{makeGatedConfig()};
+        config.identityPicker = true;
+        config.devIdentities = {{QStringLiteral("user"), QStringLiteral("alice@example.com")}};
+        WebEdge edge{config, &engine};
+        QVERIFY2(edge.start(), qPrintable(edge.errorString()));
+
+        QNetworkReply *picked{httpPost(edge.httpOrigin()
+                                       + QStringLiteral("/synqt/dev/identity"),
+                                       QByteArrayLiteral("identity=7"))};
+        QCOMPARE(statusOf(picked), 400);
+        QVERIFY2(sessionCookie(picked).isEmpty(),
+                 "an index past the end of the file must mint nothing");
+    }
+
+    void aNamedIdentityGoesThroughTheProjectsOwnMappingHook()
+    {
+        // The reason to name somebody rather than pick a scope. Seeing what the project's
+        // own rule makes of them. The hook's answer is what the session gets, the file's
+        // scope is what the picker listed, and where they differ the page shows both,
+        // because that disagreement is the thing worth seeing.
+        QQmlEngine engine;
+        WebEdgeConfig config{makeGatedConfig()};
+        config.identityPicker = true;
+        config.identity.enabled = true;
+        config.identity.mappingHook = QStringLiteral(M5_SRCDIR "/identity/map.qml");
+        // The file says moderator. The hook gives every ordinary address user.
+        config.devIdentities = {{QStringLiteral("moderator"),
+                                 QStringLiteral("alice@example.com")},
+                                {QStringLiteral("user"),
+                                 QStringLiteral("banned@example.com")}};
+        WebEdge edge{config, &engine};
+        QVERIFY2(edge.start(), qPrintable(edge.errorString()));
+
+        const QByteArray body{httpGet(edge.httpOrigin()
+                                      + QStringLiteral("/synqt/dev/identity"))->readAll()};
+        QVERIFY2(body.contains("user (the file says moderator)"), body.constData());
+        QVERIFY2(body.contains("refused by the mapping hook"), body.constData());
+
+        // And the session holds what the hook said, not what the file asked for.
+        QNetworkReply *picked{httpPost(edge.httpOrigin()
+                                       + QStringLiteral("/synqt/dev/identity"),
+                                       QByteArrayLiteral("identity=0"))};
+        QCOMPARE(statusOf(picked), 200);
+        const QByteArray cookie{sessionCookie(picked)};
+        const QByteArray token{cookie.mid(QByteArrayLiteral("synqt_session=").size())};
+        const SynQt::SessionRecord *record{edge.sessionManager()->lookup(token)};
+        QVERIFY(record != nullptr);
+        QCOMPARE(record->scope, QStringLiteral("user"));
+    }
+
+    void aNamedIdentityTheHookRefusesIsRefusedHereToo()
+    {
+        // A development sign-in that granted what the project's own rule denies would be
+        // showing a state the application cannot reach, which is worse than no shortcut:
+        // it is a shortcut to a lie.
+        QQmlEngine engine;
+        WebEdgeConfig config{makeGatedConfig()};
+        config.identityPicker = true;
+        config.identity.enabled = true;
+        config.identity.mappingHook = QStringLiteral(M5_SRCDIR "/identity/map.qml");
+        config.devIdentities = {{QStringLiteral("user"),
+                                 QStringLiteral("banned@example.com")}};
+        WebEdge edge{config, &engine};
+        QVERIFY2(edge.start(), qPrintable(edge.errorString()));
+
+        QNetworkReply *picked{httpPost(edge.httpOrigin()
+                                       + QStringLiteral("/synqt/dev/identity"),
+                                       QByteArrayLiteral("identity=0"))};
+        QCOMPARE(statusOf(picked), 403);
+        QVERIFY2(sessionCookie(picked).isEmpty(),
+                 "a person the mapping hook refuses must not be handed a session");
+    }
+
     void twoTabsHoldTwoSessionsInOneCookieJar()
     {
         // The acceptance criterion for per-tab mode, and the reason it is done by cookie

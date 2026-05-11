@@ -1182,6 +1182,18 @@ bool WebEdge::start()
     // SynQtEdge does not contain the class, so this whole block compiles to nothing there.
     if (m_config.identityPicker) {
         m_picker = new IdentityPicker{m_sessionManager, m_config.scopeOrder, this};
+        // The named people from `.dev-identities`, read and checked by `synqt dev` and
+        // handed over as ordinary configuration. The edge parses no YAML for them.
+        m_picker->setNamedIdentities(m_config.devIdentities, m_config.devIdentityProblems);
+        if (m_identity) {
+            // Named identities go through the project's own mapping hook, because seeing
+            // what it makes of somebody is the reason to name them rather than picking a
+            // scope. Asked of the identity provider rather than reimplemented, so the
+            // picker cannot answer differently from a real login.
+            m_picker->setScopeMapper([this](const QVariantMap &identity, QString *error) {
+                return m_identity->mapScope(identity, error);
+            });
+        }
         m_httpServer->route(IdentityPicker::route(), QHttpServerRequest::Method::Get,
                             [this]() {
             return m_picker->page();

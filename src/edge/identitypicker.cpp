@@ -20,7 +20,9 @@ namespace {
 /// inline script would be a page that only works when the project has relaxed its policy,
 /// which is the opposite of what a development tool should demand. One form per scope, so
 /// the choice is an ordinary POST and needs nothing but the browser.
-QByteArray pageFor(const QStringList &scopeOrder)
+QByteArray pageFor(const QStringList &scopeOrder,
+                   const QList<QPair<QString, QString>> &named,
+                   const QStringList &problems)
 {
     QByteArray html{
         "<!doctype html>\n<html lang=\"en\">\n<head>\n"
@@ -47,6 +49,41 @@ QByteArray pageFor(const QStringList &scopeOrder)
                 + "\">" + scope.toHtmlEscaped().toUtf8() + "</button>\n"
                 "</form>\n";
     }
+
+    // The named people from `.dev-identities`, if there are any. Second, because picking a
+    // scope is the mode that always works and this one exists only when a file says so.
+    if (!named.isEmpty()) {
+        html += "<h2>Named identities</h2>\n"
+                "<p>From <code>.dev-identities</code>. Each is a real address in a "
+                "synthesized identity, so a project keyed to a person sees the same person "
+                "every time.</p>\n";
+        for (qsizetype index{0}; index < named.size(); ++index) {
+            const QString email{named.at(index).first};
+            const QString remark{named.at(index).second};
+            html += "<form method=\"post\" action=\"" + IdentityPicker::route().toUtf8()
+                    + "\">\n"
+                      "<input type=\"hidden\" name=\"identity\" value=\""
+                    + QString::number(index).toUtf8() + "\">\n"
+                      "<label><input type=\"checkbox\" name=\"this_tab_only\" value=\"1\" "
+                      "id=\"this-tab-only-identity-" + QString::number(index).toUtf8()
+                    + "\"> this tab only</label>\n"
+                      "<button type=\"submit\" data-identity=\"" + email.toHtmlEscaped().toUtf8()
+                    + "\">" + email.toHtmlEscaped().toUtf8() + "</button>\n"
+                      "<span data-remark>" + remark.toHtmlEscaped().toUtf8() + "</span>\n"
+                      "</form>\n";
+        }
+    }
+
+    // And what was in the file and could not be used. On the page rather than only in the
+    // terminal. A name that is missing is noticed here, by somebody looking for it.
+    if (!problems.isEmpty()) {
+        html += "<h2>Ignored entries</h2>\n<ul>\n";
+        for (const QString &problem : problems) {
+            html += "<li>" + problem.toHtmlEscaped().toUtf8() + "</li>\n";
+        }
+        html += "</ul>\n";
+    }
+
     html += "</body>\n</html>\n";
     return html;
 }
@@ -81,6 +118,18 @@ IdentityPicker::IdentityPicker(SessionManager *sessions, QStringList scopeOrder,
 {
 }
 
+void IdentityPicker::setNamedIdentities(const QList<WebEdgeConfig::DevIdentity> &identities,
+                                        const QStringList &problems)
+{
+    m_named = identities;
+    m_problems = problems;
+}
+
+void IdentityPicker::setScopeMapper(ScopeMapper mapper)
+{
+    m_mapper = std::move(mapper);
+}
+
 QString IdentityPicker::route()
 {
     return QStringLiteral("/synqt/dev/identity");
@@ -88,8 +137,57 @@ QString IdentityPicker::route()
 
 QHttpServerResponse IdentityPicker::page() const
 {
+    // The hook is consulted here, while the page is drawn, rather than only when a name is
+    // pressed. Seeing what the project's own mapping makes of somebody is the reason to
+    // name them, and a disagreement between the file and the hook is worth reading before
+    // choosing, not after.
+    QList<QPair<QString, QString>> named;
+    named.reserve(m_named.size());
+    for (const WebEdgeConfig::DevIdentity &identity : m_named) {
+        named.append({identity.email, resolve(identity).remark});
+    }
     return QHttpServerResponse{QByteArrayLiteral("text/html; charset=utf-8"),
-                               pageFor(m_scopeOrder)};
+                               pageFor(m_scopeOrder, named, m_problems)};
+}
+
+QVariantMap IdentityPicker::identityForNamed(const QString &email) const
+{
+    QVariantMap identity;
+    // Stable across restarts, unlike the scope mode's timestamped `sub`: a project that
+    // stores anything against a person must see the same person on the next run, which is
+    // most of what naming one is for. Still unable to collide with a real provider's id,
+    // for the same reason and by the same prefix.
+    identity.insert(QStringLiteral("sub"), QStringLiteral("synqt-dev:%1").arg(email));
+    identity.insert(QStringLiteral("login"), email.section(QLatin1Char('@'), 0, 0));
+    identity.insert(QStringLiteral("name"), email);
+    identity.insert(QStringLiteral("email"), email);
+    return identity;
+}
+
+IdentityPicker::Resolution IdentityPicker::resolve(
+    const WebEdgeConfig::DevIdentity &identity) const
+{
+    if (!m_mapper) {
+        // No identity provider on this edge, so there is no hook to ask. Say that, rather
+        // than showing the file's scope alone and letting it read as a hook that agreed.
+        return {identity.scope, QStringLiteral("%1 (from the file; this project has no "
+                                               "mapping hook to ask)").arg(identity.scope)};
+    }
+
+    QString error;
+    const QString mapped{m_mapper(identityForNamed(identity.email), &error)};
+    if (mapped.isEmpty()) {
+        // The hook refused this person, which is what a real login would do with them. The
+        // picker refuses too: a development sign-in that granted what the project's own
+        // rule denies would be showing a state the application cannot reach.
+        return {QString{}, QStringLiteral("refused by the mapping hook: %1").arg(error)};
+    }
+    if (mapped != identity.scope) {
+        // The disagreement is what matters, so both are shown and the hook's answer
+        // is the one the session gets.
+        return {mapped, QStringLiteral("%1 (the file says %2)").arg(mapped, identity.scope)};
+    }
+    return {mapped, mapped};
 }
 
 QVariantMap IdentityPicker::identityFor(const QString &scope) const
@@ -108,10 +206,59 @@ QVariantMap IdentityPicker::identityFor(const QString &scope) const
     return identity;
 }
 
+QHttpServerResponse IdentityPicker::chooseNamed(const QString &picked,
+                                                const QUrlQuery &form, Choice *choice)
+{
+    // An index into the list this page drew, bounds-checked exactly as a posted scope is:
+    // the list came from a file, so a larger number posted by hand must not reach past it.
+    bool isNumber{false};
+    const int index{picked.toInt(&isNumber)};
+    if (!isNumber || index < 0 || index >= static_cast<int>(m_named.size())) {
+        return QHttpServerResponse{QByteArrayLiteral("text/plain"),
+                                   QByteArrayLiteral("not one of this project's named "
+                                                     "development identities"),
+                                   QHttpServerResponder::StatusCode::BadRequest};
+    }
+
+    const WebEdgeConfig::DevIdentity &identity{m_named.at(index)};
+    const Resolution resolution{resolve(identity)};
+    if (resolution.scope.isEmpty()) {
+        // The project's own hook refused this person. Refusing here too is the only right
+        // answer, because signing them in anyway would show a state a real login cannot produce.
+        return QHttpServerResponse{QByteArrayLiteral("text/plain"),
+                                   resolution.remark.toUtf8(),
+                                   QHttpServerResponder::StatusCode::Forbidden};
+    }
+    // Belt and braces on top of the hook's own bounds check, because a mapper that is not
+    // the identity provider's could be set here one day and this is the only place that
+    // would notice.
+    if (!m_scopeOrder.contains(resolution.scope)) {
+        return QHttpServerResponse{QByteArrayLiteral("text/plain"),
+                                   QByteArrayLiteral("not one of this project's scopes"),
+                                   QHttpServerResponder::StatusCode::BadRequest};
+    }
+
+    const QByteArray minted{m_sessions->createSession(resolution.scope,
+                                                      identityForNamed(identity.email))};
+    if (choice) {
+        choice->sessionId = minted;
+        if (!form.queryItemValue(QStringLiteral("this_tab_only")).isEmpty()) {
+            choice->tabNonce = freshNonce();
+        }
+    }
+    qInfo("SynQt: the development picker signed in '%s' as '%s'",
+          qUtf8Printable(identity.email), qUtf8Printable(resolution.scope));
+    return QHttpServerResponse{QByteArrayLiteral("text/plain"), QByteArrayLiteral("ok")};
+}
+
 QHttpServerResponse IdentityPicker::choose(const QHttpServerRequest &request,
                                            Choice *choice)
 {
     const QUrlQuery form{QString::fromUtf8(request.body())};
+    const QString named{form.queryItemValue(QStringLiteral("identity"), QUrl::FullyDecoded)};
+    if (!named.isEmpty()) {
+        return chooseNamed(named, form, choice);
+    }
     const QString picked{form.queryItemValue(QStringLiteral("scope"), QUrl::FullyDecoded)};
 
     // An index into the declared vocabulary, exactly as a mapping hook's answer is, and

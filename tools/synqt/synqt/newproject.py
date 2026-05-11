@@ -17,7 +17,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import yaml
 
-from . import addentity, appgen, appmodel, licenses, presets, toolchain
+from . import addentity, appgen, appmodel, devidentities, licenses, presets, toolchain
 
 QT_VERSION = toolchain.QT_VERSION
 
@@ -269,7 +269,11 @@ def scaffold(parent_dir: os.PathLike[str] | str, name: str, *,
         # A copy of the container authority's certificate, written by `synqt docker ca`
         # for you to trust on this machine. Public, so not a secret; issued into a volume
         # on this machine, so not the same file on anybody else's.
-        "synqt/mesh/dev/\nsynqt/mesh/docker-ca.crt\n.env\n")
+        "synqt/mesh/dev/\nsynqt/mesh/docker-ca.crt\n.env\n"
+        # The people this machine's developer signs in as under
+        # `synqt dev --identity-picker`. One machine's convenience: committing it
+        # would put a colleague's address in the repository.
+        f"{devidentities.FILE_NAME}\n")
     (root / ".env.example").write_text("# Entity secrets (env: references), never committed\n")
     _write_qmlformat_settings(root)
 

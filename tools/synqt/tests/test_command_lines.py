@@ -340,6 +340,40 @@ def test_dev_passes_the_picker_flag_when_asked():
     assert "--dev" in argv, argv
 
 
+def test_named_identities_ride_along_with_the_picker(tmp_path):
+    # `.dev-identities` is read on this side, so what reaches the edge is already checked
+    # against the project's scopes. One flag per usable entry, one per entry that was not.
+    (tmp_path / ".dev-identities").write_text(
+        "- email: alice@example.com\n  scope: admin\n"
+        "- email: bob@example.com\n  scope: wizard\n")
+    config = _edge_config()
+    config["scopes"] = {"order": ["anonymous", "admin"]}
+    argv = runmod.dev_command(tmp_path, config["entities"][0], config, 8443,
+                              identity_picker=True)
+    assert "--dev-identity=admin=alice@example.com" in argv, argv
+    problems = [value for value in argv if value.startswith("--dev-identity-problem=")]
+    assert len(problems) == 1, argv
+    assert "wizard" in problems[0]
+
+
+def test_a_project_with_no_dev_identities_passes_none(tmp_path):
+    config = _edge_config()
+    argv = runmod.dev_command(tmp_path, config["entities"][0], config, 8443,
+                              identity_picker=True)
+    assert not [value for value in argv if value.startswith("--dev-identity")], argv
+
+
+def test_named_identities_are_not_read_without_the_picker(tmp_path):
+    # The flags only mean anything to an edge serving the picker, and an edge that is not
+    # serving it should not be handed a colleague's address on its command line.
+    (tmp_path / ".dev-identities").write_text(
+        "- email: alice@example.com\n  scope: admin\n")
+    config = _edge_config()
+    config["scopes"] = {"order": ["anonymous", "admin"]}
+    argv = runmod.dev_command(tmp_path, config["entities"][0], config, 8443)
+    assert not [value for value in argv if value.startswith("--dev-identity")], argv
+
+
 def test_only_the_edge_is_offered_the_picker():
     # A service has no browser to show a page to, and passing an option its main does not
     # declare would make it exit on its own command line.

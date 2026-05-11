@@ -3,16 +3,14 @@
 
 """``synqt mesh``: the project certificate authority and per-entity certificates.
 
-Service entities authenticate each other with mutual TLS against a project private CA.
-This module manages the CA and the entity certificates so a developer never runs raw
-openssl. The rules it enforces (see docs/build-system-and-cli.md):
+Service entities authenticate each other with mutual TLS against a private project CA
+(docs/build-system-and-cli.md):
 
-- The CA private key is created once, kept in ``synqt/mesh/`` with restrictive
-  permissions, git-ignored, and used only to issue certs. It is NEVER copied into a
-  running entity (a running entity holds only its own cert+key plus ``ca.crt``).
-- Each entity certificate carries the entity name as its subject, so a verified peer
-  certificate tells an owner which entity is calling.
-- The client entity gets no mesh certificate. It authenticates with a user session.
+- The CA private key is created once in ``synqt/mesh/`` with restrictive permissions,
+  git-ignored, and only issues certificates. It is never copied into a running entity, which
+  holds its own certificate and key plus ``ca.crt``.
+- Each entity certificate carries the entity name as its subject.
+- The client entity gets no mesh certificate.
 """
 
 from __future__ import annotations
@@ -23,14 +21,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional
 
+from . import devidentities
 from .appmodel import ENTITY_NAME_MAX, is_valid_entity_name
 
-# ~13 months. This was 825 days, described as the CA/Browser Forum leaf maximum, which it
-# stopped being in September 2020 when that ceiling dropped to 398. The number is not
-# cosmetic: Apple's verifier rejects a TLS leaf issued after 2020-09-01 whose validity runs
-# past 398 days, whatever it chains to, so an entity certificate issued at the old maximum is
-# one a macOS host can refuse on sight. The CA is issued for twice this, so rotating leaves
-# does not silently need a new anchor too (see `synqt mesh rotate`).
+# Leaf validity: 398 days, the CA/Browser Forum maximum. Apple's verifier rejects a TLS leaf
+# issued after 2020-09-01 valid for longer. The CA gets twice this, so rotating leaves does
+# not require a new anchor (see `synqt mesh rotate`).
 VALIDITY_DAYS = 398
 
 
@@ -52,15 +48,9 @@ def _openssl(*args: str) -> str:
 def _reserve_key(path: Path) -> None:
     """Create the file a private key is about to be written into, readable only by this user.
 
-    ``openssl genrsa -out`` creates the file with the process umask, which on most systems
-    means every account on the machine can read it, and the ``chmod`` afterwards closes the
-    window rather than never opening it. The key it protects is the trust anchor for every
-    mesh link in the project, so the window is worth not having. Create the file first, with
-    the mode it needs, and let openssl write into the file that is already there (it opens
-    the path for writing and does not reset the mode of a file that exists).
-
-    Windows has no mode to set here. ``_restrict`` applies the ACL after the fact, and says
-    so when it cannot.
+    ``openssl genrsa -out`` creates the file with the umask, and a later chmod leaves a
+    window. The file is created first with its mode, and openssl writes into it without
+    resetting the mode. On Windows ``_restrict`` applies the ACL afterwards.
     """
     path.unlink(missing_ok=True)
     if os.name == "nt":
@@ -69,11 +59,10 @@ def _reserve_key(path: Path) -> None:
 
 
 def _restrict(path: Path) -> bool:
-    """Make a private key readable only by the user who owns it. Returns whether the
-    platform's own mechanism was applied, because the caller reports it: os.chmod on
-    Windows only toggles the read-only bit (it leaves the file world-readable, and
-    stat reports 0666 whatever mode is passed), so a bare chmod there would let the
-    tool claim a protection it had not applied to the one key that matters most."""
+    """Make a private key readable only by its owner. Returns whether the platform mechanism
+    was applied: on Windows os.chmod only toggles the read-only bit, so the caller reports
+    it.
+    """
     if os.name != "nt":
         os.chmod(path, 0o600)
         return True
@@ -94,17 +83,20 @@ def _mesh_dir(project_dir: os.PathLike[str] | str, dev: bool = False) -> Path:
     return root / "dev" if dev else root
 
 
-def _ensure_gitignored(project_dir: os.PathLike[str] | str) -> None:
-    # The CA key and entity keys must never be committed.
+def ensure_gitignored(project_dir: os.PathLike[str] | str) -> None:
+    # Never commit the CA key, entity keys, or `.dev-identities` (one developer's list of
+    # people).
     gitignore = Path(project_dir) / ".gitignore"
-    rules = ["synqt/mesh/*.key", "synqt/mesh/dev/", "synqt/toolchain/"]
+    rules = ["synqt/mesh/*.key", "synqt/mesh/dev/", "synqt/toolchain/",
+             devidentities.FILE_NAME]
     existing = gitignore.read_text().splitlines() if gitignore.exists() else []
     added = [rule for rule in rules if rule not in existing]
     if added:
         with gitignore.open("a") as handle:
             if existing and existing[-1].strip():
                 handle.write("\n")
-            handle.write("# SynQt: never commit mesh private keys or the toolchain cache\n")
+            handle.write("# SynQt: never commit mesh private keys, the toolchain cache, or the\n"
+                         "# development identities of whoever works on this machine\n")
             handle.write("\n".join(added) + "\n")
 
 
@@ -117,20 +109,12 @@ def init(project_dir: os.PathLike[str] | str, *, dev: bool = False, force: bool 
     if ca_key.exists() and not force:
         raise MeshError(f"a CA already exists at {ca_key}; use rotate or --force")
 
-    # State the CA's extensions rather than inheriting whatever openssl.cnf happens to
-    # default to. This is the trust anchor for every mesh link, so what it is allowed to do
-    # is part of the tool's contract, not of the host's configuration. That was the intent
-    # of the `req -x509 -addext` this replaces, and -addext does not deliver it: it appends
-    # to the config's x509_extensions section instead of replacing it, so the anchor came
-    # out carrying that section's basicConstraints and this file's. OpenSSL 3 collapses the
-    # pair. LibreSSL, which is the `openssl` on every macOS machine, emits both, a repeated
-    # extension is invalid per RFC 5280 4.2, and Apple's verifier duly refuses the anchor and
-    # every mesh link on that host fails to verify. Signing a CSR with `x509 -req -extfile`
-    # is the same route the entity certs below take. The extension file is the only source
-    # of extensions, so the profile is identical on every host's openssl.
-    #
-    # keyUsage is the addition over the default v3_ca profile. A CA whose key usage is
-    # unstated is one a strict verifier may decline to build a chain through.
+    # The CA extensions are stated explicitly, not inherited from openssl.cnf. `req -x509
+    # -addext` appends to the config section, and LibreSSL (macOS) then emits
+    # basicConstraints twice, which RFC 5280 4.2 forbids and Apple's verifier rejects.
+    # Signing a CSR with `x509 -req -extfile`, as for entity certificates, makes the
+    # extension file the only source. keyUsage is stated so strict verifiers build chains
+    # through the CA.
     csr = mesh / "ca.csr"
     ext = mesh / "ca.ext"
     ext.write_text(
@@ -149,7 +133,7 @@ def init(project_dir: os.PathLike[str] | str, *, dev: bool = False, force: bool 
         ext.unlink(missing_ok=True)
         csr.unlink(missing_ok=True)
     restricted = _restrict(ca_key)
-    _ensure_gitignored(project_dir)
+    ensure_gitignored(project_dir)
     protection = ("ca.key is restricted to you and git-ignored" if restricted else
                   "ca.key is git-ignored, but this platform's permissions could NOT be "
                   "restricted: protect it yourself")
@@ -163,11 +147,8 @@ def cert(project_dir: os.PathLike[str] | str, entity: str, *, dev: bool = False,
         raise MeshError(
             f"'{entity}' is a client entity: the client gets no mesh certificate "
             "(it authenticates to the edge with a user session, not mutual TLS)")
-    # The name is typed at a prompt here, not read from a validated topology, and it goes
-    # into three places that all take it literally: the file names below, the `/CN=` of the
-    # subject, and the SAN. A separator in it writes a private key outside the mesh
-    # directory, and a `/` in the subject opens a second RDN. The same rule `synqt check`
-    # holds a declared entity to, applied to the one place a name arrives from a keyboard.
+    # The name comes from a prompt and goes into file names, the subject `/CN=` and the SAN,
+    # so it is held to the entity name rule `synqt check` applies.
     if not is_valid_entity_name(entity):
         raise MeshError(
             f"'{entity[:80]}' is not usable as an entity name: a name starts with a letter "
@@ -182,17 +163,10 @@ def cert(project_dir: os.PathLike[str] | str, entity: str, *, dev: bool = False,
     key = mesh / f"{entity}.key"
     csr = mesh / f"{entity}.csr"
     crt = mesh / f"{entity}.crt"
-    # The extensions go through a real file, not /dev/stdin. Openssl opens -extfile by
-    # name, and Windows has no such device, so feeding the extension in on stdin works on a
-    # developer's Linux box and makes `synqt mesh cert` fail outright there.
-    #
-    # Both key usages are needed. A mesh entity is a TLS server on the links it owns
-    # and a TLS client on the links it consumes, and the same certificate authenticates it
-    # in both directions, so it needs serverAuth and clientAuth. Naming them (rather
-    # than omitting extendedKeyUsage entirely) is what keeps the certificate portable:
-    # OpenSSL only enforces an EKU that is present, so an EKU-less cert passes on Linux,
-    # while Apple's verifier requires TLS certificates to carry the matching usage OID.
-    # A cert without one is untrusted on macOS rather than "unrestricted" everywhere.
+    # The extensions go through a real file: Windows has no /dev/stdin. An entity is a TLS
+    # server on the links it owns and a client on those it consumes, so it needs serverAuth
+    # and clientAuth. Apple's verifier requires the usage OID; OpenSSL accepts a certificate
+    # with no EKU.
     ext = mesh / f"{entity}.ext"
     ext.write_text(
         "basicConstraints=critical,CA:FALSE\n"
@@ -212,7 +186,7 @@ def cert(project_dir: os.PathLike[str] | str, entity: str, *, dev: bool = False,
         ext.unlink(missing_ok=True)
         csr.unlink(missing_ok=True)
     _restrict(key)
-    _ensure_gitignored(project_dir)
+    ensure_gitignored(project_dir)
     return f"Issued {entity}.crt (subject CN={entity}, SAN DNS:{entity})."
 
 
@@ -229,10 +203,8 @@ def rotate(project_dir: os.PathLike[str] | str, entity: Optional[str] = None,
     return cert_all(project_dir, service_entities or [], dev=dev)
 
 
-#: The month abbreviations openssl prints, which are English whatever the machine's locale
-#: is. `%b` in `strptime` is not. It reads the *current* locale's month names, so a developer
-#: whose shell is not English got a ValueError out of `synqt mesh status` and a traceback
-#: instead of an expiry date. Parsed by hand, against the names openssl writes.
+#: The English month names openssl prints. `strptime` `%b` follows the locale, so they are
+#: parsed by hand.
 _MONTHS = {name: number for number, name in enumerate(
     ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
      "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"], start=1)}
@@ -267,9 +239,7 @@ def status(project_dir: os.PathLike[str] | str, *, dev: bool = False,
             lines.append(f"  {crt.stem}: unreadable")
             continue
         days = (expiry - now).days
-        # Expired first. An expired certificate also satisfies "within warn_days", so
-        # testing that one first reported a mesh that is already down as one that is
-        # about to need attention, and left the EXPIRED wording unreachable.
+        # Expired first: an expired certificate also falls within warn_days.
         if days < 0:
             flag = "  <-- EXPIRED"
         elif days <= warn_days:

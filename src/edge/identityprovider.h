@@ -142,6 +142,18 @@ public:
     /// visitor's disk, which is the one outcome handleLogout exists to prevent.
     void followRotation(const QByteArray &from, const QByteArray &to);
 
+    /// The scope this identity signs in at, or an empty string when the project's mapping
+    /// hook did not answer with one of the scopes the project declared, with *error set to
+    /// why. There is no fallback. A login that cannot be given a declared scope
+    /// fails, rather than being given a scope nobody wrote down.
+    ///
+    /// Public because it is a question the edge asks as well as this class: the development
+    /// picker shows what the project's own hook makes of a named identity, and asking the
+    /// provider is the only way to get the same answer a real login would. It reads the
+    /// hook and returns a name. It mints nothing, changes nothing, and grants nothing, so
+    /// exposing it widens no gate. A caller still has to hold a session to use the scope.
+    QString mapScope(const QVariantMap &identity, QString *error = nullptr);
+
 signals:
     /// Internal: a delegated begin/exchange result for the given request has arrived from the
     /// auth entity, so the waiting route handler can resume.
@@ -197,13 +209,8 @@ private:
     void bindRemoteSession(const QString &state, const QByteArray &sessionId);
     void releaseRemoteTokens(const QByteArray &sessionId);
 
-    /// The scope this identity signs in at, or an empty string when the project's mapping
-    /// hook did not answer with one of the scopes the project declared, with *error set to
-    /// why. There is no fallback on purpose: a login that cannot be given a declared scope
-    /// fails, rather than being given a scope nobody wrote down.
-    QString mapScope(const QVariantMap &identity, QString *error = nullptr);
-    /// The one answer both desktop routes give: the session, the cookie name to present it
-    /// under, and the device credential to store in place of whatever was just spent (absent
+    /// The one answer both desktop routes give. The session, the cookie name to present it
+    /// under, and the device credential to store in place of whatever was spent (absent
     /// when the project persists nothing or this client's store was below the floor).
     QHttpServerResponse sessionAnswer(const QByteArray &sessionId, const QString &family,
                                       const QByteArray &secret, qint64 expiresMs);

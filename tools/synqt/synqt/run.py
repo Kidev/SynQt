@@ -21,7 +21,8 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 import yaml
 
-from . import appmodel, clientshell, cmakegen, config as configmod, profiles, toolchain
+from . import appmodel
+from . import clientshell, cmakegen, config as configmod, devidentities, profiles, toolchain
 
 
 def launch_env(root: Path) -> Dict[str, str]:
@@ -160,8 +161,9 @@ def startup_order(config: Dict[str, Any]) -> List[str]:
 
 
 def serve(project_dir: os.PathLike[str] | str, *, profile: Optional[str] = None) -> str:
-    """Launch the built entities in dependency order; report what is missing to build."""
+    """Launch the built entities in dependency order, and report what is missing to build."""
     from . import build as buildmod
+    from . import mesh
     root = Path(project_dir)
     config = buildmod.load_config(root, profile)
     order = startup_order(config)
@@ -246,9 +248,14 @@ def dev_command(root: Path, entity: Dict[str, Any], config: Dict[str, Any],
         # only kind of edge that has a picker to be asked for.
         if identity_picker:
             command.append("--identity-picker")
+            # The named people from `.dev-identities`, resolved here because this side owns
+            # the YAML parser and knows which scopes the project declares. Whatever did not
+            # survive that reading rides along as a problem the picker prints on its own
+            # page, where the developer wondering why Alice is missing is looking.
+            command += devidentities.for_project(root, config)[0]
         return command
     if appmodel.entity_type(entity) == "monitor":
-        # Both halves: the mesh point it hosts needs its topology and the Source QML the
+        # Both halves. The mesh point it hosts needs its topology and the Source QML the
         # generator mirrored under generated/, and the console it serves needs the same
         # bundle arguments an edge gets. Its own port, from `public:`, because it is a
         # second browser-facing server and must not be handed the edge's.
@@ -353,6 +360,19 @@ def dev(project_dir: os.PathLike[str] | str, *, profile_name: str = "debug",
     edge = _edge_entity(config)
     if edge is None:
         return "synqt dev: no web_edge entity in the topology; nothing to serve."
+
+    if identity_picker:
+        # Said here as well as on the picker's page, because the two readers are different
+        # people at different moments. This one is whoever started `synqt dev` and can
+        # fix the file before opening a browser at all.
+        problems = devidentities.for_project(root, config)[1]
+        for problem in problems:
+            print(f"synqt dev: {problem}")
+        # And the file itself must never be committed. It names the people one developer
+        # signs in as. Registered through the mesh tooling's rule writer rather than a
+        # second one, so a project has one list of what git must not take.
+        if devidentities.path_of(root).exists():
+            mesh.ensure_gitignored(root)
 
     launch_order = _launch_order(config)
     processes, missing = _launch_entities(root, config, launch_order, port, profile_name,

@@ -160,6 +160,25 @@ struct WebEdgeConfig
     /// docs/security.md and tests/dev-exclusion.
     bool identityPicker{false};
 
+    /// One named person the picker offers, from the project's `.dev-identities`. The file
+    /// is read by `synqt dev`, which owns the YAML parser and knows the project's declared
+    /// scopes. What arrives here has already been checked against them, one
+    /// `--dev-identity <scope>=<email>` per surviving entry.
+    struct DevIdentity
+    {
+        QString scope;   ///< what the file asked for, and what the picker lists
+        QString email;   ///< the address the synthesized identity carries
+    };
+
+    /// Read only when `identityPicker` is set, which is the only mode that has a page to
+    /// list them on.
+    QList<DevIdentity> devIdentities;
+
+    /// Entries `synqt dev` dropped, one sentence each, shown on the picker's page. Carried
+    /// this far because the developer who notices a missing name is looking at the picker,
+    /// not at the terminal that started the edge an hour ago.
+    QStringList devIdentityProblems;
+
     /// Scope vocabulary (for per-connect-point gating and Caller.hasScope).
     QStringList scopeOrder{QStringLiteral("anonymous")};
     bool scopesHierarchical{true};

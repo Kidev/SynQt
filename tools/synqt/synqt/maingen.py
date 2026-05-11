@@ -1311,8 +1311,18 @@ int main(int argc, char *argv[])
     const QCommandLineOption pickerOption{{QStringLiteral("identity-picker"),
         QStringLiteral("Development sign-in: serve a scope picker in place of every "
                        "sign-in this project has.")}};
+    // The named people from `.dev-identities`, one <scope>=<email> each, and one sentence
+    // for every entry `synqt dev` could not use. Both are read on that side, which owns the
+    // YAML parser and knows the declared scopes. Nothing about the file's format is known
+    // here. Passed only alongside --identity-picker, and ignored without it.
+    const QCommandLineOption identityOption{{QStringLiteral("dev-identity"),
+        QStringLiteral("Development identity to offer, as <scope>=<email>. Repeatable."),
+        QStringLiteral("scope=email")}};
+    const QCommandLineOption identityProblemOption{{QStringLiteral("dev-identity-problem"),
+        QStringLiteral("An entry of .dev-identities that was dropped, and why. Repeatable."),
+        QStringLiteral("text")}};
     parser.addOptions({{bundleOption, qmlDirOption, portOption, certOption, keyOption,
-        devOption, pickerOption}});{topology_option}
+        devOption, pickerOption, identityOption, identityProblemOption}});{topology_option}
     parser.process(app);
 {env_section}
     // `import SynQt` brings QtQuick with it, so this edge's files need one import line
@@ -1346,6 +1356,16 @@ int main(int argc, char *argv[])
     // Both, because the picker rides the development gate rather than replacing it: --dev
     // is what makes any synthesized identity possible at all.
     config.identityPicker = parser.isSet(devOption) && parser.isSet(pickerOption);
+    if (config.identityPicker) {{
+        for (const QString &entry : parser.values(identityOption)) {{
+            const qsizetype separator{{entry.indexOf(QLatin1Char('='))}};
+            if (separator < 0) {{
+                continue;  // not the shape `synqt dev` writes. Nothing to offer
+            }}
+            config.devIdentities.append({{entry.left(separator), entry.mid(separator + 1)}});
+        }}
+        config.devIdentityProblems = parser.values(identityProblemOption);
+    }}
     config.scopeOrder = {{{scope_literal}}};
     config.scopesHierarchical = {hierarchical_literal};
     config.crossOriginIsolation = {coi_literal};

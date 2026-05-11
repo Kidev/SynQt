@@ -491,30 +491,35 @@ than a menu item offered to someone who has not.
   regenerates the contract layer and rebuilds every entity that uses it. A change to
   a service entity's QML reloads that entity without dropping the dev page. A change
   to an [edge-delivered page](remote-pages.md) is pushed to the browser without a
-  rebuild at all; a built or served edge watches nothing.
+  rebuild at all. A built or served edge watches nothing.
 
-Hot reload skips the heavier ahead of time compilation to keep the loop fast;
+Hot reload skips the heavier ahead of time compilation to keep the loop fast.
 `synqt build` does the full optimized compilation for release.
 
 `synqt dev --desktop` runs the client in a native window instead of a browser tab,
 with the same file watching and hot reload against the same dev edge. The native
 loop skips the Emscripten link step, so it is faster to iterate on than the
-WebAssembly one; see [desktop clients](desktop.md).
+WebAssembly one. See [desktop clients](desktop.md).
 
 `synqt dev --identity-picker` replaces every sign-in the project has with one page at
 `/synqt/dev/identity` listing the scopes in `scopes.order`. Pick one and you hold a
 session at it, with a synthesized identity. It exists to make "what does this look like
 to a moderator" a click rather than a login, and it is not a substitute for the real
-flow: it skips OAuth entirely, so no PKCE, no code exchange, no ID token and no JWKS run
+flow. It skips OAuth entirely, so no PKCE, no code exchange, no ID token and no JWKS run
 under it. That is why `identity.dev_stub` is kept beside it. The stub proves the flow
-against a fake provider; the picker skips the flow.
+against a fake provider, and the picker skips the flow.
 
 It is development-only in the strong sense. `synqt dev` builds the edge with
 `SYNQT_DEV_TOOLS`, which is the only configuration in which the picker's sources are
 compiled at all, so a `synqt build` artifact does not contain the class the flag would
 register (`tests/dev-exclusion` proves that by reading both symbol tables). The flag is
-the third of three layers, not the only one; see
+the third of three layers rather than the only one. See
 [Development code is absent from a release build](security.md#development-code-is-absent-from-a-release-build).
+
+A `.dev-identities` file at the project root adds named people to the same page, so a
+project keyed to a person can be developed as that person. `synqt dev` reads and checks it
+and git-ignores it. See
+[Being somebody in particular](authentication.md#being-somebody-in-particular-dev-identities).
 
 ## How QML becomes WebAssembly (the client entity)
 
