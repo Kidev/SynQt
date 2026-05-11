@@ -1,0 +1,10 @@
+{
+    "name": "synqt-identity-picker-verify",
+    "version": "1.0.0",
+    "private": true,
+    "type": "module",
+    "description": "Playwright end-to-end test: the development scope picker, and two per-tab sessions in one browser cookie jar.",
+    "dependencies": {
+        "playwright": "^1.49.0"
+    }
+}

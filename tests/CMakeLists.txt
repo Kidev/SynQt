@@ -48,6 +48,7 @@ set(SYNQT_SCRIPT_SUITES
     appgen-native    # compiles the entity mains appgen.py emits for a whole topology
     desktop-client   # builds the client QML as a native desktop app
     monitor-console  # scaffolds a monitor, builds it, and drives its console in a browser
+    identity-picker  # three tabs of one browser through the development scope picker
     dev-exclusion    # configures the framework twice and reads the symbol tables
 )
 

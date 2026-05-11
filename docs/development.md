@@ -251,6 +251,7 @@ five commits without ever running.
 | [`fix2-arena`](https://github.com/Kidev/SynQt/tree/main/tests/fix2-arena)             | The multiplayer arena tutorial as an acceptance fixture. |
 | [`appgen-native`](https://github.com/Kidev/SynQt/tree/main/tests/appgen-native)          | The generated CMake and mains actually compile for every entity, the monitor included: it is a mesh owner and a browser-facing server at once, so nothing but a build says whether its two halves assemble into one binary. |
 | [`monitor-console`](https://github.com/Kidev/SynQt/tree/main/tests/monitor-console) | The monitoring console in a real browser, against a monitor the scaffolder wrote when the suite ran. It drives the delivery gate (a bundle outside the caller's scope is a 404, not a 403), the sign-in form and its inline script under the strict CSP, and the console itself, and it reads the monitor's own record to prove the console reached it. Written after everything else was green; it found seven defects, four of them outside monitoring (see the suite's README). |
+| [`identity-picker`](https://github.com/Kidev/SynQt/tree/main/tests/identity-picker) | The development scope picker in a real browser, and the one claim about it that no in-process test can make: two tabs of one browser context share one cookie jar (RFC 6265 scopes a cookie to a host, not a port), so a second per-tab sign-in must not become the first. Three tabs, a moderator and a user side by side, and the bundle the edge answers with is how each tab is asked who it is. |
 | [`dev-exclusion`](https://github.com/Kidev/SynQt/tree/main/tests/dev-exclusion) | Development-only code is absent from a release build rather than disabled inside it. It configures the framework twice, once with `SYNQT_DEV_TOOLS` and once without, and reads the symbol tables: the release archive must not contain the development sign-ins, the development archive must, and a development header must refuse to be included by a build that did not ask for one. `DEV_SYMBOLS` in that suite is the list, so covering a new development-only type is a word rather than a test. |
 | [`desktop-client`](https://github.com/Kidev/SynQt/tree/main/tests/desktop-client)         | The native desktop client target compiles, installs, boots, and, once deployed with `--deploy`, carries its own Qt rather than the host's. |
 | [`fix3-stall`](https://github.com/Kidev/SynQt/tree/main/tests/fix3-stall)             | Edge delivered pages end to end, seeded by the production per connection `Caller`. |
@@ -290,8 +291,9 @@ QT_HOST=/opt/Qt/6.11.1/gcc_64 tests/run-all.sh
 ```
 
 That builds the framework and every host kit suite once, runs them under a single `ctest`,
-and then runs the four suites that have to run a generator before there is anything to
-compile (`custom-provider`, `appgen-native`, `desktop-client`, `monitor-console`). It is
+and then runs the suites that have to run a generator before there is anything to
+compile (`custom-provider`, `appgen-native`, `desktop-client`, `monitor-console`,
+`identity-picker`, `dev-exclusion`). It is
 the same command
 [`ctest.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/ctest.yml) runs. A
 CMake warning fails it, because the two this gate was built for (an incomplete linking
