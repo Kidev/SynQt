@@ -742,6 +742,13 @@
       "defended_by": "Three layers, none of which is the only one. The picker's sources are named in src/edge/CMakeLists.txt only under SYNQT_DEV_TOOLS, so a release SynQtEdge does not contain the class (proven by adding IdentityPicker to tests/dev-exclusion's DEV_SYMBOLS); the header refuses to be included by a build that did not set it; and the routes are registered only when `synqt dev --identity-picker` set WebEdgeConfig::identityPicker, which nothing built and nothing served passes. Inside the POST, the chosen scope is bounds-checked against the declared vocabulary, so an edited form cannot name a scope the project never declared.",
       "file": "tests/m5-webedge/tst_m5.cpp",
       "test": "aDevEdgeWithoutTheFlagHasNoPickerRoute"
+    },
+    {
+      "id": "a-named-development-identity-outranks-the-mapping-hook",
+      "what": "A named development identity from `.dev-identities` carries a scope written in that file, and the file is a developer's convenience with no authority over anything. If the picker minted the session at the scope the file asked for, a developer could sign in as somebody the project's own mapping hook refuses, or at a scope it would never give them, and develop against a state the application cannot reach: every gate would look satisfied in development and refuse the same person in production.",
+      "defended_by": "The hook decides. The picker asks the identity provider the same question a real login asks (IdentityProvider::mapScope) and the answer is what the session gets; the file's scope is only what the picker lists, and where the two differ the page shows both. Where the hook refuses the identity the picker refuses it too, with the hook's own reason. A project with no hook has nothing to ask, and the page says so rather than letting the file's scope read as an answer a hook agreed with. The posted index is bounds-checked against the list the page drew, so a hand-posted number cannot reach past it.",
+      "file": "tests/m5-webedge/tst_m5.cpp",
+      "test": "aNamedIdentityTheHookRefusesIsRefusedHereToo"
     }
   ]
 }
