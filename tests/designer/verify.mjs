@@ -1596,6 +1596,82 @@ async function typingIntoTheProject() {
 //
 // The whole error, indented, because a Playwright timeout carries its call log in the
 // message and that log is the answer to why it timed out.
+// The project's scope vocabulary, which is the one setting in the editor that belongs to no
+// entity and no link. It gets a part of its own because it matters twice over. The
+// order is the authority ranking under `scopes.hierarchical`, and since the mapping hook
+// started answering with a generated enum it is that enum's member values, so moving a row
+// renumbers the vocabulary every hook in the project is written against.
+async function theProjectsScopes() {
+    console.log("\nThe scopes a project declares");
+    const project = await copyProject();
+    const { proc, url } = await startEditor(project);
+    const browser = await chromium.launch({ headless });
+    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    const problems = [];
+    page.on("pageerror", (error) => problems.push(String(error)));
+    try {
+        await page.goto(url);
+        await page.waitForFunction(
+            () => document.getElementById("project").textContent === "gavel");
+
+        // The panel with nothing picked is where it lives. A scope is not an entity and not
+        // a link, and every gate in every other panel chooses from this list.
+        const rows = page.locator(".scopes__row");
+        await rows.first().waitFor();
+        check(await rows.count() === 4,
+              "the four scopes gavel declares are each a row to edit");
+
+        // Renaming is typed in place, and the reason it is a gesture at all is that it has
+        // to be carried everywhere the name is used in the same edit. gavel gates its
+        // `place` slot on `user`, so renaming that scope has to move the gate with it.
+        const second = rows.nth(1).locator("input[type=text]");
+        check(await second.inputValue() === "user", "the second scope is 'user'");
+        await second.fill("bidder");
+        await page.waitForTimeout(150);
+
+        // Add one, and rank it. The new scope goes on the end, which is the highest
+        // authority in a hierarchical project, and the arrows are what move it.
+        await page.getByRole("button", { name: "Add scope" }).click();
+        await page.waitForFunction(() => document.querySelectorAll(".scopes__row").length === 5);
+
+        await page.locator("#review").click();
+        await page.waitForSelector("#sheet:not([hidden])");
+        const diff = await page.locator("#sheet-diff").textContent();
+        check(diff.includes("synqt.yaml"),
+              "editing the vocabulary is a change to synqt.yaml and to nothing else");
+
+        // Named here rather than left to a timeout: Apply is refused while `synqt check`
+        // has anything to say about the result, and the sheet is where it says it.
+        const findings = await page.locator("#sheet-findings").textContent();
+        check(!/error:/.test(findings || ""),
+              `the change set is one the project accepts, and said: ${findings}`);
+        await page.waitForSelector("#apply:not([disabled])");
+        await page.locator("#apply").click();
+        await waitForHint(page, "Applied");
+
+        const config = await fsp.readFile(path.join(project, "synqt.yaml"), "utf8");
+        check(/order:\s*\[anonymous, bidder, moderator, admin, scope\]/.test(config),
+              `the renamed scope and the new one are in the order:\n${config.split("\n")
+                  .filter((line) => line.includes("order:")).join("\n")}`);
+        // The half that makes it a rename rather than a list edit: gavel's own gate moved
+        // with the name, so the project it wrote is one `synqt check` accepts.
+        check(!/<user>/.test(config) && !/scope:\s*user\b/.test(config),
+              "and nothing is still gated on the scope that was renamed away");
+        // The one reference the editor cannot reach, because it is in a file the document
+        // does not carry: the mapping hook answers with a member of the enum generated from
+        // this list, so a renamed scope renames the member it names.
+        const hook = await fsp.readFile(path.join(project, "web/edge/identity/map.qml"),
+                                        "utf8");
+        check(hook.includes("Scope.Value.Bidder") && !hook.includes("Scope.Value.User"),
+              `the mapping hook answers with the renamed member:\n${hook}`);
+        check(problems.length === 0,
+              `the page reported no errors, and said: ${problems.join(" | ")}`);
+    } finally {
+        await browser.close();
+        proc.kill("SIGKILL");
+    }
+}
+
 async function part(run) {
     try {
         await run();
@@ -1614,6 +1690,7 @@ await part(theCopyOnTheSite);
 await part(theProjectALinkHandsYou);
 await part(theFrontThatSplitsCallers);
 await part(typingIntoTheProject);
+await part(theProjectsScopes);
 
 console.log("");
 if (failures.length) {

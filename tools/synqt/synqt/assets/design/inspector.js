@@ -1330,8 +1330,155 @@ function linePanel(design, link, consumer, actions) {
 }
 
 // Fill `host` with the panel for whatever is selected. `actions` is how the panel reports
-// back: `changed` redraws, `rebuild` redraws and builds this panel again, `rename` carries a
+// back. `changed` redraws, `rebuild` redraws and builds this panel again, `rename` carries a
 // new name to the selection, and the two removers take the selection with them.
+
+// The project's scope vocabulary
+
+// Every place in the document that names a scope, so a rename is a rename and not a rename
+// plus four dangling references. The panel below rewrites all of them in one gesture, and
+// this is the list of what "all of them" is: the gate on a point, the gate on one member of
+// its contract, which entity a front hands each scope to, which bundle an edge serves each
+// scope, and the default a caller with no session holds.
+function renameScope(design, before, after) {
+    for (const entity of design.entities || []) {
+        if (!entity.bundles || typeof entity.bundles !== "object") {
+            continue;
+        }
+        if (Object.prototype.hasOwnProperty.call(entity.bundles, before)) {
+            // Rebuilt rather than patched, because the delivery gate is read in order and a
+            // key put back at the end is a scope served last.
+            entity.bundles = Object.fromEntries(Object.entries(entity.bundles)
+                .map(([scope, bundle]) => [scope === before ? after : scope, bundle]));
+        }
+    }
+    for (const link of design.links || []) {
+        if (link.scope === before) {
+            link.scope = after;
+        }
+        for (const member of link.members || []) {
+            if (member.scope === before) {
+                member.scope = after;
+            }
+        }
+        if (link.behind && typeof link.behind === "object"
+                && Object.prototype.hasOwnProperty.call(link.behind, before)) {
+            link.behind = Object.fromEntries(Object.entries(link.behind)
+                .map(([scope, name]) => [scope === before ? after : scope, name]));
+        }
+    }
+    if (design.scopeDefault === before) {
+        design.scopeDefault = after;
+    }
+}
+
+// Everywhere a scope is still named, for a scope somebody is about to remove. Removing one
+// out from under a gate leaves a project `synqt check` refuses, and the panel says where
+// rather than refusing with nothing to go on.
+function usesOfScope(design, scope) {
+    const found = [];
+    for (const entity of design.entities || []) {
+        if (entity.bundles && typeof entity.bundles === "object"
+                && Object.prototype.hasOwnProperty.call(entity.bundles, scope)) {
+            found.push(`${entity.name} serves it a bundle`);
+        }
+    }
+    for (const link of design.links || []) {
+        if (link.scope === scope) {
+            found.push(`${link.owner}'s connect point is gated on it`);
+        }
+        for (const member of link.members || []) {
+            if (member.scope === scope) {
+                found.push(`${link.owner}.${member.name} is gated on it`);
+            }
+        }
+        if (link.behind && link.behind[scope]) {
+            found.push(`${link.owner} hands it to ${link.behind[scope]}`);
+        }
+    }
+    return found;
+}
+
+function scopesPanel(design, actions) {
+    // The list as it is drawn, and the list as it is *now*, which are two different things
+    // while a name is being typed. Renaming does not rebuild the panel, because rebuilding
+    // it under the caret would take the caret with it. So every handler below reads the
+    // current list at the moment it runs rather than the one this render closed over. That
+    // is not a detail. Closing over the drawn list meant pressing Add after typing a new
+    // name wrote the old name back, silently undoing the rename.
+    const scopes = scopesOf(design).slice();
+    const write = (next) => {
+        design.scopes = next;
+        actions.rebuild();
+    };
+    const rows = tag("div", {class: "scopes"});
+    scopes.forEach((scope, index) => {
+        const row = tag("div", {class: "scopes__row"});
+        // Renaming is typed in place and carried everywhere the name is used, in the same
+        // edit. A rename that only changed the list would leave every gate pointing at a
+        // scope the project no longer declares.
+        const name = text(scope, (value) => {
+            const wanted = value.trim();
+            const current = scopesOf(design).slice();
+            if (!wanted || current.includes(wanted)) {
+                return;  // empty is a name half-typed; a duplicate is not a rename
+            }
+            renameScope(design, current[index], wanted);
+            current[index] = wanted;
+            design.scopes = current;
+            actions.changed();
+        }, "scope");
+        row.append(name);
+        // The order is the authority ranking under `scopes.hierarchical`, and since the
+        // mapping hook answers with a generated enum it is that enum's member values too, so
+        // moving a row renumbers the vocabulary. That is why the arrows are here and not
+        // an add and a remove.
+        const up = tag("button", {type: "button", class: "icon-button",
+                                  title: "Rank this scope lower"}, "^");
+        up.disabled = index === 0;
+        up.addEventListener("click", () => {
+            const next = scopesOf(design).slice();
+            next.splice(index - 1, 0, next.splice(index, 1)[0]);
+            write(next);
+        });
+        const down = tag("button", {type: "button", class: "icon-button",
+                                    title: "Rank this scope higher"}, "v");
+        down.disabled = index === scopes.length - 1;
+        down.addEventListener("click", () => {
+            const next = scopesOf(design).slice();
+            next.splice(index + 1, 0, next.splice(index, 1)[0]);
+            write(next);
+        });
+        row.append(up, down);
+        const used = usesOfScope(design, scope);
+        const remove = remover(used.length
+            ? `Still in use: ${used.join("; ")}`
+            : "Remove this scope", () => {
+            if (used.length) {
+                return;  // named on the button, so the answer is on the thing pressed
+            }
+            write(scopesOf(design).filter((each) => each !== scopesOf(design)[index]));
+        });
+        remove.disabled = used.length > 0 || scopes.length <= 1;
+        row.append(remove);
+        rows.append(row);
+    });
+    return section("Scopes",
+                   "What a session can be. The order is the ranking: a higher scope "
+                   + "satisfies a lower one, and it is also what the mapping hook's "
+                   + "generated enum counts from, so moving a row renumbers the vocabulary. "
+                   + "The first is what a caller with no session holds.",
+                   rows,
+                   adder("Add scope", () => {
+                       const current = scopesOf(design).slice();
+                       let name = "scope";
+                       for (let suffix = 2; current.includes(name); suffix += 1) {
+                           name = `scope${suffix}`;
+                       }
+                       write(current.concat([name]));
+                   }));
+}
+
 export function inspect(host, design, selected, actions) {
     // A row opened on one selection says nothing about the next one, so a change of selection
     // closes everything before the new panel is built.
@@ -1358,6 +1505,10 @@ export function inspect(host, design, selected, actions) {
         }
         empty.append(how);
         host.append(empty);
+        // And the one setting that belongs to the project rather than to anything on the
+        // canvas. It lives here because there is nowhere else it could. A scope is not an
+        // entity and not a link, and every gate in the panel above chooses from this list.
+        host.append(scopesPanel(design, actions));
         return;
     }
     if (selected.kind === "entity") {

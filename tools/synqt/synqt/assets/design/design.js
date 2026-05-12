@@ -2025,6 +2025,10 @@ function adopt(design) {
         // project that never said otherwise. Carried, because a project may name its own and
         // a document that dropped them wrote them out of the file on the way back.
         scopes: design.scopes || [],
+        // And which of them a caller with no session holds, where the project named one
+        // that is not the first. Carried for the same reason the list is. A key the editor
+        // writes and cannot read is a key it overwrites.
+        scopeDefault: design.scopeDefault || "",
         sourceHash: design.sourceHash || "",
         entities: design.entities || [],
         // Without a `contract:` on any of them: it is the framework's own field, for the

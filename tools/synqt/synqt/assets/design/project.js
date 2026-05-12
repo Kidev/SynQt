@@ -29,7 +29,7 @@
 import { withoutCommentary } from "./commentary.js";
 import { declarationsFor, reroot, rootTypeSpan, withShared, withoutShared }
     from "./source.js";
-import { entityType, isFront, scopesOf } from "./rules.js";
+import { entityType, isFront, scopeDefaultOf, scopesOf } from "./rules.js";
 import { MONITOR_SCAFFOLD } from "./monitor.js";
 
 // The Qt this project pins, matching synqt/toolchain.py. The suite asserts the two agree,
@@ -248,7 +248,11 @@ export function renderYaml(design) {
         // drawn correctly.
         `  order: ${listing(scopesOf(design))}`,
         "  hierarchical: true",
-        `  default: ${scalar(scopesOf(design)[0] || "anonymous")}`,
+        // The scope a caller with no session holds. The first of the order in every project
+        // that has not said otherwise, and the one it named when it did: the document
+        // carries that name (designdoc.scope_default_of), because a default this writer
+        // could not read is one it would quietly replace on the next export.
+        `  default: ${scalar(scopeDefaultOf(design))}`,
         "",
         "security:",
         "  allowed_origins: [self]",

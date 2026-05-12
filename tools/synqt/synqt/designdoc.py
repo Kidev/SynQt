@@ -351,6 +351,21 @@ def scopes_of(config: Dict[str, Any]) -> List[str]:
     return [str(scope) for scope in order if str(scope)] if isinstance(order, list) else []
 
 
+def scope_default_of(config: Dict[str, Any]) -> str:
+    """The scope a caller with no session holds, when the project names one that is not the
+    first of its order.
+
+    Carried on the document for the reason every other carried key is: the editor writes
+    `scopes:` from the document, so a default it cannot read is a default it would overwrite
+    with the first scope in the list. Empty when the project agrees with that rule anyway,
+    which keeps the document quiet about a fact nobody has an opinion on.
+    """
+    declared = config.get("scopes")
+    named = str(declared.get("default") or "") if isinstance(declared, dict) else ""
+    order = scopes_of(config)
+    return named if (named and order and named != order[0]) else ""
+
+
 def entities_of(config: Dict[str, Any], *,
                 places: Optional[Dict[str, Dict[str, Any]]] = None) -> List[Dict[str, Any]]:
     """The entity records a configuration describes, each with a place on the canvas.
@@ -392,7 +407,7 @@ def read(project_dir: os.PathLike[str] | str, *,
         # and typing into it wrote nowhere.
         if appmodel.entity_type(entity) == "relational":
             entity["schema"] = _read_text(root / appmodel.entity_dir(entity) / "schema.sql")
-    return {
+    document = {
         "version": VERSION,
         "project": name,
         "scopes": scopes_of(config),
@@ -401,6 +416,13 @@ def read(project_dir: os.PathLike[str] | str, *,
         "links": [_link(point, root, seats, by_name, config)
                   for point in appmodel.connect_points(config)],
     }
+    # Only where the project has an opinion. A default that is the first of the order is
+    # what every reader assumes anyway, and a key carrying "" on every document would be
+    # noise in the one file this shape is committed to (assets/design/examples.json).
+    settled = scope_default_of(config)
+    if settled:
+        document["scopeDefault"] = settled
+    return document
 
 
 # writing back
@@ -544,4 +566,31 @@ def to_config(document: Dict[str, Any], *,
                           for entity in document.get("entities", [])]
     config["connect_points"] = [_link_config(link, points.get(link["owner"], {}))
                                 for link in document.get("links", [])]
+    _write_scopes(config, document)
     return config
+
+
+def _write_scopes(config: Dict[str, Any], document: Dict[str, Any]) -> None:
+    """Put the document's scope vocabulary into the configuration.
+
+    The order is the project's authority ranking under `scopes.hierarchical`, and since the
+    mapping hook started answering with a generated enum it is also that enum's member
+    values, so a reorder renumbers the vocabulary. That is a real edit and the editor is
+    allowed to make it. What it must not do is make it silently against a default that is no
+    longer there, which is why the default is checked against the order it lands beside.
+    """
+    order = [str(scope) for scope in document.get("scopes") or [] if str(scope)]
+    if not order:
+        return  # the document says nothing, so neither does the file
+    declared = dict(config.get("scopes") or {})
+    declared["order"] = order
+    wanted = str(document.get("scopeDefault") or "")
+    if wanted in order:
+        declared["default"] = wanted
+    elif str(declared.get("default") or "") not in order:
+        # Renamed or removed out from under it. The first scope is the one a caller with no
+        # session holds in every project that has not said otherwise, so it is the answer
+        # here rather than a refusal. The alternative is a project the editor wrote and
+        # `synqt check` refuses.
+        declared["default"] = order[0]
+    config["scopes"] = declared

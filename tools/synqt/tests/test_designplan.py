@@ -692,3 +692,117 @@ def test_bundles_is_a_modelled_entity_field():
     # An entity field the document does not model is one the editor drops on the next
     # save. For `bundles:` that would silently hand a private bundle to the public.
     assert "bundles" in designplan._ENTITY_FIELDS
+
+
+def test_a_scope_added_in_the_editor_reaches_the_file(tmp_path):
+    """The vocabulary is editable now, because it has to be, since the mapping hook started
+    answering with a generated enum, `scopes.order` is that enum's members, and a project
+    whose scopes can only be typed into synqt.yaml is one the editor cannot finish."""
+    project = _copy(tmp_path, "gavel")
+    document = designdoc.read(project)
+    document["scopes"] = list(document["scopes"]) + ["auditor"]
+    plan = designplan.compute(project, document)
+    assert plan.ok
+    assert [change.path for change in plan.changes] == ["synqt.yaml"]
+    written = yaml.safe_load(plan.changes[0].after)
+    assert written["scopes"]["order"] == ["anonymous", "user", "moderator", "admin",
+                                          "auditor"]
+    # And it is a line in the change set, not a silent rewrite. A reorder renumbers every
+    # member of the generated enum, so it is exactly the kind of edit somebody should see
+    # named before approving it.
+    assert "scopes are" in plan.changes[0].reason
+
+
+def test_reordering_scopes_is_carried_because_the_order_is_the_ranking(tmp_path):
+    project = _copy(tmp_path, "gavel")
+    document = designdoc.read(project)
+    document["scopes"] = ["anonymous", "user", "admin", "moderator"]
+    plan = designplan.compute(project, document)
+    written = yaml.safe_load(plan.changes[0].after)
+    assert written["scopes"]["order"] == ["anonymous", "user", "admin", "moderator"]
+    # The default was already the first scope and still is, so nothing about it moved.
+    assert written["scopes"]["default"] == "anonymous"
+
+
+def test_renaming_the_default_scope_moves_the_default_with_it(tmp_path):
+    """Otherwise the editor writes a project `synqt check` refuses: `scopes.default` has to
+    name one of the declared scopes, and a rename that left it behind would not."""
+    project = _copy(tmp_path, "gavel")
+    document = designdoc.read(project)
+    document["scopes"] = ["visitor", "user", "moderator", "admin"]
+    plan = designplan.compute(project, document)
+    written = yaml.safe_load(plan.changes[0].after)
+    assert written["scopes"]["default"] == "visitor"
+
+
+def test_a_default_that_is_not_the_first_scope_survives_a_round_trip(tmp_path):
+    """A project may hold an unusual default, and reading a document and writing it back is
+    the one operation that must never be an edit."""
+    project = _copy(tmp_path, "gavel")
+    config = yaml.safe_load((project / "synqt.yaml").read_text())
+    config["scopes"]["default"] = "user"
+    (project / "synqt.yaml").write_text(yaml.safe_dump(config, sort_keys=False))
+    document = designdoc.read(project)
+    assert document["scopeDefault"] == "user"
+    assert designplan.compute(project, document).changes == ()
+
+
+def test_renaming_a_scope_carries_it_into_the_mapping_hook(tmp_path):
+    """The hook answers with a member of the enum generated from `scopes.order`, so renaming
+    a scope renames the member it names. Nothing else would: the enum is generated at build
+    time, and the hook is the one hand-written file that spells a member out."""
+    project = _copy(tmp_path, "gavel")
+    document = designdoc.read(project)
+    document["scopes"] = ["anonymous", "bidder", "moderator", "admin"]
+    # The gates the editor carries with the name in the same gesture (inspector.js's
+    # renameScope), written here because the document is the interface: this function is
+    # about the one reference the editor cannot reach, which is the hook's own file.
+    for link in document["links"]:
+        for member in link.get("members") or []:
+            if member.get("scope") == "user":
+                member["scope"] = "bidder"
+        if link.get("scope") == "user":
+            link["scope"] = "bidder"
+    plan = designplan.compute(project, document)
+    hook = [change for change in plan.changes if change.path.endswith("map.qml")]
+    assert hook, [change.path for change in plan.changes]
+    assert "Scope.Value.Bidder" in hook[0].after
+    assert "Scope.Value.User" not in hook[0].after
+    # And the result is a project that passes, which is the point: before this the editor
+    # offered a rename whose change set could never be applied.
+    assert plan.ok, plan.findings
+
+
+def test_adding_and_removing_are_not_read_as_a_rename(tmp_path):
+    """A document is a snapshot, not a list of gestures, so a rename is inferred. It is only
+    inferred where it can be read honestly: one name left and one arrived. Two left and one
+    arrived is an add and a remove wearing a rename's shape."""
+    # The row at index 1 was typed over.
+    assert designplan._scope_renames(["a", "b"], ["a", "c"]) == [("b", "c")]
+    # Nothing was typed over: a name arrived at an index the old list never had.
+    assert designplan._scope_renames(["a", "b"], ["a", "b", "c"]) == []
+    # Renaming one row and adding another in one edit is both, and the rename is still the
+    # row that was typed over. This is the shape the panel produces most often.
+    assert designplan._scope_renames(["a", "b"], ["a", "c", "d"]) == [("b", "c")]
+    # A reorder is not a rename: both names are still in both lists.
+    assert designplan._scope_renames(["a", "b"], ["b", "a"]) == []
+
+
+def test_a_project_with_no_scopes_block_gets_a_whole_one(tmp_path):
+    """The editor draws the four a scaffold starts with for a project that declares none, so
+    editing that list has to write a section rather than a key under a parent that is not
+    there. Raising on the missing parent would take the whole change set with it."""
+    project = _copy(tmp_path, "gavel")
+    config = yaml.safe_load((project / "synqt.yaml").read_text())
+    del config["scopes"]
+    (project / "synqt.yaml").write_text(yaml.safe_dump(config, sort_keys=False))
+    document = designdoc.read(project)
+    assert document["scopes"] == []
+    document["scopes"] = ["anonymous", "user"]
+    plan = designplan.compute(project, document)
+    written = yaml.safe_load(
+        [change for change in plan.changes if change.path == "synqt.yaml"][0].after)
+    # The two settings that belong beside the order, because a section holding an order
+    # alone is one somebody has to finish by hand.
+    assert written["scopes"] == {"order": ["anonymous", "user"], "hierarchical": True,
+                                 "default": "anonymous"}

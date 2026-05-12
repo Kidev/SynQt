@@ -20,6 +20,7 @@ from __future__ import annotations
 import difflib
 import hashlib
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -29,7 +30,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 from . import (addcontract, addentity, appmodel, check as checkmod, config as configmod,
                monitorscaffold)
-from . import designdoc, newproject, qmlcomments, yamledit
+from . import designdoc, newproject, qmlcomments, scopegen, yamledit
 
 # Copied into the working tree and compared afterwards: everything else is build output, a
 # repository, or the editor's own layout file, and none of it is the project's source.
@@ -214,6 +215,7 @@ def _apply(work: Path, current: Dict[str, Any], wanted: Dict[str, Any],
            reasons: Dict[str, List[str]], base: Dict[str, Any]) -> Set[str]:
     """Make the working copy look like `wanted`. Returns the directories taken out whole."""
     _apply_project(work, current, wanted, reasons)
+    _apply_scopes(work, current, wanted, reasons)
     removed = _apply_entities(work, current, wanted, reasons)
     _apply_links(work, current, wanted, reasons, base)
     return removed
@@ -234,6 +236,113 @@ def _apply_project(work: Path, current: Dict[str, Any], wanted: Dict[str, Any],
         return
     _edit_config(work, lambda text: yamledit.set_scalar(text, "project.name", now))
     _note(reasons, "synqt.yaml", f"the project is called '{now}' now")
+
+
+def _apply_scopes(work: Path, current: Dict[str, Any], wanted: Dict[str, Any],
+                  reasons: Dict[str, List[str]]) -> None:
+    """Carry an edited scope vocabulary into `scopes:`.
+
+    The order is load-bearing twice over: it is the authority ranking under
+    `scopes.hierarchical`, and since the mapping hook started answering with a generated
+    enum it is that enum's member values, so a reorder renumbers the vocabulary and every
+    hook is regenerated against the new numbers. That is why the editor is allowed to make
+    this edit at all, and why it is worth a line of its own in the change set.
+
+    A rename arrives here already carried into the links, the members and the bundles that
+    named it, because the document is what the editor rewrote; this writes the list. What it
+    also writes, and only when it has to, is `default:`, because a default that was renamed
+    out from under the project is a project `synqt check` refuses.
+    """
+    was = [str(scope) for scope in current.get("scopes") or [] if str(scope)]
+    now = [str(scope) for scope in wanted.get("scopes") or [] if str(scope)]
+    if not now or now == was:
+        return
+    declared = configmod.load(work).get("scopes")
+    if not isinstance(declared, dict):
+        # A project that never wrote the section. Written whole rather than one key at a
+        # time, because there is no parent for the keys to go under yet, and with the two
+        # settings that belong beside the order: a `scopes:` holding nothing but an order is
+        # a section somebody has to finish by hand.
+        _edit_config(work, lambda text: yamledit.set_scalar(text, "scopes", {
+            "order": now, "hierarchical": True, "default": now[0]}))
+        _note(reasons, "synqt.yaml", "the project declares its scopes now: " + ", ".join(now))
+        _rename_in_hook(work, was, now, reasons)
+        return
+
+    _edit_config(work, lambda text: yamledit.set_scalar(text, "scopes.order", now))
+    _note(reasons, "synqt.yaml", "the scopes are " + ", ".join(now) + " now")
+
+    _rename_in_hook(work, was, now, reasons)
+
+    before = str(current.get("scopeDefault") or (was[0] if was else ""))
+    after = str(wanted.get("scopeDefault") or "")
+    if after and after in now:
+        settled = after
+    elif before in now:
+        settled = before
+    else:
+        settled = now[0]
+    if settled != before:
+        _edit_config(work, lambda text: yamledit.set_scalar(text, "scopes.default", settled))
+        _note(reasons, "synqt.yaml",
+              f"a caller with no session holds '{settled}' now")
+
+
+def _scope_renames(was: List[str], now: List[str]) -> List[Tuple[str, str]]:
+    """The renames one edit of the vocabulary implies, paired in the order they appear.
+
+    A design document is a snapshot and not a list of gestures, so a rename is something to
+    read out of two lists rather than something the editor said. What can be read honestly
+    is position: the panel renames a scope by typing over the row it is on, so a name that
+    left and a name that arrived *at the same index* are that row, retyped. A name that
+    arrived at an index the old list never had is an add, and a reorder pairs nothing at all
+    because both names are still in both lists.
+
+    Deliberately conservative. A rename and a reorder in one edit pairs nothing, and the
+    plan is then refused by `synqt check` naming the gate that no longer resolves, which is
+    a worse experience than this handles and a much better one than a file rewritten on a
+    coincidence.
+    """
+    renames: List[Tuple[str, str]] = []
+    for index in range(min(len(was), len(now))):
+        before, after = was[index], now[index]
+        if before != after and before not in now and after not in was:
+            renames.append((before, after))
+    return renames
+
+
+def _rename_in_hook(work: Path, was: List[str], now: List[str],
+                    reasons: Dict[str, List[str]]) -> None:
+    """Carry a scope rename into the mapping hook that answers with it.
+
+    The hook returns a member of the generated `Scope.Value` enum, whose members are the
+    project's scopes, so renaming a scope renames the member the hook names. Nothing else
+    would: the enum itself is generated at build time from `scopes.order`, and the hook is
+    the one hand-written file that spells a member out. Without this the editor writes a
+    project `synqt check` refuses on a line the editor cannot show, which is the worst of
+    the three places to be refused.
+    """
+    renames = _scope_renames(was, now)
+    if not renames:
+        return
+    config = configmod.load(work)
+    hook = appmodel.identity_mapping_hook(config)
+    if not hook:
+        return
+    target = work / hook
+    if not target.exists():
+        return
+    text = target.read_text()
+    edited = text
+    for before, after in renames:
+        # Word-bounded on the member, so `Scope.Value.User` is not touched by a rename of
+        # `use`, and the qualified form only: a bare `User` in that file is somebody's own
+        # identifier and not this enum.
+        edited = re.sub(rf"\bScope\.Value\.{re.escape(scopegen.member_name(before))}\b",
+                        f"Scope.Value.{scopegen.member_name(after)}", edited)
+    if edited != text:
+        _write(target, edited)
+        _note(reasons, hook, "the scope it answers with was renamed")
 
 
 def _by_name(items: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:

@@ -200,15 +200,36 @@ the one it exports, and deleting one takes that point with it.
 The two arrows at the head of the buttons on the right of the bar go back over what you have
 done and forward again, and so do <kbd>Ctrl</kbd>+<kbd>Z</kbd> and
 <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd>.
-Everything an edit changes is in the design, so a step back is the whole design as it was:
-undoing a delete brings the entity back with the lines that went with it. A drag is one step
+Everything an edit changes is in the design, so a step back is the whole design as it was.
+Undoing a delete brings the entity back with the lines that went with it. A drag is one step
 however many times the pointer moved, and typing into a file is one step for that file rather
 than one per letter. With the caret in the file pane those keys are the pane's own undo, over
 the text.
 
+## The scopes a project declares
+
+With nothing picked, the panel is the project's scope vocabulary, one row per scope, typed
+in place to rename it, the two arrows to move it, and an adder under the list. It lives
+there because a scope belongs to no entity and no link, and every gate in every other panel
+chooses from this list.
+
+The order matters twice. It is the authority ranking under `scopes.hierarchical`, so a
+scope satisfies every scope below it. And it is what the mapping hook's generated
+`Scope.Value` enum counts from, so moving a row renumbers the vocabulary and every hook is
+regenerated against the new numbers (see
+[the identity mapping hook](authentication.md#the-identity-mapping-hook)). The first scope is
+what a caller with no session holds.
+
+Renaming carries the name everywhere it is used, in the same edit: the gate on a connect
+point, the gate on one member of its contract, which entity a front hands each scope to,
+which bundle an edge serves each scope, and the member the mapping hook answers with. That
+last one is a file the drawing does not hold, so it is rewritten when the change set is
+applied, and it appears there as a change of its own. A scope that is still named somewhere
+cannot be removed, and the remover says where it is still named.
+
 ## The same project as text
 
-The pane under the canvas is the project this drawing is, open from the start: `synqt.yaml`,
+The pane under the canvas is the project this drawing is, open from the start, `synqt.yaml`,
 which carries what crosses every connect point, the QML of every entity under its own
 directory, and a `schema.sql` beside every relational entity. It is rebuilt from the drawing on every edit, so it can never be showing an older
 design than the canvas above it. The chevron on its bar collapses it to a strip along the

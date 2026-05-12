@@ -1835,7 +1835,33 @@ h2 {
   background: var(--accent);
 }
 
-/* The entity's own glyph beside its name: the same mark the canvas draws it with, so the
+/* The project's scope vocabulary, in the panel with nothing picked. One row per scope: the
+   name typed in place, the two arrows that move it in the ranking, and the remover. A grid
+   rather than a flex row so the three controls line up down the column however long a scope
+   name is. A name is the only part that should take the slack. */
+.scopes__row {
+  display: grid;
+  grid-template-columns: 1fr auto auto auto;
+  gap: .25rem;
+  align-items: center;
+  margin-bottom: .35rem;
+}
+
+/* Only the remover is destructive, so only it wears the destructive hover the shared rule
+   gives every icon button. The arrows reorder, which is an edit somebody may want to make
+   twice in a row. */
+.scopes__row .icon-button:not(:last-child):hover {
+  color: var(--ink);
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, var(--panel-high));
+}
+
+.scopes__row .icon-button:disabled {
+  opacity: .4;
+  cursor: default;
+}
+
+/* The entity's own glyph beside its name. The same mark the canvas draws it with, so the
    panel and the drawing are recognisably about the same thing. */
 .inspector__head {
   display: flex;

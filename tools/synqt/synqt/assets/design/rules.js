@@ -40,6 +40,16 @@ export function scopesOf(design) {
     return named.length ? named : SCOPES;
 }
 
+// The scope a caller with no session holds. The one the project named, where it named one
+// that is not the first of its order, and the first otherwise. Read the same way
+// designdoc.scope_default_of writes it, so the pane and the disk agree about a default
+// nobody typed.
+export function scopeDefaultOf(design) {
+    const scopes = scopesOf(design);
+    const named = design && design.scopeDefault ? String(design.scopeDefault) : "";
+    return scopes.includes(named) ? named : (scopes[0] || "anonymous");
+}
+
 // Which entity serves each scope on a point that is a front, `{}` when it is not one. The
 // same reading appmodel.behind does, kept here so the canvas, the panel and the checker
 // all decide what a front is the same way.
