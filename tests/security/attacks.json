@@ -12,7 +12,12 @@
     "The rule for adding one: a defect found by review or by report gets a test that fails",
     "without the fix, and an entry here. Proving the test catches the bug is done by reverting",
     "the fix and watching it go red; the entry is what stops that proof from being a thing",
-    "somebody did once."
+    "somebody did once.",
+    "",
+    "Adding one is a text edit, not a re-serialisation. This file is written by hand at one",
+    "space of indent with long single-line strings, and json.dump would reflow all of it: an",
+    "entry appended that way arrives as a 750-line diff nobody can review, which is how a",
+    "one-entry change stops being reviewable."
   ],
   "attacks": [
     {
