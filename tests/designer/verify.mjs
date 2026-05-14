@@ -1621,9 +1621,9 @@ async function theProjectsScopes() {
         check(await rows.count() === 4,
               "the four scopes gavel declares are each a row to edit");
 
-        // Renaming is typed in place, and the reason it is a gesture at all is that it has
-        // to be carried everywhere the name is used in the same edit. gavel gates its
-        // `place` slot on `user`, so renaming that scope has to move the gate with it.
+        // Renaming is typed in place, and it renames the vocabulary and nothing else. gavel
+        // gates its `place` slot on `user`, so renaming that scope leaves the gate naming a
+        // scope the project no longer declares, and the sheet is where that is said.
         const second = rows.nth(1).locator("input[type=text]");
         check(await second.inputValue() === "user", "the second scope is 'user'");
         await second.fill("bidder");
@@ -1639,9 +1639,26 @@ async function theProjectsScopes() {
         const diff = await page.locator("#sheet-diff").textContent();
         check(diff.includes("synqt.yaml"),
               "editing the vocabulary is a change to synqt.yaml and to nothing else");
+        check(!/map\.qml/.test(diff),
+              `and not to the mapping hook, which nothing here guessed at:\n${diff}`);
 
-        // Named here rather than left to a timeout: Apply is refused while `synqt check`
-        // has anything to say about the result, and the sheet is where it says it.
+        // The refusal, which is the whole design. Nothing infers that a row was typed over
+        // rather than one scope removed and another added, so the uses keep naming `user`
+        // and every one of them is named here before there is anything to apply.
+        const refused = await page.locator("#sheet-findings").textContent();
+        check(/error:/.test(refused) && refused.includes("'user'"),
+              `the sheet names what is still gated on the scope that was renamed away, `
+              + `and said: ${refused}`);
+        check(await page.locator("#apply").isDisabled(),
+              "and Apply is refused while it is");
+
+        // Typing the name back is the way out, and it puts the project back where it was, so
+        // what is left to apply is the added scope alone.
+        await page.locator("#sheet-close").click();
+        await second.fill("user");
+        await page.waitForTimeout(150);
+        await page.locator("#review").click();
+        await page.waitForSelector("#sheet:not([hidden])");
         const findings = await page.locator("#sheet-findings").textContent();
         check(!/error:/.test(findings || ""),
               `the change set is one the project accepts, and said: ${findings}`);
@@ -1650,20 +1667,17 @@ async function theProjectsScopes() {
         await waitForHint(page, "Applied");
 
         const config = await fsp.readFile(path.join(project, "synqt.yaml"), "utf8");
-        check(/order:\s*\[anonymous, bidder, moderator, admin, scope\]/.test(config),
-              `the renamed scope and the new one are in the order:\n${config.split("\n")
+        check(/order:\s*\[anonymous, user, moderator, admin, scope\]/.test(config),
+              `the added scope is in the order:\n${config.split("\n")
                   .filter((line) => line.includes("order:")).join("\n")}`);
-        // The half that makes it a rename rather than a list edit: gavel's own gate moved
-        // with the name, so the project it wrote is one `synqt check` accepts.
-        check(!/<user>/.test(config) && !/scope:\s*user\b/.test(config),
-              "and nothing is still gated on the scope that was renamed away");
-        // The one reference the editor cannot reach, because it is in a file the document
-        // does not carry: the mapping hook answers with a member of the enum generated from
-        // this list, so a renamed scope renames the member it names.
+        check(/<user>/.test(config),
+              "and the gate that was there all along is untouched");
+        // The file the editor never reaches, and now never tries to. The mapping hook is a
+        // hand-written file, and an edit of the vocabulary is not an edit of it.
         const hook = await fsp.readFile(path.join(project, "web/edge/identity/map.qml"),
                                         "utf8");
-        check(hook.includes("Scope.Value.Bidder") && !hook.includes("Scope.Value.User"),
-              `the mapping hook answers with the renamed member:\n${hook}`);
+        check(hook.includes("Scope.User") && !hook.includes("Bidder"),
+              `the mapping hook answers with the member it always did:\n${hook}`);
         check(problems.length === 0,
               `the page reported no errors, and said: ${problems.join(" | ")}`);
     } finally {

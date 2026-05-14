@@ -1335,43 +1335,6 @@ function linePanel(design, link, consumer, actions) {
 
 // The project's scope vocabulary
 
-// Every place in the document that names a scope, so a rename is a rename and not a rename
-// plus four dangling references. The panel below rewrites all of them in one gesture, and
-// this is the list of what "all of them" is: the gate on a point, the gate on one member of
-// its contract, which entity a front hands each scope to, which bundle an edge serves each
-// scope, and the default a caller with no session holds.
-function renameScope(design, before, after) {
-    for (const entity of design.entities || []) {
-        if (!entity.bundles || typeof entity.bundles !== "object") {
-            continue;
-        }
-        if (Object.prototype.hasOwnProperty.call(entity.bundles, before)) {
-            // Rebuilt rather than patched, because the delivery gate is read in order and a
-            // key put back at the end is a scope served last.
-            entity.bundles = Object.fromEntries(Object.entries(entity.bundles)
-                .map(([scope, bundle]) => [scope === before ? after : scope, bundle]));
-        }
-    }
-    for (const link of design.links || []) {
-        if (link.scope === before) {
-            link.scope = after;
-        }
-        for (const member of link.members || []) {
-            if (member.scope === before) {
-                member.scope = after;
-            }
-        }
-        if (link.behind && typeof link.behind === "object"
-                && Object.prototype.hasOwnProperty.call(link.behind, before)) {
-            link.behind = Object.fromEntries(Object.entries(link.behind)
-                .map(([scope, name]) => [scope === before ? after : scope, name]));
-        }
-    }
-    if (design.scopeDefault === before) {
-        design.scopeDefault = after;
-    }
-}
-
 // Everywhere a scope is still named, for a scope somebody is about to remove. Removing one
 // out from under a gate leaves a project `synqt check` refuses, and the panel says where
 // rather than refusing with nothing to go on.
@@ -1414,20 +1377,24 @@ function scopesPanel(design, actions) {
     const rows = tag("div", {class: "scopes"});
     scopes.forEach((scope, index) => {
         const row = tag("div", {class: "scopes__row"});
-        // Renaming is typed in place and carried everywhere the name is used, in the same
-        // edit. A rename that only changed the list would leave every gate pointing at a
-        // scope the project no longer declares.
+        // Renaming is typed in place and changes the vocabulary, nothing else. It does not
+        // go looking for the gates, the bundle keys or the mapping hook that named the old
+        // scope. Telling a rename from a removal and an addition means guessing from two
+        // snapshots of a list, and a guess that lands wrong edits a file nobody pointed at.
+        // So a rename leaves its uses where they are, and `synqt check` names each one on
+        // the change sheet before there is anything to apply.
         const name = text(scope, (value) => {
             const wanted = value.trim();
             const current = scopesOf(design).slice();
             if (!wanted || current.includes(wanted)) {
-                return;  // empty is a name half-typed; a duplicate is not a rename
+                return;  // empty is a name half-typed. A duplicate is not a rename
             }
-            renameScope(design, current[index], wanted);
             current[index] = wanted;
             design.scopes = current;
             actions.changed();
         }, "scope");
+        name.title = "Rename this scope. Anything gated on the old name keeps naming it, "
+            + "and the change sheet says so.";
         row.append(name);
         // The order is the authority ranking under `scopes.hierarchical`, and since the
         // mapping hook answers with a generated enum it is that enum's member values too, so
@@ -1467,7 +1434,9 @@ function scopesPanel(design, actions) {
                    "What a session can be. The order is the ranking: a higher scope "
                    + "satisfies a lower one, and it is also what the mapping hook's "
                    + "generated enum counts from, so moving a row renumbers the vocabulary. "
-                   + "The first is what a caller with no session holds.",
+                   + "The first is what a caller with no session holds. Renaming one renames "
+                   + "it here only: whatever was gated on the old name still names it, and "
+                   + "the change sheet refuses the plan until you say what it holds now.",
                    rows,
                    adder("Add scope", () => {
                        const current = scopesOf(design).slice();

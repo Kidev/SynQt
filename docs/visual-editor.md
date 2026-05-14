@@ -215,17 +215,24 @@ chooses from this list.
 
 The order matters twice. It is the authority ranking under `scopes.hierarchical`, so a
 scope satisfies every scope below it. And it is what the mapping hook's generated
-`Scope.Value` enum counts from, so moving a row renumbers the vocabulary and every hook is
+`Scope` enum counts from, so moving a row renumbers the vocabulary and every hook is
 regenerated against the new numbers (see
 [the identity mapping hook](authentication.md#the-identity-mapping-hook)). The first scope is
 what a caller with no session holds.
 
-Renaming carries the name everywhere it is used, in the same edit: the gate on a connect
-point, the gate on one member of its contract, which entity a front hands each scope to,
-which bundle an edge serves each scope, and the member the mapping hook answers with. That
-last one is a file the drawing does not hold, so it is rewritten when the change set is
-applied, and it appears there as a change of its own. A scope that is still named somewhere
-cannot be removed, and the remover says where it is still named.
+Renaming a scope renames it here and nowhere else. Whatever was gated on the old name keeps
+naming it, the gate on a connect point, the gate on one member of its contract, which entity
+a front hands each scope to, which bundle an edge serves each scope, and the member the
+mapping hook answers with. Each of those is then a scope the project does not declare, so
+[the change sheet](#nothing-is-written-until-you-have-read-it) names every one of them
+and Apply stays refused until you say what they hold now.
+
+That is deliberate. Working out that a row was typed over, rather than one scope removed and
+another added, means guessing it from the list before and the list after, and a guess that
+lands wrong edits a gate, or somebody's mapping hook, on a coincidence. A refusal that names
+the exact gate is something to act on; a file quietly rewritten is not. A scope that is still
+named somewhere cannot be removed either, and there the remover says where it is still named
+before you press it.
 
 ## The same project as text
 

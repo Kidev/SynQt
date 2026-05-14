@@ -724,9 +724,11 @@ def test_reordering_scopes_is_carried_because_the_order_is_the_ranking(tmp_path)
     assert written["scopes"]["default"] == "anonymous"
 
 
-def test_renaming_the_default_scope_moves_the_default_with_it(tmp_path):
-    """Otherwise the editor writes a project `synqt check` refuses: `scopes.default` has to
-    name one of the declared scopes, and a rename that left it behind would not."""
+def test_a_default_that_is_no_longer_declared_falls_back_to_the_first_scope(tmp_path):
+    """`scopes.default` has to name one of the declared scopes or the project will not even
+    configure, so this is the one reference an edit of the vocabulary does settle for you.
+    It settles it by rank and not by guessing at a rename. The first scope is the one a
+    caller with no session was always going to hold."""
     project = _copy(tmp_path, "gavel")
     document = designdoc.read(project)
     document["scopes"] = ["visitor", "user", "moderator", "admin"]
@@ -747,45 +749,29 @@ def test_a_default_that_is_not_the_first_scope_survives_a_round_trip(tmp_path):
     assert designplan.compute(project, document).changes == ()
 
 
-def test_renaming_a_scope_carries_it_into_the_mapping_hook(tmp_path):
-    """The hook answers with a member of the enum generated from `scopes.order`, so renaming
-    a scope renames the member it names. Nothing else would: the enum is generated at build
-    time, and the hook is the one hand-written file that spells a member out."""
+def test_renaming_a_scope_leaves_its_uses_alone_and_the_plan_says_so(tmp_path):
+    """A rename edits the vocabulary and nothing else.
+
+    Working out that a row was typed over, rather than one scope removed and another added,
+    means guessing it from two snapshots of a list, and a guess that lands wrong rewrites a
+    gate or a mapping hook nobody pointed at. So nothing guesses. The uses keep naming the
+    old scope, `synqt check` names every one of them, and the plan is refused until somebody
+    says what they hold now.
+    """
     project = _copy(tmp_path, "gavel")
     document = designdoc.read(project)
     document["scopes"] = ["anonymous", "bidder", "moderator", "admin"]
-    # The gates the editor carries with the name in the same gesture (inspector.js's
-    # renameScope), written here because the document is the interface: this function is
-    # about the one reference the editor cannot reach, which is the hook's own file.
-    for link in document["links"]:
-        for member in link.get("members") or []:
-            if member.get("scope") == "user":
-                member["scope"] = "bidder"
-        if link.get("scope") == "user":
-            link["scope"] = "bidder"
     plan = designplan.compute(project, document)
-    hook = [change for change in plan.changes if change.path.endswith("map.qml")]
-    assert hook, [change.path for change in plan.changes]
-    assert "Scope.Value.Bidder" in hook[0].after
-    assert "Scope.Value.User" not in hook[0].after
-    # And the result is a project that passes, which is the point: before this the editor
-    # offered a rename whose change set could never be applied.
-    assert plan.ok, plan.findings
-
-
-def test_adding_and_removing_are_not_read_as_a_rename(tmp_path):
-    """A document is a snapshot, not a list of gestures, so a rename is inferred. It is only
-    inferred where it can be read honestly: one name left and one arrived. Two left and one
-    arrived is an add and a remove wearing a rename's shape."""
-    # The row at index 1 was typed over.
-    assert designplan._scope_renames(["a", "b"], ["a", "c"]) == [("b", "c")]
-    # Nothing was typed over: a name arrived at an index the old list never had.
-    assert designplan._scope_renames(["a", "b"], ["a", "b", "c"]) == []
-    # Renaming one row and adding another in one edit is both, and the rename is still the
-    # row that was typed over. This is the shape the panel produces most often.
-    assert designplan._scope_renames(["a", "b"], ["a", "c", "d"]) == [("b", "c")]
-    # A reorder is not a rename: both names are still in both lists.
-    assert designplan._scope_renames(["a", "b"], ["b", "a"]) == []
+    # One file, and it is the vocabulary. Not the mapping hook, which still answers with the
+    # member it always did, and not the connect points it gates.
+    assert [change.path for change in plan.changes] == ["synqt.yaml"]
+    hook = (project / "web" / "edge" / "identity" / "map.qml").read_text()
+    assert "Scope.User" in hook
+    # And the refusal is the point of the exercise. It names what is dangling, on the sheet,
+    # before there is anything to apply.
+    assert not plan.ok
+    assert any("'user'" in finding and "scopes.order" in finding
+               for finding in plan.findings), plan.findings
 
 
 def test_a_project_with_no_scopes_block_gets_a_whole_one(tmp_path):
