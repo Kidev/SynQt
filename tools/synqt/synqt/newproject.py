@@ -220,6 +220,31 @@ def _write_qmlformat_settings(root: Path) -> None:
     (root / ".qmlformat.ini").write_text(QMLFORMAT_INI)
 
 
+def write_gitignore(root: Path) -> None:
+    """The .gitignore every SynQt project gets, scaffolded or copied from an example.
+
+    One function because there are two ways to start a project and only one right answer to
+    "what must never be committed". A copied example with no .gitignore at all leaves a
+    mesh private key and a machine's toolchain cache one `git add -A` away from a
+    repository.
+    """
+    (root / ".gitignore").write_text(
+        "# SynQt: never commit mesh private keys, the toolchain cache, or anything\n"
+        "# generated. generated/ holds the build and one main.cpp per entity, written\n"
+        "# from synqt.yaml every time. CMakeLists.txt at the root is yours and is kept;\n"
+        "# the presets beside it are regenerated with the toolchain they point at.\n"
+        f"{appmodel.GENERATED_DIR}/\nbuild/\n/CMakePresets.json\n/CMakeUserPresets.json\n"
+        "synqt/toolchain/\nsynqt/mesh/*.key\n"
+        # A copy of the container authority's certificate, written by `synqt docker ca`
+        # for you to trust on this machine. Public, so not a secret. Issued into a volume
+        # on this machine, so not the same file on anybody else's.
+        "synqt/mesh/dev/\nsynqt/mesh/docker-ca.crt\n.env\n"
+        # The people this machine's developer signs in as under
+        # `synqt dev --identity-picker`. One machine's convenience: committing it
+        # would put a colleague's address in the repository.
+        f"{devidentities.FILE_NAME}\n")
+
+
 def scaffold(parent_dir: os.PathLike[str] | str, name: str, *,
              auth: Optional[str] = None,
              starting: Optional[List[Tuple[str, str]]] = None) -> str:
@@ -259,21 +284,7 @@ def scaffold(parent_dir: os.PathLike[str] | str, name: str, *,
     for entity in entities:
         write_entity_qml(root, entity)
 
-    (root / ".gitignore").write_text(
-        "# SynQt: never commit mesh private keys, the toolchain cache, or anything\n"
-        "# generated. generated/ holds the build and one main.cpp per entity, written\n"
-        "# from synqt.yaml every time. CMakeLists.txt at the root is yours and is kept;\n"
-        "# the presets beside it are regenerated with the toolchain they point at.\n"
-        f"{appmodel.GENERATED_DIR}/\nbuild/\n/CMakePresets.json\n/CMakeUserPresets.json\n"
-        "synqt/toolchain/\nsynqt/mesh/*.key\n"
-        # A copy of the container authority's certificate, written by `synqt docker ca`
-        # for you to trust on this machine. Public, so not a secret; issued into a volume
-        # on this machine, so not the same file on anybody else's.
-        "synqt/mesh/dev/\nsynqt/mesh/docker-ca.crt\n.env\n"
-        # The people this machine's developer signs in as under
-        # `synqt dev --identity-picker`. One machine's convenience: committing it
-        # would put a colleague's address in the repository.
-        f"{devidentities.FILE_NAME}\n")
+    write_gitignore(root)
     (root / ".env.example").write_text("# Entity secrets (env: references), never committed\n")
     _write_qmlformat_settings(root)
 

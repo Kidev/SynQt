@@ -115,6 +115,8 @@ Rules the tooling enforces:
 
 ```cli
 synqt new <name>        # Scaffold a new project, every answer a flag.
+synqt new <name> --example <example>
+                        # ... starting from one of the systems SynQt ships, whole.
 synqt create            # Scaffold a new project, asking the questions instead.
 synqt design            # Edit the topology as a graph, in a browser on this machine.
 synqt dev               # Build the entities, start them locally, watch and hot reload
@@ -153,6 +155,7 @@ synqt add connect-point <owner> [--consumers a,b]
 synqt add provider <name> --family <fam>         # Scaffold a provider for a family interface.
 
 synqt providers         # List available providers per entity type.
+synqt examples          # List the example systems `synqt new --example` can copy.
 synqt mesh ...          # Certificate authority and entity certificates.
 synqt monitor operator add <name> [--password-stdin]
                         # Mint one operator credential for the monitoring console and
@@ -446,6 +449,43 @@ sits beside a real provider rather than replacing one, and it cannot run in a bu
 There is no flag on `synqt new` for a starting entity. An entity is something somebody
 named, so such a flag has to carry a name and a type at once, and the pair it took
 (`--blueprint orders:relational`) was a worse spelling of the command that already exists.
+
+### Starting from an example
+
+`--example` starts the project as a copy of one of the systems SynQt ships instead of as a
+client and an edge with nothing between them. `synqt examples` lists them:
+
+```cli
+synqt examples
+```
+
+```text
+  arena  the multiplayer tutorial, materialized
+  chat   a room everybody in it sees at once
+  gavel  the auction tutorial, materialized
+  stall  a storefront with edge-delivered campaigns
+
+Start one with: synqt new <directory> --example <name>
+```
+
+```cli
+synqt new shop --example stall
+cd shop
+synqt dev
+```
+
+An example is a whole project rather than a template, so the copy is an ordinary project
+from the moment it lands, and nothing downstream knows it started this way. Two things
+change on the way in. `project.name` becomes the directory you named, edited in place so
+the file keeps every comment it was written with. And the copy gets the two files the
+repository holds once for all of them: a `.gitignore`, and a `.env.example` naming each
+secret that project reads from its environment, which for an example that signs people in
+is the thing to place before the first run. Nothing belonging to the machine it was copied
+from comes with it: no build tree, no `generated/`, no user preset, no `.env`, no
+certificates.
+
+`--example` and `--auth` cannot be used together. An example has already decided whether it
+signs people in. Copy it, then run `synqt add auth <provider>` to change that.
 
 `synqt create` asks the same things out loud and then calls the same scaffolder:
 

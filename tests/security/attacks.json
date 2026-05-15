@@ -754,6 +754,13 @@
       "defended_by": "The hook decides. The picker asks the identity provider the same question a real login asks (IdentityProvider::mapScope) and the answer is what the session gets; the file's scope is only what the picker lists, and where the two differ the page shows both. Where the hook refuses the identity the picker refuses it too, with the hook's own reason. A project with no hook has nothing to ask, and the page says so rather than letting the file's scope read as an answer a hook agreed with. The posted index is bounds-checked against the list the page drew, so a hand-posted number cannot reach past it.",
       "file": "tests/m5-webedge/tst_m5.cpp",
       "test": "aNamedIdentityTheHookRefusesIsRefusedHereToo"
+    },
+    {
+      "id": "a-copied-example-commits-a-mesh-private-key",
+      "what": "`synqt new --example` copies a shipped example into a project of somebody's own, and an example in this repository carries no .gitignore because the repository has one at its root. A copy is its own repository. Without one, the first `git init && git add -A` in it commits synqt/mesh/*.key (the development mesh private keys `synqt dev` issues on the first run), the pinned toolchain, and any .env placed beside the .env.example, and a private key in a git history is a private key that stays there.",
+      "defended_by": "The copy is given the same .gitignore a scaffolded project gets, written by one function (newproject.write_gitignore) so the two ways of starting a project cannot answer the question differently. The copy step also drops .env and certs/ out of the source directory rather than carrying one developer's secrets into somebody else's project, and the step that vendors the examples into the wheel drops the same names.",
+      "file": "tools/synqt/tests/test_example_scaffold.py",
+      "test": "test_the_copy_is_told_what_never_to_commit"
     }
   ]
 }

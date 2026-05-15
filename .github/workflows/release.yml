@@ -525,6 +525,10 @@ jobs:
           # same package-data glob as the favicon and is dropped by the same mistake.
           # `synqt design` has nothing to serve without it.
           for required in ("synqt/framework/cmake/SynQtContracts.cmake",
+                           # `synqt new --example` copies one of these out of the
+                           # distribution, so a wheel without them offers an example it
+                           # does not have.
+                           "synqt/framework/examples/stall/synqt.yaml",
                            "synqt/assets/favicon.svg",
                            "synqt/assets/design/index.html"):
               if required not in names:

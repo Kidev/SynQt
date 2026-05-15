@@ -1,8 +1,9 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-"""The ``synqt`` command-line interface: the npm-shaped path from `synqt new` to
-`synqt dev` to `synqt build`, plus the mesh certificate tooling and the scaffolders."""
+"""The ``synqt`` command-line interface: `synqt new`, `synqt dev`, `synqt build`, the mesh
+certificate tooling and the scaffolders.
+"""
 
 from __future__ import annotations
 
@@ -17,7 +18,8 @@ from typing import Any, Dict, List, Optional, Tuple
 from . import (addauth, addcontract, addentity, addprovider, appmodel,
                build as buildmod, check as checkmod, clientbuild,
                config as configmod, create, deploy as deploymod, design as designmod,
-               docker as dockermod, doctor, infer as infermod, mesh,
+               docker as dockermod, doctor, examples as examplesmod,
+               infer as infermod, mesh,
                monitorops, newproject, profiles,
                run as runmod, typebackend, version as versionmod)
 
@@ -32,12 +34,8 @@ def _service_entities(config: Dict[str, Any]) -> List[str]:
 
 
 class _PrintVersionAction(argparse.Action):
-    """Print `version.version_lines()` as three literal lines, for the `--version` alias.
-
-    argparse's own ``action="version"`` runs the version string through the parser's
-    HelpFormatter, whose `_fill_text` collapses every embedded newline into a space
-    before wrapping to the terminal width. The three lines from `version_lines()` would
-    come out as one reflowed paragraph. Printing them directly keeps them three lines.
+    """Print `version.version_lines()` as three lines for `--version`. argparse's
+    ``action="version"`` would reflow them into one paragraph.
     """
 
     def __init__(self, option_strings: List[str], dest: str = argparse.SUPPRESS,
@@ -53,10 +51,8 @@ class _PrintVersionAction(argparse.Action):
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="synqt", description="The SynQt CLI.")
-    # `synqt version` is the documented form: every other thing this CLI does is a verb,
-    # and one of them being a flag made it the odd one out. `--version` and `-V` still
-    # work and are hidden from the help, because they are what every other tool on the
-    # machine answers to and erroring on them would be a small rudeness for no gain.
+    # `synqt version` is the documented form. `--version` and `-V` also work, hidden from
+    # the help.
     parser.add_argument("--version", "-V", action=_PrintVersionAction,
                         help=argparse.SUPPRESS)
     sub = parser.add_subparsers(dest="command", required=False)
@@ -65,22 +61,18 @@ def build_parser() -> argparse.ArgumentParser:
 
     new = sub.add_parser("new", help="scaffold a new project")
     new.add_argument("name")
-    # No --origin-model. A scaffolded project is same-origin, which is the only shape whose
-    # session cookie is first-party and therefore the only one that keeps working as browsers
-    # wind down third-party cookies. `split_origin` still exists and is still validated, but
-    # reaching it takes a hand edit to synqt.yaml after reading what it costs. See the
-    # "Serving the client from another origin" section of docs/project-layout-and-config.md.
-    new.add_argument("--auth", default=None, help="provider to prime auth for (e.g. github)")
-    # No flag for a starting entity. An entity is something somebody named, so such a flag
-    # had to carry a name and a type at once (`--blueprint orders:relational`), and one
-    # command already says that better: `synqt add entity orders --type relational`, run
-    # once the project exists. `synqt create` asks for both, as two questions.
+    # No --origin-model: a scaffolded project is same-origin, the only shape with a
+    # first-party session cookie. `split_origin` needs a hand edit (see "Serving the client
+    # from another origin" in docs/project-layout-and-config.md).
+    new.add_argument("--auth", default=None, help="provider to prime auth for")
+    # No starting-entity flag: run `synqt add entity <name> --type <type>` after creation;
+    # `synqt create` asks for both. `--example` copies one of the shipped systems (`synqt
+    # examples` lists them).
+    new.add_argument("--example", default=None,
+                     help="start from a shipped example (see 'synqt examples')")
     new.add_argument("--parent-dir", default=".")
 
-    # The interactive twin of `new`, as its own command rather than a mode of that one.
-    # A command that prompts only when it happens to have a terminal behaves differently
-    # in CI than in a shell under one name. These two say which you are getting, and
-    # `create` refuses to run without a terminal rather than silently taking defaults.
+    # The interactive twin of `new`. `create` refuses to run without a terminal.
     create_cmd = sub.add_parser("create", help="scaffold a new project, asking first")
     create_cmd.add_argument("name", nargs="?", default=None,
                             help="project name (asked for when omitted)")
@@ -95,27 +87,25 @@ def build_parser() -> argparse.ArgumentParser:
                            ("infer", "read back the contracts the QML already implies"),
                            ("clean", "remove build outputs"),
                            ("doctor", "diagnose toolchain, certificates, versions"),
-                           ("providers", "list bundled providers per family")]:
+                           ("providers", "list bundled providers per family"),
+                           ("examples", "list the example systems 'synqt new' can copy")]:
         p = sub.add_parser(name, help=helptext)
-        if name != "providers":
+        if name not in ("providers", "examples"):
             p.add_argument("--project-dir", default=".")
         if name in ("dev", "design", "build", "serve", "check", "infer", "doctor"):
-            # The commands that read the topology take the profile that layers over it
+            # Commands that read the topology take the profile layered over it
             # (docs/project-layout-and-config.md, "Configuration resolution order").
-            # `clean`, `providers`, and `test` read no configuration, so offering them a
-            # profile would only suggest it changes something.
+            # `clean`, `providers` and `test` read no configuration.
             p.add_argument("--profile", default=None, metavar="NAME",
                            help="layer synqt.<NAME>.yaml over synqt.yaml")
         if name == "check":
-            # The rules that bind only a shipped artifact (TLS to the browser, mutual TLS
-            # off-machine, a wss desktop edge URL) would reject a perfectly good localhost
-            # topology, so they are opt-in here and automatic on `build --release`/`serve`.
+            # The release-only rules (TLS to the browser, mutual TLS off-machine, a wss
+            # desktop edge URL) are opt-in here and automatic on `build --release` and
+            # `serve`.
             p.add_argument("--release", action="store_true",
                            help="also apply the rules a release build and serve apply")
         if name == "infer":
-            # Reporting is what this does. Writing is what you ask it for. A scan that
-            # guessed at half its types has no business rewriting the contracts a
-            # deployment is built from because somebody wanted to see what it found.
+            # Report by default; write only when asked.
             p.add_argument("--write", action="store_true",
                            help="write each contract into its owner's folder")
             p.add_argument("--force", action="store_true",
@@ -123,23 +113,14 @@ def build_parser() -> argparse.ArgumentParser:
             p.add_argument("--json", action="store_true",
                            help="print the result as a design document instead of a report")
         if name in ("infer", "check"):
-            # A literal is all a token scan can type, and most arguments are not literals.
-            # `auto` takes TypeScript where it is installed, `ts` refuses rather than
-            # quietly answering worse, and `heuristic` is the literal reader on its own.
-            # `check` takes it for the same reason `infer` does. It compares a contract
-            # with the calls that cross it, and an argument nobody could type is an
-            # argument it says nothing about.
+            # Who types expressions: `auto` uses TypeScript when installed, `ts` requires
+            # it, `heuristic` reads literals only. `check` takes it too, to compare
+            # contracts with calls.
             p.add_argument("--types", default="auto", choices=list(typebackend.MODES),
                            help="who answers what type an expression has (default: auto)")
         if name in ("dev", "build"):
-            # The build profile. Not on `serve`: that command launches build/<entity>/, the
-            # deploy layout, which holds whichever profile was built last and carries no
-            # profile in its path. A flag there would name a directory serve never reads.
-            #
-            # Mutually exclusive, and defaulting to debug. A flag that reaches nothing but
-            # the word printed in the summary makes every build the same build and one of
-            # the two words a lie. The
-            # flag picks the build, and a build nobody asked to be a release is not one.
+            # The build profile, default debug. Not on `serve`, which launches
+            # build/<entity>/ whatever profile was built last.
             profile_flags = p.add_mutually_exclusive_group()
             profile_flags.add_argument(
                 "--release", dest="profile_name", action="store_const", const="release",
@@ -155,11 +136,8 @@ def build_parser() -> argparse.ArgumentParser:
             p.set_defaults(profile_name="debug", custom_type=None)
             p.add_argument("--strip", action="store_true",
                            help="leave no symbols in the binaries; implied by --release")
-            # `none` builds the service entities and no client at all. It is what a
-            # container image wants when the browser bundle is coming from somewhere else
-            # (`synqt docker init --client host`), and it is the difference between a build
-            # that needs an Emscripten kit and one that does not. With no wasm target
-            # requested, the toolchain check stops asking for one.
+            # `none` builds the services and no client, so no Emscripten kit is needed (for
+            # `synqt docker init --client host`).
             p.add_argument("--client", default="wasm",
                            choices=["wasm", "desktop", "all", "none"])
             p.add_argument("--verbose", action="store_true",
@@ -167,39 +145,31 @@ def build_parser() -> argparse.ArgumentParser:
         if name == "build":
             p.add_argument("--entity", default=None,
                            help="build one entity instead of every one")
-            # Off by default, and that default is the documented position (docs/desktop.md):
-            # signing and notarization are not a framework's to choose, so the build produces
-            # an artifact the platform step can be run against and names the command. This is
-            # the opt-in for wanting the deployed tree from the one command anyway. It still
-            # never signs.
+            # Off by default: signing and notarization are the project's choice
+            # (docs/desktop.md). This runs the platform deploy step; it never signs by
+            # itself.
             p.add_argument("--deploy", action="store_true",
                            help="also run the platform deploy step on a desktop client "
                                 "(macdeployqt/windeployqt/portable layout); requires "
                                 "--sign or --unsigned")
-            # --deploy on its own is refused. What an unsigned build costs differs per
-            # platform (refused by Gatekeeper / warned about by SmartScreen / entirely
-            # normal on Linux), and the person who most needs to know their app will not
-            # open on anyone else's Mac is exactly the one who would not read a note about
-            # it. deploy.check_signing_choice says which applies here.
+            # --deploy alone is refused. deploy.check_signing_choice says what an unsigned
+            # build costs on this platform.
             p.add_argument("--sign", default=None, metavar="IDENTITY",
                            help="sign the deployed client with this identity (macOS: a "
                                 "codesign identity; Windows: the certificate subject name)")
             p.add_argument("--unsigned", action="store_true",
                            help="deploy without signing, accepting what that means on this "
                                 "platform")
-            # Not on `dev`: dev re-reads synqt.yaml on every hot reload, so an
-            # override held only in argv would be dropped mid-session, leaving a threaded
-            # client served without the cross-origin isolation it needs (pitfall 13, and a
-            # silent failure at that). For dev, set build.client_threads in synqt.yaml.
+            # Not on `dev`, which re-reads synqt.yaml on every hot reload and would drop an
+            # argv override. For dev, set build.client_threads.
             p.add_argument("--threads", default=None, choices=list(clientbuild.MODES),
                            help="override build.client_threads for this build "
                                 "(multi implies cross-origin isolation)")
         if name == "dev":
             p.add_argument("--desktop", action="store_true", help="run the client natively")
-            # Every sign-in the project has, replaced by one page listing its scopes. Only
-            # on `dev`, and only as a flag. The edge it starts is built with
-            # SYNQT_DEV_TOOLS, so it is the only edge that contains the picker at all, and
-            # nothing `synqt build` produces can be asked for it.
+            # Replaces every sign-in with one page listing the scopes. `dev` only: the edge
+            # it starts is built with SYNQT_DEV_TOOLS, the only build that contains the
+            # picker.
             p.add_argument("--identity-picker", action="store_true",
                            help="replace every sign-in with a picker listing the "
                                 "project's scopes (development only)")
@@ -208,9 +178,7 @@ def build_parser() -> argparse.ArgumentParser:
             p.add_argument("--no-watch", action="store_true",
                            help="serve once without watching for changes")
         if name == "design":
-            # A port of its own, so the editor and `synqt dev` can be up at the same time:
-            # drawing a connect point and watching it come up is the whole point of having
-            # both open.
+            # Its own port, so the editor and `synqt dev` can run together.
             p.add_argument("--port", type=int, default=8181,
                            help="the loopback port the editor is served on")
             p.add_argument("--no-open", action="store_true",
@@ -224,23 +192,17 @@ def build_parser() -> argparse.ArgumentParser:
     mr = mesh_sub.add_parser("rotate"); mr.add_argument("entity", nargs="?")
     ms = mesh_sub.add_parser("status")
     for mp in (mi, mc, mr, ms):
-        # `status` takes --project-dir like its siblings. It reads what is on disk, and
-        # "which certificates does that deployment hold" is a question worth asking about
-        # a directory you are not standing in.
+        # `status` takes --project-dir like its siblings.
         mp.add_argument("--project-dir", default=".")
     for mp in (mi, mc, mr):
-        # A profile may add an entity, and an entity with no certificate cannot join the
-        # mesh, so `mesh cert --all` has to see the same entity list the build will.
-        # `status` needs none of that. It reports the certificate files themselves, and
-        # no profile changes which ones exist.
+        # A profile may add an entity, so `mesh cert --all` resolves the same entity list as
+        # the build. `status` only reports certificate files.
         mp.add_argument("--profile", default=None, metavar="NAME",
                         help="layer synqt.<NAME>.yaml over synqt.yaml")
     meshp.set_defaults(project_dir=".", profile=None)
 
-    # `synqt monitor` manages the operator credentials for the monitoring console. Only
-    # `operator add` exists. The list lives in the monitor entity's environment, and a
-    # command that listed or removed entries would be a command that edits whatever file
-    # the deployment keeps it in.
+    # `synqt monitor` manages console operator credentials. Only `operator add` exists; the
+    # list lives in the monitor environment.
     monitorp = sub.add_parser("monitor", help="the monitoring console's operators")
     monitor_sub = monitorp.add_subparsers(dest="monitor_command", required=True)
     mop = monitor_sub.add_parser("operator", help="operator credentials")
@@ -252,10 +214,8 @@ def build_parser() -> argparse.ArgumentParser:
     moa.add_argument("--project-dir", default=".")
     monitorp.set_defaults(project_dir=".")
 
-    # `synqt docker`: generate the container setup for an existing project, and drive it.
-    # `init` is the one that writes anything; `up` and `down` are `docker compose` with the
-    # profile and the two checks worth making before it, so that neither has to be
-    # remembered.
+    # `synqt docker`: generate the container setup and drive it. `init` writes; `up` and
+    # `down` run `docker compose` with the profile and two pre-checks.
     dockerp = sub.add_parser("docker", help="run the whole project in containers")
     docker_sub = dockerp.add_subparsers(dest="docker_command", required=True)
     di = docker_sub.add_parser("init", help="generate the Dockerfile, compose file, profile")
@@ -268,9 +228,8 @@ def build_parser() -> argparse.ArgumentParser:
                          "installed); host: mount the one `synqt build` produced here")
     di.add_argument("--port", type=int, default=None,
                     help="publish the edge on this port instead of the one in synqt.yaml")
-    # A generator that prompts when it has a terminal and picks defaults when it does not
-    # is two behaviors under one name (see create.py). The flag says which you get, and the
-    # questions are only ever about secrets that have to come from outside anyway.
+    # The flag decides whether to prompt (see create.py). Questions only cover external
+    # secrets.
     di.add_argument("--no-input", action="store_true",
                     help="ask nothing; leave a placeholder for every secret from outside")
     du = docker_sub.add_parser("up", help="build the images and start every container")
@@ -292,9 +251,7 @@ def build_parser() -> argparse.ArgumentParser:
     auth.add_argument("--required", action="store_true")
     auth.add_argument("--provider-entity", default="")
     entity = add_sub.add_parser("entity"); entity.add_argument("name")
-    # Defaulted, not required. An entity with no engine and no browser-facing side is a
-    # real thing to want, and `synqt add entity billing` should produce it rather than
-    # make you say which of the nothings you meant.
+    # Defaulted: an entity with no type is a plain service.
     entity.add_argument("--type", dest="entity_type", default=appmodel.PLAIN_TYPE,
                         choices=sorted(addentity.TYPES),
                         help="what the entity is (default: %(default)s)")
@@ -302,8 +259,7 @@ def build_parser() -> argparse.ArgumentParser:
     provider = add_sub.add_parser("provider"); provider.add_argument("name")
     provider.add_argument("--family", required=True)
     connect_point = add_sub.add_parser("connect-point")
-    # The owner is the name. An entity has one connect point, so there is nothing else to
-    # call it, and consumers reach it as the owner capitalized.
+    # The owner is the name; consumers reach it as the owner capitalized.
     connect_point.add_argument("owner")
     connect_point.add_argument("--consumers", default="", help="comma-separated entity names")
     for ap in (auth, entity, provider, connect_point):
@@ -312,12 +268,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def resolved_profile(args: argparse.Namespace) -> Tuple[str, str]:
-    """The profile these arguments ask for, as `(profile_name, custom_type)`.
-
-    `--custom` is the escape hatch, so it wins: it sets `custom_type` rather than
-    `profile_name`, and a user who named a build type gets that type in every environment
-    with no per-environment resolution at all. Everything else is `profile_name`, which
-    argparse has already defaulted to `debug`.
+    """The profile these arguments ask for, as `(profile_name, custom_type)`. `--custom` wins
+    and sets `custom_type`; otherwise `profile_name`, which argparse defaults to `debug`.
     """
     custom = getattr(args, "custom_type", None)
     if custom:
@@ -329,10 +281,8 @@ def _fails_validation(project_dir: str, *, release: bool, starting: bool = False
                       profile: Optional[str] = None) -> bool:
     """Run the topology validation ahead of a build or a run, and report it.
 
-    Only the topology half runs here, not the full `synqt check`: the contract, QML, and
-    route lints shell out to qmllint and read every QML file in the project, which is a
-    second or more on each hot reload, and `synqt dev` calls this on every rebuild. The
-    rules that stop a broken or unsafe deployment are all in validate().
+    Only validate() runs here, not the full `synqt check`: the lints run qmllint over every
+    QML file, and `synqt dev` calls this on every rebuild.
     """
     if not (Path(project_dir) / "synqt.yaml").exists():
         return False  # not a project yet. The command below reports that in its own words
@@ -401,9 +351,7 @@ def _run_monitor(args: argparse.Namespace) -> int:
 
 def _run_docker(args: argparse.Namespace) -> int:
     if args.docker_command == "init":
-        # The container topology is validated before it is written, not after it fails to
-        # come up. A project whose synqt.yaml is already invalid produces a compose file
-        # that is invalid in exactly the same way, four minutes into an image build.
+        # Validate the container topology before writing it.
         if _fails_validation(args.project_dir, release=False):
             return 1
         config = _load_config(args.project_dir)
@@ -433,11 +381,22 @@ def main(argv: Optional[List[str]] = None) -> int:
         if args.command == "version":
             print("\n".join(versionmod.version_lines()))
         elif args.command == "new":
-            print(newproject.scaffold(args.parent_dir, args.name, auth=args.auth))
+            if args.example:
+                if args.auth:
+                    # An example carries its own identity block, or none; it is not primed.
+                    raise examplesmod.ExampleError(
+                        "--auth and --example cannot be used together: an example already "
+                        "says whether it signs people in. Copy it, then run 'synqt add "
+                        "auth <provider>' if you want to change that.")
+                print(examplesmod.scaffold(args.parent_dir, args.name, args.example))
+            else:
+                print(newproject.scaffold(args.parent_dir, args.name, auth=args.auth))
         elif args.command == "create":
             print(create.create(args.parent_dir, name=args.name))
         elif args.command == "providers":
             print(addentity.list_providers())
+        elif args.command == "examples":
+            print(examplesmod.listing())
         elif args.command == "doctor":
             print(doctor.report(args.project_dir, profile=args.profile))
         elif args.command == "check":
@@ -459,21 +418,16 @@ def main(argv: Optional[List[str]] = None) -> int:
             if args.write:
                 written = infermod.write(args.project_dir, edges, config,
                                          force=args.force)
-                # With --json the report is machine-read, so what was written is said on
-                # stderr rather than in the middle of the document.
+                # With --json, what was written goes to stderr.
                 for path in written:
                     print(f"wrote {path}", file=sys.stderr if args.json else sys.stdout)
         elif args.command == "design":
-            # No validation gate here, unlike `build` and `serve`. A topology the validator
-            # refuses is exactly what somebody opens the editor to fix, and refusing to open
-            # it would put the repair tool behind the damage. The page reads the same verdict
-            # on arrival and paints it. The rules gate Apply, not the door.
+            # No validation gate: the editor is where a broken topology gets fixed. The page
+            # shows the verdict; the rules gate Apply.
             print(designmod.serve(args.project_dir, port=args.port,
                                   open_browser=not args.no_open, profile=args.profile))
         elif args.command == "clean":
-            # Both of the trees SynQt writes. The compiled output and the generated source
-            # it was compiled from. Neither is anybody's to edit, and the next build writes
-            # both again from synqt.yaml.
+            # Both trees SynQt writes: the build output and the generated sources.
             removed = []
             for name in ("build", appmodel.GENERATED_DIR):
                 target = Path(args.project_dir) / name
@@ -484,31 +438,20 @@ def main(argv: Optional[List[str]] = None) -> int:
                   "(kept the toolchain cache and the CA).")
         elif args.command in ("build", "dev"):
             profile_name, custom_type = resolved_profile(args)
-            # The validation gate asks a narrower question than the build profile does:
-            # which rules bind a *shipped* artifact (TLS to the browser, mutual TLS
-            # off-machine, a wss desktop edge URL). Those are the release profile's rules and
-            # nobody else's, so a debug build is held to the localhost ones. This line
-            # changed meaning without changing shape when the default became debug: before,
-            # every `synqt build` ran the strict set.
+            # Release rules bind a shipped artifact only; a debug build is held to the
+            # localhost rules.
             release = profile_name == "release"
             if args.command == "dev":
-                # Development keeps mutual TLS with a throwaway dev CA. Issued before the
-                # validation below rather than after, so the certificate rule sees the
-                # certificates dev is about to create instead of reporting them missing
-                # and then creating them in the next breath.
+                # Development keeps mutual TLS with a throwaway dev CA, issued before
+                # validation so the certificate rule sees it.
                 mesh.init(args.project_dir, dev=True, force=True)
                 mesh.cert_all(args.project_dir,
                               _service_entities(_load_config(args.project_dir, args.profile)),
                               dev=True)
-            # Fail fast, before anything is compiled or started. Without this the whole
-            # validation contract in docs/project-layout-and-config.md only ever ran when
-            # someone remembered to type `synqt check`, which is not where a plaintext
-            # release edge or a literal database password gets caught.
+            # Fail fast, before anything is compiled or started.
             if _fails_validation(args.project_dir, release=release, profile=args.profile):
                 return 1
-            # Checked before anything compiles. A --deploy that is going to be refused for
-            # not having said anything about signing should be refused in the first second,
-            # not after a full release build of every entity.
+            # Check the signing choice before compiling.
             if getattr(args, "deploy", False):
                 try:
                     deploymod.check_signing_choice(buildmod.desktop_platform(),
@@ -529,8 +472,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                                      deploy=getattr(args, "deploy", False),
                                      sign=getattr(args, "sign", None)))
             except deploymod.DeployError as err:
-                # The compile succeeded and only the opt-in deploy failed, so say which, or the
-                # reader spends their time looking for a build error that is not there.
+                # The compile succeeded and only the deploy failed; say so.
                 print(f"error: --deploy: {err}")
                 return 1
             if args.command == "dev":
@@ -541,8 +483,8 @@ def main(argv: Optional[List[str]] = None) -> int:
                                  profile_name=profile_name,
                                  identity_picker=args.identity_picker))
         elif args.command == "serve":
-            # `synqt serve` runs the built artifacts as a deployment, so it holds them to
-            # the release rules even though it does not build anything.
+            # `synqt serve` runs the artifacts as a deployment, so it applies the release
+            # rules.
             if _fails_validation(args.project_dir, release=True, starting=True,
                                  profile=args.profile):
                 return 1
@@ -560,7 +502,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         else:
             parser.error("unknown command")
     except (newproject.NewProjectError, create.CreateError, addauth.AddAuthError,
-            addentity.AddEntityError,
+            addentity.AddEntityError, examplesmod.ExampleError,
             addprovider.AddProviderError, addcontract.AddContractError, mesh.MeshError,
             designmod.DesignError, infermod.InferError, typebackend.TypeBackendError,
             dockermod.DockerError, appmodel.AppGenError, buildmod.BuildError,

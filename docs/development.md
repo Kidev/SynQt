@@ -112,7 +112,8 @@ directories at all, so those modules need not even be installed.
   `__main__.py` are the entry points.
 - [`tools/synqt`](https://github.com/Kidev/SynQt/tree/main/tools/synqt) is the `synqt` command line tool. Each subcommand is its own module:
   `newproject`, `build`, `run` (which covers `dev`, `serve`, and `test`), `check`,
-  `doctor`, `clean`, `mesh`, and the `add` family (`addentity`, `addauth`, `addprovider`,
+  `doctor`, `clean`, `mesh`, `examples` (`synqt examples`, and the copy `synqt new
+  --example` makes), and the `add` family (`addentity`, `addauth`, `addprovider`,
   `addcontract`). Supporting modules resolve and pin the toolchain (`toolchain`), generate
   the per entity CMake and mains from the topology (`appgen`), write per entity presets
   (`presets`), emit the per target license file (`licenses`), build the WebAssembly client

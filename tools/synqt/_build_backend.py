@@ -3,24 +3,13 @@
 
 """The in-tree build backend for the ``synqt`` distribution.
 
-It is setuptools, with one step in front of it. The framework sources the CLI compiles
-against (``src/`` and ``cmake/`` at the top of the checkout) are copied into
-``synqt/framework/`` so they ship inside the sdist and the wheel.
-
-Why a backend rather than a step in the release workflow. ``synqt new`` writes a CMake
-project that includes ``${SYNQT_ROOT}/cmake/SynQtContracts.cmake`` and links the runtime
-libraries under ``src/``, and it refuses to bake in a root that holds neither. A wheel
-without them installs a CLI that cannot scaffold, which is not a distribution of the CLI
-so much as a distribution of its argument parser. Those directories live above this one,
-and there is no supported way to reach outside a project directory from ``pyproject.toml``
--- ``package-data`` globs and ``MANIFEST.in`` are both rooted here. So the copy happens
-where it is allowed to. In the backend, before setuptools looks at the tree. Building from
-a plain checkout with ``python -m build`` therefore produces the same artifact CI does,
-which is the property that makes the release reproducible by hand.
-
-``synqt/framework/`` is generated and git-ignored. `appmodel.framework_root` prefers an
-explicit ``SYNQT_ROOT`` and then the surrounding checkout, so in a checkout this copy is
-never the one that gets used, and a stale one cannot shadow the sources being edited.
+setuptools, preceded by one step: the framework sources the CLI builds against (``src/``,
+``cmake/`` and the rest of `_FRAMEWORK_DIRS`) are copied into ``synqt/framework/`` so they
+ship in the sdist and the wheel. ``synqt new`` refuses a root without them. They live above
+this directory, which ``package-data`` and ``MANIFEST.in`` cannot reach, so the copy happens
+in the backend; ``python -m build`` from a checkout produces the same artifact CI does.
+``synqt/framework/`` is generated and git-ignored. `appmodel.framework_root` prefers
+``SYNQT_ROOT`` and the checkout, so a stale copy never shadows the sources.
 """
 
 from __future__ import annotations
@@ -29,8 +18,8 @@ import shutil
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-# Every PEP 517 hook setuptools implements, re-exported so the ones this module does not
-# override (metadata preparation, the requires-for-build queries) resolve here unchanged.
+# Every PEP 517 hook setuptools implements, re-exported so the ones not overridden resolve
+# here.
 from setuptools.build_meta import *  # noqa: F401,F403
 from setuptools import build_meta as _setuptools
 
@@ -38,28 +27,20 @@ _HERE = Path(__file__).resolve().parent
 _CHECKOUT = _HERE.parents[1]
 _VENDORED = _HERE / "synqt" / "framework"
 
-# What the generated CMake resolves under SYNQT_ROOT, each at the path it resolves it at.
-# An explicit list rather than "everything above this directory": a wheel is not a place to
-# put the test suites, the docs site, or a build tree that happens to be lying around.
-#
-# `tools/synqtc` is the contract compiler, and its path is not a choice made here:
-# cmake/SynQtContracts.cmake resolves SYNQTC_ROOT as "<the directory holding cmake/>/tools/
-# synqtc", so it has to sit at that spot relative to the other two. Without it every build
-# stops at "synqtc failed for <contract>.syn" before compiling a line.
-_FRAMEWORK_DIRS = ("src", "cmake", "tools/synqtc")
+# What the generated CMake resolves under SYNQT_ROOT, each at the path it expects.
+# `tools/synqtc` is where cmake/SynQtContracts.cmake looks for the contract compiler.
+# `examples` is copied by `synqt new --example`.
+_FRAMEWORK_DIRS = ("src", "cmake", "tools/synqtc", "examples")
 
-# The build tree and the editor droppings that collect inside src/ on a working checkout.
-# A wheel carrying one developer's object files is both larger and wrong.
+# Build trees, editor files, generated output, user presets and secrets are never vendored.
 _EXCLUDE = shutil.ignore_patterns("build", "CMakeFiles", "*.o", "*.so", "*.a",
-                                  "__pycache__", ".DS_Store")
+                                  "__pycache__", ".DS_Store",
+                                  "generated", "CMakeUserPresets.json", ".env", "certs")
 
 
 def _vendor_framework() -> None:
-    """Refresh ``synqt/framework/`` from the checkout, or leave an existing copy alone.
-
-    Building from an unpacked sdist is the second case. The sdist already carries the
-    vendored tree and has no checkout around it, so there is nothing to copy from and the
-    copy that is already there is the right one.
+    """Refresh ``synqt/framework/`` from the checkout, or keep an existing copy when building
+    from an unpacked sdist.
     """
     sources = [_CHECKOUT / name for name in _FRAMEWORK_DIRS]
     if not all(source.is_dir() for source in sources):
@@ -94,10 +75,8 @@ def build_sdist(sdist_directory: str,
 
 def build_editable(wheel_directory: str, config_settings: Optional[Dict[str, Any]] = None,
                    metadata_directory: Optional[str] = None) -> str:
-    # An editable install points at this checkout, where `framework_root` finds src/ and
-    # cmake/ where they are. Vendoring anyway keeps `pip install -e` and
-    # `pip install .` producing the same layout, so a bug in the bundled path cannot hide
-    # behind a developer's editable install.
+    # Vendored for editable installs too, so `pip install -e` and `pip install .` have the
+    # same layout.
     _vendor_framework()
     return _setuptools.build_editable(wheel_directory, config_settings, metadata_directory)
 
