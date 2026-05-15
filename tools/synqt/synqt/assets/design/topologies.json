@@ -37,7 +37,7 @@
         "links": [
           {
             "name": "database",
-            "contract": "DatabaseContract",
+            "contract": "Database",
             "owner": "database",
             "consumers": [
               "web",
@@ -68,7 +68,7 @@
         "links": [
           {
             "name": "records",
-            "contract": "RecordsContract",
+            "contract": "Records",
             "owner": "records",
             "consumers": [
               "web"
@@ -98,7 +98,7 @@
         "links": [
           {
             "name": "web",
-            "contract": "WebContract",
+            "contract": "Web",
             "owner": "web",
             "consumers": [
               "reports"
@@ -128,7 +128,7 @@
         "links": [
           {
             "name": "web",
-            "contract": "WebContract",
+            "contract": "Web",
             "owner": "web",
             "consumers": [
               "web"
@@ -187,7 +187,7 @@
         "links": [
           {
             "name": "web",
-            "contract": "WebContract",
+            "contract": "Web",
             "owner": "web",
             "consumers": [
               "web"
@@ -195,7 +195,7 @@
           },
           {
             "name": "web",
-            "contract": "WebContract",
+            "contract": "Web",
             "owner": "web",
             "consumers": [
               "client"
@@ -226,7 +226,7 @@
         "links": [
           {
             "name": "web",
-            "contract": "WebContract",
+            "contract": "Web",
             "owner": "web",
             "consumers": [
               "client"
@@ -281,7 +281,7 @@
         "links": [
           {
             "name": "database",
-            "contract": "DatabaseContract",
+            "contract": "Database",
             "owner": "database",
             "consumers": [
               "web"
@@ -312,7 +312,7 @@
         "links": [
           {
             "name": "client",
-            "contract": "ClientContract",
+            "contract": "Client",
             "owner": "client",
             "consumers": [
               "web"
@@ -346,7 +346,7 @@
         "links": [
           {
             "name": "edge",
-            "contract": "EdgeContract",
+            "contract": "Edge",
             "owner": "edge",
             "consumers": [
               "app"
@@ -695,7 +695,7 @@
         "links": [
           {
             "name": "web",
-            "contract": "WebContract",
+            "contract": "Web",
             "owner": "web",
             "consumers": [
               "client"

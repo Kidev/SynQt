@@ -61,7 +61,7 @@ A name resolves only when the owner is unambiguous about it. Where it is not, `s
 check` refuses the line and prints what it read, for you to correct and paste:
 
 ```
-error: connect point 'todo': 'add' is exported by name, and web/edge/Edge.qml does not
+error: connect point 'edge': 'add' is exported by name, and web/edge/Edge.qml does not
 say what type it is. Write it out: 'slot add(var text)' is what was read, with whatever
 it left open to fill in
 ```
