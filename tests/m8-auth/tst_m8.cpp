@@ -369,8 +369,8 @@ private:
         config.identity.providerEntity = QStringLiteral("auth");
         config.identity.allowDesktopLogin = true;
         config.identity.mappingHook = QStringLiteral(M8_SRCDIR "/web/identity/map.qml");
-        // The vocabulary the hook's Scope.Value members were generated from. Required
-        // beside the hook, not optional: the edge resolves the answer as an index into
+        // The vocabulary the hook's Scope members were generated from. Required
+        // beside the hook, not optional. The edge resolves the answer as an index into
         // this list, so an edge that has the hook and not the list refuses every login.
         config.scopeOrder = {QStringLiteral("anonymous"), QStringLiteral("user"),
                              QStringLiteral("moderator"), QStringLiteral("admin")};
@@ -704,7 +704,7 @@ private slots:
         config.identity.enabled = true;
         config.identity.allowDevStub = true;
         config.identity.mappingHook = QStringLiteral(M8_SRCDIR "/web/identity/map.qml");
-        // The vocabulary map.qml's Scope.Value enum was generated from, in the same order,
+        // The vocabulary map.qml's Scope enum was generated from, in the same order,
         // because the hook's answer is resolved as an index into this list. A real project
         // gets both from scopes.order (maingen writes this line, scopegen writes the enum).
         config.scopeOrder = {QStringLiteral("anonymous"), QStringLiteral("user"),
@@ -1496,8 +1496,8 @@ private slots:
         edgeConfig.identity.enabled = true;
         edgeConfig.identity.providerEntity = QStringLiteral("auth");
         edgeConfig.identity.mappingHook = QStringLiteral(M8_SRCDIR "/web/identity/map.qml");
-        // The vocabulary the hook's Scope.Value members were generated from. Required
-        // beside the hook, not optional: the edge resolves the answer as an index into
+        // The vocabulary the hook's Scope members were generated from. Required
+        // beside the hook, not optional. The edge resolves the answer as an index into
         // this list, so an edge that has the hook and not the list refuses every login.
         edgeConfig.scopeOrder = {QStringLiteral("anonymous"), QStringLiteral("user"),
                                  QStringLiteral("moderator"), QStringLiteral("admin")};
@@ -2034,7 +2034,7 @@ private slots:
         QVERIFY(!token.isEmpty());
         const SessionRecord *record{edge->sessionManager()->lookup(token)};
         QVERIFY(record != nullptr);
-        // Scope.Value.Moderator is 2, and scopeOrder[2] is "moderator".
+        // Scope.Moderator is 2, and scopeOrder[2] is "moderator".
         QCOMPARE(record->scope, QStringLiteral("moderator"));
     }
 };

@@ -104,14 +104,14 @@ IdentityMapping {
     function scopeFor(identity): int {
         const role = Directory.roles.assignments[identity.sub] ?? "";
         if (role === "owner") {
-            return Scope.Value.Admin;
+            return Scope.Admin;
         }
         if (role === "support") {
-            return Scope.Value.Moderator;
+            return Scope.Moderator;
         }
         // Authenticated, and nothing more. A provider saying who someone is has never
         // been the same as this system saying what they may do.
-        return Scope.Value.User;
+        return Scope.User;
     }
 }
 ```
@@ -124,19 +124,19 @@ record the browser only ever sees as an opaque cookie.
 
 It is synchronous, and that constrains how it reaches data. The edge needs a scope
 before it can create the session, so `scopeFor` returns a value rather than waiting for
-one, which means a slot call over the mesh is no use here: a returning slot gives you a
+one, which means a slot call over the mesh is no use here, because a returning slot gives you a
 promise, and a promise is not a scope. A pushed `prop` is the shape that works, because a
 consumer holds the current value locally and reading it does not go anywhere. Declare the
 role table as `prop var assignments` on the directory's connect point and let the
-directory replace it whenever it changes; the edge's copy is current, and the hook is a
-lookup. If a scope genuinely cannot be derived without a round trip, do the round trip in
+directory replace it whenever it changes. The edge's copy is current, and the hook is a
+lookup. If a scope cannot be derived without a round trip, do the round trip in
 the slot that needs it and raise the session with `Caller.setScope()` there instead.
 
 It must tolerate a missing field. `identity.email` is nullable because a provider may
 simply not give you one. A hook that keys authorization on an email is a hook that
 grants the wrong scope on the day someone signs up without one.
 
-It returns a member, not a name. `Scope.Value` is generated from `scopes.order` and sits
+It returns a member rather than a name. `Scope` is generated from `scopes.order` and sits
 beside the hook, so the set of things this function can return is the set of scopes the
 project declared. A directory answering `"supervisor"` for a role the project never
 declared cannot be turned into a scope here at all, which is what keeps a change in

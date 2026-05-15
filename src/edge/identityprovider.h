@@ -96,11 +96,9 @@ public:
     /// which ends a session's family when that session is signed out.
     DeviceRegistry *devices() const;
 
-    /// The scopes this project declared, lowest authority first. It is the vocabulary the
-    /// mapping hook's answer is resolved against: the hook returns a member of the
-    /// generated Scope.Value enum, whose value is the scope's index in this list. Left
-    /// unset, the list is empty and every login is refused, which is the honest answer for
-    /// an edge nobody told what its scopes are.
+    /// The scopes this project declared, lowest authority first. The mapping hook returns a
+    /// member of the generated Scope enum, whose value is the scope's index here. Empty refuses
+    /// every login.
     void setScopeOrder(const QStringList &scopeOrder);
 
     /// The edge's public origin (e.g. https://host:port), used to form the callback
@@ -121,37 +119,20 @@ public:
     /// refresh sweep and for tests.
     OAuthBackend *backend() const;
 
-    /// Drop everything held for a session that no longer exists, wherever it is held (on
-    /// this edge, or on the auth entity). Logging out already does this. This is the same
-    /// release for the session nobody logs out of, which is most of them: without it an
-    /// edge keeps a visitor's access and refresh tokens for as long as the process lives,
-    /// long after the session they belong to expired.
-    ///
-    /// Not the device credential. A session running out of time is what the
-    /// credential exists to survive. Only signing out ends the family (handleLogout).
+    /// Release everything held for a session that no longer exists, on this edge or on the auth
+    /// entity, so an expired session's OAuth tokens do not outlive it. Not the device
+    /// credential, which only signing out ends (handleLogout).
     void forgetSession(const QByteArray &sessionId);
 
-    /// Move everything this provider holds under `from` to `to`, because the session
-    /// manager rotated the credential (a scope change, which `Caller.setScope` makes on
-    /// every sign-in that elevates). The session is the same session. Only its id changed.
-    ///
-    /// Two things are keyed on that id and both have to move. The provider tokens, or the
-    /// next refresh spends a refresh token on behalf of a session nothing can look up any
-    /// more and the entry is never released. And the device family, or signing out later
-    /// finds no family for the current id and leaves a redeemable credential on the
-    /// visitor's disk, which is the one outcome handleLogout exists to prevent.
+    /// Move everything this provider holds under `from` to `to`, after the session manager
+    /// rotated the credential. Both the provider tokens and the device family are keyed on the
+    /// id, and both must move, or a refresh spends a token for an unreachable session and a
+    /// later sign-out leaves a redeemable credential behind.
     void followRotation(const QByteArray &from, const QByteArray &to);
 
-    /// The scope this identity signs in at, or an empty string when the project's mapping
-    /// hook did not answer with one of the scopes the project declared, with *error set to
-    /// why. There is no fallback. A login that cannot be given a declared scope
-    /// fails, rather than being given a scope nobody wrote down.
-    ///
-    /// Public because it is a question the edge asks as well as this class: the development
-    /// picker shows what the project's own hook makes of a named identity, and asking the
-    /// provider is the only way to get the same answer a real login would. It reads the
-    /// hook and returns a name. It mints nothing, changes nothing, and grants nothing, so
-    /// exposing it widens no gate. A caller still has to hold a session to use the scope.
+    /// The scope this identity signs in at, or empty (with *error set) when the mapping hook did
+    /// not answer with a declared scope. There is no fallback. Public so the development picker
+    /// shows what the project's hook makes of a named identity; it grants nothing.
     QString mapScope(const QVariantMap &identity, QString *error = nullptr);
 
 signals:
@@ -171,17 +152,10 @@ private slots:
     void onClaimResult(const QString &requestId, const QString &sessionId);
 
 private:
-    /// What the callback needs handed back. The desktop flow's answer, all three empty for
-    /// a browser login. The loopback URL the system browser is sent back to, the nonce the
-    /// native client will match that arrival against, and the S256 challenge whose verifier
-    /// only that client holds.
-    ///
-    /// This is not held on this edge. It is serialized as the `context` the identity engine
-    /// keeps with the state (in process, or on the auth entity when identity is promoted)
-    /// and comes back on the exchange, alongside the CSRF `binding` the engine checks. That
-    /// is the whole of what makes a login answerable by an edge process other than the one
-    /// that began it, which is what a replicated edge needs and what a single edge is
-    /// unaffected by.
+    /// What the callback needs back from a desktop login (all empty for a browser login): the
+    /// loopback URL, the nonce the native client matches, and the S256 challenge. Serialized as
+    /// the `context` the identity engine keeps with the state, so any edge process can answer
+    /// the callback.
     struct LoginContext
     {
         QString returnUrl;
@@ -257,16 +231,10 @@ private:
     /// per attempt.
     QHash<QString, RateWindow> m_deviceRate;
 
-    /// What this edge is waiting on right now, and what the nesting is measured against.
-    ///
-    /// Each wait is a nested event loop that keeps serving requests, so a request that
-    /// also waits nests inside the one already waiting, and the depth follows the request
-    /// rate. Two numbers bound it, because a count on its own is a guess at what the stack
-    /// can hold. How many waits are in flight, and how much stack the nesting has spent
-    /// since the outermost of them. See WaitScope and kMaxConcurrentWaits.
-    ///
-    /// One thread's, both of them. The edge serves its routes on the thread this provider
-    /// lives on, which is the same thread whose stack the second number is measured on.
+    /// What this edge is waiting on right now. Each wait is a nested event loop that keeps
+    /// serving requests, so waits nest and their depth follows the request rate. Two numbers
+    /// bound it: the waits in flight and the stack the nesting has spent, both on this provider's
+    /// thread. See WaitScope and kMaxConcurrentWaits.
     struct WaitState
     {
         int count{0};                ///< waits in flight, outermost included
@@ -275,13 +243,9 @@ private:
     };
     WaitState m_waits{};
 
-    /// Takes a place in the nesting for as long as it is alive, or refuses to.
-    ///
-    /// Declare one as a local in the handler that is about to wait, and ask isTaken()
-    /// before waiting. The scope object is a local in that frame, so its own address is
-    /// where the frame sits, which is how a nested one measures the stack the nesting has
-    /// spent. Keeping the count correct across every way out of a handler is the other
-    /// half of what it is for.
+    /// Takes a place in the nesting while alive, or refuses to. Declare one as a local in the
+    /// handler about to wait and check isTaken() first; its own address is how the nesting
+    /// measures the stack spent.
     class WaitScope
     {
     public:
@@ -298,21 +262,10 @@ private:
         bool m_taken{false};
     };
 
-    /// The request ids this edge is waiting on right now, and the guard that adds one for
-    /// the length of a wait.
-    ///
-    /// It is what makes the three result tables below bounded rather than merely usually
-    /// small. Each of them was written by whatever the auth entity said and read only by a
-    /// handler that was still waiting, so two ordinary things left an entry behind for the
-    /// life of the process. An answer that arrived after its twenty-second deadline, which a
-    /// slow auth entity produces on every call, and an answer naming a request id this edge
-    /// never issued, which a compromised or confused auth entity can produce as fast
-    /// as it can write them. The callback route is open, so the first of those is reachable
-    /// by anyone who can make the auth entity slow.
-    ///
-    /// So an answer is kept only while somebody is waiting for it, and a waiter takes its id
-    /// out of this set before it returns, which also drops any answer that arrives during
-    /// the same turn but after the wait ended.
+    /// The request ids this edge is waiting on, and the guard that adds one for the length of a
+    /// wait. An answer from the auth entity is kept only while somebody waits for it, and a
+    /// waiter removes its id before returning, so a late answer, or one naming an id this edge
+    /// never issued, is dropped.
     QSet<QString> m_awaited;
     class AwaitScope
     {

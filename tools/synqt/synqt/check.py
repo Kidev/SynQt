@@ -2763,17 +2763,22 @@ def _qml_root_type(source: str) -> Optional[str]:
 
 def lint_mapping_hook(config: Dict[str, Any],
                       project_dir: os.PathLike[str] | str) -> List[str]:
-    """Every `Scope.Value.X` in the identity mapping hook names a member the build emits.
+    """Every `Scope.X` in the identity mapping hook names a member the build emits.
 
-    The hook returns a member of the generated Scope.Value enum and the edge resolves it as
-    an index into `scopes.order`, so a member the generator never wrote is an answer no
-    index can be found for and a login that fails closed. That failure is correct and it is
-    also late: the project is deployed, somebody signs in, and the message is in the edge's
-    log. Here the same mistake is one character from the fix.
+    The hook returns a member of the generated Scope enum and the edge resolves it as an
+    index into `scopes.order`, so a member the generator never wrote is an answer no index
+    can be found for and a login that fails closed. That failure is correct and it is also
+    late: the project is deployed, somebody signs in, and the message is in the edge's log.
+    Here the same mistake is one character from the fix.
 
-    Tokenized rather than pattern-matched, because `Scope.Value.Admin` written in a comment
-    or inside a string is not a reference, and refusing it would make a comment fail a
-    build. `qmlscan` is the lexer every other QML rule here reads with.
+    Both spellings are read, because QML gives an enum member two of them: `Scope.Admin` is
+    what SynQt writes and what its docs show, and `Scope.Value.Admin` names the enum in the
+    middle and is the same member. A project that writes the long form is not wrong, so it
+    is checked rather than refused.
+
+    Tokenized rather than pattern-matched, because `Scope.Admin` written in a comment or
+    inside a string is not a reference, and refusing it would make a comment fail a build.
+    `qmlscan` is the lexer every other QML rule here reads with.
     """
     hook = appmodel.identity_mapping_hook(config)
     if not hook:
@@ -2790,20 +2795,28 @@ def lint_mapping_hook(config: Dict[str, Any],
 
     messages: List[str] = []
     tokens = qmlscan.tokenize(path.read_text(encoding="utf-8", errors="replace"))
-    # Five tokens: Scope . Value . Member. qmlscan emits each `.` as its own punct token,
-    # so the members sit at a fixed offset rather than needing the text re-split.
-    for index in range(len(tokens) - 4):
-        run = tokens[index:index + 5]
-        if [token.kind for token in run] != ["ident", "punct", "ident", "punct", "ident"]:
+    # Three tokens: Scope . Member. qmlscan emits each `.` as its own punct token, so the
+    # member sits at a fixed offset rather than needing the text re-split.
+    for index in range(len(tokens) - 2):
+        run = tokens[index:index + 3]
+        if [token.kind for token in run] != ["ident", "punct", "ident"]:
             continue
-        if run[0].text != "Scope" or run[1].text != "." or run[2].text != "Value" \
-                or run[3].text != ".":
+        if run[0].text != "Scope" or run[1].text != ".":
             continue
-        named = run[4].text
-        if named in declared:
+        named = run[2]
+        spelling = "Scope"
+        if named.text == "Value":
+            # The long spelling, or the enum named on its own. Either way the member is two
+            # tokens further on, and `Value` is the enum and never a scope.
+            tail = tokens[index + 3:index + 5]
+            if [token.kind for token in tail] != ["punct", "ident"] or tail[0].text != ".":
+                continue
+            named = tail[1]
+            spelling = "Scope.Value"
+        if named.text in declared:
             continue
         messages.append(
-            f"error: {hook}:{run[4].line} returns Scope.Value.{named}, which scopes.order "
+            f"error: {hook}:{named.line} returns {spelling}.{named.text}, which scopes.order "
             f"does not declare; this project's members are {', '.join(sorted(declared))}")
     return _unique(messages)
 

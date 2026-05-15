@@ -401,7 +401,7 @@ IdentityMapping {
 
     function scopeFor(identity): int {
         return mapping.moderators.indexOf(identity.login) >= 0
-            ? Scope.Value.Admin : Scope.Value.User;
+            ? Scope.Admin : Scope.User;
     }
 }
 ```

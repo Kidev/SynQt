@@ -3,30 +3,23 @@
 
 """The scope vocabulary, as a QML enum generated from ``scopes.order``.
 
-One module rather than a helper in each caller, because two of them need the same answer:
 :mod:`synqt.appgen` writes ``Scope.qml`` and :mod:`synqt.check` validates a mapping hook
-against the members it would have written. Two copies of the name mapping would be two
-answers to "what is ``power_user`` called", and the one that is wrong is whichever one is
-not the file on disk.
-
-A member's value is its index in ``scopes.order``, which is also its authority rank under
-``scopes.hierarchical``. That is what removes the round trip. The hook returns the member,
-the edge is handed the integer, and resolving it is ``scopeOrder[value]`` with a bounds
-check. There is no spelling anywhere in the middle to keep in step.
+against the same members. A member's value is its index in ``scopes.order`` (its authority
+rank), so the edge resolves a hook answer as ``scopeOrder[value]`` with a bounds check.
 """
 
 from posixpath import dirname, join
 from typing import Dict, List, Tuple
 
+# The enum name inside ``Scope.qml``. SynQt writes ``Scope.<Member>``; QML also accepts
+# ``Scope.Value.<Member>``.
+ENUM_NAME = "Value"
+
 
 def member_name(scope: str) -> str:
-    """The QML enum member for one scope name.
-
-    QML requires an upper-case first letter on an enum member, and ``scopes.order`` is
-    written lower case, so the two cannot be the same string. Underscores separate words
-    (``power_user`` to ``PowerUser``). Anything else in the name is kept as it is, so a
-    name the mapping cannot make into an identifier fails validation rather than being
-    quietly rewritten into something that compiles.
+    """The QML enum member for one scope name: underscores separate words and the first letter
+    is upper case (``power_user`` to ``PowerUser``). Anything else is kept, so an unusable
+    name fails validation.
     """
     return "".join(part[:1].upper() + part[1:] for part in str(scope).split("_") if part)
 
@@ -34,14 +27,19 @@ def member_name(scope: str) -> str:
 def members(order: List[str]) -> List[Tuple[str, str]]:
     """``(scope, member)`` for each declared scope, in declaration order.
 
-    Raises ``ValueError`` if two scopes map to one member. Merging them silently would give
-    two declared scopes one enum value, so a hook asking for one would get the other and
-    every check downstream would agree with the wrong answer.
+    Raises ``ValueError`` when two scopes map to one member, and for a scope called
+    ``value``: the enum is named ``Value``, so ``Scope.Value`` would be ambiguous and QML
+    resolves it to the enum.
     """
     seen: Dict[str, str] = {}
     pairs: List[Tuple[str, str]] = []
     for scope in order:
         member = member_name(scope)
+        if member == ENUM_NAME:
+            raise ValueError(
+                f"scope '{scope}' becomes the enum member '{member}', which is also what "
+                f"this enum is called, so 'Scope.{member}' would name both; rename the "
+                f"scope")
         if not member.isidentifier():
             raise ValueError(
                 f"scope '{scope}' does not make a QML enum member ('{member}'); scope names "
@@ -56,18 +54,12 @@ def members(order: List[str]) -> List[Tuple[str, str]]:
 
 
 def render_scope_qml(order: List[str]) -> str:
-    """``Scope.qml``: the declared vocabulary as a QML enum.
-
-    Without an ``Unset`` member. Every member is a scope the project declared,
-    which is what makes an out-of-range answer from a mapping hook a refusal rather than a
-    fallback.
+    """``Scope.qml``: the declared vocabulary as a QML enum, with no ``Unset`` member, so an
+    out-of-range hook answer is refused.
     """
     pairs = members(order)
     if not pairs:
-        # `enum Value { }` is not QML, and the failure a project would get for it comes out
-        # of qmlcachegen naming a generated file the author never wrote. Say it here, where
-        # the thing to fix (an empty `scopes.order` on a project that signs people in) is
-        # still the thing being talked about.
+        # `enum Value { }` is not QML. Report the empty `scopes.order` here.
         raise ValueError(
             "scopes.order is empty, so there is no vocabulary to generate; declare the "
             "scopes this project's sessions can hold, lowest authority first")
@@ -76,27 +68,23 @@ def render_scope_qml(order: List[str]) -> str:
     return f"""// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 // SPDX-License-Identifier: Apache-2.0
 
-// Generated from scopes.order in synqt.yaml. Do not edit. Edit the project instead.
+// Generated from scopes.order in synqt.yaml. Do not edit.
 //
-// A member's value is its index in scopes.order, which is also its authority rank under
+// Each member's value is its index in scopes.order, which is also its rank under
 // scopes.hierarchical:
 {listing}
 import QtQml
 
 QtObject {{
-    enum Value {{ {names} }}
+    enum {ENUM_NAME} {{ {names} }}
 }}
 """
 
 
 def scope_qml_path(hook_relative: str) -> str:
-    """Where ``Scope.qml`` goes for a project whose mapping hook is at `hook_relative`.
-
-    Beside the hook, in the same mirrored directory under ``generated/``, and for a reason
-    worth keeping written down: a QML component resolves an unqualified type name against
-    its own directory first, so a hook that sits next to this file can write
-    ``Scope.Value.Admin`` with no import at all. Anywhere else and the hook would need an
-    import path, a qmldir and a module URI to reach one enum.
+    """Where ``Scope.qml`` goes for a hook at `hook_relative`: beside the mirrored hook under
+    ``generated/``, so the hook reaches ``Scope.Admin`` through its own directory with no
+    import.
     """
     folder = dirname(hook_relative)
     return join(folder, "Scope.qml") if folder else "Scope.qml"

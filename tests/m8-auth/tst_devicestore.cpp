@@ -1,22 +1,20 @@
 // SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 // SPDX-License-Identifier: Apache-2.0
 
-// The client half of staying signed in. What goes into the OS secure store, that nothing
-// goes anywhere else, and that a second launch does come back signed in.
+// The client half of staying signed in: what goes into the OS secure store, that nothing
+// goes anywhere else, and that a second launch comes back signed in.
 //
-// The first test here is the one that matters most, and it is the one that would still pass
-// if the feature were quietly broken. With no store available, nothing is written anywhere.
-// There is no file fallback in SynQt, and the moment one exists every sentence about
-// where this credential lives stops being true. It is asserted against the real config,
-// data and cache directories rather than against a promise in a comment.
+// The first test matters most, because it would still pass if the feature were quietly
+// broken. With no store available, nothing is written anywhere. SynQt has no file fallback,
+// and one would make every statement about where this credential lives false. It is
+// asserted against the real config, data and cache directories.
 //
 // The rest needs a real keyring. On Linux ctest runs this suite through
-// tests/lib/keyring-session.sh, which gives it a private session bus and a private keyring
-// rather than the developer's own, so the Secret Service backend is exercised on a CI runner
-// too. Where those tools are absent the tests skip, which is the right outcome and not a gap:
-// it is exactly what a visitor on such a machine gets, which is a sign-in per launch. CI sets
-// SYNQT_REQUIRE_SECURE_STORE on the column that does provide one, so a skip there is a broken
-// recipe and fails rather than passing quietly.
+// tests/lib/keyring-session.sh, which gives it a private session bus and a private keyring,
+// so the Secret Service backend is exercised on a CI runner too. Where those tools are
+// absent the tests skip, which is what a visitor on such a machine gets: a sign-in per
+// launch. CI sets SYNQT_REQUIRE_SECURE_STORE on the column that provides a store, so a skip
+// there fails.
 
 #include "devicecredential.h"
 #include "identityconfig.h"
@@ -92,10 +90,9 @@ QSet<QString> filesUnder(const QStringList &roots)
 
 /// Point the writable locations at a test directory for as long as the return value lives.
 ///
-/// Nothing is given up by it. A fallback that resolved one of these locations would resolve
-/// the redirected one and still land where the walk looks. What it buys is that the walk stops
-/// being a recursive crawl of the user's entire profile, which on a Windows runner cost a
-/// minute per call, and that a developer's own files are never what the walk is counting.
+/// A fallback that resolved one of these locations would resolve the redirected one and
+/// still land where the walk looks. The redirect keeps the walk from crawling the user's
+/// whole profile (slow on Windows) and keeps a developer's own files out of the count.
 [[nodiscard]] auto scopedStandardPaths()
 {
     QStandardPaths::setTestModeEnabled(true);
@@ -115,14 +112,13 @@ QStringList writableRoots()
 
 /// A store that answers everything except a write, on demand.
 ///
-/// It is not a convenience. It is the one machine state a working keyring cannot be asked
-/// to reproduce, and it is the state that decides whether an innocent machine is later read as
-/// a stolen one. Real examples are a Secret Service with no default collection, a keychain
-/// item whose ACL has been revoked, and a full disk.
+/// It is the one machine state a working keyring cannot be asked to reproduce, and it
+/// decides whether an innocent machine is later read as a stolen one. Real examples are a
+/// Secret Service with no default collection, a keychain item whose ACL has been revoked,
+/// and a full disk.
+///
 /// It is locked because a call abandoned at its deadline keeps running: the credential goes
-/// on to erase while the write it gave up on is still inside this object, which is exactly
-/// what happens on a real store and would otherwise be a race in the test rather than in the
-/// thing under test.
+/// on to erase while the abandoned write is still inside this object, as on a real store.
 class HalfWorkingStore : public SecureStore
 {
 public:
@@ -195,13 +191,12 @@ private:
 
 /// Does this machine have a store these tests can use?
 ///
-/// `isAvailable()` is the question the client asks, and it is the right one there: it has to
-/// be cheap and it must never prompt. It is not enough to decide whether a test can run,
-/// because two of the three backends answer it without touching the store at all. A Mac has
-/// a keychain, so the macOS backend says yes unconditionally and what varies is whether this
-/// process may use it. The same is true of a Windows Credential Manager behind a policy. So
-/// the suite proves it with a round trip through the same public API a client uses, and takes
-/// its probe back out again.
+/// `isAvailable()` is the client's question, and it is right there: it must be cheap and
+/// never prompt. It cannot decide whether a test can run, because two of the three backends
+/// answer it without touching the store: the macOS backend says yes unconditionally, and
+/// what varies is whether this process may use the keychain; the same holds for a Windows
+/// Credential Manager behind a policy. So the suite proves it with a round trip through the
+/// public API a client uses, and removes its probe again.
 bool aStoreThatWorks(DeviceCredential &credential)
 {
     if (!credential.isAvailable()) {
@@ -219,11 +214,10 @@ bool aStoreThatWorks(DeviceCredential &credential)
 
 /// Skip when this machine has no usable secure store, unless it was supposed to have one.
 ///
-/// A skip is the right answer on a headless box or a container, and it is also how a backend
-/// goes unexercised for months without anybody noticing. CI sets SYNQT_REQUIRE_SECURE_STORE
-/// on the column where the recipe provides a store (tests/lib/keyring-session.sh), so there
-/// the absence of one is a broken recipe rather than a property of the machine, and it fails
-/// instead of passing quietly.
+/// A skip is right on a headless box or a container, and it is also how a backend goes
+/// unexercised unnoticed. CI sets SYNQT_REQUIRE_SECURE_STORE on the column where the recipe
+/// provides a store (tests/lib/keyring-session.sh), so there a missing store is a broken
+/// recipe and fails.
 #define SYNQT_SKIP_WITHOUT_A_STORE(credential)                                            \
     do {                                                                                  \
         if (!aStoreThatWorks(credential)) {                                               \
@@ -343,7 +337,7 @@ private:
         config.identity.allowDevStub = true;
         config.identity.allowDesktopLogin = true;
         // The mapping hook that gives a session its scope, and the vocabulary its
-        // Scope.Value members were generated from. An edge with a login and neither
+        // Scope members were generated from. An edge with a login and neither
         // refuses every login, because there is nothing to resolve an answer against.
         config.identity.mappingHook = QStringLiteral(M8_SRCDIR "/web/identity/map.qml");
         config.scopeOrder = {QStringLiteral("anonymous"), QStringLiteral("user"),
@@ -405,15 +399,15 @@ private slots:
         QVERIFY(m_edgePort != 0);
     }
 
-    // The promise the whole design rests on. With no store, nothing is persisted anywhere.
-    // Not a file under the config directory, not one under data, not one under cache.
+    // The promise the design rests on: with no store, nothing is persisted anywhere, not
+    // under the config, data or cache directory.
     //
-    // The store is injected rather than taken from the machine, because "this computer has
-    // no keyring" is not a state Windows or macOS can be put into. Both always have one, and
-    // stripping a session bus only speaks to the Linux backend. The claim being made is about
-    // what DeviceCredential does when its store holds nothing, so it is asked of the store
-    // that stands for a machine with none, on every platform. What the platform picker itself
-    // does when its keyring is out of reach is the test below, where it belongs.
+    // The store is injected rather than taken from the machine, because Windows and macOS
+    // cannot be put into a "no keyring" state, and stripping a session bus only affects the
+    // Linux backend. The claim is about what DeviceCredential does when its store holds
+    // nothing, so it is asked of the store that stands for a machine with none, on every
+    // platform. What the platform picker does when its keyring is out of reach is the test
+    // below.
     void withoutAStoreNothingIsWritten()
     {
         const auto scoped{scopedStandardPaths()};
@@ -508,16 +502,15 @@ private slots:
         QVERIFY(!credential.load().isValid());
     }
 
-    // The launch this feature exists for, asked of the store alone. One that has written
+    // The launch this feature exists for, asked of the store alone: one that has written
     // nothing, and whose first question is a read.
     //
-    // Every other test here happens to write before it reads, the skip guard included, and a
-    // store can be perfectly good at answering a read that follows one of its own writes and
-    // useless at the only read that matters. It is the first call SynClient::openSession makes
-    // and there is no second chance at it. A miss reads as an ordinary first launch, so the
-    // app quietly signs in again with the credential still sitting on the store.
-    // macOS is where this went wrong, because which of its two keychains an item lands in
-    // depends on how the build was signed and a read is not told about it the way a write is.
+    // Every other test here writes before it reads, the skip guard included, and a store
+    // can answer a read that follows its own write and still fail the only read that
+    // matters. It is the first call SynClient::openSession makes. A miss reads as an
+    // ordinary first launch, so the app signs in again with the credential still on the
+    // store. On macOS, which of its two keychains an item lands in depends on how the build
+    // was signed, and a read is not told about it the way a write is.
     void aLaunchWhoseFirstCallIsAReadFindsIt()
     {
         DeviceCredential writer{edgeWsUrl()};
@@ -542,11 +535,11 @@ private slots:
     }
 
     // The failure that would otherwise stage a theft. A store that reads but cannot write
-    // leaves the generation this rotation was replacing sitting there. The edge has already
-    // retired that one, so presenting it at the next launch is the signature of a second copy
-    // in circulation, and the family and every session on it are revoked. The visitor did
-    // nothing wrong and their keyring is the only thing that failed, so a failed write leaves
-    // nothing behind instead, and the next launch is an ordinary sign-in.
+    // leaves behind the generation this rotation replaced. The edge has already retired
+    // that one, so presenting it at the next launch looks like a second copy in
+    // circulation, and the family and every session on it are revoked. The visitor did
+    // nothing wrong, so a failed write leaves nothing behind instead, and the next launch
+    // is an ordinary sign-in.
     void aRotationThatCannotBeStoredLeavesNothingBehind()
     {
         auto owned{std::make_unique<HalfWorkingStore>()};
@@ -571,8 +564,8 @@ private slots:
     }
 
     // The same hazard through the other door. A store that answers too late is abandoned at
-    // the deadline, and then nobody knows whether the write landed. What is on disk is either
-    // the new generation or the retired one, and the retired one is read as theft. Neither is
+    // the deadline, and nobody knows whether the write landed: the stored value is either
+    // the new generation or the retired one, and the retired one reads as theft. Neither is
     // worth keeping over a store this launch has already written off.
     void aRotationThatTimesOutLeavesNothingBehind()
     {
@@ -671,21 +664,19 @@ private slots:
         QVERIFY2(third.state() != QStringLiteral("connected"), qPrintable(third.state()));
     }
 
-    // What the credential is spent on. It buys a session, and it does not buy a connection.
+    // What the credential is spent on. It buys a session, not a connection.
     //
-    // Here is an edge that is up and answering HTTP, and will not accept this client's
-    // socket. The reason is mundane (its allowed origins are somebody else's,
-    // which is what a hardened deployment or a misconfigured one both look like from the
-    // client) because the client cannot see the reason anyway. A refused socket tells it
-    // nothing except that it was refused.
+    // Here is an edge that is up and answering HTTP and will not accept this client's
+    // socket, because its allowed origins are somebody else's. A hardened or a
+    // misconfigured deployment looks like that from the client, which cannot see the
+    // reason: a refused socket says only that it was refused.
     //
-    // So the client reconnects, every few hundred milliseconds, and a client that spends
-    // the stored credential on each of those reconnects, for a session identical to the one
-    // already in hand, does two things. It retires a generation per reconnect, and it uses
-    // up the edge's rate window (30 a minute, per address, shared with everyone else behind it)
-    // inside a minute. The refusal that follows is then read as "this credential is
-    // dead" and the credential is deleted. A month of staying signed in, lost to a bad
-    // afternoon at the edge.
+    // So the client reconnects every few hundred milliseconds. Spending the stored
+    // credential on each reconnect, for a session identical to the one already held, would
+    // retire a generation per reconnect and use up the edge's rate window (30 a minute per
+    // address, shared with everyone behind it) within a minute. The refusal that follows
+    // would read as "this credential is dead" and delete it: a month of staying signed in,
+    // lost to a bad afternoon at the edge.
     void aClientThatCannotConnectSpendsTheCredentialOnce()
     {
         WebEdgeConfig config{baseEdgeConfig(
@@ -722,16 +713,16 @@ private slots:
                  "being spent once per reconnect for a session it already has");
     }
 
-    // And the refusal that is not about the credential at all. The route is rate limited per
-    // address, which is a good thing to have and is also shared with every other machine
-    // behind the same address: a home, an office, a container host, a mobile carrier. When
-    // somebody else spends that window, this visitor's client must wait, not conclude that
-    // what it is holding is dead and delete it.
+    // And the refusal that is not about the credential at all. The route is rate limited
+    // per address, and the limit is shared with every machine behind the same address: a
+    // home, an office, a container host, a mobile carrier. When somebody else spends that
+    // window, this client must wait, not conclude that its credential is dead and delete
+    // it.
     //
-    // Both halves of that are needed. The edge has to answer the limit differently
-    // from a refused credential (it decides it before it has so much as read the credential,
-    // so it gives nothing away), and the client has to act only on the answer that is about
-    // the credential. Either one missing signs the visitor out.
+    // Both halves are needed. The edge answers the limit differently from a refused
+    // credential (it decides before reading the credential, so it gives nothing away), and
+    // the client acts only on the answer about the credential. Either one missing signs the
+    // visitor out.
     void aRateLimitDoesNotCostTheStoredSignIn()
     {
         quint16 port{0};

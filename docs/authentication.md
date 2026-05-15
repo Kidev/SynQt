@@ -329,14 +329,14 @@ IdentityMapping {
     function scopeFor(identity): int {
         const admins     = ["owner@example.com"]
         const moderators = ["mod@example.com"]
-        if (admins.indexOf(identity.email) !== -1)     return Scope.Value.Admin
-        if (moderators.indexOf(identity.email) !== -1) return Scope.Value.Moderator
-        return Scope.Value.User   // any successfully authenticated user
+        if (admins.indexOf(identity.email) !== -1)     return Scope.Admin
+        if (moderators.indexOf(identity.email) !== -1) return Scope.Moderator
+        return Scope.User   // any successfully authenticated user
     }
 }
 ```
 
-The return value is a member of `Scope.Value`, an enum SynQt generates from
+The return value is a member of `Scope`, an enum SynQt generates from
 `scopes.order` and writes beside this file, so the hook needs no import to reach it. A
 member's value is the scope's index in `scopes.order`, which is also its authority rank
 under `scopes.hierarchical`, and the edge resolves the answer by that index rather than

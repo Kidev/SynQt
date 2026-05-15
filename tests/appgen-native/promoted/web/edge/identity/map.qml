@@ -7,6 +7,6 @@ import SynQt
 // verifies who someone is, and each edge decides what that means in its own system.
 IdentityMapping {
     function scopeFor(identity): int {
-        return Scope.Value.User;
+        return Scope.User;
     }
 }

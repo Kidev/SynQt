@@ -1,13 +1,8 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-"""The scope vocabulary the build generates from `scopes.order`.
-
-The point of the enum is that a mapping hook cannot spell a scope wrong: it returns a
-member, the edge is handed that member's index, and the index is looked up in the same
-list the enum was generated from. So the rules worth testing are the ones that keep the
-two ends the same list. The mapping from a scope name to a member is one function, a
-collision is refused rather than merged, and the values are the indices.
+"""The scope vocabulary the build generates from `scopes.order`: one name-to-member mapping,
+collisions refused, and each member's value is its index.
 """
 
 import tempfile
@@ -33,13 +28,18 @@ class MemberNameTest(unittest.TestCase):
         ])
 
     def test_a_collision_is_refused_rather_than_merged(self):
-        # Two declared scopes sharing one member would give the hook one way to ask for
-        # two different authorities, and every check downstream would agree with whichever
-        # one won.
+        # Two scopes on one member would give the hook one answer for two authorities.
         with self.assertRaises(ValueError) as caught:
             scopegen.members(["power_user", "powerUser"])
         self.assertIn("power_user", str(caught.exception))
         self.assertIn("powerUser", str(caught.exception))
+
+    def test_a_scope_that_collides_with_the_enums_own_name_is_refused(self):
+        # A scope called `value` would make `Scope.Value` both the enum and a member; QML
+        # picks the enum and the login fails closed.
+        with self.assertRaises(ValueError) as caught:
+            scopegen.members(["anonymous", "value"])
+        self.assertIn("value", str(caught.exception))
 
     def test_a_name_that_is_not_an_identifier_is_refused(self):
         with self.assertRaises(ValueError) as caught:
@@ -60,8 +60,7 @@ class RenderTest(unittest.TestCase):
         self.assertIn("//   2 = admin", text)
 
     def test_there_is_no_unset_member(self):
-        # Every member is a scope the project declared, which is what makes an
-        # out-of-range answer from a hook a refusal rather than a fallback.
+        # No `Unset` member, so an out-of-range hook answer is refused.
         text = scopegen.render_scope_qml(["anonymous", "user"])
         self.assertNotIn("Unset", text)
 
@@ -73,8 +72,7 @@ class RenderTest(unittest.TestCase):
 
 class ScopeQmlPathTest(unittest.TestCase):
     def test_it_lands_beside_the_hook(self):
-        # Beside, because a QML component resolves an unqualified type against its own
-        # directory: next to the hook, `Scope.Value.Admin` needs no import.
+        # Beside the hook, so `Scope.Admin` needs no import.
         self.assertEqual(scopegen.scope_qml_path("web/edge/identity/map.qml"),
                          "web/edge/identity/Scope.qml")
 
@@ -90,7 +88,7 @@ class WrittenBesideTheHookTest(unittest.TestCase):
         hook = root / "web" / "edge" / "identity" / "map.qml"
         hook.parent.mkdir(parents=True, exist_ok=True)
         hook.write_text("import SynQt\nIdentityMapping {\n"
-                        "    function scopeFor(identity): int { return Scope.Value.User; }\n}\n",
+                        "    function scopeFor(identity): int { return Scope.User; }\n}\n",
                         encoding="utf-8")
         config = {
             "project": {"name": "app"},
@@ -107,10 +105,7 @@ class WrittenBesideTheHookTest(unittest.TestCase):
         return root, config
 
     def test_it_lands_next_to_the_mirrored_hook(self):
-        # Next to the *mirrored* hook under generated/, because generated/ is the tree the
-        # engine loads: a QML component resolves an unqualified type against its own
-        # directory, so this placement is what lets the hook say `Scope.Value.User` with
-        # no import. Beside the authored hook it would be beside a file nothing runs.
+        # Beside the mirrored hook under generated/, the tree the engine loads.
         root, config = self.project()
         written = appgen.generate(root, config)
         self.assertIn("generated/web/edge/identity/Scope.qml", written)
@@ -126,8 +121,7 @@ class WrittenBesideTheHookTest(unittest.TestCase):
         self.assertIn("enum Value { Anonymous, User, Moderator, Admin }", text)
 
     def test_a_project_with_no_hook_gets_no_file(self):
-        # A project with no sign-in declares no scopes and has nothing to name, so this
-        # generator must not write an enum into a tree that would never load it.
+        # No sign-in, no scopes, no enum.
         root, config = self.project()
         del config["identity"]
         written = appgen.generate(root, config)

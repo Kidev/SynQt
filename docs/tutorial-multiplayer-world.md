@@ -78,8 +78,8 @@ IdentityMapping {
 
     function scopeFor(identity): int {
         if (approved.indexOf(identity.login) !== -1)
-            return Scope.Value.Player
-        return Scope.Value.Anonymous     // signed in, but not on the guest list
+            return Scope.Player
+        return Scope.Anonymous     // signed in, but not on the guest list
     }
 }
 ```
@@ -89,7 +89,7 @@ below) is the stable subject id GitHub assigns, which is what keys a player even
 they change their display name. Everyone who signs in gets a real identity, but only
 approved logins reach the `player` scope, and the connect point below requires it.
 
-`Scope.Value` comes from this project's `scopes.order: [anonymous, player]`, generated
+`Scope` comes from this project's `scopes.order: [anonymous, player]`, generated
 beside the hook. Two members, because this game has two kinds of visitor, and no way to
 return a third by accident.
 

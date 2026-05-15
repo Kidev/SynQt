@@ -200,13 +200,13 @@ import SynQt
 
 IdentityMapping {
     // Return the scope a freshly authenticated identity should hold, as a member of the
-    // Scope.Value enum SynQt generates from scopes.order beside this file.
+    // Scope enum SynQt generates from scopes.order beside this file.
     function scopeFor(identity): int {
         const admins      = ["owner@example.com"]
         const moderators  = ["mod@example.com"]
-        if (admins.indexOf(identity.email) !== -1)     return Scope.Value.Admin
-        if (moderators.indexOf(identity.email) !== -1) return Scope.Value.Moderator
-        return Scope.Value.User   // any successfully authenticated user
+        if (admins.indexOf(identity.email) !== -1)     return Scope.Admin
+        if (moderators.indexOf(identity.email) !== -1) return Scope.Moderator
+        return Scope.User   // any successfully authenticated user
     }
 }
 ```

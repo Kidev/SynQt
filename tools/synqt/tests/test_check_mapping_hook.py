@@ -1,11 +1,8 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-"""The mapping hook may only name scopes the project declared.
-
-The edge bounds-checks the hook's answer at login (identityprovider.cpp, mapScope), which
-catches a typo the first time somebody signs in. This catches it while the project is being
-written, which is where the author asked for it and where the fix is one character.
+"""The mapping hook names only declared scopes. The edge also bounds-checks the answer at login
+(identityprovider.cpp, mapScope).
 """
 
 import tempfile
@@ -48,7 +45,7 @@ import SynQt
 
 IdentityMapping {
     function scopeFor(identity): int {
-        return Scope.Value.%s;
+        return Scope.%s;
     }
 }
 """
@@ -89,23 +86,38 @@ class MappingHookMembersTest(unittest.TestCase):
 
     def test_every_member_in_the_file_is_checked_not_just_the_first(self):
         hook = HOOK % "Admin"
-        hook = hook.replace("        return Scope.Value.Admin;\n",
+        hook = hook.replace("        return Scope.Admin;\n",
                             "        if (identity.email) {\n"
-                            "            return Scope.Value.Moderator;\n"
+                            "            return Scope.Moderator;\n"
                             "        }\n"
-                            "        return Scope.Value.Superuser;\n")
+                            "        return Scope.Superuser;\n")
         ok, found = errors(project(hook=hook))
         self.assertFalse(ok, found)
         self.assertTrue(any("Superuser" in m for m in found), found)
 
     def test_a_member_named_in_a_comment_is_not_a_reference(self):
-        # Tokenized rather than pattern-matched. Refusing a name written in a comment would
-        # make a comment fail a build, and the hook's comments are where the scopes get
-        # explained.
+        # Tokenized, so names in comments are ignored.
         hook = HOOK % "Admin"
         hook = hook.replace("IdentityMapping {",
-                            "// Return Scope.Value.Superuser for nobody; it does not exist.\n"
+                            "// Return Scope.Superuser for nobody; it does not exist.\n"
                             "IdentityMapping {")
+        ok, found = errors(project(hook=hook))
+        self.assertTrue(ok, found)
+
+    def test_the_long_spelling_of_a_member_is_read_the_same_way(self):
+        """`Scope.Value.Admin` is the same member as `Scope.Admin`."""
+        ok, found = errors(project(hook=HOOK % "Value.Admin"))
+        self.assertTrue(ok, found)
+        ok, found = errors(project(hook=HOOK % "Value.Admn"))
+        self.assertFalse(ok, found)
+        self.assertTrue(any("Scope.Value.Admn" in m for m in found), found)
+
+    def test_the_enum_named_on_its_own_is_not_read_as_a_member(self):
+        """`Scope.Value` alone is the enum, not a member."""
+        hook = HOOK % "Admin"
+        hook = hook.replace("        return Scope.Admin;\n",
+                            "        console.log(Scope.Value);\n"
+                            "        return Scope.Admin;\n")
         ok, found = errors(project(hook=hook))
         self.assertTrue(ok, found)
 

@@ -10,11 +10,11 @@ import QtQml
 
 QtObject {
     function scopeFor(identity): int {
-        // One person this project will not have. 9 is past the end of Scope.Value, which is
-        // how a hook refuses somebody: there is no member meaning "no".
+        // One person this project will not have. 9 is past the end of Scope, which is
+        // how a hook refuses somebody. There is no member meaning "no".
         if (identity.email === "banned@example.com") {
             return 9;
         }
-        return Scope.Value.User;
+        return Scope.User;
     }
 }

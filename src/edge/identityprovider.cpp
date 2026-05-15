@@ -1120,14 +1120,14 @@ QString IdentityProvider::mapScope(const QVariantMap &identity, QString *error)
             return fail(QStringLiteral("the mapping hook's scopeFor(identity) could not be "
                                        "called"));
         }
-        // The hook returns a member of the generated Scope.Value enum, whose value is the
+        // The hook returns a member of the generated Scope enum, whose value is the
         // scope's index in scopes.order (synqt.scopegen writes both the enum and the list
         // the edge is handed). So what follows is a bounds check and nothing else: there is
         // no spelling to compare, and no answer outside the range can name a declared scope.
         index = result.toInt(&isNumber);
         if (!isNumber) {
             return fail(QStringLiteral("the mapping hook returned '%1', which is not a "
-                                       "Scope.Value member")
+                                       "Scope member")
                             .arg(result.toString()));
         }
     }

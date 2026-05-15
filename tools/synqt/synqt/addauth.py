@@ -3,13 +3,11 @@
 
 """``synqt add auth <provider>``: scaffold login with secure defaults.
 
-The command writes the ``identity`` section and a provider entry with the hardened
-defaults from ``docs/authentication.md``, records the client secret as an ``env:``
-reference (never a literal), adds a ``.env.example`` entry, scaffolds the identity
-mapping hook, and prints only the manual steps the developer must still do. Everything
-that makes login safe (PKCE, the framework-generated state, the httpOnly/Secure/SameSite
-cookie, edge-held tokens, ID-token verification, rotation, the origin and upgrade checks)
-is on by default and is not expressed here because it does not depend on configuration.
+Writes the ``identity`` section and a provider entry with the defaults from
+``docs/authentication.md``, the client secret as an ``env:`` reference, a ``.env.example``
+entry and the mapping hook, and prints the manual steps left. PKCE, the framework state, the
+cookie attributes, edge-held tokens, ID-token verification, rotation and the origin and
+upgrade checks are always on and need no configuration.
 """
 
 from __future__ import annotations
@@ -18,13 +16,9 @@ import os
 from pathlib import Path
 from typing import Any, Dict, List
 
-# PyYAML is imported inside scaffold(), the only function here that reads or writes
-# synqt.yaml. Everything else in this module is a table of literals, and appmodel reads
-# that table (identity_providers) rather than copying it, so a module-level import would
-# make PyYAML a hard requirement of the whole import graph beneath appmodel, including
-# synqt.clientshell, which tools/wasm-shell.py runs straight out of a checkout with no
-# install. That is not hypothetical. It is what made every raw WebAssembly spike fail
-# with "could not render the SynQt loading shell" on a runner that had no PyYAML.
+# PyYAML is imported inside scaffold() only. appmodel reads this module's provider table,
+# and synqt.clientshell (run by tools/wasm-shell.py with no install) imports appmodel, so a
+# module-level import would make PyYAML required there.
 
 
 class AddAuthError(Exception):
@@ -35,31 +29,25 @@ def _secret_env(provider: str) -> str:
     return provider.upper().replace("-", "_") + "_CLIENT_SECRET"
 
 
-# The providers this module knows by name, as opposed to the generic OpenID Connect entry
-# it writes for anything else (whose endpoints are placeholders pointing at
-# `https://<name>.example`). Only these are safe for :func:`synqt.appmodel.identity_providers`
-# to fill in underneath a hand-written short form: filling in a placeholder would replace
-# "no endpoint, and you will hear about it" with "an endpoint that does not exist".
+# The providers known by name, whose templates carry real endpoints. Only these are filled
+# in under a short form by :func:`synqt.appmodel.identity_providers`; the generic OpenID
+# Connect entry has placeholder endpoints.
 TEMPLATED_PROVIDERS = ("github", "google")
 
-#: The name that means the development sign-in rather than a provider to register. It
-#: writes `identity.dev_stub` and no provider entry. Everything about that entry (its
-#: endpoints, its issuer, its client id) is decided by the fact that the stub runs on
-#: loopback in the edge, so the framework writes it and there is nothing to type wrong.
+#: The name for the development sign-in: it writes `identity.dev_stub` and no provider
+#: entry. The framework writes that entry.
 DEV_STUB_NAME = "dev"
 
 
 def provider_template(provider: str) -> Dict[str, Any]:
-    """The provider entry, mapping raw provider fields to the normalized identity.
-
-    Each template documents which endpoints and scopes it needs. The client secret is
-    always an ``env:`` reference, and the real value lives only in the edge ``.env``. What is
-    written here is therefore the reference, `env:GITHUB_CLIENT_SECRET`, never a credential.
+    """The provider entry, mapping raw provider fields to the normalized identity. The client
+    secret is always an ``env:`` reference (`env:GITHUB_CLIENT_SECRET`); the value lives in
+    the edge ``.env``.
     """
     secret_ref = f"env:{_secret_env(provider)}"
     if provider == "github":
-        # Plain OAuth2: identity from /user, with the numeric id mapped to sub and the
-        # primary verified address pulled from /user/emails when a private email hides it.
+        # Plain OAuth2: identity from /user, the numeric id as sub, and the primary verified
+        # address from /user/emails when the email is private.
         return {
             "name": "github",
             "authorize_url": "https://github.com/login/oauth/authorize",
@@ -98,27 +86,18 @@ def provider_template(provider: str) -> Dict[str, Any]:
     }
 
 
-#: Where the mapping hook goes when no web edge is declared yet. The scaffolder writes
-#: one called `edge`, so this is what a project made by `synqt new` resolves to anyway;
-#: it exists so that adding auth to a project with no edge still names a real path.
+#: The mapping hook path when no web edge is declared yet: the `edge` that `synqt new`
+#: creates.
 DEFAULT_HOOK = "web/edge/identity/map.qml"
 
-#: The vocabulary `synqt add auth` writes for a project that declares none. Exactly the
-#: scopes MAP_HOOK names, lowest authority first, because the order is the authority
-#: ranking under `scopes.hierarchical` and the generated enum's values are these indices.
-#: `synqt new` already writes the same four, so this only fires for a hand-written project.
+#: The scopes `synqt add auth` writes for a project that declares none: the ones MAP_HOOK
+#: names, lowest authority first. `synqt new` writes the same four.
 SCAFFOLD_SCOPES = ("anonymous", "user", "moderator", "admin")
 
 
 def hook_path(config: Dict[str, Any]) -> str:
-    """Where this project's identity mapping hook belongs. Inside its edge's folder.
-
-    The hook runs on the edge, so it is that entity's own code and lives with the rest
-    of it. Derived rather than fixed, because the folder is the entity's name and two
-    projects do not have to call their edge the same thing.
-    """
-    # Local, because appmodel imports this module for its provider table: a module-level
-    # import here would close the cycle. By the time anything calls this, both are loaded.
+    """Where this project's mapping hook belongs: inside its edge folder."""
+    # Local import: appmodel imports this module for its provider table.
     from . import appmodel
 
     for entity in appmodel.entities(config):
@@ -148,9 +127,7 @@ def identity_section(provider: str, required: bool, provider_entity: str,
         "mapping": {"hook": hook},
     }
     if development:
-        # Two people, because one is what you get for free and the reason to configure
-        # any is to exercise more than one scope. What each of them becomes is the
-        # mapping hook's answer, the same hook a real provider's identity goes through.
+        # Two people, to exercise more than one scope through the mapping hook.
         section["dev_stub"] = {
             "users": [{"sub": "dev", "login": "dev", "name": "Developer",
                        "email": "dev@localhost"},
@@ -166,23 +143,22 @@ MAP_HOOK = """// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 import SynQt
 
 // Turn a normalized identity into a SynQt scope, on the edge, after a successful login.
-// Tolerate a null email: prefer sub or login for authorization decisions.
+// Tolerate a null email. Prefer sub or login for authorization decisions.
 //
-// The return value is a member of Scope.Value, which SynQt generates next to this file from
-// scopes.order in synqt.yaml. An enum rather than a string, so a scope this project never
-// declared cannot be spelled here at all: the edge resolves the answer as an index into the
-// same list and refuses the login when it is out of range.
+// Return a member of Scope, which SynQt generates next to this file from scopes.order in
+// synqt.yaml, so only declared scopes can be named. The edge reads the answer as an index
+// into that list and refuses the login when it is out of range.
 IdentityMapping {
     function scopeFor(identity): int {
         const admins = [];       // e.g. "you@example.com"
         const moderators = [];
         if (admins.indexOf(identity.email) !== -1) {
-            return Scope.Value.Admin;
+            return Scope.Admin;
         }
         if (moderators.indexOf(identity.email) !== -1) {
-            return Scope.Value.Moderator;
+            return Scope.Moderator;
         }
-        return Scope.Value.User; // any successfully authenticated user
+        return Scope.User; // any successfully authenticated user
     }
 }
 """
@@ -191,9 +167,7 @@ IdentityMapping {
 def manual_steps(provider: str, provider_entity: str = "",
                  hook: str = DEFAULT_HOOK) -> str:
     if provider == DEV_STUB_NAME:
-        # There is no app to register and no secret to place, which is the whole appeal.
-        # What is left is the two things that are the project's own: who the sign-in
-        # offers, and what the hook makes of them.
+        # No app to register and no secret to place: only the users and the hook are left.
         return (
             "The development sign-in is configured. It runs under 'synqt dev' only: "
             "'synqt serve' passes no flag, and a shipped edge refuses the provider even "
@@ -204,12 +178,10 @@ def manual_steps(provider: str, provider_entity: str = "",
             "provider's identity goes through too.\n"
             "  3. Run 'synqt add auth <provider>' when you want the real thing; the "
             "development sign-in can stay beside it.")
-    # `secret_env` is the NAME of the variable to set. The step tells the reader where to
-    # put a value this process never sees.
+    # `secret_env` is the name of the variable to set.
     secret_env = _secret_env(provider)
-    # Where the client secret lives depends on where identity runs. In process it is the
-    # edge. With provider_entity the OAuth engine (token exchange + secret + tokens) runs on
-    # the auth entity, so the secret belongs in the auth entity's .env, never the edge's.
+    # In process the secret belongs to the edge. With provider_entity it belongs in the auth
+    # entity .env, never the edge's.
     if provider_entity:
         secret_step = (
             f"  3. Put the client secret in the '{provider_entity}' auth entity's .env as "
@@ -233,12 +205,10 @@ def manual_steps(provider: str, provider_entity: str = "",
 
 def scaffold(project_dir: os.PathLike[str] | str, provider: str, *, required: bool = False,
              provider_entity: str = "") -> str:
-    """Apply the scaffolding under ``project_dir`` and return the manual-steps message.
-
-    Refuses to clobber an existing ``identity`` section.
+    """Apply the scaffolding under ``project_dir`` and return the manual-steps message. Refuses
+    to overwrite an existing ``identity`` section.
     """
-    # Both are local imports. See the note where the other imports are. yamledit imports
-    # PyYAML itself, so it carries the same restriction.
+    # Local imports: yamledit imports PyYAML too (see the note at the top).
     import yaml
     from synqt import yamledit
 
@@ -255,29 +225,23 @@ def scaffold(project_dir: os.PathLike[str] | str, provider: str, *, required: bo
             "an 'identity' section already exists; edit it by hand rather than re-running "
             "'synqt add auth'")
 
-    # Spliced into the text rather than dumped over it. The file is the author's, and one
-    # added section is not a reason to lose their comments and their formatting.
+    # Spliced into the text, keeping the author's comments and formatting.
     hook_relative = hook_path(config)
     section = identity_section(provider, required, provider_entity, hook_relative)
     existing = config_path.read_text() if config_path.exists() else ""
     text = yamledit.set_scalar(existing, "identity", section)
 
-    # A project that signs people in has to declare the scopes its sessions can hold, so
-    # scaffolding the login without one would scaffold a project `synqt check` refuses.
-    # These four are exactly the scopes the hook written below names, and the order is the
-    # authority ranking: the generated Scope.Value enum takes its values from these indices.
-    # A project that already declares its own vocabulary keeps it untouched.
+    # A project that signs people in must declare its scopes. These four are the ones the
+    # hook names, in authority order (the generated Scope enum values). An existing
+    # vocabulary is kept.
     if not isinstance(config.get("scopes"), dict):
         text = yamledit.set_scalar(text, "scopes", {"order": list(SCAFFOLD_SCOPES),
                                                     "hierarchical": True,
                                                     "default": SCAFFOLD_SCOPES[0]})
     config_path.write_text(text)
 
-    # Document the variable to set, with no value. The line written here is
-    # `GITHUB_CLIENT_SECRET=`, so it is discoverable and there is nothing to commit. The
-    # development sign-in gets none, because `synqt dev` mints its shared secret per run
-    # and hands it to everything it starts. There is no value for anybody to place, and
-    # so none to forget to.
+    # Document the variable with no value (`GITHUB_CLIENT_SECRET=`). The development sign-in
+    # needs none: `synqt dev` mints its secret per run.
     if provider != DEV_STUB_NAME:
         env_example = root / ".env.example"
         secret_env = _secret_env(provider)
