@@ -1047,7 +1047,7 @@ def _check_buildtime(document: Mapping[str, Any], checks: List[Check]) -> None:
         )
 
 
-def _check_vs_node_replicas(document: Mapping[str, Any], checks: List[Check]) -> None:
+def _check_vs_frameworks_replicas(document: Mapping[str, Any], checks: List[Check]) -> None:
     """The acceptance criterion for `replicas:`, as a machine-independent claim.
 
     Absolute throughput is a fact about one machine and is not gated here, for the reason
@@ -1111,7 +1111,7 @@ def _check_vs_node_replicas(document: Mapping[str, Any], checks: List[Check]) ->
     )
 
 
-def _check_vs_node_calls(document: Mapping[str, Any], checks: List[Check]) -> None:
+def _check_vs_frameworks_calls(document: Mapping[str, Any], checks: List[Check]) -> None:
     """One column of the call-path comparison, gated on the same footing as the live one:
     what makes a column comparable, never how fast it was.
 
@@ -1173,7 +1173,7 @@ def _check_vs_node_calls(document: Mapping[str, Any], checks: List[Check]) -> No
     )
 
 
-def _check_vs_node_live(document: Mapping[str, Any], checks: List[Check]) -> None:
+def _check_vs_frameworks_live(document: Mapping[str, Any], checks: List[Check]) -> None:
     """One column of the live-path comparison, gated on the things that make a column
     comparable at all rather than on how fast it was.
 
@@ -1321,9 +1321,9 @@ INVARIANTS: Dict[str, Callable[[Mapping[str, Any], List[Check]], None]] = {
     "client-frame-time": _check_client_frame_time,
     "remote-pages": _check_remote_pages,
     "buildtime": _check_buildtime,
-    "vs-node-live": _check_vs_node_live,
-    "vs-node-calls": _check_vs_node_calls,
-    "vs-node-replicas": _check_vs_node_replicas,
+    "vs-frameworks-live": _check_vs_frameworks_live,
+    "vs-frameworks-calls": _check_vs_frameworks_calls,
+    "vs-frameworks-replicas": _check_vs_frameworks_replicas,
 }
 
 

@@ -513,9 +513,9 @@ def test_compare_of_runs_with_no_metric_in_common_is_an_error(tmp_path, capsys):
 
 
 def _replica_sweep(throughputs):
-    """A vs-node-replicas document with one row per process count."""
+    """A vs-frameworks-replicas document with one row per process count."""
     return {
-        "benchmark": "vs-node-replicas",
+        "benchmark": "vs-frameworks-replicas",
         "stack": "synqt",
         "qt_version": "6.11.1",
         "host": "test",
@@ -563,9 +563,9 @@ def test_a_replica_sweep_of_one_point_says_so_rather_than_passing():
 
 
 def _live_column(stack, rows, node=False):
-    """A vs-node-live document with one row per subscriber count."""
+    """A vs-frameworks-live document with one row per subscriber count."""
     document = {
-        "benchmark": "vs-node-live",
+        "benchmark": "vs-frameworks-live",
         "stack": stack,
         "host": "test",
         "arch": "x86_64",

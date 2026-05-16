@@ -592,46 +592,52 @@ every seldom-reached page an app keeps on the edge.
 [The harness README](remote-pages/README.md) says the same at
 length, and says why the harness needs the WebAssembly kit and so belongs on a workstation.
 
-## vs-node: SynQt next to the thing people compare it to
+## vs-frameworks: SynQt next to the stacks people compare it to
 
 Every harness above measures SynQt against itself, which catches regressions and answers
-nothing about whether it is fast. [`vs-node/`](vs-node/README.md) puts it beside Node.js on
-the workload SynQt exists for: one publisher, N live subscribers, everyone sees every
-change. Five columns, because no one Node column alone is arguable: bare Node built-ins are
-the floor SynQt has to beat and nobody ships them, Socket.IO is what people deploy and is the
-easier comparison, and Next.js is what most readers are already running. Next.js has no
-WebSocket server of its own, so its live path is a Route Handler streaming server-sent events
-and it is the one column carrying a different protocol from the rest.
+nothing about whether it is fast. [`vs-frameworks/`](vs-frameworks/README.md) puts it beside
+the other stacks on the workload SynQt exists for, one publisher, N live subscribers, and
+everyone sees every change. One column is never arguable on its own, so there are several.
+Bare runtime built-ins are the floor SynQt has to beat and nobody ships them, Socket.IO is
+what people deploy and is the easier comparison, and Next.js is what most readers are
+already running. Next.js has no WebSocket server of its own, so its live path is a Route
+Handler streaming server-sent events and it is the one column carrying a different protocol
+from the rest.
+
+Adding a column is writing one program against
+[`COLUMN-CONTRACT.md`](vs-frameworks/COLUMN-CONTRACT.md), which is what every column is
+held to and what a contributor reads instead of reverse-engineering the reference
+implementation.
 
 It measures the other direction too, because that is the direction most application code
-goes: a caller asks the server to do something and waits for the value. There the Next.js
-feature to compare against is a **Server Function**, which is shaped exactly like a connect
+goes. A caller asks the server to do something and waits for the value. There the Next.js
+feature to compare against is a Server Function, which is shaped exactly like a connect
 point's returning slot, and the harness calls one by making the request React's own client
 runtime makes rather than by importing the function and skipping the framework. Bare Node
 answering a JSON POST sits between the two as the control, so the gap can be split into what
 React's machinery costs and what holding an open connection saves.
 
 ```sh
-./benchmarks/vs-node/run-bench.sh                       # both tables, five columns and three
-python3 benchmarks/vs-node/sweep.py --processes 1,2,4,8 # throughput against process count
+./benchmarks/vs-frameworks/run-bench.sh                       # both tables, every column
+python3 benchmarks/vs-frameworks/sweep.py --processes 1,2,4,8 # throughput against process count
 ```
 
 The sweep is also the acceptance test for [`replicas:`](../docs/deploying.md#8-running-more-than-one-edge),
-and it is the one part of this tree whose claims `baselines.py` gates on a *rising* number
-rather than a stable one: throughput must grow by at least 1.5x from the smallest process
+and it is the one part of this tree whose claims `baselines.py` gates on a rising number
+rather than a stable one. Throughput must grow by at least 1.5x from the smallest process
 count to the largest, and no process count may buy that throughput by dropping deliveries.
 1.5x rather than the 2x used elsewhere, because real scaling is sublinear and the baseline
 moves with the machine.
 
-Read [its README](vs-node/README.md) before the numbers. It carries two measurement bugs
-this harness shipped and then found, both of which produced plausible tables: a busy-wait
+Read [its README](vs-frameworks/README.md) before the numbers. It carries two measurement bugs
+this harness shipped and then found, both of which produced plausible tables, a busy-wait
 that reported SynQt at 85x its real CPU cost, and a zero-millisecond timer that reported
 Node as scaling 1.14x when it scales 3.86x. Neither looked wrong from the outside.
 
 ## buildtime: the build itself (reported separately from runtime)
 
 `buildtime/` is the one part of the plan that is not a measurement harness. Nothing needed
-instrumenting; the build steps already exist and [`measure.py`](buildtime/measure.py) times
+instrumenting. The build steps already exist and [`measure.py`](buildtime/measure.py) times
 around them. Per entity it reports a clean build (empty directory to linked artifact), a
 no-op build (`synqt build` again, nothing changed), and a touched build (one QML file
 edited, then reverted), plus contract generation timed on its own as a subprocess, because

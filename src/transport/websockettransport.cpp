@@ -283,11 +283,11 @@ qint64 WebSocketTransport::writeData(const char *data, qint64 maxSize)
 /// Ask for this connection's buffered bytes to reach the kernel before the event loop
 /// blocks, instead of a poll round trip later when Qt's write notifier fires.
 ///
-/// That round trip is what a fan-out pays for: every socket carries one message, so every
+/// That round trip is what a fan-out pays for. Every socket carries one message, so every
 /// socket waits a whole pass for a notifier before its single frame moves. Preempting it
-/// is worth about 3% of saturating throughput in benchmarks/vs-node, and nothing
+/// is worth about 3% of saturating throughput in benchmarks/vs-frameworks, and nothing
 /// measurable on the paced latency at 250 subscribers. It is a small win and is written
-/// down as one. The large one on that path is not here: most of the distance to a bare
+/// down as one. The large one on that path is not here. Most of the distance to a bare
 /// socket is per-subscriber cost inside QWebSocket and QtRO, which that harness's README
 /// fits across the sweep.
 ///

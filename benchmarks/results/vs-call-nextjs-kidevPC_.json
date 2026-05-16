@@ -1,5 +1,5 @@
 {
-  "benchmark": "vs-node-calls",
+  "benchmark": "vs-frameworks-calls",
   "node_version": "v22.22.0",
   "host": "linux 7.1.5-arch1-2",
   "arch": "x64",

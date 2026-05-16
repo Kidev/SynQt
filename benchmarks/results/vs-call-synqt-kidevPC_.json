@@ -1,6 +1,6 @@
 {
     "arch": "x86_64",
-    "benchmark": "vs-node-calls",
+    "benchmark": "vs-frameworks-calls",
     "host": "Arch Linux",
     "path": "a connect point's returning slot over QtRemoteObjects",
     "qt_version": "6.11.1",
