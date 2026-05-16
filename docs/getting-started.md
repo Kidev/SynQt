@@ -100,6 +100,14 @@ doctor`, which prints the commands that install it. Run those once. After that y
 browser opens to the scaffolded app, and `synqt dev` keeps watching your files,
 reloading the browser whenever you save.
 
+## Or start from one that already works
+
+Each tutorial below ends in a project that ships with SynQt, and `synqt new` can copy one
+whole instead of growing it from an empty scaffold. `synqt examples` lists them, and
+`synqt new shop --example stall` makes one yours. The [quick start](quick-start.md) is
+that path end to end. Copy one to read a finished system, or scaffold an empty one to
+build your own.
+
 ## Or draw it
 
 Everything you would add with `synqt add entity` and `synqt add connect-point` can be

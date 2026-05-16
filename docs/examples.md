@@ -17,6 +17,10 @@ the user, then calls the database, which authorizes the edge. Example 5 keeps th
 three-entity shape and adds [remote pages](remote-pages.md): views the web edge
 delivers on demand rather than compiling into the client bundle.
 
+Four of these ship as whole projects rather than as listings. `synqt examples` names them,
+and `synqt new shop --example stall` copies one into a project of your own to run and take
+apart. The [quick start](quick-start.md) does exactly that.
+
 ## Example 1: a shared live counter (no login)
 
 The smallest non trivial app: a counter every connected client sees update in
