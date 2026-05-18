@@ -1,0 +1,37 @@
+<!-- SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+
+<!-- The SignalR column's project. One executable holding both the hub and the N clients,
+     because the contract puts the publisher and every subscriber in one process so the
+     interval is read on one clock (COLUMN-CONTRACT.md, "One process").
+
+     MessagePack rather than the default JSON protocol, for the same reason Socket.IO is
+     given binary frames and no compression: each stack is measured at its best rather than
+     at its default. Package versions are pinned, so a restore that picks up a newer SignalR
+     is a deliberate bump and not a surprise in a number. -->
+
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>signalr-live</AssemblyName>
+    <RootNamespace>SynQt.Bench.SignalR</RootNamespace>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- Nothing here is a library and nothing consumes the docs; the warnings would only be
+         noise in a run whose output is a table. -->
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="10.0.11" />
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.Protocols.MessagePack" Version="10.0.11" />
+    <!-- 10.0.0 of the protocol package resolved MessagePack 2.5.187, which carries
+         published advisories, and NuGet flags the wrapper for it too. 10.0.11 is the
+         serviced release, and this explicit reference holds MessagePack itself on the fixed
+         line rather than leaving it to whatever the wrapper happens to ask for. -->
+    <PackageReference Include="MessagePack" Version="3.1.8" />
+  </ItemGroup>
+
+</Project>

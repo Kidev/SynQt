@@ -47,6 +47,7 @@ protocol, because that is what a deployment would be running.
 | `qt-raw` | The same fan-out over a bare `QWebSocket`, no QtRemoteObjects, everything else identical | Separates what Qt's sockets cost from what the object protocol on them costs |
 | `go-bare` | `net/http` plus `coder/websocket`, no router and no framework | A floor that is not Node: the fastest honest Go |
 | `rust-bare` | `tokio` plus `tokio-tungstenite`, release build, no framework | The other floor, and the one nothing in this table is expected to beat |
+| `dotnet-signalr` | ASP.NET Core SignalR, MessagePack protocol, over WebSockets, with the subscribers as SignalR clients in the same process | What a .NET team reaches for when the server has to push |
 | `node-bare` | `node:http` plus a hand-rolled RFC 6455 server, and the global `WebSocket` client Node 22 ships. Zero dependencies | The fastest honest Node, so SynQt cannot be accused of sandbagging |
 | `node-socketio` | Socket.IO, websocket transport pinned, compression off, binary frames | What a Node team would actually deploy |
 | `node-nextjs` | Next.js 16 App Router, a Route Handler streaming server-sent events | The framework most people mean by "a Node app", doing the only live path it has |
@@ -110,6 +111,46 @@ Next.js runs in production mode against a real `next build`, and every route car
 prerenders a handler with no request-dependent input at build time and serves it from disk,
 so `/plaintext` and `/json` would be a static file server measured against two frameworks
 doing work.
+
+
+### Running the .NET column
+
+It needs a `dotnet` with the **ASP.NET Core 10 runtime**, not only the SDK. A distribution's
+`dotnet-sdk` package frequently ships without it, and that combination fails at restore with
+`NETSDK1226` rather than at the run, so `run-bench.sh` checks for the runtime and skips the
+column with a reason instead. The install that satisfies it, into the user's own directory
+and touching nothing else:
+
+```sh
+curl -fsSL https://dot.net/v1/dotnet-install.sh | bash -s -- --channel 10.0 --no-path
+```
+
+The runner prefers `$DOTNET`, then `~/.dotnet/dotnet`, then whatever is on `PATH`.
+
+### Why there is no Blazor Server column
+
+Blazor Server is the .NET stack people expect to see beside SignalR, and it is deliberately
+absent. `dotnet-signalr` already reports its transport: a Blazor Server circuit **is** a
+SignalR connection, carrying a server-computed DOM diff instead of an application payload.
+What Blazor adds on top of that is the rendering, and that is the thing this table cannot
+hold.
+
+The subscriber in every column here is a socket. A Blazor Server subscriber is a browser: its
+propagation would include the server-side component render, the diff, the circuit, and the
+browser applying the patch to a real DOM. No other column pays for a render. The SynQt column
+is a QtRO consumer node and not a painted frame either, so a Blazor number would be the only
+cell in the harness that included a UI, and no reader could place it. Giving it a table of its
+own does not fix that; it moves an unplaceable number somewhere else.
+
+There is a second, more practical wall. The sweep goes to 250 subscribers, and 250 headless
+browser contexts is tens of gigabytes: the run would saturate the machine long before it
+saturated Blazor, and every number in it would be a fact about Chromium. A column measured on
+a sweep of 5 to 25 would not be the sweep the rest of the table ran.
+
+So the honest answer is the paragraph you are reading. If the question is "what does the
+transport under Blazor Server cost", `dotnet-signalr` answers it, measured at SignalR's best.
+If the question is "what does a rendered live user cost", this harness does not answer it for
+any stack, and would be lying if it answered it for one.
 
 ## Running it
 

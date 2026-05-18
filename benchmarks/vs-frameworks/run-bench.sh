@@ -44,12 +44,32 @@ HOST_TAG="$(hostname | tr -c 'A-Za-z0-9_.-' '_')"
 NODE_DIR="benchmarks/vs-frameworks/node"
 GO_DIR="benchmarks/vs-frameworks/go"
 RUST_DIR="benchmarks/vs-frameworks/rust"
+SIGNALR_DIR="benchmarks/vs-frameworks/dotnet/signalr"
+
+# A user-local .NET is preferred over whatever is on PATH, because a distribution's dotnet
+# package is frequently the SDK without the ASP.NET Core runtime beside it, and that
+# combination fails the restore rather than the run. `dotnet_ready` below is what decides
+# whether this column runs at all.
+DOTNET="${DOTNET:-}"
+if [ -z "$DOTNET" ] && [ -x "$HOME/.dotnet/dotnet" ]; then
+    DOTNET="$HOME/.dotnet/dotnet"
+elif [ -z "$DOTNET" ]; then
+    DOTNET="dotnet"
+fi
 
 # A column whose toolchain is missing skips and says so. It must not fail the run: this
 # harness is one command that produces a table, and a table missing a row a reader can see
 # was skipped is more useful than no table at all.
 have() { command -v "$1" >/dev/null 2>&1; }
 skip() { echo "== $1 skipped: $2 =="; }
+
+# An SDK on its own is not enough: an ASP.NET Core app needs the ASP.NET Core runtime, and a
+# machine with only Microsoft.NETCore.App fails at restore with NETSDK1226 rather than at the
+# run. Ask before running, so the column skips with a reason a reader can act on.
+dotnet_ready() {
+    [ -x "$DOTNET" ] || command -v "$DOTNET" >/dev/null 2>&1 || return 1
+    "$DOTNET" --list-runtimes 2>/dev/null | grep -q "^Microsoft.AspNetCore.App 10\."
+}
 
 echo "== configure + build the SynQt column =="
 cmake -S benchmarks/vs-frameworks -B "$BUILD_DIR" -G Ninja \
@@ -100,6 +120,15 @@ if have cargo; then
             --out "$RESULTS_DIR/vs-fw-rust-${HOST_TAG}.json" "$@")
 else
     skip "Rust" "no cargo on PATH (install Rust 1.93)"
+fi
+
+echo
+if dotnet_ready; then
+    echo "== .NET, SignalR (MessagePack over WebSockets) =="
+    (cd "$SIGNALR_DIR" && "$DOTNET" run -c Release --  \
+        --out "$RESULTS_DIR/vs-fw-signalr-${HOST_TAG}.json" "$@")
+else
+    skip ".NET SignalR" "no dotnet with the ASP.NET Core 10 runtime (see the README)"
 fi
 
 echo

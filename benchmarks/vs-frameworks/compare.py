@@ -38,7 +38,7 @@ from typing import Any, Dict, List
 STACK_ORDER = [
     "synqt", "qt-raw",
     "go-bare", "rust-bare", "node-bare",
-    "node-socketio", "node-nextjs",
+    "dotnet-signalr", "node-socketio", "node-nextjs",
 ]
 
 
