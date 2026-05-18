@@ -1,0 +1,32 @@
+# SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+# SPDX-License-Identifier: Apache-2.0
+
+# The Rust column's own crate. `rust-version` pins what this was developed against, so a
+# newer toolchain is a deliberate bump and not a surprise in a number.
+#
+# tokio and tokio-tungstenite, no framework, for the same reason the Go column is net/http
+# and no router. This is a floor column, and a framework here would be measuring the
+# framework. libc is here for getrusage, because the CPU figure every column reports is the
+# process's own and Rust's standard library does not expose it.
+
+[package]
+name = "synqt-bench-rust"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.93"
+publish = false
+
+[dependencies]
+futures-util = { version = "0.3", default-features = false, features = ["sink"] }
+libc = "0.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "net", "macros", "time", "sync"] }
+tokio-tungstenite = "0.30"
+
+# Without this the column is meaningless. A debug build measures the absence of the
+# optimiser. `run-bench.sh` passes --release too. This makes a hand-run `cargo run` measure
+# the same thing.
+[profile.release]
+opt-level = 3
+lto = "thin"

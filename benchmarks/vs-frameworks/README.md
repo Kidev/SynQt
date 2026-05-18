@@ -45,6 +45,8 @@ protocol, because that is what a deployment would be running.
 |---|---|---|
 | `synqt` | The real path: `QWebSocketServer` into a `QRemoteObjectHost`, N consumer nodes over the framework's own `WebSocketTransport`, a generated Source and Replica | The stack a browser client reaches, minus the browser |
 | `qt-raw` | The same fan-out over a bare `QWebSocket`, no QtRemoteObjects, everything else identical | Separates what Qt's sockets cost from what the object protocol on them costs |
+| `go-bare` | `net/http` plus `coder/websocket`, no router and no framework | A floor that is not Node: the fastest honest Go |
+| `rust-bare` | `tokio` plus `tokio-tungstenite`, release build, no framework | The other floor, and the one nothing in this table is expected to beat |
 | `node-bare` | `node:http` plus a hand-rolled RFC 6455 server, and the global `WebSocket` client Node 22 ships. Zero dependencies | The fastest honest Node, so SynQt cannot be accused of sandbagging |
 | `node-socketio` | Socket.IO, websocket transport pinned, compression off, binary frames | What a Node team would actually deploy |
 | `node-nextjs` | Next.js 16 App Router, a Route Handler streaming server-sent events | The framework most people mean by "a Node app", doing the only live path it has |
@@ -54,6 +56,24 @@ nobody ships. Socket.IO is the easier comparison. Next.js is what a reader compa
 frameworks is most likely to already be running, and it is the one column that cannot carry
 the same protocol as the others. Printed side by side, the spread between them is itself
 part of the answer.
+
+### What the floor columns are for
+
+`go-bare` and `rust-bare` are here to do a job no framework column can: they are the other
+stacks' *floor*. `node-bare` already says what the fastest honest Node is; these say what the
+fastest honest anything is, on the same workload, on the same machine, in the same run.
+
+That is the difference between two sentences that sound alike and are not. "SynQt is fast for
+a Qt thing" is a claim about Qt. "SynQt is fast" is a claim about the workload, and only a
+column with no framework on it and a compiler behind it can settle which one the table
+supports. If SynQt sits close to them, that is the strongest statement this harness can make.
+If it does not, that gap is the number worth knowing, and it is printed either way.
+
+Neither needs an exception to the contract: in both, the publisher and every subscriber live
+in one process on one monotonic clock, and both carry ordinary binary WebSocket frames.
+Neither has a router or a framework in the path, deliberately, because a router here would be
+measuring the router. Rust is built `--release` by the runner, since a debug build measures
+the absence of the optimiser.
 
 Socket.IO is given its best case rather than its default: the transport is pinned so no run
 starts on long-polling and upgrades mid-measurement, `perMessageDeflate` is off (the SynQt

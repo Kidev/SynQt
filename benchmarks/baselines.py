@@ -324,15 +324,22 @@ def _check_metadata(document: Mapping[str, Any], kind: str, checks: List[Check])
     # A run of another stack has no Qt in it, and demanding one would only teach whoever
     # records it to write a Qt version that had nothing to do with the number. What it
     # must say instead is which runtime produced it, so the comparison stays attributable.
-    if document.get("node_version"):
-        required = [key if key != "qt_version" else "node_version" for key in required]
+    #
+    # Any `<runtime>_version` key satisfies that, rather than a list of the runtimes this
+    # file happens to know about: benchmarks/vs-frameworks/ gains a column per runtime, and a
+    # gate that had to be edited for each one would be a gate that fails on the ninth.
+    runtime_version = next(
+        (key for key in document
+         if key.endswith("_version") and key != "qt_version" and document.get(key)),
+        None)
+    if runtime_version:
+        required = [key if key != "qt_version" else runtime_version for key in required]
     missing = [key for key in required if not document.get(key)]
     checks.append(
         Check(
             "metadata",
             not missing,
-            f"host, {'node_version' if 'node_version' in required else 'qt_version'} "
-            "and recorded are present"
+            f"host, {runtime_version or 'qt_version'} and recorded are present"
             if not missing
             else f"missing: {', '.join(missing)}",
         )

@@ -2,9 +2,12 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-# SynQt against Node.js, in both directions. Builds the SynQt harnesses, runs every column
-# over the same sweep, and writes one baseline each under benchmarks/results/ keyed by
-# hostname. Pinned Qt 6.11.1.
+# SynQt against the other frameworks, in both directions. Builds the SynQt harnesses, runs
+# every column over the same sweep, and writes one baseline each under benchmarks/results/
+# keyed by hostname. Pinned Qt 6.11.1.
+#
+# A column whose toolchain is not installed skips with a printed reason rather than failing
+# the run. benchmarks/vs-frameworks/COLUMN-CONTRACT.md is what every column is held to.
 #
 #   ./run-bench.sh
 #   ./run-bench.sh --subscribers 10,50,100,250,500 --seconds 10 --hz 60
@@ -39,6 +42,14 @@ mkdir -p "$RESULTS_DIR"
 RESULTS_DIR="$(cd "$RESULTS_DIR" && pwd)"
 HOST_TAG="$(hostname | tr -c 'A-Za-z0-9_.-' '_')"
 NODE_DIR="benchmarks/vs-frameworks/node"
+GO_DIR="benchmarks/vs-frameworks/go"
+RUST_DIR="benchmarks/vs-frameworks/rust"
+
+# A column whose toolchain is missing skips and says so. It must not fail the run: this
+# harness is one command that produces a table, and a table missing a row a reader can see
+# was skipped is more useful than no table at all.
+have() { command -v "$1" >/dev/null 2>&1; }
+skip() { echo "== $1 skipped: $2 =="; }
 
 echo "== configure + build the SynQt column =="
 cmake -S benchmarks/vs-frameworks -B "$BUILD_DIR" -G Ninja \
@@ -70,6 +81,26 @@ echo "== SynQt =="
 echo
 echo "== Qt, bare QWebSocket (the same fan-out with no object protocol on it) =="
 "$BUILD_DIR/bench_live" --raw --out "$RESULTS_DIR/vs-fw-qtraw-${HOST_TAG}.json" "$@"
+
+echo
+if have go; then
+    echo "== Go, bare (net/http + coder/websocket) =="
+    (cd "$GO_DIR" && go run . --out "$RESULTS_DIR/vs-fw-go-${HOST_TAG}.json" "$@")
+else
+    skip "Go" "no go on PATH (install Go 1.26)"
+fi
+
+echo
+if have cargo; then
+    echo "== Rust, bare (tokio + tokio-tungstenite) =="
+    # --release, always. A debug build measures the absence of the optimiser, and a number
+    # from one would sit in the table looking like a fact about Rust.
+    (cd "$RUST_DIR" && cargo build --release --quiet \
+        && ./target/release/synqt-bench-rust \
+            --out "$RESULTS_DIR/vs-fw-rust-${HOST_TAG}.json" "$@")
+else
+    skip "Rust" "no cargo on PATH (install Rust 1.93)"
+fi
 
 echo
 echo "== Node, bare (node:http + hand-rolled RFC 6455) =="

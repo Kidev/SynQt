@@ -21,13 +21,40 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List
 
-# The order the table reads in: what SynQt does, then the same fan-out with the object
-# protocol taken off it, then the floor SynQt has to beat, then the two stacks a Node team
-# would actually deploy. `qt-raw` sits second because it is what separates "Qt's sockets are
-# slow" from "the object protocol costs something", and those have different answers.
-# `node-nextjs` sits last because it is the only column not carrying WebSocket frames: Next
-# has no WebSocket server, so its live path is server-sent events. See the README.
-STACK_ORDER = ["synqt", "qt-raw", "node-bare", "node-socketio", "node-nextjs"]
+# The registry: what the table prints, and in what order.
+#
+# The order is an argument, not an alphabet. SynQt first, then the same fan-out with the
+# object protocol taken off it, because `qt-raw` is what separates "Qt's sockets are slow"
+# from "the object protocol costs something" and those have different answers. Then the
+# floors: the bare, frameworkless column of each runtime, which is the fastest honest
+# anything and is what tells "SynQt is fast for a Qt thing" apart from "SynQt is fast". Then
+# the frameworks, which is what a team actually deploys and therefore what the comparison is
+# really about. `node-nextjs` sits at the end of the Node group because it is the one column
+# not carrying WebSocket frames: Next has no WebSocket server, so its live path is
+# server-sent events. See the README.
+#
+# A stack not listed here still prints, after these, so a column added without touching this
+# line is visible rather than silently absent.
+STACK_ORDER = [
+    "synqt", "qt-raw",
+    "go-bare", "rust-bare", "node-bare",
+    "node-socketio", "node-nextjs",
+]
+
+
+def runtime_of(data: Dict[str, Any]) -> str:
+    """Which runtime produced a column, for the header line.
+
+    Read off whichever `<runtime>_version` key the column wrote rather than off a list of
+    the runtimes this file knows about: a column is added by writing one program, and a
+    header that had to be edited for each one would print "?" for the ninth.
+    """
+    if data.get("qt_version"):
+        return f"Qt {data['qt_version']}"
+    for key, value in data.items():
+        if key.endswith("_version") and value:
+            return f"{key[: -len('_version')]} {value}"
+    return "?"
 
 
 def load(paths: List[str]) -> Dict[str, Dict[str, Any]]:
@@ -108,11 +135,7 @@ def main() -> int:
         print("no results to compare")
         return 2
 
-    versions = []
-    for stack in present:
-        data = results[stack]
-        versions.append(f"{stack}: " + (data.get("qt_version") and f"Qt {data['qt_version']}"
-                                        or data.get("node_version", "?")))
+    versions = [f"{stack}: {runtime_of(results[stack])}" for stack in present]
     print("stacks   " + " | ".join(versions))
     print(f"host     {results[present[0]].get('host', '?')} "
           f"{results[present[0]].get('arch', '')}")

@@ -166,9 +166,17 @@ statistics.
 5. Pin the toolchain in the manifest, so a newer one is a deliberate bump.
 6. Add a row to the README's columns table saying what the column is, and, if it bends
    anything above, what it is not.
-7. Check the shape, not the exit code: every sweep entry must have
-   `delivered == expected` and `distribution.samples > 0`. A new column that is
-   suspiciously fast and dropped frames is the failure mode to look for.
+7. Check the shape, not the exit code:
+
+   ```sh
+   python3 benchmarks/baselines.py check <out-dir>/vs-fw-*.json --verbose
+   ```
+
+   That is the repository's own gate and it holds a column to exactly this file: the
+   metadata is attributable, the percentiles are ordered and non-empty, the stack is named,
+   and every subscriber count received every frame. A new column that is suspiciously fast
+   and dropped frames is the failure mode to look for, and it is the one `delivered ==
+   expected` catches.
 
 **Every column is printed, including one that loses.** A comparison that prints only its
 winner is an advertisement.
