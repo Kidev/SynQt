@@ -45,6 +45,7 @@ NODE_DIR="benchmarks/vs-frameworks/node"
 GO_DIR="benchmarks/vs-frameworks/go"
 RUST_DIR="benchmarks/vs-frameworks/rust"
 SIGNALR_DIR="benchmarks/vs-frameworks/dotnet/signalr"
+PYTHON_DIR="benchmarks/vs-frameworks/python"
 
 # A user-local .NET is preferred over whatever is on PATH, because a distribution's dotnet
 # package is frequently the SDK without the ASP.NET Core runtime beside it, and that
@@ -122,6 +123,16 @@ else
     skip "Rust" "no cargo on PATH (install Rust 1.93)"
 fi
 
+# A venv of the Python columns' own, never the repository's and never the user's: this
+# harness is one command and it must not change the machine it runs on beyond its own
+# directory.
+if [ ! -x "$PYTHON_DIR/.venv/bin/python" ]; then
+    echo "== install the Python columns' dependencies =="
+    python3 -m venv "$PYTHON_DIR/.venv"
+    "$PYTHON_DIR/.venv/bin/pip" install --quiet --disable-pip-version-check \
+        -r "$PYTHON_DIR/requirements.txt"
+fi
+
 echo
 if dotnet_ready; then
     echo "== .NET, SignalR (MessagePack over WebSockets) =="
@@ -129,6 +140,20 @@ if dotnet_ready; then
         --out "$RESULTS_DIR/vs-fw-signalr-${HOST_TAG}.json" "$@")
 else
     skip ".NET SignalR" "no dotnet with the ASP.NET Core 10 runtime (see the README)"
+fi
+
+echo
+if [ -x "$PYTHON_DIR/.venv/bin/python" ]; then
+    echo "== Python, async (FastAPI on uvicorn) =="
+    (cd "$PYTHON_DIR" && .venv/bin/python live_fastapi.py \
+        --out "$RESULTS_DIR/vs-fw-fastapi-${HOST_TAG}.json" "$@")
+
+    echo
+    echo "== Python, framework (Django Channels) =="
+    (cd "$PYTHON_DIR" && .venv/bin/python live_channels.py \
+        --out "$RESULTS_DIR/vs-fw-channels-${HOST_TAG}.json" "$@")
+else
+    skip "Python" "the venv under $PYTHON_DIR could not be built"
 fi
 
 echo

@@ -50,6 +50,8 @@ protocol, because that is what a deployment would be running.
 | `dotnet-signalr` | ASP.NET Core SignalR, MessagePack protocol, over WebSockets, with the subscribers as SignalR clients in the same process | What a .NET team reaches for when the server has to push |
 | `node-bare` | `node:http` plus a hand-rolled RFC 6455 server, and the global `WebSocket` client Node 22 ships. Zero dependencies | The fastest honest Node, so SynQt cannot be accused of sandbagging |
 | `node-socketio` | Socket.IO, websocket transport pinned, compression off, binary frames | What a Node team would actually deploy |
+| `python-fastapi` | FastAPI on uvicorn, WebSockets, no middleware | Python's fast async answer |
+| `python-channels` | Django Channels consumers over ASGI WebSockets | What a team with an existing Django application reaches for |
 | `node-nextjs` | Next.js 16 App Router, a Route Handler streaming server-sent events | The framework most people mean by "a Node app", doing the only live path it has |
 
 The three Node columns exist because any one alone is arguable. Bare builtins are a number
@@ -127,27 +129,51 @@ curl -fsSL https://dot.net/v1/dotnet-install.sh | bash -s -- --channel 10.0 --no
 
 The runner prefers `$DOTNET`, then `~/.dotnet/dotnet`, then whatever is on `PATH`.
 
+### What the two Python columns are, and what they are not
+
+Both, rather than one, because they are not the same stack under different names.
+`python-fastapi` is a bare async endpoint and is Python's fast answer; `python-channels` is
+Django's ASGI application with the Channels consumer stack in front of the same sockets, and
+the gap between the two rows is what that machinery costs. A team with a Django application
+already running is choosing the second one whatever the first one measures.
+
+Two things about the Channels column are stated rather than corrected for:
+
+- **It is served by uvicorn, not daphne.** Daphne is Channels' own server and it runs on
+  twisted, with a reactor that cannot share this process's asyncio loop with the subscribers,
+  and the contract puts publisher and subscribers in one process on one clock. What the
+  column measures either way is the Channels consumer stack, which is the framework in
+  question; the ASGI server under it is the same class of thing in both cases.
+- **The channel layer is the in-memory one.** Channels' own documentation says
+  `InMemoryChannelLayer` is not for production and that a deployment uses Redis. A Redis
+  column here would be measuring Redis: every other column in this table publishes from the
+  process holding the sockets, so this one does too. A Channels deployment fanning out
+  through Redis pays a hop this row does not show.
+
+Both run in a virtual environment under `python/`, built by the runner on first use. Nothing
+is installed into the repository's environment or the user's.
+
 ### Why there is no Blazor Server column
 
-Blazor Server is the .NET stack people expect to see beside SignalR, and it is deliberately
-absent. `dotnet-signalr` already reports its transport: a Blazor Server circuit **is** a
+Blazor Server is the .NET stack people expect to see beside SignalR, and it is
+absent. `dotnet-signalr` already reports its transport, because a Blazor Server circuit is a
 SignalR connection, carrying a server-computed DOM diff instead of an application payload.
 What Blazor adds on top of that is the rendering, and that is the thing this table cannot
 hold.
 
-The subscriber in every column here is a socket. A Blazor Server subscriber is a browser: its
+The subscriber in every column here is a socket. A Blazor Server subscriber is a browser. Its
 propagation would include the server-side component render, the diff, the circuit, and the
 browser applying the patch to a real DOM. No other column pays for a render. The SynQt column
 is a QtRO consumer node and not a painted frame either, so a Blazor number would be the only
 cell in the harness that included a UI, and no reader could place it. Giving it a table of its
-own does not fix that; it moves an unplaceable number somewhere else.
+own does not fix that. It moves an unplaceable number somewhere else.
 
 There is a second, more practical wall. The sweep goes to 250 subscribers, and 250 headless
-browser contexts is tens of gigabytes: the run would saturate the machine long before it
+browser contexts is tens of gigabytes. The run would saturate the machine long before it
 saturated Blazor, and every number in it would be a fact about Chromium. A column measured on
 a sweep of 5 to 25 would not be the sweep the rest of the table ran.
 
-So the honest answer is the paragraph you are reading. If the question is "what does the
+So the answer is the paragraph you are reading. If the question is "what does the
 transport under Blazor Server cost", `dotnet-signalr` answers it, measured at SignalR's best.
 If the question is "what does a rendered live user cost", this harness does not answer it for
 any stack, and would be lying if it answered it for one.

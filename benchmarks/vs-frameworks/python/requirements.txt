@@ -1,0 +1,22 @@
+# SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+# SPDX-License-Identifier: Apache-2.0
+
+# The two Python columns' dependencies, pinned so a newer release is a deliberate bump and
+# not a surprise in a number. Installed into a venv under this directory by run-bench.sh,
+# never into the repository's environment and never into the user's: this harness is one
+# command and it must not change the machine it runs on beyond its own directory.
+
+# The fast async column.
+fastapi==0.121.2
+uvicorn==0.41.0
+
+# What a team with an existing Django application would actually reach for. No daphne: it
+# runs on twisted with a reactor of its own and cannot share this process's asyncio loop
+# with the subscribers, so the Channels column is served by the uvicorn already pinned
+# above. What that changes and what it does not is in live_channels.py and in the README.
+django==5.2.9
+channels==4.3.2
+
+# The client side of both columns. Server and clients share one process, so the same
+# library connects to whichever server is running.
+websockets==15.0.1
