@@ -51,6 +51,7 @@ protocol, because that is what a deployment would be running.
 | `dotnet-signalr` | ASP.NET Core SignalR, MessagePack protocol, over WebSockets, with the subscribers as SignalR clients in the same process | What a .NET team reaches for when the server has to push |
 | `node-bare` | `node:http` plus a hand-rolled RFC 6455 server, and the global `WebSocket` client Node 22 ships. Zero dependencies | The fastest honest Node, so SynQt cannot be accused of sandbagging |
 | `node-socketio` | Socket.IO, websocket transport pinned, compression off, binary frames | What a Node team would actually deploy |
+| `ruby-actioncable` | Action Cable on puma, with the subscribers as fibers on one thread | What a Rails team reaches for when the server has to push |
 | `python-fastapi` | FastAPI on uvicorn, WebSockets, no middleware | Python's fast async answer |
 | `python-channels` | Django Channels consumers over ASGI WebSockets | What a team with an existing Django application reaches for |
 | `node-nextjs` | Next.js 16 App Router, a Route Handler streaming server-sent events | The framework most people mean by "a Node app", doing the only live path it has |
@@ -165,24 +166,63 @@ curl -fsSL https://dot.net/v1/dotnet-install.sh | bash -s -- --channel 10.0 --no
 
 The runner prefers `$DOTNET`, then `~/.dotnet/dotnet`, then whatever is on `PATH`.
 
+### The Action Cable column, and the measurement bug it found
+
+Action Cable is what a Rails team reaches for when the server has to push, and the column
+carries the real thing, puma, the channel, and Action Cable's JSON envelope with the
+eight-byte stamp base64-encoded inside it, which is what it puts on the wire.
+
+Its subscribers are fibers on one thread, under the Async scheduler, and that is not a
+style choice. The first version of this column gave each subscriber an OS thread, which is
+the obvious way to write it and is what every Ruby WebSocket client example does. It
+reported this, at N=50 and 30 Hz:
+
+```
+p50 198-409 ms, and frames dropped
+```
+
+That number is not Action Cable. Ruby's threads are real OS threads under a global VM lock,
+and fifty of them each waking on a socket read is a queue in front of the measurement.
+Three runs against the same server, same protocol, same rate settled it:
+
+| Subscribers at N=50 | p50 | delivered |
+| --- | --- | --- |
+| Ruby OS threads, one process | 198-409 ms | dropped frames |
+| Ruby OS threads, separate process | 321 ms | dropped frames |
+| Python asyncio, separate process | 1.479 ms | all |
+| Ruby fibers, one thread | 1.211 ms | all |
+
+Moving the subscribers to their own process did not help, which rules out contention with
+the server. Non-Ruby subscribers against the same Ruby server were fast, which rules out the
+server. What was left was the threads, and fibers are the fix, with the same language, the
+same process, one thread, and the contract honoured exactly.
+
+The wrong version looked entirely plausible. A slow row
+for Ruby in a table of frameworks is what a reader half expects, and it would have been
+published as a fact about Action Cable. It was a fact about the harness.
+
+What remains true, and is why the CPU row reads the way it does, is that the Ruby half of this
+column runs on one core. Read `cpu ms / 1k msgs` as one core's worth of Ruby rather than as a
+figure that divides across the machine.
+
 ### What the two Python columns are, and what they are not
 
 Both, rather than one, because they are not the same stack under different names.
-`python-fastapi` is a bare async endpoint and is Python's fast answer; `python-channels` is
+`python-fastapi` is a bare async endpoint and is Python's fast answer. `python-channels` is
 Django's ASGI application with the Channels consumer stack in front of the same sockets, and
 the gap between the two rows is what that machinery costs. A team with a Django application
 already running is choosing the second one whatever the first one measures.
 
 Two things about the Channels column are stated rather than corrected for:
 
-- **It is served by uvicorn, not daphne.** Daphne is Channels' own server and it runs on
+- **It is served by uvicorn rather than daphne.** Daphne is Channels' own server and it runs on
   twisted, with a reactor that cannot share this process's asyncio loop with the subscribers,
   and the contract puts publisher and subscribers in one process on one clock. What the
   column measures either way is the Channels consumer stack, which is the framework in
-  question; the ASGI server under it is the same class of thing in both cases.
+  question. The ASGI server under it is the same class of thing in both cases.
 - **The channel layer is the in-memory one.** Channels' own documentation says
   `InMemoryChannelLayer` is not for production and that a deployment uses Redis. A Redis
-  column here would be measuring Redis: every other column in this table publishes from the
+  column here would be measuring Redis. Every other column in this table publishes from the
   process holding the sockets, so this one does too. A Channels deployment fanning out
   through Redis pays a hop this row does not show.
 

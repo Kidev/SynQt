@@ -47,6 +47,7 @@ RUST_DIR="benchmarks/vs-frameworks/rust"
 SIGNALR_DIR="benchmarks/vs-frameworks/dotnet/signalr"
 PYTHON_DIR="benchmarks/vs-frameworks/python"
 PHOENIX_DIR="benchmarks/vs-frameworks/phoenix"
+RUBY_DIR="benchmarks/vs-frameworks/ruby"
 
 # A user-local .NET is preferred over whatever is on PATH, because a distribution's dotnet
 # package is frequently the SDK without the ASP.NET Core runtime beside it, and that
@@ -141,6 +142,21 @@ if [ ! -x "$PYTHON_DIR/.venv/bin/python" ]; then
     python3 -m venv "$PYTHON_DIR/.venv"
     "$PYTHON_DIR/.venv/bin/pip" install --quiet --disable-pip-version-check \
         -r "$PYTHON_DIR/requirements.txt"
+fi
+
+echo
+if have bundle && [ -d "$RUBY_DIR/vendor/bundle" ]; then
+    echo "== Ruby, Action Cable (JSON envelope over WebSockets) =="
+    (cd "$RUBY_DIR" && bundle exec ruby live.rb \
+        --out "$RESULTS_DIR/vs-fw-actioncable-${HOST_TAG}.json" "$@")
+elif have bundle; then
+    echo "== install the Action Cable column's dependencies =="
+    (cd "$RUBY_DIR" && bundle config set --local path vendor/bundle && bundle install)
+    echo "== Ruby, Action Cable (JSON envelope over WebSockets) =="
+    (cd "$RUBY_DIR" && bundle exec ruby live.rb \
+        --out "$RESULTS_DIR/vs-fw-actioncable-${HOST_TAG}.json" "$@")
+else
+    skip "Ruby Action Cable" "no bundle on PATH (gem install --user-install bundler)"
 fi
 
 echo

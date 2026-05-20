@@ -1,0 +1,40 @@
+# SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+# SPDX-License-Identifier: Apache-2.0
+
+# The ActionCable column's dependencies, pinned so a newer release is a deliberate bump and
+# not a surprise in a number. Installed under this directory by run-bench.sh (bundle config
+# set --local path vendor/bundle), never into the user's gem home: this harness is one
+# command and it must not change the machine it runs on beyond its own directory.
+
+source "https://rubygems.org"
+
+ruby ">= 3.4"
+
+# ActionCable itself and the two pieces it cannot run without: a Rack server to accept the
+# upgrade, and the Rails plumbing it is built on. Not the whole `rails` gem: this column has
+# no models, no views and no router beyond one mount, and pulling ActiveRecord in would put a
+# database adapter's load time into a number about a WebSocket.
+gem "actioncable", "8.1.2"
+# Ruby 3.4 moved erb out of the default gems, and under bundler only what is named here is
+# loadable: without it every /cable upgrade fails with "cannot load such file -- erb" and no
+# subscriber ever comes up. Action Cable reaches it through Action Pack.
+gem "erb", "5.0.3"
+gem "puma", "8.0.2"
+gem "rack", "3.2.4"
+
+# The subscriber side. Action Cable's own client is JavaScript, so a Ruby subscriber speaks
+# the protocol over a plain WebSocket client.
+#
+# Fibers on one thread, via the Async scheduler, and NOT a thread per subscriber. That is
+# not a style preference, it is the difference between measuring Action Cable and measuring
+# the harness: with N OS threads each waking on a socket read and contending for the VM
+# lock, N=50 at 30 Hz reported p50 198-409 ms and dropped frames. The same server, the same
+# protocol and the same rate, with the subscribers as fibers on one thread, reports 1.2 ms
+# and loses nothing. Python asyncio subscribers agree with the fiber number to within
+# 0.3 ms, which is what confirms the server was never the slow part.
+gem "async", "2.36.0"
+gem "async-websocket", "0.30.1"
+
+# Ruby 3.4 moved base64 out of the default gems, and the channel envelope carries the frame
+# base64-encoded inside JSON.
+gem "base64", "0.3.0"
