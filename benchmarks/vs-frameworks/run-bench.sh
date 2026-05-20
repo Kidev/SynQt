@@ -46,6 +46,7 @@ GO_DIR="benchmarks/vs-frameworks/go"
 RUST_DIR="benchmarks/vs-frameworks/rust"
 SIGNALR_DIR="benchmarks/vs-frameworks/dotnet/signalr"
 PYTHON_DIR="benchmarks/vs-frameworks/python"
+PHOENIX_DIR="benchmarks/vs-frameworks/phoenix"
 
 # A user-local .NET is preferred over whatever is on PATH, because a distribution's dotnet
 # package is frequently the SDK without the ASP.NET Core runtime beside it, and that
@@ -64,9 +65,18 @@ fi
 have() { command -v "$1" >/dev/null 2>&1; }
 skip() { echo "== $1 skipped: $2 =="; }
 
-# An SDK on its own is not enough: an ASP.NET Core app needs the ASP.NET Core runtime, and a
+# An SDK on its own is not enough. An ASP.NET Core app needs the ASP.NET Core runtime, and a
 # machine with only Microsoft.NETCore.App fails at restore with NETSDK1226 rather than at the
 # run. Ask before running, so the column skips with a reason a reader can act on.
+# Elixir and Erlang, from the userspace toolchain the Phoenix column keeps under its own
+# directory (see that column's section of the README). Nothing is installed on the machine,
+# so a checkout without it skips rather than half-running.
+PHOENIX_TOOLCHAIN="$REPO_ROOT/$PHOENIX_DIR/.toolchain"
+phoenix_ready() {
+    [ -x "$PHOENIX_TOOLCHAIN/elixir/bin/mix" ] && \
+        [ -x "$PHOENIX_TOOLCHAIN/OTP-27.3.4.9/bin/erl" ]
+}
+
 dotnet_ready() {
     [ -x "$DOTNET" ] || command -v "$DOTNET" >/dev/null 2>&1 || return 1
     "$DOTNET" --list-runtimes 2>/dev/null | grep -q "^Microsoft.AspNetCore.App 10\."
@@ -131,6 +141,19 @@ if [ ! -x "$PYTHON_DIR/.venv/bin/python" ]; then
     python3 -m venv "$PYTHON_DIR/.venv"
     "$PYTHON_DIR/.venv/bin/pip" install --quiet --disable-pip-version-check \
         -r "$PYTHON_DIR/requirements.txt"
+fi
+
+echo
+if phoenix_ready; then
+    echo "== Phoenix, Channels (JSON envelope over WebSockets) =="
+    (cd "$PHOENIX_DIR" \
+        && PATH="$PHOENIX_TOOLCHAIN/OTP-27.3.4.9/bin:$PHOENIX_TOOLCHAIN/elixir/bin:$PATH" \
+           MIX_HOME="$REPO_ROOT/$PHOENIX_DIR/.mix" \
+           HEX_HOME="$REPO_ROOT/$PHOENIX_DIR/.hex" \
+           MIX_ENV=prod \
+           mix run run.exs --out "$RESULTS_DIR/vs-fw-phoenix-${HOST_TAG}.json" "$@")
+else
+    skip "Phoenix" "no Elixir toolchain under $PHOENIX_DIR/.toolchain (see the README)"
 fi
 
 echo

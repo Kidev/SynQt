@@ -47,6 +47,7 @@ protocol, because that is what a deployment would be running.
 | `qt-raw` | The same fan-out over a bare `QWebSocket`, no QtRemoteObjects, everything else identical | Separates what Qt's sockets cost from what the object protocol on them costs |
 | `go-bare` | `net/http` plus `coder/websocket`, no router and no framework | A floor that is not Node: the fastest honest Go |
 | `rust-bare` | `tokio` plus `tokio-tungstenite`, release build, no framework | The other floor, and the one nothing in this table is expected to beat |
+| `phoenix` | Phoenix Channels on Bandit, with the subscribers as real WebSocket clients on the same BEAM node | The stack SynQt is most often said to be like |
 | `dotnet-signalr` | ASP.NET Core SignalR, MessagePack protocol, over WebSockets, with the subscribers as SignalR clients in the same process | What a .NET team reaches for when the server has to push |
 | `node-bare` | `node:http` plus a hand-rolled RFC 6455 server, and the global `WebSocket` client Node 22 ships. Zero dependencies | The fastest honest Node, so SynQt cannot be accused of sandbagging |
 | `node-socketio` | Socket.IO, websocket transport pinned, compression off, binary frames | What a Node team would actually deploy |
@@ -115,9 +116,44 @@ so `/plaintext` and `/json` would be a static file server measured against two f
 doing work.
 
 
+### What the Phoenix column is, and how to run it
+
+Phoenix earns its column by being the stack SynQt is most often said to be like, a server
+that holds live state and pushes it. One BEAM node runs the endpoint and every subscriber, so
+the one-process rule is honoured exactly and idiomatically.
+
+The subscribers are real WebSocket clients rather than processes calling
+`Phoenix.PubSub.subscribe/2`. That is the difference between a fair column and a flattering
+one. Subscribing to the topic in-node would skip the channel stack, the serializer and the
+socket, which is precisely the transport every other column is measured carrying. As a
+consequence the eight-byte stamp travels base64 inside Phoenix's JSON channel envelope, the
+same allowance Action Cable gets, because that is what Phoenix puts on the wire.
+
+Two numbers about memory, and only one of them is in the table. `rss_total_bytes` is RSS as
+the OS reports it, like every other column. The result file also carries
+`beam_memory_total_bytes` (`:erlang.memory(:total)`), which is the BEAM's own accounting. It
+excludes the code the VM mapped and includes memory the allocators hold but are not using.
+The two disagree by tens of megabytes, and putting the second one in the table's cell would
+be a different measurement under the same heading.
+
+The toolchain lives under the column rather than on the machine. `run-bench.sh` skips the column
+when it is absent. This is what puts it there:
+
+```sh
+cd benchmarks/vs-frameworks/phoenix && mkdir -p .toolchain && cd .toolchain
+curl -fsSLO https://builds.hex.pm/builds/otp/ubuntu-24.04/OTP-27.3.4.9.tar.gz
+tar xzf OTP-27.3.4.9.tar.gz && (cd OTP-27.3.4.9 && ./Install -minimal "$PWD")
+curl -fsSL -o elixir.zip https://builds.hex.pm/builds/elixir/v1.19.6-otp-27.zip
+unzip -q elixir.zip -d elixir
+```
+
+Those are the upstream precompiled builds. The Ubuntu Erlang runs on any glibc newer than
+the one it was built against, which is what makes the column reproducible without a package
+manager. `mix deps.get` then fetches the pinned Phoenix.
+
 ### Running the .NET column
 
-It needs a `dotnet` with the **ASP.NET Core 10 runtime**, not only the SDK. A distribution's
+It needs a `dotnet` with the ASP.NET Core 10 runtime, and not only the SDK. A distribution's
 `dotnet-sdk` package frequently ships without it, and that combination fails at restore with
 `NETSDK1226` rather than at the run, so `run-bench.sh` checks for the runtime and skips the
 column with a reason instead. The install that satisfies it, into the user's own directory
