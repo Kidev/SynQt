@@ -39,7 +39,7 @@ STACK_ORDER = [
     "synqt", "qt-raw",
     "go-bare", "rust-bare", "node-bare",
     "phoenix", "dotnet-signalr", "node-socketio", "node-nextjs",
-    "ruby-actioncable",
+    "ruby-actioncable", "php-reverb",
     "python-fastapi", "python-channels",
 ]
 

@@ -52,6 +52,7 @@ protocol, because that is what a deployment would be running.
 | `node-bare` | `node:http` plus a hand-rolled RFC 6455 server, and the global `WebSocket` client Node 22 ships. Zero dependencies | The fastest honest Node, so SynQt cannot be accused of sandbagging |
 | `node-socketio` | Socket.IO, websocket transport pinned, compression off, binary frames | What a Node team would actually deploy |
 | `ruby-actioncable` | Action Cable on puma, with the subscribers as fibers on one thread | What a Rails team reaches for when the server has to push |
+| `php-reverb` | Laravel Reverb, the Pusher protocol over WebSockets, publisher going through Laravel's broadcast path | PHP's answer, measured in the shape it actually deploys in |
 | `python-fastapi` | FastAPI on uvicorn, WebSockets, no middleware | Python's fast async answer |
 | `python-channels` | Django Channels consumers over ASGI WebSockets | What a team with an existing Django application reaches for |
 | `node-nextjs` | Next.js 16 App Router, a Route Handler streaming server-sent events | The framework most people mean by "a Node app", doing the only live path it has |
@@ -165,6 +166,32 @@ curl -fsSL https://dot.net/v1/dotnet-install.sh | bash -s -- --channel 10.0 --no
 ```
 
 The runner prefers `$DOTNET`, then `~/.dotnet/dotnet`, then whatever is on `PATH`.
+
+### What the Reverb column is, and what it costs
+
+Laravel Reverb is a standalone ReactPHP WebSocket server, so a deployment is three moving
+parts. The application broadcasts, Reverb fans out, and the browser receives. This column runs
+all three, and that is the one place it bends the contract.
+
+It is three processes, where every other column is one. The Reverb server is its own
+process because that is what Reverb is. The publisher is its own process because Laravel's
+broadcast path blocks on a signed HTTP call into Reverb, and a blocking publisher sharing the
+subscribers' event loop would stall the reads it is being timed against. So the interval this
+column reports contains a process boundary and an HTTP hop that no other column pays.
+
+The clock is still one clock. PHP's `hrtime(true)` is `CLOCK_MONOTONIC` on Linux, whose
+origin is the boot rather than the process, so the stamp written in the publisher is read
+back in the subscriber against the same zero, so it is an interval rather than a difference
+between two clocks.
+
+That caveat is worth the column rather than a reason to drop it. Going through
+`Broadcast::connection('reverb')` is what an application does, and a number measured any
+other way would be a number about Reverb rather than about deploying Laravel. Read the row as
+"what a Reverb deployment costs", and read the gap to `node-socketio` as partly that extra
+hop.
+
+The subscribers are N connections on one ReactPHP event loop. PHP has no threads to get this
+wrong with, which is the one place this column had an easier job than the Ruby one.
 
 ### The Action Cable column, and the measurement bug it found
 

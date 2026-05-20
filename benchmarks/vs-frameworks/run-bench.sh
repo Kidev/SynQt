@@ -48,6 +48,20 @@ SIGNALR_DIR="benchmarks/vs-frameworks/dotnet/signalr"
 PYTHON_DIR="benchmarks/vs-frameworks/python"
 PHOENIX_DIR="benchmarks/vs-frameworks/phoenix"
 RUBY_DIR="benchmarks/vs-frameworks/ruby"
+PHP_DIR="benchmarks/vs-frameworks/php"
+
+# `gem install --user-install bundler` is the rootless way to get bundler, and it puts the
+# executable somewhere no shell has on PATH by default. Look there before giving up, or the
+# column skips on a machine that has everything it needs.
+if ! command -v bundle >/dev/null 2>&1; then
+    for candidate in "$HOME"/.local/share/gem/ruby/*/bin "$HOME"/.gem/ruby/*/bin; do
+        if [ -x "$candidate/bundle" ]; then
+            PATH="$candidate:$PATH"
+            export PATH
+            break
+        fi
+    done
+fi
 
 # A user-local .NET is preferred over whatever is on PATH, because a distribution's dotnet
 # package is frequently the SDK without the ASP.NET Core runtime beside it, and that
@@ -142,6 +156,33 @@ if [ ! -x "$PYTHON_DIR/.venv/bin/python" ]; then
     python3 -m venv "$PYTHON_DIR/.venv"
     "$PYTHON_DIR/.venv/bin/pip" install --quiet --disable-pip-version-check \
         -r "$PYTHON_DIR/requirements.txt"
+fi
+
+# Reverb is a standalone server, so this column is three processes rather than one: the
+# Reverb process started here, the subscriber process, and the Laravel publisher that
+# subscriber process starts. See the README.
+echo
+if have php && [ -d "$PHP_DIR/vendor" ]; then
+    echo "== PHP, Laravel Reverb (Pusher protocol over WebSockets) =="
+    REVERB_PORT="$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')"
+    (cd "$PHP_DIR" && SYNQT_REVERB_PORT="$REVERB_PORT" \
+        php artisan reverb:start --port "$REVERB_PORT" >/dev/null 2>&1) &
+    REVERB_PID=$!
+    # Wait for the port rather than sleeping a guessed amount. A run that starts publishing
+    # into a server that is not listening yet loses its warm-up and reads as loss.
+    for _ in $(seq 1 100); do
+        if (exec 3<>"/dev/tcp/127.0.0.1/$REVERB_PORT") 2>/dev/null; then exec 3>&- ; break; fi
+        sleep 0.1
+    done
+    (cd "$PHP_DIR" && SYNQT_REVERB_PORT="$REVERB_PORT" \
+        php live.php --reverb-port "$REVERB_PORT" \
+        --out "$RESULTS_DIR/vs-fw-reverb-${HOST_TAG}.json" "$@") || true
+    kill "$REVERB_PID" 2>/dev/null || true
+    wait "$REVERB_PID" 2>/dev/null || true
+elif have php; then
+    skip "Laravel Reverb" "run 'php composer.phar install' in $PHP_DIR"
+else
+    skip "Laravel Reverb" "no php on PATH (install PHP 8.3 or newer)"
 fi
 
 echo

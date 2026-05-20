@@ -1,0 +1,20 @@
+#!/usr/bin/env php
+<?php
+// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+// SPDX-License-Identifier: Apache-2.0
+
+// The console entry `reverb:start` is invoked through. run-bench.sh starts the Reverb
+// server with it and then runs live.php against it.
+
+use Illuminate\Foundation\Application;
+use Illuminate\Contracts\Console\Kernel;
+
+require __DIR__.'/vendor/autoload.php';
+
+/** @var Application $app */
+$app = require_once __DIR__.'/bootstrap/app.php';
+
+exit($app->make(Kernel::class)->handle(
+    new Symfony\Component\Console\Input\ArgvInput,
+    new Symfony\Component\Console\Output\ConsoleOutput
+));

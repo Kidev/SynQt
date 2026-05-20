@@ -1,0 +1,39 @@
+{
+    "_comment": [
+        "SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux",
+        "SPDX-License-Identifier: Apache-2.0",
+        "",
+        "The Laravel Reverb column's dependencies, pinned so a newer release is a deliberate",
+        "bump and not a surprise in a number. Installed into vendor/ under this directory by",
+        "run-bench.sh, never globally: this harness is one command and it must not change the",
+        "machine it runs on beyond its own directory.",
+        "",
+        "laravel/framework rather than the laravel/laravel skeleton: this column has no",
+        "models, no views, no router beyond what Reverb mounts, and a skeleton would commit",
+        "forty files none of which the measurement reads. ratchet/pawl is the subscriber side,",
+        "because Reverb speaks the Pusher protocol and PHP has no built-in WebSocket client."
+    ],
+    "name": "synqt/bench-php",
+    "description": "The Laravel Reverb column of the SynQt framework comparison",
+    "license": "Apache-2.0",
+    "type": "project",
+    "require": {
+        "php": "^8.3",
+        "laravel/framework": "^12.0",
+        "laravel/reverb": "^1.6",
+        "ratchet/pawl": "^0.4"
+    },
+    "config": {
+        "allow-plugins": {
+            "pestphp/pest-plugin": false,
+            "php-http/discovery": false
+        }
+    },
+    "autoload": {
+        "psr-4": {
+            "SynQt\\Bench\\": "src/"
+        }
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
+}
