@@ -1,0 +1,92 @@
+{
+  "benchmark": "vs-frameworks-live",
+  "stack": "dotnet-signalr",
+  "path": "ASP.NET Core SignalR, MessagePack over WebSockets",
+  "dotnet_version": "10.0.11",
+  "host": "linux 7.1.5.1",
+  "arch": "x64",
+  "recorded": "2026-09-07T03:28:30Z",
+  "rss_available": true,
+  "hz": 30,
+  "saturated": false,
+  "seconds": 5,
+  "payload_bytes": 256,
+  "sweep": [
+    {
+      "subscribers": 10,
+      "propagation": {
+        "unit": "ms",
+        "samples": 1500,
+        "min": 0.053,
+        "p50": 0.101,
+        "p95": 0.15,
+        "p99": 0.213,
+        "max": 0.305,
+        "mean": 0.10613799999999989
+      },
+      "throughput_msgs_per_sec": 272.71301727409707,
+      "cpu_ms_per_1k": 245.8346666666667,
+      "rss_bytes_per_conn": 1738342.4,
+      "rss_total_bytes": 93982720,
+      "delivered": 1500,
+      "expected": 1500
+    },
+    {
+      "subscribers": 50,
+      "propagation": {
+        "unit": "ms",
+        "samples": 7500,
+        "min": 0.102,
+        "p50": 0.187,
+        "p95": 0.241,
+        "p99": 0.291,
+        "max": 0.323,
+        "mean": 0.18674440000000067
+      },
+      "throughput_msgs_per_sec": 1363.7709554317469,
+      "cpu_ms_per_1k": 57.73586666666664,
+      "rss_bytes_per_conn": 682475.52,
+      "rss_total_bytes": 110723072,
+      "delivered": 7500,
+      "expected": 7500
+    },
+    {
+      "subscribers": 100,
+      "propagation": {
+        "unit": "ms",
+        "samples": 15000,
+        "min": 0.121,
+        "p50": 0.263,
+        "p95": 0.356,
+        "p99": 0.419,
+        "max": 0.963,
+        "mean": 0.26949579999999773
+      },
+      "throughput_msgs_per_sec": 2727.247587008607,
+      "cpu_ms_per_1k": 67.66406666666668,
+      "rss_bytes_per_conn": 590684.16,
+      "rss_total_bytes": 135667712,
+      "delivered": 15000,
+      "expected": 15000
+    },
+    {
+      "subscribers": 250,
+      "propagation": {
+        "unit": "ms",
+        "samples": 37500,
+        "min": 0.135,
+        "p50": 0.385,
+        "p95": 0.594,
+        "p99": 0.743,
+        "max": 1.098,
+        "mean": 0.3971466933333341
+      },
+      "throughput_msgs_per_sec": 6818.439431220692,
+      "cpu_ms_per_1k": 43.57373333333334,
+      "rss_bytes_per_conn": 398426.112,
+      "rss_total_bytes": 176205824,
+      "delivered": 37500,
+      "expected": 37500
+    }
+  ]
+}

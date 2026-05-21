@@ -288,10 +288,10 @@ any stack, and would be lying if it answered it for one.
 ./benchmarks/vs-frameworks/run-bench.sh --subscribers 10,50,100,250,500 --seconds 10 --hz 60
 ```
 
-It builds the two SynQt harnesses, installs the Node columns' dependencies and builds the
-Next.js app on first run, runs all five live columns over the same sweep and all three call
-columns over theirs, writes one baseline each under `benchmarks/results/` keyed by hostname,
-and prints both tables. The arguments above shape the live sweep; the call sweep has knobs of
+It builds the two SynQt harnesses, installs each column's dependencies on first run, runs
+every live column over the same sweep and all three call columns over theirs, writes one
+baseline each under `benchmarks/results/` keyed by hostname, and prints both tables. A column
+whose toolchain is not installed skips with a printed reason rather than failing the run. The arguments above shape the live sweep. The call sweep has knobs of
 its own (`CALL_CALLERS`, `CALL_SECONDS`, `CALL_WORK`), because the two count different things
 and one `--subscribers` cannot mean anything to a table with no subscribers in it.
 
@@ -342,8 +342,56 @@ figure moved to 16. Nothing inside a measured window may spin.
 N=40 said Qt's bare-socket fan-out was 8% faster than Node's. Over the whole sweep it is
 83% faster at N=10 and 28% slower at N=250, because the two stacks have opposite cost
 shapes and 40 is roughly where they cross. See
-[what the gap is made of](#what-the-gap-against-node-is-made-of); every claim there is
+[what the gap is made of](#what-the-gap-against-node-is-made-of). Every claim there is
 fitted across four sizes for that reason.
+
+**A subscriber written the obvious way can be the slowest thing in the run.** The Action
+Cable column gave each subscriber an OS thread, which is how every Ruby WebSocket example
+is written, and reported 200 times the propagation it should have. The full story is
+[under that column](#the-action-cable-column-and-the-measurement-bug-it-found), and the
+general lesson is the one this section is about. A plausible-looking bad number is the
+dangerous kind, and the only way to catch one is to change a variable the stack does not
+care about and see whether the number moves.
+
+## The headline table
+
+One publisher at 30 Hz, N subscribers, a 256-byte payload, 5-second windows, every column in
+one run. The environment is [below](#the-environment-these-numbers-came-from). Propagation
+p50 in milliseconds, and every column delivered every frame at every size:
+
+| N | synqt | qt-raw | go-bare | rust-bare | node-bare | phoenix | signalr | socketio | nextjs | actioncable | reverb | fastapi | channels |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 10 | 0.146 | 0.112 | **0.061** | 0.076 | 0.236 | 0.194 | 0.101 | 0.455 | 0.490 | 1.034 | 0.893 | 0.430 | 0.287 |
+| 50 | 0.566 | 0.525 | **0.160** | 0.176 | 0.546 | 0.236 | 0.187 | 1.013 | 1.136 | 2.093 | 1.346 | 1.385 | 1.269 |
+| 100 | 1.431 | 1.034 | 0.309 | 0.333 | 0.903 | 0.291 | **0.263** | 1.887 | 2.098 | 3.708 | 1.910 | 2.771 | 2.419 |
+| 250 | 3.706 | 2.959 | 0.760 | 0.832 | 2.182 | 0.508 | **0.385** | 4.881 | 5.520 | 7.572 | 3.482 | 6.506 | 6.204 |
+
+**Read the last row before the first one.** SynQt is second only to the compiled floors at
+N=10 and it is beaten by five columns at N=250, including two frameworks: Phoenix at 0.508 ms
+and SignalR at 0.385 ms, against SynQt's 3.706. That is not a rounding difference and it is
+not noise; it is the same shape the Node comparison already showed, now with two more stacks
+on the good side of it.
+
+What the shape is: **SynQt wins the fixed cost and loses the marginal one.** Adding a
+subscriber costs it more than it costs a BEAM node or a SignalR hub, so the ordering inverts
+somewhere between 50 and 100 subscribers on this machine. The memory rows say the same thing
+the other way round: SynQt's marginal cost is 62.6 KiB a connection at N=250, the lowest of
+any column except Reverb's 41.1, while its propagation is among the highest. It is cheap to
+hold a connection and expensive to fan out to one.
+
+This is the number worth knowing rather than the number worth burying. A single-edge SynQt
+deployment fanning one value to 250 live subscribers is paying about 7x Phoenix's
+propagation. Two things change that picture and neither is in this table: `replicas:` splits
+the subscribers across processes ([the sweep below](#the-sweep-what-each-stack-does-with-four-cores)
+measures it, and SynQt scales 10.25x over eight processes where bare Node scales 7.23x), and
+`threads:` reaches the other cores inside one process
+([above](#threads-the-core-that-is-not-a-process)). The honest summary is that SynQt's answer
+to fan-out is more cores rather than a cheaper per-subscriber path, and if a deployment
+cannot give it more cores then Phoenix and SignalR are faster at this workload.
+
+The floors do their job in that row too: Go at 0.760 ms and Rust at 0.832 say that 0.385 is
+not some unreachable number, and that the framework columns above them are paying for their
+frameworks.
 
 ## The sweep: what each stack does with four cores
 
@@ -700,6 +748,31 @@ Next in production is:
 
 Drive them with the loader in `benchmarks/edge`, which is what measures SynQt's column, so
 the generator is not a variable between stacks.
+
+## The environment these numbers came from
+
+Every table below is one run of `run-bench.sh`, on one machine, in one session, with nothing
+else running. Thirteen columns measured on thirteen afternoons would not be a comparison, so
+they were not.
+
+| | |
+| --- | --- |
+| Host | Arch Linux, kernel 7.1.5 |
+| CPU | AMD Ryzen 9 7950X, 16 cores / 32 threads |
+| Memory | 124 GiB |
+| SynQt | Qt 6.12.0 |
+| Go | 1.26.5 |
+| Rust | 1.93.1 |
+| Elixir | 1.19.6 on Erlang/OTP 27 (erts 15.2.7.6) |
+| .NET | 10.0.11, ASP.NET Core SignalR 10.0.11, MessagePack 3.1.8 |
+| Node | 22.22.0, Socket.IO 4, Next.js 16 |
+| Ruby | 3.4.10, Action Cable 8.1.2, puma 8.0.2, async 2.36 |
+| PHP | 8.5.9, Laravel 12, Reverb 1.11.1 |
+| Python | 3.14.6, FastAPI 0.121.2, Django 5.2.9, Channels 4.3.2 |
+
+The exact versions each result file was produced by are in the file itself: every column
+stamps its own `<runtime>_version`, and `compare.py` prints them across the top of the table
+rather than trusting this list to stay true.
 
 ## Where it runs
 

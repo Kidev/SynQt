@@ -1,0 +1,92 @@
+{
+  "benchmark": "vs-frameworks-live",
+  "stack": "ruby-actioncable",
+  "path": "Action Cable on puma, JSON envelope over WebSockets",
+  "ruby_version": "3.4.10",
+  "host": "linux 7.1.5-arch1-2",
+  "arch": "x86_64",
+  "recorded": "2026-09-07T03:27:35Z",
+  "rss_available": true,
+  "hz": 30,
+  "saturated": false,
+  "seconds": 5,
+  "payload_bytes": 256,
+  "sweep": [
+    {
+      "subscribers": 10,
+      "propagation": {
+        "unit": "ms",
+        "samples": 1500,
+        "min": 0.579,
+        "p50": 1.0335,
+        "p95": 1.28805,
+        "p99": 1.43908,
+        "max": 5.33,
+        "mean": 1.0481973333333334
+      },
+      "throughput_msgs_per_sec": 272.7198823662594,
+      "cpu_ms_per_1k": 114.30799999999992,
+      "rss_bytes_per_conn": 586137.6,
+      "rss_total_bytes": 53235712,
+      "delivered": 1500,
+      "expected": 1500
+    },
+    {
+      "subscribers": 50,
+      "propagation": {
+        "unit": "ms",
+        "samples": 7500,
+        "min": 1.413,
+        "p50": 2.093,
+        "p95": 2.604,
+        "p99": 3.7590700000000012,
+        "max": 4.164,
+        "mean": 2.1387192
+      },
+      "throughput_msgs_per_sec": 1363.6102152913875,
+      "cpu_ms_per_1k": 47.90733333333337,
+      "rss_bytes_per_conn": 491683.84,
+      "rss_total_bytes": 71958528,
+      "delivered": 7500,
+      "expected": 7500
+    },
+    {
+      "subscribers": 100,
+      "propagation": {
+        "unit": "ms",
+        "samples": 15000,
+        "min": 2.288,
+        "p50": 3.708,
+        "p95": 5.872099999999999,
+        "p99": 7.180120000000002,
+        "max": 9.735,
+        "mean": 3.8833188
+      },
+      "throughput_msgs_per_sec": 2727.221806069144,
+      "cpu_ms_per_1k": 42.87566666666665,
+      "rss_bytes_per_conn": 362496.0,
+      "rss_total_bytes": 83623936,
+      "delivered": 15000,
+      "expected": 15000
+    },
+    {
+      "subscribers": 250,
+      "propagation": {
+        "unit": "ms",
+        "samples": 37500,
+        "min": 4.597,
+        "p50": 7.5725,
+        "p95": 11.222,
+        "p99": 12.66,
+        "max": 14.135,
+        "mean": 7.8251984
+      },
+      "throughput_msgs_per_sec": 6818.016725493716,
+      "cpu_ms_per_1k": 35.270773333333324,
+      "rss_bytes_per_conn": 225099.776,
+      "rss_total_bytes": 103649280,
+      "delivered": 37500,
+      "expected": 37500
+    }
+  ]
+}

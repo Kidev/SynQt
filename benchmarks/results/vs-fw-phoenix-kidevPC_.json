@@ -1,0 +1,94 @@
+{
+  "arch": "x86_64-pc-linux-gnu",
+  "beam_memory_total_bytes": 92199728,
+  "benchmark": "vs-frameworks-live",
+  "elixir_version": "1.19.6",
+  "host": "linux 7.1.5-arch1-2",
+  "hz": 30,
+  "otp_release": "27",
+  "path": "Phoenix Channels on Bandit, JSON envelope over WebSockets",
+  "payload_bytes": 256,
+  "recorded": "2026-09-07T03:28:02.738299Z",
+  "rss_available": true,
+  "saturated": false,
+  "seconds": 5,
+  "stack": "phoenix",
+  "sweep": [
+    {
+      "cpu_ms_per_1k": 120.0,
+      "delivered": 1500,
+      "expected": 1500,
+      "propagation": {
+        "max": 0.486,
+        "mean": 0.19850133333333342,
+        "min": 0.11,
+        "p50": 0.194,
+        "p95": 0.25904999999999995,
+        "p99": 0.33002,
+        "samples": 1500,
+        "unit": "ms"
+      },
+      "rss_bytes_per_conn": 603750.4,
+      "rss_total_bytes": 143630336,
+      "subscribers": 10,
+      "throughput_msgs_per_sec": 272.6281352235551
+    },
+    {
+      "cpu_ms_per_1k": 125.33333333333333,
+      "delivered": 7500,
+      "expected": 7500,
+      "propagation": {
+        "max": 0.832,
+        "mean": 0.2493248000000006,
+        "min": 0.091,
+        "p50": 0.236,
+        "p95": 0.389,
+        "p99": 0.6010100000000002,
+        "samples": 7500,
+        "unit": "ms"
+      },
+      "rss_bytes_per_conn": 67338.24,
+      "rss_total_bytes": 140959744,
+      "subscribers": 50,
+      "throughput_msgs_per_sec": 1363.1406761177755
+    },
+    {
+      "cpu_ms_per_1k": 124.66666666666667,
+      "delivered": 15000,
+      "expected": 15000,
+      "propagation": {
+        "max": 1.616,
+        "mean": 0.3043297333333345,
+        "min": 0.077,
+        "p50": 0.291,
+        "p95": 0.426,
+        "p99": 1.0130300000000005,
+        "samples": 15000,
+        "unit": "ms"
+      },
+      "rss_bytes_per_conn": 171171.84,
+      "rss_total_bytes": 154710016,
+      "subscribers": 100,
+      "throughput_msgs_per_sec": 2726.281352235551
+    },
+    {
+      "cpu_ms_per_1k": 96.53333333333333,
+      "delivered": 37500,
+      "expected": 37500,
+      "propagation": {
+        "max": 1.07,
+        "mean": 0.4946283466666608,
+        "min": 0.103,
+        "p50": 0.508,
+        "p95": 0.745,
+        "p99": 0.878,
+        "samples": 37500,
+        "unit": "ms"
+      },
+      "rss_bytes_per_conn": 134955.008,
+      "rss_total_bytes": 171331584,
+      "subscribers": 250,
+      "throughput_msgs_per_sec": 6815.703380588877
+    }
+  ]
+}

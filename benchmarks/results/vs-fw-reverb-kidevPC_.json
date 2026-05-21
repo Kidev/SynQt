@@ -1,0 +1,92 @@
+{
+    "benchmark": "vs-frameworks-live",
+    "stack": "php-reverb",
+    "path": "Laravel Reverb (ReactPHP), Pusher protocol over WebSockets",
+    "php_version": "8.5.9",
+    "host": "linux 7.1.5-arch1-2",
+    "arch": "x86_64",
+    "recorded": "2026-09-07T03:27:07Z",
+    "rss_available": true,
+    "hz": 30,
+    "saturated": false,
+    "seconds": 5,
+    "payload_bytes": 256,
+    "sweep": [
+        {
+            "subscribers": 10,
+            "propagation": {
+                "unit": "ms",
+                "samples": 1500,
+                "min": 0.585,
+                "p50": 0.8925000000000001,
+                "p95": 1.117,
+                "p99": 1.23703,
+                "max": 1.399,
+                "mean": 0.905723333333332
+            },
+            "throughput_msgs_per_sec": 272.66767716718687,
+            "cpu_ms_per_1k": 27.102,
+            "rss_bytes_per_conn": 272793.6,
+            "rss_total_bytes": 32391168,
+            "delivered": 1500,
+            "expected": 1500
+        },
+        {
+            "subscribers": 50,
+            "propagation": {
+                "unit": "ms",
+                "samples": 7500,
+                "min": 0.673,
+                "p50": 1.346,
+                "p95": 1.7480499999999992,
+                "p99": 1.9160400000000009,
+                "max": 2.264,
+                "mean": 1.3517274666666659
+            },
+            "throughput_msgs_per_sec": 1362.6349730622412,
+            "cpu_ms_per_1k": 15.812133333333334,
+            "rss_bytes_per_conn": 100761.6,
+            "rss_total_bytes": 34701312,
+            "delivered": 7500,
+            "expected": 7500
+        },
+        {
+            "subscribers": 100,
+            "propagation": {
+                "unit": "ms",
+                "samples": 15000,
+                "min": 0.921,
+                "p50": 1.91,
+                "p95": 2.543,
+                "p99": 2.73501,
+                "max": 3.122,
+                "mean": 1.9078484666666675
+            },
+            "throughput_msgs_per_sec": 2724.789801232957,
+            "cpu_ms_per_1k": 15.118266666666667,
+            "rss_bytes_per_conn": 71639.04,
+            "rss_total_bytes": 36827136,
+            "delivered": 15000,
+            "expected": 15000
+        },
+        {
+            "subscribers": 250,
+            "propagation": {
+                "unit": "ms",
+                "samples": 37500,
+                "min": 1.354,
+                "p50": 3.482,
+                "p95": 4.987,
+                "p99": 5.337010000000002,
+                "max": 6.034,
+                "mean": 3.473367066666657
+            },
+            "throughput_msgs_per_sec": 6813.426322190822,
+            "cpu_ms_per_1k": 14.144826666666663,
+            "rss_bytes_per_conn": 53919.744,
+            "rss_total_bytes": 43143168,
+            "delivered": 37500,
+            "expected": 37500
+        }
+    ]
+}

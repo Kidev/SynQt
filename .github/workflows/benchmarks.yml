@@ -39,6 +39,23 @@
 # measure the runner's neighbours as much as SynQt; client needs a display and both WASM
 # kits; remote-pages needs the WASM kit and a full `synqt build`. Their baselines are
 # still validated by tests.yml, and docs/browser-proofs.md records where they are run.
+#
+# vs-frameworks stays out too, and for a different reason worth writing down, because a
+# reader who has seen its README will ask why this workflow runs a handful of harnesses and
+# that page shows thirteen columns.
+#
+# It is a comparison, not a regression gate. Its columns need Go, Rust, .NET with the
+# ASP.NET Core runtime, Elixir on Erlang/OTP, Ruby with bundler, PHP with composer, a Python
+# venv and Node, all installed and pinned, beside the Qt kit this job already builds. That
+# is a very large install for a job whose purpose is catching a change to SynQt, and every
+# one of those toolchains is a way for this gate to go red for a reason that is not a SynQt
+# regression: a Ruby release, a NuGet advisory, a hex package retirement.
+#
+# What that install would buy is also already here. SynQt's own live path is guarded by
+# benchmarks/transport, which measures the same thing without needing anybody else's
+# runtime. vs-frameworks answers "how does it compare", which is a question somebody asks
+# deliberately, on one machine, in one session, and then quotes: see the environment block
+# in benchmarks/vs-frameworks/README.md for the run its tables come from.
 
 name: "[BENCH] Run the benchmark harnesses"
 
