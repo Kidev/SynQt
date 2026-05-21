@@ -366,11 +366,12 @@ p50 in milliseconds, and every column delivered every frame at every size:
 | 100 | 1.431 | 1.034 | 0.309 | 0.333 | 0.903 | 0.291 | **0.263** | 1.887 | 2.098 | 3.708 | 1.910 | 2.771 | 2.419 |
 | 250 | 3.706 | 2.959 | 0.760 | 0.832 | 2.182 | 0.508 | **0.385** | 4.881 | 5.520 | 7.572 | 3.482 | 6.506 | 6.204 |
 
-**Read the last row before the first one.** SynQt is second only to the compiled floors at
-N=10 and it is beaten by five columns at N=250, including two frameworks: Phoenix at 0.508 ms
-and SignalR at 0.385 ms, against SynQt's 3.706. That is not a rounding difference and it is
-not noise; it is the same shape the Node comparison already showed, now with two more stacks
-on the good side of it.
+**Read the last row before the first one.** SynQt is fifth of thirteen at N=10, behind both
+compiled floors, SignalR, and its own `qt-raw` control. At N=250 it is eighth: SignalR at
+0.385 ms, Phoenix at 0.508, Go at 0.760, Rust at 0.832, bare Node at 2.182, `qt-raw` at
+2.959 and Reverb at 3.482 all come in ahead of its 3.706. That is not a rounding difference
+and it is not noise; it is the same shape the Node comparison already showed, now with two
+more frameworks on the good side of it.
 
 What the shape is: **SynQt wins the fixed cost and loses the marginal one.** Adding a
 subscriber costs it more than it costs a BEAM node or a SignalR hub, so the ordering inverts
@@ -389,9 +390,13 @@ measures it, and SynQt scales 10.25x over eight processes where bare Node scales
 to fan-out is more cores rather than a cheaper per-subscriber path, and if a deployment
 cannot give it more cores then Phoenix and SignalR are faster at this workload.
 
-The floors do their job in that row too: Go at 0.760 ms and Rust at 0.832 say that 0.385 is
-not some unreachable number, and that the framework columns above them are paying for their
-frameworks.
+The floors do their job in that row too, though not the job that was expected of them: Go at
+0.760 ms and Rust at 0.832 are beaten by SignalR and Phoenix at N=250. Two frameworks
+outrunning both frameworkless compiled columns is worth saying plainly, and the reason is
+visible one row up in the CPU figures: SignalR and Phoenix are the two columns whose runtime
+spreads the fan-out across cores without being asked, while `go-bare` and `rust-bare` do it
+the way every other column here does, from one publisher loop. The floors bound what a single
+loop costs, not what the machine can do.
 
 ## The sweep: what each stack does with four cores
 
