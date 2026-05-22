@@ -29,8 +29,8 @@
 // publisher, subscribers and server in one process.
 
 import {
-    cpuMilliseconds, makeFrame, nowMicros, parseArgs, readStamp, report, residentBytes,
-    sleep, summarize, writeResult,
+    cpuMilliseconds, makeFrame, nodeStack, nowMicros, parseArgs, readStamp, report,
+    residentBytes, sleep, summarize, writeResult,
 } from "./measure.mjs";
 import { liveArena, startNext } from "./nextserver.mjs";
 
@@ -219,7 +219,7 @@ for (const subscriberCount of sizes) {
 }
 
 writeResult(args.out, {
-    stack: "node-nextjs",
+    stack: nodeStack("nextjs"),
     path: "Next.js 16 App Router, Route Handler streaming server-sent events",
     hz: saturate ? 0 : hz,
     saturated: saturate,

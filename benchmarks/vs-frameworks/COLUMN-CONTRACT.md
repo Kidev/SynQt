@@ -100,6 +100,30 @@ Per subscriber count, in order:
 dropped frames is not a faster column, it is a broken one, and every other number in it is a
 figure over the survivors.
 
+## The runtime
+
+A column names the runtime version it ran on, in the result file, under
+`<runtime>_version`: `qt_version`, `node_version`, `go_version`, and so on for whatever the
+column is. `compare.py` reads whichever key is there and prints it above the table, and
+`benchmarks/baselines.py` refuses a result that carries none. A number nobody can attribute
+to a version is not a measurement of anything.
+
+The harness resolves the version rather than taking it from PATH. `node` on PATH is whichever
+version a shell last selected, and a row that moved because of that is a comparison of two
+machines under one name.
+
+One version per runtime, with one exception. Node is measured on every major listed in
+[`node/runtimes.txt`](node/runtimes.txt), currently the active LTS and the current
+release, because "how fast is Node" has two answers, the version a team is allowed to
+deploy, and the version the runtime is capable of. Naming one of them would be
+picking a side of that for the reader.
+
+Where a runtime is measured more than once, the discriminator goes in the stack id
+(`node24-bare`, `node26-bare`) and in the output file name. Two runs writing one name is the
+second silently replacing the first, and a table cannot show a difference it has no way to
+name. The major only, never the patch, because the exact version is in `<runtime>_version` beside
+it, and an id that moved with every patch would orphan every committed baseline.
+
 ## The output
 
 One JSON file per column, these keys, exactly as `measure.mjs` writes them:
@@ -159,24 +183,25 @@ statistics.
    manifest beside it. A column's server, its clients and its manifest are one directory.
 2. Mirror the structure of `node/live-bare.mjs` and say at the top of the file that you did,
    so a reader can put the two side by side and see that the only difference is the runtime.
-3. Register the stack name in `compare.py`'s `STACK_ORDER`.
+3. Register the stack name in `compare.py`'s `STACK_ORDER`, and stamp the runtime version
+   into `<runtime>_version` as the runtime section above requires.
 4. Add a run block to `run-bench.sh`, guarded by `have <tool>` so a missing toolchain
-   **skips with a printed reason** and never fails the run. A table missing a row a reader
+   skips with a printed reason and never fails the run. A table missing a row a reader
    can see was skipped is more useful than no table.
 5. Pin the toolchain in the manifest, so a newer one is a deliberate bump.
 6. Add a row to the README's columns table saying what the column is, and, if it bends
    anything above, what it is not.
-7. Check the shape, not the exit code:
+7. Check the shape rather than the exit code:
 
    ```sh
    python3 benchmarks/baselines.py check <out-dir>/vs-fw-*.json --verbose
    ```
 
-   That is the repository's own gate and it holds a column to exactly this file: the
+   That is the repository's own gate and it holds a column to exactly this file. The
    metadata is attributable, the percentiles are ordered and non-empty, the stack is named,
    and every subscriber count received every frame. A new column that is suspiciously fast
    and dropped frames is the failure mode to look for, and it is the one `delivered ==
    expected` catches.
 
-**Every column is printed, including one that loses.** A comparison that prints only its
+Every column is printed, including one that loses. A comparison that prints only its
 winner is an advertisement.

@@ -4,15 +4,12 @@
 
 """Put the columns of the call-path comparison side by side.
 
-The other direction from compare.py. There the owner publishes and N subscribers see it,
-here a caller asks and waits for the answer. That is the shape a Next.js Server Function
-has and the shape a connect point's returning slot has, which is why the two are measured
-against each other at all.
+A caller asks and waits for the answer: the shape of a Next.js Server Function and of a
+returning slot.
 
     python3 benchmarks/vs-frameworks/compare-calls.py benchmarks/results/vs-call-*.json
 
-Every column is printed, including a stack that lost. A comparison that only prints its
-winner is an advertisement.
+Every column is printed.
 """
 
 from __future__ import annotations
@@ -22,11 +19,14 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List
 
-# The order the table reads in: what SynQt does, then the Node floor it has to beat, then
-# the framework a reader comparing frameworks is most likely already running. `node-bare` is
-# in the middle because it is what separates "Node is answering an HTTP request" from "React
-# is resolving a server action", and those have different answers and different fixes.
-STACK_ORDER = ["synqt", "node-bare-call", "node-nextjs-action"]
+from nodemajors import node_majors
+
+# The table order: SynQt, the bare Node floor, then Next.js. `node-bare` separates the cost
+# of an HTTP request from the cost of a server action.
+NODE = node_majors()
+STACK_ORDER = (["synqt"]
+               + [f"node{major}-bare-call" for major in NODE]
+               + [f"node{major}-nextjs-action" for major in NODE])
 
 
 def load(paths: List[str]) -> Dict[str, Dict[str, Any]]:
@@ -46,11 +46,8 @@ def rows_by_size(results: Dict[str, Dict[str, Any]]) -> Dict[int, Dict[str, Any]
 
 
 def marginal_rss(entries: List[Dict[str, Any]]) -> Dict[int, float]:
-    """What one more caller costs, from the slope rather than from the ratio.
-
-    Same reasoning as the live table's. `rss_bytes_per_caller` divides everything the
-    process holds by the caller count, so at small N it is mostly the runtime's fixed cost
-    wearing a per-caller label. The smallest size has nothing below it and so has no slope.
+    """The memory cost of one more caller, from the slope between sizes. The smallest size has
+    no slope.
     """
     ordered = sorted(entries, key=lambda e: e["callers"])
     slopes: Dict[int, float] = {}
@@ -64,13 +61,7 @@ def marginal_rss(entries: List[Dict[str, Any]]) -> Dict[int, float]:
 
 
 def calls_per_core_second(entry: Dict[str, Any]) -> str:
-    """Calls a single core sustains at this stack's measured cost.
-
-    A core is one CPU second per second, and `cpu_ms_per_1k` is CPU milliseconds per
-    thousand calls, so the two divide straight into each other. This is the figure that
-    sizes a host, and unlike the live table's `users / core` it needs no per-user rate to
-    go with it. A call is a call.
-    """
+    """Calls one core sustains: 1e6 / `cpu_ms_per_1k` (CPU milliseconds per thousand calls)."""
     cpu_per_1k = entry.get("cpu_ms_per_1k") or 0
     if cpu_per_1k <= 0:
         return "-"
@@ -107,7 +98,7 @@ def main() -> int:
 
     slopes = {stack: marginal_rss(results[stack].get("sweep", [])) for stack in present}
 
-    header = f"{'N':>6}  {'metric':<24}" + "".join(f"{s:>20}" for s in present)
+    header = f"{'N':>6}  {'metric':<24}" + "".join(f"{s:>22}" for s in present)
     print(header)
     print("-" * len(header))
 
@@ -116,11 +107,11 @@ def main() -> int:
             cells = []
             for stack in present:
                 if stacks_render is not None:
-                    cells.append(f"{stacks_render(stack):>20}")
+                    cells.append(f"{stacks_render(stack):>22}")
                 elif stack in by_stack:
-                    cells.append(f"{render(by_stack[stack]):>20}")
+                    cells.append(f"{render(by_stack[stack]):>22}")
                 else:
-                    cells.append(f"{'-':>20}")
+                    cells.append(f"{'-':>22}")
             print(f"{size:>6}  {label:<24}" + "".join(cells))
 
         line("latency p50 ms", lambda e: f"{e['latency']['p50']:.3f}")

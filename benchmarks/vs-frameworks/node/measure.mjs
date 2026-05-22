@@ -91,6 +91,17 @@ export function parseArgs(defaults) {
     return values;
 }
 
+/// The stack id a Node column records itself under, with the runtime major in it.
+///
+/// The comparison measures Node twice, on the active LTS and on the current release, so the
+/// id has to say which one produced a row. Two runs under one name is the second overwriting
+/// the first, and a table cannot show a difference it has no way to name. The major only,
+/// because the exact version is already in `node_version` beside it and a stack id that
+/// moved with every patch would orphan every committed baseline.
+export function nodeStack(name) {
+    return `node${process.versions.node.split(".")[0]}-${name}`;
+}
+
 export function writeResult(path, root) {
     const complete = {
         benchmark: "vs-frameworks-live",

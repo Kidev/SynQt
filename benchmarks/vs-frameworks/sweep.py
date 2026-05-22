@@ -46,6 +46,39 @@ NODE_DIR = REPO_ROOT / "benchmarks" / "vs-frameworks" / "node"
 DEFAULT_BINARY = REPO_ROOT / "build" / "bench-vs-frameworks" / "bench_live"
 
 
+def node_binary() -> str:
+    """The Node this sweep runs, resolved rather than taken from PATH.
+
+    The first major in node/runtimes.txt, which is the active LTS: this table answers "what
+    does adding a process buy", and the runtime a team is allowed to deploy is the one that
+    question is about. run-bench.sh reads the same file and measures every major in it. Here
+    one is enough, because the axis being swept is process count and not runtime version.
+
+    Resolved out of nvm's version directories for the reason run-bench.sh gives: `node` on
+    PATH is whichever version a shell happened to select, so a sweep that used it would move
+    with the shell rather than with the code.
+    """
+    majors = [line.split("#", 1)[0].strip()
+              for line in (NODE_DIR / "runtimes.txt").read_text(encoding="utf-8").splitlines()]
+    majors = [m for m in majors if m]
+    for major in majors:
+        override = os.environ.get(f"SYNQT_NODE_{major}")
+        if override and os.access(override, os.X_OK):
+            return override
+        root = Path(os.environ.get("NVM_DIR", Path.home() / ".nvm")) / "versions" / "node"
+        installed = sorted(
+            (d for d in root.glob(f"v{major}.*") if (d / "bin" / "node").is_file()),
+            key=lambda d: [int(part) for part in d.name[1:].split(".")])
+        if installed:
+            return str(installed[-1] / "bin" / "node")
+    found = shutil.which("node")
+    if found:
+        return found
+    raise SystemExit(
+        f"no Node found for any of {', '.join(majors) or '(none listed)'}; "
+        f"nvm install {majors[0] if majors else '24'}, or set SYNQT_NODE_<major>")
+
+
 def run_one(command: List[str], out_path: Path, cwd: Path) -> Dict[str, Any]:
     """Run one column at one process count and read back what it wrote."""
     subprocess.run(command + ["--out", str(out_path)], cwd=cwd, check=True,
@@ -166,9 +199,12 @@ def main() -> int:
         "synqt", lambda n: [str(binary), "--subscribers", str(n)] + common,
         counts, args.subscribers, scratch, REPO_ROOT)
 
-    print("Node (bare):")
-    node = sweep_stack(
-        "node-bare", lambda n: ["node", "live-bare.mjs", "--subscribers", str(n)] + common,
+    node = node_binary()
+    node_version = subprocess.run([node, "--version"], capture_output=True,
+                                  text=True, check=False).stdout.strip()
+    print(f"Node (bare), {node_version}:")
+    node_sweep = sweep_stack(
+        "node-bare", lambda n: [node, "live-bare.mjs", "--subscribers", str(n)] + common,
         counts, args.subscribers, scratch, NODE_DIR)
 
     host_tag = "".join(c if c.isalnum() or c in "_.-" else "_" for c in socket.gethostname())
@@ -179,8 +215,7 @@ def main() -> int:
         "benchmark": "vs-frameworks-replicas",
         "stack": "synqt",
         "qt_version": "6.11.1",
-        "node_version": subprocess.run(["node", "--version"], capture_output=True,
-                                       text=True, check=False).stdout.strip(),
+        "node_version": node_version,
         "host": f"{platform.system()} {platform.release()}",
         "arch": platform.machine(),
         "recorded": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -188,15 +223,15 @@ def main() -> int:
         "seconds": int(args.seconds),
         "saturated": True,
         "processes": synqt,
-        "node_processes": node,
+        "node_processes": node_sweep,
     }
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(f"{json.dumps(document, indent=2)}\n", encoding="utf-8")
     print(f"\nwrote {out_path}")
 
-    if synqt and node:
+    if synqt and node_sweep:
         print("\nSynQt against Node, by process count:")
-        for left, right in zip(synqt, node):
+        for left, right in zip(synqt, node_sweep):
             print(f"  {left['count']:>2} process(es): "
                   f"synqt {left['throughput_msgs_per_sec']:>10,.0f} msg/s   "
                   f"node {right['throughput_msgs_per_sec']:>10,.0f} msg/s")

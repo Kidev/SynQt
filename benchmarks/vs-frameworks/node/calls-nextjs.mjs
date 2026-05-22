@@ -21,7 +21,8 @@
 // window, the statistics, and caller and server in one process.
 
 import {
-    driveCalls, parseArgs, reportCall, residentBytes, summarizeCalls, writeResult,
+    driveCalls, nodeStack, parseArgs, reportCall, residentBytes, summarizeCalls,
+    writeResult,
 } from "./measure.mjs";
 import {startNext} from "./nextserver.mjs";
 import {actionIds, checkedAction} from "./serveraction.mjs";
@@ -100,7 +101,7 @@ for (const callers of sizes) {
 
 writeResult(args.out, {
     benchmark: "vs-frameworks-calls",
-    stack: "node-nextjs-action",
+    stack: nodeStack("nextjs-action"),
     path: "Next.js 16 App Router, Server Function over the React flight protocol",
     work,
     seconds,

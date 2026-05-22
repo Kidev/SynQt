@@ -1,19 +1,22 @@
 // SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 // SPDX-License-Identifier: Apache-2.0
 
-// Node's bare column of the live-path comparison: node:http plus a hand-rolled RFC 6455
-// server (wsserver.mjs) and the global WebSocket client Node 22 ships. Zero dependencies.
+// Node's bare column of the live-path comparison. Node:http plus a hand-rolled RFC 6455
+// server (wsserver.mjs) and the global WebSocket client Node ships. Zero dependencies.
 //
-// This is the fastest honest Node, which is exactly why it is here: it is the column SynQt
+// This is the fastest Node there is, which is why it is here. It is the column SynQt
 // cannot be accused of sandbagging. It is also a stack almost nobody ships, which is why
 // live-socketio.mjs sits beside it.
+//
+// Run once per Node major in runtimes.txt rather than once, so the stack id it records
+// carries the major that produced it (nodeStack, in measure.mjs). See COLUMN-CONTRACT.md.
 //
 // Publisher and subscribers share one process, as they do on the SynQt side, so both
 // columns time an interval on one monotonic clock rather than across two.
 
 import {
-    cpuMilliseconds, makeFrame, nowMicros, parseArgs, readStamp, report, residentBytes,
-    sleep, summarize, writeResult,
+    cpuMilliseconds, makeFrame, nodeStack, nowMicros, parseArgs, readStamp, report,
+    residentBytes, sleep, summarize, writeResult,
 } from "./measure.mjs";
 import { startBroadcastServer } from "./wsserver.mjs";
 
@@ -155,7 +158,7 @@ for (const subscriberCount of sizes) {
 }
 
 writeResult(args.out, {
-    stack: "node-bare",
+    stack: nodeStack("bare"),
     path: "node:http + hand-rolled RFC 6455",
     hz: saturate ? 0 : hz,
     saturated: saturate,

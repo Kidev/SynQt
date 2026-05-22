@@ -2,7 +2,7 @@
   "name": "synqt-vs-frameworks",
   "private": true,
   "type": "module",
-  "description": "The Node.js columns of the SynQt comparison. The bare column needs none of these; they are what the two framework columns are.",
+  "description": "The Node.js columns of the SynQt comparison. The bare column needs none of these; they are what the two framework columns are. The scripts below run on whatever node is on PATH and are for poking at a column by hand: a committed baseline comes from run-bench.sh, which runs each column once per major in runtimes.txt.",
   "scripts": {
     "live:bare": "node live-bare.mjs",
     "live:socketio": "node live-socketio.mjs",

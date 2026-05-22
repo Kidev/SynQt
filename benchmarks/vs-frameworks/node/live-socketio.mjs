@@ -20,8 +20,8 @@ import { Server } from "socket.io";
 import { io as connect } from "socket.io-client";
 
 import {
-    cpuMilliseconds, makeFrame, nowMicros, parseArgs, readStamp, report, residentBytes,
-    sleep, summarize, writeResult,
+    cpuMilliseconds, makeFrame, nodeStack, nowMicros, parseArgs, readStamp, report,
+    residentBytes, sleep, summarize, writeResult,
 } from "./measure.mjs";
 
 const args = parseArgs({
@@ -173,7 +173,7 @@ for (const subscriberCount of sizes) {
 }
 
 writeResult(args.out, {
-    stack: "node-socketio",
+    stack: nodeStack("socketio"),
     path: "socket.io 4.x, websocket transport, no compression",
     hz: saturate ? 0 : hz,
     saturated: saturate,

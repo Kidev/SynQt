@@ -17,7 +17,8 @@ import {createServer} from "node:http";
 import {DatabaseSync} from "node:sqlite";
 
 import {
-    driveCalls, parseArgs, reportCall, residentBytes, summarizeCalls, writeResult,
+    driveCalls, nodeStack, parseArgs, reportCall, residentBytes, summarizeCalls,
+    writeResult,
 } from "./measure.mjs";
 import {WORLD_ROWS} from "./techempower.mjs";
 
@@ -136,7 +137,7 @@ for (const callers of sizes) {
 
 writeResult(args.out, {
     benchmark: "vs-frameworks-calls",
-    stack: "node-bare-call",
+    stack: nodeStack("bare-call"),
     path: "node:http, a JSON body in and a JSON body out",
     work,
     seconds,

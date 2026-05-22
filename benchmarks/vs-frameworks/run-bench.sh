@@ -9,6 +9,10 @@
 # A column whose toolchain is not installed skips with a printed reason rather than failing
 # the run. benchmarks/vs-frameworks/COLUMN-CONTRACT.md is what every column is held to.
 #
+# Node is the one runtime measured more than once, on every major in node/runtimes.txt: the
+# active LTS is what a team is allowed to deploy and the current release is what the runtime
+# can do today, and those are not the same number.
+#
 #   ./run-bench.sh
 #   ./run-bench.sh --subscribers 10,50,100,250,500 --seconds 10 --hz 60
 #
@@ -97,27 +101,97 @@ dotnet_ready() {
     "$DOTNET" --list-runtimes 2>/dev/null | grep -q "^Microsoft.AspNetCore.App 10\."
 }
 
+# Node is measured on every major listed in node/runtimes.txt rather than on whatever `node`
+# happens to be first on PATH. Two reasons. A row that moved because the shell running the
+# harness had a different nvm default selected is a comparison of two machines wearing one
+# name. And "how fast is Node" has two answers, the LTS a team is allowed to deploy
+# and the current release, so the table carries both rather than picking one silently.
+NODE_MAJORS=()
+while IFS= read -r line; do
+    line="${line%%#*}"
+    line="${line//[[:space:]]/}"
+    if [ -n "$line" ]; then
+        NODE_MAJORS+=("$line")
+    fi
+done < "$NODE_DIR/runtimes.txt"
+
+# nvm is a shell function, not a program, so a script cannot call it without sourcing it and
+# inheriting whatever it decides to do to PATH. What it installs are plain directories, so
+# read those instead. `sort -V` because a glob sorts v24.2.0 above v24.13.0 and would pin the
+# older one. SYNQT_NODE_<major> overrides for a machine that keeps its runtimes elsewhere.
+node_for() {
+    local major="$1"
+    local override_name="SYNQT_NODE_$major"
+    local override="${!override_name:-}"
+    if [ -n "$override" ]; then
+        if [ -x "$override" ]; then
+            printf '%s' "$override"
+        fi
+        return 0
+    fi
+    local root="${NVM_DIR:-$HOME/.nvm}/versions/node"
+    local newest=""
+    newest="$(ls -d "$root"/v"$major".* 2>/dev/null | sed 's|.*/v||' | sort -V | tail -1 || true)"
+    if [ -n "$newest" ] && [ -x "$root/v$newest/bin/node" ]; then
+        printf '%s' "$root/v$newest/bin/node"
+        return 0
+    fi
+    if command -v node >/dev/null 2>&1 &&
+       [ "$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || true)" = "$major" ]; then
+        command -v node
+    fi
+    return 0
+}
+
+# Resolved once, up front, so a missing runtime is reported before the build rather than
+# forty minutes into the run.
+NODE_BINS=()
+for node_major in "${NODE_MAJORS[@]}"; do
+    node_bin="$(node_for "$node_major")"
+    if [ -n "$node_bin" ]; then
+        NODE_BINS+=("$node_major:$node_bin")
+        echo "Node $node_major: $("$node_bin" --version) at $node_bin"
+    else
+        skip "Node $node_major" \
+            "not installed (nvm install $node_major, or set SYNQT_NODE_$node_major)"
+    fi
+done
+NODE_FIRST=""
+if [ "${#NODE_BINS[@]}" -gt 0 ]; then
+    NODE_FIRST="${NODE_BINS[0]#*:}"
+fi
+
 echo "== configure + build the SynQt column =="
 cmake -S benchmarks/vs-frameworks -B "$BUILD_DIR" -G Ninja \
     -DCMAKE_PREFIX_PATH="$QT_HOST" \
     -DCMAKE_BUILD_TYPE=Release
 cmake --build "$BUILD_DIR"
 
-if [ ! -d "$NODE_DIR/node_modules" ]; then
-    echo "== install the Node columns' dependencies =="
-    # Only the two framework columns need these. The bare column is Node built-ins by
-    # definition, and it runs whether or not this succeeded.
-    (cd "$NODE_DIR" && npm install --no-audit --no-fund)
-fi
+# Installed and built once, under the first resolved runtime rather than under each of them.
+# The dependencies here are portable across the majors measured (the one native addon,
+# better-sqlite3, ships an N-API build) and a Next build is bytecode-free output that any of
+# them serves, so a per-runtime copy would double the setup to produce the same bytes. If a
+# future major ever fails to load one of them, that is a column that must skip loudly rather
+# than a second node_modules to maintain.
+if [ -n "$NODE_FIRST" ]; then
+    NODE_BIN_DIR="$(dirname "$NODE_FIRST")"
 
-# Next.js in production is a build, not a flag: a server started against no build answers 404
-# for every route it was going to be measured on. Rebuilt whenever a route is newer than the
-# build, so editing one is not a run that silently measured the previous version.
-if [ ! -f "$NODE_DIR/nextjs/.next/BUILD_ID" ] || \
-   [ -n "$(find "$NODE_DIR/nextjs/app" "$NODE_DIR/techempower.mjs" \
-                -newer "$NODE_DIR/nextjs/.next/BUILD_ID" -print -quit 2>/dev/null)" ]; then
-    echo "== build the Next.js column =="
-    (cd "$NODE_DIR/nextjs" && npx next build)
+    if [ ! -d "$NODE_DIR/node_modules" ]; then
+        echo "== install the Node columns' dependencies =="
+        # Only the two framework columns need these. The bare column is Node built-ins by
+        # definition, and it runs whether or not this succeeded.
+        (cd "$NODE_DIR" && PATH="$NODE_BIN_DIR:$PATH" npm install --no-audit --no-fund)
+    fi
+
+    # Next.js in production is a build, not a flag. A server started against no build answers
+    # 404 for every route it was going to be measured on. Rebuilt whenever a route is newer
+    # than the build, so editing one is not a run that silently measured the previous version.
+    if [ ! -f "$NODE_DIR/nextjs/.next/BUILD_ID" ] || \
+       [ -n "$(find "$NODE_DIR/nextjs/app" "$NODE_DIR/techempower.mjs" \
+                    -newer "$NODE_DIR/nextjs/.next/BUILD_ID" -print -quit 2>/dev/null)" ]; then
+        echo "== build the Next.js column =="
+        (cd "$NODE_DIR/nextjs" && PATH="$NODE_BIN_DIR:$PATH" npx next build)
+    fi
 fi
 
 echo
@@ -236,20 +310,28 @@ else
     skip "Python" "the venv under $PYTHON_DIR could not be built"
 fi
 
-echo
-echo "== Node, bare (node:http + hand-rolled RFC 6455) =="
-(cd "$NODE_DIR" && node live-bare.mjs \
-    --out "$RESULTS_DIR/vs-fw-bare-${HOST_TAG}.json" "$@")
+# Once per resolved runtime, and the major goes in both the stack id and the file name. Two
+# runs writing one file is the second silently replacing the first, which reads in the table
+# as Node having one number when it was measured to have two.
+for node_entry in ${NODE_BINS[@]+"${NODE_BINS[@]}"}; do
+    node_major="${node_entry%%:*}"
+    node_bin="${node_entry#*:}"
 
-echo
-echo "== Node, realistic (Socket.IO) =="
-(cd "$NODE_DIR" && node live-socketio.mjs \
-    --out "$RESULTS_DIR/vs-fw-socketio-${HOST_TAG}.json" "$@")
+    echo
+    echo "== Node $node_major, bare (node:http + hand-rolled RFC 6455) =="
+    (cd "$NODE_DIR" && "$node_bin" live-bare.mjs \
+        --out "$RESULTS_DIR/vs-fw-bare${node_major}-${HOST_TAG}.json" "$@")
 
-echo
-echo "== Node, framework (Next.js, server-sent events) =="
-(cd "$NODE_DIR" && node live-nextjs.mjs \
-    --out "$RESULTS_DIR/vs-fw-nextjs-${HOST_TAG}.json" "$@")
+    echo
+    echo "== Node $node_major, realistic (Socket.IO) =="
+    (cd "$NODE_DIR" && "$node_bin" live-socketio.mjs \
+        --out "$RESULTS_DIR/vs-fw-socketio${node_major}-${HOST_TAG}.json" "$@")
+
+    echo
+    echo "== Node $node_major, framework (Next.js, server-sent events) =="
+    (cd "$NODE_DIR" && "$node_bin" live-nextjs.mjs \
+        --out "$RESULTS_DIR/vs-fw-nextjs${node_major}-${HOST_TAG}.json" "$@")
+done
 
 echo
 echo "== the table =="
@@ -275,15 +357,20 @@ echo "== SynQt, a connect point's returning slot ($CALL_WORK) =="
 "$BUILD_DIR/bench_call" "${CALL_ARGS[@]}" \
     --out "$RESULTS_DIR/vs-call-synqt-${HOST_TAG}.json"
 
-echo
-echo "== Node, bare (node:http, a JSON body each way) =="
-(cd "$NODE_DIR" && node calls-bare.mjs "${CALL_ARGS[@]}" \
-    --out "$RESULTS_DIR/vs-call-bare-${HOST_TAG}.json")
+for node_entry in ${NODE_BINS[@]+"${NODE_BINS[@]}"}; do
+    node_major="${node_entry%%:*}"
+    node_bin="${node_entry#*:}"
 
-echo
-echo "== Node, framework (Next.js Server Functions) =="
-(cd "$NODE_DIR" && node calls-nextjs.mjs "${CALL_ARGS[@]}" \
-    --out "$RESULTS_DIR/vs-call-nextjs-${HOST_TAG}.json")
+    echo
+    echo "== Node $node_major, bare (node:http, a JSON body each way) =="
+    (cd "$NODE_DIR" && "$node_bin" calls-bare.mjs "${CALL_ARGS[@]}" \
+        --out "$RESULTS_DIR/vs-call-bare${node_major}-${HOST_TAG}.json")
+
+    echo
+    echo "== Node $node_major, framework (Next.js Server Functions) =="
+    (cd "$NODE_DIR" && "$node_bin" calls-nextjs.mjs "${CALL_ARGS[@]}" \
+        --out "$RESULTS_DIR/vs-call-nextjs${node_major}-${HOST_TAG}.json")
+done
 
 echo
 echo "== the call table =="

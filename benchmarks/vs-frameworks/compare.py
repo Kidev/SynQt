@@ -2,16 +2,12 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-"""Put the columns of the live-path comparison side by side.
-
-Each result file holds the same sweep measured the same way. This turns them into the table
-a reader wants, and derives the one figure an operator sizes a host with: how many
-live users a core and a gigabyte hold.
+"""Put the columns of the live-path comparison side by side, and derive how many live users a
+core and a gigabyte hold.
 
     python3 benchmarks/vs-frameworks/compare.py benchmarks/results/vs-fw-*.json
 
-Every column is printed, including a stack that lost. A comparison that only prints its
-winner is an advertisement.
+Every column is printed.
 """
 
 from __future__ import annotations
@@ -21,36 +17,25 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List
 
-# The registry: what the table prints, and in what order.
-#
-# The order is an argument, not an alphabet. SynQt first, then the same fan-out with the
-# object protocol taken off it, because `qt-raw` is what separates "Qt's sockets are slow"
-# from "the object protocol costs something" and those have different answers. Then the
-# floors: the bare, frameworkless column of each runtime, which is the fastest honest
-# anything and is what tells "SynQt is fast for a Qt thing" apart from "SynQt is fast". Then
-# the frameworks, which is what a team actually deploys and therefore what the comparison is
-# really about. `node-nextjs` sits at the end of the Node group because it is the one column
-# not carrying WebSocket frames: Next has no WebSocket server, so its live path is
-# server-sent events. See the README.
-#
-# A stack not listed here still prints, after these, so a column added without touching this
-# line is visible rather than silently absent.
-STACK_ORDER = [
-    "synqt", "qt-raw",
-    "go-bare", "rust-bare", "node-bare",
-    "phoenix", "dotnet-signalr", "node-socketio", "node-nextjs",
-    "ruby-actioncable", "php-reverb",
-    "python-fastapi", "python-channels",
-]
+from nodemajors import node_majors
+
+# The table order. SynQt, then `qt-raw` (the same fan-out without the object protocol), then
+# the bare floor of each runtime, then the frameworks. The Next.js columns end the Node
+# group: Next has no WebSocket server, so they use server-sent events. Each Node major gets
+# its own column. A stack not listed here prints after these.
+NODE = node_majors()
+STACK_ORDER = (
+    ["synqt", "qt-raw", "go-bare", "rust-bare"]
+    + [f"node{major}-bare" for major in NODE]
+    + ["phoenix", "dotnet-signalr"]
+    + [f"node{major}-socketio" for major in NODE]
+    + [f"node{major}-nextjs" for major in NODE]
+    + ["ruby-actioncable", "php-reverb", "python-fastapi", "python-channels"]
+)
 
 
 def runtime_of(data: Dict[str, Any]) -> str:
-    """Which runtime produced a column, for the header line.
-
-    Read off whichever `<runtime>_version` key the column wrote rather than off a list of
-    the runtimes this file knows about: a column is added by writing one program, and a
-    header that had to be edited for each one would print "?" for the ninth.
-    """
+    """Which runtime produced a column, from whichever `<runtime>_version` key it wrote."""
     if data.get("qt_version"):
         return f"Qt {data['qt_version']}"
     for key, value in data.items():
@@ -76,14 +61,8 @@ def rows_by_size(results: Dict[str, Dict[str, Any]]) -> Dict[int, Dict[str, Any]
 
 
 def marginal_rss(entries: List[Dict[str, Any]]) -> Dict[int, float]:
-    """What one more connection costs, from the slope rather than from the ratio.
-
-    `rss_bytes_per_conn` divides everything the process holds by the connection count, so at
-    small N it is mostly the runtime's fixed cost wearing a per-connection label: the first
-    run of this harness reported 1.2 MiB per connection at N=10 and 0.3 MiB at N=50 for the
-    same connections. The slope between two sizes cancels the fixed part and is the number
-    an operator adding users pays. The smallest size has no size below it, so it
-    has no slope and is left out.
+    """The memory cost of one more connection, from the slope between sizes. The per-connection
+    ratio includes the runtime fixed cost at small N. The smallest size has no slope.
     """
     ordered = sorted(entries, key=lambda e: e["subscribers"])
     slopes: Dict[int, float] = {}
@@ -96,15 +75,8 @@ def marginal_rss(entries: List[Dict[str, Any]]) -> Dict[int, float]:
 
 
 def per_core_per_gb(entry: Dict[str, Any], marginal: float | None = None) -> str:
-    """Live users one core and one gigabyte hold, at this stack's measured cost.
-
-    Both halves, because they bind at different points. A stack can be cheap in CPU and
-    expensive in memory, and an operator hits whichever wall comes first. "-" where the
-    measurement was not available rather than a number computed from a zero.
-
-    The memory half prefers the marginal cost when there is one, for the reason
-    marginal_rss gives. The plain per-connection figure carries a share of the runtime's
-    fixed cost, and deriving a headline number from it would bake that in.
+    """Live users one core and one gigabyte hold at this stack's measured cost. "-" where a
+    measurement is missing. Memory uses the marginal cost when available.
     """
     cpu_per_1k = entry.get("cpu_ms_per_1k") or 0
     rss = marginal if marginal else (entry.get("rss_bytes_per_conn") or 0)
@@ -114,9 +86,8 @@ def per_core_per_gb(entry: Dict[str, Any], marginal: float | None = None) -> str
     if cpu_per_1k <= 0 or throughput <= 0:
         by_cpu = "-"
     else:
-        # One core is one CPU second per second. cpu_per_1k is CPU milliseconds per
-        # thousand deliveries, so a core sustains 1e6 / cpu_per_1k deliveries a second,
-        # and each user costs the delivery rate this run gave them.
+        # A core sustains 1e6 / cpu_per_1k deliveries a second; each user costs this run's
+        # delivery rate.
         deliveries_per_core_second = 1_000_000.0 / cpu_per_1k
         per_user_rate = throughput / subscribers
         by_cpu = f"{deliveries_per_core_second / max(per_user_rate, 1e-9):,.0f}"
@@ -151,8 +122,9 @@ def main() -> int:
 
     for size, by_stack in rows_by_size(results).items():
         def line(label: str, render, stacks_render=None) -> None:
-            """One row. `render` reads a stack's entry; `stacks_render` takes the stack name
-            instead, for the rows whose value comes from across sizes rather than from one."""
+            """One row. `render` reads a stack entry; `stacks_render` takes the stack name, for
+            rows that span sizes.
+            """
             cells = []
             for stack in present:
                 if stacks_render is not None:

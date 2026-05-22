@@ -1,0 +1,16 @@
+# SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+# SPDX-License-Identifier: Apache-2.0
+#
+# The Node major versions the comparison measures, one per line, oldest first.
+#
+# Two rather than one, because "how fast is Node" has two honest answers and they are not
+# the same number: the active LTS is what a team is allowed to deploy, and the current
+# release is what the runtime can do today. Naming only one of them picks a side of that
+# for the reader.
+#
+# Majors, not exact versions: the patch a run actually used is recorded in every result
+# file's `node_version`, so pinning it here would only mean editing this file every
+# fortnight to keep the harness runnable. run-bench.sh resolves the newest installed patch
+# of each major and skips a major that is not installed, naming it.
+24
+26
