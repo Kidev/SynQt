@@ -17,7 +17,7 @@ import {createServer} from "node:http";
 import {DatabaseSync} from "node:sqlite";
 
 import {
-    driveCalls, nodeStack, parseArgs, reportCall, residentBytes, summarizeCalls,
+    driveCalls, httpCaller, nodeStack, parseArgs, reportCall, residentBytes, summarizeCalls,
     writeResult,
 } from "./measure.mjs";
 import {WORLD_ROWS} from "./techempower.mjs";
@@ -87,16 +87,16 @@ const server = createServer((request, response) => {
 await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
 const origin = `http://127.0.0.1:${server.address().port}`;
 
-async function call(argument) {
-    const response = await fetch(`${origin}/${work}`, {
-        method: "POST",
-        headers: {"content-type": "application/json"},
-        body: JSON.stringify([argument]),
-    });
-    if (!response.ok) {
-        throw new Error(`the call answered ${response.status}`);
-    }
-    return response.json();
+// node:http with a keep-alive agent rather than the global fetch: see httpCaller in
+// measure.mjs for what fetch was costing this column and why a control cannot pay it.
+const post = httpCaller({
+    url: `${origin}/${work}`,
+    headers: {"content-type": "application/json"},
+    decode: (text) => JSON.parse(text),
+});
+
+function call(argument) {
+    return post(JSON.stringify([argument]));
 }
 
 // Checked once, before the clock starts, on the same terms as every other column: a
