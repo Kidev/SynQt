@@ -1,18 +1,11 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-"""Python's fast async column: FastAPI on uvicorn, WebSockets, no ORM and no middleware.
+"""FastAPI on uvicorn, WebSockets, no ORM and no middleware.
 
-The same shape as ``node/live-bare.mjs``, so a reader can put the two files
-next to each other and see that the only difference is the runtime. Everything that is not
-the server lives in ``measure.py``, which both Python columns share, so the difference
-between this file and ``live_channels.py`` is only the framework.
-
-Publisher and subscribers share one process and one event loop, which is the natural way
-to write this in asyncio and is what the contract asks for. What it costs, and what
-``measure.py`` keeps the subscriber callback short for, is that a slow subscriber would
-delay the publisher on the same loop. That would be a self-inflicted queue rather than a
-property of the stack.
+Same shape as ``node/live-bare.mjs``; everything but the server lives in ``measure.py``,
+shared with ``live_channels.py``. Publisher and subscribers share one event loop, which is
+why ``measure.py`` keeps the subscriber callback short.
 """
 
 from __future__ import annotations
@@ -37,13 +30,11 @@ class Server:
         self.url = ""
 
         @self.app.websocket("/live")
-        async def live(socket: WebSocket) -> None:  # noqa: ANN202 (FastAPI route)
+        async def live(socket: WebSocket) -> None: # noqa: ANN202 (FastAPI route)
             await socket.accept()
             self.clients.append(socket)
             try:
-                # In this workload subscribers never send, so the read side exists only to
-                # notice the close: without awaiting something the handler would return and
-                # uvicorn would tear the connection down.
+                # Subscribers never send; awaiting the read only detects the close.
                 while True:
                     await socket.receive_bytes()
             except (WebSocketDisconnect, RuntimeError, asyncio.CancelledError):
@@ -67,8 +58,7 @@ class Server:
         return len(self.clients)
 
     async def broadcast(self, frame: bytes) -> None:
-        # Build the frame once, then hand the same bytes to every socket, as every other
-        # column does. Writing per subscriber would measure the framing N times over.
+        # Build the frame once and send the same bytes to every socket.
         for socket in list(self.clients):
             try:
                 await socket.send_bytes(frame)

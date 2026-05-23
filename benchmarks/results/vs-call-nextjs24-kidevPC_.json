@@ -1,0 +1,90 @@
+{
+  "benchmark": "vs-frameworks-calls",
+  "node_version": "v24.20.0",
+  "host": "linux 7.1.5-arch1-2",
+  "arch": "x64",
+  "recorded": "2026-09-07T10:42:55.762Z",
+  "rss_available": true,
+  "stack": "node24-nextjs-action",
+  "path": "Next.js 16 App Router, Server Function over the React flight protocol",
+  "work": "echo",
+  "seconds": 5,
+  "sweep": [
+    {
+      "callers": 1,
+      "latency": {
+        "unit": "ms",
+        "samples": 2814,
+        "min": 0.616,
+        "p50": 1.716,
+        "p95": 2.043,
+        "p99": 2.840199999999993,
+        "max": 6.658,
+        "mean": 1.7762029140014204
+      },
+      "throughput_calls_per_sec": 562.6874625074985,
+      "cpu_ms_per_1k": 1020.4737029140016,
+      "rss_bytes_per_caller": 231403520,
+      "rss_total_bytes": 342691840,
+      "completed": 2814,
+      "failed": 0
+    },
+    {
+      "callers": 8,
+      "latency": {
+        "unit": "ms",
+        "samples": 8314,
+        "min": 0.815,
+        "p50": 4.741,
+        "p95": 7.531349999999999,
+        "p99": 9.10274,
+        "max": 10.356,
+        "mean": 4.812934447919174
+      },
+      "throughput_calls_per_sec": 1661.8029182490504,
+      "cpu_ms_per_1k": 702.0360837142168,
+      "rss_bytes_per_caller": 31820800,
+      "rss_total_bytes": 365854720,
+      "completed": 8314,
+      "failed": 0
+    },
+    {
+      "callers": 32,
+      "latency": {
+        "unit": "ms",
+        "samples": 11030,
+        "min": 9.771,
+        "p50": 13.518,
+        "p95": 19.007,
+        "p99": 21.974939999999986,
+        "max": 47.874,
+        "mean": 14.520901722574818
+      },
+      "throughput_calls_per_sec": 2203.355972832601,
+      "cpu_ms_per_1k": 588.4371713508613,
+      "rss_bytes_per_caller": 9312768,
+      "rss_total_bytes": 409296896,
+      "completed": 11030,
+      "failed": 0
+    },
+    {
+      "callers": 128,
+      "latency": {
+        "unit": "ms",
+        "samples": 10408,
+        "min": 21.442,
+        "p50": 61.6965,
+        "p95": 68.02615,
+        "p99": 71.24893,
+        "max": 536.907,
+        "mean": 61.73012461568044
+      },
+      "throughput_calls_per_sec": 2072.068484969142,
+      "cpu_ms_per_1k": 623.6985011529592,
+      "rss_bytes_per_caller": 2698880,
+      "rss_total_bytes": 456744960,
+      "completed": 10408,
+      "failed": 0
+    }
+  ]
+}

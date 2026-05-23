@@ -7,25 +7,25 @@
   "qt_version": "6.11.1",
   "emscripten_version": "4.0.7",
   "kit": "wasm_singlethread",
-  "recorded": "2026-09-04T17:10:51Z",
+  "recorded": "2026-09-07T10:52:40Z",
   "remote": {
     "label": "stall-remote",
-    "total_raw": 26137545,
-    "total_gzip": 9597540,
-    "total_brotli": 6755645,
+    "total_raw": 25817226,
+    "total_gzip": 9560209,
+    "total_brotli": 6745802,
     "file_count": 6,
     "files": [
       {
         "name": "app.js",
-        "raw": 264294,
-        "gzip": 60668,
-        "brotli": 52610
+        "raw": 264183,
+        "gzip": 60634,
+        "brotli": 52574
       },
       {
         "name": "app.wasm",
-        "raw": 25838111,
-        "gzip": 9524172,
-        "brotli": 6692566
+        "raw": 25517903,
+        "gzip": 9486875,
+        "brotli": 6682759
       },
       {
         "name": "index.html",
@@ -55,22 +55,22 @@
   },
   "compiled_in": {
     "label": "stall-compiled-in",
-    "total_raw": 26153020,
-    "total_gzip": 9603525,
-    "total_brotli": 6758900,
+    "total_raw": 25832260,
+    "total_gzip": 9560410,
+    "total_brotli": 6749099,
     "file_count": 6,
     "files": [
       {
         "name": "app.js",
-        "raw": 264294,
-        "gzip": 60668,
-        "brotli": 52579
+        "raw": 264183,
+        "gzip": 60635,
+        "brotli": 52548
       },
       {
         "name": "app.wasm",
-        "raw": 25853586,
-        "gzip": 9530157,
-        "brotli": 6695852
+        "raw": 25532937,
+        "gzip": 9487075,
+        "brotli": 6686082
       },
       {
         "name": "index.html",
@@ -99,9 +99,9 @@
     ]
   },
   "saving": {
-    "raw_bytes": 15475,
-    "gzip_bytes": 5985,
-    "brotli_bytes": 3255,
+    "raw_bytes": 15034,
+    "gzip_bytes": 201,
+    "brotli_bytes": 3297,
     "file_count_delta": 0
   }
 }

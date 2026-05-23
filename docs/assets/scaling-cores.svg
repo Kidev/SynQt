@@ -2,11 +2,11 @@
      aria-labelledby="scalingTitle scalingDesc">
   <title id="scalingTitle">Deliveries per second against core count</title>
   <desc id="scalingDesc">One publisher, 100 subscribers, saturating, 256 byte payload, on a
-  32 core Linux host with Qt 6.11.1 and Node 22. SynQt replicas rises from 108 thousand
-  deliveries per second on one process to 1.03 million on eight; Node cluster rises from
-  117 thousand to 871 thousand over the same range; SynQt threads rises from 112 thousand
-  on one core to 200 thousand on four and then falls back to 176 thousand at eight, and it
-  is the only one of the three that keeps a single shared value.</desc>
+  32 core Linux host with Qt 6.11.1 and Node 24.20.0. SynQt replicas rises from 104
+  thousand deliveries per second on one process to 1.02 million on eight; Node cluster rises
+  from 124 thousand to 907 thousand over the same range; SynQt threads rises from 104
+  thousand on one core to 200 thousand on two, holds that at four, and eases back to 183
+  thousand at eight, and it is the only one of the three that keeps a single shared value.</desc>
 
   <text x="0" y="16" fill="#ffffff" font-family="system-ui, sans-serif" font-size="15"
         font-weight="600">Deliveries per second against core count</text>
@@ -54,36 +54,36 @@
     <text x="355" y="374" font-size="12">cores the edge is allowed to use</text>
   </g>
 
-  <polyline points="141.25,305.3 212.5,273.2 355,214.1 640,94.6" fill="none"
+  <polyline points="141.25,306.3 212.5,275.0 355,214.5 640,98.0" fill="none"
             stroke="#3987e5" stroke-width="2" stroke-dasharray="7 4"
             stroke-linecap="round" stroke-linejoin="round"/>
-  <polyline points="141.25,303.2 212.5,275.9 355,223.5 640,130.9" fill="none"
+  <polyline points="141.25,301.7 212.5,273.5 355,217.9 640,122.8" fill="none"
             stroke="#d95926" stroke-width="2" stroke-dasharray="7 4"
             stroke-linecap="round" stroke-linejoin="round"/>
-  <polyline points="141.25,304.3 212.5,289.1 355,284.2 640,289.8" fill="none"
+  <polyline points="141.25,306.2 212.5,284.3 355,284.6 640,288.3" fill="none"
             stroke="#199e70" stroke-width="2"
             stroke-linecap="round" stroke-linejoin="round"/>
 
   <g stroke="#232a5c" stroke-width="2">
-    <circle cx="141.25" cy="305.3" r="4.5" fill="#3987e5"/>
-    <circle cx="212.5" cy="273.2" r="4.5" fill="#3987e5"/>
-    <circle cx="355" cy="214.1" r="4.5" fill="#3987e5"/>
-    <circle cx="640" cy="94.6" r="4.5" fill="#3987e5"/>
+    <circle cx="141.25" cy="306.3" r="4.5" fill="#3987e5"/>
+    <circle cx="212.5" cy="275.0" r="4.5" fill="#3987e5"/>
+    <circle cx="355" cy="214.5" r="4.5" fill="#3987e5"/>
+    <circle cx="640" cy="98.0" r="4.5" fill="#3987e5"/>
 
-    <circle cx="141.25" cy="303.2" r="4.5" fill="#d95926"/>
-    <circle cx="212.5" cy="275.9" r="4.5" fill="#d95926"/>
-    <circle cx="355" cy="223.5" r="4.5" fill="#d95926"/>
-    <circle cx="640" cy="130.9" r="4.5" fill="#d95926"/>
+    <circle cx="141.25" cy="301.7" r="4.5" fill="#d95926"/>
+    <circle cx="212.5" cy="273.5" r="4.5" fill="#d95926"/>
+    <circle cx="355" cy="217.9" r="4.5" fill="#d95926"/>
+    <circle cx="640" cy="122.8" r="4.5" fill="#d95926"/>
 
-    <circle cx="141.25" cy="304.3" r="4.5" fill="#199e70"/>
-    <circle cx="212.5" cy="289.1" r="4.5" fill="#199e70"/>
-    <circle cx="355" cy="284.2" r="4.5" fill="#199e70"/>
-    <circle cx="640" cy="289.8" r="4.5" fill="#199e70"/>
+    <circle cx="141.25" cy="306.2" r="4.5" fill="#199e70"/>
+    <circle cx="212.5" cy="284.3" r="4.5" fill="#199e70"/>
+    <circle cx="355" cy="284.6" r="4.5" fill="#199e70"/>
+    <circle cx="640" cy="288.3" r="4.5" fill="#199e70"/>
   </g>
 
   <g font-family="system-ui, sans-serif" font-size="12">
-    <text x="652" y="99" fill="#ffffff">1.03M</text>
-    <text x="652" y="135" fill="#ffffff">871k</text>
-    <text x="652" y="294" fill="#ffffff">176k</text>
+    <text x="652" y="102" fill="#ffffff">1.02M</text>
+    <text x="652" y="127" fill="#ffffff">907k</text>
+    <text x="652" y="293" fill="#ffffff">183k</text>
   </g>
 </svg>

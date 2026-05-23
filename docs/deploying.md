@@ -316,36 +316,36 @@ The difference between the two keys decides which one you want:
 |---|---|---|
 | What it multiplies | Processes, behind a balancer | Socket threads, in one process |
 | What it asks of the project | Every owned point needs `behind:`, identity promoted, a shared device store | Nothing |
-| Shared state | None: each process is on its own | All of it: one singleton, one set of Sources |
+| Shared state | None, each process is on its own | All of it, one singleton and one set of Sources |
 | Survives a process dying | Yes, the others carry on | No |
 | Scales past one machine | Yes | No |
 
 So the [multiplayer arena](tutorial-multiplayer.md), which replicating turns into N
-separate worlds each convinced it is the only one, is exactly the shape `threads:` serves:
+separate worlds each convinced it is the only one, is the shape `threads:` serves. It is
 one authoritative world, simulated once, with the cost of sending each player their slice
 spread over four cores. And the plain request-shaped app that already satisfies the front
 rules is better served by `replicas:`, which survives losing a machine.
 
-They compose, and neither implies the other: N replicas of an edge that threads its own
+They compose, and neither implies the other. N replicas of an edge that threads its own
 sockets is N processes each using several cores.
 
-#### What the two keys actually buy
+#### What the two keys buy
 
 ![Deliveries per second against core count: SynQt replicas and Node cluster both rise
-close to linearly to about 1.03M and 871k at eight processes, while SynQt threads rises to
-200k at four cores and then falls back, and is the only one of the three that keeps a
+close to linearly to about 1.02M and 907k at eight processes, while SynQt threads rises to
+200k at two cores and then flattens, and is the only one of the three that keeps a
 single shared value.](assets/scaling-cores.svg){ width="100%" }
 
 One publisher, 100 subscribers, saturating, 256 byte payload; 32 core Linux host, Qt
-6.11.1, Node 22. Reproduce it with [`benchmarks/vs-frameworks/run-bench.sh`](https://github.com/Kidev/SynQt/blob/main/benchmarks/vs-frameworks/run-bench.sh)
+6.11.1, Node 24.20.0. Reproduce it with [`benchmarks/vs-frameworks/run-bench.sh`](https://github.com/Kidev/SynQt/blob/main/benchmarks/vs-frameworks/run-bench.sh)
 and [`benchmarks/vs-frameworks/sweep.py`](https://github.com/Kidev/SynQt/blob/main/benchmarks/vs-frameworks/sweep.py).
 
 | cores | `replicas: N` | Node `cluster` | `threads: N` |
 |---|---|---|---|
-| 1 | 108 250 | 117 067 | 112 350 |
-| 2 | 248 258 | 236 558 | 179 050 |
-| 4 | 507 004 | 465 950 | 200 200 |
-| 8 | 1 029 866 | 870 748 | 175 717 |
+| 1 | 103 600 | 124 067 | 104 000 |
+| 2 | 240 825 | 247 158 | 200 133 |
+| 4 | 505 779 | 491 000 | 198 717 |
+| 8 | 1 015 815 | 907 228 | 182 700 |
 
 Read the two dashed lines against the solid one rather than against each other. Processes
 scale close to linearly, and SynQt and Node do about equally well at it. What they are
@@ -354,8 +354,8 @@ eight processes there are eight publishers holding eight values, and delivering 
 value to every subscriber from all of them costs a broadcast between processes that is in
 none of these numbers.
 
-The solid line is the one that keeps the shared value, and it flattens: 1.6x from one core
-to two, 1.8x by four, and then a slight loss at eight. `threads:` buys two to four cores of
+The solid line is the one that keeps the shared value, and it flattens: 1.9x from one core
+to two, level at four, and then a slight loss at eight. `threads:` buys about two cores of
 delivery for something every subscriber must agree on, which is the case `replicas:` cannot
 serve at all, and no more than that.
 

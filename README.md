@@ -31,15 +31,15 @@ On Windows, in PowerShell: `irm https://get.synqt.org/install.ps1 | iex`. If you
 have Python, `pipx install synqt` gets you the same CLI from PyPI.
 
 The CLI pins the rest of the toolchain (the Qt SDK and the Emscripten compiler) to one
-version per project, and `synqt doctor` prints the exact `aqt` and `emsdk` commands
-that install whatever is missing, so every machine gets the same versions. Full
-walkthrough in [getting started](https://synqt.org/getting-started/).
+version per project, so every machine builds with the same versions. `synqt doctor`
+prints the exact `aqt` and `emsdk` commands that install whatever is missing. The full
+walkthrough is in [getting started](https://synqt.org/getting-started/).
 
 ## What a system looks like
 
 A project is a set of entities. The client and the web edge are always there, and you add
-whatever else the system needs. Every entity has a folder of its own, inside the folder
-entities of its type share, so everything one entity is made of is in one place and two
+whatever else the system needs. Every entity has its own folder, inside the folder that
+entities of its type share. Everything one entity is made of is in one place, and two
 databases never write over each other.
 
 ```
@@ -52,9 +52,9 @@ your-app/
   cache/hot/            # an in memory cache entity
 ```
 
-Entities never write network code. They share connect points: named live objects
-owned by exactly one entity and mirrored to the others, each declaring once, on
-itself, the typed shape of what may cross it.
+Entities never write network code. They share connect points. A connect point is a
+live object that exactly one entity owns and the others mirror. It declares, once and
+on itself, the typed shape of what may cross it.
 
 ```yaml
 connect_points:
@@ -67,38 +67,38 @@ connect_points:
 ```
 
 Property changes and signals flow from the owner to the consumers. Calls flow the
-other way, where the owner decides whether to honor them. The browser reaches the
-edge's connect points through `Server`, one entity reaches another's by that
-entity's name (`Store.find(id)`), and inside a connect point's own
-function `Caller` says who is asking, so the owner can authorize every request.
+other way, and the owner decides whether to honor them. The browser reaches the
+edge's connect points through `Server`. One entity reaches another's by that
+entity's name (`Store.find(id)`). Inside a connect point's own function, `Caller`
+says who is asking, so the owner can authorize every request.
 
-Not every visitor's browser gives Qt a WebGL context. It can be disabled by policy or
-blocked for a driver. SynQt checks before the app starts and draws in software when
+Not every visitor's browser gives Qt a WebGL context. A policy can disable it, or a
+driver can be blocked. SynQt checks before the app starts and draws in software when
 there is none, which covers ordinary 2D Qt Quick completely. The few things that do
-need a GPU show a notice in place of the content instead of a blank rectangle. See
+need a GPU show a notice in place of the content rather than a blank rectangle. See
 [graphics](https://synqt.org/project-layout-and-config/#graphics-which-routes-need-an-accelerated-scene-graph).
 
-A cache, a document store, or an API gateway is an entity like any other, built and
-deployed with the rest of the project rather than configured and secured as a separate
-product. When you want a particular engine behind one, a
-[provider](https://synqt.org/providers/) backs the entity with it and leaves that
-entity's connect points, and the security model around them, identical.
+A cache, a document store, or an API gateway is an entity like any other. You build and
+deploy it with the rest of the project, and you do not configure and secure it as a
+separate product. When you want a particular engine behind one, a
+[provider](https://synqt.org/providers/) backs the entity with it. The entity's connect
+points and the security model around them stay the same.
 
 ## Drawing it, and watching it
 
-A system of several processes is a picture before it is a file, so there is an editor for
-it. `synqt design` draws the project on this machine: entities as nodes, connect points as
-the lines between them, and Apply writes `synqt.yaml` and the QML a new entity needs. The
-[same editor runs on the site](https://synqt.org/designer/) with nothing behind it, so you
-can sketch a system and export it as a project before installing anything.
+`synqt design` opens an editor that draws the project on this machine. Entities are nodes
+and connect points are the lines between them. Apply writes `synqt.yaml` and the QML a new
+entity needs. The [same editor runs on the site](https://synqt.org/designer/) with nothing
+behind it, so you can sketch a system and export it as a project before installing
+anything.
 
-The same shape makes a running system hard to see: several processes on several machines,
-linked by connections a browser never shows you. `synqt add entity ops --type monitor` adds
-an operations entity that keeps the record and serves a console for it, and one line of
-configuration makes every other entity report to it. One click becomes one trace that runs
-through every entity it touched. It is off until you add it, and an entity that has one
-pays a single atomic read per instrumented call site to decide it has nothing to say. See
-[monitoring](https://synqt.org/monitoring/).
+A running system is spread over several processes on several machines, linked by
+connections a browser never shows you. `synqt add entity ops --type monitor` adds an
+operations entity that keeps the record and serves a console for it. One line of
+configuration makes every other entity report to it. A click in the browser then shows
+up as one trace through every entity it touched. Monitoring is off until you add it. An
+entity that reports to a monitor pays one atomic read per instrumented call site when
+nothing is listening. See [monitoring](https://synqt.org/monitoring/).
 
 ## Security is on by default
 
@@ -119,22 +119,23 @@ Read [security](https://synqt.org/security/) before deploying, and
 
 A value changes on the server and every connected client has to see it. One publisher,
 100 subscribers, saturating, 256 byte payload, on a 32 core Linux host with Qt 6.11.1 and
-Node 22.22. Deliveries per second:
+Node 24.20.0. Deliveries per second:
 
 | processes | SynQt | Node, built-ins only | Node, Socket.IO |
 |---|---|---|---|
-| 1 | 108k | 117k | 59k |
-| 2 | 248k | 237k | |
-| 4 | 507k | 466k | |
-| 8 | 1.03M | 871k | |
+| 1 | 104k | 124k | 61k |
+| 2 | 241k | 247k | |
+| 4 | 506k | 491k | |
+| 8 | 1.02M | 907k | |
 
 Both runtimes run one thread per process and add capacity by running more processes. SynQt
-trails the built-ins column by 8% on one process and leads it by 18% on eight. That column
+trails the built-ins column by 16% on one process and leads it by 12% on eight. That column
 is `node:http` with a hand written WebSocket implementation, which is faster than what most
-deployments run; Socket.IO is the usual choice, and the sweep measures it on one process
-only. Next.js is measured too and is not in this table, because it ships no WebSocket server:
-its live path is a route streaming server-sent events, which is a different protocol carrying
-the same workload, so it belongs beside its caveats rather than in a column here.
+deployments run. Socket.IO is the usual choice, and the sweep measures it on one process
+only. Next.js is measured too, and it is not in this table because it ships no WebSocket
+server. Its live path is a route streaming server-sent events. That is a different protocol
+carrying the same workload, so its numbers are reported with their caveats in
+[`benchmarks/`](benchmarks/) instead.
 
 Adding processes divides the subscribers between them, and each process holds its own copy
 of the value. A SynQt web edge can instead spread its sockets across IO threads inside one
@@ -142,36 +143,39 @@ process, where all 100 subscribers still share a single value:
 
 | cores | `threads: N`, one process, one shared value | `replicas: N`, N processes, one value each |
 |---|---|---|
-| 1 | 112k | 108k |
-| 2 | 179k | 248k |
-| 4 | 200k | 507k |
-| 8 | 176k | 1.03M |
+| 1 | 104k | 104k |
+| 2 | 200k | 241k |
+| 4 | 199k | 506k |
+| 8 | 183k | 1.02M |
 
-The threads column stops improving after four cores. The processes column keeps scaling, and
-it cannot answer the case in the left column: making N processes agree on one value costs a
-broadcast between them that these numbers do not include.
+The threads column stops improving after two cores. The processes column keeps scaling,
+but it does not cover the case in the left column. Making N processes agree on one value
+costs a broadcast between them, and these numbers do not include it.
 
-The other direction is the one most application code goes: the client asks the server to do
-something and waits for the answer. In SynQt that is a connect point's returning slot; the
-Next.js feature shaped the same way is a Server Function. Same host, `--work echo`, one
-caller with nothing else on the machine, then a hundred and twenty-eight at once:
+Most application code goes the other direction. The client asks the server to do
+something and waits for the answer. In SynQt that is a connect point's returning slot. The
+Next.js feature shaped the same way is a Server Function. Measured on the same host with
+`--work echo`, first with one caller and nothing else on the machine, then with a hundred
+and twenty-eight callers at once.
 
-| | SynQt slot | Node, plain JSON POST | Next.js Server Function |
-|---|---|---|---|
-| latency p50, 1 caller | 0.019 ms | 0.116 ms | 0.755 ms |
-| latency p50, 128 callers | 2.3 ms | 16.1 ms | 73.8 ms |
-| calls per core-second | ~57k | ~6.0k | ~1.0k |
+SynQt's column is 0.020 ms for one caller, 2.4 ms for a hundred and twenty-eight, and about
+60 thousand calls a core-second. The two Node columns are not printed here because their
+last run is stale. The harness issued their requests with the global `fetch`, and the
+per-call cost of `fetch` itself on this workload went up fivefold between Node 22 and 24.
+That measures a client library and not either server. Both columns are being re-measured
+through `node:http` on a held-open connection, which is what SynQt's column and Next.js's
+real client both use.
 
-Two things are stacked in that gap and they are worth separating. React's machinery around a
-server action costs five to six times what the same Node process costs answering a plain
-POST, which is a like-for-like number. The rest is that a SynQt caller already holds its
-connection while both Node columns open a request per call, which is a difference in design
-rather than in efficiency.
+Two things make up that gap, and a spot check at one and thirty-two callers shows that
+the correction changes neither. React's machinery around a server action costs six to seven times
+what the same Node process costs answering a plain POST, measured like for like. The rest
+is that a SynQt caller already holds its connection while both Node columns open a request
+per call. That second part is a difference in connection handling between the two designs.
 
-Every harness, the committed baselines, and what each number does and does not support are
-in [`benchmarks/`](benchmarks/), which is also where the caveats live: the Next.js column is
-driven by making the request React's own client runtime makes, never by importing the
-function and skipping the framework. The deployment docs plot the fan-out data under
+Every harness, the committed baselines, what each number does and does not support, and
+the caveats are in [`benchmarks/`](benchmarks/). One caveat matters for the table above.
+The Next.js column makes the request React's own client runtime makes, and never imports
+the function and skips the framework. The deployment docs plot the fan-out data under
 [running one edge on more than one core](https://synqt.org/deploying/#running-one-edge-on-more-than-one-core).
 
 ## Where to go next
@@ -206,12 +210,11 @@ which maps the codebase and explains how to build and run the suites. The genera
 ## License and contributing
 
 SynQt's own source code is licensed under Apache-2.0 (see [LICENSE](LICENSE) and
-[NOTICE](NOTICE)). The license of an application you build with SynQt is inherited
-from the Qt build you use: with open source Qt the browser client is GPLv3 and is
-served to every visitor, so its source must be published, while the server side
-stays private if you self host it. A commercial Qt license lets everything be
-proprietary. The full analysis, with diagrams, is in
-[licensing](https://synqt.org/licensing/).
+[NOTICE](NOTICE)). An application you build with SynQt inherits the license of the Qt
+build you use. With open source Qt, the browser client is GPLv3. It is served to every
+visitor, so you must publish its source. The server side stays private if you self host
+it. A commercial Qt license lets everything be proprietary. The full analysis, with
+diagrams, is in [licensing](https://synqt.org/licensing/).
 
 Contributions are welcome under the CLA in [CLA.md](CLA.md). See
 [CONTRIBUTING.md](CONTRIBUTING.md) for the SPDX header convention and code style.
@@ -219,8 +222,8 @@ Contributions are welcome under the CLA in [CLA.md](CLA.md). See
 ## Target Qt version
 
 SynQt targets Qt 6.11.1 and the Emscripten version Qt pins to it (4.0.7). These
-versions matter: the browser transport (QtRO over a WebSocket QIODevice),
+versions matter because the browser transport (QtRO over a WebSocket QIODevice),
 the mesh transport (QtRO over mutual TLS), the WebSocket upgrade verifier in
 QHttpServer, OAuth2 with PKCE on by default, and the bundled SQLite driver all
 depend on current Qt. The build tool pins them so every entity and every
-contributor gets a reproducible toolchain.
+contributor gets the same toolchain.

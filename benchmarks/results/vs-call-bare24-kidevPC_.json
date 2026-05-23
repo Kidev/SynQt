@@ -1,0 +1,90 @@
+{
+  "benchmark": "vs-frameworks-calls",
+  "node_version": "v24.20.0",
+  "host": "linux 7.1.5-arch1-2",
+  "arch": "x64",
+  "recorded": "2026-09-07T10:42:35.095Z",
+  "rss_available": true,
+  "stack": "node24-bare-call",
+  "path": "node:http, a JSON body in and a JSON body out",
+  "work": "echo",
+  "seconds": 5,
+  "sweep": [
+    {
+      "callers": 1,
+      "latency": {
+        "unit": "ms",
+        "samples": 4027,
+        "min": 0.162,
+        "p50": 1.239,
+        "p95": 1.329,
+        "p99": 1.4067399999999999,
+        "max": 5.026,
+        "mean": 1.241000000000005
+      },
+      "throughput_calls_per_sec": 805.2389522095581,
+      "cpu_ms_per_1k": 269.4507077228706,
+      "rss_bytes_per_caller": 173752320,
+      "rss_total_bytes": 245489664,
+      "completed": 4027,
+      "failed": 0
+    },
+    {
+      "callers": 8,
+      "latency": {
+        "unit": "ms",
+        "samples": 26100,
+        "min": 0.416,
+        "p50": 1.759,
+        "p95": 2.028,
+        "p99": 3.664049999999992,
+        "max": 6.674,
+        "mean": 1.532523524904198
+      },
+      "throughput_calls_per_sec": 5217.912834866054,
+      "cpu_ms_per_1k": 126.93513409961685,
+      "rss_bytes_per_caller": 26488320,
+      "rss_total_bytes": 283643904,
+      "completed": 26100,
+      "failed": 0
+    },
+    {
+      "callers": 32,
+      "latency": {
+        "unit": "ms",
+        "samples": 61629,
+        "min": 0.694,
+        "p50": 2.275,
+        "p95": 4.299399999999987,
+        "p99": 7.273,
+        "max": 21.492,
+        "mean": 2.5964543153385895
+      },
+      "throughput_calls_per_sec": 12320.871651339465,
+      "cpu_ms_per_1k": 103.77513832773532,
+      "rss_bytes_per_caller": 7372928,
+      "rss_total_bytes": 307671040,
+      "completed": 61629,
+      "failed": 0
+    },
+    {
+      "callers": 128,
+      "latency": {
+        "unit": "ms",
+        "samples": 58953,
+        "min": 0.792,
+        "p50": 10.03,
+        "p95": 15.212,
+        "p99": 16.39495999999999,
+        "max": 323.922,
+        "mean": 10.864162213967015
+      },
+      "throughput_calls_per_sec": 11776.468238114263,
+      "cpu_ms_per_1k": 107.61174155683341,
+      "rss_bytes_per_caller": 2027296,
+      "rss_total_bytes": 331231232,
+      "completed": 58953,
+      "failed": 0
+    }
+  ]
+}

@@ -7,13 +7,13 @@
   "latency": [
     {
       "contracts": 2,
-      "max": 66.55741999929887,
-      "mean": 63.62873709986161,
-      "min": 58.68961400119588,
+      "max": 65.93036398408003,
+      "mean": 62.144357699435204,
+      "min": 60.25558500550687,
       "name": "contract_generation",
-      "p50": 64.28038499871036,
-      "p95": 66.55741999929887,
-      "p99": 66.55741999929887,
+      "p50": 61.98801298160106,
+      "p95": 65.93036398408003,
+      "p99": 65.93036398408003,
       "samples": 10,
       "unit": "ms"
     }
@@ -21,31 +21,31 @@
   "path": "contract-generation-and-per-entity-build",
   "project": "examples/gavel",
   "qt_version": "6.11.1",
-  "recorded": "2026-09-04T17:17:02Z",
+  "recorded": "2026-09-07T10:54:34Z",
   "sweep": [
     {
-      "clean_s": 61.51,
+      "clean_s": 55.17,
       "kind": "client",
-      "noop_s": 0.134,
+      "noop_s": 0.137,
       "target": "app",
       "touched_file": "Main.qml",
-      "touched_s": 50.737
+      "touched_s": 48.852
     },
     {
-      "clean_s": 28.453,
+      "clean_s": 4.485,
       "kind": "web_edge",
-      "noop_s": 0.104,
+      "noop_s": 0.108,
       "target": "edge",
       "touched_file": "Edge.qml",
-      "touched_s": 0.099
+      "touched_s": 0.102
     },
     {
-      "clean_s": 15.031,
+      "clean_s": 3.686,
       "kind": "relational",
-      "noop_s": 0.1,
+      "noop_s": 0.102,
       "target": "books",
       "touched_file": "Books.qml",
-      "touched_s": 0.097
+      "touched_s": 0.102
     }
   ]
 }
