@@ -644,31 +644,85 @@ overtake each other, and lands in a slot where `Caller` is already known.
 of the gap and has nothing to do with SynQt. That is where beating Node at real fan-out
 sizes has to start.
 
+### Where the marginal cost actually is
+
+The two candidates above are a copy and an overhead, and for a long time this page could
+not tell them apart, because the headline sweep varies the number of subscribers and holds
+the payload at 256 bytes. Vary the payload instead and they separate on their own: a stack
+that copies the frame once per subscriber pays more per subscriber as the frame grows, and
+a stack that pays a syscall, a wakeup and a dispatch per subscriber pays the same whatever
+the frame carries.
+
+[`payload-sweep.sh`](payload-sweep.sh) runs the same saturating sweep at six payload sizes
+and [`fit.py`](fit.py) refits the marginal cost at each of them:
+
+```
+bash benchmarks/vs-frameworks/payload-sweep.sh
+```
+
+| marginal cost per subscriber | 64B | 256B | 1024B | 4096B | 16384B | 65536B |
+|---|---|---|---|---|---|---|
+| `node24-bare` | 5.63 us | 5.78 us | 6.02 us | 6.54 us | 8.67 us | 22.2 us |
+| `qt-raw` | 9.36 us | 9.22 us | 9.51 us | 9.99 us | 11.8 us | 23.5 us |
+| `synqt` | 10.6 us | 10.7 us | 11.7 us | 12.7 us | 39.9 us | 103 us |
+
+Three things fall out of that table.
+
+Qt's per-subscriber cost is not a copy, and the send-side reframing is not what the gap
+is made of. Qt's marginal cost moves from 9.36 to 9.99 microseconds while the payload
+grows sixty-four fold, and its distance from Node stays flat across that whole range, 3.7
+microseconds at 64 bytes, 3.4 at 4 KiB. A per-socket `memcpy` of a few hundred bytes is
+tens of nanoseconds rather than microseconds, and a cost made of copying would widen as the frame
+grew rather than hold still. So `QWebSocketPrivate::doWriteFrames`'s unconditional
+`QByteArray tmpData(data); tmpData.detach();` is real, and it is not the thing to pull. At
+the sizes this comparison runs at it is not measurable, and past the knee Qt's cost per
+further KiB is 0.24 microseconds against Node's 0.28, so even where the copy does show up
+Qt is not behind on it. The line to pull is the other one, the per-socket fixed work.
+
+QtRemoteObjects is the part that is copy-bound. Its marginal cost is flat to about 4 KiB
+and then turns hard, 9.7x from the smallest payload to the largest, against the bare
+socket's 2.5x, and 1.31 microseconds per further KiB per subscriber, about five times Node's.
+At 64 KiB the object protocol costs 103 microseconds a subscriber where the same fan-out
+over a bare `QWebSocket` costs 23.5. That is the real reframe-per-socket cost, and it is one
+layer up from where this page had been looking for it.
+
+That matters for what a consumer is handed rather than for the headline. A 256-byte property
+push pays almost nothing for the object protocol, and a model replication of a screenful of
+rows pays a great deal. It is the measured reason
+[the fan-out harness](../README.md) prefers many small pushes to one large one.
+
+The digits above are a pilot, and the shape is not. They were taken in one session on the
+host in [the environment block](#the-environment-these-numbers-came-from) at four-second
+windows rather than the committed five, to answer the question rather than to be quoted
+against. Rerun `payload-sweep.sh` alongside the next full run to replace them. What no rerun
+will move is the flatness itself, which is the whole of the argument.
+
 ### What would move each half
 
-Each of these is stated with whose code it is in, because that decides how fixable it is,
-and with how confident the attribution is, because two of them are inferred from reading
-the path rather than measured.
+Each of these is stated with whose code it is in, because that decides how fixable it is.
+Two of them used to be marked inferred; the payload sweep above is what settled them.
 
-1. **Node frames once and writes the same bytes to every socket; Qt reframes per socket.**
-   `encodeBinaryFrame` runs once in `wsserver.mjs` and the resulting `Buffer` goes to all N
-   sockets with no copy. `QWebSocketPrivate::doWriteFrames` builds a header and does
+1. **The per-socket send copy is real and is not worth pulling.** `encodeBinaryFrame` runs
+   once in `wsserver.mjs` and the resulting `Buffer` goes to all N sockets with no copy,
+   while `QWebSocketPrivate::doWriteFrames` builds a header and does
    `QByteArray tmpData(data); tmpData.detach();` for every socket, though that copy exists
-   only so masking can be done in place and a server never masks. This is the best
-   available explanation of a marginal cost that does not fall with N, and it is upstream.
-   **Inferred from the two implementations, not yet measured**: splitting the marginal cost
-   into its send and receive halves is the next measurement, and it decides whether this
-   line or the next one is the one to pull.
+   only so masking can be done in place and a server never masks. Upstream, and still
+   present: the file is byte-identical on `v6.11.1` and on `dev`, and neither Qt 6.12 nor
+   6.13 has a Qt WebSockets entry at all. **Measured**, and it explains none of the gap at
+   the sizes measured, because the marginal cost does not move with the payload.
 2. **Incoming frames are parsed through `QIODevice` in small reads.** `QIODevicePrivate::read`
    and `QRingBuffer::read` sit near the top of the steady-state profile, above anything
-   doing arithmetic. Node's parser slices a `Buffer` it already holds. Upstream, and the
-   other candidate for the marginal cost. **Inferred.**
-3. **The receive path copies twice.** `QWebSocket` hands over a `QByteArray`, the adapter
-   appends it into one growing buffer, and QtRO copies back out through `readData`. A queue
-   of frames served in place would remove one of the two. Ours, and the most
-   straightforward of these. Note that removing the matching copy on the send side
-   (`fromRawData`) measured at zero on a 256 byte payload, so this is worth trying and not
-   worth predicting.
+   doing arithmetic. Node's parser slices a `Buffer` it already holds. Upstream, and now
+   the only remaining candidate for a per-subscriber cost that does not move with the
+   payload. **This is the line to pull.**
+3. **The receive path used to copy twice, and now copies once.** `QWebSocket` hands over a
+   `QByteArray`; the adapter takes that very array by reference instead of appending its
+   bytes into a buffer of its own, and only falls back to appending when a reader has got
+   behind and there is already a backlog. The copy that remains is `readData`'s, which the
+   `QIODevice` contract requires: it fills a caller's buffer. Done, ours, in
+   [`websockettransport.cpp`](../../src/transport/websockettransport.cpp), where the comment
+   on `deliver()` records what the fallback branch costs and why a backlog is deliberately
+   one block.
 4. **Neither runtime uses more than one core per process, but only one of them could.**
    Node reaches other cores with `cluster`, which gives every worker its own copy of the
    value and needs a hop between processes to keep them agreeing; the sweep above gives
