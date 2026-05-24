@@ -52,9 +52,32 @@ if(SYNQT_COMPILER_CACHE AND NOT CMAKE_C_COMPILER_LAUNCHER AND NOT CMAKE_CXX_COMP
         set(CMAKE_C_COMPILER_LAUNCHER "${SYNQT_CACHE_PROGRAM}")
         set(CMAKE_CXX_COMPILER_LAUNCHER "${SYNQT_CACHE_PROGRAM}")
         # sccache cannot cache a separate .pdb, so ask MSVC to embed debug info instead.
-        # Without this every compile is a miss and the cache is pure overhead.
+        # Without this every compile is a miss and the cache is pure overhead, and it is
+        # worse than that. Sccache runs cl.exe detached from the mspdbsrv.exe instance that
+        # coordinates concurrent writers of one .pdb, so /FS does not save them and every
+        # parallel compile into the same target directory dies with
+        #
+        #   fatal error C1041: cannot open program database '...pdb';
+        #   if multiple CL.EXE write to the same .PDB file, please use /FS
+        #
+        # which is what took out both Windows columns of the ctest workflow.
+        #
+        # Said twice, because there are two mechanisms and which one is live depends on a
+        # policy this tree does not set. CMAKE_MSVC_DEBUG_INFORMATION_FORMAT is the
+        # abstraction, and it is read only under CMP0141=NEW; below that policy (which is
+        # where `cmake_minimum_required(VERSION 3.21)` leaves this tree, since CMP0141 arrived in
+        # 3.25) CMake ignores it completely and the debug format is whatever /Zi sits in the
+        # per-configuration flags. So the abstraction is set for the day the floor rises,
+        # and the flags it would generate are rewritten for today. Both say /Z7.
         if(MSVC)
             set(CMAKE_MSVC_DEBUG_INFORMATION_FORMAT "Embedded")
+            foreach(configuration DEBUG RELWITHDEBINFO RELEASE MINSIZEREL)
+                foreach(language C CXX)
+                    string(REPLACE "/Zi" "/Z7"
+                           "CMAKE_${language}_FLAGS_${configuration}"
+                           "${CMAKE_${language}_FLAGS_${configuration}}")
+                endforeach()
+            endforeach()
             add_link_options(/DEBUG:NONE)
         endif()
         message(STATUS "SynQt: compiling through ${SYNQT_CACHE_PROGRAM}")

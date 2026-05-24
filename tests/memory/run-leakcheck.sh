@@ -16,10 +16,12 @@
 #             sees memory nothing points at any more, and it fails the run when a record
 #             belongs to src/.
 #
-# Neither is cheap: the sanitizer pass rebuilds the tree. Usage:
+# Neither is cheap. Both configure and build a tree (the sanitizer pass an instrumented one
+# of its own), with the same flags tests/run-all.sh uses, so the binaries measured here are
+# the binaries a developer ran. Usage:
 #
 #   tests/memory/run-leakcheck.sh                # both passes
-#   tests/memory/run-leakcheck.sh --soak         # the fast half, no rebuild
+#   tests/memory/run-leakcheck.sh --soak         # the fast half, no instrumented rebuild
 #   tests/memory/run-leakcheck.sh --sanitize
 #   tests/memory/run-leakcheck.sh --benchmarks   # add the benchmark harnesses to the soak
 #
@@ -50,14 +52,56 @@ done
 
 status=0
 
-if [ "$run_soak" = 1 ]; then
-    echo "== soak: what each suite keeps per repetition =="
-    if [ ! -d "$BUILD_DIR" ]; then
-        echo "configure the tree first: cmake -S . -B $BUILD_DIR -G Ninja -DCMAKE_PREFIX_PATH=$QT_HOST" >&2
+# The one configure line, for both trees below, and it is tests/run-all.sh's flag for flag.
+# SYNQT_DEV_TOOLS is not decoration here. Tests/m8-auth compiles against the stub identity
+# server, whose header refuses to be included by a build that did not ask for one, so a
+# tree configured without the flag fails to compile and no suite runs at all. This script
+# printed a shorter configure line and the workflow ran a shorter one, and neither had the
+# flag. The whole leak column failed on it.
+configure_tree() { # directory, extra cmake arguments...
+    local directory="$1"
+    shift
+    mkdir -p "$directory"
+    if ! cmake -S . -B "$directory" -G Ninja \
+            -DCMAKE_PREFIX_PATH="$QT_HOST" \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DSYNQT_DEV_TOOLS=ON \
+            "$@" > "$directory/leakcheck-configure.log" 2>&1; then
+        echo "error: configuring $directory failed" >&2
+        tail -n 40 "$directory/leakcheck-configure.log" >&2
         exit 2
     fi
-    cmake --build "$BUILD_DIR" > /dev/null
-    "$PYTHON" tests/memory/leakcheck.py soak "$BUILD_DIR" || status=1
+}
+
+# ninja writes the compiler's diagnostics to stdout, so `> /dev/null` is not quiet, it is
+# blind. That is exactly how this failed in CI: a header line, four and a half minutes, an
+# exit code, and not one word about what did not compile.
+build_tree() { # directory
+    local directory="$1"
+    if cmake --build "$directory" > "$directory/leakcheck-build.log" 2>&1; then
+        return
+    fi
+    echo "error: building $directory failed" >&2
+    # ninja keeps every job it had in flight running after one of them fails and prints
+    # their output as it arrives, so the diagnostics are almost never the last thing in the
+    # log. The failing blocks are what there is to read. The tail is the fallback for a
+    # failure that was not a compile at all.
+    if grep -q "^FAILED:" "$directory/leakcheck-build.log"; then
+        grep -A 25 "^FAILED:" "$directory/leakcheck-build.log" | head -n 150 >&2
+    else
+        tail -n 60 "$directory/leakcheck-build.log" >&2
+    fi
+    exit 2
+}
+
+if [ "$run_soak" = 1 ]; then
+    echo "== soak: what each suite keeps per repetition =="
+    configure_tree "$BUILD_DIR"
+    build_tree "$BUILD_DIR"
+    # -u because this is a table printed one row per suite over half an hour, and a
+    # block-buffered stdout would hold every row until the last suite finished, which
+    # is how a CI log ends up with a header and nothing under it.
+    "$PYTHON" -u tests/memory/leakcheck.py soak "$BUILD_DIR" || status=1
 fi
 
 if [ "$run_benchmarks" = 1 ]; then
@@ -120,12 +164,10 @@ fi
 if [ "$run_sanitize" = 1 ]; then
     echo
     echo "== sanitize: LeakSanitizer over the whole tree =="
-    cmake -S . -B "$ASAN_DIR" -G Ninja \
-        -DCMAKE_PREFIX_PATH="$QT_HOST" \
-        -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+    configure_tree "$ASAN_DIR" \
         -DCMAKE_CXX_FLAGS="-fsanitize=address -fno-omit-frame-pointer" \
-        -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address" > /dev/null
-    cmake --build "$ASAN_DIR" > /dev/null
+        -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address"
+    build_tree "$ASAN_DIR"
     rm -rf "$LOG_DIR"
     mkdir -p "$LOG_DIR"
     # fast_unwind_on_malloc=0 is what makes the report usable: Qt's own libraries are built
@@ -136,7 +178,7 @@ if [ "$run_sanitize" = 1 ]; then
         ASAN_OPTIONS="detect_leaks=1:fast_unwind_on_malloc=0:malloc_context_size=40:log_path=$REPO_ROOT/$LOG_DIR/asan" \
             ctest -j"$(nproc)" > /dev/null 2>&1 || true
     )
-    "$PYTHON" tests/memory/leakcheck.py sanitize "$LOG_DIR" || status=1
+    "$PYTHON" -u tests/memory/leakcheck.py sanitize "$LOG_DIR" || status=1
 fi
 
 exit "$status"

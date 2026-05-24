@@ -633,8 +633,14 @@ several times slower.
 
 ```sh
 tests/memory/run-leakcheck.sh              # both passes
-tests/memory/run-leakcheck.sh --soak       # the fast half, no rebuild
+tests/memory/run-leakcheck.sh --soak       # the fast half, no instrumented rebuild
 ```
+
+Both passes configure and build the tree themselves, with the same flags
+[`tests/run-all.sh`](https://github.com/Kidev/SynQt/blob/main/tests/run-all.sh) uses, so
+what they measure is the binaries you would have run anyway. `-DSYNQT_DEV_TOOLS=ON` is part
+of that line and not optional: `tests/m8-auth` includes the stub identity server, whose
+header refuses a build that did not ask for one.
 
 The soak pass runs every suite in the tree at two `-repeat` counts and compares the peak
 resident set, which is a broad net for a path nobody wrote a steady-state test for. The

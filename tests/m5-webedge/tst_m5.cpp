@@ -86,16 +86,18 @@ class TestM5 : public QObject
     Q_OBJECT
 
 private:
-    /// One client for the whole suite, which is why this suite is the largest entry in
-    /// run-leakcheck.sh's soak table by a factor of five, and why that number is not a
-    /// leak. Every test here starts an edge on a fresh OS-assigned port, and a
-    /// QNetworkAccessManager caches a connection and its TLS session per host:port,
-    /// releasing them on an inactivity timer that never comes round inside a test run. It
-    /// holds about 131 KB per edge. Measured, and measured against the alternative:
-    /// tests/memory's anEdgeThatServedARequestLetsGoOfAllOfIt runs the same cycle with a
-    /// client thrown away each time and reads zero, which is what says the retention is the
-    /// client's and not the edge's. Kept shared because the tests here are about the edge's
-    /// behaviour across requests, which is what a browser does.
+    /// One client for the whole suite, kept shared because the tests here are about the
+    /// edge's behaviour across requests, which is what a browser does.
+    ///
+    /// Every test starts an edge on a fresh OS-assigned port, and a QNetworkAccessManager
+    /// caches a connection and its TLS session per host:port, releasing them on an
+    /// inactivity timer that never comes round inside a test run. It holds about 131 KB per
+    /// edge, which is what made this suite by far the largest entry in run-leakcheck.sh's
+    /// soak table until cleanup() below started dropping each one as its port went dead.
+    /// None of it was ever a leak in the edge, and that too is measured rather than
+    /// asserted. Tests/memory's anEdgeThatServedARequestLetsGoOfAllOfIt runs the same cycle
+    /// with a client thrown away each time and reads zero, which is what says the retention
+    /// is the client's and not the edge's.
     QNetworkAccessManager m_nam;
 
     /// Every request carries exactly the cookies the test names, and stores none.
@@ -177,6 +179,26 @@ private slots:
     {
         QVERIFY2(QSslSocket::supportsSsl(), "TLS backend unavailable");
         synqtRegisterGreetingSources();
+    }
+
+    /// After each test, never between the requests inside one.
+    ///
+    /// The comment on m_nam explains what the shared client retains and why it is shared;
+    /// this is the half of it nothing needs. Every test here starts an edge on a fresh
+    /// OS-assigned port and takes it down at the end, so by the time this runs that port is
+    /// dead and the connection and TLS session cached against it can never be reused by
+    /// anything. They are held anyway, on an inactivity timer that never comes round inside
+    /// a run, and with about sixty edges to a pass they added roughly 4 MB per repetition of
+    /// this suite. Enough to put m5 over the per-run limit in
+    /// tests/memory/run-leakcheck.sh, which is where it was found.
+    ///
+    /// It cannot change what a test observes, because no test here reaches an edge that
+    /// another one started, and Qt documents this function as the one to call for exactly
+    /// this in an auto test. What the suite is about, one client behaving like a
+    /// browser across the requests of a single test, is untouched.
+    void cleanup()
+    {
+        m_nam.clearAccessCache();
     }
 
     void bundleForScopeWalksDownTheVocabulary()

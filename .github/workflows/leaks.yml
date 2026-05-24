@@ -182,16 +182,11 @@ jobs:
             cmake --install "$RUNNER_TEMP/$m-build"
           done
 
-      - name: Configure the tree the soak pass measures
-        # run-leakcheck.sh builds what is already configured rather than choosing a
-        # configuration of its own, so that the numbers it reports are about the same binaries
-        # a developer just ran. Configuring here keeps that true on a fresh runner.
-        env:
-          QT_HOST: ${{ env.QT_ROOT }}/${{ env.QT_VERSION }}/gcc_64
-        run: |
-          cmake -S . -B build/all -G Ninja \
-            -DCMAKE_PREFIX_PATH="$QT_HOST" -DCMAKE_BUILD_TYPE=RelWithDebInfo
-
+      # No configure step here on purpose. This workflow used to run a `cmake -S . -B
+      # build/all` of its own, one flag short of the line tests/run-all.sh uses, and a tree
+      # configured without -DSYNQT_DEV_TOOLS=ON does not compile: tests/m8-auth includes the
+      # stub identity server, whose header refuses a build that did not ask for one. The
+      # configure line now lives in run-leakcheck.sh, once, next to the build it feeds.
       - name: Soak, then sanitize
         env:
           QT_HOST: ${{ env.QT_ROOT }}/${{ env.QT_VERSION }}/gcc_64
