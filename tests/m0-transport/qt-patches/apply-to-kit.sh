@@ -2,25 +2,16 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-# Applies the QEventDispatcherWasm posted-event patch to an installed Qt WASM kit, and
-# takes it back off again. See README.md beside this script for what the patch is and why.
-#
-# A prebuilt Qt kit is a set of static archives, so a one-file change does not need Qt
-# rebuilt. Recompile that one translation unit against the kit's own installed headers and
-# swap the object into libQt6Core.a. The compile flags below were chosen by comparing the
-# resulting object's exported symbols against the object already in the archive until the
-# two sets matched exactly, which is the check that the replacement is a drop-in and not a
-# differently-configured build of the same file. `--verify` re-runs that comparison.
-#
-# The stock archive is kept beside the patched one as libQt6Core.a.stock, so `--revert` is a
-# copy rather than a rebuild, and so it is obvious from a directory listing that this kit is
-# not the one Qt shipped.
+# Apply the QEventDispatcherWasm posted-event patch to an installed Qt WASM kit, or revert
+# it (README.md). Recompiles one translation unit against the kit's headers and swaps the
+# object into libQt6Core.a; `--verify` checks its symbols match the stock object. The stock
+# archive stays as libQt6Core.a.stock.
 
 set -euo pipefail
 
-QT_WASM="${QT_WASM:-/opt/Qt/6.11.1/wasm_singlethread}"
-QT_HOST="${QT_HOST:-/opt/Qt/6.11.1/gcc_64}"
-QT_SRC="${QT_SRC:-/opt/Qt/6.11.1/Src/qtbase}"
+QT_WASM="${QT_WASM:-/opt/Qt/6.12.0/wasm_singlethread}"
+QT_HOST="${QT_HOST:-/opt/Qt/6.12.0/gcc_64}"
+QT_SRC="${QT_SRC:-/opt/Qt/6.12.0/Src/qtbase}"
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$HERE/../../.." && pwd)"
@@ -93,27 +84,23 @@ trap 'rm -rf "$WORK"' EXIT
 cp "$QT_SRC/$RELPATH" "$WORK/qeventdispatcher_wasm.cpp"
 patch -s -d "$WORK" -i "$PATCH" qeventdispatcher_wasm.cpp
 
-PRIVATE="$QT_WASM/include/QtCore/6.11.1/QtCore/private"
+PRIVATE="$QT_WASM/include/QtCore/6.12.0/QtCore/private"
 INCLUDES=(
     "-I$QT_WASM/include"
     "-I$QT_WASM/include/QtCore"
-    "-I$QT_WASM/include/QtCore/6.11.1"
-    "-I$QT_WASM/include/QtCore/6.11.1/QtCore"
+    "-I$QT_WASM/include/QtCore/6.12.0"
+    "-I$QT_WASM/include/QtCore/6.12.0/QtCore"
     "-I$PRIVATE"
     "-I$QT_WASM/mkspecs/wasm-emscripten"
     "-I$WORK"
 )
 
-# The .cpp includes its own moc output, which an installed kit does not ship. -p keeps the
-# generated include line resolvable from the kit's include path rather than relative to
-# wherever this script happens to run.
+# The .cpp includes its own moc output; -p keeps that include resolvable.
 "$QT_HOST/libexec/moc" -p QtCore/private "${INCLUDES[@]}" \
     "$PRIVATE/qeventdispatcher_wasm_p.h" \
     -o "$WORK/moc_qeventdispatcher_wasm_p.cpp"
 
-# QT_BUILDING_QT is what puts the logging categories in the QtPrivateLogging inline
-# namespace, so leaving it out silently produces differently-mangled symbols that the rest of
-# QtCore does not reference. -fexceptions matches the shipped object's libc++ ABI tags.
+# QT_BUILDING_QT for the logging namespace; -fexceptions for the libc++ ABI tags.
 em++ -c "$WORK/qeventdispatcher_wasm.cpp" -o "$WORK/$MEMBER" \
     -std=c++20 -O2 -fexceptions \
     -DQT_NO_DEBUG -DNDEBUG -DQT_BUILD_CORE_LIB -DQT_STATIC -DQT_BUILDING_QT \

@@ -2,13 +2,13 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-# M8: the edge login flow (native, against the in-process dev stub provider) and the
+# The edge login flow (native, against the in-process dev stub provider) and the
 # `synqt add auth` scaffolding. jwt-cpp + picojson (vcpkg) are required for ID-token
 # verification. The include dir is auto-detected or set with -DJWT_CPP_INCLUDE_DIR=.
 
 set -euo pipefail
 
-QT_HOST="${QT_HOST:-/opt/Qt/6.11.1/gcc_64}"
+QT_HOST="${QT_HOST:-/opt/Qt/6.12.0/gcc_64}"
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$REPO_ROOT"
 

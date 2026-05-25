@@ -23,19 +23,19 @@
 # Qt kit (no sudo, nothing to undo).
 #
 # Requirements: the Qt *source* tree for the pinned version (the online installer's "Qt
-# 6.11.1 > Sources" component) and MariaDB Connector/C's headers and library.
+# 6.12.0 > Sources" component) and MariaDB Connector/C's headers and library.
 #   Arch:   pacman -S mariadb-libs
 #   Debian: apt install libmariadb-dev
 #   Fedora: dnf install mariadb-connector-c-devel
 #
 # Environment:
 #   QT_HOST      the Qt kit whose qt-cmake drives the build
-#                (default: /opt/Qt/6.11.1/gcc_64)
+#                (default: /opt/Qt/6.12.0/gcc_64)
 #   QT_SRC       the Qt source tree (default: <QT_HOST>/../Src)
-#   MYSQL_INCLUDE_DIR  where mysql.h lives (default: probed via pkg-config, then
+#   MYSQL_INCLUDE_DIR  where mysql.h lives (default, probed via pkg-config, then
 #                /usr/include/mysql, then /usr/include/mariadb)
 #   MYSQL_LIBRARY      the Connector/C shared library
-#                (default: probed via pkg-config, then /usr/lib/libmariadb.so)
+#                (default, probed via pkg-config, then /usr/lib/libmariadb.so)
 #   PLUGIN_ROOT  where to install (default: $HOME/.cache/synqt-qmysql)
 #
 #   tools/qmysql-plugin/build-qmysql-plugin.sh
@@ -43,7 +43,7 @@
 
 set -euo pipefail
 
-QT_HOST="${QT_HOST:-/opt/Qt/6.11.1/gcc_64}"
+QT_HOST="${QT_HOST:-/opt/Qt/6.12.0/gcc_64}"
 QT_SRC="${QT_SRC:-$(cd "$QT_HOST/.." 2>/dev/null && pwd)/Src}"
 PLUGIN_ROOT="${PLUGIN_ROOT:-$HOME/.cache/synqt-qmysql}"
 BUILD_DIR="${BUILD_DIR:-$PLUGIN_ROOT/build}"

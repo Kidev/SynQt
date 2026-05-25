@@ -68,8 +68,8 @@ target dir:
 
 ```
 export XWIN_DIR="$HOME/.cache/synqt-xwin"                 # the 'xwin splat' output
-export QT_WIN="$HOME/Qt-win/6.11.1/msvc2022_64"           # the Windows Qt kit
-export QT_HOST="/opt/Qt/6.11.1/gcc_64"                    # the Linux host kit (generators)
+export QT_WIN="$HOME/Qt-win/6.12.0/msvc2022_64"           # the Windows Qt kit
+export QT_HOST="/opt/Qt/6.12.0/gcc_64"                    # the Linux host kit (generators)
 export OPENSSL_WIN="$HOME/.cache/synqt-openssl-win/Library" # a Windows OpenSSL prefix
 
 tools/windows-check/check-windows.sh                 # the QtCore probe (no OpenSSL needed)

@@ -2,35 +2,19 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-# Prove the NATIVE DESKTOP client target compiles, installs, and boots. The missing
-# analogue of tests/appgen-native, which builds the service/edge mains but never drove the
-# `synqt build --client desktop` tooling path end to end. The desktop client shares the client
-# QML and SynClient runtime with the WASM build. Only two things differ (docs/desktop.md): it
-# terminates its own TLS with QSslSocket, and it reads the edge URL from build.desktop.edge_url
-# instead of the served page. This fixture exercises exactly that path:
-#
-#   1. materialize the three-entity gavel topology and mark the client `targets: [wasm, desktop]`
-#      with a distinctive build.desktop.edge_url;
-#   2. run the real tooling (presets.write + build.compile_incremental(client="desktop")), which
-#      generates the client main/CMake, configures the host preset, compiles the client on the
-#      native kit, and installs it under build/client-desktop/linux/;
-#   3. assert the installed binary is a native executable, that the configured edge URL is baked
-#      into it (SYNQT_EDGE_URL; the desktop client has no serving origin to read it from), and
-#      that it boots the QML engine + SynClient without crashing (offscreen, edge unreachable).
-#
-# The string-level unit tests assert the generated CMake/main text; only a real build catches a
-# missing link library, a CMake collision, or (as this fixture first found) build.desktop.
-# edge_url never being passed to the compile. Needs the pinned host kit (/opt/Qt/6.11.1/gcc_64).
+# Build, install and boot the native desktop client through the real tooling
+# (`presets.write` + `build.compile_incremental(client="desktop")`) on the gavel topology,
+# with the client targeting wasm and desktop. Asserts a native executable, the baked-in
+# edge URL, and a boot that does not crash (offscreen, edge unreachable).
 #
 # Usage: tests/desktop-client/run-desktop-client.sh
 
 set -euo pipefail
 
-# The kit directory is named for the host, not the target, so a single Linux default makes this
-# script fail on macOS with "native host kit not found" for a kit that is installed and correct.
+# No default: the kit directory name differs per platform.
 case "$(uname -s)" in
-Darwin) QT_HOST_DEFAULT=/opt/Qt/6.11.1/macos ;;
-*)      QT_HOST_DEFAULT=/opt/Qt/6.11.1/gcc_64 ;;
+Darwin) QT_HOST_DEFAULT=/opt/Qt/6.12.0/macos ;;
+*)      QT_HOST_DEFAULT=/opt/Qt/6.12.0/gcc_64 ;;
 esac
 
 QT_HOST="${QT_HOST:-$QT_HOST_DEFAULT}"
@@ -45,12 +29,7 @@ if [ ! -d "$QT_HOST/lib/cmake" ]; then
     exit 1
 fi
 
-# Point the tooling's resolver at the same kit this script was told to use. The resolver
-# searches the project toolchain dir, the system prefixes, and QTDIR (toolchain.py). On CI
-# the kit is at none of the first two, so without this the real `synqt build` path below
-# resolves no host Qt, reports "toolchain incomplete", and skips the compile this fixture
-# exists to perform. QTDIR is the product's own documented escape hatch, so using it here
-# keeps the fixture on a supported path rather than reaching past the tooling.
+# Point the tooling at the same kit through QTDIR.
 export QTDIR="$QT_HOST"
 
 EDGE_URL="wss://desktop-edge.synqt.test:9443/sync"
@@ -61,10 +40,7 @@ echo "== [1/4] Materialize gavel, mark the client a desktop target, run the tool
 rm -rf "$WORK"
 mkdir -p "$WORK"
 cp -r "$REPO_ROOT/examples/gavel" "$SRC"
-# The example is a working directory for whoever has run `synqt build` in it, and those
-# leftovers are gitignored, so a fresh clone never has them and a developer's checkout
-# does. Copying them in points the `host` preset at a CMakeCache built for another source
-# tree, which CMake refuses. Take the tracked sources, not the state.
+# Copy the tracked sources only, never a developer's build state.
 rm -rf "$SRC/build" "$SRC/CMakeUserPresets.json"
 
 PYTHONPATH="$REPO_ROOT/tools/synqt" python3 - "$SRC" "$REPO_ROOT" "$EDGE_URL" <<'PY'
@@ -78,16 +54,14 @@ from synqt import appgen, appmodel, build, presets
 app, repo, edge_url = Path(sys.argv[1]), sys.argv[2], sys.argv[3]
 config = yaml.safe_load((app / "synqt.yaml").read_text())
 
-# Turn the WASM-only client into a dual wasm+desktop target and give the desktop build an edge
-# URL to bake in. This is the one config change docs/desktop.md says a desktop client needs.
+# Target wasm and desktop, with an edge URL to bake in.
 for entity in config["entities"]:
     if appmodel.is_client(entity):
         entity["targets"] = ["wasm", "desktop"]
 config.setdefault("build", {}).setdefault("desktop", {})["edge_url"] = edge_url
 (app / "synqt.yaml").write_text(yaml.safe_dump(config, sort_keys=False))
 
-# Generate the CMakePresets (the host preset) the tooling configures against, then run
-# the real incremental build path for the desktop client. appgen + topologywriter run inside it.
+# The presets, then the real incremental build path.
 presets.write(app, config)
 note, host_targets, client_targets = build.compile_incremental(app, config, client="desktop")
 print("  host_targets  :", ", ".join(host_targets))
@@ -97,23 +71,17 @@ if note.startswith("error") or note.startswith("note:"):
     sys.exit("desktop client build did not compile: " + note)
 PY
 
-# The client entity's name is the target name and the installed file name. Asked of the
-# project rather than assumed, so a topology that renames its client does not silently
-# leave this asserting on a path nothing writes.
+# The client entity's name is the target and installed file name.
 CLIENT="$(PYTHONPATH="$REPO_ROOT/tools/synqt" python3 -c \
     'import sys, yaml; from synqt import appmodel;
 c = yaml.safe_load(open(sys.argv[1] + "/synqt.yaml"));
 print(appmodel.client_entity(c)["name"])' "$SRC")"
 
 echo "== [2/4] Assert the desktop client compiled and installed =="
-# The deploy folder is per platform (docs/desktop.md names windows/, macos/, linux/), and the
-# tooling picks it from the host, so ask the tooling rather than hard-code one of the three.
+# The deploy folder is per platform; ask the tooling.
 PLATFORM="$(PYTHONPATH="$REPO_ROOT/tools/synqt" python3 -c \
     'from synqt import build; print(build.desktop_platform())')"
-# build.compile_incremental is `synqt dev`'s rebuild path, so it builds the development
-# tree, and that tree's directory says so: profiles.build_dir() names it host-<profile>-dev.
-# Asking for the name rather than spelling it here means the suite follows the CLI if the
-# layout moves again.
+# compile_incremental builds the development tree; ask for its directory.
 HOST_DIR="$SRC/$(PYTHONPATH="$REPO_ROOT/tools/synqt" python3 -c \
     "from synqt import profiles; print(profiles.build_dir('host', 'debug', dev_tools=True))")"
 HOST_BIN="$(native_exe_path "$HOST_DIR/$CLIENT")"
@@ -122,30 +90,20 @@ rc=0
 assert_native_exe "$HOST_DIR/$CLIENT" "compiled " || rc=1
 assert_native_exe "$SRC/build/client-desktop/$PLATFORM/$CLIENT" "installed" || rc=1
 
-# Steps 3 and 4 both read the built binary, so stop here rather than report confusing
-# follow-on failures for a binary that does not exist.
+# Steps 3 and 4 both need the binary.
 if [ "$rc" -ne 0 ]; then
     echo "DESKTOP-CLIENT GATE: NO-GO (the client did not compile or install)"
     exit 1
 fi
 
 echo "== [2b/4] Deploy on a copy, and assert the result carries its own Qt =="
-# Deployed on a COPY. `synqt build` does not deploy (docs/desktop.md), so the artifact it
-# installs is the undeployed one and that is what step 4 must boot. Deploying in place would
-# mean the fixture asserts the boot of something the build never produces.
-#
-# This runs on every platform, because the Linux portable layout is SynQt's own code
-# (macdeployqt and windeployqt are Qt's) and nothing else executes it. A deploy that ships
-# the client binary's own libraries and not those of the plugins and QML modules it loads
-# at run time starts on a machine that already has Qt and on no other. The unit tests
-# cannot catch that because they mock the dependency reader.
+# Deploy a copy: `synqt build` does not deploy, so step 4 boots the undeployed binary. Runs
+# on every platform, since the Linux portable layout is SynQt's own code.
 PROBE="$WORK/deploy-probe"
 rm -rf "$PROBE"
 mkdir -p "$PROBE"
 
-# Through the tooling's own deploy module, not by calling macdeployqt/windeployqt here: the
-# point is to test the code path `synqt build --deploy` takes, and a fixture that ran the
-# command itself would keep passing after that path broke.
+# Through the tooling's deploy module, the path `synqt build --deploy` takes.
 deploy_probe() {
     PYTHONPATH="$REPO_ROOT/tools/synqt" python3 - \
         "$SRC" "$PROBE" "$QT_HOST" "$PLATFORM" "$CLIENT" <<'PY'
@@ -155,9 +113,7 @@ from pathlib import Path
 from synqt import deploy
 
 root, out, kit, platform = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3], sys.argv[4]
-# --unsigned is the fixture's choice, stated the way the CLI makes a caller state it. There is
-# no signing identity on a build machine, and a fixture that signed would be testing the
-# developer's keychain rather than SynQt.
+# --unsigned: a build machine has no signing identity.
 deploy.check_signing_choice(platform, None, True)
 print("   ", deploy.deploy_client(root, sys.argv[5], out, {"host_qt": kit},
                                   platform, sign=None))
@@ -165,11 +121,7 @@ PY
 }
 
 if [ "$PLATFORM" = "macos" ]; then
-    # A bare Mach-O is not an app on macOS, and macdeployqt accepts nothing else, so a build
-    # that emits one makes the deploy step docs/desktop.md hands to the developer impossible
-    # to perform without rewriting the generated CMake. That is what this asserts. The
-    # build does not deploy, and what it produces is something the
-    # documented command can be run against.
+    # macdeployqt accepts only a .app bundle.
     APP="$SRC/build/client-desktop/macos/$CLIENT.app"
     if [ -d "$APP" ] && [ -f "$APP/Contents/Info.plist" ]; then
         BUNDLE_ID="$(defaults read "$APP/Contents/Info" CFBundleIdentifier 2>/dev/null || echo "")"
@@ -178,42 +130,26 @@ if [ "$PLATFORM" = "macos" ]; then
         echo "  bundle   : FAIL (no .app bundle at $APP; macdeployqt cannot be run)"; rc=1
     fi
 
-    # Before deploying, Qt is reached through an LC_RPATH pointing into the build kit, so the
-    # app runs only on a machine that has that kit at that path. Recorded so the after-state
-    # below reads as a change rather than as an assertion about an unknown starting point.
-    #
-    # Read with `otool -l`, not `otool -L`: the kit path is an LC_RPATH load command, while the
-    # Qt entries `otool -L` prints are all `@rpath/...` and name no kit at all. Grepping the -L
-    # output for the kit therefore matches nothing whether or not the bundle is deployed, which
-    # is a check that passes for the broken case as readily as for the fixed one.
+    # Record the LC_RPATH into the build kit before deploying. `otool -l`, since `otool -L`
+    # lists only @rpath entries.
     CLIENT_BIN="$APP/Contents/MacOS/$CLIENT"
     before="$(otool -l "$CLIENT_BIN" 2>/dev/null | grep -c "$QT_HOST" || true)"
     echo "  pre-deploy: $before LC_RPATH reference(s) into the build kit ($QT_HOST)"
 
     if [ "$rc" -eq 0 ]; then
-        # macdeployqt ships only the platform plugin a released app needs (cocoa), so a
-        # deployed bundle cannot be booted with QT_QPA_PLATFORM=offscreen at all. It aborts
-        # with "Could not find the Qt platform plugin", which is correct behaviour for a
-        # deployed app and was, briefly, this fixture reporting a crash that was its own doing.
+        # A deployed bundle ships only the cocoa plugin, so it cannot boot offscreen.
         cp -R "$APP" "$PROBE/$CLIENT.app"
         APP="$PROBE/$CLIENT.app"
         CLIENT_BIN="$APP/Contents/MacOS/$CLIENT"
         deploy_probe || rc=1
-        # Self-contained is asserted structurally rather than by the kit rpath disappearing:
-        # whether macdeployqt strips the original LC_RPATH or merely prepends its own has
-        # varied, and an app that carries its Qt and looks in its own bundle first is
-        # correct either way. So: the frameworks travel inside the bundle, and the binary
-        # has a bundle-relative rpath to find them by.
+        # Self-contained: the frameworks are in the bundle and a bundle-relative rpath finds them.
         own_rpath="$(otool -l "$CLIENT_BIN" 2>/dev/null \
             | grep -c "@executable_path/../Frameworks" || true)"
         if [ -d "$APP/Contents/Frameworks/QtCore.framework" ] && [ "$own_rpath" -gt 0 ]; then
             kit_left="$(otool -l "$CLIENT_BIN" 2>/dev/null | grep -c "$QT_HOST" || true)"
             echo "  deployed : OK (Qt travels in the bundle, bundle-relative rpath present;" \
                  "$kit_left kit rpath left)"
-            # Not asserted. That the deployed copy runs. It ships only the cocoa plugin, so it
-            # needs a real display, which a macOS CI runner does not have. What is asserted is
-            # that the hand-off docs/desktop.md documents can be performed and produces an app
-            # that carries its own Qt. Running it is the developer's own signing-and-ship path.
+            # Running the deployed copy needs a real display, which a macOS runner lacks.
         else
             echo "  deployed : FAIL (QtCore in bundle=$([ -d "$APP/Contents/Frameworks/QtCore.framework" ] && echo yes || echo no)," \
                  "bundle-relative rpath=$own_rpath)"
@@ -221,14 +157,9 @@ if [ "$PLATFORM" = "macos" ]; then
         fi
     fi
 elif [ "$PLATFORM" = "windows" ]; then
-    # $INSTALLED rather than a path spelled out again. Only Windows adds a suffix, and
-    # native_exe_path already knows that (tests/lib/native-binary.sh).
     cp "$INSTALLED" "$PROBE/$(basename "$INSTALLED")"
     deploy_probe || rc=1
-    # windeployqt puts the DLLs beside the exe (Windows resolves a DLL through the
-    # executable's own directory first, so there is no launcher and no rpath here) and the
-    # plugin directories under it. The platform plugin is the one whose absence stops the
-    # app before it can say anything.
+    # windeployqt puts the DLLs beside the exe and the plugin directories under it.
     windows_missing=""
     for needed in Qt6Core.dll Qt6Qml.dll Qt6Quick.dll platforms/qwindows.dll; do
         [ -e "$PROBE/$needed" ] || windows_missing="$windows_missing $needed"
@@ -243,19 +174,14 @@ else
     deploy_probe || rc=1
 
     if [ "$rc" -eq 0 ]; then
-        # Named explicitly, not derived. Both are reached only through something loaded at run
-        # time (the X11 platform plugin, and the Controls style), so both were missing from
-        # every tree the previous implementation produced, and naming them here states the
-        # property rather than restating whatever the implementation happens to compute.
+        # Named explicitly: both are loaded only at run time.
         linux_missing=""
         for needed in lib/libQt6XcbQpa.so.6 lib/libQt6QuickControls2Impl.so.6 \
                       plugins/platforms/libqxcb.so qml/QtQuick/Controls/Basic/qmldir \
                       "$CLIENT.sh"; do
             [ -e "$PROBE/$needed" ] || linux_missing="$linux_missing $needed"
         done
-        # The other half of correct. scoped. Shipping the kit's whole qml/ and plugins/ trees
-        # would satisfy every check above and cost 931 MB, three times what this needs. The
-        # client links no Qt Sql and imports no virtual keyboard, so neither may appear.
+        # And nothing extra: no Qt Sql, no virtual keyboard.
         for absent in qml/QtQuick/VirtualKeyboard plugins/sqldrivers; do
             [ ! -e "$PROBE/$absent" ] || linux_missing="$linux_missing (unwanted:$absent)"
         done
@@ -268,11 +194,8 @@ else
     fi
 
     if [ "$rc" -eq 0 ]; then
-        # The runtime half. A tree that is missing a library still starts on any machine that
-        # has Qt installed, because the loader quietly answers from /usr/lib instead, so
-        # "it ran" proves nothing on its own. What is asserted is where the running process
-        # mapped its Qt from, read out of /proc/<pid>/maps. Every Qt library, QML
-        # module and plugin has to come from inside the deployed tree.
+        # Every Qt library, QML module and plugin the running process maps must come from inside
+        # the deployed tree (/proc/<pid>/maps).
         set +e
         SYNQT_PROBE="$PROBE" SYNQT_CLIENT="$CLIENT" python3 - <<'PY'
 import os
@@ -325,10 +248,7 @@ PY
 fi
 
 echo "== [3/4] Assert build.desktop.edge_url was baked into the binary =="
-# QStringLiteral(SYNQT_EDGE_URL) stores the URL as UTF-16, so scan both the ASCII and the
-# 16-bit-little-endian encodings. Done in Python, not with `strings`: binutils is not part of
-# a Git-for-Windows install, so `strings` is absent on the Windows runner, and a scan
-# that silently finds nothing there would read as "the URL was never baked in".
+# The URL is stored as UTF-16, so scan both encodings, in Python (no `strings` on Windows).
 if SYNQT_BIN="$HOST_BIN" SYNQT_NEEDLE="desktop-edge.synqt.test:9443" python3 - <<'PY'
 import os, sys
 data = open(os.environ["SYNQT_BIN"], "rb").read()
@@ -343,13 +263,8 @@ else
 fi
 
 echo "== [4/4] Boot the desktop client headless (offscreen); the edge is unreachable =="
-# A successful boot loads the QML engine + SynClient and then blocks in app.exec() trying to
-# reach the (unresolvable) edge, so it is still alive when the deadline passes. A crash or a
-# failed QML load (main returns -1) exits fast instead.
-#
-# The deadline is enforced in Python rather than with `timeout`: coreutils' timeout is not part
-# of a Git-for-Windows install. This also states the pass condition directly ("still running"),
-# where the old form asserted the exit code 124 that only GNU timeout produces.
+# A good boot is still running at the deadline, blocked reaching the edge; a crash exits
+# fast. The deadline is enforced in Python (no `timeout` on Windows).
 set +e
 SYNQT_BIN="$INSTALLED" python3 - <<'PY'
 import os, subprocess, sys

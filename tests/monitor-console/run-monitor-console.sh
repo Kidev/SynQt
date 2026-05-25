@@ -2,22 +2,16 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-# The monitoring console, end to end, in a real browser.
-#  [1] write the project with the scaffolder, exactly as a developer would;
+# The monitoring console, end to end, in a real browser:
+#  [1] write the project with the scaffolder;
 #  [2] build the monitor and the reporting edge with the host kit;
-#  [3] build the console for the browser with the WebAssembly kit;
+#  [3] build the console with the WebAssembly kit;
 #  [4] drive the delivery gate, the operator sign-in and the console via Playwright.
-#
-# Everything here is invisible to a compiler. A 404 for a bundle outside the caller's
-# scope, an inline script the strict CSP has to allow, a Qt Quick scene that either draws
-# or does not, and a row appearing in the monitor's own record. The project is generated
-# rather than checked in, so what runs is what `synqt add entity --type monitor` produces
-# today and not what it produced when somebody pasted it in.
 
 set -euo pipefail
 
-QT_HOST="${QT_HOST:-/opt/Qt/6.11.1/gcc_64}"
-QT_WASM="${QT_WASM:-/opt/Qt/6.11.1/wasm_singlethread}"
+QT_HOST="${QT_HOST:-/opt/Qt/6.12.0/gcc_64}"
+QT_WASM="${QT_WASM:-/opt/Qt/6.12.0/wasm_singlethread}"
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$REPO_ROOT"
 
@@ -46,10 +40,7 @@ for entity in ops web; do
     fi
 done
 
-# Phases 3 and 4 need the WebAssembly kit and a browser. Phases 1 and 2 need neither.
-# Where the kit is absent, say so plainly rather than fail the suite on a toolchain this
-# host was never given. Announced, never silent. A skip that prints nothing is
-# indistinguishable from a pass.
+# Phases 3 and 4 need the WebAssembly kit and a browser; without them, say so and skip.
 if [ ! -x "$QT_WASM/bin/qt-cmake" ]; then
     echo
     echo "== [3/4] and [4/4] SKIPPED: no WebAssembly kit at $QT_WASM =="
@@ -66,9 +57,7 @@ echo "== [3/4] build the console for the browser (WebAssembly kit) =="
     -DSYNQT_ROOT="$REPO_ROOT" -DCMAKE_BUILD_TYPE=RelWithDebInfo
 cmake --build "$WORK/wasm"
 
-# The bundle the operator scope is served. Only the console's own files, in a directory of
-# their own. Two clients build into one binary directory, and a bundle holding both would
-# serve the application's client to whoever asked for the console's.
+# The operator scope's bundle holds only the console's files.
 mkdir -p "$WORK/bundle-console"
 cp "$WORK/wasm/ops-console.js" "$WORK/wasm/ops-console.wasm" "$WORK/wasm/qtloader.js" \
     "$WORK/bundle-console/"

@@ -2,16 +2,10 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-# The M0 matrix in real Safari.app, which no other harness reaches: verify.mjs drives
-# Playwright's WebKit, and that is Safari's engine rather than Safari (see the note in
-# verify-safari.mjs). macOS only, and needs a logged-in GUI session, because Safari has no
-# headless mode.
+# The M0 matrix in real Safari.app (Playwright drives WebKit, not Safari). macOS only, with
+# a logged-in GUI session. Kept out of run-m0.sh, which runs on Linux in CI.
 #
-# Kept out of run-m0.sh. That script is the M0 gate and runs in CI on Linux, where
-# Safari does not exist, and folding a macOS-and-display-only case into it would make the gate's
-# result depend on which machine ran it.
-#
-# One manual step, once per machine:
+# Once per machine:
 #
 #     sudo safaridriver --enable
 #
@@ -26,12 +20,12 @@ if [ "$(uname -s)" != "Darwin" ]; then
 fi
 
 case "$(uname -s)" in
-Darwin) QT_HOST_DEFAULT=/opt/Qt/6.11.1/macos ;;
-*)      QT_HOST_DEFAULT=/opt/Qt/6.11.1/gcc_64 ;;
+Darwin) QT_HOST_DEFAULT=/opt/Qt/6.12.0/macos ;;
+*)      QT_HOST_DEFAULT=/opt/Qt/6.12.0/gcc_64 ;;
 esac
 
 QT_HOST="${QT_HOST:-$QT_HOST_DEFAULT}"
-QT_WASM="${QT_WASM:-/opt/Qt/6.11.1/wasm_singlethread}"
+QT_WASM="${QT_WASM:-/opt/Qt/6.12.0/wasm_singlethread}"
 export QT_HOST_PATH="${QT_HOST_PATH:-$QT_HOST}"
 
 REPO_ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
@@ -55,15 +49,13 @@ synqt_activate_emsdk
 cmake --build build/m0-client
 
 echo "== [3/4] Self-signed localhost cert for the wss listener =="
-# The same throwaway public-link TLS server cert run-m0.sh mints. Not a mesh CA, and nothing
-# under synqt/mesh/ is created. Safari will not connect over wss until this is trusted in the
-# system keychain, which is why the wss case is opt-in:
+# run-m0.sh's throwaway TLS certificate. The wss case needs it trusted:
 #
 #   sudo security add-trusted-cert -d -r trustRoot \
 #       -k /Library/Keychains/System.keychain build/certs/cert.pem
 #
-# and then re-run with SAFARI_WSS=1. Removing it again is `sudo security delete-certificate
-# -c localhost -t /Library/Keychains/System.keychain`.
+# Remove it with `sudo security delete-certificate -c localhost -t
+# /Library/Keychains/System.keychain`.
 mkdir -p build/certs
 if [ ! -f build/certs/cert.pem ]; then
     openssl req -x509 -newkey rsa:2048 -nodes -days 30 \

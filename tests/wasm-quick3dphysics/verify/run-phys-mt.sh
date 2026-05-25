@@ -2,37 +2,27 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-# Try the Qt Quick 3D Physics scene on the MULTI-THREADED WebAssembly kit.
+# The Qt Quick 3D Physics scene on the multi-threaded WebAssembly kit, served with COOP
+# same-origin and COEP require-corp, as the edge emits under
+# security.cross_origin_isolation.
 #
-# The single-threaded build (run-phys.sh) loads and boots but its box never falls in a
-# browser. The working hypothesis is that Qt Quick 3D Physics steps PhysX on a worker thread
-# the single-threaded kit cannot spawn. This script builds the identical scene with the
-# wasm_multithread kit and serves it under the cross-origin-isolation headers SharedArrayBuffer
-# needs (COOP: same-origin, COEP: require-corp). Exactly what the SynQt web edge emits when
-# security.cross_origin_isolation is on. So pthreads, and the PhysX worker, can run.
+#   (default)   build, then check headless that the page is isolated and boots.
+#   --serve     build and keep serving, to watch the box fall in a real browser.
 #
-# Two modes:
-#   (default)   build + a headless check that the page is cross-origin isolated and boots, and
-#               whether the box advances under headless automation.
-#   --serve     build + keep serving with the COI headers so you can open the printed URL in a
-#               REAL browser tab and watch the box fall. This is the definitive interactive
-#               check the headless rAF loop cannot make for you.
-#
-# Needs the multi-threaded WASM kit (/opt/Qt/6.11.1/wasm_multithread) with emsdk 4.0.7, and
-# Node for the driver. Usage:
-#   tests/wasm-quick3dphysics/verify/run-phys-mt.sh            # build + headless check
-#   tests/wasm-quick3dphysics/verify/run-phys-mt.sh --serve    # build + interactive serve
+# Needs /opt/Qt/6.12.0/wasm_multithread, emsdk 5.0.5 and Node. Usage:
+#   tests/wasm-quick3dphysics/verify/run-phys-mt.sh
+#   tests/wasm-quick3dphysics/verify/run-phys-mt.sh --serve
 
 set -euo pipefail
 
-QT_WASM_MT="${QT_WASM_MT:-/opt/Qt/6.11.1/wasm_multithread}"
+QT_WASM_MT="${QT_WASM_MT:-/opt/Qt/6.12.0/wasm_multithread}"
 REPO_ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 HERE="$REPO_ROOT/tests/wasm-quick3dphysics"
 cd "$REPO_ROOT"
 
 if [ ! -x "$QT_WASM_MT/bin/qt-cmake" ]; then
     echo "error: multi-threaded WASM kit not found at $QT_WASM_MT" >&2
-    echo "       install it (aqtinstall wasm_multithread for 6.11.1) and retry." >&2
+    echo "       install it (aqtinstall wasm_multithread for 6.12.0) and retry." >&2
     exit 1
 fi
 
@@ -42,9 +32,7 @@ if [ "${1:-}" = "--serve" ]; then
 fi
 
 echo "== [1/3] Build the scene (WASM multi-threaded: Quick3D + bundled PhysX + pthreads) =="
-# QT_WASM_PTHREAD_POOL_SIZE preallocates the worker pool the PhysX task dispatcher draws from;
-# without a pool the runtime would have to grow threads on demand, which browsers disallow
-# from the main thread. 8 is comfortably above what one PhysicsWorld needs.
+# A preallocated worker pool: browsers disallow creating threads from the main thread.
 "$QT_WASM_MT/bin/qt-cmake" -S tests/wasm-quick3dphysics -B build/q3dphys-wasm-mt -G Ninja \
     -DCMAKE_BUILD_TYPE=Release \
     -DQT_WASM_PTHREAD_POOL_SIZE=8

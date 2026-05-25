@@ -43,7 +43,7 @@ Emscripten:
   the WebAssembly kit (single or multi threaded per `build.client_threads`) for the
   browser client.
 - Emscripten via `emsdk` into `synqt/toolchain/emsdk/<version>`, pinned to the
-  version Qt selects for the Qt version (4.0.7 for 6.11.1). A different Emscripten
+  version Qt selects for the Qt version (5.0.5 for 6.12.0). A different Emscripten
   version is unsupported because Emscripten does not promise ABI stability across
   versions.
 - vcpkg, only if a project adds native dependencies beyond Qt and the bundled
@@ -273,7 +273,7 @@ the name of a member the owner already has, written out from what that owner say
 
 ```cli
 synqt 0.1.0
-Qt 6.11.1, Emscripten 4.0.7
+Qt 6.12.0, Emscripten 5.0.5
 Python 3.14.5 at /home/you/.local/lib/python3.14/site-packages/synqt
 ```
 
@@ -645,7 +645,7 @@ for the published CLI and its installer, and `[CONTRIB]` for the contributor boo
   on Linux, macOS, and Windows on every push and pull request. They assert on the
   emitted CMake, presets, topology, and config, so they need no Qt build or display and
   behave identically on all three runners.
-- [`ctest.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/ctest.yml) builds and runs the native C++ suites. It provisions the pinned Qt 6.11.1
+- [`ctest.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/ctest.yml) builds and runs the native C++ suites. It provisions the pinned Qt 6.12.0
   host kit and its add on modules through aqtinstall, caches the kit between runs, and
   falls back to a source build for any add on the prebuilt kit omits (the same mechanism
   the WebAssembly job uses for QtRemoteObjects). It runs the runtime suites and the

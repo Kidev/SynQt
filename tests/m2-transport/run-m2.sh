@@ -2,14 +2,14 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-# M2 acceptance. Build the client runtime library and the transport acceptance test,
+# Build the client runtime library and the transport acceptance test,
 # then run it (acquire a host Source through WebSocketTransport over a real local
 # plaintext WebSocket. Property change reaches the Replica. Slot call reaches the
 # Source).
 
 set -euo pipefail
 
-QT_HOST="${QT_HOST:-/opt/Qt/6.11.1/gcc_64}"
+QT_HOST="${QT_HOST:-/opt/Qt/6.12.0/gcc_64}"
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$REPO_ROOT"
 

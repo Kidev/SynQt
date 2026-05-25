@@ -42,7 +42,7 @@ make doctor                              # what answers, and what is stale
 make cli                                 # install this checkout's CLI over whatever is there
 make test                                # the CLI and generator suites
 make test-designer                       # the editor, in a real browser
-make test-cpp QT_HOST=/opt/Qt/6.11.1/gcc_64   # the framework and its C++ suites
+make test-cpp QT_HOST=/opt/Qt/6.12.0/gcc_64   # the framework and its C++ suites
 make lint                                # the editor's rule parity, and every mermaid fence
 make docs-serve                          # build the site and serve it locally
 ```
@@ -285,10 +285,10 @@ in the ordinary pytest job, so the list cannot quietly become a set of claims no
 A defect found by review or by report gets a test that fails without the fix, and an entry
 here.
 
-To run everything, point `QT_HOST` at your Qt 6.11.1 host kit and run the tree:
+To run everything, point `QT_HOST` at your Qt 6.12.0 host kit and run the tree:
 
 ```sh
-QT_HOST=/opt/Qt/6.11.1/gcc_64 tests/run-all.sh
+QT_HOST=/opt/Qt/6.12.0/gcc_64 tests/run-all.sh
 ```
 
 That builds the framework and every host kit suite once, runs them under a single `ctest`,
@@ -403,10 +403,10 @@ fair trade for a test run and not one to impose on somebody's application.
 To run one suite, which is usually what you want while working on it, run its script:
 
 ```sh
-QT_HOST=/opt/Qt/6.11.1/gcc_64 tests/m7-caller/run-m7.sh
+QT_HOST=/opt/Qt/6.12.0/gcc_64 tests/m7-caller/run-m7.sh
 ```
 
-The scripts default `QT_HOST` to `/opt/Qt/6.11.1/gcc_64` when it is unset, so on that
+The scripts default `QT_HOST` to `/opt/Qt/6.12.0/gcc_64` when it is unset, so on that
 layout the variable can be omitted. Each script configures with Ninja, builds, and runs
 `ctest`.
 
@@ -469,10 +469,10 @@ the Python suite.
 
 ### Coverage
 
-How much of the framework the suites above actually reach is measured:
+How much of the framework the suites above reach is measured:
 
 ```sh
-QT_HOST=/opt/Qt/6.11.1/gcc_64 tests/run-coverage.sh
+QT_HOST=/opt/Qt/6.12.0/gcc_64 tests/run-coverage.sh
 ```
 
 That builds a second, instrumented tree (`-DSYNQT_COVERAGE=ON`, and `Debug` so a line maps

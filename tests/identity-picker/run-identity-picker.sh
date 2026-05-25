@@ -2,23 +2,17 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-# The development scope picker, in a real browser, with a real cookie jar.
+# The development scope picker, in a real browser, with a real cookie jar:
 #  [1] write a three-scope project with the tooling;
-#  [2] build its edge with SYNQT_DEV_TOOLS, which is the only build that has a picker;
+#  [2] build its edge with SYNQT_DEV_TOOLS;
 #  [3] drive three tabs of one browser context through it with Playwright.
 #
-# The claim under test cannot be made from inside a process. Two tabs of one browser share
-# one cookie jar (RFC 6265 scopes a cookie to a host, not a port), and "the second sign-in
-# did not become the first" is a statement about that jar. tests/m5-webedge proves the edge
-# sets two cookies. Only a browser proves two tabs then keep two sessions.
-#
-# No WebAssembly kit is needed and no client is built, which bundle the edge answers with
-# is how this suite asks a tab who it is, and three directories of static HTML answer that
-# question exactly as a compiled client would.
+# Two tabs share one cookie jar, so only a browser shows they keep two sessions. Three
+# static bundles stand in for a client.
 
 set -euo pipefail
 
-QT_HOST="${QT_HOST:-/opt/Qt/6.11.1/gcc_64}"
+QT_HOST="${QT_HOST:-/opt/Qt/6.12.0/gcc_64}"
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$REPO_ROOT"
 
@@ -33,9 +27,7 @@ PYTHONPATH="$REPO_ROOT/tools/synqt" python3 tests/identity-picker/make-project.p
 
 echo
 echo "== [2/3] build the edge (host kit, development tools on) =="
-# SYNQT_DEV_TOOLS is the compile-time half of the picker's three layers: without it the
-# class is not in SynQtEdge at all, and --identity-picker has nothing to switch on. This is
-# what `synqt dev` configures and what `synqt build` never does (tests/dev-exclusion).
+# SYNQT_DEV_TOOLS: without it the picker is not in SynQtEdge (tests/dev-exclusion).
 cmake -S "$WORK/project" -B "$WORK/native" -G Ninja \
     -DCMAKE_PREFIX_PATH="$QT_HOST" \
     -DSYNQT_ROOT="$REPO_ROOT" \
@@ -49,9 +41,7 @@ if [ ! -x "$WORK/native/web" ]; then
     exit 1
 fi
 
-# Phase 3 needs npm and a browser. Phases 1 and 2 need neither. Where they are absent, say
-# so plainly rather than fail the suite on a host that was never given them. Announced,
-# never silent. A skip that prints nothing is indistinguishable from a pass.
+# Phase 3 needs npm and a browser; without them, say so and skip.
 if ! command -v npm >/dev/null 2>&1; then
     echo
     echo "== [3/3] SKIPPED: no npm on this host =="

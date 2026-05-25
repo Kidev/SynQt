@@ -36,8 +36,13 @@ behavior) needs a run on macOS, which is what
 
 ## Running the harnesses
 
-Every harness pins Qt 6.11.1 and Emscripten 4.0.7, builds what it needs through its own
+Every harness pins Qt 6.12.0 and Emscripten 5.0.5, builds what it needs through its own
 `run-*.sh`, and reads the browser console for single line result markers.
+
+The recorded results below it were taken on Qt 6.11.1 with Emscripten 4.0.7, before the pin
+moved. Each one says so where it sits, and each has to be run again on the current pin before
+it can be quoted as a claim about it: a browser proof is a statement about one toolchain in
+one engine, and a new Emscripten is exactly the kind of change that can move it.
 
 ```sh
 # Transport, on every engine present: ws, wss, and reconnect

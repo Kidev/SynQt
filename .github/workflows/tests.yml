@@ -24,7 +24,7 @@
 #
 # The heavier, platform-specific checks live elsewhere and are not duplicated here: the WASM
 # QtRO-over-WebSockets browser matrix is browser-matrix.yml, and the C++ ctest suites need a full
-# Qt 6.11.1 build (and, for several, a display, generated certs, or the WASM kit), which the
+# Qt 6.12.0 build (and, for several, a display, generated certs, or the WASM kit), which the
 # per-entity CMake projects build on demand rather than in this fast cross-OS gate.
 
 name: "[TEST] Run the Python test suites"

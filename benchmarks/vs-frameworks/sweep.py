@@ -4,27 +4,16 @@
 
 """Throughput against process count, for SynQt and for Node.
 
-This is the part of the comparison that is also the acceptance test for `replicas:`. Both
-runtimes are single-threaded per process, and this is the way they both reach the other
-cores: by running more of themselves, SynQt through `replicas:`, Node through `cluster`. So
-the fair question is not "which is faster on one core" but "what does each do with four".
-
-A web edge has a second way that Node has no equivalent of (`threads:`, which spreads its
-sockets over IO threads inside one process and so keeps a single shared value). This script
-does not measure it, because what it measures is process count. `bench_live --threads N`
-does, and benchmarks/vs-frameworks/README.md prints the two side by side.
+Both are single-threaded per process and scale by running more processes: SynQt with
+`replicas:`, Node with `cluster`. (`threads:` is measured by `bench_live --threads N`; see
+benchmarks/vs-frameworks/README.md.)
 
     python3 benchmarks/vs-frameworks/sweep.py --processes 1,2,4,8 --subscribers 200 --seconds 10
 
-It runs the same fixed workload at each process count, with the subscriber count held
-constant and divided among the processes, and writes a `vs-fw-replicas-<host>.json` that
-`benchmarks/baselines.py check` reads: throughput must rise with process count, and no
-process count may buy that throughput by dropping deliveries.
-
-It does not stand up a balancer. Each process serves its own share
-of subscribers directly, which is what a balancer arranges anyway once the connection is
-placed, and adding nginx to the measurement would measure nginx. The claim under test is that N
-SynQt edge processes do N processes' worth of work, and that is what this measures.
+The subscriber count is fixed and split among the processes. Writes
+`vs-fw-replicas-<host>.json`, which `benchmarks/baselines.py check` reads: throughput must
+rise with process count, without dropped deliveries. No balancer: each process serves its
+share directly.
 """
 
 from __future__ import annotations
@@ -47,16 +36,8 @@ DEFAULT_BINARY = REPO_ROOT / "build" / "bench-vs-frameworks" / "bench_live"
 
 
 def node_binary() -> str:
-    """The Node this sweep runs, resolved rather than taken from PATH.
-
-    The first major in node/runtimes.txt, which is the active LTS: this table answers "what
-    does adding a process buy", and the runtime a team is allowed to deploy is the one that
-    question is about. run-bench.sh reads the same file and measures every major in it. Here
-    one is enough, because the axis being swept is process count and not runtime version.
-
-    Resolved out of nvm's version directories for the reason run-bench.sh gives: `node` on
-    PATH is whichever version a shell happened to select, so a sweep that used it would move
-    with the shell rather than with the code.
+    """The Node binary: the first major in node/runtimes.txt (the active LTS), resolved from
+    nvm's version directories rather than PATH.
     """
     majors = [line.split("#", 1)[0].strip()
               for line in (NODE_DIR / "runtimes.txt").read_text(encoding="utf-8").splitlines()]
@@ -100,12 +81,8 @@ def total(document: Dict[str, Any]) -> Dict[str, float]:
 
 def sweep_stack(name: str, command_for, counts: List[int], subscribers: int,
                 scratch: Path, cwd: Path) -> List[Dict[str, Any]]:
-    """One stack, swept over process count.
-
-    The subscriber count is held constant and split across the processes, because the
-    question is what N processes do with one workload and not what N times the workload
-    looks like. A count that does not divide evenly gives the remainder to the first
-    processes, so nothing is silently dropped.
+    """One stack, swept over process count. The subscriber count is fixed and split; a
+    remainder goes to the first processes.
     """
     rows: List[Dict[str, Any]] = []
     for count in counts:
@@ -137,8 +114,7 @@ def sweep_stack(name: str, command_for, counts: List[int], subscribers: int,
             merged["throughput_msgs_per_sec"] += one["throughput_msgs_per_sec"]
             merged["delivered"] += one["delivered"]
             merged["expected"] += one["expected"]
-            # The worst process is the one a user notices, so the tail across a fleet is
-            # the fleet's tail and not its average.
+            # The fleet tail is the worst process's tail.
             merged["p50"] = max(merged["p50"], one["p50"])
             merged["p99"] = max(merged["p99"], one["p99"])
 
@@ -186,10 +162,7 @@ def main() -> int:
         shutil.rmtree(scratch)
     scratch.mkdir(parents=True)
 
-    # Saturating, always. At a fixed publish rate the throughput is the publish rate, so
-    # every process count reports the same number and the sweep measures nothing: the first
-    # run of this script reported 960 msg/s at 1, 2 and 4 processes alike. Capacity is what
-    # scaling is about, and capacity is what a closed loop at maximum rate measures.
+    # Always saturating: at a fixed publish rate every process count reports that rate.
     common = ["--seconds", str(args.seconds), "--saturate"]
     print(f"process sweep: {args.subscribers} subscribers split across {args.processes} "
           f"process(es), {args.seconds}s at saturation")
@@ -214,7 +187,7 @@ def main() -> int:
     document = {
         "benchmark": "vs-frameworks-replicas",
         "stack": "synqt",
-        "qt_version": "6.11.1",
+        "qt_version": "6.12.0",
         "node_version": node_version,
         "host": f"{platform.system()} {platform.release()}",
         "arch": platform.machine(),

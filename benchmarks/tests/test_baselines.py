@@ -355,7 +355,7 @@ def test_an_unrecognised_document_is_rejected_rather_than_passed():
 
 def test_a_benchmark_with_no_invariants_fails_rather_than_passing_vacuously():
     report = baselines.check_document({"benchmark": "brand-new", "host": "h",
-                                       "qt_version": "6.11.1", "recorded": "now"})
+                                       "qt_version": "6.12.0", "recorded": "now"})
     assert not report.ok
     assert "invariants" in {check.name for check in report.failures}
 
@@ -517,7 +517,7 @@ def _replica_sweep(throughputs):
     return {
         "benchmark": "vs-frameworks-replicas",
         "stack": "synqt",
-        "qt_version": "6.11.1",
+        "qt_version": "6.12.0",
         "host": "test",
         "arch": "x86_64",
         "recorded": "2026-08-15T00:00:00Z",

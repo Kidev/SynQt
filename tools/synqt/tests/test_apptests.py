@@ -1,12 +1,8 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-"""`synqt test`: the application's own QML tests, from generation to the empty case.
-
-The generated CMake and runner are checked here. That they compile and run is
-tests/entity-test, which builds the same shape against the real Qt kit. Both are needed:
-this one catches a wrong path or a missing contract in the emitted text, and that one
-catches a harness that stopped working.
+"""`synqt test`: generation of the application QML test runner and CMake, and the empty case.
+tests/entity-test compiles and runs the same shape against a real Qt kit.
 """
 
 import subprocess
@@ -20,7 +16,7 @@ import yaml
 from synqt import appgen, appmodel, cmakegen, maingen, run
 
 CONFIG = {
-    "project": {"name": "gavel", "qt_version": "6.11.1"},
+    "project": {"name": "gavel", "qt_version": "6.12.0"},
     "entities": [
         {"name": "client", "type": "client", "targets": ["wasm"]},
         {"name": "web", "type": "web_edge"},
@@ -62,15 +58,14 @@ class TestDiscoveryTest(unittest.TestCase):
         self.assertEqual(appmodel.test_qml_files(_project(with_tests=False)), [])
 
     def test_no_project_directory_at_all_is_not_an_error(self):
-        # render_root_cmakelists is called with project_dir=None by callers that only want
-        # the text, so this has to answer rather than raise.
+        # render_root_cmakelists is called with project_dir=None and must answer.
         self.assertEqual(appmodel.test_qml_files(None), [])
 
 
 class GeneratedCMakeTest(unittest.TestCase):
     def test_testing_is_enabled_even_with_no_tests(self):
-        # Without enable_testing() there is no CTestTestfile.cmake, and `synqt test` cannot
-        # tell "no tests" from "never configured".
+        # enable_testing() is always there, so `synqt test` can tell no tests from not
+        # configured.
         text = cmakegen.render_root_cmakelists(CONFIG, "/synqt", _project(with_tests=False))
         self.assertIn("enable_testing()", text)
         self.assertNotIn("app_tests", text)
@@ -82,8 +77,7 @@ class GeneratedCMakeTest(unittest.TestCase):
         self.assertIn("SYNQT_APP_ROOT", text)
 
     def test_the_test_target_never_builds_for_webassembly(self):
-        # A test runs where the entity runs. Building it for the browser would fail on the
-        # service libraries it links, and succeeding would be worse.
+        # The test target is native, like the entities.
         text = cmakegen.render_root_cmakelists(CONFIG, "/synqt", _project())
         after = text.split("enable_testing()", 1)[1]
         self.assertIn("if(NOT EMSCRIPTEN)", after)
@@ -93,16 +87,14 @@ class GeneratedCMakeTest(unittest.TestCase):
         text = cmakegen.render_tests_cmakelists(CONFIG)
         self.assertIn('synqt_add_contract(app_tests ROLE source '
                       'SYN "${SYNQT_APP_ROOT}/generated/web/web/Web.syn")', text)
-        # The ledger is the mesh half, so its slots carry the session the edge is acting
-        # for, and the test target has to compile it the same way the entities do.
+        # The ledger is consumed by a service, so its slots carry the forwarded session here
+        # too.
         self.assertIn('synqt_add_contract(app_tests ROLE source FORWARDS_SESSION '
                       'SYN "${SYNQT_APP_ROOT}/generated/db/relational/database/Database.syn")', text)
         self.assertNotIn("ROLE replica", text)
 
     def test_the_target_lives_in_its_own_directory(self):
-        # repc emits moc_rep_<contract>_source.cpp into the directory's binary dir, so a
-        # second target generating the same contract at the same role in the root
-        # directory collides with the service entity that already does.
+        # In its own directory: repc writes into the directory's binary dir.
         root_text = cmakegen.render_root_cmakelists(CONFIG, "/synqt", _project())
         self.assertNotIn("qt_add_executable(app_tests", root_text)
         self.assertIn("qt_add_executable(app_tests", cmakegen.render_tests_cmakelists(CONFIG))
@@ -124,8 +116,7 @@ class GeneratedRunnerTest(unittest.TestCase):
         self.assertIn("QUICK_TEST_MAIN_WITH_SETUP", text)
 
     def test_it_carries_no_test_logic(self):
-        # A runner that did something would be a place for a test to pass for a reason the
-        # application cannot see. The only statements are registrations.
+        # The runner only registers types.
         text = maingen.render_tests_main(CONFIG)
         self.assertNotIn("QVERIFY", text)
         self.assertNotIn("compare", text)
@@ -159,8 +150,7 @@ class GenerationTest(unittest.TestCase):
 
 class EmptyProjectTest(unittest.TestCase):
     def test_no_tests_is_reported_as_such_and_is_not_a_failure(self):
-        # Reaching ctest would report a passing run over zero tests, which reads
-        # exactly like a suite that ran.
+        # No tests: ctest is not run.
         root = _project(with_tests=False)
         self.assertEqual(run.test(root), 0)
 
@@ -177,13 +167,7 @@ class EmptyProjectTest(unittest.TestCase):
 
 
 class BuildsBeforeItRunsTest(unittest.TestCase):
-    """`synqt test` compiles the test target itself.
-
-    `synqt build` builds the entity targets by name, and the generated test executable is
-    not one of them, so it was configured and never made. `synqt build && synqt test` ended
-    in ctest reporting "Unable to find executable" for a target nothing had been asked to
-    produce. Building it here also keeps `synqt dev`'s rebuild loop to the entities.
-    """
+    """`synqt test` builds the test target itself; `synqt build` builds only entity targets."""
 
     def _ran(self, root):
         commands = []

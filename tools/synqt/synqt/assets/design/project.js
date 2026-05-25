@@ -34,7 +34,7 @@ import { MONITOR_SCAFFOLD } from "./monitor.js";
 
 // The Qt this project pins, matching synqt/toolchain.py. The suite asserts the two agree,
 // because a browser with no CLI behind it has nothing to ask.
-const QT_VERSION = "6.11.1";
+const QT_VERSION = "6.12.0";
 
 const CONTRACT_HEADER = "// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux\n"
     + "// SPDX-License-Identifier: Apache-2.0\n";

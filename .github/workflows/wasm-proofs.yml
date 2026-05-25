@@ -106,8 +106,8 @@ jobs:
             # The harness (and its package.json) sits a level below the run script here.
             verify_dir: tests/m6-client/verify
     env:
-      QT_VERSION: "6.11.1"
-      EM_VERSION: "4.0.7"
+      QT_VERSION: "6.12.0"
+      EM_VERSION: "5.0.5"
       QT_ROOT: ${{ github.workspace }}/Qt
     steps:
       - uses: actions/checkout@v7
@@ -303,8 +303,8 @@ jobs:
     name: example-bundle (arena, wasm)
     runs-on: ubuntu-24.04
     env:
-      QT_VERSION: "6.11.1"
-      EM_VERSION: "4.0.7"
+      QT_VERSION: "6.12.0"
+      EM_VERSION: "5.0.5"
       QT_ROOT: ${{ github.workspace }}/Qt
     steps:
       - uses: actions/checkout@v7

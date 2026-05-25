@@ -1,13 +1,9 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-"""The project this suite drives: one web edge, one client, three scopes.
-
-Written here rather than checked in, for the same reason every other generated suite does
-it: what runs is what the tooling produces today. The client is never built for the
-browser, because nothing this suite proves needs it. Which bundle the edge answers with is
-the whole instrument: three directories holding one line of HTML each, one per scope, so
-"who is this tab" is a question a browser can be asked by loading a page.
+"""The project this suite drives: one web edge, one client, three scopes, generated at run
+time. The client is not built. Each scope gets a bundle of one line of HTML, so the page a
+tab loads says which session it holds.
 """
 
 import sys
@@ -25,7 +21,7 @@ BASE = """\
 project:
   name: picked
   version: 0.1.0
-  qt_version: 6.11.1
+  qt_version: 6.12.0
 
 scopes:
   order: [anonymous, user, moderator]
@@ -80,9 +76,8 @@ ApplicationWindow {
 }
 """
 
-# One line of HTML per scope. The bundle gate is what this suite reads a session through:
-# an httpOnly cookie cannot be read from a page, so "which bundle came back" is how a
-# browser is asked who it is.
+# One line of HTML per scope. The session cookie is httpOnly, so the bundle served is how
+# the browser is asked who it is.
 PAGE = """\
 <!doctype html>
 <html lang="en">
@@ -91,8 +86,7 @@ PAGE = """\
 </html>
 """
 
-# The named half of the picker. Two entries, one of them naming a scope this project does
-# not declare, so the page has to show one name and one refusal.
+# Two named entries, one with an undeclared scope: the page shows one name and one refusal.
 IDENTITIES = """\
 - email: alice@example.com
   scope: moderator

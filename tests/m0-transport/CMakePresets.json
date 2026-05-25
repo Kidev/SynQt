@@ -10,7 +10,7 @@
             "cacheVariables": {
                 "SYNQT_M0_ENTITY": "edge",
                 "CMAKE_BUILD_TYPE": "RelWithDebInfo",
-                "CMAKE_PREFIX_PATH": "/opt/Qt/6.11.1/gcc_64"
+                "CMAKE_PREFIX_PATH": "/opt/Qt/6.12.0/gcc_64"
             }
         },
         {
@@ -18,7 +18,7 @@
             "displayName": "M0 client (WASM single-threaded)",
             "generator": "Ninja",
             "binaryDir": "${sourceDir}/../../build/m0-client",
-            "toolchainFile": "/opt/Qt/6.11.1/wasm_singlethread/lib/cmake/Qt6/qt.toolchain.cmake",
+            "toolchainFile": "/opt/Qt/6.12.0/wasm_singlethread/lib/cmake/Qt6/qt.toolchain.cmake",
             "cacheVariables": {
                 "SYNQT_M0_ENTITY": "client",
                 "CMAKE_BUILD_TYPE": "Release"

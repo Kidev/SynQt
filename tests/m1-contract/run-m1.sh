@@ -2,13 +2,13 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-# M1 acceptance. Run the generator's Python unit tests, then build and run the
+# Run the generator's Python unit tests, then build and run the
 # in-process QtRO round-trip acceptance test, plus a spot check that malformed
 # contracts are rejected with a clear diagnostic.
 
 set -euo pipefail
 
-QT_HOST="${QT_HOST:-/opt/Qt/6.11.1/gcc_64}"
+QT_HOST="${QT_HOST:-/opt/Qt/6.12.0/gcc_64}"
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$REPO_ROOT"
 

@@ -2,12 +2,12 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-# PROV-4: EntityRuntime injects an entity type's backend helper (Db/Cache/Docs/Http/Jobs) into
+# EntityRuntime injects an entity type's backend helper (Db/Cache/Docs/Http/Jobs) into
 # every owned Source from the entity's provider config, with no manual wiring. Native host kit.
 
 set -euo pipefail
 
-QT_HOST="${QT_HOST:-/opt/Qt/6.11.1/gcc_64}"
+QT_HOST="${QT_HOST:-/opt/Qt/6.12.0/gcc_64}"
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$REPO_ROOT"
 

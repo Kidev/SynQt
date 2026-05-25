@@ -5,10 +5,17 @@
 
 Correctness lives in `tests/`; this tree is performance. SynQt's core is a live data path
 across a transport the Qt for WebAssembly docs call unsupported, so its speed and scaling
-are measured rather than assumed. Each harness pins Qt 6.11.1, records the host and Qt
+are measured rather than assumed. Each harness pins Qt 6.12.0, records the host and Qt
 version in its output, warms up before measuring, and reports the full distribution
 (p50/p95/p99, not just the mean). Results are committed as baselines under `results/` so a
 later change that regresses one is visible in review; re-run on a fixed runner to compare.
+
+**Every committed baseline here was measured on Qt 6.11.1 and predates the move to 6.12.0.**
+They are left as they were rather than relabelled, because a number carries the toolchain it
+was taken on and rewriting that would make it a different claim. Until they are re-run, read
+them as the 6.11.1 reference point: the shapes and the ratios are what the text argues from,
+and none of them turns on a patch release. Re-run them together, in one session on one
+machine, the way the environment blocks say they were taken.
 
 ## The gate: what CI enforces, and what it does not
 

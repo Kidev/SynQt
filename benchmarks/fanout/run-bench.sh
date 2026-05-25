@@ -2,8 +2,8 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-# Build and run the edge fan-out baseline (M5), writing a JSON baseline under benchmarks/results/
-# keyed by hostname. Pinned Qt 6.11.1. Pass extra flags through to the harness, e.g.
+# Build and run the edge fan-out baseline, writing a JSON baseline under benchmarks/results/
+# keyed by hostname. Pinned Qt 6.12.0. Pass extra flags through to the harness, e.g.
 #   ./run-bench.sh --sizes 1,10,50,100,250 --ticks 400 --interest 16
 #
 # QT_HOST overrides the kit path and BENCH_OUT overrides where the baseline is written,
@@ -11,7 +11,7 @@
 
 set -euo pipefail
 
-QT_HOST="${QT_HOST:-/opt/Qt/6.11.1/gcc_64}"
+QT_HOST="${QT_HOST:-/opt/Qt/6.12.0/gcc_64}"
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$REPO_ROOT"
 

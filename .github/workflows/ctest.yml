@@ -5,7 +5,7 @@
 # consumer-facade, auction, arena, stall, provider, custom-provider, app-generator, desktop-client,
 # url-routing, and remote-pages fixtures) through tests/run-all.sh, the same command a developer
 # runs locally. The pytest workflow covers the pure-Python CLI and generator on all three
-# operating systems; this one covers the compiled framework, which needs the pinned Qt 6.11.1
+# operating systems; this one covers the compiled framework, which needs the pinned Qt 6.12.0
 # host kit and its add-on modules.
 #
 # This workflow keeps no list of suites. tests/CMakeLists.txt is the registry: it builds every
@@ -109,7 +109,7 @@ env:
   # Workflow level rather than per job: the three jobs below need the identical kit, and three
   # copies of this block would be three things to remember to change together. They reach the
   # composite action as explicit inputs, never as env; see the note at the top of that file.
-  QT_VERSION: "6.11.1"
+  QT_VERSION: "6.12.0"
   QT_ROOT: ${{ github.workspace }}/Qt
   # qttasktree is not linked by anything here: Qt6QmlConfig pulls in its QML plugin packages,
   # one of which (Qt6QmlAssetDownloaderPrivate) depends on Qt6TaskTree, so every configure

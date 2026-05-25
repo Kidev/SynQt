@@ -22,8 +22,8 @@ import sys
 from pathlib import Path
 from typing import Dict, List, Optional
 
-QT_VERSION = "6.11.1"
-EMSCRIPTEN_VERSION = "4.0.7"  # the version Qt 6.11.1 pins
+QT_VERSION = "6.12.0"
+EMSCRIPTEN_VERSION = "5.0.5"  # the version Qt 6.12.0 pins
 
 # Per host: the kit directory Qt installs into, and the aqt (host, arch) that installs it.
 # The WebAssembly kit is deliberately absent: it is host-independent and published under

@@ -4,7 +4,7 @@
 
 # Build and run the client-to-edge transport baseline, writing a JSON baseline under
 # benchmarks/results/ keyed by hostname so a later run on the same runner can be diffed
-# against it. Pinned Qt 6.11.1. Pass extra flags through to the harness, e.g.
+# against it. Pinned Qt 6.12.0. Pass extra flags through to the harness, e.g.
 #   ./run-bench.sh --samples 5000 --throughput-calls 50000
 #
 # QT_HOST overrides the kit path and BENCH_OUT overrides where the baseline is written,
@@ -12,7 +12,7 @@
 
 set -euo pipefail
 
-QT_HOST="${QT_HOST:-/opt/Qt/6.11.1/gcc_64}"
+QT_HOST="${QT_HOST:-/opt/Qt/6.12.0/gcc_64}"
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$REPO_ROOT"
 

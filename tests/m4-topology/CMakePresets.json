@@ -9,7 +9,7 @@
             "binaryDir": "${sourceDir}/../../build/m4-topology",
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "RelWithDebInfo",
-                "CMAKE_PREFIX_PATH": "/opt/Qt/6.11.1/gcc_64"
+                "CMAKE_PREFIX_PATH": "/opt/Qt/6.12.0/gcc_64"
             }
         }
     ],

@@ -13,8 +13,8 @@
 
 set -euo pipefail
 
-QT_WASM_ST="${QT_WASM_ST:-/opt/Qt/6.11.1/wasm_singlethread}"
-QT_WASM_MT="${QT_WASM_MT:-/opt/Qt/6.11.1/wasm_multithread}"
+QT_WASM_ST="${QT_WASM_ST:-/opt/Qt/6.12.0/wasm_singlethread}"
+QT_WASM_MT="${QT_WASM_MT:-/opt/Qt/6.12.0/wasm_multithread}"
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 HERE="$REPO_ROOT/benchmarks/client"
 cd "$REPO_ROOT"

@@ -86,7 +86,7 @@ refused, builds the targets, and runs the QtRO round-trip acceptance test. Or di
 ```sh
 python3 -m unittest tests.test_synqtc          # from tools/synqtc/
 cmake -S tests/m1-contract -B build/m1-contract -G Ninja \
-  -DCMAKE_PREFIX_PATH=/opt/Qt/6.11.1/gcc_64 && cmake --build build/m1-contract
+  -DCMAKE_PREFIX_PATH=/opt/Qt/6.12.0/gcc_64 && cmake --build build/m1-contract
 ctest --test-dir build/m1-contract --output-on-failure
 ```
 

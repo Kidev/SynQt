@@ -221,7 +221,7 @@ Contributions are welcome under the CLA in [CLA.md](CLA.md). See
 
 ## Target Qt version
 
-SynQt targets Qt 6.11.1 and the Emscripten version Qt pins to it (4.0.7). These
+SynQt targets Qt 6.12.0 and the Emscripten version Qt pins to it (5.0.5). These
 versions matter because the browser transport (QtRO over a WebSocket QIODevice),
 the mesh transport (QtRO over mutual TLS), the WebSocket upgrade verifier in
 QHttpServer, OAuth2 with PKCE on by default, and the bundled SQLite driver all

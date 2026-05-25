@@ -19,10 +19,11 @@ the real `synqt build` path and weighs each client bundle with the shared
   routes, so qmlcachegen compiles the pages into the client module and they ship on first
   load.
 
-The saving is the compiled-in weight minus the remote weight, the bytes a first-time visitor
-does not download because the pages live on the edge. The two variants serve the same set of
-first-load files (the pages compile into the `.wasm` rather than being separate served assets),
-so the difference is in the compiled module bytes rather than the file count.
+The saving is the compiled-in weight minus the remote weight, which is the bytes a
+first-time visitor does not download because the pages live on the edge. The two variants
+serve the same set of first-load files (the pages compile into the `.wasm` and are not
+separate served assets), so the difference is in the compiled module bytes and not in the
+file count.
 
 ## What the baseline records
 
@@ -35,20 +36,20 @@ that run:
 | compiled-in  | 26153020   | 9603525    | 6758900      |
 | saving       | 15475      | 5985       | 3255         |
 
-## This is a measurement rather than a claim
+## What this number does and does not say
 
-The saving above is what two small pages weigh in one small demo. It understates what a real
-application saves, because the saving is entirely a function of how much of the app is rarely
-visited. A storefront with dozens of seldom-reached campaign, help, legal, and admin pages
-keeps all of them off every first load, and the saving grows with each one. A demo with two
-tiny pages is the floor of the effect rather than a representative figure. Read the number as "these
-specific pages, on this build" and re-measure on your own application to learn its saving. Do
-not extrapolate this figure to a claim about SynQt in general.
+The saving above is what two small pages weigh in one small demo. It understates what a
+real application saves, because the saving depends entirely on how much of the app is
+rarely visited. A storefront with dozens of seldom-reached campaign, help, legal, and admin
+pages keeps all of them off every first load, and the saving grows with each one. A demo
+with two tiny pages is the floor of the effect. Read the number as "these specific pages,
+on this build", and re-measure on your own application to learn its saving. It does not
+extrapolate to a figure for SynQt in general.
 
 ## Reproduce
 
-Needs the Qt for WebAssembly kit (`wasm_singlethread`) and the pinned Emscripten (4.0.7), so
-it belongs on a workstation carrying that toolchain. From the repo root:
+It needs the Qt for WebAssembly kit (`wasm_singlethread`) and the pinned Emscripten
+(5.0.5), so it belongs on a workstation carrying that toolchain. From the repo root:
 
     benchmarks/remote-pages/run.sh --out benchmarks/results/remote-pages-$(hostname).json
 

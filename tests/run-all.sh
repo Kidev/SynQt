@@ -34,8 +34,8 @@ esac
 # The host kit directory is named for the host, not for what it builds, so one Linux default
 # makes this fail on macOS looking for a kit that was never going to be there.
 case "$(uname -s)" in
-Darwin) QT_HOST_DEFAULT=/opt/Qt/6.11.1/macos ;;
-*)      QT_HOST_DEFAULT=/opt/Qt/6.11.1/gcc_64 ;;
+Darwin) QT_HOST_DEFAULT=/opt/Qt/6.12.0/macos ;;
+*)      QT_HOST_DEFAULT=/opt/Qt/6.12.0/gcc_64 ;;
 esac
 
 QT_HOST="${QT_HOST:-$QT_HOST_DEFAULT}"

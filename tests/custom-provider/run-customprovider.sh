@@ -2,25 +2,14 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-# Prove the custom provider path, which is the framework's expandability escape hatch, using
-# the real output of `synqt add provider`. The Python tests assert the scaffolded strings;
-# this fixture compiles them, links them, and drives the factories, which is the only thing
-# that proves a user who follows docs/providers.md ends up with a selectable provider.
+# Build and drive what `synqt add provider` scaffolds: one provider per family, each of
+# which must register itself and be selected by its family factory.
 #
-# It matters because this path was documented and scaffolded long before it existed: the docs
-# said "register it under a name" with no registry to register with, and a
-# `provider.name: custom:X` resolved to nullptr in silence.
-#
-# Step 1 scaffolds one provider per family into build/custom-provider/scaffold/ (nothing is
-# committed, so this builds what the tool emits today rather than a copy of it). Step 2 builds
-# them into a test that asserts each registered itself and that its family factory selects it.
-#
-# Needs the pinned host kit (/opt/Qt/6.11.1/gcc_64). Usage:
-#   tests/custom-provider/run-customprovider.sh
+# Usage: tests/custom-provider/run-customprovider.sh
 
 set -euo pipefail
 
-QT_HOST="${QT_HOST:-/opt/Qt/6.11.1/gcc_64}"
+QT_HOST="${QT_HOST:-/opt/Qt/6.12.0/gcc_64}"
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$REPO_ROOT"
 
@@ -44,9 +33,7 @@ from synqt import addprovider
 
 work, scaffold = Path(sys.argv[1]), Path(sys.argv[2])
 
-# One provider per family, each named distinctly so the test can tell them apart in the
-# registry. scaffold() writes to <project>/providers/custom/, so give each its own project
-# and collect the results, so this checks what the tool emits.
+# One provider per family, each in its own project, named distinctly.
 for name, family in (("MyStore", "relational"), ("MyCache", "cache"), ("MyDocs", "document")):
     project = work / f"project-{family}"
     project.mkdir(parents=True, exist_ok=True)

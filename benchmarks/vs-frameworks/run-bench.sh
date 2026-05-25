@@ -4,7 +4,7 @@
 
 # SynQt against the other frameworks, in both directions. Builds the SynQt harnesses, runs
 # every column over the same sweep, and writes one baseline each under benchmarks/results/
-# keyed by hostname. Pinned Qt 6.11.1.
+# keyed by hostname. Pinned Qt 6.12.0.
 #
 # A column whose toolchain is not installed skips with a printed reason rather than failing
 # the run. benchmarks/vs-frameworks/COLUMN-CONTRACT.md is what every column is held to.
@@ -31,7 +31,7 @@
 
 set -euo pipefail
 
-QT_HOST="${QT_HOST:-/opt/Qt/6.11.1/gcc_64}"
+QT_HOST="${QT_HOST:-/opt/Qt/6.12.0/gcc_64}"
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$REPO_ROOT"
 
@@ -183,7 +183,7 @@ if [ -n "$NODE_FIRST" ]; then
         (cd "$NODE_DIR" && PATH="$NODE_BIN_DIR:$PATH" npm install --no-audit --no-fund)
     fi
 
-    # Next.js in production is a build, not a flag. A server started against no build answers
+    # Next.js in production needs a build first. A server started against no build answers
     # 404 for every route it was going to be measured on. Rebuilt whenever a route is newer
     # than the build, so editing one is not a run that silently measured the previous version.
     if [ ! -f "$NODE_DIR/nextjs/.next/BUILD_ID" ] || \

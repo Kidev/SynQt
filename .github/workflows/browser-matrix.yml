@@ -3,8 +3,8 @@
 
 # Close the WebKit / Safari column of the M0 browser matrix on hosts the primary dev machine
 # (Arch Linux) cannot run: Playwright's WebKit needs Debian/Ubuntu system libraries, and real
-# Safari needs macOS. This workflow provisions the pinned toolchain (Qt 6.11.1 + Emscripten
-# 4.0.7, with QtRemoteObjects built from source into the WASM kit; the prebuilt kit does not
+# Safari needs macOS. This workflow provisions the pinned toolchain (Qt 6.12.0 + Emscripten
+# 5.0.5, with QtRemoteObjects built from source into the WASM kit; the prebuilt kit does not
 # ship it, see tests/m0-transport/README.md finding 1), then runs the M0 verifier, which drives
 # Chromium + Firefox + WebKit through all four QtRO-over-WebSockets directions and reconnect.
 #
@@ -76,8 +76,8 @@ jobs:
             qt_host_arch: clang_64
             qt_host_dir: macos
     env:
-      QT_VERSION: "6.11.1"
-      EM_VERSION: "4.0.7"
+      QT_VERSION: "6.12.0"
+      EM_VERSION: "5.0.5"
       QT_ROOT: ${{ github.workspace }}/Qt
       M0_HEADLESS: "1"
     steps:

@@ -2,31 +2,21 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-# The repeatable half of the Windows cross-compile gate. Given a provisioned toolchain
-# (clang-cl + lld-link, an `xwin splat` tree, the Windows Qt kit, and a Linux host Qt
-# kit for the code generators), configure and build a CMake source directory for the
-# Windows MSVC ABI. A clean build here means the target's Windows code path compiles
-# and links against the MSVC CRT/SDK and the Windows Qt modules, which is the class of
-# breakage that otherwise only surfaces on the CI's Windows column.
+# Build a CMake source directory for the Windows MSVC ABI with clang-cl, lld-link, an `xwin
+# splat` tree, the Windows Qt kit and a Linux host kit for the generators. Compiles and
+# links only; see cmake/toolchains/windows-clang-cl.cmake. Provisioning is in README.md.
 #
-# It does NOT run anything (there is no Windows kernel here) and it is not a cl.exe /WX
-# warning replica. See cmake/toolchains/windows-clang-cl.cmake for the scope. The
-# one-time provisioning (installing lld, xwin, the Windows Qt kit) lives in the
-# git-ignored .run-for-me.sh `winsetup` step, since it needs the network and sudo.
-#
-# Environment (all resolved to sensible defaults where possible):
-#   XWIN_DIR    the `xwin splat` output directory (required; holds crt/ and sdk/)
-#   QT_WIN      the Windows Qt kit (default: $HOME/Qt-win/6.11.1/msvc2022_64)
+# Environment:
+#   XWIN_DIR    the `xwin splat` output directory (required. Holds crt/ and sdk/)
+#   QT_WIN      the Windows Qt kit (default: $HOME/Qt-win/6.12.0/msvc2022_64)
 #   QT_HOST     the Linux host Qt kit whose generators run here
-#               (default: /opt/Qt/6.11.1/gcc_64)
-#   OPENSSL_WIN a Windows OpenSSL prefix (the dir holding include/ and lib/), needed by
-#               any target that links SynQtService. Default:
-#               $HOME/.cache/synqt-openssl-win/Library. Ignored if it does not exist, so
-#               the QtCore probe (no OpenSSL) still runs without it.
+#               (default: /opt/Qt/6.12.0/gcc_64)
+#   OPENSSL_WIN a Windows OpenSSL prefix, needed by anything linking SynQtService
+#               (default: $HOME/.cache/synqt-openssl-win/Library; ignored if absent)
 #   BUILD_TYPE  CMake build type (default: RelWithDebInfo)
 #
-#   ./check-windows.sh                 # build the QtCore probe (proves the toolchain)
-#   ./check-windows.sh <cmake-src-dir> # build any target dir, e.g. tests/m3-mesh
+#   ./check-windows.sh                 # build the QtCore probe
+#   ./check-windows.sh <cmake-src-dir> # build any target directory
 
 set -uo pipefail
 
@@ -35,8 +25,8 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 cd "$REPO_ROOT"
 
 TOOLCHAIN="$REPO_ROOT/cmake/toolchains/windows-clang-cl.cmake"
-QT_WIN="${QT_WIN:-$HOME/Qt-win/6.11.1/msvc2022_64}"
-QT_HOST="${QT_HOST:-/opt/Qt/6.11.1/gcc_64}"
+QT_WIN="${QT_WIN:-$HOME/Qt-win/6.12.0/msvc2022_64}"
+QT_HOST="${QT_HOST:-/opt/Qt/6.12.0/gcc_64}"
 OPENSSL_WIN="${OPENSSL_WIN:-$HOME/.cache/synqt-openssl-win/Library}"
 BUILD_TYPE="${BUILD_TYPE:-RelWithDebInfo}"
 
@@ -55,10 +45,7 @@ command -v lld-link >/dev/null 2>&1 || fail "lld-link not on PATH (install lld)"
 [ -x "$QT_HOST/bin/qtpaths" ] || [ -x "$QT_HOST/bin/moc" ] \
     || fail "QT_HOST='$QT_HOST' is not a host Qt kit (no bin/moc)"
 
-# A Windows OpenSSL is optional. The QtCore probe does not need it, but anything linking
-# SynQtService (mesh mutual TLS) does. When present, add it to the prefix path and point
-# FindOpenSSL at it. When absent, say so, so a later FindOpenSSL failure reads as "provide
-# OPENSSL_WIN" rather than a bare configure error.
+# Optional: only targets linking SynQtService need a Windows OpenSSL.
 prefix_path="$QT_WIN"
 openssl_args=()
 if [ -d "$OPENSSL_WIN/include/openssl" ]; then
@@ -90,8 +77,7 @@ cmake -S "$SRC_DIR" -B "$BUILD_DIR" -G Ninja \
 cmake --build "$BUILD_DIR" || fail "build failed"
 
 echo "check-windows: BUILD OK"
-# Report the PE artifacts produced, so a green run is visibly a Windows build and not an
-# accidental host build (file(1) reads the PE header without needing to run anything).
+# List the PE artifacts produced.
 found=0
 while IFS= read -r exe; do
     found=1

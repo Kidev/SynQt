@@ -146,16 +146,16 @@ Identity and cross cutting choices for the whole application.
 project:
   name: my-app                 # required
   version: 0.1.0
-  qt_version: 6.11.1           # pinned Qt; drives the Emscripten version too
+  qt_version: 6.12.0           # pinned Qt; drives the Emscripten version too
 ```
 
-`name` is the only required key; the rest have defaults. `qt_version` pins the
-toolchain: it fixes the Qt version every entity builds against and, through it, the
+`name` is the only required key. The rest have defaults. `qt_version` pins the
+toolchain. It fixes the Qt version every entity builds against and, through it, the
 Emscripten version used for the client (see
 [build system and CLI](build-system-and-cli.md)).
 
 There is no `origin_model` here. A project with no
-`origin_model` is same origin: the client and the web edge answer on one origin, the
+`origin_model` is same origin. The client and the web edge answer on one origin, the
 session cookie is first party, and the content security policy and the upgrade origin
 check stay in their simplest form. Everything in this document assumes that shape. The
 other value, `split_origin`, exists and is still validated, but you write it by hand

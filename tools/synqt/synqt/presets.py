@@ -21,7 +21,7 @@ from . import appmodel, clientbuild, profiles, toolchain, writer
 
 def _presets(config: Dict[str, Any], profile_name: str = "debug", custom_type: str = "",
              strip: bool = False, dev_tools: bool = False) -> Dict[str, Any]:
-    qt_version = config.get("project", {}).get("qt_version", "6.11.1")
+    qt_version = config.get("project", {}).get("qt_version", "6.12.0")
     kit = clientbuild.wasm_kit(config)  # wasm_multithread when build.client_threads is multi
     wasm_cache: Dict[str, Any] = {"CMAKE_BUILD_TYPE": profiles.build_type("debug", "wasm")}
     if clientbuild.client_threads(config) == "multi":

@@ -22,27 +22,27 @@ from synqt import run as runmod
 class ToolchainTest(unittest.TestCase):
     def test_resolves_installed_kits_or_reports_hints(self):
         resolved = toolchain.resolve(tempfile.mkdtemp())
-        self.assertEqual(resolved["qt_version"], "6.11.1")
-        self.assertEqual(resolved["emscripten_version"], "4.0.7")
-        # On a host with a system Qt these resolve; otherwise the report gives the exact
+        self.assertEqual(resolved["qt_version"], "6.12.0")
+        self.assertEqual(resolved["emscripten_version"], "5.0.5")
+        # On a host with a system Qt these resolve. Otherwise the report gives the exact
         # aqtinstall/emsdk command. Either way the shape is stable.
         if not resolved["host_qt"]:
             self.assertTrue(any("aqt install-qt" in h for h in toolchain.provision_hints(resolved)))
-        self.assertIn("Toolchain (Qt 6.11.1", toolchain.report(tempfile.mkdtemp()))
+        self.assertIn("Toolchain (Qt 6.12.0", toolchain.report(tempfile.mkdtemp()))
 
     def test_provision_hints_carry_the_coordinates_aqt_actually_accepts(self):
         # A developer copies these out of `synqt doctor` and runs them, so a hint that does not
-        # parse is a broken instruction, not cosmetic. Both were wrong: the host arch was named
+        # parse is a broken instruction, not cosmetic. Both were wrong. The host arch was named
         # by its install directory (gcc_64) rather than its arch (linux_gcc_64), and the WASM kit
         # was requested under the desktop target, which fails with "Failed to locate XML data for
         # Qt version": an error about the version, for a mistake in the coordinates.
         #
-        # The host hint is per platform: it named the Linux kit on every host, so `synqt
+        # The host hint is per platform. It named the Linux kit on every host, so `synqt
         # doctor` on a Mac printed a command that installs the wrong Qt. The WASM hint is
         # host-independent by design and must stay all_os/wasm everywhere.
-        cases = [("win32", "install-qt windows desktop 6.11.1 win64_msvc2022_64"),
-                 ("darwin", "install-qt mac desktop 6.11.1 clang_64"),
-                 ("linux", "install-qt linux desktop 6.11.1 linux_gcc_64")]
+        cases = [("win32", "install-qt windows desktop 6.12.0 win64_msvc2022_64"),
+                 ("darwin", "install-qt mac desktop 6.12.0 clang_64"),
+                 ("linux", "install-qt linux desktop 6.12.0 linux_gcc_64")]
         for platform, expected in cases:
             with self.subTest(sys_platform=platform):
                 with unittest.mock.patch.object(toolchain.sys, "platform", platform):
@@ -52,7 +52,7 @@ class ToolchainTest(unittest.TestCase):
                 host = next(h for h in hints if "desktop" in h)
                 wasm = next(h for h in hints if "wasm_singlethread" in h)
                 self.assertIn(expected, host)
-                self.assertIn("install-qt all_os wasm 6.11.1 wasm_singlethread", wasm)
+                self.assertIn("install-qt all_os wasm 6.12.0 wasm_singlethread", wasm)
 
     def test_host_kit_directory_is_the_hosts_own_never_a_hard_coded_linux_one(self):
         # The kit directory Qt installs into differs per platform. It was hard-coded to
@@ -67,7 +67,7 @@ class ToolchainTest(unittest.TestCase):
 
     def test_an_explicit_qtdir_wins_and_never_stands_in_for_the_wasm_kit(self):
         root = Path(tempfile.mkdtemp())
-        qt = root / "Qt" / "6.11.1"
+        qt = root / "Qt" / "6.12.0"
         (qt / "gcc_64" / "lib" / "cmake").mkdir(parents=True)
         (qt / "wasm_singlethread" / "lib" / "cmake").mkdir(parents=True)
         project = root / "project"
@@ -276,7 +276,7 @@ class AppGenTest(unittest.TestCase):
 
     def test_connect_point_drives_source_and_replica_wiring(self):
         config = {
-            "project": {"name": "shop", "qt_version": "6.11.1"},
+            "project": {"name": "shop", "qt_version": "6.12.0"},
             "scopes": {"order": ["anonymous", "user"]},
             "entities": [
                 {"name": "client", "type": "client", "targets": ["wasm"]},
@@ -307,9 +307,9 @@ class AppGenTest(unittest.TestCase):
 
     def test_client_main_defaults_logging_by_build_type(self):
         # With build.client_logging unset, the generated main installs Console in a debug
-        # build and Silent in a release build; so console.log works in dev, stripped in prod.
+        # build and Silent in a release build. So console.log works in dev, stripped in prod.
         config = {
-            "project": {"name": "shop", "qt_version": "6.11.1"},
+            "project": {"name": "shop", "qt_version": "6.12.0"},
             "entities": [{"name": "client", "type": "client", "targets": ["wasm"]}],
         }
         client_main = maingen.render_client_main(config, appmodel.qml_uri(config["project"]["name"]))
@@ -320,7 +320,7 @@ class AppGenTest(unittest.TestCase):
 
     def test_client_main_honors_explicit_logging_mode(self):
         config = {
-            "project": {"name": "shop", "qt_version": "6.11.1"},
+            "project": {"name": "shop", "qt_version": "6.12.0"},
             "build": {"client_logging": "none"},
             "entities": [{"name": "client", "type": "client", "targets": ["wasm"]}],
         }
@@ -334,10 +334,10 @@ class AppGenTest(unittest.TestCase):
         # `synqt check` treats "/c" and "/c//" as one route (RoutePattern skips empty
         # segments), so a fallback spelled "/c//" passes. The client, though, looks the
         # fallback up with RoutePattern::matches(), which tolerates only one trailing
-        # slash: the raw "/c//" would match nothing and blank the page. The generator
+        # slash. The raw "/c//" would match nothing and blank the page. The generator
         # writes the fallback through the same collapse rule so the two agree.
         config = {
-            "project": {"name": "shop", "qt_version": "6.11.1"},
+            "project": {"name": "shop", "qt_version": "6.12.0"},
             "router": {"fallback": "/c//"},
             "entities": [{"name": "client", "type": "client", "targets": ["wasm"]}],
         }
@@ -350,7 +350,7 @@ class AppGenTest(unittest.TestCase):
         # check, so a set-based-scope project (false) that only told the client would still
         # have the edge grant a lower scope to any holder of a higher-ranked one. Default true.
         base = {
-            "project": {"name": "gate", "qt_version": "6.11.1"},
+            "project": {"name": "gate", "qt_version": "6.12.0"},
             "scopes": {"order": ["anonymous", "user", "moderator"]},
             "entities": [
                 {"name": "client", "type": "client", "targets": ["wasm"]},
@@ -394,10 +394,10 @@ class AppGenTest(unittest.TestCase):
 
     def test_edge_main_composes_entity_runtime_for_its_mesh_side(self):
         # A web edge that consumes a database connect point over the mesh reaches it through
-        # an EntityRuntime (WebEdge keeps the browser side); each acquired accessor is injected
+        # an EntityRuntime (WebEdge keeps the browser side). Each acquired accessor is injected
         # into the owner Sources' QML context by name, so a Source can delegate over the mesh.
         config = {
-            "project": {"name": "gavel", "qt_version": "6.11.1"},
+            "project": {"name": "gavel", "qt_version": "6.12.0"},
             "scopes": {"order": ["anonymous", "user"]},
             "entities": [
                 {"name": "client", "type": "client", "targets": ["wasm"]},
@@ -430,7 +430,7 @@ class AppGenTest(unittest.TestCase):
         # header only forward-declares QJsonObject, so it must be included in its own right or
         # the entity does not compile.
         config = {
-            "project": {"name": "gavel", "qt_version": "6.11.1"},
+            "project": {"name": "gavel", "qt_version": "6.12.0"},
             "scopes": {"order": ["anonymous", "user"]},
             "entities": [
                 {"name": "database", "type": "relational"},
@@ -448,7 +448,7 @@ class AppGenTest(unittest.TestCase):
         # must guard its own add_subdirectory on the target or it claims the same binary
         # directory twice and configuration fails.
         config = {
-            "project": {"name": "gavel", "qt_version": "6.11.1"},
+            "project": {"name": "gavel", "qt_version": "6.12.0"},
             "scopes": {"order": ["anonymous", "user"]},
             "entities": [
                 {"name": "client", "type": "client", "targets": ["wasm"]},
@@ -471,7 +471,7 @@ class AppGenTest(unittest.TestCase):
         entity's THIRD-PARTY-LICENSES is a claim the build contradicts.
         """
         config = {
-            "project": {"name": "batch", "qt_version": "6.11.1"},
+            "project": {"name": "batch", "qt_version": "6.12.0"},
             "scopes": {"order": ["anonymous"]},
             "entities": [
                 {"name": "database", "type": "relational"},
@@ -491,7 +491,7 @@ class AppGenTest(unittest.TestCase):
     def test_each_entity_links_the_library_its_own_licensing_says_it_does(self):
         """The edge takes SynQtEdge, a promoted auth entity SynQtIdentity, the rest neither."""
         config = {
-            "project": {"name": "shop", "qt_version": "6.11.1"},
+            "project": {"name": "shop", "qt_version": "6.12.0"},
             "scopes": {"order": ["anonymous", "user"]},
             "entities": [
                 {"name": "client", "type": "client", "targets": ["wasm"]},
@@ -511,7 +511,7 @@ class AppGenTest(unittest.TestCase):
 
     def test_edge_main_without_a_mesh_side_stays_minimal(self):
         config = {
-            "project": {"name": "shop", "qt_version": "6.11.1"},
+            "project": {"name": "shop", "qt_version": "6.12.0"},
             "scopes": {"order": ["anonymous", "user"]},
             "entities": [
                 {"name": "client", "type": "client", "targets": ["wasm"]},
@@ -546,7 +546,7 @@ class AppGenTest(unittest.TestCase):
         self.assertEqual(appmodel.discover_singletons(root / "missing"), [])
 
         config = {
-            "project": {"name": "arena", "qt_version": "6.11.1"},
+            "project": {"name": "arena", "qt_version": "6.12.0"},
             "scopes": {"order": ["anonymous", "player"]},
             "entities": [
                 {"name": "client", "type": "client", "targets": ["wasm"]},
@@ -630,9 +630,9 @@ class LaunchEnvTest(unittest.TestCase):
         old = os.environ.get("PATH", "")
         with unittest.mock.patch.object(toolchain, "host_platform", return_value="windows"), \
              unittest.mock.patch.object(runmod, "resolved_host_qt",
-                                        return_value=r"C:\Qt\6.11.1\msvc2022_64"):
+                                        return_value=r"C:\Qt\6.12.0\msvc2022_64"):
             env = runmod.launch_env(Path("/proj"))
-        # Asserted os-agnostically: this test runs on a host whose os.pathsep and Path
+        # Asserted os-agnostically. This test runs on a host whose os.pathsep and Path
         # flavour are not Windows's, so splitting on the separator would be testing the
         # harness rather than the code.
         prepended = env["PATH"][:-(len(old) + len(os.pathsep))]

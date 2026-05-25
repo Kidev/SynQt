@@ -2,16 +2,15 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # The arena, the finished multiplayer game from docs/tutorial-multiplayer.md: a browser
-# client, a web edge that serves the client and owns the one authoritative arena (simulated
-# once in web/World.qml, sliced per player by web/Arena.qml), and a database that holds the
-# permanent all-time Hall of Fame the browser reaches only through the edge.
+# client, a web edge that owns the one authoritative arena, and a database holding the
+# all-time Hall of Fame, which the browser reaches only through the edge.
 project:
   name: arena
   version: 0.1.0
-  qt_version: 6.11.1
+  qt_version: 6.12.0
 
-# Signing in is not the same as being allowed in: only approved logins reach `player`
-# (web/identity/map.qml is the guest list), and the arena connect point requires it.
+# Signing in is not the same as being allowed in. Only approved logins reach `player`
+# (web/edge/identity/map.qml is the guest list), and the arena connect point requires it.
 scopes:
   order: [anonymous, player]
   hierarchical: true
@@ -40,14 +39,10 @@ entities:
 
   - name: edge
     type: web_edge
-    # A Source per player session: Arena.qml publishes only that player's
-    # slice of the world, so it cannot be one object everybody reaches.
+    # A Source per player session: Edge.qml publishes only that player's slice.
     shared: false
     identity: true
-    # Serving the browser over TLS in a release build. `synqt dev` ignores this and
-    # runs plaintext on localhost. `synqt build --release` and `synqt serve` require
-    # either this block or public.tls_terminated_upstream, so that nothing ships
-    # reachable over http:// with nobody named as the one who was meant to stop it.
+    # Browser TLS for a release build. `synqt dev` serves plaintext on localhost.
     tls:
       cert_file: certs/edge/fullchain.pem
       key_file: certs/edge/privkey.pem
@@ -56,17 +51,12 @@ entities:
     type: relational
 
 connect_points:
-  # The whole live world. One Source per caller gives each player their own private view (interest
-  # management). The edge simulates once in the World singleton and publishes each player
-  # only their slice. scope. Player is the real barrier. An unapproved account never has
-  # the edge's point acquired for it, so steer, ping, and the roster are out of reach.
+  # The live world, simulated once in the World singleton and sliced per player.
+  # `scope: player` is the barrier: an unapproved account never acquires the point.
   - owner: edge
     consumers: [app]
     scope: player
-    # Only the declared model roles cross to a browser. The edge keeps more per player (a
-    # GitHub sub, an aim point, timestamps) that never leaves it. `steer` takes intent (an
-    # aim point), never a position. The edge integrates every blob's motion itself, so
-    # there is no position for a client to forge.
+    # Only the declared roles cross. `steer` takes an aim point, never a position.
     export: |
       prop real roundEndsAt                      // edge clock (ms) when the round ends
       // Players in view, for drawing.

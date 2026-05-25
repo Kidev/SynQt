@@ -2,15 +2,12 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-# FIX-3: the stall storefront's edge-delivered pages and its real page seed, proven end to
-# end on the native host kit. The edge runs in one process serving its Pages connect point;
-# a native SynClient acts as the browser, fetching pages over the same authenticated wss
-# link. The seed is driven through the production per-connection Caller, not a hand-built
-# one.
+# The stall storefront's edge-delivered pages and page seed, fetched by a native
+# SynClient over the authenticated wss link. Native host kit.
 
 set -euo pipefail
 
-QT_HOST="${QT_HOST:-/opt/Qt/6.11.1/gcc_64}"
+QT_HOST="${QT_HOST:-/opt/Qt/6.12.0/gcc_64}"
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$REPO_ROOT"
 

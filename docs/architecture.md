@@ -278,11 +278,11 @@ the user, and the database authorized the edge.
   qmlsc with the commercial extensions), driven automatically by
   `qt_add_qml_module`, turns each document into a compilation unit (structure,
   byte code, and native C++ for the bindings it can lower). The shipped client is
-  compiled, not parsed at runtime. qmltc (whole component compilation) is a
-  technology preview that needs private Qt API and gives no cross patch binary
-  compatibility, so it is an opt in optimization, not the default.
+  compiled ahead of time rather than parsed at runtime. qmltc (whole component
+  compilation) is a technology preview that needs private Qt API and gives no cross
+  patch binary compatibility, so it is an opt in optimization rather than the default.
 - Client packaging: WebAssembly via Emscripten, pinned to the Qt selected version
-  (4.0.7 for 6.11.1) for reproducible, ABI compatible builds.
+  (5.0.5 for 6.12.0) for reproducible, ABI compatible builds.
 - Object protocol: QtRemoteObjects, which models the Source and Replica split,
   generates marshaling from a declarative interface (repc), and surfaces Replicas
   as ordinary QObjects. Every link in the mesh reuses it, browser and service

@@ -12,8 +12,8 @@
 # load because the pages live on the edge instead.
 #
 # It builds the WebAssembly client, so it needs the Qt for WebAssembly kit and the pinned
-# Emscripten (4.0.7), and belongs on a workstation with that toolchain, not the build sandbox.
-# The single-threaded kit is enough for a bundle-weight baseline; the client bundle bytes are
+# Emscripten (5.0.5), and belongs on a workstation with that toolchain, not the build sandbox.
+# The single-threaded kit is enough for a bundle-weight baseline. The client bundle bytes are
 # what matter here, not the thread count. Only the client entity is compiled, since the client
 # bundle is the only artifact weighed.
 #
@@ -21,7 +21,7 @@
 
 set -euo pipefail
 
-QT_WASM_ST="${QT_WASM_ST:-/opt/Qt/6.11.1/wasm_singlethread}"
+QT_WASM_ST="${QT_WASM_ST:-/opt/Qt/6.12.0/wasm_singlethread}"
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$REPO_ROOT"
 
@@ -37,7 +37,7 @@ done
 
 if [ ! -x "$QT_WASM_ST/bin/qt-cmake" ]; then
     echo "run: single-threaded WASM kit not found at $QT_WASM_ST" >&2
-    echo "     set QT_WASM_ST to a Qt 6.11.1 wasm_singlethread kit and re-run." >&2
+    echo "     set QT_WASM_ST to a Qt 6.12.0 wasm_singlethread kit and re-run." >&2
     exit 1
 fi
 
@@ -115,9 +115,9 @@ build_and_measure() {
 build_and_measure "$WORK/remote" "stall-remote" "$WORK/remote.json"
 build_and_measure "$WORK/compiled-in" "stall-compiled-in" "$WORK/compiled-in.json"
 
-# The Emscripten version reported by the kit's emcc, falling back to the pinned 4.0.7.
+# The Emscripten version reported by the kit's emcc, falling back to the pinned 5.0.5.
 EMSCRIPTEN_VERSION="$(emcc --version 2>/dev/null | sed -n '1s/.*replacement + linker emulating GNU ld) \([0-9.]*\).*/\1/p')"
-EMSCRIPTEN_VERSION="${EMSCRIPTEN_VERSION:-4.0.7}"
+EMSCRIPTEN_VERSION="${EMSCRIPTEN_VERSION:-5.0.5}"
 QT_VERSION="$(python3 -c 'import yaml,sys; print(yaml.safe_load(open(sys.argv[1]))["project"]["qt_version"])' "$EXAMPLE/synqt.yaml")"
 
 mkdir -p "$(dirname "$OUT")"

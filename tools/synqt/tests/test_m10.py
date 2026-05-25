@@ -346,7 +346,7 @@ class LicenseTest(unittest.TestCase):
         effective license was right either way, which is exactly why nobody noticed, and
         the file's claim is that it says what the entity links.
         """
-        config = {"project": {"name": "app", "qt_version": "6.11.1"},
+        config = {"project": {"name": "app", "qt_version": "6.12.0"},
                   "entities": [{"name": "app", "type": "client"},
                                {"name": "edge", "type": "web_edge"}]}
         text = cmakegen.render_root_cmakelists(config, Path("/tmp/synqt"))

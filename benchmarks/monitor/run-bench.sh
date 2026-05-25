@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # Build and run the monitoring pipeline baseline, writing a JSON baseline under
-# benchmarks/results/ keyed by hostname. Pinned Qt 6.11.1. Extra flags pass through, e.g.
+# benchmarks/results/ keyed by hostname. Pinned Qt 6.12.0. Extra flags pass through, e.g.
 #   ./run-bench.sh --batches 400 --batch-size 10000
 #
 # QT_HOST overrides the kit path and BENCH_OUT overrides where the baseline is written,
@@ -11,7 +11,7 @@
 
 set -euo pipefail
 
-QT_HOST="${QT_HOST:-/opt/Qt/6.11.1/gcc_64}"
+QT_HOST="${QT_HOST:-/opt/Qt/6.12.0/gcc_64}"
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$REPO_ROOT"
 

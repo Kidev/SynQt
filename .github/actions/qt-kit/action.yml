@@ -3,7 +3,7 @@
 
 # Everything a job needs before it can build SynQt: the Python the run scripts drive the CLI
 # with, CMake and Ninja, MSVC on PATH, OpenSSL and the other native dependencies Qt's
-# configure looks for, the jwt-cpp headers, the pinned Qt 6.11.1 host kit, and a compiler
+# configure looks for, the jwt-cpp headers, the pinned Qt 6.12.0 host kit, and a compiler
 # cache.
 #
 # It exists because ctest.yml runs three jobs that need the identical setup. Three copies of

@@ -3,11 +3,9 @@
 
 """The mirror under ``generated/`` that makes a file rooted at its own name loadable.
 
-The behaviour under test is one QML rule, measured in tests/m1-contract and quoted here:
-``Ledger.qml`` whose root object is ``Ledger`` resolves that name to the file itself and
-the engine refuses the document with "Ledger is instantiated recursively". A connect
-point's Source is the exception, because ``import SynQt`` puts a type of that name in scope
-and an explicit import beats the implicit import of the containing directory.
+``Ledger.qml`` rooted at ``Ledger`` resolves the name to itself ("Ledger is instantiated
+recursively", measured in tests/m1-contract). A connect point Source is the exception:
+``import SynQt`` provides the contract type, which beats the directory import.
 """
 
 from __future__ import annotations
@@ -62,15 +60,13 @@ def test_a_self_named_root_becomes_a_qtobject():
 
 
 def test_only_the_type_name_moves():
-    """Everything an author would recognise the file by has to survive: the licence
-    header, the pragma, the imports, the comment above the root, the id and the body."""
+    """Only the type name changes: licence header, pragma, imports, comments, id and body stay."""
     out = qmlrewrite.transformed("db/relational/ledger/Ledger.qml", _SOURCE, set())
     assert out == _SOURCE.replace("Ledger {", "QtObject {")
 
 
 def test_a_source_rooted_at_its_contract_is_left_exactly_as_written():
-    """`Edge.qml` rooted at `Edge` is correct when `Edge` is a contract. That type is what
-    `import SynQt` brings in, and retyping it would unhost the connect point."""
+    """A Source rooted at its contract is left as written."""
     assert qmlrewrite.transformed("db/relational/ledger/Ledger.qml",
                                   _SOURCE, {"Ledger"}) == _SOURCE
 
@@ -81,8 +77,7 @@ def test_a_root_that_is_not_the_file_name_is_left_alone():
 
 
 def test_javascript_is_copied_rather_than_read_as_an_object():
-    """A `.js` file has no root object, and its first brace is a function body. Renaming
-    what sits in front of one would corrupt the file."""
+    """A `.js` file is copied, not parsed for a root object."""
     script = "function helpers() {\n    return 1;\n}\n"
     assert qmlrewrite.transformed("client/app/helpers.js", script, set()) == script
 
@@ -97,7 +92,7 @@ def _project(tmp_path: Path) -> Path:
         "    function bid(amount) {\n        return amount;\n    }\n}\n")
     (root / "service" / "ledger" / "Ledger.qml").write_text(_SOURCE)
     (root / "synqt.yaml").write_text(yaml.safe_dump({
-        "project": {"name": "app", "version": "0.1.0", "qt_version": "6.11.1"},
+        "project": {"name": "app", "version": "0.1.0", "qt_version": "6.12.0"},
         "entities": [
             {"name": "edge", "type": "web_edge"},
             {"name": "ledger", "type": "service"},
@@ -128,8 +123,7 @@ def test_the_mirror_holds_every_entity_and_fixes_only_what_would_not_load(tmp_pa
 
 
 def test_generate_writes_the_mirror_so_the_engine_has_a_tree_to_load(tmp_path):
-    """`synqt build` has to produce it. The topology points every engine at generated/,
-    so a build that skipped this step would point them at files that are not there."""
+    """`synqt build` writes the mirror the topology points the engines at."""
     root = _project(tmp_path)
     config = yaml.safe_load((root / "synqt.yaml").read_text())
     written = appgen.generate(root, config)
@@ -138,11 +132,7 @@ def test_generate_writes_the_mirror_so_the_engine_has_a_tree_to_load(tmp_path):
 
 
 def test_the_mirror_is_not_linted_as_if_somebody_had_written_it(tmp_path):
-    """`synqt check` walks the project's QML, and the mirror is a copy of every file it
-    already read. Linting it reports each finding twice and reports the second one against a
-    path whose author is `synqt build`, so a reader is told to fix a file the next build
-    overwrites. Revert the `generated` entry in `check.project_qml_files` and this goes red
-    with two errors about generated/."""
+    """`synqt check` does not lint the mirror (see `check.project_qml_files`)."""
     root = _project(tmp_path)
     # A `Caller` outside a connect point's Source, which is a rule check_project enforces.
     (root / "service/ledger/Ledger.qml").write_text(
@@ -161,14 +151,8 @@ def test_the_mirror_is_not_linted_as_if_somebody_had_written_it(tmp_path):
 
 
 def test_dev_points_every_entity_at_the_mirror_and_the_mirror_has_what_it_names(tmp_path):
-    """The one link that makes the whole mirror work, asserted end to end.
-
-    `synqt dev` tells each entity where the entity folders are, and everything the runtime
-    then loads is that directory joined with a project-relative path. The Source of a point,
-    an entity's singletons, the identity hook, the edge's delivered pages. Point it at the
-    project root instead and the engines load the author's files, where a self-named root
-    object is a start-up failure. Nothing else in the tree would catch that: the build still
-    succeeds and the mirror is still written. The entity never comes up.
+    """`synqt dev` points every entity at the mirror, and the mirror holds every path the
+    runtime loads from it: Sources, singletons, the identity hook, the delivered pages.
     """
     root = _project(tmp_path)
     config = yaml.safe_load((root / "synqt.yaml").read_text())
@@ -186,10 +170,7 @@ def test_dev_points_every_entity_at_the_mirror_and_the_mirror_has_what_it_names(
 
 
 def test_an_edited_page_reaches_the_mirror_the_edge_is_watching(tmp_path):
-    """Hot reload goes the long way round now. `synqt dev` sees the authored page change and
-    rebuilds, the build rewrites the mirror, and the edge's own watcher is looking at the
-    mirror. The middle step is this one, and it only works because the mirror is the whole
-    folder rather than the files that needed retyping."""
+    """An edited page reaches the mirror the edge watches, because the whole folder is mirrored."""
     root = _project(tmp_path)
     pages = root / "web/edge/pages"
     pages.mkdir(parents=True)
@@ -223,10 +204,9 @@ QtObject {
 
 
 def test_the_shared_pragma_is_written_as_the_one_qml_knows():
-    """An author writes `pragma Shared`, which says what the file is for; QML's own word is
-    `Singleton`, which names a pattern. The engine only ever sees the second, and it says so
-    loudly if it ever sees the first. `Unknown pragma 'Shared'`, naming the file and the
-    line, is a hard load failure rather than something that limps."""
+    """`pragma Shared` is written as `pragma Singleton`; the engine rejects `Shared` (`Unknown
+    pragma 'Shared'`).
+    """
     out = qmlrewrite.transformed("db/relational/ledger/Ledger.qml", _SHARED, set())
     assert "pragma Singleton" in out
     assert "pragma Shared" not in out
@@ -234,16 +214,13 @@ def test_the_shared_pragma_is_written_as_the_one_qml_knows():
 
 
 def test_qmls_own_word_is_left_exactly_as_it_is():
-    """A file that already says `pragma Singleton` means the same thing and the engine reads
-    it directly, so a project written before this word existed needs no rewriting."""
+    """`pragma Singleton` is left as is."""
     written = _SHARED.replace("pragma Shared", "pragma Singleton")
     assert qmlrewrite.transformed("x/y/Y.qml", written, set()) == written
 
 
 def test_the_pragma_is_rewritten_on_a_clients_window_too():
-    """The window is the one file whose root must never be quietly retyped, and that
-    exemption is about guessing what the author meant. A pragma is a spelling, so it is
-    carried across on every file."""
+    """The pragma is rewritten on a client window too; only retyping is skipped there."""
     out = qmlrewrite.transformed("client/app/Main.qml", _SHARED.replace("QtObject", "Main"),
                                  set(), retype=False)
     assert "pragma Singleton" in out
@@ -251,8 +228,7 @@ def test_the_pragma_is_rewritten_on_a_clients_window_too():
 
 
 def test_the_word_only_counts_where_a_pragma_can_be():
-    """Anchored to the start of a line, because that is the only place QML accepts one. The
-    same two words inside a string or a comment are somebody writing about the pragma."""
+    """Only a pragma at the start of a line counts."""
     written = ("import QtQuick\n"
                "QtObject {\n"
                '    property string note: "pragma Shared"\n'
@@ -262,9 +238,7 @@ def test_the_word_only_counts_where_a_pragma_can_be():
 
 
 def test_a_shared_file_is_found_by_either_word(tmp_path):
-    """`discover_singletons` is what puts a shared file in the generated main's registration
-    list, so a word it does not read is a file nothing registers and a Source that reaches
-    it by name gets a ReferenceError at run time."""
+    """`discover_singletons` finds a file by either word."""
     folder = tmp_path / "web" / "edge"
     folder.mkdir(parents=True)
     (folder / "World.qml").write_text(_SHARED)
@@ -274,9 +248,7 @@ def test_a_shared_file_is_found_by_either_word(tmp_path):
 
 
 def test_a_clients_window_is_copied_as_written_rather_than_quietly_fixed(tmp_path):
-    """Retyping `Main { }` to a QtObject would turn a start-up failure that names the file
-    into a client that loads, logs nothing and paints a blank page, which is the defect
-    `check.lint_client_root` exists to report in those words."""
+    """A client `Main { }` is copied as written; `check.lint_client_root` reports it."""
     root = tmp_path / "app"
     (root / "client" / "app").mkdir(parents=True)
     (root / "client" / "app" / "Main.qml").write_text("import QtQuick\nMain {\n    id: root\n}\n")

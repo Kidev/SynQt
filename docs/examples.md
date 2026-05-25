@@ -33,7 +33,7 @@ a client to edge request.
 project:
   name: counter
   version: 0.1.0
-  qt_version: 6.11.1
+  qt_version: 6.12.0
 
 entities:
   - name: app
@@ -136,7 +136,7 @@ client because it is not a declared role.
 project:
   name: todo
   version: 0.1.0
-  qt_version: 6.11.1
+  qt_version: 6.12.0
 
 scopes:
   order: [anonymous, user, moderator, admin]
@@ -401,7 +401,7 @@ because they live in the database entity rather than in edge memory.
 project:
   name: todo
   version: 0.1.0
-  qt_version: 6.11.1
+  qt_version: 6.12.0
 
 scopes:
   order: [anonymous, user, moderator, admin]

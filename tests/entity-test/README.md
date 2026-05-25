@@ -8,7 +8,7 @@ with a caller the test chooses, driven from QML. This suite is the framework's o
 that arrangement, so the harness breaks here before it breaks in someone's app.
 
 ```sh
-QT_HOST=/opt/Qt/6.11.1/gcc_64 tests/entity-test/run-entitytest.sh
+QT_HOST=/opt/Qt/6.12.0/gcc_64 tests/entity-test/run-entitytest.sh
 ```
 
 ## What is under test

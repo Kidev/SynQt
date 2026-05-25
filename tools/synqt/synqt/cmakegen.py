@@ -81,7 +81,7 @@ def render_root_cmakelists(config: Dict[str, Any], synqt_root: os.PathLike[str] 
     """
     project = config.get("project", {})
     name = project.get("name", "app")
-    qt_version = project.get("qt_version", "6.11.1")
+    qt_version = project.get("qt_version", "6.12.0")
     services = [e for e in appmodel.entities(config) if appmodel.is_service(e)]
 
     lines: List[str] = [_HEADER_CMAKE, "",

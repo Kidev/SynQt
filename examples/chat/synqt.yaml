@@ -9,7 +9,7 @@
 project:
   name: chat
   version: 0.1.0
-  qt_version: 6.11.1
+  qt_version: 6.12.0
 
 scopes:
   order: [anonymous, user, admin]
@@ -43,10 +43,7 @@ entities:
     public:
       port: 8443
       sync_route: /sync
-    # Serving the browser over TLS in a release build. `synqt dev` ignores this and runs
-    # plaintext on localhost. `synqt build --release` and `synqt serve` require either this
-    # block or public.tls_terminated_upstream, so that nothing ships reachable over http://
-    # with nobody named as the one who was meant to stop it.
+    # Browser TLS for a release build. `synqt dev` serves plaintext on localhost.
     tls:
       cert_file: certs/edge/fullchain.pem
       key_file: certs/edge/privkey.pem
@@ -69,7 +66,7 @@ connect_points:
       <admin> slot erase(int id)
 
   # The log. The browser is on no consumer list in this file, so there is no path from a
-  # tab to this entity at all. Not a firewall rule, a list.
+  # tab to this entity at all.
   - owner: store
     consumers: [edge]
     export: |

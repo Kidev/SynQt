@@ -247,7 +247,7 @@ entity, and export the result as a project.
 ```yaml
 project:
   name: chat
-  qt_version: 6.11.1
+  qt_version: 6.12.0
 
 scopes: { order: [anonymous, user, admin], default: anonymous }
 

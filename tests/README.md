@@ -13,7 +13,7 @@ bisected. They also all build together.
 Everything, in one tree:
 
 ```sh
-QT_HOST=/opt/Qt/6.11.1/gcc_64 tests/run-all.sh
+QT_HOST=/opt/Qt/6.12.0/gcc_64 tests/run-all.sh
 ```
 
 That configures the repository root ([CMakeLists.txt](../CMakeLists.txt)) once, builds the
@@ -25,7 +25,7 @@ to `build/all`.
 One suite, when that is what you are working on:
 
 ```sh
-QT_HOST=/opt/Qt/6.11.1/gcc_64 tests/m5-webedge/run-m5.sh
+QT_HOST=/opt/Qt/6.12.0/gcc_64 tests/m5-webedge/run-m5.sh
 ```
 
 Both paths work because each suite guards its `add_subdirectory` of the runtime libraries
@@ -37,14 +37,14 @@ suites configured and built one at a time cost 227 s and 812 object files; the t
 18 s and 295, because SynQtEdge and SynQtClient are compiled once instead of once per
 suite, and because 17 configure steps become one.
 
-Prerequisites for the whole tree are the union of what the suites need: a Qt 6.11.1 host
+Prerequisites for the whole tree are the union of what the suites need: a Qt 6.12.0 host
 kit including HttpServer and NetworkAuth, OpenSSL, and jwt-cpp 0.7.1 or newer. A single
 suite needs only its own share; its `run-*.sh` says so when something is missing.
 
 How much of the framework these suites reach:
 
 ```sh
-QT_HOST=/opt/Qt/6.11.1/gcc_64 tests/run-coverage.sh
+QT_HOST=/opt/Qt/6.12.0/gcc_64 tests/run-coverage.sh
 ```
 
 That builds a second, instrumented tree (`-DSYNQT_COVERAGE=ON`, Debug), runs the suites

@@ -2,44 +2,19 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-# The coverage number for both halves of the framework, in one command: the C++ runtime
-# libraries under src/, measured by running the host-kit suites against an instrumented
-# build, and the Python CLI under tools/synqt/, measured by running its own tests.
+# Coverage for both halves of the framework: the C++ libraries under src/, through the
+# host-kit suites on an instrumented build, and the Python CLI, through its own tests.
 #
 #   QT_HOST=/path/to/qt/gcc_64 tests/run-coverage.sh
 #
-# It is not part of tests/run-all.sh. Coverage needs its own build tree
-# (instrumented, and -O0 so a line maps to the code that is on it), so folding it
-# into the ordinary run would double every build for a number nobody asked for. This is the
-# command you run when the number is the question.
-#
-# BUILD_DIR moves the tree (default build/coverage). CXX_FLOOR, PY_FLOOR and
-# PY_FLOOR_NO_QT are the percentages below which this fails. They are the ratchet, so raise
-# them when the number goes up and never lower them to make a branch green. HALVES picks
-# which of the two halves to measure (`both`, the default, or `cxx` or `py`), which is how
-# CI runs each half in the job that already has what it needs. The C++ half needs a Qt kit,
-# the Python half does not.
-#
-# The Python half has two floors because it measures two different things. A few of its
-# tests drive qmllint and qmlformat, and those tools ship with a Qt kit. On a machine that
-# has none they skip, so the same suite reaches less code and the number is lower.
-# One floor for both environments meant a run with no Qt failed a bar set by a run with it,
-# which is a bug in the bar rather than in the tests. Which floor applies is decided by
-# asking the CLI itself which tools it can find, so the answer always matches the tests
-# that will be skipped.
-#
-# PY_FLOOR was 92 and is 91, which is the one direction this file says never to move a
-# ratchet, so the reason is written down. No CI job enforces it. The runner that measures the Python
-# floor has no Qt kit, so it takes PY_FLOOR_NO_QT and 92 was checked by nobody. Measured on a
-# machine that does have one, the tree came in at 91 both before and after the change that
-# noticed (6982 statements with 511 missed, then 6998 with 483), so 92 was not a bar that had
-# slipped, it was a bar that had never been met and that failed every local run of this
-# command. It is now the number the environment reaches, which is what makes it a ratchet
-# again. Raise it by covering the paths those qml-tool tests reach, not by hoping.
+# BUILD_DIR moves the tree (default build/coverage). CXX_FLOOR, PY_FLOOR and PY_FLOOR_NO_QT
+# are the floors; raise them when coverage improves, never lower them. HALVES is `both`
+# (default), `cxx` or `py`. PY_FLOOR_NO_QT applies when the CLI finds no QML tools, since
+# the tests that drive them then skip.
 
 set -euo pipefail
 
-QT_HOST="${QT_HOST:-/opt/Qt/6.11.1/gcc_64}"
+QT_HOST="${QT_HOST:-/opt/Qt/6.12.0/gcc_64}"
 BUILD_DIR="${BUILD_DIR:-build/coverage}"
 CXX_FLOOR="${CXX_FLOOR:-78}"
 PY_FLOOR="${PY_FLOOR:-91}"
@@ -48,8 +23,6 @@ HALVES="${HALVES:-both}"
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
-# One run of this script compiles the framework about ten times over, so it is worth the
-# compiler cache being able to see that. See the file for what it turns off and why.
 # shellcheck source=tests/lib/compiler-cache.sh
 . "$REPO_ROOT/tests/lib/compiler-cache.sh"
 
@@ -69,9 +42,7 @@ py_ok=0
 if [ "$do_cxx" -eq 1 ]; then
 
 echo "== [1/4] configure and build an instrumented tree =="
-# Debug, not RelWithDebInfo: at -O2 the optimizer merges and moves lines, so a report over
-# an optimized build is a report about the object code rather than about the source anyone
-# reads. --coverage itself comes from cmake/SynQtCoverage.cmake.
+# Debug, so each line maps to its own code. --coverage comes from cmake/SynQtCoverage.cmake.
 cmake -S . -B "$BUILD_DIR" -G Ninja \
     -DCMAKE_PREFIX_PATH="$QT_HOST" \
     -DCMAKE_BUILD_TYPE=Debug \
@@ -81,12 +52,9 @@ cmake --build "$BUILD_DIR"
 
 echo
 echo "== [2/4] run the suites against it =="
-# Counters from an earlier run would be added to this one's, reporting a line as reached
-# by a suite that no longer reaches it. Start from nothing.
+# Start with no counters from an earlier run.
 find "$BUILD_DIR" -name '*.gcda' -delete
-# Serial, and failures do not stop the report. A suite that fails still leaves counters,
-# and a coverage run that refuses to say anything because one test is red is a coverage run
-# nobody uses while fixing it. The exit status is reported at the end.
+# Serial, and a failing suite still reports; the exit status comes at the end.
 ctest --test-dir "$BUILD_DIR" --output-on-failure || suites_ok=$?
 if [ "$suites_ok" -ne 0 ]; then
     echo "warning: the suites did not all pass; the figures below are from a red tree" >&2
@@ -107,9 +75,7 @@ if [ "$do_py" -eq 1 ]; then
 echo
 echo "== [4/4] Python coverage (tools/synqt/) =="
 mkdir -p "$BUILD_DIR"
-# Ask the CLI which QML tools it can find, exactly as `synqt check` will: they come from
-# PATH or from the resolved Qt kit, so looking only at PATH would report "no Qt" on the
-# usual developer machine and apply the lower floor to a run that reached everything.
+# Ask the CLI which QML tools it finds, from PATH or the resolved kit, as `synqt check` does.
 if (cd tools/synqt && python3 -c "import sys
 from synqt import check
 sys.exit(0 if (check.qmllint_path() and check.qmlformat_path()) else 1)") 2>/dev/null; then
@@ -124,11 +90,7 @@ fi
     cd tools/synqt
     python3 -m coverage erase
     python3 -m coverage run -m pytest tests -q
-    # The JSON report is written before the floor is checked, because a subshell exits with
-    # the status of its last command. With these two the other way round, `coverage json`
-    # succeeding overwrote the `--fail-under` failure and $py_ok was 0 no matter what the
-    # number was. The floor printed "Coverage failure: ..." and the run still said PASS, so
-    # the Python floor was not enforced at all, here or in CI.
+    # Write the JSON first: the subshell's status must be the floor check's.
     python3 -m coverage json -o "$REPO_ROOT/$BUILD_DIR/coverage-py.json"
     python3 -m coverage report --fail-under="$py_floor"
 ) || py_ok=$?

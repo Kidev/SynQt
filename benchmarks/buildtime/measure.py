@@ -44,7 +44,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_QT_HOST = "/opt/Qt/6.11.1/gcc_64"
+DEFAULT_QT_HOST = "/opt/Qt/6.12.0/gcc_64"
 
 # This module reads the topology through `synqt.appmodel`, so it needs the CLI on the path
 # whether or not the caller put it there. `build_env()` below sets it for the subprocesses;
@@ -285,7 +285,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         "project": args.project,
         "host": host_label(),
         "arch": platform.machine(),
-        "qt_version": "6.11.1",
+        "qt_version": "6.12.0",
         "cpus": os.cpu_count(),
         "configuration": "debug" if args.debug else "release",
         "recorded": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),

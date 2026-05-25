@@ -5,7 +5,7 @@
 
 The July 2026 spec audit recorded, as the reason the multiplayer tutorial was rewritten in
 2D, that Qt Quick 3D Physics does not work on WASM. This fixture tests that directly against
-the pinned Qt 6.11.1 kit, and the claim turns out to be false with the right configuration:
+the pinned Qt 6.12.0 kit, and the claim turns out to be false with the right configuration:
 Quick3D Physics builds, links, loads, boots, and steps on WASM; the box falls under gravity
 and rests on the plane, headless, on both the single-threaded and the multi-threaded kit.
 
@@ -68,6 +68,6 @@ tests/wasm-quick3dphysics/verify/run-phys-mt.sh
 tests/wasm-quick3dphysics/verify/run-phys-mt.sh --serve   # open the printed URL
 ```
 
-Needs the pinned host kit (`/opt/Qt/6.11.1/gcc_64`), the WASM kits
-(`/opt/Qt/6.11.1/wasm_singlethread` and, for the MT harness, `wasm_multithread`) with emsdk
-4.0.7, and, for the native reference in `run-phys.sh`, a GL-capable display.
+Needs the pinned host kit (`/opt/Qt/6.12.0/gcc_64`), the WASM kits
+(`/opt/Qt/6.12.0/wasm_singlethread` and, for the MT harness, `wasm_multithread`) with emsdk
+5.0.5, and, for the native reference in `run-phys.sh`, a GL-capable display.

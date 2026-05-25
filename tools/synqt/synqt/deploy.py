@@ -3,16 +3,10 @@
 
 """The platform deployment step for the native desktop client, run only when asked.
 
-`synqt build --client desktop` does not deploy. That is documented
-(docs/desktop.md). Signing identities, entitlements, notarization and installer format are not a
-framework's to choose, and a half-deployed bundle that looks finished is worse than one that says
-what is missing. What the build guarantees is that the step *can* be run. On macOS that is why
-the client is built as an .app bundle at all, since macdeployqt accepts nothing else.
-
-`--deploy` is the opt-in that runs it anyway, for the case where the developer wants a
-self-contained tree out of one command and will sign it themselves afterwards. It never signs:
-an unsigned .app is still Gatekeeper-blocked, so pretending otherwise would recreate exactly the
-"looks finished" failure the default position exists to avoid.
+`synqt build --client desktop` does not deploy (docs/desktop.md): signing, entitlements,
+notarization and installer format are the project's choice. The build makes the step
+possible; on macOS that is why the client is an .app bundle, the only input macdeployqt
+takes. `--deploy` runs the step. It never signs unless told to.
 """
 
 from __future__ import annotations
@@ -31,9 +25,7 @@ class DeployError(Exception):
     """The deploy step could not run. Carries a message meant for the CLI's output."""
 
 
-# Where a kit keeps its executables. `qmlimportscanner` is in libexec, not bin, so a
-# search that assumes bin finds macdeployqt and windeployqt and then reports the scanner
-# missing from a kit that has it.
+# Where a kit keeps its executables. `qmlimportscanner` is in libexec, not bin.
 _TOOL_DIRS = ("bin", "libexec")
 
 
@@ -56,19 +48,16 @@ def _tool(host_qt: Optional[str], name: str) -> Path:
 def _run(command: List[str]) -> str:
     result = subprocess.run(command, capture_output=True, text=True)
     if result.returncode != 0:
-        # The tool's own diagnosis, not a generic failure. Macdeployqt in particular reports
-        # the specific plugin or framework it could not resolve, and that is the whole value
-        # of the message.
+        # The tool's own diagnosis: macdeployqt names the plugin or framework it could not
+        # resolve.
         detail = (result.stderr or result.stdout or "").strip().splitlines()
         tail = "\n    ".join(detail[-6:]) if detail else "(no output)"
         raise DeployError(f"{Path(command[0]).name} failed:\n    {tail}")
     return result.stdout
 
 
-# What an unsigned binary costs, per platform. The three answers are
-# different, and collapsing them into one "unsigned is bad" message would be wrong twice: a
-# Windows build runs unsigned (with a SmartScreen interstitial) and a Linux one runs unsigned
-# with nothing to complain at all, because Linux has no binary code signing to begin with.
+# What an unsigned binary costs, per platform: refused by Gatekeeper on macOS, a SmartScreen
+# warning on Windows, nothing on Linux (no binary code signing).
 REQUIRED = "required"
 RECOMMENDED = "recommended"
 NOT_APPLICABLE = "not-applicable"
@@ -96,12 +85,8 @@ def signing_consequence(platform: str) -> str:
 
 
 def check_signing_choice(platform: str, sign: Optional[str], unsigned: bool) -> None:
-    """Reject a --deploy that has not said what it means to do about signing.
-
-    `--deploy` on its own producing an unsigned tree and mentioning it in a note is
-    the quiet outcome docs/desktop.md's whole position is against. The person who most needs to
-    know their app will not open on anyone else's Mac is the one who did not read the note.
-    Making the choice explicit costs one word and cannot be missed.
+    """Reject a --deploy that has not said what it does about signing (`--sign <identity>` or
+    `--unsigned`).
     """
     if sign and unsigned:
         raise DeployError("--sign and --unsigned contradict each other; pass one.")
@@ -111,9 +96,7 @@ def check_signing_choice(platform: str, sign: Optional[str], unsigned: bool) -> 
             "windows": "On Windows a distributable build should be signed.",
             "linux": "On Linux there is no binary signing to do.",
         }.get(platform, "What signing means here depends on the platform.")
-        # The way out has to be a way the next command will accept. Offering --sign on Linux
-        # sent the reader straight into the refusal below, which is a dead end dressed up as
-        # instructions. The message that explains a rule should not break it.
+        # Offer only an option this platform accepts: never --sign on Linux.
         remedy = ("Pass --unsigned to acknowledge that, which is all there is to say here."
                   if SIGNING_REQUIREMENT.get(platform) == NOT_APPLICABLE
                   else "Pass --sign <identity> to sign it, or --unsigned to accept that "
@@ -139,10 +122,8 @@ def deploy_client(root: Path, name: str, out: Path, resolved: Dict[str, Any],
             raise DeployError(f"--deploy found no app bundle at {app}.")
         command = [str(_tool(host_qt, "macdeployqt")), str(app), f"-qmldir={root}"]
         if sign:
-            # macdeployqt's own -codesign, rather than a codesign call here. A Qt app bundle
-            # holds frameworks and plugins that must each be signed before the bundle that
-            # contains them, and macdeployqt already walks exactly that tree. `codesign --deep`
-            # is Apple's own documented not-a-substitute for doing it properly.
+            # macdeployqt's own -codesign, which signs nested frameworks and plugins before
+            # the bundle. `codesign --deep` is not a substitute.
             command.append(f"-codesign={sign}")
         _run(command)
         if sign:
@@ -155,9 +136,8 @@ def deploy_client(root: Path, name: str, out: Path, resolved: Dict[str, Any],
             raise DeployError(f"--deploy found no executable at {exe}.")
         _run([str(_tool(host_qt, "windeployqt")), "--qmldir", str(root), str(exe)])
         if sign:
-            # The identity is read as the certificate's subject name (signtool /n), which is
-            # the form that does not require knowing a thumbprint. Timestamped, or the
-            # signature expires with the certificate instead of outliving it.
+            # The identity is the certificate subject name (signtool /n). Timestamped, so
+            # the signature outlives the certificate.
             _run(["signtool", "sign", "/fd", "sha256", "/n", sign,
                   "/tr", "http://timestamp.digicert.com", "/td", "sha256", str(exe)])
             return f"deployed and signed {exe.name} as {sign!r}"
@@ -166,18 +146,11 @@ def deploy_client(root: Path, name: str, out: Path, resolved: Dict[str, Any],
 
 
 def _dynamic_needs(path: Path) -> List[str]:
-    """The DT_NEEDED sonames of an ELF file, read out of the file itself.
+    """The DT_NEEDED sonames of an ELF file, read from the file itself.
 
-    Not `ldd`. `ldd` reports where a dependency *resolved on this machine*, which
-    is the wrong question twice over. It silently answers with the host's own Qt when the kit
-    is not the only Qt installed (that is how a deployed tree came to look self-contained on a
-    developer box and fail everywhere else), and it prints "not found" with no soname to act on
-    for the dependency that is missing. The soname list is a property of the file, so
-    reading it is the same answer on every machine. It also drops the assumption that `ldd`
-    exists, which is not true on a musl host.
-
-    Returns an empty list for anything that is not an ELF file, so callers can hand it every
-    file in a directory without pre-filtering.
+    Not `ldd`, which reports what resolved on this machine (possibly a system Qt), prints
+    "not found" without a soname, and is missing on musl. Returns an empty list for a
+    non-ELF file, so callers can pass every file in a directory.
     """
     try:
         data = path.read_bytes()
@@ -195,9 +168,8 @@ def _dynamic_needs(path: Path) -> List[str]:
             return None
         return struct.unpack_from(prefix + fmt, data, offset)
 
-    # e_phoff, e_phentsize and e_phnum are not adjacent in either header layout (e_shoff and
-    # e_flags sit between them), so they are read at their own offsets rather than as one
-    # struct: 32/54/56 on ELF64, 28/42/44 on ELF32.
+    # e_phoff, e_phentsize and e_phnum are not adjacent, so each is read at its own offset:
+    # 32/54/56 on ELF64, 28/42/44 on ELF32.
     offsets = (32, 54, 56) if is64 else (28, 42, 44)
     header_offset = read("Q" if is64 else "I", offsets[0])
     header_size = read("H", offsets[1])
@@ -208,8 +180,7 @@ def _dynamic_needs(path: Path) -> List[str]:
     entry_size = header_size[0]
     entry_count = header_count[0]
 
-    # PT_LOAD segments give the virtual-address-to-file-offset mapping that DT_STRTAB needs;
-    # PT_DYNAMIC is the table itself.
+    # PT_LOAD maps virtual addresses to file offsets for DT_STRTAB; PT_DYNAMIC is the table.
     loads: List[tuple] = []
     dynamic: Optional[tuple] = None
     for index in range(entry_count):
@@ -271,12 +242,8 @@ def _dynamic_needs(path: Path) -> List[str]:
 
 def _library_closure(roots: Iterable[Path], kit: Path) -> Dict[str, Path]:
     """Every library in `kit` reachable from `roots`, transitively, keyed by soname.
-
-    The transitive part is what makes it work. The first version of this walked only the client
-    binary's own dependencies, which reads as thorough and is not. A platform plugin and a QML
-    module are loaded at runtime, so nothing they need appears in the binary's list at all. The
-    tree it produced was missing the X11 platform plugin's Qt6XcbQpa and the Controls style's
-    Qt6QuickControls2Impl, and could not start on any machine that did not already have Qt.
+    Transitive, because plugins and QML modules loaded at run time bring their own
+    dependencies.
     """
     lib_dir = kit / "lib"
     found: Dict[str, Path] = {}
@@ -300,13 +267,10 @@ def _library_closure(roots: Iterable[Path], kit: Path) -> Dict[str, Path]:
 
 
 def _qml_modules(root: Path, kit: Path) -> List[str]:
-    """The QML modules the application imports, as paths relative to the kit's qml/.
+    """The QML modules the application imports, as paths relative to the kit qml/.
 
-    Via the kit's own `qmlimportscanner`, which is what windeployqt uses and the only thing
-    that knows an import graph includes every Controls style (a style is chosen at run time, so
-    all of them are reachable) and each style's private `.impl` companion. Shipping the kit's
-    whole qml/ instead was the alternative, and it cost 206 MB to be less correct: it still
-    missed the libraries those modules link.
+    Asked of the kit's `qmlimportscanner`, as windeployqt does. It includes every Controls
+    style (chosen at run time) and each style's `.impl` companion.
     """
     scanner = _tool(str(kit), "qmlimportscanner")
     result = subprocess.run(
@@ -326,8 +290,8 @@ def _qml_modules(root: Path, kit: Path) -> List[str]:
     for entry in entries:
         relative = entry.get("relativePath")
         path = entry.get("path")
-        # A module with no path on disk is compiled into the binary's resources. The client's
-        # own `SynQt` module is one, and there is nothing to copy for it.
+        # A module with no path is compiled into the binary resources (the client `SynQt`
+        # module).
         if not relative or not path:
             continue
         if (kit / "qml" / relative).is_dir():
@@ -336,13 +300,11 @@ def _qml_modules(root: Path, kit: Path) -> List[str]:
 
 
 def _copy_module(source: Path, destination: Path) -> None:
-    """Copy one QML module directory without swallowing the modules nested inside it.
+    """Copy one QML module directory without the modules nested inside it.
 
-    `QtQuick` holds `Controls`, `VirtualKeyboard`, `Scene3D` and a dozen more as subdirectories,
-    so copying it recursively ships the whole tree and undoes the scoping. Each nested module
-    the client imports is its own scanner entry and arrives on its own. Anything else
-    below a module (an Imagine style's `images/`, say) is that module's data and has to travel
-    with it, so the rule is by qmldir rather than by depth.
+    `QtQuick` contains `Controls`, `VirtualKeyboard` and more; each imported one is its own
+    scanner entry. Other subdirectories (an Imagine style's `images/`) are module data and
+    are copied. The rule is by qmldir, not by depth.
     """
     destination.mkdir(parents=True, exist_ok=True)
     for entry in source.iterdir():
@@ -354,10 +316,8 @@ def _copy_module(source: Path, destination: Path) -> None:
             shutil.copy2(entry, destination / entry.name)
 
 
-# Which plugin directories a linked Qt module loads at run time. Plugins are opened by name at
-# run time, so nothing links them and no dependency walk can find them. Windeployqt carries the
-# same table for the same reason. Only the entries a kit has are copied, so listing
-# the Wayland ones costs nothing on a kit built without them.
+# The plugin directories each linked Qt module loads at run time. No dependency walk finds
+# them; windeployqt keeps the same table. Only directories the kit has are copied.
 _PLUGIN_CLASSES = {
     "Gui": ("platforms", "platformthemes", "platforminputcontexts", "imageformats",
             "iconengines", "generic", "xcbglintegrations", "egldeviceintegrations",
@@ -374,11 +334,8 @@ _PLUGIN_CLASSES = {
 
 
 def _plugin_dirs(reachable: Iterable[str], kit: Path) -> List[str]:
-    """The plugin directories this client can load, from the Qt modules reachable from it.
-
-    Reachable, not linked by the executable. A QML module can pull in a Qt module the client
-    never names, and that module loads plugins all the same. Taking the binary's own list
-    would answer for the executable rather than for the application.
+    """The plugin directories this client can load, from the Qt modules reachable from it, not
+    only those the executable links.
     """
     linked = {soname[len("libQt6"):].split(".so")[0]
               for soname in reachable if soname.startswith("libQt6")}
@@ -401,16 +358,12 @@ def _client_dir(root: Path, resolved: Dict[str, Any]) -> Path:
 
 def _deploy_linux(root: Path, name: str, out: Path, host_qt: Optional[str],
                   qml_root: Path) -> str:
-    """The portable layout: Qt's libraries and QML modules beside the binary, plus a launcher.
+    """The portable layout: Qt libraries and QML modules beside the binary, plus a launcher.
 
-    Linux has no official Qt deployment tool, so this does what windeployqt does, explicitly:
-    ask `qmlimportscanner` which QML modules the client imports, add the plugin directories the
-    modules it links can load at run time, then walk the transitive library closure of all of
-    it and ship exactly that. System libraries (glibc, libX11) stay the host's to provide.
-
-    The closure is verified before this returns. Getting it wrong does not fail here, it fails
-    on someone else's machine at first launch, which is the "looks finished" outcome this whole
-    module exists to avoid, so the check is not left to a test.
+    Asks `qmlimportscanner` for the imported QML modules, adds the plugin directories their
+    Qt modules load, and ships the transitive library closure of all of it. System libraries
+    (glibc, libX11) are left to the host. The closure is verified before returning, because
+    a gap only shows on a machine without Qt.
     """
     binary = out / name
     if not binary.is_file():
@@ -419,15 +372,11 @@ def _deploy_linux(root: Path, name: str, out: Path, host_qt: Optional[str],
         raise DeployError("--deploy needs the host Qt kit to know which libraries are Qt's.")
     kit = Path(host_qt).resolve()
 
-    # Removed rather than merged into. A re-deploy that skips qml/ and plugins/ whenever
-    # they already exist reports deploying modules it left untouched
-    # and the tree keeps whatever the previous kit put there.
+    # Replaced, not merged, so nothing from a previous kit remains.
     for stale in ("lib", "qml", "plugins"):
         shutil.rmtree(out / stale, ignore_errors=True)
 
-    # The client entity's own directory, not the project root. The root also holds every
-    # service entity's QML and, in a tree that has been built, a build/ directory to walk.
-    # Scanning those imports modules the client never loads and slows the scan on the way.
+    # Scan the client entity directory only, not the project root.
     scan_root = qml_root
 
     shipped: List[Path] = [binary]
@@ -437,10 +386,8 @@ def _deploy_linux(root: Path, name: str, out: Path, host_qt: Optional[str],
         _copy_module(kit / "qml" / relative, destination)
         shipped += sorted(destination.glob("*.so"))
 
-    # Two passes over the closure, because the two halves define each other: which plugin
-    # directories can be loaded follows from the Qt modules reachable from the binary and its
-    # QML modules, and the plugins in those directories then pull in libraries of their own.
-    # One pass in either order answers half the question.
+    # Two passes: the plugin directories follow from the reachable Qt modules, and the
+    # plugins then add libraries of their own.
     plugin_dirs = _plugin_dirs(_library_closure(shipped, kit), kit)
     for directory in plugin_dirs:
         destination = out / "plugins" / directory
@@ -452,8 +399,8 @@ def _deploy_linux(root: Path, name: str, out: Path, host_qt: Optional[str],
     lib_dir.mkdir(parents=True, exist_ok=True)
     libraries = _library_closure(shipped, kit)
     for soname, source in libraries.items():
-        # Copied under the soname, following the symlink: the kit's libQt6Core.so.6 points at
-        # libQt6Core.so.6.11.1, and the loader asks for the name in DT_NEEDED.
+        # Copied under the soname, following the symlink (libQt6Core.so.6 ->
+        # libQt6Core.so.6.12.0), since the loader asks for the DT_NEEDED name.
         shutil.copy2(source, lib_dir / soname, follow_symlinks=True)
 
     _verify_closure(shipped, lib_dir, kit)
@@ -469,25 +416,20 @@ def _deploy_linux(root: Path, name: str, out: Path, host_qt: Optional[str],
         'export QT_PLUGIN_PATH="$here/plugins${QT_PLUGIN_PATH:+:$QT_PLUGIN_PATH}"\n'
         f'exec "$here/{name}" "$@"\n')
     launcher.chmod(launcher.stat().st_mode | 0o111)
-    # No "UNSIGNED" shouting here, unlike macOS and Windows: on Linux that is not a caveat,
-    # it is the normal state of every binary on the system.
+    # No "UNSIGNED" warning on Linux, where unsigned is normal.
     return (f"deployed {name} as a portable layout ({len(libraries)} Qt libraries, "
             f"{len(modules)} QML modules, {len(plugin_dirs)} plugin directories); "
             f"launch through {launcher.name}")
 
 
 def _verify_closure(shipped: Iterable[Path], lib_dir: Path, kit: Path) -> None:
-    """Refuse to report success when something in the tree still needs the kit.
-
-    The closure walk should make this impossible, which is exactly why it is worth asserting:
-    the failure it guards against is invisible on any machine that has Qt installed, so without
-    it a regression here would pass every test run on a developer box and ship broken.
+    """Refuse to report success when something in the tree still needs the kit. The failure is
+    invisible on any machine that has Qt installed.
     """
     libraries = sorted(lib_dir.iterdir()) if lib_dir.is_dir() else []
     present = {entry.name for entry in libraries}
     missing: Dict[str, str] = {}
-    # The shipped libraries are checked too, not only what pulled them in: a library's own
-    # dependency is exactly what the walk exists to follow, so it is what a broken walk drops.
+    # The shipped libraries are checked too, not only their dependents.
     for path in list(shipped) + libraries:
         for soname in _dynamic_needs(path):
             if soname in present or not (kit / "lib" / soname).exists():
