@@ -184,6 +184,18 @@ _ENGINES: Dict[str, Dict[str, Any]] = {
 
 # reading the project
 
+
+def _host_modules() -> str:
+    """The `-m` list for the host kit install, as one line.
+
+    The four modules SynQt links, plus qtshadertools. Nothing here calls find_package on
+    it, but it carries qsb, which qt_add_qml_module runs over any shader a project's QML
+    brings with it. An image without it builds this framework and fails on the first
+    application that has one.
+    """
+    return " ".join(toolchain.host_module_archives() + ["qtshadertools"])
+
+
 def checkout_source() -> Optional[Path]:
     """The SynQt checkout this CLI is running out of, or None if it is not running from one.
 
@@ -573,13 +585,18 @@ def render_dockerfile(config: Dict[str, Any], *, client: str = "image",
         "# externally managed (PEP 668) and pip refuses to write into it, correctly.",
         "RUN python3 -m venv /opt/venv",
         'ENV PATH="/opt/venv/bin:$PATH"',
-        "RUN pip install --no-cache-dir aqtinstall",
+        "# aqtinstall pinned, like Qt and Emscripten: an image that installs whatever aqt",
+        "# released this morning is not the reproducible build the rest of this file is",
+        "# written to be.",
+        f'RUN pip install --no-cache-dir "aqtinstall=={toolchain.AQT_VERSION}"',
         "",
         "# The host kit builds the services. The module list is what SynQt itself links:",
         "# QtRemoteObjects for every connect point, QtWebSockets for the browser link, and",
-        "# the HTTP server and network authorization the web edge needs.",
+        "# the HTTP server and network authorization the web edge needs. It is taken from",
+        "# the resolver's own table rather than written out again here, because a kit that",
+        "# is short of one of them builds right up to that module's find_package and stops.",
         'RUN aqt install-qt linux desktop "$QT_VERSION" linux_gcc_64 \\',
-        "        -m qtremoteobjects qtwebsockets qthttpserver qtnetworkauth qtshadertools \\",
+        f"        -m {_host_modules()} \\",
         '        --outputdir "$QT_ROOT"',
         "",
         "# jwt-cpp (MIT, header-only): SynQtIdentity verifies OIDC ID-token signatures with it,",

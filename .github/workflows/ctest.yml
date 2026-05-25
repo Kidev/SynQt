@@ -102,10 +102,10 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  # aqtinstall, pinned to a reviewed commit (see browser-matrix.yml for why it comes from the
+  # aqtinstall, pinned to a reviewed release (see browser-matrix.yml for why it came from the
   # repository at all, and never from an unpinned branch). Keep this SHA in step with the
   # other two Qt workflows.
-  AQT_COMMIT: "9e49c82edc6d946db376dec907cca5b4b486eec5"
+  AQT_VERSION: "3.3.0"
   # Workflow level rather than per job: the three jobs below need the identical kit, and three
   # copies of this block would be three things to remember to change together. They reach the
   # composite action as explicit inputs, never as env; see the note at the top of that file.
@@ -204,7 +204,7 @@ jobs:
           qt_root: ${{ env.QT_ROOT }}
           qt_modules: ${{ env.QT_MODULES }}
           jwt_cpp_version: ${{ env.JWT_CPP_VERSION }}
-          aqt_commit: ${{ env.AQT_COMMIT }}
+          aqt_version: ${{ env.AQT_VERSION }}
 
       - uses: ./.github/actions/live-engines
         with:
@@ -279,7 +279,7 @@ jobs:
           qt_root: ${{ env.QT_ROOT }}
           qt_modules: ${{ env.QT_MODULES }}
           jwt_cpp_version: ${{ env.JWT_CPP_VERSION }}
-          aqt_commit: ${{ env.AQT_COMMIT }}
+          aqt_version: ${{ env.AQT_VERSION }}
 
       - name: Compile and run the generated-output suites
         shell: bash
@@ -352,7 +352,7 @@ jobs:
           qt_root: ${{ env.QT_ROOT }}
           qt_modules: ${{ env.QT_MODULES }}
           jwt_cpp_version: ${{ env.JWT_CPP_VERSION }}
-          aqt_commit: ${{ env.AQT_COMMIT }}
+          aqt_version: ${{ env.AQT_VERSION }}
 
       - uses: ./.github/actions/live-engines
         with:

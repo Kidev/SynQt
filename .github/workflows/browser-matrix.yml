@@ -55,9 +55,10 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  # aqtinstall, pinned to a reviewed commit. See the install step for why it comes from the
-  # repository at all. Keep this SHA identical in ctest.yml and wasm-proofs.yml.
-  AQT_COMMIT: "9e49c82edc6d946db376dec907cca5b4b486eec5"
+  # aqtinstall, pinned to a release. See the install step for why it was a git commit for so
+  # long. Keep this version identical in ctest.yml, wasm-proofs.yml, benchmarks.yml and
+  # leaks.yml; tools/synqt/tests/test_qt_pin.py fails when one of them drifts.
+  AQT_VERSION: "3.3.0"
 
 jobs:
   m0:
@@ -135,19 +136,19 @@ jobs:
 
       - name: Install aqtinstall
         if: steps.qt-cache.outputs.cache-hit != 'true'
-        # From the repository, not PyPI: the released line (3.1.x) predates the current Qt
-        # repository layout and does not know the all_os/wasm host and target the WASM kit is
-        # published under, so it cannot install this workflow's kit at any version. The release
-        # that does is not published yet; pin this back to a version once it is.
+        # A pinned release, which is what the note here used to ask for. It came from a git
+        # commit for as long as the released line (3.1.x) predated the Qt repository layout and
+        # did not know the all_os/wasm host and target the WASM kit is published under, so it
+        # could not install this workflow's kit at any Qt version. That release is out: 3.3.0
+        # was checked against the live repository for this Qt, and lists both wasm kits and
+        # every add-on module the desktop kit here installs.
         #
-        # Pinned to a commit, never to the branch: an unpinned git ref runs whatever upstream's
-        # default branch holds at the moment the job starts, inside a job that holds a token and
-        # produces the artifacts we then trust. The pin is what makes this reproducible and what
-        # keeps an upstream change from silently becoming ours. Moving it is a reviewed edit:
-        # read the diff, then bump the SHA here and in ctest.yml and wasm-proofs.yml together.
+        # Pinned either way, and never to a branch or a tag that moves: this job holds a token
+        # and produces artifacts the rest of the pipeline trusts, so what provisions it is a
+        # reviewed version rather than whatever upstream published this morning. Moving it is
+        # a reviewed edit, in every workflow at once.
         run: |
-          python -m pip install \
-            "aqtinstall @ git+https://github.com/miurahr/aqtinstall.git@${{ env.AQT_COMMIT }}"
+          python -m pip install "aqtinstall==${{ env.AQT_VERSION }}"
 
       - name: Install Qt host kit (desktop) + WebSockets + RemoteObjects
         if: steps.qt-cache.outputs.cache-hit != 'true'

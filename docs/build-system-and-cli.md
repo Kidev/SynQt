@@ -30,18 +30,26 @@ Every `synqt build` produces one artifact per entity:
 
 Every entity that owns or consumes a connect point compiles the one contract the point
 declares, so it is identical across all of them. A version skew between two
-entities that share a connect point is therefore a compile error, not a runtime
-surprise. Output lands under `build/<entity>/`.
+entities that share a connect point therefore fails to compile instead of surfacing
+at run time. Output lands under `build/<entity>/`.
 
 ## Toolchain resolution and pinning
 
-The CLI installs and pins the toolchain so a developer does not hand install Qt or
-Emscripten:
+The CLI pins the toolchain and resolves it, and `synqt doctor` prints the exact command
+for every piece that is missing. It does not download anything itself. The pieces are
+named here, and the commands doctor prints provision them.
 
 - Qt via `aqtinstall` into `synqt/toolchain/qt/<version>`: the host desktop kit for
   service entities (and for a native desktop client target, which reuses it), and
   the WebAssembly kit (single or multi threaded per `build.client_threads`) for the
-  browser client.
+  browser client. Both need modules beyond what a bare kit carries: `qtremoteobjects`
+  for every connect point, `qtwebsockets` for the browser link, and `qthttpserver`
+  and `qtnetworkauth` for the web edge, so the command doctor prints carries `-m`.
+- QtRemoteObjects for the WebAssembly kit, from source, because there is no prebuilt
+  one. For the pinned Qt, aqt publishes `qtwebsockets` and `qthttpserver` for the
+  `all_os`/`wasm` kits and no `qtremoteobjects`, so the kit's own `qt-cmake` compiles it
+  out of `Src/qtremoteobjects` and installs it back into the kit. This is the one
+  step that is two commands rather than one, and doctor prints both.
 - Emscripten via `emsdk` into `synqt/toolchain/emsdk/<version>`, pinned to the
   version Qt selects for the Qt version (5.0.5 for 6.12.0). A different Emscripten
   version is unsupported because Emscripten does not promise ABI stability across
@@ -49,14 +57,20 @@ Emscripten:
 - vcpkg, only if a project adds native dependencies beyond Qt and the bundled
   engine backends. A default project needs none.
 
-Resolution is cached and re runs only when `project.qt_version` or
-`build.client_threads` changes.
+The CLI checks a kit for those modules rather than only for its directory. A stock
+WebAssembly kit has no QtRemoteObjects in it, and a toolchain reported complete because
+the directory exists fails several minutes into the build, inside CMake, on a message
+naming a package rather than the kit it is missing from.
+
+Resolution is not cached. It is a handful of `exists()` calls against the pinned paths, and
+it re runs whenever a command needs it, so a kit installed a moment ago is found without
+anything to invalidate.
 
 The framework sources themselves are found separately from the toolchain, because the
 generated CMake includes them directly (`${SYNQT_ROOT}/cmake/SynQtContracts.cmake`, and the
 runtime libraries under `${SYNQT_ROOT}/src`). Running `synqt` from a SynQt checkout, or from
-an editable install of one, needs nothing: the root is derived from where the CLI itself
-sits. A standalone install that does not carry the framework sources, a released wheel or
+an editable install of one, needs nothing, because the root derives from where the CLI
+itself sits. A standalone install that does not carry the framework sources, a released wheel or
 the frozen binary, does need to be told, with the `SYNQT_ROOT` environment variable:
 
 ```sh

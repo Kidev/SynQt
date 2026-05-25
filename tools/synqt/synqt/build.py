@@ -273,7 +273,7 @@ def _preset_name(environment: str, profile_name: str, dev_tools: bool) -> str:
     return f"{environment}-{profile_name}"
 
 
-def _cmake_build(project_dir: Path, resolved: Dict[str, Optional[str]],
+def _cmake_build(project_dir: Path, resolved: Dict[str, Any],
                  host_targets: List[str], client_targets: List[str],
                  config: Dict[str, Any], edge_url: Optional[str] = None,
                  verbose: bool = False, profile_name: str = "debug",
@@ -290,8 +290,20 @@ def _cmake_build(project_dir: Path, resolved: Dict[str, Optional[str]],
                 "manifest; generate the entity build files to compile binaries.")
     need_wasm = "wasm" in client_targets
     if not toolchain.is_complete(resolved, need_wasm=need_wasm):
-        return ("note: toolchain incomplete (run 'synqt doctor'); skipped compilation, "
-                "emitted the deploy layout and licenses.")
+        # Name what is short, rather than only where to go and ask. The common case is a
+        # kit that is installed and missing a module SynQt links, and "toolchain
+        # incomplete" on a machine where Qt is plainly installed reads as a bug in the
+        # resolver rather than as an answer.
+        labels = {"host_qt": "the host Qt kit", "wasm_qt": "the WebAssembly Qt kit",
+                  "emcc": "Emscripten", "cmake": "cmake"}
+        pieces = ["host_qt", "cmake"] + (["wasm_qt", "emcc"] if need_wasm else [])
+        missing = [f"no {labels[key]}" for key in pieces if not resolved.get(key)]
+        missing += [f"Qt6{module} missing from {labels[kit]}"
+                    for kit in ("host_qt", "wasm_qt") if kit in pieces
+                    for module in (resolved.get(f"{kit}_missing") or [])]
+        return (f"note: toolchain incomplete ({', '.join(missing)}; run 'synqt doctor' for "
+                "the commands that provision it); skipped compilation, emitted the deploy "
+                "layout and licenses.")
     cmake = resolved["cmake"]
     # Point the host configure at the resolved host Qt kit. The preset carries the
     # provisioned synqt/toolchain path, but a developer with a system Qt (resolved via

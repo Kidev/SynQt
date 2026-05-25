@@ -56,10 +56,10 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  # aqtinstall, pinned to a reviewed commit (see browser-matrix.yml for why it comes from the
+  # aqtinstall, pinned to a reviewed release (see browser-matrix.yml for why it came from the
   # repository at all, and never from an unpinned branch). Keep this SHA in step with the
   # other two Qt workflows.
-  AQT_COMMIT: "9e49c82edc6d946db376dec907cca5b4b486eec5"
+  AQT_VERSION: "3.3.0"
   # Keep in step with ctest.yml: the arena's web edge links the same SynQtEdge.
   JWT_CPP_VERSION: "v0.7.2"
 
@@ -167,12 +167,10 @@ jobs:
 
       - name: Install aqtinstall
         if: steps.qt-cache.outputs.cache-hit != 'true'
-        # From the repository, not PyPI: the released line (3.1.x) does not know the all_os/wasm
-        # host and target the WASM kit is published under. Pinned to a commit. See
-        # browser-matrix.yml.
+        # A pinned release. It came from git for as long as the released line did not know the
+        # all_os/wasm host and target the WASM kit is published under. See browser-matrix.yml.
         run: |
-          python -m pip install \
-            "aqtinstall @ git+https://github.com/miurahr/aqtinstall.git@${{ env.AQT_COMMIT }}"
+          python -m pip install "aqtinstall==${{ env.AQT_VERSION }}"
 
       - name: Install Qt host kit (desktop)
         if: steps.qt-cache.outputs.cache-hit != 'true'
@@ -342,10 +340,9 @@ jobs:
 
       - name: Install aqtinstall
         if: steps.qt-cache.outputs.cache-hit != 'true'
-        # aqt from the repository, at the same pinned commit, for the reason the job above gives.
+        # aqt at the same pinned release as the job above, for the reason it gives.
         run: |
-          python -m pip install \
-            "aqtinstall @ git+https://github.com/miurahr/aqtinstall.git@${{ env.AQT_COMMIT }}"
+          python -m pip install "aqtinstall==${{ env.AQT_VERSION }}"
 
       - name: Install Qt host kit (desktop)
         if: steps.qt-cache.outputs.cache-hit != 'true'

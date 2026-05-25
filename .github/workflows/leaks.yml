@@ -47,9 +47,9 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  # Keep this SHA in step with ctest.yml, benchmarks.yml and browser-matrix.yml; the note in
-  # browser-matrix.yml explains why aqtinstall comes from the repository at a pinned commit.
-  AQT_COMMIT: "9e49c82edc6d946db376dec907cca5b4b486eec5"
+  # Keep this version in step with ctest.yml, benchmarks.yml and browser-matrix.yml; the note in
+  # browser-matrix.yml explains why aqtinstall is pinned, and why it came from git until now.
+  AQT_VERSION: "3.3.0"
 
 jobs:
   # The path decision lives here rather than on the trigger above, and that is the whole
@@ -140,8 +140,7 @@ jobs:
       - name: Install aqtinstall
         if: steps.qt-cache.outputs.cache-hit != 'true'
         run: |
-          python -m pip install \
-            "aqtinstall @ git+https://github.com/miurahr/aqtinstall.git@${{ env.AQT_COMMIT }}"
+          python -m pip install "aqtinstall==${{ env.AQT_VERSION }}"
 
       - name: Install the Qt host kit and its add-on modules
         if: steps.qt-cache.outputs.cache-hit != 'true'

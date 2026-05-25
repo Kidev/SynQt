@@ -89,6 +89,123 @@ class ToolchainTest(unittest.TestCase):
             self.assertNotEqual(toolchain.resolve(project)["wasm_qt"], str(qt / "gcc_64"))
 
 
+    def _kit(self, modules, extra_kits=()):
+        """A Qt installation on disk, carrying exactly the modules named.
+
+        The package config file is what is written, and not merely the directory, because
+        that file is what `find_package(Qt6 COMPONENTS Foo)` looks for. A test that wrote
+        the directory alone would pass against a resolver asking a weaker question than
+        the build asks.
+        """
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, root, ignore_errors=True)
+        qt = root / "Qt" / toolchain.QT_VERSION
+        for kit, names in list(modules.items()) + [(k, []) for k in extra_kits]:
+            cmake = qt / kit / "lib" / "cmake"
+            cmake.mkdir(parents=True, exist_ok=True)
+            for name in names:
+                (cmake / f"Qt6{name}").mkdir(parents=True, exist_ok=True)
+                (cmake / f"Qt6{name}" / f"Qt6{name}Config.cmake").write_text("")
+        project = root / "project"
+        project.mkdir()
+        return qt, project
+
+    def test_a_kit_short_of_a_module_synqt_links_is_not_a_complete_toolchain(self):
+        # This is what a stock installation looks like. Aqt installs qtbase and
+        # qtdeclarative and nothing else without -m, and there is no prebuilt WebAssembly
+        # QtRemoteObjects at any coordinates at all. The resolver reported both kits as
+        # found and the toolchain as complete, so `synqt doctor` was green and `synqt
+        # build` then died inside CMake, minutes in, with a message naming Qt6RemoteObjects
+        # and nothing naming the kit it was missing from.
+        qt, project = self._kit({"gcc_64": ["RemoteObjects", "WebSockets", "HttpServer"],
+                                 "wasm_singlethread": ["WebSockets"]})
+        with unittest.mock.patch.object(toolchain.sys, "platform", "linux"), \
+                unittest.mock.patch.dict(os.environ, {"QTDIR": str(qt / "gcc_64")}):
+            resolved = toolchain.resolve(project)
+            self.assertEqual(resolved["host_qt_missing"], ["NetworkAuth"])
+            self.assertEqual(resolved["wasm_qt_missing"], ["RemoteObjects"])
+            self.assertFalse(toolchain.is_complete(resolved))
+            # ...and complete for a service-only build, which needs no WASM kit at all.
+            # The host kit's own gap still counts against it.
+            self.assertFalse(toolchain.is_complete(resolved, need_wasm=False))
+
+            # The report names the gap under the kit that has it. A path with no note
+            # beside it, and a find_package failure ten minutes later, read as two
+            # unrelated facts.
+            report = toolchain.report(project)
+            self.assertIn("missing module: Qt6RemoteObjects", report)
+            self.assertIn("missing module: Qt6NetworkAuth", report)
+
+    def test_a_complete_kit_is_reported_complete_and_asks_for_nothing(self):
+        # The other half of the gate. A resolver that can refuse is only useful if it
+        # accepts. Every module SynQt links is here, so there is nothing to install and
+        # nothing to say.
+        qt, project = self._kit({
+            "gcc_64": ["RemoteObjects", "WebSockets", "HttpServer", "NetworkAuth"],
+            "wasm_singlethread": ["RemoteObjects", "WebSockets"]})
+        with unittest.mock.patch.object(toolchain.sys, "platform", "linux"), \
+                unittest.mock.patch.dict(os.environ, {"QTDIR": str(qt / "gcc_64")}), \
+                unittest.mock.patch.object(toolchain.shutil, "which",
+                                           lambda name: "/usr/bin/" + name), \
+                unittest.mock.patch.object(toolchain, "_emsdk",
+                                           lambda project_dir: Path("/emcc")):
+            resolved = toolchain.resolve(project)
+            self.assertTrue(toolchain.is_complete(resolved))
+            self.assertEqual(toolchain.provision_hints(resolved), [])
+
+    def test_the_host_hint_installs_the_modules_synqt_links(self):
+        # A hint is copied out of `synqt doctor` and run. This one installed qtbase and
+        # qtdeclarative and called it a Qt kit, so following the instruction exactly
+        # produced a machine that cannot build SynQt: no QtRemoteObjects for the connect
+        # points, no QtWebSockets for the browser link, no QtHttpServer or QtNetworkAuth
+        # for the edge.
+        with unittest.mock.patch.object(toolchain.sys, "platform", "linux"):
+            hints = toolchain.provision_hints({"wasm_kit": "wasm_singlethread",
+                                               "wasm_qt": None, "host_qt": None,
+                                               "emcc": None})
+        host = next(h for h in hints if "desktop" in h)
+        for archive in ("qtremoteobjects", "qtwebsockets", "qthttpserver", "qtnetworkauth"):
+            self.assertIn(archive, host)
+
+    def test_the_wasm_remoteobjects_hint_is_a_source_build_never_an_aqt_module(self):
+        # aqt publishes no WebAssembly build of qtremoteobjects, so `-m qtremoteobjects`
+        # under all_os/wasm is not a flag anyone forgot. It fails, and it fails saying the
+        # archive does not exist, which reads like a broken mirror rather than like the
+        # module never having been built for this platform. The kit's own qt-cmake
+        # compiles it from the pinned source, with QT_HOST_PATH named because a
+        # cross-compiled Qt carries the host tool path of the machine it was built on.
+        qt, project = self._kit({"gcc_64": [], "wasm_singlethread": ["WebSockets"]})
+        with unittest.mock.patch.object(toolchain.sys, "platform", "linux"), \
+                unittest.mock.patch.dict(os.environ, {"QTDIR": str(qt / "gcc_64")}):
+            hints = toolchain.provision_hints(toolchain.resolve(project))
+
+        wasm_module_hints = [h for h in hints if "install-qt all_os wasm" in h]
+        self.assertFalse([h for h in wasm_module_hints if "qtremoteobjects" in h],
+                         "offered qtremoteobjects as a WebAssembly aqt module")
+        source = next(h for h in hints if "install-src" in h)
+        self.assertIn("--archives qtremoteobjects", source)
+        build = next(h for h in hints if "qt-cmake" in h)
+        # Against the resolved kit, so the command can be pasted as printed rather than
+        # edited into place, and installed back into that same kit.
+        self.assertIn(str(qt / "wasm_singlethread" / "bin" / "qt-cmake"), build)
+        self.assertIn(f"QT_HOST_PATH={qt / 'gcc_64'}", build)
+        self.assertIn(f"-DCMAKE_INSTALL_PREFIX={qt / 'wasm_singlethread'}", build)
+
+    def test_adding_a_module_lands_in_the_kit_that_is_short_of_it(self):
+        # aqt lays out <outputdir>/<version>/<kit>, so adding a module to an installed kit
+        # means naming that kit's grandparent. The hint named the project's own toolchain
+        # directory instead, which installs a second Qt beside the one the resolver just
+        # reported. The module arrives in a kit nothing builds against, and the same hint
+        # prints again on the next run.
+        qt, project = self._kit({"gcc_64": ["RemoteObjects", "WebSockets", "HttpServer"],
+                                 "wasm_singlethread": ["RemoteObjects", "WebSockets"]})
+        with unittest.mock.patch.object(toolchain.sys, "platform", "linux"), \
+                unittest.mock.patch.dict(os.environ, {"QTDIR": str(qt / "gcc_64")}):
+            hints = toolchain.provision_hints(toolchain.resolve(project))
+        host = next(h for h in hints if "install-qt" in h)
+        self.assertIn(f"-O {qt.parent.as_posix()}", host)
+
+
 class PrecompressTest(unittest.TestCase):
     def test_wasm_is_brotli_and_gzip_compressed(self):
         client = Path(tempfile.mkdtemp())
