@@ -228,6 +228,23 @@ struct WebEdgeConfig
     /// at the first byte; see docs/security.md.
     int keepAliveTimeoutSeconds{15};
 
+    /// How many sockets one connection ceiling is worth.
+    ///
+    /// `maxConnectionsPerIp` and `maxConnectionsGlobal` count browser links, which are
+    /// counted when a link is hosted; a peer that opens a socket and never finishes a
+    /// request is never hosted and so was never counted by them. Qt 6.12 added a ceiling on
+    /// the sockets themselves (QHttpServerConfiguration::setMaximumConnections and
+    /// setMaximumConnectionsPerHost), which is the one that bounds that peer, and the edge
+    /// derives it from the ceilings a project already set rather than asking for two more
+    /// numbers nobody has a way to pick.
+    ///
+    /// Eight, because the two ceilings count different things and the socket one has to be
+    /// the looser: a visitor fetches the bundle over as many as six parallel HTTP
+    /// connections before it opens the one sync link, so a ceiling set equal to the link
+    /// ceiling would refuse real browsers long before it refused an attacker. Eight leaves
+    /// room for that plus the link plus one.
+    static constexpr int SocketsPerLink{8};
+
     /// Requests per second per peer address, or zero to leave Qt's rate limiting off, which
     /// is the default. Qt counts the address it is connected to and knows
     /// nothing of `X-Forwarded-For`, so behind a balancer every visitor shares one bucket

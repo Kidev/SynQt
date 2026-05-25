@@ -266,6 +266,13 @@
       "test": "connectionCapRefusesTheOneOverTheLimit"
     },
     {
+      "id": "socket-flood-that-never-becomes-a-connection",
+      "what": "One address opens sockets and never finishes a request on any of them. The per-IP and global connection caps are counted in hostConnection(), which runs once an upgrade has been accepted, so a peer that never gets that far was never counted by them; if it also never goes idle it never hits the keep-alive timeout either, and the only remaining bound was the 64 KiB header ceiling, days away at a byte every few seconds. One address could hold as many sockets as the process had descriptors.",
+      "defended_by": "Qt 6.12's QHttpServerConfiguration::setMaximumConnections and setMaximumConnectionsPerHost, counted at accept rather than at upgrade, set from the link ceilings a project already chose times WebEdgeConfig::SocketsPerLink. Releasing a socket readmits the next caller, so the ceiling does not lock an address out after a burst.",
+      "file": "tests/m5-webedge/tst_m5.cpp",
+      "test": "socketCapRefusesAPeerThatOpensSocketsAndSendsNothing"
+    },
+    {
       "id": "oversized-request-body",
       "what": "A stranger posts a huge body to the edge to make it buffer megabytes per request.",
       "defended_by": "QHttpServer's body ceiling is set from what the entity accepts (64 KiB with no network.inbound), so the body is refused with 413 before a route sees it.",

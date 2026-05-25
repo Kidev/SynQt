@@ -339,28 +339,38 @@ read them.
     What the window covers is a socket that connects and then says nothing. It is
     armed when the socket is accepted and cancelled by the first byte the peer sends,
     whether that byte starts an upgrade request or an ordinary page request. The
-    distinction matters in practice: a browser fetches the page, the loader and the bundle
+    distinction matters in practice. A browser fetches the page, the loader and the bundle
     over the connection it goes on to upgrade, so a deadline that outlived that first
     byte would cut an ordinary transfer on a slow link and record refused upgrades
-    nobody attempted. It used to do both.
+    nobody attempted.
 
-    What this window no longer bounds is a peer that sends part of a request and never
+    This window does not bound a peer that sends part of a request and never
     finishes it. If it goes quiet,
-    QHttpServer's own keep-alive timeout closes it (15 seconds by default; measured at
+    QHttpServer's own keep-alive timeout closes it (15 seconds by default, measured at
     about 21 from the first byte), so it is covered, by Qt rather than by this window.
-    If it keeps dribbling bytes it never goes idle, and then nothing here closes it:
-    measured, such a connection is still open after a minute, and the only remaining
-    bound is the 64 KiB header limit it would take days to reach at that rate. The
-    connection caps below do not apply to it, because they are counted when a
-    connection is hosted and one that never completes a request is never hosted. What
-    the edge spends on it is a socket and a parse buffer rather than a worker, since
-    QHttpServer is event driven and not thread per connection, so the ceiling is the
-    process file descriptor limit. Put a reverse proxy in front of an edge that faces
-    the internet directly if that ceiling matters to you.
+    If it keeps dribbling bytes it never goes idle, so neither the handshake window nor
+    the keep-alive timeout ends it, and the connection caps below never count it
+    either, because those are counted when a connection is hosted, and one that never
+    completes a request is never hosted. What bounds it is the socket ceiling immediately
+    below, which is counted at accept. That one connection still lives as long as it keeps
+    dribbling, and the 64 KiB header limit it would take days to reach at that rate is
+    the only thing that ends it, but an address cannot have an unbounded number of them.
+    A reverse proxy in front of an edge that faces the internet directly is the way to
+    end the individual connection sooner.
 
 - Connection caps. `security.max_connections_per_ip` (20) and
   `security.max_connections_global` (1000), applied inside the upgrade verifier, so
   a connection over the cap is refused before a socket exists.
+- Socket caps. The same two numbers, times eight, given to Qt as
+  `QHttpServerConfiguration::setMaximumConnectionsPerHost` and `setMaximumConnections`
+  (Qt 6.12). These count at accept rather than at upgrade, which is what makes them the
+  bound on a peer that opens sockets and never finishes a request. The two ceilings
+  count different things and the socket one has to be the looser, because a visitor
+  fetches the bundle over as many as six parallel HTTP connections before it opens its
+  one sync link; a socket ceiling set equal to the link ceiling would refuse real
+  browsers long before it refused an attacker. Eight is that headroom, it is derived
+  rather than configured because there is no way for a project to pick it usefully, and
+  releasing a socket readmits the next caller.
 - Message size cap. `security.max_message_bytes` (1 MiB) is set on each accepted
   browser socket as both the message and the frame limit, so an oversized frame is
   rejected as it arrives rather than after it is buffered.
@@ -381,8 +391,9 @@ read them.
   rather than letting a deployment discover it under load.
 - Header and URL ceilings. Left at Qt's values (64 KiB of headers in total, 48 KiB
   for one field, 128 fields, a 64 KiB URL), which no browser approaches. They are
-  named here because they are the only thing bounding a peer that dribbles a request
-  forever, and at one byte every few seconds that bound is days away.
+  named here because they are the only thing bounding how long one peer may dribble a
+  request, and at one byte every few seconds that bound is days away. How many such
+  peers there may be is the socket cap's job, not theirs.
 - Read buffer ceiling. Capping one frame does not cap their sum, so the transport
   also caps what one connection may hold unread: past the ceiling it discards the
   buffer and closes the connection, rather than letting a peer that sends faster

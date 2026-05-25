@@ -1077,6 +1077,18 @@ bool WebEdge::start()
     if (m_config.maxRequestsPerSecond > 0) {
         httpConfiguration.setRateLimitPerSecond(m_config.maxRequestsPerSecond);
     }
+    // The ceiling on sockets, as opposed to the ceiling on links below it.
+    //
+    // max_connections_per_ip and max_connections_global are counted in hostConnection(),
+    // which runs once an upgrade has been accepted, so neither of them ever saw a peer that
+    // opens a socket and does not finish a request. That peer used to have no bound at all
+    // beyond the header ceiling it would take days to reach, and docs/security.md said so
+    // rather than defending it. These two are Qt 6.12's, they are counted at accept, and
+    // they are what closes it. The multiplier is in webedgeconfig.h with its reasoning.
+    httpConfiguration.setMaximumConnections(
+        static_cast<quint32>(m_config.maxConnectionsGlobal * WebEdgeConfig::SocketsPerLink));
+    httpConfiguration.setMaximumConnectionsPerHost(
+        static_cast<quint32>(m_config.maxConnectionsPerIp * WebEdgeConfig::SocketsPerLink));
     m_httpServer->setConfiguration(httpConfiguration);
     if (m_config.serveClient) {
         m_httpServer->route(m_config.clientRoute, [this](const QHttpServerRequest &request) {

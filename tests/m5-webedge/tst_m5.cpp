@@ -32,6 +32,8 @@
 #include <QWebSocketHandshakeOptions>
 
 #include <array>
+#include <memory>
+#include <vector>
 
 using SynQt::WebEdge;
 using SynQt::WebEdgeConfig;
@@ -1119,6 +1121,69 @@ private slots:
 
         QTRY_VERIFY(connectedSpy.count() == 1);
         QCOMPARE(rejectedSpy.count(), 0);
+    }
+
+    void socketCapRefusesAPeerThatOpensSocketsAndSendsNothing()
+    {
+        // The hole the connection cap on its own never covers.
+        //
+        // max_connections_per_ip is counted in hostConnection(), which runs after an
+        // upgrade is accepted. A peer that connects and never finishes a request is never
+        // hosted, so it was never counted, and nothing else closed it either: measured, such
+        // a socket was still open a minute later with only the 64 KiB header ceiling in the
+        // way, which at a byte every few seconds is days out. One address could therefore
+        // hold as many sockets as the process had descriptors.
+        //
+        // Qt 6.12's QHttpServerConfiguration::setMaximumConnectionsPerHost counts at accept
+        // instead, which is what this asserts. The ceiling is the link ceiling times
+        // WebEdgeConfig::SocketsPerLink, so at one link per address it is eight sockets.
+        WebEdgeConfig config{makeConfig(false)};
+        config.maxConnectionsPerIp = 1;
+        QQmlEngine engine;
+        WebEdge edge{config, &engine};
+        QVERIFY2(edge.start(), qPrintable(edge.errorString()));
+
+        // Hold the ceiling open with sockets that complete a TLS handshake and then say
+        // nothing at all, which is exactly the peer the connection cap cannot see.
+        //
+        // QTRY_VERIFY and not waitForEncrypted. The edge is in this process, so a blocking
+        // wait stops the event loop that would have to accept the connection and the
+        // handshake never completes. The first draft did exactly that and timed out on
+        // socket one of eight, which reads like a refused connection and is not one.
+        const int ceiling{config.maxConnectionsPerIp * WebEdgeConfig::SocketsPerLink};
+        std::vector<std::unique_ptr<QSslSocket>> held;
+        for (int i{0}; i < ceiling; ++i) {
+            auto socket{std::make_unique<QSslSocket>()};
+            socket->setSslConfiguration(insecureClientConfig());
+            socket->connectToHostEncrypted(QStringLiteral("127.0.0.1"), edge.serverPort());
+            QTRY_VERIFY2(socket->isEncrypted(),
+                         qPrintable(QStringLiteral("socket %1 of %2 never came up: %3")
+                                        .arg(i + 1).arg(ceiling).arg(socket->errorString())));
+            held.push_back(std::move(socket));
+        }
+
+        // The one over the ceiling. It is a well-formed request from a legitimate client,
+        // and it is refused anyway, because what is over the limit is the socket.
+        QSslSocket overTheLimit;
+        QSignalSpy answered{&overTheLimit, &QIODevice::readyRead};
+        QObject::connect(&overTheLimit, &QSslSocket::encrypted, &overTheLimit, [&]() {
+            overTheLimit.write("GET / HTTP/1.1\r\nHost: localhost\r\n\r\n");
+            overTheLimit.flush();
+        });
+        overTheLimit.setSslConfiguration(insecureClientConfig());
+        overTheLimit.connectToHostEncrypted(QStringLiteral("127.0.0.1"), edge.serverPort());
+        // Not asserted on the handshake: Qt is entitled to accept the TCP connection and
+        // drop it, so what has to be true is that no answer ever comes back.
+        QTest::qWait(2000);
+        QCOMPARE(answered.count(), 0);
+
+        // And the ceiling is a ceiling rather than a wall. Letting one of the held sockets
+        // go readmits the next caller, so a burst that ends does not lock an address out.
+        held.pop_back();
+        QNetworkReply *afterRelease{httpGet(edge.httpOrigin() + QStringLiteral("/"))};
+        QVERIFY(afterRelease);
+        QCOMPARE(afterRelease->error(), QNetworkReply::NoError);
+        afterRelease->deleteLater();
     }
 
     void connectionCapRefusesTheOneOverTheLimit()
