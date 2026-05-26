@@ -12,7 +12,7 @@
 # points links ../service and stays LGPLv3 (docs/licensing.md).
 
 # GLOBAL: see the note in ../service/CMakeLists.txt.
-find_package(Qt6 6.11 REQUIRED COMPONENTS
+find_package(Qt6 6.12 REQUIRED COMPONENTS
     Core Network Qml RemoteObjects WebSockets HttpServer GLOBAL)
 
 if(NOT TARGET SynQtIdentity)
@@ -43,15 +43,7 @@ qt_add_library(SynQtEdge STATIC
 
 set_target_properties(SynQtEdge PROPERTIES AUTOMOC ON)
 
-# The development sign-in, and only in a development build.
-#
-# Not a runtime branch. A capability that exists in the binary can be reached through a bug
-# in whatever checks the flag, through an argument someone passes, or simply read out of the
-# strings by anyone holding the artifact; a file CMake never names is not compiled, not
-# linked, and not there. `synqt dev` configures with SYNQT_DEV_TOOLS=ON and `synqt build`
-# never does, the header refuses to be included without it, and the generated main does not
-# emit the call for a release profile. tests/dev-exclusion reads the symbol tables of both
-# builds and proves the difference. See cmake/SynQtBuildFlags.cmake and docs/security.md.
+# The development sign-in, compiled only with SYNQT_DEV_TOOLS (docs/security.md).
 if(SYNQT_DEV_TOOLS)
     target_sources(SynQtEdge PRIVATE
         identitypicker.cpp
@@ -63,14 +55,8 @@ endif()
 
 target_include_directories(SynQtEdge PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 
-# The framework's own connect points, generated the same way an app's are: Pages
-# (edge-delivered pages) and SessionState (who this connection's visitor is). PagesService's
-# fetchPageFor returns the generated PageResponse record, so the library needs the
-# owner-side generated code for its own compile, exactly as an app entity would for its
-# own connect points. The generated header is exposed PUBLIC (unlike a normal
-# per-executable synqt_add_contract call) so a consumer needing "rep_pages_source.h"
-# (e.g. a test constructing a PageResponse) finds it without generating and linking its
-# own duplicate copy of PagesSourceHelper/PagesCaller alongside this static library's.
+# The framework's own connect points, Pages and SessionState. The generated headers are
+# PUBLIC so no linker of this library generates a second copy.
 synqt_add_contract(SynQtEdge ROLE source
     SYN "${CMAKE_CURRENT_SOURCE_DIR}/contracts/Pages.syn"
         "${CMAKE_CURRENT_SOURCE_DIR}/contracts/SessionState.syn")

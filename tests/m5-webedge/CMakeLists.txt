@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-# M5 acceptance: the web edge, over real TLS. Native host kit. A throwaway localhost
+# The web edge, over real TLS. Native host kit. A throwaway localhost
 # server certificate is generated at configure time into the build tree (never committed).
 
 cmake_minimum_required(VERSION 3.21)
@@ -9,7 +9,7 @@ project(synqt_m5_webedge LANGUAGES CXX)
 
 include("${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/SynQtBuildFlags.cmake")
 
-find_package(Qt6 6.11 REQUIRED COMPONENTS
+find_package(Qt6 6.12 REQUIRED COMPONENTS
     Core Network Qml RemoteObjects WebSockets HttpServer Test)
 qt_standard_project_setup()
 
@@ -56,15 +56,8 @@ target_link_libraries(tst_m5 PRIVATE
 
 add_test(NAME m5 COMMAND tst_m5)
 
-# The client-address resolver on its own. It needs no server, no certificate and no
-# contract: it is a pure function of the peer, the header and the configured list, and
-# that is exactly why it is testable to the corner cases an end-to-end upgrade cannot
-# reach (a forged hop, a trusted hop, a malformed entry).
-#
-# It links SynQtService, which is where the class lives, and not SynQtEdge: the browser
-# side of an edge and an entity's inbound API surface both resolve a client address, and
-# only one of those two may link Qt HTTP Server. Building the test against the narrower
-# library is what keeps that true.
+# The client-address resolver on its own, down to forged and malformed hops. It links
+# SynQtService, not SynQtEdge, since an inbound API surface resolves addresses too.
 qt_add_executable(tst_clientaddress tst_clientaddress.cpp)
 
 target_link_libraries(tst_clientaddress PRIVATE
@@ -76,9 +69,7 @@ target_link_libraries(tst_clientaddress PRIVATE
 
 add_test(NAME clientaddress COMMAND tst_clientaddress)
 
-# The rate-window table on its own. Three gates share it, and its interesting case is what
-# a table does when it fills up, which an end-to-end test cannot reach without arriving from
-# four thousand addresses. Same reasoning as tst_clientaddress above.
+# The rate-window table on its own, including when it fills up.
 qt_add_executable(tst_ratewindow tst_ratewindow.cpp)
 
 target_link_libraries(tst_ratewindow PRIVATE

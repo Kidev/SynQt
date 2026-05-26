@@ -11,7 +11,7 @@ project(SynQtCustomProviderTest LANGUAGES CXX)
 
 include("${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/SynQtBuildFlags.cmake")
 
-find_package(Qt6 6.11 REQUIRED COMPONENTS Core Test Sql Network Qml)
+find_package(Qt6 6.12 REQUIRED COMPONENTS Core Test Sql Network Qml)
 qt_standard_project_setup()
 enable_testing()
 
@@ -36,15 +36,7 @@ qt_add_executable(tst_customprovider
 
 target_link_libraries(tst_customprovider PRIVATE Qt6::Test SynQtProviders)
 
-# A scaffolded provider is entity code and is held to the entity code standard: it must
-# compile clean. The skeleton is the first C++ a SynQt user reads.
-#
-# Per compiler, because these are not a portable spelling. cl.exe parses -Wall as its own
-# /Wall and then reads -Wextra as /W + "extra", which is not a number: "Command line error
-# D8021: invalid numeric argument '/Wextra'". That is a hard failure before any code is
-# looked at, so the Windows column was not enforcing this standard loosely; it could not
-# build the fixture at all. /W4 /WX is the MSVC equivalent (/Wall there means every warning
-# including the off-by-default ones, which is not what -Wall means).
+# A scaffolded provider must compile clean. Warning flags per compiler: cl.exe rejects -Wextra.
 if(MSVC)
     target_compile_options(tst_customprovider PRIVATE /W4 /WX)
 else()

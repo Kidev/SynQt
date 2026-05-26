@@ -10,7 +10,7 @@ project(synqt_url_routing LANGUAGES CXX)
 
 include("${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/SynQtBuildFlags.cmake")
 
-find_package(Qt6 6.11 REQUIRED COMPONENTS
+find_package(Qt6 6.12 REQUIRED COMPONENTS
     Core Network HttpServer WebSockets Qml RemoteObjects Test)
 qt_standard_project_setup()
 

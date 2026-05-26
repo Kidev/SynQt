@@ -6,13 +6,11 @@
 # origin, body size) before anything reaches QML, and `Api` is the helper the entity's own
 # singleton declares its routes on.
 #
-# Its own library because Qt HTTP Server is GPLv3-only: an entity that serves no inbound
-# surface must not link it, and with this split it does not. It deliberately does NOT link
-# ../identity: a gateway authenticates machine callers with a key, not with OAuth, so it
-# has no reason to carry Qt Network Authorization (docs/licensing.md).
+# Its own library because Qt HTTP Server is GPLv3 only. It does not link ../identity:
+# callers authenticate with a key (docs/licensing.md).
 
 # GLOBAL: see the note in ../service/CMakeLists.txt.
-find_package(Qt6 6.11 REQUIRED COMPONENTS Core Network Qml HttpServer GLOBAL)
+find_package(Qt6 6.12 REQUIRED COMPONENTS Core Network Qml HttpServer GLOBAL)
 
 if(NOT TARGET SynQtService)
     add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../service" "${CMAKE_BINARY_DIR}/SynQtService")

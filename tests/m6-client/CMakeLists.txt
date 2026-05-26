@@ -1,8 +1,8 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-# M6 acceptance (functional core, native = the desktop runtime): the counter runs
-# against a real web edge, two clients sync, state transitions, reconnect, route guard.
+# The client runtime, natively (which is also the desktop runtime): the counter runs against
+# a real web edge, two clients sync, state transitions, reconnect, route guard.
 # Native host kit. A throwaway localhost server cert is generated at configure time.
 
 cmake_minimum_required(VERSION 3.21)
@@ -10,7 +10,7 @@ project(synqt_m6_client LANGUAGES CXX)
 
 include("${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/SynQtBuildFlags.cmake")
 
-find_package(Qt6 6.11 REQUIRED COMPONENTS
+find_package(Qt6 6.12 REQUIRED COMPONENTS
     Core Network Qml RemoteObjects WebSockets HttpServer Test)
 qt_standard_project_setup()
 

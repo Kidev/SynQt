@@ -16,7 +16,7 @@
 # build hands a sign-in to the system browser. Both client targets link Gui anyway (a client
 # renders QML), and on the WebAssembly build the object file that uses it is never pulled
 # out of this static library, because nothing on that side references it.
-find_package(Qt6 6.11 REQUIRED COMPONENTS Core Gui Network WebSockets Qml RemoteObjects GLOBAL)
+find_package(Qt6 6.12 REQUIRED COMPONENTS Core Gui Network WebSockets Qml RemoteObjects GLOBAL)
 
 # synqt_add_contract, for the SessionState connect point below.
 include("${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/SynQtContracts.cmake")

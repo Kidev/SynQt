@@ -10,7 +10,7 @@ project(synqt_entity_test LANGUAGES CXX)
 
 include("${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/SynQtBuildFlags.cmake")
 
-find_package(Qt6 6.11 REQUIRED COMPONENTS Core Gui Qml Quick QuickTest RemoteObjects Test)
+find_package(Qt6 6.12 REQUIRED COMPONENTS Core Gui Qml Quick QuickTest RemoteObjects Test)
 qt_standard_project_setup()
 
 include("${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/SynQtContracts.cmake")

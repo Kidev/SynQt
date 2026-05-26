@@ -10,7 +10,7 @@ project(synqt_bench_monitor LANGUAGES CXX)
 
 include("${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/SynQtBuildFlags.cmake")
 
-find_package(Qt6 6.11 REQUIRED COMPONENTS Core Network Qml RemoteObjects WebSockets)
+find_package(Qt6 6.12 REQUIRED COMPONENTS Core Network Qml RemoteObjects WebSockets)
 qt_standard_project_setup()
 
 add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../../src/service" "${CMAKE_BINARY_DIR}/SynQtService")

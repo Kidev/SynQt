@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-# The mesh-transport benchmark (M3): mutual TLS on loopback vs the opt-in local socket,
+# The mesh-transport benchmark: mutual TLS on loopback vs the opt-in local socket,
 # through the framework's SynQt::MeshServer / MeshClient. Native host kit. Throwaway
 # certificates are generated at configure time into the build tree (never committed).
 
@@ -10,7 +10,7 @@ project(synqt_bench_mesh LANGUAGES CXX)
 
 include("${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/SynQtBuildFlags.cmake")
 
-find_package(Qt6 6.11 REQUIRED COMPONENTS Core Network RemoteObjects)
+find_package(Qt6 6.12 REQUIRED COMPONENTS Core Network RemoteObjects)
 qt_standard_project_setup()
 
 # The framework service runtime library that owns the mesh transport.

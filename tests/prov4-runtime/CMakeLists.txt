@@ -1,17 +1,17 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-# PROV-4 acceptance: EntityRuntime injects a blueprint's backend helper (Db/Cache/Docs/Http/Jobs)
+# EntityRuntime injects a blueprint's backend helper (Db/Cache/Docs/Http/Jobs)
 # into every owned Source from the entity's provider config, with no manual wiring. Native
 # host kit; a local-socket connect point keeps the owner cert-free (this proves injection,
-# not the mesh, which M3/M4 already cover).
+# not the mesh, which tests/m3-mesh and tests/m4-topology cover).
 
 cmake_minimum_required(VERSION 3.21)
 project(synqt_prov4_runtime LANGUAGES CXX)
 
 include("${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/SynQtBuildFlags.cmake")
 
-find_package(Qt6 6.11 REQUIRED COMPONENTS Core Gui Sql Network Qml RemoteObjects Test)
+find_package(Qt6 6.12 REQUIRED COMPONENTS Core Gui Sql Network Qml RemoteObjects Test)
 qt_standard_project_setup()
 
 # Guarded: configured on its own, this suite is what pulls the runtime library in;

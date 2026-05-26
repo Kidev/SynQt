@@ -24,7 +24,7 @@ import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from . import appmodel, clientbuild
+from . import appmodel, clientbuild, toolchain
 
 _HEADER_CMAKE = ("# SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux\n"
                  "# SPDX-License-Identifier: Apache-2.0\n")
@@ -81,7 +81,7 @@ def render_root_cmakelists(config: Dict[str, Any], synqt_root: os.PathLike[str] 
     """
     project = config.get("project", {})
     name = project.get("name", "app")
-    qt_version = project.get("qt_version", "6.12.0")
+    qt_version = project.get("qt_version", toolchain.QT_VERSION)
     services = [e for e in appmodel.entities(config) if appmodel.is_service(e)]
 
     lines: List[str] = [_HEADER_CMAKE, "",
@@ -110,7 +110,7 @@ def render_root_cmakelists(config: Dict[str, Any], synqt_root: os.PathLike[str] 
                         'include("${SYNQT_ROOT}/cmake/SynQtContracts.cmake")', "",
                         f"find_package(Qt6 {qt_version} REQUIRED COMPONENTS "
                         "Core Gui Qml Quick QuickControls2 Network RemoteObjects WebSockets)",
-                        "qt_standard_project_setup(REQUIRES 6.11)", ""]
+                        "qt_standard_project_setup(REQUIRES 6.12)", ""]
 
     clients = [entity for entity in appmodel.entities(config)
                if appmodel.is_client(entity)]

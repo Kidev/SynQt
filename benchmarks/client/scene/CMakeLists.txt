@@ -11,8 +11,8 @@ project(synqt_client_bench LANGUAGES CXX)
 
 include("${CMAKE_CURRENT_SOURCE_DIR}/../../../cmake/SynQtBuildFlags.cmake")
 
-find_package(Qt6 6.11 REQUIRED COMPONENTS Core Gui Qml Quick)
-qt_standard_project_setup(REQUIRES 6.11)
+find_package(Qt6 6.12 REQUIRED COMPONENTS Core Gui Qml Quick)
+qt_standard_project_setup(REQUIRES 6.12)
 
 qt_add_executable(clientbench main.cpp framereporter.h)
 

@@ -11,7 +11,7 @@ project(synqt_consumer_facade LANGUAGES CXX)
 
 include("${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/SynQtBuildFlags.cmake")
 
-find_package(Qt6 6.11 REQUIRED COMPONENTS Core Gui Qml RemoteObjects WebSockets Test)
+find_package(Qt6 6.12 REQUIRED COMPONENTS Core Gui Qml RemoteObjects WebSockets Test)
 qt_standard_project_setup()
 
 # The client runtime (ServerAccessor + the shared consumer surface); it pulls in

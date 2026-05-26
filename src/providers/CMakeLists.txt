@@ -8,7 +8,7 @@
 # connect point or in a log. A pure service links this; the client never does.
 
 # GLOBAL: see the note in src/service/CMakeLists.txt. Qt6::Sql is public on this target.
-find_package(Qt6 6.11 REQUIRED COMPONENTS Core Sql Network Qml GLOBAL)
+find_package(Qt6 6.12 REQUIRED COMPONENTS Core Sql Network Qml GLOBAL)
 
 qt_add_library(SynQtProviders STATIC
     ipersistenceprovider.h

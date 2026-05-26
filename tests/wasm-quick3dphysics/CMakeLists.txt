@@ -4,8 +4,8 @@
 cmake_minimum_required(VERSION 3.21)
 project(Quick3DPhysWasm LANGUAGES CXX)
 
-find_package(Qt6 6.11 REQUIRED COMPONENTS Core Gui Quick Quick3D Quick3DPhysics)
-qt_standard_project_setup(REQUIRES 6.11)
+find_package(Qt6 6.12 REQUIRED COMPONENTS Core Gui Quick Quick3D Quick3DPhysics)
+qt_standard_project_setup(REQUIRES 6.12)
 
 qt_add_executable(quick3dphys-wasm main.cpp)
 

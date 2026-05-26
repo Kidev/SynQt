@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-find_package(Qt6 6.11 REQUIRED COMPONENTS Core Gui Network RemoteObjects WebSockets)
+find_package(Qt6 6.12 REQUIRED COMPONENTS Core Gui Network RemoteObjects WebSockets)
 qt_standard_project_setup()
 
 qt_add_executable(m0-edge

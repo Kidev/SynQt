@@ -12,7 +12,7 @@
 # so the auth entity gets the engine without ever linking Qt HTTP Server.
 
 # GLOBAL: see the note in ../service/CMakeLists.txt.
-find_package(Qt6 6.11 REQUIRED COMPONENTS Core Network Qml RemoteObjects NetworkAuth GLOBAL)
+find_package(Qt6 6.12 REQUIRED COMPONENTS Core Network Qml RemoteObjects NetworkAuth GLOBAL)
 
 # jwt-cpp (MIT, header-only) for ID-token signature verification. Pinned via vcpkg; the
 # CLI resolves the toolchain (M10). Until then, locate the installed header, with a hint

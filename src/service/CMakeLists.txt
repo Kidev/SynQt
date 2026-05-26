@@ -18,7 +18,7 @@
 # default. Without it the consumer's executable is finalized in a scope where Qt6::RemoteObjects
 # and friends do not exist, and Qt warns "The RemoteObjects target is mentioned as a dependency
 # for SynQtService, but not declared. The linking might be incomplete." once per target.
-find_package(Qt6 6.11 REQUIRED COMPONENTS Core Network Qml RemoteObjects WebSockets GLOBAL)
+find_package(Qt6 6.12 REQUIRED COMPONENTS Core Network Qml RemoteObjects WebSockets GLOBAL)
 find_package(OpenSSL REQUIRED)
 
 # The shared transport adapter (guarded so several entities can pull it in once).

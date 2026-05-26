@@ -14,12 +14,12 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
 
 set(SYNQT_EDGE_URL "wss://127.0.0.1:8443/sync" CACHE STRING "Desktop client edge URL")
 
-find_package(Qt6 6.11 REQUIRED COMPONENTS Core Qml Quick QuickControls2)
+find_package(Qt6 6.12 REQUIRED COMPONENTS Core Qml Quick QuickControls2)
 
 add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../../../src/client" "${CMAKE_BINARY_DIR}/SynQtClient")
 include("${CMAKE_CURRENT_SOURCE_DIR}/../../../cmake/SynQtContracts.cmake")
 
-qt_standard_project_setup(REQUIRES 6.11)
+qt_standard_project_setup(REQUIRES 6.12)
 
 # The counter client (browser WASM and native desktop, from one QML)
 set_source_files_properties("${CMAKE_CURRENT_SOURCE_DIR}/../client/Main.qml"
@@ -50,7 +50,7 @@ endif()
 
 # The edge server (host only; not built for WASM)
 if(NOT EMSCRIPTEN)
-    find_package(Qt6 6.11 REQUIRED COMPONENTS Network RemoteObjects WebSockets HttpServer)
+    find_package(Qt6 6.12 REQUIRED COMPONENTS Network RemoteObjects WebSockets HttpServer)
     add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../../../src/edge" "${CMAKE_BINARY_DIR}/SynQtEdge")
 
     qt_add_executable(counter-edge "${CMAKE_CURRENT_SOURCE_DIR}/../edge/main.cpp")

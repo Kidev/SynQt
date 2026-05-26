@@ -9,7 +9,7 @@ project(synqt_graphics LANGUAGES CXX)
 
 include("${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/SynQtBuildFlags.cmake")
 
-find_package(Qt6 6.11 REQUIRED COMPONENTS Core Network Qml RemoteObjects WebSockets Test)
+find_package(Qt6 6.12 REQUIRED COMPONENTS Core Network Qml RemoteObjects WebSockets Test)
 qt_standard_project_setup()
 
 if(NOT TARGET SynQtClient)
@@ -24,7 +24,7 @@ add_test(NAME graphics COMMAND tst_graphics)
 
 # The type fixtures need a real scene graph, so they need Quick, and Qt Quick 3D when the
 # kit has it. Absent, the Quick3D case skips and says so rather than silently not running.
-find_package(Qt6 6.11 QUIET COMPONENTS Quick Quick3D)
+find_package(Qt6 6.12 QUIET COMPONENTS Quick Quick3D)
 if(TARGET Qt6::Quick)
     qt_add_executable(tst_softwarebackend tst_softwarebackend.cpp)
     target_link_libraries(tst_softwarebackend PRIVATE SynQtClient Qt6::Quick Qt6::Test)

@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-# FIX-2 acceptance: the multiplayer tutorial's movement authority and guest-list gate. The
+# The multiplayer tutorial's movement authority and guest-list gate. The
 # web edge owns one authoritative arena (a World simulated once, injected into each
 # per-caller Source by name) and integrates every blob itself from an aim point;
 # `scope: player` on the connect point means an under-scoped session never acquires the
@@ -12,7 +12,7 @@ project(synqt_fix2_arena LANGUAGES CXX)
 
 include("${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/SynQtBuildFlags.cmake")
 
-find_package(Qt6 6.11 REQUIRED COMPONENTS
+find_package(Qt6 6.12 REQUIRED COMPONENTS
     Core Gui Network Qml RemoteObjects WebSockets HttpServer Test)
 qt_standard_project_setup()
 
@@ -31,7 +31,7 @@ execute_process(
     COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/gen-cert.sh" "${FIX2_CERTS}"
     RESULT_VARIABLE _cert_rc ERROR_VARIABLE _cert_err)
 if(NOT _cert_rc EQUAL 0)
-    message(FATAL_ERROR "FIX-2 certificate generation failed:\n${_cert_err}")
+    message(FATAL_ERROR "fix2-arena: certificate generation failed:\n${_cert_err}")
 endif()
 
 enable_testing()

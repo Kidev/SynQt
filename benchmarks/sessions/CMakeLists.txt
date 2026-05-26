@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-# The sessions benchmark (M7): SessionManager lookup and Caller.hasScope cost as the live
+# The sessions benchmark: SessionManager lookup and Caller.hasScope cost as the live
 # session count grows. Native host kit. Links the framework service runtime for the real
 # SessionManager and Caller.
 
@@ -10,7 +10,7 @@ project(synqt_bench_sessions LANGUAGES CXX)
 
 include("${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/SynQtBuildFlags.cmake")
 
-find_package(Qt6 6.11 REQUIRED COMPONENTS
+find_package(Qt6 6.12 REQUIRED COMPONENTS
     Core Gui Network NetworkAuth Qml RemoteObjects WebSockets HttpServer)
 qt_standard_project_setup()
 

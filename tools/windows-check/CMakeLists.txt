@@ -11,7 +11,7 @@ project(synqt_windows_check LANGUAGES CXX)
 
 include("${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/SynQtBuildFlags.cmake")
 
-find_package(Qt6 6.11 REQUIRED COMPONENTS Core)
+find_package(Qt6 6.12 REQUIRED COMPONENTS Core)
 qt_standard_project_setup()
 
 # Console subsystem (no WIN32), so the probe's stdout line is visible when it is run on

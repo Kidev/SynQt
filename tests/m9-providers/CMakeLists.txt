@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-# M9 acceptance: the family interfaces and bundled providers. Persistence (sqlite: store,
+# The family interfaces and bundled providers. Persistence (sqlite: store,
 # query, persist across restart, injection inertness, no deadlock; the Source calls only
 # the Db interface; postgres refuses plaintext in release), cache (bounded eviction),
 # document round-trip, and the gateway/jobs helpers. Native host kit.
@@ -11,7 +11,7 @@ project(synqt_m9_providers LANGUAGES CXX)
 
 include("${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/SynQtBuildFlags.cmake")
 
-find_package(Qt6 6.11 REQUIRED COMPONENTS Core Gui Sql Network Qml Test)
+find_package(Qt6 6.12 REQUIRED COMPONENTS Core Gui Sql Network Qml Test)
 qt_standard_project_setup()
 
 # Guarded: configured on its own, this suite is what pulls the runtime library in;

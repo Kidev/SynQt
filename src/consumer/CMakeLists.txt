@@ -14,7 +14,7 @@
 # it, Qt's link-interface walk warns "the Qml target is mentioned as a dependency but not
 # declared" for every such consumer. This library is pulled in via add_subdirectory, so the
 # promotion is the leaf's responsibility, not each consumer's.
-find_package(Qt6 6.11 REQUIRED COMPONENTS Core Qml RemoteObjects GLOBAL)
+find_package(Qt6 6.12 REQUIRED COMPONENTS Core Qml RemoteObjects GLOBAL)
 
 qt_add_library(SynQtConsumer STATIC
     actingfor.cpp

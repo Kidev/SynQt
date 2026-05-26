@@ -9,7 +9,7 @@ project(synqt_remote_pages LANGUAGES CXX)
 
 include("${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/SynQtBuildFlags.cmake")
 
-find_package(Qt6 6.11 REQUIRED COMPONENTS
+find_package(Qt6 6.12 REQUIRED COMPONENTS
     Core Network Qml RemoteObjects WebSockets HttpServer Test)
 qt_standard_project_setup()
 
@@ -36,8 +36,8 @@ add_test(NAME pagestore COMMAND tst_pagestore)
 
 qt_add_executable(tst_remotepage tst_remotepage.cpp)
 
-# The compiled-in half of the route table, reused from Plan A's url-routing fixtures
-# rather than duplicated: the "compiled-in route wins" test needs a real qrc URL.
+# The compiled-in half of the route table, reused from the url-routing fixtures rather
+# than duplicated: the "compiled-in route wins" test needs a real qrc URL.
 qt_add_resources(tst_remotepage "remotepage_fixtures"
     PREFIX "/fixtures"
     BASE "${CMAKE_CURRENT_SOURCE_DIR}/../url-routing/fixtures"

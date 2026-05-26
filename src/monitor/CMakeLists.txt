@@ -5,14 +5,10 @@
 # operator console. It owns the history (SQLite), the operator credentials, and the
 # console-facing connect points.
 #
-# Its own library for two reasons. The license: it links Qt Sql, and through SynQtEdge it
-# links Qt HTTP Server, so an entity that links this is GPLv3 and only a `type: monitor`
-# entity does. And the shape: nothing an ordinary service does needs a store of every
-# entity's events, so putting it in SynQtService would put a database engine into every
-# binary in a project to serve one of them.
+# Its own library: it links Qt HTTP Server (GPLv3) and Qt Sql, which no other service needs.
 
 # GLOBAL: see the note in ../service/CMakeLists.txt.
-find_package(Qt6 6.11 REQUIRED COMPONENTS
+find_package(Qt6 6.12 REQUIRED COMPONENTS
     Core Network Qml RemoteObjects WebSockets HttpServer Sql GLOBAL)
 
 if(NOT TARGET SynQtEdge)
@@ -42,30 +38,21 @@ set_target_properties(SynQtMonitor PROPERTIES AUTOMOC ON)
 
 target_include_directories(SynQtMonitor PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 
-# The monitor's own two connect points: `ingest`, which every service reports through, and
-# `console`, which the operator's client reads. They are framework contracts, not app
-# contracts: no `synqt.yaml` declares them and no project carries an `Ingest.syn`, so the
-# monitor's generated main calls the Source registrations from this library rather than
-# compiling its own copy. That is what makes adding a monitor the one-line configuration
-# change it is meant to be, and what keeps the console bundle independent of the topology it
-# watches. Exposed PUBLIC for the same reason SynQtIdentity's are.
+# The framework contracts `ingest` and `console`. The generated main registers their
+# Sources from this library.
 synqt_add_contract(SynQtMonitor ROLE source
     SYN "${CMAKE_CURRENT_SOURCE_DIR}/contracts/Ingest.syn"
         "${CMAKE_CURRENT_SOURCE_DIR}/contracts/Console.syn")
 target_include_directories(SynQtMonitor PUBLIC
     "${CMAKE_CURRENT_BINARY_DIR}/synqt_generated/SynQtMonitor"
     "${CMAKE_CURRENT_BINARY_DIR}")
-# PUBLIC, unlike the PRIVATE link synqt_add_contract makes. The monitor's generated main
-# includes both Source helpers itself, to call their registration functions, and a helper
-# header includes <sourcemodel.h>; without this that include resolves in this library and
-# not in the binary that links it.
+# PUBLIC: the generated main includes the Source helpers, which include <sourcemodel.h>.
 target_link_libraries(SynQtMonitor PUBLIC SynQtContract)
 
 target_link_libraries(SynQtMonitor PUBLIC
     SynQtEdge
     Qt6::Core
-    # The cold tier's only dependency: OTLP over HTTP with JSON encoding needs a network
-    # client and nothing else, which is why that encoding was chosen over protobuf.
+    # OTLP over HTTP/JSON needs only a network client.
     Qt6::Network
     Qt6::Sql
 )

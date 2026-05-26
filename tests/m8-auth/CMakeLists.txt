@@ -1,17 +1,16 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-# M8 acceptance: the edge login/callback flow (Authorization Code + PKCE + framework
-# state + edge-held secret), identity normalization, the scope-mapping hook, the httpOnly
-# session cookie, and the dev-stub gate. Driven end to end against the in-process dev stub
-# provider. Native host kit.
+# The edge login flow (Authorization Code + PKCE + state + edge-held secret),
+# identity normalization, the scope-mapping hook, the session cookie and the dev-stub gate,
+# against the in-process dev stub. Native host kit.
 
 cmake_minimum_required(VERSION 3.21)
 project(synqt_m8_auth LANGUAGES CXX)
 
 include("${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/SynQtBuildFlags.cmake")
 
-find_package(Qt6 6.11 REQUIRED COMPONENTS
+find_package(Qt6 6.12 REQUIRED COMPONENTS
     Core Gui Network NetworkAuth Qml RemoteObjects Sql WebSockets HttpServer Test)
 qt_standard_project_setup()
 
@@ -33,11 +32,7 @@ endif()
 enable_testing()
 
 qt_add_executable(tst_m8 tst_m8.cpp)
-# The Identity and SessionStore Sources this suite hosts come from SynQtIdentity: they are
-# framework contracts (src/identity/contracts/), owned by the auth entity that
-# `identity.provider_entity` names, so the library carries them and the generated auth main
-# needs no app contract. This suite hosts them exactly as that generated main does, which is
-# what makes it the runtime proof behind the generator.
+# The Identity and SessionStore Sources come from SynQtIdentity, hosted as the generated auth main does.
 target_compile_definitions(tst_m8 PRIVATE
     M8_SRCDIR="${CMAKE_CURRENT_SOURCE_DIR}"
     M8_CERT_DIR="${M8_CERTS}")
@@ -56,9 +51,7 @@ target_link_libraries(tst_m8 PRIVATE
 
 add_test(NAME m8 COMMAND tst_m8)
 
-# The desktop half of the same feature: the loopback redirect, the claim code, and a native
-# client signing in end to end. It is the one suite that links both runtimes, because the
-# flow is a conversation between them.
+# The desktop sign-in: loopback redirect, claim code, native client. Links both runtimes.
 if(NOT TARGET SynQtClient)
     add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../../src/client" "${CMAKE_BINARY_DIR}/SynQtClient")
 endif()
@@ -78,9 +71,7 @@ target_link_libraries(tst_desktop PRIVATE
 )
 add_test(NAME desktop-signin COMMAND tst_desktop)
 
-# Staying signed in on the desktop: the device credential, its rotation, and the reuse
-# detection. Qt6::Sql not because the suite talks to a database, but because moving a row's
-# timestamps is the only way to reach the far side of a window measured in days.
+# The device credential. Qt6::Sql moves a row's timestamps to reach a window measured in days.
 qt_add_executable(tst_device tst_device.cpp)
 target_compile_definitions(tst_device PRIVATE M8_SRCDIR="${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(tst_device PRIVATE
@@ -97,9 +88,7 @@ target_link_libraries(tst_device PRIVATE
 )
 add_test(NAME device-credential COMMAND tst_device)
 
-# The client half: what goes into the OS secure store, that nothing goes anywhere else, and
-# that a second launch comes back signed in. Links both runtimes, because the last of those
-# is a conversation between them.
+# The client half of the device credential. Links both runtimes.
 qt_add_executable(tst_devicestore tst_devicestore.cpp)
 target_compile_definitions(tst_devicestore PRIVATE M8_SRCDIR="${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(tst_devicestore PRIVATE
@@ -115,11 +104,8 @@ target_link_libraries(tst_devicestore PRIVATE
     Qt6::Test
 )
 if(UNIX AND NOT APPLE)
-    # The Linux store is the Secret Service, and no CI runner or container has one logged in,
-    # so without help this test skips everywhere except a developer's desktop, where it would
-    # instead write a credential into the keyring they keep their life in. The wrapper gives it
-    # a private bus and a private keyring, and falls through to running the binary directly
-    # where those tools are absent, which leaves the skip exactly as it is today.
+    # The wrapper gives the Linux store a private bus and keyring; without those tools the
+    # test runs directly and skips.
     add_test(NAME device-store
              COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/../lib/keyring-session.sh"
                      "$<TARGET_FILE:tst_devicestore>")
@@ -127,9 +113,7 @@ else()
     add_test(NAME device-store COMMAND tst_devicestore)
 endif()
 
-# The env file behind every `env:` reference: it is what turns the NAME of a secret in
-# synqt.yaml into its value at startup, so its precedence rules are part of the security
-# story rather than a convenience. No contract, no certificates, no network.
+# The env file behind every `env:` reference, and its precedence.
 qt_add_executable(tst_envfile tst_envfile.cpp)
 target_link_libraries(tst_envfile PRIVATE SynQtService Qt6::Core Qt6::Test)
 add_test(NAME envfile COMMAND tst_envfile)

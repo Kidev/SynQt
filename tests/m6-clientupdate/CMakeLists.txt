@@ -10,7 +10,7 @@ project(m6_clientupdate LANGUAGES CXX)
 include("${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/SynQtBuildFlags.cmake")
 set(CMAKE_AUTOMOC ON)
 
-find_package(Qt6 6.11 REQUIRED COMPONENTS Core Qml Test)
+find_package(Qt6 6.12 REQUIRED COMPONENTS Core Qml Test)
 
 enable_testing()
 

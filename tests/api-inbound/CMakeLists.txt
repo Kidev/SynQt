@@ -11,7 +11,7 @@ project(synqt_api_inbound LANGUAGES CXX)
 
 include("${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/SynQtBuildFlags.cmake")
 
-find_package(Qt6 6.11 REQUIRED COMPONENTS Core Network Qml HttpServer Test)
+find_package(Qt6 6.12 REQUIRED COMPONENTS Core Network Qml HttpServer Test)
 qt_standard_project_setup()
 
 if(NOT TARGET SynQtGateway)

@@ -10,7 +10,7 @@ project(synqt_bench_persistence LANGUAGES CXX)
 
 include("${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/SynQtBuildFlags.cmake")
 
-find_package(Qt6 6.11 REQUIRED COMPONENTS Core Gui Sql Network Qml)
+find_package(Qt6 6.12 REQUIRED COMPONENTS Core Gui Sql Network Qml)
 find_package(Threads REQUIRED)
 qt_standard_project_setup()
 
