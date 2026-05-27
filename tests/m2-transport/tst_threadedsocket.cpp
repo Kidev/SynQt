@@ -16,6 +16,7 @@
 #include "socketchannel.h"
 #include "websockettransport.h"
 
+#include <QAbstractEventDispatcher>
 #include <QByteArray>
 #include <QHostAddress>
 #include <QList>
@@ -28,7 +29,10 @@
 #include <QWebSocket>
 #include <QWebSocketServer>
 
+#include <algorithm>
 #include <atomic>
+#include <memory>
+#include <vector>
 
 using SynQt::SocketChannel;
 using SynQt::WebSocketTransport;
@@ -126,6 +130,127 @@ private:
     qint64 m_writeBatchLimit{WebSocketTransport::DefaultWriteBatchLimit};
 };
 
+/// Counts the queued calls delivered on one thread.
+///
+/// It filters that thread's event dispatcher, because that is the object every crossing
+/// the split transport makes is addressed to. Nothing else is posted there while a case is
+/// measuring. The socket's own signals are queued the other way, to the device's thread.
+class CrossingCounter : public QObject
+{
+public:
+    /// Start counting on `thread`. Blocking, so a case that returns from here knows the
+    /// filter is in place before it writes anything.
+    void arm(QThread *thread)
+    {
+        m_dispatcher = QAbstractEventDispatcher::instance(thread);
+        moveToThread(thread);
+        QMetaObject::invokeMethod(this, [this]() { m_dispatcher->installEventFilter(this); },
+                                  Qt::BlockingQueuedConnection);
+    }
+
+    /// Take the filter down and put this object away on the thread it lives on, which is
+    /// the only thread allowed to touch the dispatcher's filter list.
+    void disarm()
+    {
+        QMetaObject::invokeMethod(this, [this]() {
+            m_dispatcher->removeEventFilter(this);
+            deleteLater();
+        });
+    }
+
+    int crossings() const { return m_crossings.load(); }
+    void reset() { m_crossings.store(0); }
+
+protected:
+    bool eventFilter(QObject *watched, QEvent *event) override
+    {
+        if (event->type() == QEvent::MetaCall) {
+            m_crossings.fetch_add(1);
+        }
+        return QObject::eventFilter(watched, event);
+    }
+
+private:
+    QAbstractEventDispatcher *m_dispatcher{nullptr};
+    std::atomic<int> m_crossings{0};
+};
+
+/// Several split connections sharing one IO thread, which is the shape a threaded edge is
+/// in. One QtRO host on this thread, and every browser socket on a pool thread.
+class ThreadedFanOut
+{
+public:
+    ThreadedFanOut()
+        : m_server{QStringLiteral("threadedfanout"), QWebSocketServer::NonSecureMode}
+        , m_listener{&m_server}
+    {
+        m_ioThread.start();
+    }
+
+    ~ThreadedFanOut()
+    {
+        m_counter->disarm();
+        m_transports.clear();
+        m_ioThread.quit();
+        m_ioThread.wait();
+        m_listener.close();
+        m_server.close();
+        qDeleteAll(m_clients);
+    }
+
+    bool connect(int connections)
+    {
+        if (!m_listener.listen(QHostAddress::LocalHost, 0)) {
+            return false;
+        }
+        QObject::connect(&m_server, &QWebSocketServer::newConnection, &m_server, [this]() {
+            while (QWebSocket *incoming{m_server.nextPendingConnection()}) {
+                auto *channel{new SocketChannel{incoming, m_listener.lastAccepted()}};
+                auto *transport{new WebSocketTransport{channel}};
+                transport->open(QIODevice::ReadWrite);
+                channel->moveToThread(&m_ioThread);
+                m_transports.emplace_back(transport);
+            }
+        });
+        for (int index{0}; index < connections; ++index) {
+            auto *client{new QWebSocket};
+            QObject::connect(client, &QWebSocket::binaryMessageReceived, client,
+                             [this, index](const QByteArray &message) {
+                                 m_received[index].append(message);
+                             });
+            client->open(QUrl{QStringLiteral("ws://127.0.0.1:%1").arg(m_listener.serverPort())});
+            m_clients.append(client);
+            m_received.append(QByteArray{});
+        }
+        const bool up{QTest::qWaitFor([this, connections]() {
+            return static_cast<int>(m_transports.size()) == connections
+                   && std::all_of(m_clients.cbegin(), m_clients.cend(), [](QWebSocket *client) {
+                          return client->state() == QAbstractSocket::ConnectedState;
+                      });
+        })};
+        if (!up) {
+            return false;
+        }
+        m_counter->arm(&m_ioThread);
+        return true;
+    }
+
+    WebSocketTransport *transport(int index) const { return m_transports.at(index).get(); }
+    const QByteArray &received(int index) const { return m_received.at(index); }
+    CrossingCounter *counter() const { return m_counter; }
+
+private:
+    QWebSocketServer m_server;
+    TcpListener m_listener;
+    QThread m_ioThread;
+    QList<QWebSocket *> m_clients;
+    QList<QByteArray> m_received;
+    std::vector<std::unique_ptr<WebSocketTransport>> m_transports;
+    // Deleted on its own thread by disarm(), like the channels are, so nothing takes a
+    // dispatcher's filter list down from the wrong side.
+    CrossingCounter *m_counter{new CrossingCounter};
+};
+
 } // namespace
 
 class TestThreadedSocket : public QObject
@@ -140,6 +265,7 @@ private slots:
     void aMessageLargerThanTheBatchLimitStillGoesWhole();
     void shutdownClosesASocketOnAnotherThread();
     void destroyingTheDeviceDestroysItsSocketOnItsOwnThread();
+    void aFanOutCrossesOncePerSocketThreadRatherThanOncePerConnection();
 };
 
 void TestThreadedSocket::theSocketMovesAndTheDeviceStaysPut()
@@ -282,6 +408,38 @@ void TestThreadedSocket::destroyingTheDeviceDestroysItsSocketOnItsOwnThread()
     QVERIFY2(channel.isNull(), "the channel outlived the device that owned it");
     QVERIFY2(socket.isNull(), "the socket outlived the channel it was a child of");
     QCOMPARE(destroyedOn.load(), link.ioThread());
+}
+
+/// The whole reason the split pays. A fan-out writes to every connection in one pass, so
+/// what crosses to the socket thread has to be one call carrying every connection's bytes
+/// and not one call per connection.
+///
+/// A queued call costs about a microsecond, which is nothing against what a connection's
+/// send work costs and everything against it a hundred times over. The thread holding the
+/// Sources would spend its pass posting instead of serialising, and the throughput of a
+/// threaded edge would stop climbing after two cores. That is what it did.
+void TestThreadedSocket::aFanOutCrossesOncePerSocketThreadRatherThanOncePerConnection()
+{
+    constexpr int Connections{8};
+    ThreadedFanOut fanOut;
+    QVERIFY(fanOut.connect(Connections));
+
+    // One pass. Nothing here returns to the event loop, so every write is a candidate for
+    // the same crossing. This is the shape of an owner publishing one change to N
+    // consumers, which is what QtRO does inside a single property write.
+    fanOut.counter()->reset();
+    for (int index{0}; index < Connections; ++index) {
+        const QByteArray payload{QByteArray::number(index).rightJustified(16, '0')};
+        QCOMPARE(fanOut.transport(index)->write(payload), payload.size());
+    }
+
+    QTRY_COMPARE(fanOut.received(Connections - 1),
+                 QByteArray::number(Connections - 1).rightJustified(16, '0'));
+    for (int index{0}; index < Connections; ++index) {
+        QCOMPARE(fanOut.received(index), QByteArray::number(index).rightJustified(16, '0'));
+    }
+
+    QCOMPARE(fanOut.counter()->crossings(), 1);
 }
 
 QTEST_MAIN(TestThreadedSocket)

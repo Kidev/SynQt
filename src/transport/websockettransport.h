@@ -123,8 +123,11 @@ private:
     qint64 batchData(const char *data, qint64 maxSize);
     /// Hand the accumulated batch to the channel, if there is one waiting.
     void sendBatch();
+    /// Send every batch this thread gathered during one pass, one crossing per socket
+    /// thread rather than one per connection. Runs on the QtRO host's thread.
+    static void drainBatches();
 
-    /// The socket, on the unsplit form only. Null on the split form on purpose: the
+    /// The socket, on the unsplit form only. Null on the split form, because the
     /// socket belongs to another thread there, and a pointer that is not there is a
     /// stronger guarantee than a rule about not using it.
     QPointer<QWebSocket> m_socket;

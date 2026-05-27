@@ -6,6 +6,8 @@
 #include "socketchannel.h"
 
 #include <QAbstractEventDispatcher>
+#include <QHash>
+#include <QThread>
 #include <QWebSocket>
 
 #include <algorithm>
@@ -16,10 +18,21 @@ namespace SynQt {
 
 namespace {
 
+/// One connection's worth of a pass, on its way to the thread its socket lives on.
+struct ChannelBatch
+{
+    QPointer<SocketChannel> channel;
+    QByteArray batch;
+};
+
 /// The transports on one thread that have written since the event loop last blocked.
 struct PendingFlushes
 {
     QList<QPointer<WebSocketTransport>> transports;
+    /// The split transports with a batch waiting to cross to their socket's thread.
+    QList<QPointer<WebSocketTransport>> batched;
+    /// A drain of `batched` is already posted for this pass.
+    bool drainQueued{false};
     // Compared, never dereferenced, and cleared by QPointer when the dispatcher goes: a
     // thread whose event loop is torn down and started again gets a new one to hook.
     QPointer<QAbstractEventDispatcher> hooked;
@@ -31,6 +44,52 @@ PendingFlushes &pendingFlushes()
     // QCoreApplication is, and ~QObject then walks per-thread data that is already gone.
     static thread_local PendingFlushes state;
     return state;
+}
+
+/// Put one thread's share of a pass on that thread, in one crossing.
+///
+/// The receiver is that thread's event dispatcher rather than any one connection, and it
+/// has to be. A batch addressed to a connection dies with that connection, which is right
+/// for its own bytes and wrong for the other ninety-nine sharing the crossing. The
+/// dispatcher lives as long as the thread's event loop, which is longer than any socket on
+/// it, and QPointer inside the payload is what drops the share of a connection that went.
+///
+/// Every crossing this file makes goes through here, so a batch sent on its own (a message
+/// over the size ceiling, or a connection being closed) and a batch sent with the rest of
+/// its pass are posted to the same receiver and arrive in the order they were posted.
+void deliverBatches(QThread *thread, QList<ChannelBatch> &&batches)
+{
+    if (batches.isEmpty()) {
+        return;
+    }
+    QObject *context{QAbstractEventDispatcher::instance(thread)};
+    if (!context) {
+        // A socket thread whose event loop has not started yet, which is every split
+        // connection until the pool takes it. The channel is still on this thread then, so
+        // addressing it directly is both safe and what a queued self-call would do anyway.
+        for (ChannelBatch &item : batches) {
+            if (!item.channel) {
+                continue;
+            }
+            QMetaObject::invokeMethod(item.channel,
+                                      [channel = item.channel, batch = std::move(item.batch)]() {
+                                          if (channel) {
+                                              channel->send(batch);
+                                          }
+                                      });
+        }
+        return;
+    }
+    QMetaObject::invokeMethod(
+        context,
+        [batches = std::move(batches)]() {
+            for (const ChannelBatch &item : batches) {
+                if (item.channel) {
+                    item.channel->send(item.batch);
+                }
+            }
+        },
+        Qt::QueuedConnection);
 }
 
 } // namespace
@@ -342,24 +401,69 @@ void WebSocketTransport::flushNow()
 
 /// Ask for the batch to cross when control next returns to the event loop.
 ///
-/// A queued call to itself, rather than the aboutToBlock hook the unsplit device uses.
-/// The distinction matters: on the unsplit device the bytes are already the
-/// socket's and the hook only brings a syscall forward, so a pass that never blocks costs
-/// latency and nothing else. Here the batch has not gone anywhere yet, so whatever flushes
-/// it has to run on *every* pass and not only on the ones that end in a block.
+/// A queued call, rather than the aboutToBlock hook the unsplit device uses. The
+/// distinction matters. On the unsplit device the bytes are already the socket's and the
+/// hook only brings a syscall forward, so a pass that never blocks costs latency and
+/// nothing else. Here the batch has not gone anywhere yet, so whatever flushes it has to
+/// run on *every* pass and not only on the ones that end in a block.
 /// QCoreApplication::processEvents(), which is what a nested event loop and a test both
-/// spin on, returns without ever blocking; hanging delivery off aboutToBlock would leave a
+/// spin on, returns without ever blocking. Hanging delivery off aboutToBlock would leave a
 /// batch sitting there for as long as that lasted.
+///
+/// One call for the whole thread, not one per connection. A fan-out writes to every
+/// connection in one pass, so a per-connection call would post twice per subscriber (once
+/// to gather, once to cross) and the thread holding the Sources would spend its pass
+/// posting rather than serialising. Registering here and draining once is what keeps the
+/// posts proportional to the socket threads instead of to the subscribers.
 void WebSocketTransport::scheduleBatchFlush()
 {
     if (m_flushQueued) {
         return;
     }
     m_flushQueued = true;
-    QMetaObject::invokeMethod(this, [this]() {
+    PendingFlushes &pending{pendingFlushes()};
+    pending.batched.append(this);
+    if (pending.drainQueued) {
+        return;
+    }
+    QAbstractEventDispatcher *dispatcher{QAbstractEventDispatcher::instance()};
+    if (!dispatcher) {
+        // No event loop on this thread to come back on, so there is no later to wait for.
         m_flushQueued = false;
+        pending.batched.removeAll(QPointer<WebSocketTransport>{this});
         sendBatch();
-    }, Qt::QueuedConnection);
+        return;
+    }
+    pending.drainQueued = true;
+    QMetaObject::invokeMethod(dispatcher, &WebSocketTransport::drainBatches,
+                              Qt::QueuedConnection);
+}
+
+void WebSocketTransport::drainBatches()
+{
+    PendingFlushes &pending{pendingFlushes()};
+    pending.drainQueued = false;
+    // Taken before anything is sent. A send can close a connection, and closing one must
+    // not modify the list being walked.
+    const QList<QPointer<WebSocketTransport>> due{std::move(pending.batched)};
+    pending.batched.clear();
+
+    QHash<QThread *, QList<ChannelBatch>> byThread;
+    for (const QPointer<WebSocketTransport> &transport : due) {
+        if (!transport) {
+            continue;
+        }
+        transport->m_flushQueued = false;
+        if (!transport->m_channel || transport->m_writeBatch.isEmpty()) {
+            continue;
+        }
+        byThread[transport->m_channel->thread()].append(
+            ChannelBatch{transport->m_channel, std::move(transport->m_writeBatch)});
+        transport->m_writeBatch.clear();
+    }
+    for (auto it = byThread.begin(); it != byThread.end(); ++it) {
+        deliverBatches(it.key(), std::move(it.value()));
+    }
 }
 
 /// Gather one QtRO message into the batch that crosses to the socket's thread.
@@ -384,22 +488,23 @@ qint64 WebSocketTransport::batchData(const char *data, qint64 maxSize)
     return maxSize;
 }
 
+/// Cross with this connection's batch alone, ahead of whatever else the pass gathers.
+///
+/// Two callers, and neither is the fan-out. A message that would take the batch past the
+/// size ceiling, and a connection being closed deliberately. Both go out through
+/// deliverBatches() like the drain does, so the two are posted to one receiver and this
+/// connection's bytes stay in the order it wrote them.
 void WebSocketTransport::sendBatch()
 {
     if (m_writeBatch.isEmpty() || !m_channel) {
         return;
     }
-    // Moved into the call rather than copied: the batch is the one allocation this device
-    // makes per pass, and handing it over is the whole of what crosses. The channel is the
-    // context as well as the receiver, so a batch posted to a connection that is torn down
-    // before it runs is dropped with it rather than delivered to nothing.
-    QMetaObject::invokeMethod(m_channel,
-                              [channel = m_channel, batch = std::move(m_writeBatch)]() {
-        if (channel) {
-            channel->send(batch);
-        }
-    });
+    // Moved into the call rather than copied. The batch is the one allocation this device
+    // makes per pass, and handing it over is the whole of what crosses.
+    QList<ChannelBatch> alone;
+    alone.append(ChannelBatch{m_channel, std::move(m_writeBatch)});
     m_writeBatch.clear();
+    deliverBatches(m_channel->thread(), std::move(alone));
 }
 
 } // namespace SynQt
