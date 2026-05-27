@@ -911,7 +911,7 @@ private slots:
     // Why `security.session_transport: subprotocol` is refused rather than built.
     //
     // Carrying the session in `Sec-WebSocket-Protocol` needs the server to select one of
-    // the offered subprotocols and echo it in the 101, and Qt 6.11 offers no way to do that
+    // the offered subprotocols and echo it in the 101, and Qt 6.12 offers no way to do that
     // on this path: QHttpServerWebSocketUpgradeResponse::accept() takes no arguments, and
     // the QWebSocketServer that writes the response lives in QAbstractHttpServerPrivate,
     // where setSupportedSubprotocols() cannot be reached. The upgrade still succeeds, with

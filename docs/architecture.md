@@ -6,7 +6,7 @@
 This page describes how SynQt is put together and why each Qt technology was
 chosen. A SynQt system is a set of
 entities connected in a small service mesh. Each decision below cites the
-Qt 6.11 documentation it relies on.
+Qt 6.12 documentation it relies on.
 
 ## Entities
 

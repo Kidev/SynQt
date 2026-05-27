@@ -4,11 +4,11 @@
 # Licensing
 
 This page explains SynQt's licensing and the reasoning behind it, based
-on the Qt 6.11 documentation linked below. If you are making a distribution
-decision, confirm the current pages and consult legal counsel; this is analysis,
-not legal advice.
+on the Qt 6.12 documentation linked below. If you are making a distribution
+decision, confirm the current pages and consult legal counsel. This is analysis
+rather than legal advice.
 
-Sources (Qt 6.11 docs):
+Sources (Qt 6.12 docs):
 
 - Qt licensing overview: <https://doc.qt.io/qt-6/licensing.html>
 - Qt for WebAssembly (platform license): <https://doc.qt.io/qt-6/wasm.html>

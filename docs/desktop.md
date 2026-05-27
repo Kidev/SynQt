@@ -76,17 +76,17 @@ gets back to the app:
    [authentication](authentication.md).
 3. Instead of setting a cookie on its own origin, the edge redirects the system
    browser to that loopback URL (the native-app pattern of RFC 8252), handing back
-   a **one-time claim code**. Not the session: a URL a browser was sent to is
-   written into that browser's history, and on a shared machine the history
+   a one-time claim code rather than the session, because a URL a browser was sent
+   to is written into that browser's history, and on a shared machine the history
    outlives the sign-in.
 4. The app exchanges the code for the session over its own verified connection to
    the edge, and presents the session on the `wss` handshake exactly as the browser
    presents its cookie. A native client terminates its own TLS, so it sets the
    header itself and needs no cookie jar.
 
-   The session travels in the same header the browser uses, not in a WebSocket
-   subprotocol. `security.session_transport: subprotocol` is refused, because Qt 6.11
-   gives the edge no way to select the subprotocol it would have to echo; see
+   The session travels in the same header the browser uses rather than in a WebSocket
+   subprotocol. `security.session_transport: subprotocol` is refused, because Qt 6.12
+   gives the edge no way to select the subprotocol it would have to echo. See
    [`session_transport`](project-layout-and-config.md#security-browser-hardening-and-connection-gating) for the measurement.
 
 The whole flow is off unless a client entity lists the `desktop` target. You do not

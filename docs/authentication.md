@@ -27,9 +27,13 @@ Concretely, the defaults baked in by `synqt add auth`:
 - The Authorization Code flow with PKCE (on by default in Qt since 6.8), run
   entirely on the web edge. The browser never holds a client secret.
 - A random state value on every authorization request (CSRF defense). The framework
-  generates it itself with a cryptographic RNG and verifies it on the callback; it
-  does not rely on Qt to auto generate one, because the Qt 6.11 documentation makes
-  no such promise.
+  generates it itself with a cryptographic RNG and verifies it on the callback. Qt
+  6.12 does generate one when none is set, and the framework still sets its own,
+  because the state is not only a CSRF token here: it is the key the pending login is
+  filed under. The PKCE verifier, the OIDC nonce and the browser binding are stored
+  against it before the browser ever leaves, and the callback is answered by looking
+  the state up and finding them. A value the framework only learns after the request
+  is built cannot be that key.
 - A session credential delivered as an httpOnly, Secure, SameSite cookie. httpOnly
   keeps it unreadable by page script (so a cross site scripting bug cannot steal
   it); Secure keeps it on TLS only; SameSite blunts cross site request forgery.
@@ -181,47 +185,46 @@ Alice again", which is what working on anything keyed to a person needs. A
 ```
 
 The picker offers each of them beside the scopes. Clicking one signs you in as that
-person: `sub` is `synqt-dev:<email>`, so it is stable across restarts and a project that
+person. `sub` is `synqt-dev:<email>`, so it is stable across restarts, and a project that
 stores rows against a `sub` sees the same person on the next run.
 
-Unlike the scope mode, **the mapping hook is consulted**, because seeing what your own
-rule makes of somebody is the reason to name them. The scope in the file is what the
-picker lists; the hook's answer is what the session gets. Where they differ the page shows
-both, and where the hook refuses the identity the picker refuses it too: a development
-sign-in that granted what the project's own rule denies would be a shortcut to a state the
-application cannot reach. A project with no mapping hook has nothing to ask, and the page
-says so rather than letting the file's scope read as an answer the hook agreed with.
+Unlike the scope mode, this one consults the mapping hook, because seeing what your own
+rule makes of somebody is the reason to name them. The picker lists the scope in the
+file, and the session gets the hook's answer. Where they differ the page shows both, and
+where the hook refuses the identity the picker refuses it too, since a development
+sign-in that granted what the project's own rule denies would reach a state the
+application cannot. A project with no mapping hook has nothing to ask, and the page says
+so rather than letting the file's scope read as an answer the hook agreed with.
 
-The file is read by `synqt dev`, not by the edge: that side already parses YAML and
+The file is read by `synqt dev`, not by the edge. That side already parses YAML and
 already knows which scopes the project declares, so what reaches the edge is a checked
-list. An entry that names an undeclared scope, or is missing a field, is dropped and
-reported on the picker's own page (and in the terminal), never taken as a reason to stop
-serving the picker. A typo in a convenience file should cost you the entry, not the
-sign-in.
+list. The picker drops an entry that names an undeclared scope, or is missing a field,
+reports it on its own page and in the terminal, and keeps serving. A typo in a
+convenience file costs you the entry rather than the sign-in.
 
 `synqt dev` adds `.dev-identities` to the project's `.gitignore` the first time it reads
-one. It names the people who work on one machine; committing it would put a colleague's
+one. It names the people who work on one machine. Committing it would put a colleague's
 address in the repository and hand every clone a picker offering names that mean nothing
 on it.
 
 ### Two tabs, two people
 
 Tick **this tab only** and the session is scoped to the tab you clicked in, so you can
-hold two identities in one browser and watch them interact: a moderator deleting the
-message a user is looking at, in two tabs side by side, without a second browser profile
-or a private window.
+hold two identities in one browser and watch them interact, for example a moderator
+deleting the message a user is looking at, in two tabs side by side, without a second
+browser profile or a private window.
 
-The mechanism is the cookie's *name*. RFC 6265 scopes a cookie to a host and not a port,
+The mechanism is the cookie's name. RFC 6265 scopes a cookie to a host and not a port,
 so two tabs on one host share one jar however they were opened, and there is no other axis
-available: the WebSocket subprotocol alternative is not reachable on Qt 6.11
+available, since the WebSocket subprotocol alternative is not reachable on Qt 6.12
 (`tests/m5-webedge/tst_m5.cpp::theUpgradePathCannotNegotiateASubprotocol` pins that). So a
 per-tab choice sends the tab to `/?s=<nonce>` and puts its session under
-`synqt_session_<nonce>`; the edge reads `s` from the page request and from the sync URL to
+`synqt_session_<nonce>`. The edge reads `s` from the page request and from the sync URL to
 know which of the cookies in the jar is this tab's.
 
 The nonce is not a credential and nothing treats it as one. It names which cookie to read,
 and the cookie still holds the session id, which is the thing anybody would have to steal.
-It is validated on arrival, because it becomes part of a cookie name in a `Set-Cookie`
+The edge validates it on arrival, because it becomes part of a cookie name in a `Set-Cookie`
 header and a value carrying a `;` or a newline would write attributes, or a second header,
 that nothing intended.
 

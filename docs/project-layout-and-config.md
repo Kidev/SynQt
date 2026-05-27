@@ -701,7 +701,7 @@ security:
 
   # How the browser presents its session credential at the wss upgrade.
   # "cookie" is the httpOnly session cookie, and the only value this framework
-  # accepts. A subprotocol token cannot be built on Qt 6.11 (see below), so
+  # accepts. A subprotocol token cannot be built on Qt 6.12 (see below), so
   # `synqt check` refuses the word rather than letting an edge accept it and keep
   # reading the cookie anyway.
   session_transport: cookie
@@ -763,11 +763,11 @@ another origin](#serving-the-client-from-another-origin).
 `session_transport: subprotocol` is refused because of a toolkit limit rather than an
 unimplemented feature. Carrying the session in
 `Sec-WebSocket-Protocol` requires the server to select one of the offered subprotocols and
-echo it in the `101` response. Qt 6.11 gives the edge nowhere to say which:
+echo it in the `101` response. Qt 6.12 gives the edge nowhere to say which.
 `QHttpServerWebSocketUpgradeResponse::accept()` takes no arguments, and the
 `QWebSocketServer` that writes the response is private to `QAbstractHttpServer`, so
 `setSupportedSubprotocols()` is out of reach. The upgrade then completes with nothing
-negotiated, and browsers do not agree on what that means: measured on 2026-07-28 against a
+negotiated, and browsers do not agree on what that means. Measured on 2026-07-28 against a
 real edge, Chromium 149 closes the connection (code 1006, `Sent non-empty
 'Sec-WebSocket-Protocol' header but no response was received`) while Firefox 151 opens it.
 An edge that worked in one engine and not the other is worse than one that says no, so the

@@ -3,39 +3,45 @@
 
 # wasm-quick3dphysics: is Qt Quick 3D Physics usable on WebAssembly?
 
-The July 2026 spec audit recorded, as the reason the multiplayer tutorial was rewritten in
-2D, that Qt Quick 3D Physics does not work on WASM. This fixture tests that directly against
-the pinned Qt 6.12.0 kit, and the claim turns out to be false with the right configuration:
-Quick3D Physics builds, links, loads, boots, and steps on WASM; the box falls under gravity
-and rests on the plane, headless, on both the single-threaded and the multi-threaded kit.
+The multiplayer tutorial is written in plain 2D, and a common claim is that Qt Quick 3D
+Physics does not work on WASM. This fixture tests that directly, and with the right
+configuration the claim is false. Quick3D Physics builds, links, loads, boots and steps on
+WASM. The box falls under gravity and rests on the plane, headless, on both the
+single-threaded and the multi-threaded kit.
 
-The tutorial staying 2D is still a reasonable call (it keeps the arena simple and GPU-free), but
-it is a choice, not a "Physics is impossible on WASM" necessity.
+That run was on Qt 6.11.1 with Emscripten 4.0.7. The scripts below build against the
+current pin (6.12.0 and 5.0.5), and the fixture has not been re-run since the pin moved.
+The finding is about a default in Quick3D Physics and not about a Qt release, so it is not
+expected to have changed, but that is unverified.
+
+The tutorial stays 2D because that keeps the arena simple and GPU-free. That is a choice
+and not a necessity.
 
 ## The one line that makes it work
 
-`PhysicsWorld.numThreads` (since Qt 6.7) defaults to -1, meaning *automatic*: Quick3D Physics
-queries the host core count and steps PhysX on that many worker threads. That default is the
-whole problem on WebAssembly:
+`PhysicsWorld.numThreads` (since Qt 6.7) defaults to -1, which means automatic. Quick3D
+Physics queries the host core count and steps PhysX on that many worker threads. That
+default is the whole problem on WebAssembly.
 
-- on the single-threaded kit the workers cannot be spawned at all, so the simulation never
-  advances; the box sits at its release height (the original "does not work" symptom);
-- on the multi-threaded kit PhysX creates worker pthreads and the browser main thread
+- On the single-threaded kit the workers cannot be spawned at all, so the simulation never
+  advances. The box sits at its release height (the "does not work" symptom).
+- On the multi-threaded kit PhysX creates worker pthreads and the browser main thread
   deadlocks joining them, freezing the page immediately after the scene loads (a live
-  `Ready` scene, then no further frames; exactly the "freezes on loading" report).
+  `Ready` scene, then no further frames, which is the "freezes on loading" symptom).
 
-Setting `numThreads: 0` steps the simulation sequentially on the calling thread (no worker
-threads, no pthread dependency), which is the only configuration that runs in the browser, and it
-runs on either kit. That single property is the fix; everything else in the scene is ordinary
-Quick3D Physics.
+Setting `numThreads: 0` steps the simulation sequentially on the calling thread, with no
+worker threads and no pthread dependency. It is the only configuration that runs in the
+browser, and it runs on either kit. That single property is the fix. Everything else in
+the scene is ordinary Quick3D Physics.
 
 ## What is proven, and how
 
-The scene is deliberately tiny: a `PhysicsWorld` (`numThreads: 0`), a `StaticRigidBody` plane at
-y = -100, and a `DynamicRigidBody` box released at y = 200. `main.cpp` samples the box's height
-from C++ (`qWarning`, which reaches the browser console in the WASM runtime; QML
-`console.log` does not, reliably, in a release build), prints the view's load status, and emits a
-`PHYS exec` marker just before `app.exec()` so a stall can be located precisely.
+The scene is small: a `PhysicsWorld` (`numThreads: 0`), a `StaticRigidBody` plane at
+y = -100, and a `DynamicRigidBody` box released at y = 200. `main.cpp` samples the box's
+height from C++ with `qWarning`, which reaches the browser console in the WASM runtime
+where QML `console.log` does not do so reliably in a release build. It prints the view's
+load status, and emits a `PHYS exec` marker just before `app.exec()`, so a stall can be
+located precisely.
 
 Two harnesses, both headless Chromium, both a full GO on this checkout:
 
@@ -52,8 +58,8 @@ Two harnesses, both headless Chromium, both a full GO on this checkout:
    `security.cross_origin_isolation` is on). The page is confirmed `crossOriginIsolated`, boots,
    and the box falls headless: `simulation advances (box falls): PASS (lowestY=-50.00, ticks=45)`.
 
-The single-threaded result is the notable one. It is the default WASM kit and needs no
-cross-origin isolation, so Quick3D Physics runs on a plain WASM page with only `numThreads: 0`.
+The single-threaded kit is the default and needs no cross-origin isolation, so Quick3D
+Physics runs on a plain WASM page with only `numThreads: 0`.
 
 ## Run it
 
@@ -68,6 +74,6 @@ tests/wasm-quick3dphysics/verify/run-phys-mt.sh
 tests/wasm-quick3dphysics/verify/run-phys-mt.sh --serve   # open the printed URL
 ```
 
-Needs the pinned host kit (`/opt/Qt/6.12.0/gcc_64`), the WASM kits
-(`/opt/Qt/6.12.0/wasm_singlethread` and, for the MT harness, `wasm_multithread`) with emsdk
-5.0.5, and, for the native reference in `run-phys.sh`, a GL-capable display.
+It needs the pinned host kit (`/opt/Qt/6.12.0/gcc_64`) and the WASM kits
+(`/opt/Qt/6.12.0/wasm_singlethread`, and `wasm_multithread` for the threaded harness) with
+emsdk 5.0.5. The native reference in `run-phys.sh` also needs a GL-capable display.

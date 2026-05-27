@@ -3691,7 +3691,7 @@ def wants_qml_format_check(config: Dict[str, Any]) -> bool:
 def check_qml_format(project_dir: os.PathLike[str] | str) -> List[str]:
     """Report QML that qmlformat would reformat, as a warning.
 
-    qmlformat has no --check mode in 6.11: it writes in place or prints to stdout, so the
+    qmlformat has no --check mode in 6.12: it writes in place or prints to stdout, so the
     check is to format to stdout and compare. A warning, never an error: formatting is not
     correctness, and `synqt check` still does not format anything, it only says what differs.
 

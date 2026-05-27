@@ -1072,7 +1072,7 @@ def default_scope(config: Dict[str, Any]) -> str:
 
 
 # The session credential the browser presents at the wss upgrade. Only the cookie is
-# implemented, and a subprotocol token is not a thing left to do: Qt 6.11 cannot answer the
+# implemented, and a subprotocol token is not a thing left to do: Qt 6.12 cannot answer the
 # handshake it would need.
 #
 # Carrying the session in `Sec-WebSocket-Protocol` requires the server to select one of the
@@ -1104,7 +1104,7 @@ def session_transport(config: Dict[str, Any]) -> str:
         raise AppGenError(
             f"security.session_transport: {transport!r} is not supported; this version "
             "carries the session in the httpOnly cookie ('cookie'). A subprotocol token "
-            "cannot be built on Qt 6.11: the edge's upgrade verifier has no way to select "
+            "cannot be built on Qt 6.12: the edge's upgrade verifier has no way to select "
             "the subprotocol it must echo, so Chromium refuses the handshake outright. "
             "A native client that already holds a session presents it on the handshake "
             "instead (SynClientConfig::sessionCookie).")

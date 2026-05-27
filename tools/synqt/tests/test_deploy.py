@@ -1,12 +1,8 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-"""The opt-in platform deploy step (`synqt build --deploy`).
-
-The command each platform runs is asserted here rather than the result of running it: only one
-of the three tools exists on any given machine, so a test that ran them would assert nothing
-anywhere except the platform it happened to run on. tests/desktop-client/ runs the real thing
-on whichever platform it is executed on.
+"""The opt-in platform deploy step (`synqt build --deploy`). The commands are asserted rather
+than run, since each tool exists on one platform; tests/desktop-client/ runs the real one.
 """
 
 import json
@@ -46,15 +42,13 @@ class DeployCommandTest(unittest.TestCase):
         command = run.call_args[0][0]
         self.assertEqual(command[0], str(tool))
         self.assertEqual(command[1], str(self.out / "client.app"))
-        # -qmldir is what lets macdeployqt find the QML the app imports. Without it the
-        # deployed bundle loads and then fails at the first import.
+        # -qmldir lets macdeployqt find the QML the app imports.
         self.assertIn(f"-qmldir={self.root}", command)
         self.assertNotIn("-codesign", " ".join(command))
         self.assertIn("UNSIGNED", note)
 
     def test_macos_refuses_when_there_is_no_bundle(self):
-        # The failure a bare Mach-O produced before cmakegen set MACOSX_BUNDLE: macdeployqt
-        # accepts nothing else, so this has to say so rather than hand it a path it will reject.
+        # macdeployqt accepts only an .app.
         self._tool("macdeployqt")
         with self.assertRaises(deploy.DeployError) as caught:
             deploy.deploy_client(self.root, "client", self.out, self.resolved, "macos")
@@ -88,8 +82,7 @@ class DeployCommandTest(unittest.TestCase):
         with mock.patch.object(deploy, "_run", return_value="") as run:
             note = deploy.deploy_client(self.root, "client", self.out, self.resolved, "macos",
                                         sign="Developer ID Application: Acme (AB12CD34)")
-        # -codesign, not a separate codesign call. The frameworks and plugins inside the
-        # bundle each have to be signed before the bundle, and macdeployqt walks that tree.
+        # -codesign signs the nested frameworks and plugins before the bundle.
         self.assertIn("-codesign=Developer ID Application: Acme (AB12CD34)", run.call_args[0][0])
         self.assertIn("notarize", note)
 
@@ -113,10 +106,8 @@ class DeployCommandTest(unittest.TestCase):
 
 
 def _elf64(needed, *, strtab_offset=512, dynamic_offset=256, total=1024):
-    """A minimal but well-formed ELF64 carrying the given DT_NEEDED sonames.
-
-    Synthesised rather than taken from the host, because the parser has to be tested on the
-    three platforms this suite runs on and only one of them has ELF files lying around.
+    """A minimal well-formed ELF64 carrying the given DT_NEEDED sonames, synthesized so the
+    parser is tested on every platform.
     """
     table = b"\0" + b"".join(soname.encode() + b"\0" for soname in needed)
     indices = []
@@ -132,8 +123,7 @@ def _elf64(needed, *, strtab_offset=512, dynamic_offset=256, total=1024):
     header = b"\x7fELF\x02\x01\x01" + bytes(9)
     header += struct.pack("<HHIQQQIHHHHHH",
                           3, 0x3E, 1, 0, 64, 0, 0, 64, 56, 2, 0, 0, 0)
-    # One PT_LOAD mapping the whole file at vaddr 0, so a virtual address and a file offset
-    # are the same number here, and one PT_DYNAMIC pointing at the table built above.
+    # One PT_LOAD mapping the file at vaddr 0 (addresses equal offsets) and one PT_DYNAMIC.
     program = struct.pack("<IIQQQQQQ", 1, 5, 0, 0, 0, total, total, 0x1000)
     program += struct.pack("<IIQQQQQQ", 2, 6, dynamic_offset, dynamic_offset, dynamic_offset,
                            len(entries), len(entries), 8)
@@ -160,8 +150,7 @@ def _elf32(needed, *, strtab_offset=512, dynamic_offset=256, total=1024):
     entries += struct.pack("<iI", 0, 0)
 
     header = b"\x7fELF\x01\x01\x01" + bytes(9)
-    # e_phoff is 52 (where the program headers are written below), not 28, which is merely
-    # where the e_phoff field itself sits.
+    # e_phoff is 52, where the program headers are written.
     header += struct.pack("<HHIIIIIHHHHHH", 3, 0x03, 1, 0, 52, 0, 0, 52, 32, 2, 0, 0, 0)
     program = struct.pack("<IIIIIIII", 1, 0, 0, 0, total, total, 5, 0x1000)
     program += struct.pack("<IIIIIIII", 2, dynamic_offset, dynamic_offset, dynamic_offset,
@@ -196,8 +185,7 @@ class DynamicNeedsTest(unittest.TestCase):
         self.assertEqual(deploy._dynamic_needs(path), [])
 
     def test_non_elf_files_are_skipped_silently(self):
-        # Callers hand this every file in a plugin directory, and those hold qmldir files,
-        # .qmlc caches and images alongside the libraries.
+        # Plugin directories also hold qmldir files, .qmlc caches and images.
         for name, content in (("qmldir", b"module QtQuick\n"),
                               ("icon.png", b"\x89PNG\r\n\x1a\n"),
                               ("truncated.so", b"\x7fELF\x02\x01")):
@@ -210,16 +198,13 @@ class DynamicNeedsTest(unittest.TestCase):
         self.assertEqual(deploy._dynamic_needs(self.root / "absent.so"), [])
 
     def test_reads_the_32_bit_layout_too(self):
-        # A 32-bit ELF puts e_phoff, the program headers and the dynamic entries at different
-        # offsets and widths. Qt ships 32-bit Linux and ARM kits, so this is a real target and
-        # not a hypothetical one.
+        # ELF32 uses different offsets and widths; Qt ships 32-bit Linux and ARM kits.
         path = self.root / "lib32.so"
         path.write_bytes(_elf32(["libQt6Core.so.6", "libm.so.6"]))
         self.assertEqual(deploy._dynamic_needs(path), ["libQt6Core.so.6", "libm.so.6"])
 
     def test_a_file_with_no_dynamic_segment_is_empty(self):
-        # A statically linked binary has no PT_DYNAMIC at all, so there is nothing to ship
-        # for it and nothing here should raise.
+        # A static binary has no PT_DYNAMIC.
         path = self.root / "static"
         body = bytearray(_elf64(["libQt6Core.so.6"]))
         body[64 + 56:64 + 56 + 4] = struct.pack("<I", 0)  # PT_NULL over the PT_DYNAMIC entry
@@ -233,16 +218,12 @@ class DynamicNeedsTest(unittest.TestCase):
 
 
 class LinuxLayoutTest(unittest.TestCase):
-    """The portable Linux layout. What it ships, and what it refuses to leave out.
-
-    The case this exists for is the one the previous implementation got wrong. It copied the
-    client binary's own dependencies and nothing else, so the platform plugin's Qt6XcbQpa and
-    the Controls style's Qt6QuickControls2Impl were never shipped. Both are loaded at run time,
-    so the tree started perfectly on any machine that already had Qt and on no other.
+    """The portable Linux layout: libraries loaded at run time by the platform plugin
+    (Qt6XcbQpa) and the Controls style (Qt6QuickControls2Impl) are shipped.
     """
 
-    # What each file in the fake kit links, by file name. Only the plugin and the QML module
-    # pull the two libraries the binary does not.
+    # What each fake kit file links. Only the plugin and the QML module pull the two extra
+    # libraries.
     NEEDS = {
         "client": ["libQt6Core.so.6", "libQt6Gui.so.6", "libQt6Network.so.6"],
         "libqxcb.so": ["libQt6XcbQpa.so.6", "libQt6Gui.so.6"],
@@ -303,15 +284,13 @@ class LinuxLayoutTest(unittest.TestCase):
 
     def test_leaves_the_hosts_own_libraries_alone(self):
         self._deploy()
-        # glibc is the host's to provide. Shipping it is how a portable layout becomes a
-        # tree that crashes on a host with a different loader.
+        # glibc is the host's.
         self.assertFalse((self.out / "lib" / "libc.so.6").exists())
 
     def test_ships_only_the_qml_modules_the_client_imports(self):
         self._deploy()
         self.assertTrue((self.out / "qml" / "QtQuick" / "Controls" / "qmldir").exists())
-        # A nested module that was never imported. Copying QtQuick recursively would take it,
-        # and with it the rest of a 200 MB tree.
+        # A nested module that was never imported is not copied.
         self.assertFalse((self.out / "qml" / "QtQuick" / "VirtualKeyboard").exists())
         # A module's own data directory is not a module and has to travel with it.
         self.assertTrue((self.out / "qml" / "QtQuick" / "Controls" / "images"
@@ -330,8 +309,7 @@ class LinuxLayoutTest(unittest.TestCase):
         self.assertIn("LD_LIBRARY_PATH", body)
         self.assertIn("QT_PLUGIN_PATH", body)
         self.assertIn("QML_IMPORT_PATH", body)
-        # QML2_IMPORT_PATH is the Qt 5 spelling, still honoured in 6.11 and documented as
-        # deprecated. Writing it into a launcher generated today dates the output.
+        # QML2_IMPORT_PATH is the deprecated Qt 5 spelling.
         self.assertNotIn("QML2_IMPORT_PATH", body)
 
     def test_a_second_deploy_refreshes_rather_than_keeping_what_is_there(self):
@@ -339,13 +317,11 @@ class LinuxLayoutTest(unittest.TestCase):
         stale = self.out / "qml" / "QtQuick" / "stale-from-an-older-kit.qml"
         stale.write_text("// left over\n")
         self._deploy()
-        # Skipping qml/ and plugins/ when they already existed meant a re-deploy reported
-        # shipping modules it had not touched, and the tree kept the previous kit's.
+        # A re-deploy replaces qml/ and plugins/.
         self.assertFalse(stale.exists())
 
     def test_an_incomplete_closure_is_refused_rather_than_reported_as_success(self):
-        # The guard against a future regression in the walk. On any machine that has Qt
-        # installed the resulting tree still starts, so nothing else would notice.
+        # The closure check: a gap would only show on a machine without Qt.
         with mock.patch.object(deploy, "_library_closure", return_value={}):
             with self.assertRaises(deploy.DeployError) as caught:
                 self._deploy()
@@ -361,8 +337,7 @@ class LinuxLayoutTest(unittest.TestCase):
         self.assertIn("2 plugin directories", note)
 
     def test_deploy_client_routes_linux_to_the_portable_layout(self):
-        # Reached through the public entry point the CLI calls, not the private one the rest
-        # of this class uses, so the dispatch is covered and not only the layout.
+        # Through the public entry point the CLI calls.
         needs = self.NEEDS
         with mock.patch.object(deploy, "_qml_modules", return_value=["QtQuick"]), \
              mock.patch.object(deploy, "_dynamic_needs",
@@ -414,8 +389,7 @@ class QmlModuleScanTest(unittest.TestCase):
         self.assertEqual(self._scan(payload), ["QtQuick", "QtQuick/Controls"])
 
     def test_a_module_with_no_directory_is_skipped(self):
-        # The client's own module is compiled into its resources, so the scanner reports it
-        # with no path and there is nothing on disk to copy.
+        # The client's own module is in its resources, with no path.
         payload = json.dumps([{"name": "SynQt", "type": "module"},
                               {"name": "QtQuick", "relativePath": "QtQuick",
                                "path": str(self.kit / "qml" / "QtQuick"), "type": "module"}])
@@ -440,9 +414,7 @@ class ToolFailureTest(unittest.TestCase):
     """What a platform tool's own failure looks like coming back out of `--deploy`."""
 
     def test_the_tools_own_diagnosis_is_what_reaches_the_caller(self):
-        # macdeployqt names the specific framework or plugin it could not resolve, and that
-        # line is the entire value of the message. A generic "deploy failed" would throw it
-        # away and leave the developer to run the command by hand to find out why.
+        # macdeployqt's own error line is kept.
         failure = subprocess.CompletedProcess(
             ["/kit/bin/macdeployqt"], 1,
             stdout="", stderr="ERROR: Cannot resolve @rpath/QtFoo.framework/Versions/A/QtFoo\n")
@@ -472,21 +444,18 @@ class SigningChoiceTest(unittest.TestCase):
                     deploy.check_signing_choice(platform, None, False)
                 message = str(caught.exception)
                 self.assertIn("--unsigned", message)
-                # --sign is only offered where it is accepted. On Linux it is refused, so
-                # naming it here would point the reader at the next error instead of a fix.
+                # --sign is offered only where it is accepted.
                 self.assertEqual("--sign" in message, platform != "linux")
 
     def test_the_linux_refusal_does_not_send_the_reader_into_another_refusal(self):
         with self.assertRaises(deploy.DeployError) as first:
             deploy.check_signing_choice("linux", None, False)
-        # Whatever the first message tells a Linux user to pass has to be accepted by the
-        # very next command; --sign was not, and the pair read as a loop.
+        # What the message tells a Linux user to pass is accepted by the next command.
         self.assertNotIn("--sign <identity>", str(first.exception))
         deploy.check_signing_choice("linux", None, True)
 
     def test_the_refusal_says_what_unsigned_costs_here(self):
-        # The three platforms differ, and a single "unsigned is bad" would be wrong on two:
-        # a Windows build runs unsigned, and Linux has no binary signing at all.
+        # The three platforms get three answers.
         with self.assertRaises(deploy.DeployError) as mac:
             deploy.check_signing_choice("macos", None, False)
         self.assertIn("Gatekeeper", str(mac.exception))

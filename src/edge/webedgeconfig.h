@@ -19,7 +19,7 @@ namespace SynQt {
 ///
 /// One value, and not a placeholder for more. The alternative would be a token in
 /// `Sec-WebSocket-Protocol`, which needs the server to echo the subprotocol it selected;
-/// Qt 6.11 gives this upgrade path no way to select one, and Chromium refuses a handshake
+/// Qt 6.12 gives this upgrade path no way to select one, and Chromium refuses a handshake
 /// whose response echoes nothing. `tests/m5-webedge` pins that and fails when it changes;
 /// `security.session_transport` is refused at `synqt check` until then.
 enum class SessionTransport { Cookie };

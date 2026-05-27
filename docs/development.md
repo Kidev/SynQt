@@ -3,27 +3,27 @@
 
 # Developer guide: the codebase
 
-This page is for people working on SynQt itself, not on an app built with it. If you
-are building an application, start with [getting started](getting-started.md) and the
-tutorials; you never need to read the framework's internals. This page maps the
+This page is for people working on SynQt itself rather than on an app built with it. If
+you are building an application, start with [getting started](getting-started.md) and
+the tutorials. You never need to read the framework's internals. This page maps the
 repository, names the runtime libraries and what each is responsible for, and shows how
 to build and test the framework locally the same way continuous integration does.
 
-Why the code is shaped the way it is, and which Qt 6.11 APIs each piece relies on, is
+Why the code is shaped the way it is, and which Qt 6.12 APIs each piece relies on, is
 covered by [architecture](architecture.md), [security](security.md), and
-[entities](entities.md). This page is the orientation layer above them: where the code
-is, not why. For the generated class and member reference, see the
+[entities](entities.md). This page is the orientation layer above them, and says where
+the code is. For the generated class and member reference, see the
 [C++ API reference](api-reference.md).
 
 ## The Makefile
 
 Everything below has a target in the repository's `Makefile`, and `make` on its own lists
-them. It is the developer's side of the desk rather than the build: `synqt build` builds an
+them. It is the developer's side of the desk rather than the build. `synqt build` builds an
 application and CMake builds the framework, while this installs the CLI you are editing,
 runs the suites, builds the site, and clears out the copies of SynQt that go stale.
 
-That last one is worth knowing about before it costs you a day. Three things on a developer's
-machine answer in place of the checkout, and none of them says so:
+Three things on a developer's machine answer in place of the checkout, and none of them
+says so:
 
 - an installed `synqt` on `PATH`. A release binary there runs whatever it was built from,
   which is why `synqt design` can serve an editor months older than the tree you are in.
@@ -204,7 +204,7 @@ is included by every `CMakeLists.txt` in this repository, and `synqt build` writ
 include into the CMake it generates for an application, so a project built with SynQt
 compiles under the rules SynQt compiles under.
 
-- **C++20**, the newest standard Qt 6.11 supports on all of its compilers.
+- **C++20**, the newest standard Qt 6.12 supports on all of its compilers.
 - **Warnings are errors.** `-Wall -Wextra -Werror` for GCC and Clang, `/W4 /WX
   /permissive- /utf-8` for MSVC and for `clang-cl`. Qt's own headers and jwt-cpp arrive
   through `SYSTEM` include paths, so nothing third party can fail the build.
