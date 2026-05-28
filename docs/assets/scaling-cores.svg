@@ -2,11 +2,11 @@
      aria-labelledby="scalingTitle scalingDesc">
   <title id="scalingTitle">Deliveries per second against core count</title>
   <desc id="scalingDesc">One publisher, 100 subscribers, saturating, 256 byte payload, on a
-  32 core Linux host with Qt 6.11.1 and Node 24.20.0. SynQt replicas rises from 104
-  thousand deliveries per second on one process to 1.02 million on eight; Node cluster rises
-  from 124 thousand to 907 thousand over the same range; SynQt threads rises from 104
-  thousand on one core to 200 thousand on two, holds that at four, and eases back to 183
-  thousand at eight, and it is the only one of the three that keeps a single shared value.</desc>
+  32 core Linux host. SynQt replicas rises from 104 thousand deliveries per second on one
+  process to 1.02 million on eight; Node cluster rises from 124 thousand to 907 thousand over
+  the same range; SynQt threads rises from 108 thousand on one core to 230 thousand on two,
+  peaks at 239 thousand at four and holds 228 thousand at eight, and it is the only one of
+  the three that keeps a single shared value.</desc>
 
   <text x="0" y="16" fill="#ffffff" font-family="system-ui, sans-serif" font-size="15"
         font-weight="600">Deliveries per second against core count</text>
@@ -60,7 +60,7 @@
   <polyline points="141.25,301.7 212.5,273.5 355,217.9 640,122.8" fill="none"
             stroke="#d95926" stroke-width="2" stroke-dasharray="7 4"
             stroke-linecap="round" stroke-linejoin="round"/>
-  <polyline points="141.25,306.2 212.5,284.3 355,284.6 640,288.3" fill="none"
+  <polyline points="141.25,305.4 212.5,277.5 355,275.5 640,278.0" fill="none"
             stroke="#199e70" stroke-width="2"
             stroke-linecap="round" stroke-linejoin="round"/>
 
@@ -75,15 +75,15 @@
     <circle cx="355" cy="217.9" r="4.5" fill="#d95926"/>
     <circle cx="640" cy="122.8" r="4.5" fill="#d95926"/>
 
-    <circle cx="141.25" cy="306.2" r="4.5" fill="#199e70"/>
-    <circle cx="212.5" cy="284.3" r="4.5" fill="#199e70"/>
-    <circle cx="355" cy="284.6" r="4.5" fill="#199e70"/>
-    <circle cx="640" cy="288.3" r="4.5" fill="#199e70"/>
+    <circle cx="141.25" cy="305.4" r="4.5" fill="#199e70"/>
+    <circle cx="212.5" cy="277.5" r="4.5" fill="#199e70"/>
+    <circle cx="355" cy="275.5" r="4.5" fill="#199e70"/>
+    <circle cx="640" cy="278.0" r="4.5" fill="#199e70"/>
   </g>
 
   <g font-family="system-ui, sans-serif" font-size="12">
     <text x="652" y="102" fill="#ffffff">1.02M</text>
     <text x="652" y="127" fill="#ffffff">907k</text>
-    <text x="652" y="293" fill="#ffffff">183k</text>
+    <text x="652" y="282" fill="#ffffff">228k</text>
   </g>
 </svg>

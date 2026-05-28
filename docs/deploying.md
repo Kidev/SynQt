@@ -333,19 +333,21 @@ sockets is N processes each using several cores.
 
 ![Deliveries per second against core count: SynQt replicas and Node cluster both rise
 close to linearly to about 1.02M and 907k at eight processes, while SynQt threads rises to
-200k at two cores and then flattens, and is the only one of the three that keeps a
+230k at two cores and then flattens, and is the only one of the three that keeps a
 single shared value.](assets/scaling-cores.svg){ width="100%" }
 
-One publisher, 100 subscribers, saturating, 256 byte payload; 32 core Linux host, Qt
-6.11.1, Node 24.20.0. Reproduce it with [`benchmarks/vs-frameworks/run-bench.sh`](https://github.com/Kidev/SynQt/blob/main/benchmarks/vs-frameworks/run-bench.sh)
+One publisher, 100 subscribers, saturating, 256 byte payload; 32 core Linux host. The
+`threads:` column is Qt 6.12.0 and is the median of five runs; the other two are the
+earlier Qt 6.11.1 and Node 24.20.0 record, which the change behind that column does not
+touch. Reproduce it with [`benchmarks/vs-frameworks/run-bench.sh`](https://github.com/Kidev/SynQt/blob/main/benchmarks/vs-frameworks/run-bench.sh)
 and [`benchmarks/vs-frameworks/sweep.py`](https://github.com/Kidev/SynQt/blob/main/benchmarks/vs-frameworks/sweep.py).
 
 | cores | `replicas: N` | Node `cluster` | `threads: N` |
 |---|---|---|---|
-| 1 | 103 600 | 124 067 | 104 000 |
-| 2 | 240 825 | 247 158 | 200 133 |
-| 4 | 505 779 | 491 000 | 198 717 |
-| 8 | 1 015 815 | 907 228 | 182 700 |
+| 1 | 103 600 | 124 067 | 107 583 |
+| 2 | 240 825 | 247 158 | 229 667 |
+| 4 | 505 779 | 491 000 | 238 550 |
+| 8 | 1 015 815 | 907 228 | 227 733 |
 
 Read the two dashed lines against the solid one rather than against each other. Processes
 scale close to linearly, and SynQt and Node do about equally well at it. What they are
@@ -354,10 +356,12 @@ eight processes there are eight publishers holding eight values, and delivering 
 value to every subscriber from all of them costs a broadcast between processes that is in
 none of these numbers.
 
-The solid line is the one that keeps the shared value, and it flattens: 1.9x from one core
-to two, level at four, and then a slight loss at eight. `threads:` buys about two cores of
+The solid line is the one that keeps the shared value, and it flattens: 2.13x from one core
+to two, a little more at four, and level after that. `threads:` buys about two cores of
 delivery for something every subscriber must agree on, which is the case `replicas:` cannot
-serve at all, and no more than that.
+serve at all, and no more than that. Where it flattens is not the sockets: the Source still
+runs once, on the thread that owns it, and serialising a change is not work more sockets can
+share.
 
 **What it does not buy.** The Source still runs once, on the main thread, so an owner that
 is slow to compute what it publishes is exactly as slow with four threads as with one.

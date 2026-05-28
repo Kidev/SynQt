@@ -564,25 +564,66 @@ It applies to the QtRO column only. `--raw --threads N` is refused rather than i
 the bare-socket column writes to its peers directly and owns no device to split, so the
 flag would do nothing and the baseline would claim otherwise.
 
-Arch Linux, x86_64, Qt 6.11.1 against Node 24.20.0, **100** subscribers, 6 second windows:
+Arch Linux, x86_64, **100** subscribers, 6 second windows. The first column is Qt 6.12.0 and
+is the median of five runs; the other two are Qt 6.11.1 against Node 24.20.0 and are the
+earlier record, unchanged and not re-run, because
+[what changed](#the-crossing-that-was-paid-per-subscriber) is inside the threaded path and
+touches neither of them:
 
 | cores | SynQt `threads:` | one value? | SynQt `replicas:` | Node `cluster` |
 |---|---|---|---|---|
-| 1 | 104,000 msg/s | yes | 103,600 | 124,067 |
-| 2 | 200,133 msg/s | yes | 240,825 | 247,158 |
-| 4 | 198,717 msg/s | yes | 505,779 | 491,000 |
-| 8 | 182,700 msg/s | yes | 1,015,815 | 907,228 |
+| 1 | 107,583 msg/s | yes | 103,600 | 124,067 |
+| 2 | 229,667 msg/s | yes | 240,825 | 247,158 |
+| 4 | 238,550 msg/s | yes | 505,779 | 491,000 |
+| 8 | 227,733 msg/s | yes | 1,015,815 | 907,228 |
 
-Read down the first column, not across the row. Threading is worth 1.9x from one core to
-two, holds that at four, and then gives some of it back at eight. Its distinction is that
-every row still delivers one value to all 100 subscribers, which is the case `replicas:`
-and `cluster` cannot serve at all.
+Read down the first column, not across the row. Threading is worth 2.13x from one core to
+two, a little more at four, and holds 2.12x at eight. Its distinction is that every row
+still delivers one value to all 100 subscribers, which is the case `replicas:` and
+`cluster` cannot serve at all.
 
-One caution before quoting any of this: these runs used 100 subscribers and 6 second
+Two cautions before quoting any of this. These runs used 100 subscribers and 6 second
 windows, and [the sweep table above](#reading-the-result-honestly) used 200 and 10, so the
-two tables are different workloads and reading one against the other is a mistake. The
+two tables are different workloads and reading one against the other is a mistake; the
 `replicas:` and `cluster` columns here are both higher than their counterparts there for
-that reason alone, and not because anything got faster between them.
+that reason alone, and not because anything got faster between them. And the one-core row
+is a control rather than a result: it is the unsplit device, which the change below does not
+touch, and it lands within 3.4% of the 104,000 the earlier record put there, which is what
+makes the rest of the column comparable to it at all.
+
+#### The crossing that was paid per subscriber
+
+The first three rows above used to read 104,000 / 200,133 / 198,717 / 182,700: 1.9x at two
+cores and then a slow loss. The loss was not the sockets and not the threads. It was the
+hand-over.
+
+A split connection accumulates what QtRO writes and sends it to the socket's thread as one
+queued call, which is the whole point of the split. But it made that call **per connection**,
+so a fan-out to one hundred subscribers posted one hundred times, plus one hundred more to
+gather them. A queued call is about a microsecond. Against what delivering to one connection
+costs that is nothing, and against one hundred of them in the same pass it is the pass: the
+thread holding the Sources spent it posting rather than serialising, and adding socket
+threads could not help with a bottleneck that was on the other thread. That is exactly the
+shape the design note predicted and the implementation did not carry.
+
+The transport now gathers a pass and crosses **once per socket thread**, carrying every
+connection's bytes for that thread in one call. Same workload, same host, same harness,
+three runs each side:
+
+| cores | before | after |
+|---|---|---|
+| 2 | 200,017 msg/s | 229,667 (+14%) |
+| 4 | 202,983 msg/s | 238,550 (+18%) |
+| 8 | 193,867 msg/s | 227,733 (+17%) |
+
+Propagation p50 at four threads went from 0.376 ms to 0.298. The one-core row moved by 0.8%,
+which is the control saying the unsplit path was not touched.
+
+What it does not do is change the shape. `threads:` still buys about two cores of delivery
+and not eight, because the Source still serialises once on the thread that owns it and that
+work is not divisible by adding sockets. The ceiling is higher and it is still a ceiling.
+`tests/m2-transport/tst_threadedsocket.cpp` holds the crossing count to one per thread, and
+reports eight the moment the grouping is undone.
 
 ## What the gap against Node is made of
 
@@ -707,32 +748,46 @@ Two of them used to be marked inferred; the payload sweep above is what settled 
    while `QWebSocketPrivate::doWriteFrames` builds a header and does
    `QByteArray tmpData(data); tmpData.detach();` for every socket, though that copy exists
    only so masking can be done in place and a server never masks. Upstream, and still
-   present: the file is byte-identical on `v6.11.1` and on `dev`, and neither Qt 6.12 nor
-   6.13 has a Qt WebSockets entry at all. **Measured**, and it explains none of the gap at
+   present. The file is byte-identical on `v6.11.1` and on `dev`, and neither Qt 6.12 nor
+   6.13 has a Qt WebSockets entry at all. Measured, and it explains none of the gap at
    the sizes measured, because the marginal cost does not move with the payload.
-2. **Incoming frames are parsed through `QIODevice` in small reads.** `QIODevicePrivate::read`
-   and `QRingBuffer::read` sit near the top of the steady-state profile, above anything
-   doing arithmetic. Node's parser slices a `Buffer` it already holds. Upstream, and now
-   the only remaining candidate for a per-subscriber cost that does not move with the
-   payload. **This is the line to pull.**
-3. **The receive path used to copy twice, and now copies once.** `QWebSocket` hands over a
+2. **Incoming frames are parsed through `QIODevice` in small reads, and the hop through its
+   buffer is not what that costs.** `QIODevicePrivate::read` and `QRingBuffer::read` sit
+   near the top of the steady-state profile, above anything doing arithmetic, because QtRO
+   reads a packet as eight or so `QDataStream` reads of a few bytes each and every one of
+   them goes through that machinery. The obvious reading of that profile is that the ring
+   buffer is the waste. A default `QIODevice` copies the whole message into a 16 KiB chunk
+   of its own on the first small read and serves the rest from there, so the payload is
+   copied twice. Opening the adapter `Unbuffered` removes that copy and sends every read
+   straight to the adapter's own `readData`, which is a bounded `memcpy` from an offset.
+   Measured, and it buys nothing, 0.6% on saturating throughput, which is inside the
+   run-to-run spread, and no move at all in CPU per delivery (7.454 against 7.458 ms per
+   thousand). On an identical paced workload under callgrind it is 1.7% more instructions
+   (369.2M against 375.3M), because the extra virtual call per small read costs what the
+   ring buffer saves. So the copy is not the cost. The per-read machinery is, and both
+   arrangements pay it. Pulling this line means reading a packet in fewer reads, which is
+   QtRO's call and not the adapter's.
+3. **The receive path copies once.** `QWebSocket` hands over a
    `QByteArray`; the adapter takes that very array by reference instead of appending its
    bytes into a buffer of its own, and only falls back to appending when a reader has got
    behind and there is already a backlog. The copy that remains is `readData`'s, which the
    `QIODevice` contract requires: it fills a caller's buffer. Done, ours, in
    [`websockettransport.cpp`](../../src/transport/websockettransport.cpp), where the comment
-   on `deliver()` records what the fallback branch costs and why a backlog is deliberately
+   on `deliver()` records what the fallback branch costs and why a backlog is
    one block.
 4. **Neither runtime uses more than one core per process, but only one of them could.**
    Node reaches other cores with `cluster`, which gives every worker its own copy of the
-   value and needs a hop between processes to keep them agreeing; the sweep above gives
+   value and needs a hop between processes to keep them agreeing. The sweep above gives
    Node its best case by letting each worker publish independently, with nothing shared.
    SynQt is C++ and can write a change from a pool of IO threads inside one process, with
    no hop at all. This does not lower the marginal cost, it buys more cores to pay it
    with. Shipped as
    [`threads: N`](../../docs/deploying.md#running-one-edge-on-more-than-one-core);
-   [the table above](#threads-the-core-that-is-not-a-process) is what it actually buys,
-   which is two cores' worth and not more.
+   [the table above](#threads-the-core-that-is-not-a-process) is what it buys,
+   which is 2.2x rather than eight, because the Source still serialises once on the thread
+   that owns it. It was 1.9x until the hand-over to those threads stopped being paid once
+   per subscriber, which is
+   [under that table](#the-crossing-that-was-paid-per-subscriber).
 
 Already done, and worth about 3% of saturating throughput: the adapter asks each socket to
 put its buffered bytes on the wire just before the event loop blocks, rather than waiting a
@@ -740,6 +795,12 @@ poll round trip for Qt's write notifier. On a fan-out that round trip is paid by
 socket for a single frame each. See `flushBeforeBlocking` in
 [`websockettransport.cpp`](../../src/transport/websockettransport.cpp), which also records
 why the obvious version of it corrupts the stream.
+
+Also done, and worth 14% to 18% but only on a threaded edge, the hand-over to the socket
+threads crosses once per thread instead of once per connection. That one is
+[under the threads table](#the-crossing-that-was-paid-per-subscriber), because it is a fact
+about `threads:` rather than about the default single-threaded path every other number on
+this page was measured on.
 
 ## The other direction: a caller asks and waits
 
