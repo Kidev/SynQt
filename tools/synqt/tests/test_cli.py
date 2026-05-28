@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-"""M10 CLI completeness: add contract/connect-point, check lint, serve ordering, test."""
+"""CLI completeness: add contract/connect-point, check lint, serve ordering, test."""
 
 import subprocess
 import tempfile
@@ -61,9 +61,7 @@ class ContractLintTest(unittest.TestCase):
 
 class QtToolPathTest(unittest.TestCase):
     def test_a_windows_kits_exe_suffix_is_resolved_not_assumed_away(self):
-        """qt_tool_path returns None to mean "no linter installed", so an unresolved .exe
-        does not fail loudly. It silently downgrades `synqt check` to skipping the QML
-        lint on every Windows machine where qmllint is not also on PATH."""
+        """The .exe suffix is resolved on Windows; None would silently skip the QML lint."""
         kit = Path(tempfile.mkdtemp())
         (kit / "bin").mkdir()
         exe = kit / "bin" / "qmllint.exe"
@@ -73,16 +71,30 @@ class QtToolPathTest(unittest.TestCase):
                 unittest.mock.patch.object(check.toolchain, "resolve",
                                            lambda project: {"host_qt": str(kit)}):
             self.assertEqual(check.qt_tool_path("qmllint"), str(exe))
-            # A tool the kit genuinely lacks still reports as absent.
+            # A tool the kit lacks still reports as absent.
             self.assertIsNone(check.qt_tool_path("qmlformat"))
+
+    def test_the_pinned_kit_wins_over_another_qt_on_path(self):
+        """The pinned kit wins over another Qt on PATH."""
+        kit = Path(tempfile.mkdtemp())
+        (kit / "bin").mkdir()
+        pinned = kit / "bin" / "qmllint"
+        pinned.write_text("stub")
+
+        with unittest.mock.patch.object(check.shutil, "which",
+                                        lambda tool: "/opt/Qt/6.11.1/gcc_64/bin/qmllint"), \
+                unittest.mock.patch.object(check.toolchain, "resolve",
+                                           lambda project: {"host_qt": str(kit)}):
+            self.assertEqual(check.qt_tool_path("qmllint"), str(pinned))
+            # And PATH is still the fallback when the kit has nothing to offer.
+            self.assertEqual(check.qt_tool_path("qmlformat"),
+                             "/opt/Qt/6.11.1/gcc_64/bin/qmllint")
 
 
 class QmlLintTest(unittest.TestCase):
-    """qmllint exits 0 for warnings, so a check that reads only its exit code reports
-    nothing, ever. `property-override` is the case that matters. Shadowing a FINAL member
-    (a model role named x or y against Item's x/y) is not cosmetic, it makes the whole
-    component fail to load at runtime. It shipped in an example exactly this way, so the
-    check elevates that category to an error and reads the output, not the status.
+    """qmllint exits 0 on warnings, so the check reads the output. `property-override`
+    (shadowing a FINAL member such as Item's x/y) fails the component load, so it is an
+    error.
     """
 
     def setUp(self):
@@ -98,7 +110,7 @@ class QmlLintTest(unittest.TestCase):
         self.assertEqual([m for m in check.lint_qml(self.root) if m.startswith("error:")], [])
 
     def test_shadowing_a_final_member_is_an_error(self):
-        # The arena's pellet delegate, as it shipped: Item already declares x/y FINAL.
+        # The arena pellet delegate: Item already declares x/y FINAL.
         self._write("Item {\n"
                     "    Repeater {\n"
                     "        model: 3\n"
@@ -112,22 +124,35 @@ class QmlLintTest(unittest.TestCase):
         self.assertTrue(any(m.startswith("error:") and "property-override" in m
                             for m in messages), messages)
 
+    def test_a_qmllint_that_cannot_run_says_so_rather_than_passing(self):
+        # A qmllint that does not know an elevated category lints nothing; the check says
+        # so.
+        self._write("Item {\n}\n")
+        original = check.subprocess.run
+
+        def unknown_option(cmd, **kwargs):
+            del cmd, kwargs
+            return subprocess.CompletedProcess([], 1, stdout="",
+                                               stderr="Unknown option 'made-up-category'.\n")
+
+        with unittest.mock.patch.object(check.subprocess, "run", unknown_option):
+            messages = check.lint_qml(self.root)
+        self.assertTrue(any(m.startswith("error:") and "linted nothing" in m
+                            for m in messages), messages)
+        self.assertIs(check.subprocess.run, original)
+
     def test_a_final_override_fails_the_whole_check(self):
         (self.root / "synqt.yaml").write_text("project:\n  name: x\n")
         self._write("Item {\n    Rectangle { required property real x }\n}\n")
         ok, messages = check.check_project(self.root)
         self.assertFalse(ok)
-        # A failing check must not also print "ok: topology valid": validate() adds that
-        # before the lints run, and above a list of errors it reads as a pass.
+        # A failing check does not print "ok: topology valid".
         self.assertEqual([m for m in messages if m.startswith("ok:")], [], messages)
 
 
 class QmlFormatCheckTest(unittest.TestCase):
-    """`check.qml_format`: report QML that qmlformat would reformat.
-
-    Opt-in, warn-only, and reproducible. The last one is the reason the settings file is
-    mandatory: qmlformat falls back to a per-user ~/.config/.qmlformat.ini, so without -s
-    the same QML gets a different answer on every machine.
+    """`check.qml_format`: opt-in, warn-only, reproducible. The project settings file is
+    required, since qmlformat otherwise reads a per-user one.
     """
 
     def setUp(self):
@@ -137,16 +162,11 @@ class QmlFormatCheckTest(unittest.TestCase):
         newproject.scaffold(self.root.parent, self.root.name)
 
     def test_a_scaffolded_project_is_format_clean(self):
-        # A new project must not be told its own scaffolding is unformatted on the very
-        # first check. That is how people learn to skim the output.
+        # A new project's scaffolding is format-clean.
         self.assertEqual(check.check_qml_format(self.root), [])
 
     def test_every_type_stub_is_format_clean_too(self):
-        # An entity's own file is scaffolding as much as Main.qml is, and it is what the
-        # first check after `synqt add entity <name> --type <type>` looks at. Every type
-        # is listed, `service` included: it is the one with nothing in the braces, which
-        # is exactly the case that was writing `QtObject {\n}` where qmlformat writes
-        # `QtObject {}`, so the scaffold reported its own output as unformatted.
+        # Every entity type's own file is format-clean, `service` included (`QtObject {}`).
         root = Path(tempfile.mkdtemp())
         newproject.scaffold(root.parent, root.name,
                             starting=[("orders", "relational"), ("sessions", "cache"),
@@ -155,13 +175,8 @@ class QmlFormatCheckTest(unittest.TestCase):
         self.assertEqual(check.check_qml_format(root), [])
 
     def test_a_source_drawn_with_its_members_is_format_clean(self):
-        """A Source the designer wrote, which is mostly bodies nobody has filled in yet.
-
-        `function fetch(): var {}` read better than three lines and was reformatted by
-        qmlformat on sight, with no setting to stop it, so every project drawn in the editor
-        opened by reporting its own starting files. Every declaration form the writer has is
-        in here, including the two qmlformat has an opinion about: an unwritten body and a
-        signal with no parameters.
+        """A designer-written Source is format-clean, including an unwritten body and a signal
+        with no parameters.
         """
         members = [
             {"kind": "prop", "name": "highest", "type": "int"},
@@ -195,17 +210,9 @@ class QmlFormatCheckTest(unittest.TestCase):
         self.assertTrue(ok)
 
     def test_the_settings_reformat_whitespace_and_never_reorder(self):
-        """The line the settings draw. qmlformat may respace your QML, never rearrange it.
-
-        This is what makes the check safe to act on. `synqt check` only reports, but it
-        reports so people run `qmlformat -i`, and both ordering knobs move an object's own
-        state below its logic while leaving the comment that explains it behind. Faithful to
-        the QML conventions (an assignment IS an object property), and wrong for a Source,
-        whose props are its contract, and for a client root, whose visible/width/height are
-        what make it a window.
-
-        Pinned as behaviour rather than as `assertIn("...=false")` because the risk is not
-        someone editing the constant, it is a Qt upgrade changing a default underneath it.
+        """The settings let qmlformat respace QML but never reorder it. Reordering would move a
+        Source's props (its contract) and a client root's window properties below its
+        functions. Pinned as behaviour, in case a Qt upgrade changes a default.
         """
         source = (self.root / "client" / "Order.qml")
         source.write_text(
@@ -228,9 +235,8 @@ class QmlFormatCheckTest(unittest.TestCase):
             self.assertIn(needle, formatted, formatted)
             return formatted.index(needle)
 
-        # Written order survives, including the assignment before the function and the
-        # declaration after it. Either ordering knob would hoist `property int declared`
-        # above `function later` and drop `width: 10` below it.
+        # Written order survives: the assignment before the function, the declaration after
+        # it.
         self.assertLess(positionOf("width: 10"), positionOf("function later"))
         self.assertLess(positionOf("function later"), positionOf("property int declared"))
         # Child objects keep their relative order, which for a scene is stacking order.
@@ -246,8 +252,7 @@ class QmlFormatCheckTest(unittest.TestCase):
         self.assertFalse(check.wants_qml_format_check({}))
 
     def test_without_a_settings_file_the_check_says_so_rather_than_guessing(self):
-        # Falling back to the machine's per-user settings would make the check report
-        # something no one else can reproduce, which is worse than not running it.
+        # Never fall back to per-user settings.
         (self.root / ".qmlformat.ini").unlink()
         messages = check.check_qml_format(self.root)
         self.assertTrue(any(".qmlformat.ini" in m and m.startswith("warn:")
@@ -256,33 +261,21 @@ class QmlFormatCheckTest(unittest.TestCase):
 
 class QmlFormatSettingsSourceTest(unittest.TestCase):
     def test_the_settings_travel_with_the_cli_not_the_repository(self):
-        """The settings are a string in newproject, and there is no copy.
-
-        The released CLI is a PyInstaller --onefile binary with no data files. A scaffolder
-        that read the settings off disk would work here and then ship every released user a
-        project with check.qml_format on and nothing to judge by, warning on its first run.
-        So: no file to find, nothing to package, nothing to drift.
-        """
+        """The settings are a string in newproject; the frozen CLI has no data files."""
         root = Path(tempfile.mkdtemp())
         newproject.scaffold(root.parent, root.name)
-        # Written verbatim from the constant. No template file is consulted, so freezing
-        # the CLI cannot leave the settings behind.
+        # Written verbatim from the constant.
         self.assertEqual((root / ".qmlformat.ini").read_text(), newproject.QMLFORMAT_INI)
-        # The settings file is also where the reasoning lives, so it has to say why, not
-        # what. A bare list of false is indistinguishable from never having tried them,
-        # and the next person turns them on.
+        # The settings file explains each setting.
         for setting in ("NormalizeOrder", "GroupAttributesTogether", "MaxColumnWidth",
                         "SortImports"):
             self.assertIn(setting, newproject.QMLFORMAT_INI)
-        # What each of them does is pinned by behaviour, above. See
-        # test_the_settings_reformat_whitespace_and_never_reorder.
+        # Behaviour is pinned above
+        # (test_the_settings_reformat_whitespace_and_never_reorder).
 
 
 class ClientRootLintTest(unittest.TestCase):
-    """A client's Main.qml is loaded as the engine's root object, and
-    QQmlApplicationEngine only shows a root that IS a window. A Page or Item root loads
-    with no error and renders nothing, so only a browser catches it. Catch it here.
-    """
+    """A client Main.qml root must be a window; QQmlApplicationEngine shows nothing else."""
 
     def setUp(self):
         self.root = Path(tempfile.mkdtemp())
@@ -322,10 +315,7 @@ class ClientRootLintTest(unittest.TestCase):
 
 
 class ConnectPointSourceLintTest(unittest.TestCase):
-    """A connect point with no Source on its owner, or one rooted at the wrong type, is a
-    point the entity cannot host. It fails at start-up, long after the point was added, so
-    it is caught here the way a non-window client root is.
-    """
+    """A connect point with no Source, or one rooted at the wrong type, is refused."""
 
     def setUp(self):
         self.root = Path(tempfile.mkdtemp())
@@ -356,14 +346,10 @@ class ConnectPointSourceLintTest(unittest.TestCase):
 
 
 class ProviderNameValidationTest(unittest.TestCase):
-    """A provider.name that selects nothing is a config error, and config errors belong to
-    `synqt check`. Left to the runtime the entity refuses to start, which is correct but
-    tells you on the next deploy instead of the next check.
-    """
+    """A provider.name that selects nothing is a `synqt check` error."""
 
     def _config(self, entity):
-        # A whole project, minimal but sound. The client needs an edge to reach, so a
-        # topology error of its own does not turn up in the list this asks about.
+        # A minimal sound project, so no unrelated topology error appears.
         return {"entities": [{"name": "client", "type": "client"},
                              {"name": "web", "type": "web_edge"},
                              entity]}
@@ -424,13 +410,8 @@ class ProviderNameValidationTest(unittest.TestCase):
         self.assertFalse(ok)
 
     def test_every_offered_provider_is_one_the_factory_builds(self):
-        """The list `synqt add entity --provider` offers must be the list the C++ factory
-        accepts. `odbc` was offered here for months with no OdbcProvider behind it, so
-        scaffolding it produced an entity that could not start.
-        """
-        # Keyed by the family the CLI names, which is the author's word. The file behind it
-        # keeps the interface's word: IPersistenceProvider is C++ nobody outside the
-        # providers meets.
+        """Every provider `synqt add entity --provider` offers is one the C++ factory builds."""
+        # Keyed by the CLI family name; the file keeps the interface name.
         factories = {
             "relational": Path("src/providers/persistencefactory.cpp"),
             "cache": Path("src/providers/cachefactory.cpp"),
@@ -487,8 +468,7 @@ class HostBinaryTest(unittest.TestCase):
         self.assertEqual(run.host_binary(self.root, "web").name, "web")
 
     def test_finds_a_windows_exe(self):
-        # The bug this pins. Looking only for the bare name finds nothing on Windows, so every
-        # entity of a perfectly good build reports as missing and `synqt dev` starts nothing.
+        # The .exe suffix is resolved on Windows.
         (self.root / "build" / "host-debug" / "web.exe").write_bytes(b"MZ")
         self.assertEqual(run.host_binary(self.root, "web").name, "web.exe")
 
@@ -497,10 +477,7 @@ class HostBinaryTest(unittest.TestCase):
         self.assertIsNone(run.host_binary(self.root, "web"))
 
     def test_finds_the_executable_inside_a_macos_app_bundle(self):
-        # The macOS desktop client is a .app (cmakegen sets MACOSX_BUNDLE so the macdeployqt
-        # hand-off in docs/desktop.md is possible at all), and what runs is the executable
-        # inside it. Resolving only the bare name found a directory, not a file, and reported
-        # a client that had built and installed correctly as never built.
+        # On macOS the desktop client is an .app; the executable inside it runs.
         bundle = self.root / "build" / "host-debug" / "client.app" / "Contents" / "MacOS"
         bundle.mkdir(parents=True)
         (bundle / "client").write_bytes(b"\xcf\xfa\xed\xfe")
@@ -510,9 +487,7 @@ class HostBinaryTest(unittest.TestCase):
         self.assertIn("client.app", resolved.parts)
 
     def test_artifact_is_the_bundle_while_binary_is_the_executable(self):
-        # The two answers differ on exactly one platform, and conflating them loses the app:
-        # a deploy that copies only Contents/MacOS/client produces something that cannot be
-        # launched, cannot be signed, and is not what macdeployqt operates on.
+        # The deploy artifact is the whole .app.
         bundle = self.root / "build" / "host-debug" / "client.app" / "Contents" / "MacOS"
         bundle.mkdir(parents=True)
         (bundle / "client").write_bytes(b"\xcf\xfa\xed\xfe")
@@ -527,12 +502,8 @@ class HostBinaryTest(unittest.TestCase):
 
 
 class DevLaunchTest(unittest.TestCase):
-    """`synqt dev`: which processes it starts, in what order, and with which arguments.
-
-    No entity is executed. The binaries are stub files and Popen is replaced, so
-    what is under test is the launch plan rather than the framework it would launch. That
-    plan carries one thing that must never be wrong. `--dev` enables the stub identity
-    provider, and it belongs to `synqt dev` alone.
+    """`synqt dev`: which processes start, in what order, with which arguments. Popen is
+    replaced and the binaries are stubs. `--dev` belongs to `synqt dev` alone.
     """
 
     def setUp(self):
@@ -553,8 +524,7 @@ class DevLaunchTest(unittest.TestCase):
         return next(e for e in self.config["entities"] if e["name"] == name)
 
     def _build(self, *names):
-        # `synqt dev` builds and launches from the development tree, which is the only one
-        # that carries SYNQT_DEV_TOOLS, and its directory says so (profiles.build_dir).
+        # `synqt dev` uses the development tree (profiles.build_dir).
         binaries = self.root / "build" / "host-debug-dev"
         binaries.mkdir(parents=True, exist_ok=True)
         for name in names:
@@ -575,9 +545,7 @@ class DevLaunchTest(unittest.TestCase):
         self.assertNotIn("--bundle", database)
 
     def test_only_the_edge_and_the_identity_entity_are_given_the_dev_stub_gate(self):
-        # --dev is what unlocks the stub identity provider. A service that is not holding
-        # the identity engine has no business being handed it, and `synqt serve` (which
-        # passes no arguments at all) is what keeps the stub out of anything that ships.
+        # Only the entity holding the identity engine gets --dev.
         self.assertIn("--dev", run.dev_command(self.root, self._entity("edge"),
                                                self.config, 8080))
         self.assertIn("--dev", run.dev_command(self.root, self._entity("auth"),
@@ -605,8 +573,7 @@ class DevLaunchTest(unittest.TestCase):
             def wait(self, timeout=None):
                 return 0
 
-        # Something has to be accepting on the dev port or dev() waits out its timeout for
-        # an edge that will never come up, so the test listens instead of the edge.
+        # Listen on the dev port so dev() does not wait out its timeout.
         import socket
         listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         listener.bind(("127.0.0.1", 0))
@@ -620,18 +587,15 @@ class DevLaunchTest(unittest.TestCase):
         self.assertEqual(set(started), {"database", "auth", "edge"})
         self.assertEqual(started[-1], "edge")   # the edge takes the public port last
         self.assertIn(f"http://127.0.0.1:{port}/", summary)
-        # The live-reload hook is served with the bundle, so it has to be there before the
-        # browser opens rather than after the first edit.
+        # The live-reload hook is in the bundle before the browser opens.
         bundle = self.root / "build" / "client"
         self.assertTrue((bundle / "synqt-dev.js").exists())
         self.assertTrue((bundle / "synqt-reload.txt").exists())
-        # Referenced from the page, and as an external file: the dev shell is served under
-        # the same CSP as the real one, which has no inline script.
+        # Referenced as an external file: the dev shell has the same CSP.
         self.assertIn('<script src="synqt-dev.js"></script>', (bundle / "index.html").read_text())
 
     def test_dev_stops_and_names_what_is_not_built_instead_of_half_starting(self):
-        # Only the edge is built. Starting the two services and then discovering the edge
-        # is missing would leave orphaned processes behind a message about a build.
+        # Only the edge is built: nothing starts when a binary is missing.
         self._build("web")
         with unittest.mock.patch.object(run.subprocess, "Popen", unittest.mock.MagicMock()):
             summary = run.dev(self.root, port=8080, open_browser=False, block=False)

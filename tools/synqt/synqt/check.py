@@ -3570,31 +3570,43 @@ def _unused_messages(edge: "infer.Edge", points: Dict[str, Any],
 # delegate taking a model role named x or y as a required property, against the x/y every
 # Item already declares FINAL) makes the whole component fail to load with "Cannot override
 # FINAL property": a blank page, not a style nit.
+# `type-instantiated-recursively` (new in Qt 6.12) is not here, and the reason
+# matters because the category sounds exactly right. A component that
+# instantiates itself recurses until the engine gives up, which is a blank page. It reports
+# every SynQt owner file. `web/edge/Edge.qml` is rooted at `Edge`, and that resolves to the
+# generated contract type because `import SynQt` beats the containing directory
+# (tests/m1-contract/tst_qmlrules.cpp measures that rule). Qmllint runs here without the
+# generated module on its import path, cannot see it, falls back to the directory, and
+# concludes the file builds itself. All four examples fail on their edge and their database
+# entity. The hazard it names is real and is already closed elsewhere: `synqt.qmlrewrite`
+# retypes a self-named root to QtObject in the generated mirror every engine
+# loads from, and leaves contract-rooted roots alone.
 _QML_FATAL_CATEGORIES = ("property-override",)
 
 
 def qt_tool_path(tool: str) -> Optional[str]:
-    """A Qt tool (qmllint, qmlformat), from PATH or from the resolved Qt kit.
+    """A Qt tool (qmllint, qmlformat), from the resolved Qt kit or, failing that, from PATH.
 
-    They live in the Qt kit's bin, which is usually NOT on PATH, so looking only at PATH
-    silently skips the check on most machines.
+    The kit first, and that order is the whole point. These tools live in the Qt kit's bin,
+    which is usually NOT on PATH, so PATH alone silently skips the check on most machines;
+    but a machine with *another* Qt on PATH is worse than one with none, because the check
+    then runs a linter from a version that is not the pin and answers about a language
+    version this project does not target. That is not hypothetical: a developer with
+    several kits installed has one of them on PATH, and it is rarely the newest.
 
-    The executable suffix is resolved rather than assumed: only Windows adds one, and
-    shutil.which() applies PATHEXT for us while a hand-built path does not. Naming the
+    The executable suffix is resolved rather than assumed. Only Windows adds one, and
+    shutil.which() applies PATHEXT while a hand-built path does not. Naming the
     bare tool there finds nothing, and this function's contract is that None means "no
     linter installed", so an unresolved suffix would quietly downgrade `synqt check`
     to skipping the QML lint on every Windows machine.
     """
-    found = shutil.which(tool)
-    if found:
-        return found
     kit = toolchain.resolve(Path.cwd()).get("host_qt")
     if kit:
         for suffix in ("", ".exe"):
             candidate = Path(kit) / "bin" / f"{tool}{suffix}"
             if candidate.is_file():
                 return str(candidate)
-    return None
+    return shutil.which(tool)
 
 
 def qmllint_path() -> Optional[str]:
@@ -3742,6 +3754,17 @@ def lint_qml(project_dir: os.PathLike[str] | str) -> List[str]:
         result = subprocess.run([qmllint, *elevate, str(qml)],
                                 capture_output=True, text=True)
         output = (result.stderr or "") + (result.stdout or "")
+        # A qmllint that does not know one of the categories above prints a usage error and
+        # exits without linting anything, and every line it printed fails the test below. A
+        # lint that ran and found nothing and a lint that never ran look identical from here,
+        # so this says which. It is the same shape as an accept path tested only by refusals:
+        # silence is not evidence.
+        if "Unknown option" in output or "Unknown options" in output:
+            return [f"error: qmllint at {qmllint} does not know one of the categories "
+                    f"`synqt check` elevates ({', '.join(_QML_FATAL_CATEGORIES)}), so it "
+                    f"linted nothing; it is older than the pinned Qt "
+                    f"{toolchain.QT_VERSION}. Point the project at that kit (synqt doctor "
+                    "reports which one it resolved) or take the older Qt off PATH"]
         for line in output.splitlines():
             if line.startswith("Error:") and any(f"[{c}]" in line
                                                  for c in _QML_FATAL_CATEGORIES):
