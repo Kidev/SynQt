@@ -556,11 +556,15 @@ int main(int argc, char *argv[])
         }
     }
 
-    // Tear the consumer nodes down while the event dispatcher is still alive; otherwise their
-    // QtRO heartbeat timers are destroyed during ~QCoreApplication and warn. Deleting a node
-    // takes its replica children with it.
+    // Tear the consumer side down while the event dispatcher is still alive. Otherwise its
+    // timers are destroyed during ~QCoreApplication and warn. Deleting a node takes its
+    // replica children with it. The sockets go here too, for the same reason and not the
+    // same timer. A QWebSocket parented to the application is destroyed after the dispatcher
+    // is, and starts its close timer into nothing, once per consumer on every run.
     for (const Consumer &consumer : consumers) {
         delete consumer.node;
+        delete consumer.transport;
+        delete consumer.socket;
     }
     return 0;
 }
