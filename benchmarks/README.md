@@ -17,6 +17,17 @@ them as the 6.11.1 reference point: the shapes and the ratios are what the text 
 and none of them turns on a patch release. Re-run them together, in one session on one
 machine, the way the environment blocks say they were taken.
 
+**Two changes since then move the fan-out numbers, and both move them the same way.** Every
+generated service, edge and monitor now asks for Qt's polling event dispatcher instead of
+GLib's, which is worth nothing at ten subscribers and about half the propagation at two
+hundred and fifty, because GLib made a socket's write-notifier toggle walk a list of every
+socket in the process; and a threaded edge now hands a whole pass to each socket thread in one
+crossing instead of one per connection, which is worth 14% to 18% of its throughput. The
+measurements are in
+[benchmarks/vs-frameworks](vs-frameworks/README.md#most-of-that-marginal-cost-was-the-event-loop).
+Nothing here has been edited to match them: every baseline under `results/` is the run it
+says it is, and the next full sweep is what replaces them.
+
 ## The gate: what CI enforces, and what it does not
 
 A committed number is not a guard until something reads it. [`baselines.py`](baselines.py)
@@ -345,7 +356,10 @@ so the CPU columns are the primary characterization.
 ### What the socket threads move, and what this harness cannot see
 
 Sweeping `--threads` at N = 100 (Qt 6.11.1, Arch Linux x86_64, 120 ticks, warmup 30,
-`interest_k=16`). Publish CPU p50, in ms:
+`interest_k=16`), and this one predates both changes named at the top of this file: the
+crossing it measures is the publisher-side cost that is now paid once per thread, and the
+event loop under it is the one that was quadratic in the connection count. Read the shape,
+which is what the paragraphs below argue from, and not the digits. Publish CPU p50, in ms:
 
 | mode | 1 thread | 2 | 4 | 8 |
 |------|---------:|--:|--:|--:|

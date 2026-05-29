@@ -34,6 +34,7 @@
 #include "rep_call_replica.h"
 
 #include "socketoptions.h"
+#include "pollingdispatcher.h"
 #include "websockettransport.h"
 
 #include <QByteArray>
@@ -271,6 +272,12 @@ QList<int> parseSizes(const QString &text)
 
 int main(int argc, char *argv[])
 {
+    // The same first line every generated entity main has, and for the same reason: Qt
+    // chooses its event dispatcher here, and the column has to measure the one a SynQt
+    // service runs on. It applies to the bare-socket column too, because that
+    // column is this process with QtRemoteObjects taken out and nothing else changed.
+    SynQt::preferPollingEventDispatcher();
+
     QCoreApplication app{argc, argv};
     QTextStream out{stdout};
 

@@ -389,6 +389,13 @@ One publisher at 30 Hz, N subscribers, a 256-byte payload, 5-second windows, eve
 one run. The environment is [below](#the-environment-these-numbers-came-from). Propagation
 p50 in milliseconds, and every column delivered every frame at every size:
 
+> **The two Qt columns here predate a change to which event dispatcher a SynQt entity runs
+> on**, and they are the record of a run rather than a claim about today, so they are left
+> alone. That change is worth 1.17x on the p50 at ten subscribers and 1.49x at two hundred
+> and fifty, and both Qt columns move together;
+> [what it was and what it measured](#most-of-that-marginal-cost-was-the-event-loop) is
+> below, with the before-and-after in full. Read the ordering at N=250 with that in hand.
+
 | N | synqt | qt-raw | go-bare | rust-bare | node24 | node26 | phoenix | signalr | socketio24 | socketio26 | nextjs24 | nextjs26 | actioncable | reverb | fastapi | channels |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | 10 | 0.100 | 0.103 | 0.064 | **0.048** | 0.158 | 0.138 | 0.095 | 0.069 | 0.291 | 0.274 | 0.238 | 0.277 | 0.693 | 0.605 | 0.285 | 0.299 |
@@ -412,14 +419,18 @@ the other way round: SynQt's marginal cost is 62.5 KiB a connection at N=250, be
 among the highest. It is cheap to hold a connection and expensive to fan out to one.
 
 This is the number worth knowing rather than the number worth burying. A single-edge SynQt
-deployment fanning one value to 250 live subscribers is paying about 8x Phoenix's
-propagation. Two things change that picture and neither is in this table: `replicas:` splits
-the subscribers across processes ([the sweep below](#the-sweep-what-each-stack-does-with-four-cores)
-measures it, and SynQt scales 10.33x over eight processes where bare Node scales 7.43x), and
+deployment fanning one value to 250 live subscribers was paying about 8x Phoenix's
+propagation when this run was taken. Three things change that picture and none of them is in
+this table: the row is 1.49x too slow, because
+[the event loop it ran on](#most-of-that-marginal-cost-was-the-event-loop) has since been
+changed and that cell is the largest single thing the change moves; `replicas:` splits the
+subscribers across processes ([the sweep below](#the-sweep-what-each-stack-does-with-four-cores)
+measures it, and SynQt scales 9.12x over eight processes where bare Node scales 7.43x); and
 `threads:` reaches the other cores inside one process
-([above](#threads-the-core-that-is-not-a-process)). The honest summary is that SynQt's answer
-to fan-out is more cores rather than a cheaper per-subscriber path, and if a deployment
-cannot give it more cores then Phoenix and SignalR are faster at this workload.
+([above](#threads-the-core-that-is-not-a-process)). Even with all three, the honest summary
+is that SynQt's answer to a large fan-out is partly more cores rather than only a cheaper
+per-subscriber path, and the next full run is what says where it lands against Phoenix and
+SignalR.
 
 The floors do their job in that row too, though not the job that was expected of them: Go at
 0.568 ms and Rust at 0.631 are beaten by SignalR and Phoenix at N=250. Two frameworks
@@ -456,47 +467,55 @@ python3 benchmarks/vs-frameworks/sweep.py --processes 1,2,4,8 --subscribers 200 
 It holds one workload fixed and splits the subscribers across the processes, so the
 question stays "what do N processes do with this" rather than "what does N times the work
 look like". `benchmarks/baselines.py check` then gates two claims on the result, both
-machine-independent: throughput must rise by at least 1.5x from the smallest process count
+machine-independent. Throughput must rise by at least 1.5x from the smallest process count
 to the largest, and no process count may buy its throughput by dropping deliveries.
 
 Two things about how it measures, both of which it got wrong first:
 
-**It saturates rather than paces.** At a fixed publish rate the throughput *is* the publish
-rate, so every process count reports the same number: the first version of this script
+**It saturates rather than paces.** At a fixed publish rate the throughput is the publish
+rate, so every process count reports the same number. The first version of this script
 reported 960 msg/s at 1, 2 and 4 processes alike and looked like a working measurement.
 Capacity is what scaling is about, so the loop publishes, waits for the whole fleet to have
-the frame, and publishes again. Open-looping at "maximum rate" would not do: QtRO coalesces
+the frame, and publishes again. Open-looping at "maximum rate" would not do, because QtRO coalesces
 outbound property changes, so frames published faster than the transport drains are merged
 and the publisher would report a throughput nobody received.
 
-**The Node wait is `setImmediate`, not a zero-millisecond timer.** `setTimeout(0)` still
+**The Node wait is `setImmediate` rather than a zero-millisecond timer.** `setTimeout(0)` still
 goes through the timer phase and does not fire faster than about a millisecond, which
 capped the Node column at ~800 frames a second and made it look like Node scaled 1.14x over
 four processes. It was a fact about the wait. With `setImmediate` the same column runs 3.7x
 faster and scales 3.86x, and it is the number below.
 
-### Reading the result honestly
+### Reading the result
 
-Arch Linux, x86_64, Qt 6.11.1 against Node 24.20.0, 200 subscribers split across the
-processes, 10 second windows. The LTS here rather than both majors: the axis being swept is
+Arch Linux, x86_64, Qt 6.12.0 against Node 24.20.0, 200 subscribers split across the
+processes, 10 second windows. The LTS here rather than both majors, because the axis being swept is
 process count, and running it twice would sweep two axes at once.
 
 | processes | SynQt | Node (bare) | worst p99, SynQt | worst p99, Node |
 |---|---|---|---|---|
-| 1 | 95,320 msg/s | 123,628 msg/s | 2.174 ms | 1.702 ms |
-| 2 | 212,370 msg/s | 245,320 msg/s | 0.981 ms | 0.855 ms |
-| 4 | 478,420 msg/s | 483,820 msg/s | 0.465 ms | 0.466 ms |
-| 8 | 984,670 msg/s (10.33x) | 918,250 msg/s (7.43x) | 0.233 ms | 0.301 ms |
+| 1 | 129,120 msg/s | 124,228 msg/s | 1.605 ms | 1.722 ms |
+| 2 | 264,970 msg/s | 244,210 msg/s | 0.788 ms | 0.870 ms |
+| 4 | 588,120 msg/s | 483,350 msg/s | 0.389 ms | 0.456 ms |
+| 8 | 1,177,120 msg/s (9.12x) | 923,382 msg/s (7.43x) | 0.198 ms | 0.297 ms |
 
-Node's bare column is ahead on one process by 30% and on two by 16%, level on four, and
-behind on eight by 7%; the lines cross between four processes and eight. SynQt scales better
-(10.33x against 7.43x) and holds the lower tail latency at eight, which is the same fact
-twice: what SynQt gives up is per-process efficiency, not the ability to use the machine.
+SynQt is ahead at every process count, by 4% on one and 28% on eight, and holds the lower
+tail latency throughout. It also scales better, 9.12x against 7.43x, which is the same fact
+read the other way: what it gains from a second process is nearer to a whole process's worth.
 
-That is the result, printed at the same size as everything else: a stack that only
-publishes the benchmarks it wins is not publishing benchmarks. The gap is
-attributed rather than left as a mystery in
-[what the gap is made of](#what-the-gap-against-node-is-made-of) below.
+**This table used to say the opposite at the low end, and what changed is worth reading
+before the rest of the page.** It read 95,320 against Node's 123,628 on one process, and
+the paragraph under it said plainly that SynQt gave up per-process efficiency and made it
+back on scaling. Then the fan-out's real cost was found, in
+[Qt's GLib event dispatcher](#most-of-that-marginal-cost-was-the-event-loop) rather than
+anywhere in SynQt, and the SynQt column moved 35% at one process while the Node column
+reproduced its old numbers within 1% (124,228 against 123,628 at one process; 923,382
+against 918,250 at eight). That control is why the change is attributed to the fix rather
+than to the machine.
+
+The humility that paragraph was for still applies to the rest of this page: SynQt loses
+plenty of cells in [the headline table](#the-headline-table), those cells are printed, and
+a stack that only publishes the benchmarks it wins is not publishing benchmarks.
 
 ### What each column is actually better at
 
@@ -560,70 +579,64 @@ keeps the single value. `--threads` runs the SynQt column that way:
 build/bench-vs-frameworks/bench_live --subscribers 100 --seconds 6 --saturate --threads 4
 ```
 
-It applies to the QtRO column only. `--raw --threads N` is refused rather than ignored:
+It applies to the QtRO column only. `--raw --threads N` is refused rather than ignored, because
 the bare-socket column writes to its peers directly and owns no device to split, so the
 flag would do nothing and the baseline would claim otherwise.
 
-Arch Linux, x86_64, **100** subscribers, 6 second windows. The first column is Qt 6.12.0 and
-is the median of five runs; the other two are Qt 6.11.1 against Node 24.20.0 and are the
-earlier record, unchanged and not re-run, because
-[what changed](#the-crossing-that-was-paid-per-subscriber) is inside the threaded path and
-touches neither of them:
+Arch Linux, x86_64, Qt 6.12.0 against Node 24.20.0, 100 subscribers, 6 second windows.
+The `threads:` column is the median of five runs. The other two come from one run of
+`sweep.py` at the same workload, in the same session:
 
 | cores | SynQt `threads:` | one value? | SynQt `replicas:` | Node `cluster` |
 |---|---|---|---|---|
-| 1 | 107,583 msg/s | yes | 103,600 | 124,067 |
-| 2 | 229,667 msg/s | yes | 240,825 | 247,158 |
-| 4 | 238,550 msg/s | yes | 505,779 | 491,000 |
-| 8 | 227,733 msg/s | yes | 1,015,815 | 907,228 |
+| 1 | 136,500 msg/s | yes | 134,317 | 122,533 |
+| 2 | 243,267 msg/s | yes | 296,100 | 244,025 |
+| 4 | 243,500 msg/s | yes | 598,846 | 490,638 |
+| 8 | 237,483 msg/s | yes | 1,185,739 | 912,800 |
 
-Read down the first column, not across the row. Threading is worth 2.13x from one core to
-two, a little more at four, and holds 2.12x at eight. Its distinction is that every row
-still delivers one value to all 100 subscribers, which is the case `replicas:` and
-`cluster` cannot serve at all.
+Read down the first column rather than across the row. Threading is worth 1.78x from one core to
+two and stops there. Four is level with two and eight gives a little back. Its distinction
+is that every row still delivers one value to all 100 subscribers, which is the case
+`replicas:` and `cluster` cannot serve at all.
 
 Two cautions before quoting any of this. These runs used 100 subscribers and 6 second
-windows, and [the sweep table above](#reading-the-result-honestly) used 200 and 10, so the
-two tables are different workloads and reading one against the other is a mistake; the
-`replicas:` and `cluster` columns here are both higher than their counterparts there for
-that reason alone, and not because anything got faster between them. And the one-core row
-is a control rather than a result: it is the unsplit device, which the change below does not
-touch, and it lands within 3.4% of the 104,000 the earlier record put there, which is what
-makes the rest of the column comparable to it at all.
+windows, and [the sweep table above](#reading-the-result) used 200 and 10, so the
+two tables are different workloads and reading one against the other is a mistake. And the
+two one-core cells disagree by 2% (136,500 against 134,317) for the same code doing the same
+work. One is five runs of a single process and the other is one run of the sweep's
+orchestration, which is the size of this harness's run-to-run spread at that point.
 
-#### The crossing that was paid per subscriber
+#### Two changes moved this table, and one of them lowered the ratio
 
-The first three rows above used to read 104,000 / 200,133 / 198,717 / 182,700: 1.9x at two
-cores and then a slow loss. The loss was not the sockets and not the threads. It was the
-hand-over.
+Before them the `threads:` column read 104,000 / 200,133 / 198,717 / 182,700, which is 1.9x at
+two cores and then a slow loss. The two need separating
+because the second one makes the headline ratio look worse while making every cell better.
 
-A split connection accumulates what QtRO writes and sends it to the socket's thread as one
-queued call, which is the whole point of the split. But it made that call **per connection**,
-so a fan-out to one hundred subscribers posted one hundred times, plus one hundred more to
-gather them. A queued call is about a microsecond. Against what delivering to one connection
-costs that is nothing, and against one hundred of them in the same pass it is the pass: the
-thread holding the Sources spent it posting rather than serialising, and adding socket
-threads could not help with a bottleneck that was on the other thread. That is exactly the
-shape the design note predicted and the implementation did not carry.
+**The crossing was paid per subscriber.** A split connection accumulates what QtRO writes
+and sends it to the socket's thread as one queued call, which is the whole point of the
+split. But it made that call per connection, so a fan-out to one hundred subscribers
+posted one hundred times, plus one hundred more to gather them. A queued call is about a
+microsecond. Against what delivering to one connection costs that is nothing, and against a
+hundred of them in the same pass it is the pass. The thread holding the Sources spent it
+posting rather than serialising, and adding socket threads cannot help with a bottleneck
+that is on the other thread. That is exactly the shape
+[the design note](#threads-the-core-that-is-not-a-process) predicted and the implementation
+did not carry. It gathers a pass and crosses once per socket thread, carrying every
+connection's bytes for that thread in one call. Measured on its own, three runs each side,
+that was worth 14% at two threads, 18% at four and 17% at eight, and a fifth off the
+propagation p50. `tests/m2-transport/tst_threadedsocket.cpp` holds the crossing count to one
+per thread and reports eight the moment the grouping is undone.
 
-The transport now gathers a pass and crosses **once per socket thread**, carrying every
-connection's bytes for that thread in one call. Same workload, same host, same harness,
-three runs each side:
+**Then the event loop stopped being quadratic**, which lifted the one-core row from 107,583
+to 136,500 and left the multi-core rows roughly where they already were. That is the sense
+in which `threads:` buys 1.78x rather than 2.2x. What it had been parallelising was
+partly [GLib's per-socket bookkeeping](#most-of-that-marginal-cost-was-the-event-loop), and
+work that no longer exists cannot be spread over cores. The ceiling did not move. The floor
+came up to meet it.
 
-| cores | before | after |
-|---|---|---|
-| 2 | 200,017 msg/s | 229,667 (+14%) |
-| 4 | 202,983 msg/s | 238,550 (+18%) |
-| 8 | 193,867 msg/s | 227,733 (+17%) |
-
-Propagation p50 at four threads went from 0.376 ms to 0.298. The one-core row moved by 0.8%,
-which is the control saying the unsplit path was not touched.
-
-What it does not do is change the shape. `threads:` still buys about two cores of delivery
-and not eight, because the Source still serialises once on the thread that owns it and that
-work is not divisible by adding sockets. The ceiling is higher and it is still a ceiling.
-`tests/m2-transport/tst_threadedsocket.cpp` holds the crossing count to one per thread, and
-reports eight the moment the grouping is undone.
+What neither changed is the shape. `threads:` buys about two cores of delivery rather than
+eight, because the Source still serialises once on the thread that owns it and that work is
+not divisible by adding sockets.
 
 ## What the gap against Node is made of
 
@@ -674,22 +687,23 @@ from a marginal one.
 
 Two separable things follow, and they want different work:
 
-**QtRemoteObjects costs a steady 25% or so on top of Qt's own socket path**: 3.3
+QtRemoteObjects costs a steady 25% or so on top of Qt's own socket path, 3.3
 microseconds per subscriber, 1.20x to 1.25x on latency and 1.21x to 1.31x on CPU, at every
-size measured. That cost buys something concrete: the Node column carries an opaque
+size measured. That cost buys something concrete. The Node column carries an opaque
 buffer to a callback and the receiver casts it, while the QtRO column carries a typed
 property change against a schema, resolves it on a replica that stays in sync, coalesces pushes that
 overtake each other, and lands in a slot where `Caller` is already known.
 
-**Qt's own per-subscriber cost is 3.4 microseconds above Node's**, which is the larger half
+Qt's own per-subscriber cost is 3.4 microseconds above Node's, which is the larger half
 of the gap and has nothing to do with SynQt. That is where beating Node at real fan-out
-sizes has to start.
+sizes has to start, and most of it turned out
+[not to be Qt's sockets either](#most-of-that-marginal-cost-was-the-event-loop).
 
-### Where the marginal cost actually is
+### Where the marginal cost is
 
-The two candidates above are a copy and an overhead, and for a long time this page could
-not tell them apart, because the headline sweep varies the number of subscribers and holds
-the payload at 256 bytes. Vary the payload instead and they separate on their own: a stack
+The two candidates above are a copy and an overhead, and the headline sweep cannot tell them
+apart, because it varies the number of subscribers and holds
+the payload at 256 bytes. Vary the payload instead and they separate on their own. A stack
 that copies the frame once per subscriber pays more per subscriber as the frame grows, and
 a stack that pays a syscall, a wakeup and a dispatch per subscriber pays the same whatever
 the frame carries.
@@ -738,10 +752,101 @@ windows rather than the committed five, to answer the question rather than to be
 against. Rerun `payload-sweep.sh` alongside the next full run to replace them. What no rerun
 will move is the flatness itself, which is the whole of the argument.
 
+### Most of that marginal cost was the event loop
+
+The payload sweep says Qt's per-subscriber cost is not a copy, because it does not move with
+the frame. What is left is per-socket fixed work, and the profile above had been read as
+pointing at one place: `QIODevice`'s small reads. It does point there, and there is
+something else in the same profile that nobody had looked at.
+
+Reading it properly needs a *marginal* profile rather than a total one, because a run's
+profile is mostly connection setup and publishing. Run the identical paced workload at
+twenty subscribers and at forty under callgrind and subtract: the same number of publishes,
+six thousand more deliveries, and what is left is what one delivery to one more subscriber
+costs, attributed by function. It is 27,679 instructions, and they group like this:
+
+| where the marginal instructions go | share |
+|---|---|
+| `QIODevice` reads: `QIODevicePrivate::read`, `QRingBuffer::read`/`free`/`reserve`, `QDataStream::readBlock`, `bytesAvailable` | 24% |
+| the GLib event dispatcher: `QEventDispatcherGlib::unregisterSocketNotifier`, `g_slist_remove`, and two more frames inside `libglib` | 12% |
+| signal emission: `doActivate`, `maybeSignalConnected`, `QMetaObject::activate` | 10% |
+| `malloc` and `free` | 3% |
+
+The second row is the one that should not be there. Delivering a message does not need the
+event loop to register anything.
+
+On Linux Qt uses `QEventDispatcherGlib` whenever GLib is installed, which is
+every desktop and most server images. `QAbstractSocket` enables its write notifier when a
+write does not drain into the kernel and disables it when it does, so a socket toggles one
+notifier per message. On the GLib dispatcher a toggle is not a flag.
+`QEventDispatcherGlib::unregisterSocketNotifier` scans a list holding every socket notifier
+in the process, then removes a `GPollFD` from a GSource's own list, then frees the wrapper
+its partner allocated. So publishing one value to N subscribers writes to N sockets, and each
+of those N sockets walks a list of length N. The event loop's own cost of a fan-out grows
+with the square of the subscriber count, in Qt and GLib, with nothing that SynQt or
+QtRemoteObjects wrote anywhere near it.
+
+That model is testable without changing a line, because Qt picks the polling dispatcher
+instead when `QT_NO_GLIB` is set. Same binary, same host, same sweep, saturating:
+
+| N | GLib dispatcher | polling dispatcher | |
+|---|---|---|---|
+| 10 | 131,512 msg/s | 155,645 | 1.18x |
+| 50 | 121,375 | 150,088 | 1.24x |
+| 100 | 103,275 | 137,400 | 1.33x |
+| 250 | 85,812 | 130,217 | 1.52x |
+
+And on the paced sweep, which is the one the headline table reports, propagation p50:
+
+| N | GLib dispatcher | polling dispatcher | |
+|---|---|---|---|
+| 10 | 0.148 ms | 0.127 ms | 1.17x |
+| 50 | 0.587 | 0.486 | 1.21x |
+| 100 | 1.193 | 0.903 | 1.32x |
+| 250 | 3.225 | 2.169 | **1.49x** |
+
+**Read the widening, not only the size.** A toggle costs a fixed part (an allocation, a free,
+two list operations) and a part that grows with the list, so the saving is 1.18x where the
+list is ten long and 1.52x where it is two hundred and fifty. Both halves are real; only the
+second one is the reason SynQt's marginal cost was above Node's and pulled further ahead with
+every subscriber added, and it is why this hid for so long. The callgrind attribution above
+understates it for exactly that reason: twenty subscribers is a very short list to walk, and
+even there the dispatcher is 12% of the marginal cost.
+
+Both tables are medians of three runs on a quiet host; the two sweeps were re-run and agreed
+within 3%. Both arms come from the same binary, alternating run by run, so nothing but the
+environment variable differs between the columns.
+
+So SynQt asks for the polling dispatcher. Every generated service, web edge and monitor calls
+`SynQt::preferPollingEventDispatcher()` as the first line of `main`, before the application
+exists, which is when Qt chooses. A desktop client does not: it holds one socket, so there is
+nothing to win, and GLib's dispatcher is exactly what a GTK platform theme needs for native
+dialogs. `QT_NO_GLIB=` with an empty value puts it back, which is Qt's own spelling and not a
+zero. See [`pollingdispatcher.h`](../../src/transport/pollingdispatcher.h) and
+[the deployment note](../../docs/deploying.md#one-thing-your-entities-do-to-their-own-event-loop).
+
+**What it does not fix.** `QEventDispatcherUNIX` calls `poll()`, which hands the kernel every
+descriptor on every pass and is linear in their number; Node, Go and Rust all sit on `epoll`,
+which is not. Qt has no epoll dispatcher, so that bound stays, and it is a fair part of
+whatever marginal gap is left. What is gone is the part that was quadratic.
+
+**Every number on this page above this section was measured before this change**, on the GLib
+dispatcher, including the headline table and the fixed-and-marginal fit. They are the record
+of a run and are not edited; the two tables here say which way each of them moves and by how
+much, and the next full run of `run-bench.sh` replaces them.
+
 ### What would move each half
 
 Each of these is stated with whose code it is in, because that decides how fixable it is.
-Two of them used to be marked inferred; the payload sweep above is what settled them.
+Two of them used to be marked inferred; the payload sweep settled those, and the marginal
+profile above settled the largest one, which was not on this list at all when it was written.
+
+0. **The event loop was most of it, and it is fixed.** Qt's GLib dispatcher makes a socket's
+   write-notifier toggle cost a walk of every notifier in the process, so a fan-out's event
+   loop grows with the square of the subscriber count.
+   [Above](#most-of-that-marginal-cost-was-the-event-loop): 52% more throughput at two
+   hundred and fifty subscribers and 18% at ten. Upstream, but avoidable from here, and
+   avoided.
 
 1. **The per-socket send copy is real and is not worth pulling.** `encodeBinaryFrame` runs
    once in `wsserver.mjs` and the resulting `Buffer` goes to all N sockets with no copy,

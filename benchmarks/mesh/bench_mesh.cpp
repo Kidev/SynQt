@@ -26,6 +26,7 @@
 #include "meshclient.h"
 #include "meshpeer.h"
 #include "meshserver.h"
+#include "pollingdispatcher.h"
 
 #include <QCommandLineOption>
 #include <QCommandLineParser>
@@ -422,6 +423,12 @@ void printDistribution(QTextStream &out, const Distribution &distribution)
 
 int main(int argc, char *argv[])
 {
+    // The same first line every generated entity main has: Qt chooses its event dispatcher
+    // when the application is constructed, and a SynQt edge does not run on GLib's, whose
+    // socket-notifier toggles walk a list of every socket in the process. Measuring on a
+    // dispatcher the framework does not ship would be measuring the wrong program.
+    SynQt::preferPollingEventDispatcher();
+
     QCoreApplication app{argc, argv};
 
     QCommandLineParser parser;

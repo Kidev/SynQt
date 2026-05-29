@@ -32,6 +32,7 @@
 #include "socketoptions.h"
 #include "iothreadpool.h"
 #include "socketchannel.h"
+#include "pollingdispatcher.h"
 #include "websockettransport.h"
 
 #include <QByteArray>
@@ -176,12 +177,9 @@ bool spinUntil(Predicate predicate, int timeoutMs)
 
 /// Wait, servicing the event loop, without burning CPU doing it.
 ///
-/// This exists because the first version of this harness paced its ticks with the spin
-/// above and then reported process CPU. That measured the busy-wait: SynQt came out at
-/// 4151 CPU ms per thousand deliveries against Node's 48, which is not a fact about
-/// QtRemoteObjects but a fact about `processEvents` in a tight loop. The Node columns wait
-/// on `await sleep()`, which blocks in the poll, so the two would not have been comparable
-/// at all. A blocking QEventLoop with a timer is the like-for-like wait.
+/// The spin above would count its own busy-wait as process CPU, while the Node columns wait
+/// on `await sleep()`, which blocks in the poll. A blocking QEventLoop with a timer is the
+/// like-for-like wait.
 void waitMs(int milliseconds)
 {
     if (milliseconds <= 0) {
@@ -274,6 +272,12 @@ QList<int> parseSizes(const QString &text)
 
 int main(int argc, char *argv[])
 {
+    // The same first line every generated entity main has, and for the same reason: Qt
+    // chooses its event dispatcher here, and the column has to measure the one a SynQt
+    // service runs on. It applies to the bare-socket column too, because that
+    // column is this process with QtRemoteObjects taken out and nothing else changed.
+    SynQt::preferPollingEventDispatcher();
+
     QCoreApplication app{argc, argv};
     QTextStream out{stdout};
 
@@ -349,8 +353,7 @@ int main(int argc, char *argv[])
         QWebSocketServer server{QStringLiteral("bench-live"),
                                 QWebSocketServer::NonSecureMode};
         BenchTcpServer listener{&server};
-        // The edge's `threads:` key. Null at 1, which is the shape every earlier baseline
-        // in this harness was taken with.
+        // The edge's `threads:` key. Null at 1, the unthreaded shape.
         QScopedPointer<IoThreadPool> ioThreads;
         if (ioThreadCount > 1) {
             ioThreads.reset(new IoThreadPool{ioThreadCount});

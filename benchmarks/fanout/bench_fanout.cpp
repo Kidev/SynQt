@@ -29,6 +29,7 @@
 #include "rep_fanout_replica.h"
 
 #include "iothreadpool.h"
+#include "pollingdispatcher.h"
 #include "socketchannel.h"
 #include "websockettransport.h"
 
@@ -345,6 +346,12 @@ void printRow(QTextStream &out, int n, Mode mode, int rows, int totalRows,
 
 int main(int argc, char *argv[])
 {
+    // The same first line every generated entity main has: Qt chooses its event dispatcher
+    // when the application is constructed, and a SynQt edge does not run on GLib's, whose
+    // socket-notifier toggles walk a list of every socket in the process. Measuring on a
+    // dispatcher the framework does not ship would be measuring the wrong program.
+    SynQt::preferPollingEventDispatcher();
+
     QCoreApplication app{argc, argv};
 
     QCommandLineParser parser;

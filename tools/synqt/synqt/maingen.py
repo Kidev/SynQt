@@ -1094,7 +1094,8 @@ def render_edge_main(config: Dict[str, Any], edge: Dict[str, Any],
     dev_stub_section = ("\n" + "\n".join(dev_stub_lines) + "\n") if dev_stub_lines else ""
 
     includes = ['#include "envfile.h"', '#include "moduleimports.h"',
-                '#include "webedge.h"', '#include "webedgeconfig.h"']
+                '#include "pollingdispatcher.h"', '#include "webedge.h"',
+                '#include "webedgeconfig.h"']
     if identity_lines:
         includes.append('#include "identityconfig.h"')
     if dev_stub_lines:
@@ -1283,6 +1284,13 @@ using namespace SynQt;
 
 int main(int argc, char *argv[])
 {{
+    // Qt chooses its event dispatcher when the application is constructed, so this comes
+    // first. GLib's keeps every watched descriptor in one poll list and walks it whenever a
+    // socket toggles its write notifier, which a fan-out does once per connection per
+    // publish. The polling dispatcher does not, and the difference grows with the number of
+    // subscribers. Nothing headless wants GLib. See preferPollingEventDispatcher().
+    SynQt::preferPollingEventDispatcher();
+
     QGuiApplication app{{argc, argv}};
 
     QCommandLineParser parser;
@@ -1423,7 +1431,8 @@ def render_service_main(config: Dict[str, Any], entity: Dict[str, Any],
     inbound = appmodel.inbound_settings(entity)
 
     includes = ['#include "entityruntime.h"', '#include "envfile.h"',
-                '#include "moduleimports.h"', '#include "topology.h"']
+                '#include "moduleimports.h"', '#include "pollingdispatcher.h"',
+                '#include "topology.h"']
     if inbound:
         # api.h too, because `apiServer.api()` returns an `Api *` and handing it to
         # setContextObject needs the upcast to QObject, which needs the definition.
@@ -1546,6 +1555,13 @@ using namespace SynQt;
 
 int main(int argc, char *argv[])
 {{
+    // Qt chooses its event dispatcher when the application is constructed, so this comes
+    // first. GLib's keeps every watched descriptor in one poll list and walks it whenever a
+    // socket toggles its write notifier, which a fan-out does once per connection per
+    // publish. The polling dispatcher does not, and the difference grows with the number of
+    // subscribers. Nothing headless wants GLib. See preferPollingEventDispatcher().
+    SynQt::preferPollingEventDispatcher();
+
     QCoreApplication app{{argc, argv}};
 
     QCommandLineParser parser;
@@ -1782,6 +1798,7 @@ def render_monitor_main(config: Dict[str, Any], entity: Dict[str, Any],
 #include "eventstore.h"
 {export_includes}#include "monitorservice.h"
 #include "operatorstore.h"
+#include "pollingdispatcher.h"
 #include "topology.h"
 #include "tracer.h"
 #include "webedge.h"
@@ -1805,6 +1822,13 @@ using namespace SynQt;
 
 int main(int argc, char *argv[])
 {{
+    // Qt chooses its event dispatcher when the application is constructed, so this comes
+    // first. GLib's keeps every watched descriptor in one poll list and walks it whenever a
+    // socket toggles its write notifier, which a fan-out does once per connection per
+    // publish. The polling dispatcher does not, and the difference grows with the number of
+    // subscribers. Nothing headless wants GLib. See preferPollingEventDispatcher().
+    SynQt::preferPollingEventDispatcher();
+
     QGuiApplication app{{argc, argv}};
 
     QCommandLineParser parser;

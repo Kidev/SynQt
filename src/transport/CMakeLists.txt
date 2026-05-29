@@ -6,7 +6,7 @@
 # SynQt link is opened with; RoutePattern, the route
 # matcher both the client (navigation) and a service (fetchPage authorization) compile a
 # request path against; the proxy policy every server-side manager takes; and the small
-# headers that both sides need and that were otherwise copied across the license boundary:
+# headers both sides need:
 # minting a secret and deriving its PKCE challenge, comparing one without leaking where it
 # differs, and the two facts the desktop sign-in rests on (where its routes are, and which
 # socket in an accepted connection already has an owner). A leaf library so both sides can
@@ -23,6 +23,8 @@ qt_add_library(SynQtTransport STATIC
     secrets.h
     websockettransport.cpp
     websockettransport.h
+    pollingdispatcher.cpp
+    pollingdispatcher.h
     socketoptions.cpp
     socketoptions.h
     iothreadpool.cpp
