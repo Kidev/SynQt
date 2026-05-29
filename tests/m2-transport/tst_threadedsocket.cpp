@@ -236,7 +236,24 @@ public:
     }
 
     WebSocketTransport *transport(int index) const { return m_transports.at(index).get(); }
-    const QByteArray &received(int index) const { return m_received.at(index); }
+
+    /// What every client has received, sorted. Sorted rather than indexed because which
+    /// accepted connection belongs to which client is not knowable from here: the order
+    /// sockets are accepted in is the event dispatcher's business, and it is not the order
+    /// they were opened in on every dispatcher. What a fan-out promises is that each
+    /// connection gets its own bytes, which is a statement about the set.
+    QList<QByteArray> receivedSorted() const
+    {
+        QList<QByteArray> all;
+        for (const QByteArray &bytes : m_received) {
+            if (!bytes.isEmpty()) {
+                all.append(bytes);
+            }
+        }
+        std::sort(all.begin(), all.end());
+        return all;
+    }
+
     CrossingCounter *counter() const { return m_counter; }
 
 private:
@@ -433,11 +450,14 @@ void TestThreadedSocket::aFanOutCrossesOncePerSocketThreadRatherThanOncePerConne
         QCOMPARE(fanOut.transport(index)->write(payload), payload.size());
     }
 
-    QTRY_COMPARE(fanOut.received(Connections - 1),
-                 QByteArray::number(Connections - 1).rightJustified(16, '0'));
+    QList<QByteArray> expected;
     for (int index{0}; index < Connections; ++index) {
-        QCOMPARE(fanOut.received(index), QByteArray::number(index).rightJustified(16, '0'));
+        expected.append(QByteArray::number(index).rightJustified(16, '0'));
     }
+    std::sort(expected.begin(), expected.end());
+
+    QTRY_COMPARE(fanOut.receivedSorted().size(), Connections);
+    QCOMPARE(fanOut.receivedSorted(), expected);
 
     QCOMPARE(fanOut.counter()->crossings(), 1);
 }
