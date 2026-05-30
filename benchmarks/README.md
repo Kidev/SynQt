@@ -539,51 +539,56 @@ the N where per-session payload stops being flat (the real single-edge ceiling) 
 ```
 
 It sustains a fixed-rate loop and many live connections, so it belongs on a host that permits
-sustained load; the committed baseline was measured on one.
+sustained load. The committed baseline was measured on one.
 
 ### Baseline captured on this checkout
 
-`results/capstone-kidevPC_.json` (Qt 6.11.1, Arch Linux x86_64; 30 Hz target, 5 s windows,
+`results/capstone-kidevPC_.json` (Qt 6.12.0, Arch Linux x86_64, 30 Hz target, 5 s windows,
 `interest_k=16`). Every player is a real node on the real transport, and every one of them
 was live for the whole window at every size (`players_not_counted` is 0 throughout):
 
 | players | rows/session | rows/tick | publish CPU p50 | tick jitter p50 | snapshots delivered | RSS |
 |--------:|-------------:|----------:|----------------:|----------------:|--------------------:|----:|
-| 10 | 10 | 100 | 0.43 ms | 0.01 ms | 30.0 Hz | 88 MB |
-| 25 | 16 | 400 | 1.68 ms | 0.01 ms | 30.0 Hz | 90 MB |
-| 50 | 16 | 800 | 3.45 ms | 0.02 ms | 30.0 Hz | 91 MB |
-| 100 | 16 | 1 600 | 6.94 ms | 3.29 ms | 30.1 Hz | 96 MB |
-| 200 | 16 | 3 200 | 14.7 ms | 49.7 ms | **13.0 Hz** | 397 MB |
+| 10 | 10 | 100 | 0.14 ms | 0.01 ms | 30.0 Hz | 86 MB |
+| 25 | 16 | 400 | 0.48 ms | 0.01 ms | 30.0 Hz | 86 MB |
+| 50 | 16 | 800 | 0.99 ms | 0.01 ms | 30.0 Hz | 87 MB |
+| 100 | 16 | 1 600 | 2.05 ms | 0.01 ms | 29.9 Hz | 88 MB |
+| 200 | 16 | 3 200 | 4.54 ms | 0.01 ms | 30.1 Hz | 90 MB |
 
-Interest management does what the fanout harness says it does: from 25 players on, each one
+Interest management does what the fanout harness says it does. From 25 players on, each one
 receives 16 rows a tick no matter how many others are playing, so the per-session payload is
-flat and only the *number* of sessions grows. That makes the total linear, and the publish
-CPU column is linear with it, 0.43 -> 1.68 -> 3.45 -> 6.94 -> 14.7 ms.
+flat and only the number of sessions grows. That makes the total linear, and the publish
+CPU column is linear with it, 0.14 -> 0.48 -> 0.99 -> 2.05 -> 4.54 ms.
 
-**The ceiling is between 100 and 200 players on one edge process.** At 100 the loop still
-holds its cadence (30.1 Hz delivered against a 30 Hz target) while spending 6.9 ms of each
-33 ms tick publishing, with 3.3 ms of jitter, which is a loop with margin left but not much.
-At 200 it is over: 14.7 ms of publish CPU per tick, 49.7 ms of median jitter (the loop is
-missing more ticks than it hits), 13.0 Hz actually delivered, and resident memory jumping
-from 96 MB to 397 MB as the unsent work backs up. Nothing fails and nothing disconnects; the
-simulation just runs slower than it promised, which is the failure mode a fixed-rate
-authoritative server has.
+The ceiling is between 300 and 400 players on one edge process, past the end of the
+committed sweep. Two runs at the same settings put it there. At 300 the loop still holds its
+cadence (30.0 Hz delivered) on 7.28 ms of each 33 ms tick, with 0.02 ms of median jitter and
+127 MB resident. At 400 it is over: 9.08 ms of publish CPU, 557 ms of median tick jitter, 10.0
+Hz delivered, and 385 MB resident as the unsent work backs up. Nothing fails and
+nothing disconnects. The simulation runs slower than it promised, which is the failure mode a
+fixed-rate authoritative server has.
 
-That is the honest ceiling of a version-1 single-edge deployment for *this* workload, and it
-is a per-process number, not a per-machine one. It is also the number the two scaling keys
-answer: [`threads: N`](../docs/deploying.md#running-one-edge-on-more-than-one-core) moves the
+That is the ceiling of a single-edge deployment for this workload, and it is a
+per-process number rather than a per-machine one. It is also the number the two scaling keys
+answer. [`threads: N`](../docs/deploying.md#running-one-edge-on-more-than-one-core) moves the
 delivery half of that publish CPU off the loop, and `replicas: N` runs more of these
 processes. Neither divides the simulation itself, which is one world on one thread by
 construction.
 
 The snapshot rate counts snapshots a player was handed, by the replica's own change signal.
-Subtracting the published tick instead would have been wrong in the direction that matters:
-the tick is the run's cumulative counter and QtRO coalesces property pushes, so one late
-update carrying a value 400 ticks newer subtracts the same as 400 delivered snapshots. The
-saturated end of the sweep therefore reported more throughput than the tick rate allows,
-draining the previous window's backlog and counting it as delivery. A player whose replica was
-not live for the whole window is excluded and counted in `players_not_counted`, so a healthy
-rate over a shrinking population cannot pass for a healthy run.
+Subtracting the published tick instead would be wrong in the direction that matters. The tick
+is the run's cumulative counter and QtRO coalesces property pushes, so one late update
+carrying a value 400 ticks newer subtracts the same as 400 delivered snapshots. A run past
+the ceiling would then report more throughput than the tick rate allows, draining the
+previous window's backlog and counting it as delivery. A player whose replica was not live
+for the whole window is excluded and counted in `players_not_counted`, so a healthy rate over
+a shrinking population cannot pass for a healthy run.
+
+The harness publishes a player's slice the way the generated `set<Model>(rows)` does. It builds
+the items, resets the model, and appends them. Rebuilding a remoted model with `removeRows()` and
+`insertRows()` instead walks off the end of QtRO's vertical header cache and kills the
+process in the `CacheEntry` destructor, and short of that it measures a path no SynQt owner
+takes. Both harnesses that publish a model say so where they do it.
 
 ## remote-pages: the first-load weight of edge-delivered pages
 

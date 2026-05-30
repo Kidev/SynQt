@@ -43,6 +43,7 @@
 #include <QEvent>
 #include <QEventLoop>
 #include <QFile>
+#include <QHash>
 #include <QHostAddress>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -251,33 +252,58 @@ private:
     QList<Blob> m_blobs;
 };
 
-// A player's per-session view model: one column, the four declared roles. Rebuilt in place each
-// tick to the player's current interest set, which is the owner-side work publish() pays.
+// The four roles a PlayerView publishes, in the order the contract declares them. Named once,
+// because the model is rebuilt from scratch each tick and every rebuild has to restore them.
+const QHash<int, QByteArray> &viewRoleNames()
+{
+    static const QHash<int, QByteArray> roles{{Qt::UserRole, QByteArrayLiteral("id")},
+                                              {Qt::UserRole + 1, QByteArrayLiteral("x")},
+                                              {Qt::UserRole + 2, QByteArrayLiteral("y")},
+                                              {Qt::UserRole + 3, QByteArrayLiteral("r")}};
+    return roles;
+}
+
+// A player's per-session view model. One column, the four declared roles. Rebuilt each tick to
+// the player's current interest set, which is the owner-side work publish() pays.
 QStandardItemModel *makeViewModel(QObject *parent)
 {
     auto *model{new QStandardItemModel{parent}};
     model->insertColumn(0);
-    model->setItemRoleNames({{Qt::UserRole, QByteArrayLiteral("id")},
-                             {Qt::UserRole + 1, QByteArrayLiteral("x")},
-                             {Qt::UserRole + 2, QByteArrayLiteral("y")},
-                             {Qt::UserRole + 3, QByteArrayLiteral("r")}});
+    model->setItemRoleNames(viewRoleNames());
     return model;
 }
 
 // Fill a player's view model with the blobs in `visible`, reading their live position from the
 // arena. The row count here is the per-session payload the plan tracks against N.
+//
+// Shaped exactly like the generated `set<Model>(rows)` an owner calls. Build the items
+// first, reset the model, then append them. That is what is being measured, and it is also
+// the only shape that survives. The obvious alternative, removeRows() then insertRows() and a
+// setData() per cell, walks off the end of QtRO's vertical header cache: the replica keeps it
+// as a flat list appended to by onRowsInserted and cut by onRowsRemoved, the initial size
+// arrives asynchronously in handleModelResetDone and overwrites it, and the erase in
+// onRowsRemoved is bounded by nothing (Qt 6.12.0,
+// qremoteobjectabstractitemmodelreplica.cpp:293). A harness that does exactly that
+// dies in the CacheEntry destructor on roughly half its runs. benchmarks/fanout carries the
+// same note.
 void publishSlice(QStandardItemModel *model, const Arena &arena, const QList<int> &visible)
 {
-    model->removeRows(0, model->rowCount());
-    model->insertRows(0, visible.size());
+    QList<QStandardItem *> items;
+    items.reserve(visible.size());
     for (int row{0}; row < visible.size(); ++row) {
         const int blobIndex{visible.at(row)};
         const Blob &blob{arena.at(blobIndex)};
-        const QModelIndex index{model->index(row, 0)};
-        model->setData(index, blobIndex, Qt::UserRole);
-        model->setData(index, blob.x, Qt::UserRole + 1);
-        model->setData(index, blob.y, Qt::UserRole + 2);
-        model->setData(index, blob.radius, Qt::UserRole + 3);
+        auto *item{new QStandardItem{}};
+        item->setData(blobIndex, Qt::UserRole);
+        item->setData(blob.x, Qt::UserRole + 1);
+        item->setData(blob.y, Qt::UserRole + 2);
+        item->setData(blob.radius, Qt::UserRole + 3);
+        items.append(item);
+    }
+    model->clear();
+    model->setItemRoleNames(viewRoleNames());
+    for (QStandardItem *item : std::as_const(items)) {
+        model->appendRow(item);
     }
 }
 
