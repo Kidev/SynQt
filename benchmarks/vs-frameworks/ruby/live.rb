@@ -36,6 +36,7 @@ require "concurrent/timer_task"
 require "action_cable"
 require "async"
 require "async/http/endpoint"
+require "async/notification"
 require "async/websocket/client"
 require "base64"
 require "json"
@@ -185,10 +186,19 @@ sweep = Sync do |task|
     measuring = false
     delivered_this_frame = 0
     joined = 0
-    fleet = nil
     # One sample buffer per subscriber, appended by that subscriber's own fiber. They all
     # run on one thread, so nothing contends and no lock is needed anywhere below.
     buffers = Array.new(subscriber_count) { [] }
+
+    # How the publisher learns that the frame it just sent reached everyone. A scheduler-aware
+    # primitive rather than Fiber.current/Fiber.yield/Fiber#resume: parking an Async task's
+    # fiber by hand and resuming it from another fiber puts two things in charge of one fiber,
+    # and the scheduler eventually resumes a fiber this loop still holds a reference to. That
+    # raised "attempt to resume a terminated fiber" inside a subscriber, killed the subscriber,
+    # and left the publisher parked with nobody able to wake it: the sweep then sat quiet for
+    # an hour rather than failing. Notification#signal drops the signal when nobody is waiting,
+    # which is exactly the case where the publisher was never going to wait.
+    fleet = Async::Notification.new
 
     subscribers =
       Array.new(subscriber_count) do |index|
@@ -224,7 +234,7 @@ sweep = Sync do |task|
                 stamp = frame.byteslice(0, 8).unpack1("Q<")
                 mine << ((now_micros - stamp) / 1000.0)
                 delivered_this_frame += 1
-                fleet&.resume if delivered_this_frame >= subscriber_count
+                fleet.signal if delivered_this_frame >= subscriber_count
               end
             end
           end
@@ -267,20 +277,20 @@ sweep = Sync do |task|
         delivered_this_frame = 0
         publish.call
         ticks += 1
-        landed = false
-        guard = task.async do
-          task.sleep 5
-          landed = false
-          fleet = nil
-        end
+        # Checked before waiting and with no yield between the two, so a frame that lands
+        # while publish.call is running is seen here rather than signalled into an empty
+        # notification. The timeout is what makes a lost frame a failure the run reports:
+        # the version this replaces cleared its own wake-up reference on timeout and never
+        # resumed the fiber waiting on it, so the one case it existed for was a hang.
         if delivered_this_frame < subscriber_count
-          fleet = Fiber.current
-          Fiber.yield
+          begin
+            task.with_timeout(5) { fleet.wait }
+          rescue Async::TimeoutError
+            warn "a frame never reached every subscriber at N=#{subscriber_count}"
+            exit 1
+          end
         end
-        landed = delivered_this_frame >= subscriber_count
-        fleet = nil
-        guard.stop
-        unless landed
+        unless delivered_this_frame >= subscriber_count
           warn "a frame never reached every subscriber at N=#{subscriber_count}"
           exit 1
         end

@@ -146,15 +146,21 @@ foreach ($sizes as $subscriberCount) {
     $subscribed = 0;
     $measuring = false;
     $connections = [];
+    // Written by the subscriber handler, read by nothing else. One process, one loop.
+    $deliveredThisFrame = 0;
+    // Null until the publisher exists, so a frame arriving early has nothing to write to.
+    $publisherIn = null;
 
     for ($index = 0; $index < $subscriberCount; $index++) {
         $connector("ws://127.0.0.1:{$port}/app/{$key}?protocol=7&client=synqt-bench&version=1")
             ->then(function ($connection) use (
-                &$samples, &$subscribed, &$measuring, &$connections
+                &$samples, &$subscribed, &$measuring, &$connections,
+                &$deliveredThisFrame, &$publisherIn, $saturate, $subscriberCount
             ) {
                 $connections[] = $connection;
                 $connection->on('message', function ($message) use (
-                    $connection, &$samples, &$subscribed, &$measuring
+                    $connection, &$samples, &$subscribed, &$measuring,
+                    &$deliveredThisFrame, &$publisherIn, $saturate, $subscriberCount
                 ) {
                     $envelope = json_decode((string) $message, true);
                     if (! is_array($envelope)) {
@@ -187,6 +193,17 @@ foreach ($sizes as $subscriberCount) {
                     }
                     $stamp = unpack('P', substr($frame, 0, 8))[1];
                     $samples[] = (now_micros() - $stamp) / 1000;
+                    if (! $saturate) {
+                        return;
+                    }
+                    $deliveredThisFrame++;
+                    if ($deliveredThisFrame < $subscriberCount || $publisherIn === null) {
+                        return;
+                    }
+                    // The whole fleet has this frame, so the publisher may send the next one.
+                    $deliveredThisFrame = 0;
+                    fwrite($publisherIn, "next\n");
+                    fflush($publisherIn);
                 });
             }, function ($error) {
                 fwrite(STDERR, "a subscriber did not connect: {$error->getMessage()}\n");
@@ -217,21 +234,23 @@ foreach ($sizes as $subscriberCount) {
     // blocks on a signed HTTP call and a blocking publisher on this loop would stall the
     // reads it is being timed against.
     $publisher = proc_open(
-        ['php', __DIR__.'/publish.php', (string) $hz, (string) $seconds, (string) $payloadBytes],
+        ['php', __DIR__.'/publish.php', (string) $hz, (string) $seconds, (string) $payloadBytes,
+            $saturate ? 'true' : 'false'],
         [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
         $pipes,
         __DIR__
     );
     stream_set_blocking($pipes[1], false);
+    $publisherIn = $pipes[0];
 
-    // The publisher says "warmed" when the discarded ticks are done; measuring starts then,
+    // The publisher says "warmed" when the discarded ticks are done. Measuring starts then,
     // so the warm-up never reaches the statistics.
     $ticks = 0;
     $cpuBefore = 0.0;
     $startedAt = 0.0;
     $finished = false;
     $pump = $loop->addPeriodicTimer(0.005, function () use (
-        &$measuring, &$ticks, &$cpuBefore, &$startedAt, &$finished, $pipes, $loop
+        &$measuring, &$ticks, &$cpuBefore, &$startedAt, &$finished, $pipes, $loop, $saturate
     ) {
         $line = fgets($pipes[1]);
         if ($line === false) {
@@ -251,8 +270,11 @@ foreach ($sizes as $subscriberCount) {
         if (str_starts_with($line, 'done')) {
             $ticks = (int) trim(substr($line, 5));
             // Let what is in flight land, or the tail of every run reads as loss that is
-            // really the harness stopping first.
-            $loop->addTimer(0.5, function () use ($loop, &$finished) {
+            // the harness stopping first. Saturation waited for each frame before
+            // sending the next, so there is nothing in flight and the wait would only be
+            // half a second of idle inside the elapsed time throughput is divided by.
+            $drain = $saturate ? 0.0 : 0.5;
+            $loop->addTimer($drain, function () use ($loop, &$finished) {
                 $finished = true;
                 $loop->stop();
             });
