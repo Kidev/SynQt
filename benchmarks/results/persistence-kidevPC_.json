@@ -4,57 +4,57 @@
     "host": "Arch Linux",
     "latency": [
         {
-            "max": 0.042929,
-            "mean": 0.008757761999999995,
-            "min": 0.00746,
+            "max": 0.04086,
+            "mean": 0.008607503999999986,
+            "min": 0.00739,
             "name": "sqlite_write_autocommit",
-            "p50": 0.00849,
-            "p95": 0.01049,
-            "p99": 0.013531,
+            "p50": 0.00839,
+            "p95": 0.010350499999999999,
+            "p99": 0.012356689999999993,
             "samples": 1000,
             "unit": "ms"
         },
         {
-            "max": 0.02449,
-            "mean": 0.004393579050000143,
-            "min": 0.00426,
+            "max": 0.04477,
+            "mean": 0.0043045226500000216,
+            "min": 0.00419,
             "name": "sqlite_read_point",
-            "p50": 0.00434,
-            "p95": 0.00442,
-            "p99": 0.00651,
+            "p50": 0.00428,
+            "p95": 0.00434,
+            "p99": 0.004700099999999984,
             "samples": 20000,
             "unit": "ms"
         },
         {
-            "max": 0.684205,
-            "mean": 0.00829894049999999,
-            "min": 0.00753,
+            "max": 929.645048,
+            "mean": 0.47305810049999797,
+            "min": 0.00709,
             "name": "sqlite_write_contended",
-            "p50": 0.0078,
-            "p95": 0.00827,
-            "p99": 0.01270059,
+            "p50": 0.00756,
+            "p95": 0.008050499999999999,
+            "p99": 0.011236599999999994,
             "samples": 2000,
             "unit": "ms"
         }
     ],
     "path": "sqliteprovider-wal-and-memorycache",
-    "qt_version": "6.11.1",
-    "recorded": "2026-09-07T10:07:24Z",
+    "qt_version": "6.12.0",
+    "recorded": "2026-09-10T19:15:24Z",
     "scalars": [
         {
             "name": "sqlite_write_autocommit_rate",
             "unit": "rows/s",
-            "value": 114184.42291535217
+            "value": 116177.69797144464
         },
         {
             "name": "sqlite_write_batched_rate",
             "unit": "rows/s",
-            "value": 451447.5312961938
+            "value": 464512.9696248187
         },
         {
             "name": "sqlite_contended_competitor_writes",
             "unit": "rows",
-            "value": 1
+            "value": 123448
         },
         {
             "name": "sqlite_contended_writes_abandoned",
@@ -84,27 +84,27 @@
         {
             "name": "sqlite_held_lock_wait_ms",
             "unit": "ms",
-            "value": 1028.925758
+            "value": 1029.784759
         },
         {
             "name": "cache_get_hit",
             "unit": "ns/op",
-            "value": 90.568024
+            "value": 89.666718
         },
         {
             "name": "cache_get_miss",
             "unit": "ns/op",
-            "value": 73.266338
+            "value": 76.719682
         },
         {
             "name": "cache_set",
             "unit": "ns/op",
-            "value": 99.404748
+            "value": 95.3869
         },
         {
             "name": "cache_set_under_eviction",
             "unit": "ns/op",
-            "value": 188.0035
+            "value": 194.419
         }
     ]
 }

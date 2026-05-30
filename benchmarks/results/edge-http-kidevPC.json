@@ -16,245 +16,245 @@
     "warmup_seconds": 2,
     "measure_seconds": 6,
     "query_count": 20,
-    "recorded": "2026-09-07T10:31:56.748Z",
+    "recorded": "2026-09-10T19:39:58.599Z",
     "results": [
         {
             "test": "plaintext",
             "path": "/plaintext",
             "connections": 16,
-            "requests_per_sec": 39301,
-            "throughput_bytes_per_sec": 510911,
+            "requests_per_sec": 39915,
+            "throughput_bytes_per_sec": 518889,
             "latency_ms": {
-                "p50": 0.376,
-                "p90": 0.414,
+                "p50": 0.364,
+                "p90": 0.462,
+                "p99": 0.763,
+                "mean": 0.397,
+                "max": 2.044
+            },
+            "errors": 0
+        },
+        {
+            "test": "plaintext",
+            "path": "/plaintext",
+            "connections": 64,
+            "requests_per_sec": 40285,
+            "throughput_bytes_per_sec": 523705,
+            "latency_ms": {
+                "p50": 1.527,
+                "p90": 1.705,
+                "p99": 3.045,
+                "mean": 1.585,
+                "max": 6.49
+            },
+            "errors": 0
+        },
+        {
+            "test": "plaintext",
+            "path": "/plaintext",
+            "connections": 256,
+            "requests_per_sec": 40004,
+            "throughput_bytes_per_sec": 520054,
+            "latency_ms": {
+                "p50": 6.258,
+                "p90": 6.683,
+                "p99": 9.252,
+                "mean": 6.396,
+                "max": 17.295
+            },
+            "errors": 0
+        },
+        {
+            "test": "json",
+            "path": "/json",
+            "connections": 16,
+            "requests_per_sec": 40666,
+            "throughput_bytes_per_sec": 1097991,
+            "latency_ms": {
+                "p50": 0.362,
+                "p90": 0.395,
+                "p99": 0.741,
+                "mean": 0.39,
+                "max": 2.088
+            },
+            "errors": 0
+        },
+        {
+            "test": "json",
+            "path": "/json",
+            "connections": 64,
+            "requests_per_sec": 41107,
+            "throughput_bytes_per_sec": 1109876,
+            "latency_ms": {
+                "p50": 1.511,
+                "p90": 1.614,
+                "p99": 3.006,
+                "mean": 1.554,
+                "max": 5.084
+            },
+            "errors": 0
+        },
+        {
+            "test": "json",
+            "path": "/json",
+            "connections": 256,
+            "requests_per_sec": 40695,
+            "throughput_bytes_per_sec": 1098770,
+            "latency_ms": {
+                "p50": 6.134,
+                "p90": 6.514,
+                "p99": 11.156,
+                "mean": 6.287,
+                "max": 17.666
+            },
+            "errors": 0
+        },
+        {
+            "test": "single_query",
+            "path": "/db",
+            "connections": 16,
+            "requests_per_sec": 41169,
+            "throughput_bytes_per_sec": 1267233,
+            "latency_ms": {
+                "p50": 0.355,
+                "p90": 0.409,
+                "p99": 0.732,
+                "mean": 0.385,
+                "max": 2.081
+            },
+            "errors": 0
+        },
+        {
+            "test": "single_query",
+            "path": "/db",
+            "connections": 64,
+            "requests_per_sec": 41457,
+            "throughput_bytes_per_sec": 1276094,
+            "latency_ms": {
+                "p50": 1.464,
+                "p90": 1.633,
+                "p99": 2.951,
+                "mean": 1.541,
+                "max": 5.497
+            },
+            "errors": 0
+        },
+        {
+            "test": "single_query",
+            "path": "/db",
+            "connections": 256,
+            "requests_per_sec": 40906,
+            "throughput_bytes_per_sec": 1259207,
+            "latency_ms": {
+                "p50": 6.05,
+                "p90": 6.401,
+                "p99": 12.262,
+                "mean": 6.255,
+                "max": 17.77
+            },
+            "errors": 0
+        },
+        {
+            "test": "multiple_queries",
+            "path": "/queries?queries=20",
+            "connections": 16,
+            "requests_per_sec": 20556,
+            "throughput_bytes_per_sec": 13086495,
+            "latency_ms": {
+                "p50": 0.756,
+                "p90": 1.002,
+                "p99": 1.134,
+                "mean": 0.774,
+                "max": 1.796
+            },
+            "errors": 0
+        },
+        {
+            "test": "multiple_queries",
+            "path": "/queries?queries=20",
+            "connections": 64,
+            "requests_per_sec": 20500,
+            "throughput_bytes_per_sec": 13050626,
+            "latency_ms": {
+                "p50": 3.105,
+                "p90": 3.16,
+                "p99": 4.442,
+                "mean": 3.118,
+                "max": 6.462
+            },
+            "errors": 0
+        },
+        {
+            "test": "multiple_queries",
+            "path": "/queries?queries=20",
+            "connections": 256,
+            "requests_per_sec": 20916,
+            "throughput_bytes_per_sec": 13315968,
+            "latency_ms": {
+                "p50": 12.181,
+                "p90": 12.421,
+                "p99": 16.865,
+                "mean": 12.241,
+                "max": 25.075
+            },
+            "errors": 0
+        },
+        {
+            "test": "updates",
+            "path": "/updates?queries=20",
+            "connections": 16,
+            "requests_per_sec": 14304,
+            "throughput_bytes_per_sec": 9105585,
+            "latency_ms": {
+                "p50": 1.106,
+                "p90": 1.414,
+                "p99": 1.638,
+                "mean": 1.115,
+                "max": 2.505
+            },
+            "errors": 0
+        },
+        {
+            "test": "updates",
+            "path": "/updates?queries=20",
+            "connections": 64,
+            "requests_per_sec": 14319,
+            "throughput_bytes_per_sec": 9115204,
+            "latency_ms": {
+                "p50": 4.418,
+                "p90": 4.575,
+                "p99": 6.469,
+                "mean": 4.466,
+                "max": 9.719
+            },
+            "errors": 0
+        },
+        {
+            "test": "updates",
+            "path": "/updates?queries=20",
+            "connections": 256,
+            "requests_per_sec": 13699,
+            "throughput_bytes_per_sec": 8720556,
+            "latency_ms": {
+                "p50": 18.621,
+                "p90": 19.003,
+                "p99": 20.265,
+                "mean": 18.706,
+                "max": 34.388
+            },
+            "errors": 0
+        },
+        {
+            "test": "fortunes",
+            "path": "/fortunes",
+            "connections": 16,
+            "requests_per_sec": 39157,
+            "throughput_bytes_per_sec": 47967529,
+            "latency_ms": {
+                "p50": 0.332,
+                "p90": 0.631,
                 "p99": 0.784,
-                "mean": 0.404,
-                "max": 1.948
-            },
-            "errors": 0
-        },
-        {
-            "test": "plaintext",
-            "path": "/plaintext",
-            "connections": 64,
-            "requests_per_sec": 39533,
-            "throughput_bytes_per_sec": 513923,
-            "latency_ms": {
-                "p50": 1.561,
-                "p90": 1.699,
-                "p99": 3.103,
-                "mean": 1.616,
-                "max": 5.567
-            },
-            "errors": 0
-        },
-        {
-            "test": "plaintext",
-            "path": "/plaintext",
-            "connections": 256,
-            "requests_per_sec": 39305,
-            "throughput_bytes_per_sec": 510967,
-            "latency_ms": {
-                "p50": 6.374,
-                "p90": 6.757,
-                "p99": 10.381,
-                "mean": 6.51,
-                "max": 18.09
-            },
-            "errors": 0
-        },
-        {
-            "test": "json",
-            "path": "/json",
-            "connections": 16,
-            "requests_per_sec": 39112,
-            "throughput_bytes_per_sec": 1056024,
-            "latency_ms": {
-                "p50": 0.377,
-                "p90": 0.41,
-                "p99": 0.77,
-                "mean": 0.406,
-                "max": 2.01
-            },
-            "errors": 0
-        },
-        {
-            "test": "json",
-            "path": "/json",
-            "connections": 64,
-            "requests_per_sec": 39877,
-            "throughput_bytes_per_sec": 1076684,
-            "latency_ms": {
-                "p50": 1.555,
-                "p90": 1.68,
-                "p99": 3.096,
-                "mean": 1.602,
-                "max": 4.908
-            },
-            "errors": 0
-        },
-        {
-            "test": "json",
-            "path": "/json",
-            "connections": 256,
-            "requests_per_sec": 39037,
-            "throughput_bytes_per_sec": 1054008,
-            "latency_ms": {
-                "p50": 6.414,
-                "p90": 6.74,
-                "p99": 12.111,
-                "mean": 6.555,
-                "max": 17.612
-            },
-            "errors": 0
-        },
-        {
-            "test": "single_query",
-            "path": "/db",
-            "connections": 16,
-            "requests_per_sec": 39862,
-            "throughput_bytes_per_sec": 1226833,
-            "latency_ms": {
-                "p50": 0.359,
-                "p90": 0.675,
-                "p99": 0.764,
-                "mean": 0.398,
-                "max": 2.104
-            },
-            "errors": 0
-        },
-        {
-            "test": "single_query",
-            "path": "/db",
-            "connections": 64,
-            "requests_per_sec": 39514,
-            "throughput_bytes_per_sec": 1216299,
-            "latency_ms": {
-                "p50": 1.503,
-                "p90": 1.681,
-                "p99": 3.205,
-                "mean": 1.616,
-                "max": 5.029
-            },
-            "errors": 0
-        },
-        {
-            "test": "single_query",
-            "path": "/db",
-            "connections": 256,
-            "requests_per_sec": 38770,
-            "throughput_bytes_per_sec": 1193393,
-            "latency_ms": {
-                "p50": 6.305,
-                "p90": 6.859,
-                "p99": 12.738,
-                "mean": 6.6,
-                "max": 17.334
-            },
-            "errors": 0
-        },
-        {
-            "test": "multiple_queries",
-            "path": "/queries?queries=20",
-            "connections": 16,
-            "requests_per_sec": 19544,
-            "throughput_bytes_per_sec": 12441418,
-            "latency_ms": {
-                "p50": 0.816,
-                "p90": 0.826,
-                "p99": 0.855,
-                "mean": 0.815,
-                "max": 1.553
-            },
-            "errors": 0
-        },
-        {
-            "test": "multiple_queries",
-            "path": "/queries?queries=20",
-            "connections": 64,
-            "requests_per_sec": 20214,
-            "throughput_bytes_per_sec": 12868553,
-            "latency_ms": {
-                "p50": 3.256,
-                "p90": 3.3,
-                "p99": 3.375,
-                "mean": 3.163,
-                "max": 5.713
-            },
-            "errors": 0
-        },
-        {
-            "test": "multiple_queries",
-            "path": "/queries?queries=20",
-            "connections": 256,
-            "requests_per_sec": 19650,
-            "throughput_bytes_per_sec": 12509279,
-            "latency_ms": {
-                "p50": 13.63,
-                "p90": 13.939,
-                "p99": 14.205,
-                "mean": 13.03,
-                "max": 23.864
-            },
-            "errors": 0
-        },
-        {
-            "test": "updates",
-            "path": "/updates?queries=20",
-            "connections": 16,
-            "requests_per_sec": 13674,
-            "throughput_bytes_per_sec": 8704740,
-            "latency_ms": {
-                "p50": 1.165,
-                "p90": 1.183,
-                "p99": 1.21,
-                "mean": 1.166,
-                "max": 1.957
-            },
-            "errors": 0
-        },
-        {
-            "test": "updates",
-            "path": "/updates?queries=20",
-            "connections": 64,
-            "requests_per_sec": 14075,
-            "throughput_bytes_per_sec": 8960052,
-            "latency_ms": {
-                "p50": 4.676,
-                "p90": 4.729,
-                "p99": 4.824,
-                "mean": 4.544,
-                "max": 7.367
-            },
-            "errors": 0
-        },
-        {
-            "test": "updates",
-            "path": "/updates?queries=20",
-            "connections": 256,
-            "requests_per_sec": 13712,
-            "throughput_bytes_per_sec": 8728801,
-            "latency_ms": {
-                "p50": 19.521,
-                "p90": 19.906,
-                "p99": 20.194,
-                "mean": 18.679,
-                "max": 29.862
-            },
-            "errors": 0
-        },
-        {
-            "test": "fortunes",
-            "path": "/fortunes",
-            "connections": 16,
-            "requests_per_sec": 38663,
-            "throughput_bytes_per_sec": 47361563,
-            "latency_ms": {
-                "p50": 0.339,
-                "p90": 0.591,
-                "p99": 0.716,
-                "mean": 0.41,
-                "max": 1.834
+                "mean": 0.405,
+                "max": 2.046
             },
             "errors": 0
         },
@@ -262,14 +262,14 @@
             "test": "fortunes",
             "path": "/fortunes",
             "connections": 64,
-            "requests_per_sec": 38384,
-            "throughput_bytes_per_sec": 47019992,
+            "requests_per_sec": 39562,
+            "throughput_bytes_per_sec": 48463450,
             "latency_ms": {
-                "p50": 1.466,
-                "p90": 2.805,
-                "p99": 3.21,
-                "mean": 1.664,
-                "max": 5.15
+                "p50": 1.474,
+                "p90": 1.795,
+                "p99": 3.093,
+                "mean": 1.614,
+                "max": 5.141
             },
             "errors": 0
         },
@@ -277,14 +277,14 @@
             "test": "fortunes",
             "path": "/fortunes",
             "connections": 256,
-            "requests_per_sec": 38030,
-            "throughput_bytes_per_sec": 46586138,
+            "requests_per_sec": 38234,
+            "throughput_bytes_per_sec": 46836650,
             "latency_ms": {
-                "p50": 6.2,
-                "p90": 6.753,
-                "p99": 12.708,
-                "mean": 6.729,
-                "max": 17.893
+                "p50": 6.409,
+                "p90": 6.96,
+                "p99": 13.065,
+                "mean": 6.692,
+                "max": 18.35
             },
             "errors": 0
         }
