@@ -55,10 +55,13 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  # aqtinstall, pinned to a release. See the install step for why it was a git commit for so
-  # long. Keep this version identical in ctest.yml, wasm-proofs.yml, benchmarks.yml and
-  # leaks.yml; tools/synqt/tests/test_qt_pin.py fails when one of them drifts.
-  AQT_VERSION: "3.3.0"
+  # aqtinstall, pinned to a commit and not to a release: no released aqt can install the
+  # Windows kit, because Qt publishes the Windows desktop repository one folder per toolchain
+  # and aqt only learned to look there after the last release. tools/synqt/synqt/toolchain.py
+  # carries the full note. Keep this identical in ctest.yml, browser-matrix.yml,
+  # wasm-proofs.yml, benchmarks.yml and leaks.yml; tools/synqt/tests/test_qt_pin.py fails when
+  # one of them drifts.
+  AQT_VERSION: "16db45a70b5905ad596941b223469bc86a56901e"
 
 jobs:
   m0:
@@ -136,19 +139,18 @@ jobs:
 
       - name: Install aqtinstall
         if: steps.qt-cache.outputs.cache-hit != 'true'
-        # A pinned release, which is what the note here used to ask for. It came from a git
-        # commit for as long as the released line (3.1.x) predated the Qt repository layout and
-        # did not know the all_os/wasm host and target the WASM kit is published under, so it
-        # could not install this workflow's kit at any Qt version. That release is out: 3.3.0
-        # was checked against the live repository for this Qt, and lists both wasm kits and
-        # every add-on module the desktop kit here installs.
+        # A pinned commit rather than a release, because aqt's last release cannot install the
+        # Windows kit: Qt publishes the Windows desktop repository one folder per toolchain
+        # (windows_x86/desktop/qt6_6120/qt6_6120_msvc2022_64/), and the support for addressing
+        # it landed after 3.3.0 shipped. Linux and macOS still get the flat folder, which is
+        # why this was invisible everywhere but the Windows column.
         #
-        # Pinned either way, and never to a branch or a tag that moves: this job holds a token
-        # and produces artifacts the rest of the pipeline trusts, so what provisions it is a
-        # reviewed version rather than whatever upstream published this morning. Moving it is
-        # a reviewed edit, in every workflow at once.
+        # Never a branch or a tag that moves: this job holds a token and produces artifacts
+        # the rest of the pipeline trusts, so what provisions it is one reviewed tree. Moving
+        # it is a reviewed edit, in every workflow at once, and tools/synqt/synqt/toolchain.py
+        # is where the reasoning lives.
         run: |
-          python -m pip install "aqtinstall==${{ env.AQT_VERSION }}"
+          python -m pip install "aqtinstall @ git+https://github.com/miurahr/aqtinstall@${{ env.AQT_VERSION }}"
 
       - name: Install Qt host kit (desktop) + WebSockets + RemoteObjects
         if: steps.qt-cache.outputs.cache-hit != 'true'

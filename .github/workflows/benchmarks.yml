@@ -77,9 +77,13 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  # Keep this version in step with ctest.yml and browser-matrix.yml; see the note there for
-  # why aqtinstall is pinned to a release and never installed from a branch.
-  AQT_VERSION: "3.3.0"
+  # aqtinstall, pinned to a commit and not to a release: no released aqt can install the
+  # Windows kit, because Qt publishes the Windows desktop repository one folder per toolchain
+  # and aqt only learned to look there after the last release. tools/synqt/synqt/toolchain.py
+  # carries the full note. Keep this identical in ctest.yml, browser-matrix.yml,
+  # wasm-proofs.yml, benchmarks.yml and leaks.yml; tools/synqt/tests/test_qt_pin.py fails when
+  # one of them drifts.
+  AQT_VERSION: "16db45a70b5905ad596941b223469bc86a56901e"
 
 jobs:
   benchmarks:
@@ -110,10 +114,14 @@ jobs:
         # OpenSSL for the mesh harness's mutual TLS (and the throwaway certs it mints);
         # libgl1-mesa-dev because Qt6GuiConfig hard-requires WrapOpenGL, and without it
         # every component that depends on Qt6Gui disappears from find_package with an
-        # error that names the dependant rather than the missing library.
+        # error that names the dependant rather than the missing library. The Wayland dev
+        # files are the same failure through a longer chain: the 6.12.0 desktop kit ships the
+        # QtWayland platform plugins, Qt6Gui's plugin scanning pulls in Qt6WaylandClient, and
+        # that wants wayland-client, wayland-server, wayland-cursor and wayland-egl. Missing
+        # them, every harness here configured against a Qt6 whose Gui component was NOT FOUND.
         run: |
           sudo apt-get update
-          sudo apt-get install -y libssl-dev libgl1-mesa-dev
+          sudo apt-get install -y libssl-dev libgl1-mesa-dev libwayland-dev libwayland-bin
 
       - name: Provide jwt-cpp headers
         # SynQtIdentity verifies OIDC ID-token signatures with it, and four of the five
@@ -135,7 +143,7 @@ jobs:
       - name: Install aqtinstall
         if: steps.qt-cache.outputs.cache-hit != 'true'
         run: |
-          python -m pip install "aqtinstall==${{ env.AQT_VERSION }}"
+          python -m pip install "aqtinstall @ git+https://github.com/miurahr/aqtinstall@${{ env.AQT_VERSION }}"
 
       - name: Install the Qt host kit and its add-on modules
         if: steps.qt-cache.outputs.cache-hit != 'true'

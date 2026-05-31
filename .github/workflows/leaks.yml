@@ -47,9 +47,13 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  # Keep this version in step with ctest.yml, benchmarks.yml and browser-matrix.yml; the note in
-  # browser-matrix.yml explains why aqtinstall is pinned, and why it came from git until now.
-  AQT_VERSION: "3.3.0"
+  # aqtinstall, pinned to a commit and not to a release: no released aqt can install the
+  # Windows kit, because Qt publishes the Windows desktop repository one folder per toolchain
+  # and aqt only learned to look there after the last release. tools/synqt/synqt/toolchain.py
+  # carries the full note. Keep this identical in ctest.yml, browser-matrix.yml,
+  # wasm-proofs.yml, benchmarks.yml and leaks.yml; tools/synqt/tests/test_qt_pin.py fails when
+  # one of them drifts.
+  AQT_VERSION: "16db45a70b5905ad596941b223469bc86a56901e"
 
 jobs:
   # The path decision lives here rather than on the trigger above, and that is the whole
@@ -107,7 +111,9 @@ jobs:
       - name: Install the native dependencies Qt needs to configure
         # The same set the Linux ctest column installs, for the same reasons given there:
         # OpenSSL for the mesh transport, libgl1-mesa-dev because Qt6GuiConfig hard-requires
-        # WrapOpenGL, and the three optional engine clients that decide whether the redis,
+        # WrapOpenGL, the Wayland dev files Qt6WaylandClient needs (the 6.12.0 kit ships the
+        # QtWayland platform plugins, and a plugin whose dependency is missing takes Qt6Gui
+        # down with it), and the three optional engine clients that decide whether the redis,
         # mongodb and postgres providers are compiled in at all. They are installed here so
         # this pass covers the same code the ctest column does.
         #
@@ -121,6 +127,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libssl-dev libgl1-mesa-dev \
+              libwayland-dev libwayland-bin \
               libhiredis-dev libmongoc-dev libpq-dev libsecret-1-dev
 
       - name: Provide jwt-cpp headers
@@ -140,7 +147,7 @@ jobs:
       - name: Install aqtinstall
         if: steps.qt-cache.outputs.cache-hit != 'true'
         run: |
-          python -m pip install "aqtinstall==${{ env.AQT_VERSION }}"
+          python -m pip install "aqtinstall @ git+https://github.com/miurahr/aqtinstall@${{ env.AQT_VERSION }}"
 
       - name: Install the Qt host kit and its add-on modules
         if: steps.qt-cache.outputs.cache-hit != 'true'

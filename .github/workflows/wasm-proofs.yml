@@ -56,10 +56,13 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  # aqtinstall, pinned to a reviewed release (see browser-matrix.yml for why it came from the
-  # repository at all, and never from an unpinned branch). Keep this SHA in step with the
-  # other two Qt workflows.
-  AQT_VERSION: "3.3.0"
+  # aqtinstall, pinned to a commit and not to a release: no released aqt can install the
+  # Windows kit, because Qt publishes the Windows desktop repository one folder per toolchain
+  # and aqt only learned to look there after the last release. tools/synqt/synqt/toolchain.py
+  # carries the full note. Keep this identical in ctest.yml, browser-matrix.yml,
+  # wasm-proofs.yml, benchmarks.yml and leaks.yml; tools/synqt/tests/test_qt_pin.py fails when
+  # one of them drifts.
+  AQT_VERSION: "16db45a70b5905ad596941b223469bc86a56901e"
   # Keep in step with ctest.yml: the arena's web edge links the same SynQtEdge.
   JWT_CPP_VERSION: "v0.7.2"
 
@@ -84,13 +87,13 @@ jobs:
           - label: physics-single
             kit: wasm_singlethread
             needs_qtremoteobjects: false
-            qt_modules: qtquick3d qtquick3dphysics qtshadertools
+            qt_modules: qtquick3d qtquick3dphysics qtquicktimeline qtshadertools
             script: tests/wasm-quick3dphysics/verify/run-phys.sh
             verify_dir: tests/wasm-quick3dphysics/verify
           - label: physics-multi
             kit: wasm_multithread
             needs_qtremoteobjects: false
-            qt_modules: qtquick3d qtquick3dphysics qtshadertools
+            qt_modules: qtquick3d qtquick3dphysics qtquicktimeline qtshadertools
             script: tests/wasm-quick3dphysics/verify/run-phys-mt.sh
             verify_dir: tests/wasm-quick3dphysics/verify
           - label: client-runtime
@@ -167,10 +170,10 @@ jobs:
 
       - name: Install aqtinstall
         if: steps.qt-cache.outputs.cache-hit != 'true'
-        # A pinned release. It came from git for as long as the released line did not know the
-        # all_os/wasm host and target the WASM kit is published under. See browser-matrix.yml.
+        # A pinned commit, not a release: the released line cannot address the Windows kit's
+        # per-toolchain repository folder. See browser-matrix.yml.
         run: |
-          python -m pip install "aqtinstall==${{ env.AQT_VERSION }}"
+          python -m pip install "aqtinstall @ git+https://github.com/miurahr/aqtinstall@${{ env.AQT_VERSION }}"
 
       - name: Install Qt host kit (desktop)
         if: steps.qt-cache.outputs.cache-hit != 'true'
@@ -185,7 +188,7 @@ jobs:
         run: |
           python -m aqt install-qt linux desktop "$QT_VERSION" linux_gcc_64 \
             -m qtwebsockets qtremoteobjects qthttpserver qtnetworkauth \
-              qtquick3d qtquick3dphysics qtshadertools qttasktree \
+              qtquick3d qtquick3dphysics qtquicktimeline qtshadertools qttasktree \
             --outputdir "$QT_ROOT"
 
       - name: Install Qt WebAssembly kit (${{ matrix.kit }})
@@ -340,9 +343,9 @@ jobs:
 
       - name: Install aqtinstall
         if: steps.qt-cache.outputs.cache-hit != 'true'
-        # aqt at the same pinned release as the job above, for the reason it gives.
+        # aqt at the same pinned commit as the job above, for the reason it gives.
         run: |
-          python -m pip install "aqtinstall==${{ env.AQT_VERSION }}"
+          python -m pip install "aqtinstall @ git+https://github.com/miurahr/aqtinstall@${{ env.AQT_VERSION }}"
 
       - name: Install Qt host kit (desktop)
         if: steps.qt-cache.outputs.cache-hit != 'true'

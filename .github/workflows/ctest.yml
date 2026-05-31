@@ -102,10 +102,13 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  # aqtinstall, pinned to a reviewed release (see browser-matrix.yml for why it came from the
-  # repository at all, and never from an unpinned branch). Keep this SHA in step with the
-  # other two Qt workflows.
-  AQT_VERSION: "3.3.0"
+  # aqtinstall, pinned to a commit and not to a release: no released aqt can install the
+  # Windows kit, because Qt publishes the Windows desktop repository one folder per toolchain
+  # and aqt only learned to look there after the last release. tools/synqt/synqt/toolchain.py
+  # carries the full note. Keep this identical in ctest.yml, browser-matrix.yml,
+  # wasm-proofs.yml, benchmarks.yml and leaks.yml; tools/synqt/tests/test_qt_pin.py fails when
+  # one of them drifts.
+  AQT_VERSION: "16db45a70b5905ad596941b223469bc86a56901e"
   # Workflow level rather than per job: the three jobs below need the identical kit, and three
   # copies of this block would be three things to remember to change together. They reach the
   # composite action as explicit inputs, never as env; see the note at the top of that file.
@@ -114,8 +117,12 @@ env:
   # qttasktree is not linked by anything here: Qt6QmlConfig pulls in its QML plugin packages,
   # one of which (Qt6QmlAssetDownloaderPrivate) depends on Qt6TaskTree, so every configure
   # that finds Qml warns it could not be found. Installing it costs one small archive and
-  # removes the warning at its source rather than muting it.
-  QT_MODULES: "qtwebsockets qtremoteobjects qthttpserver qtnetworkauth qttasktree qtquick3d qtshadertools"
+  # removes the warning at its source rather than muting it. qtquicktimeline is there for the
+  # same reason and is new at 6.12: Qt6Quick3DAssetUtils gained a dependency on Qt6QuickTimeline,
+  # and the Qml plugin scan reaches it, so a kit with Quick3D and no QuickTimeline warns on
+  # every configure. The tree's warning gate fails a run on any Qt warning it has not named,
+  # so this is what the macOS column was failing on rather than anything it compiled.
+  QT_MODULES: "qtwebsockets qtremoteobjects qthttpserver qtnetworkauth qttasktree qtquick3d qtquicktimeline qtshadertools"
   # jwt-cpp v0.7.1 is the floor, not a preference: JwksVerifier builds the RSA public key
   # from the JWK modulus/exponent with jwt::helper::create_public_key_from_rsa_components,
   # which does not exist before v0.7.1. v0.7.2 is what the vcpkg baseline resolves to, so

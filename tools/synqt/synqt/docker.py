@@ -3,44 +3,20 @@
 
 """``synqt docker``: run the whole project in containers, from one command.
 
-What this exists for is the first hour with a SynQt project. A system is a set of
-entities, each its own binary. Getting one running by hand means a Qt kit, an Emscripten
-kit, a mesh certificate authority, a certificate per entity, and an engine container for
-every external provider, before a single line of the app has been read. All of that is
-mechanical and all of it is already described by ``synqt.yaml``, so this generates it: a
-Dockerfile that provisions the pinned toolchain and builds every entity, a compose file
-that runs them, and the profile that wires them to each other.
+Generates, from ``synqt.yaml``, a Dockerfile that provisions the pinned toolchain and builds
+every entity, a compose file that runs them, and the profile that wires them.
 
-Four decisions explain the rest of this file, because each is the reason something below
-looks the way it does.
-
-*One container per entity, not one container running everything.* An entity is a separate
-binary on a separate host in a real deployment, and a compose file with a single box in it
-would teach the opposite. It also means the mesh links here are real. Mutual TLS across a
-container network, the same code path as production, rather than loopback with the
-interesting part switched off.
-
-*Static addresses on a private network.* A mesh endpoint is read into a ``QHostAddress``
-(``src/service/entityruntime.cpp``), which holds an address and not a name, so a compose
-service name is not something an entity can dial. The generated profile therefore pins one
-address per entity out of a subnet, and the compose network hands each container exactly
-that address. Certificates still verify. A peer is identified by the entity name in its
-certificate, never by the address it answered on.
-
-*The certificate authority lives in a volume and is issued by a one-shot container.* It is
-created on first ``up`` and reused after, so no key is in the image and none is in the
-repository. That is a development authority for a development system. A deployment issues
-its certificates somewhere else entirely, and ``docs/deploying.md`` covers it.
-
-*An engine and the entity that masks it share one network namespace.* An external provider
-refuses an unverified connection in release unless the engine is on loopback
-(``src/providers/providerconfig.h``), and that refusal is right: a database password
-crossing a network in the clear is a database password on the network. Rather than
-switching the guard off, the engine container here holds its entity's address on the mesh
-network and the entity joins its namespace, so the entity reaches its engine at
-``127.0.0.1`` and nothing about that link is on a wire. It is the sidecar arrangement, and
-it is why the engine service below carries the ``ipv4_address`` and the entity carries
-``network_mode``.
+- One container per entity, so mesh links are real mutual TLS across a container network.
+- Static addresses on a private network. A mesh endpoint is a ``QHostAddress``
+  (``src/service/entityruntime.cpp``) and cannot be a service name, so the profile pins one
+  address per entity. Peers are still identified by the certificate entity name.
+- A one-shot container issues a development CA into a volume on the first ``up``. No key is
+  in the image or the repository. Deployment certificates are covered in
+  ``docs/deploying.md``.
+- An engine container and the entity that uses it share one network namespace. The entity
+  reaches the engine on ``127.0.0.1``, which the release provider guard allows
+  (``src/providers/providerconfig.h``). The engine service carries the ``ipv4_address`` and
+  the entity carries ``network_mode``.
 """
 
 from __future__ import annotations
@@ -63,38 +39,22 @@ class DockerError(Exception):
     """A docker generation or invocation error, surfaced to the CLI without a traceback."""
 
 
-# A subnet unlikely to collide with anything already on the machine. Away from Docker's own
-# default pools (172.17-172.20) and from the 192.168 range a home network uses. Overridable,
-# because "unlikely" is not "cannot".
+# A subnet away from Docker's default pools (172.17-172.20) and home networks (192.168).
+# Overridable.
 DEFAULT_SUBNET = "172.30.238.0/24"
 
-# The first address a container gets. .1 is the network's own gateway, so entities start at
-# .11: it leaves room below for anything added by hand and keeps the numbers legible next
-# to the entity list.
+# The first container address. .1 is the gateway; entities start at .11.
 FIRST_HOST = 11
 
-# The jwt-cpp SynQtIdentity verifies OIDC ID-token signatures with. Kept in step with the
-# workflows that build the same thing (.github/workflows/{ctest,benchmarks,leaks}.yml): the
-# floor is v0.7.1, below which the configure stops on a missing
-# jwt::helper::create_public_key_from_rsa_components.
+# The jwt-cpp version SynQtIdentity uses to verify OIDC ID tokens. Keep in step with
+# .github/workflows/{ctest,benchmarks,leaks}.yml; the floor is v0.7.1
+# (jwt::helper::create_public_key_from_rsa_components).
 JWT_CPP_VERSION = "v0.7.2"
 
-# The shared libraries Qt's own libraries link, which bookworm-slim does not carry. Needed
-# in BOTH the build stage and the runtime stage, and for two different reasons, which is why
-# they are one list rather than two:
-#
-#   * linking an entity resolves the whole chain, so a missing libdbus-1 or libfontconfig
-#     surfaces as pages of "undefined reference" inside libQt6DBus and libQt6Gui, naming
-#     Qt's symbols and never the library that is absent;
-#   * running one needs them present for the same reason.
-#
-# libglib2.0-0 is on the list twice over: Qt's host tools (moc, qmlimportscanner, repc) link
-# it too, and without it the configure stops at "Failed to scan target for QML imports: 127".
-# libopengl0 is the one that is easy to miss and fatal. Libgl1 provides libGL.so.1, and Qt
-# links libOpenGL.so.0, which is a different file from a different package. Without it every
-# entity dies before main() with "error while loading shared libraries", in a restart loop.
-# libpq5 is there so the QPSQL driver loads for a postgres-backed entity. The driver plugin
-# is in the kit either way and only fails when it is asked for.
+# Shared libraries Qt links that bookworm-slim lacks, needed in both the build and the
+# runtime stage. Without them linking fails with "undefined reference" inside Qt libraries.
+# libglib2.0-0 is needed by moc, qmlimportscanner and repc. libopengl0 provides
+# libOpenGL.so.0, which libgl1 does not. libpq5 lets the QPSQL driver load.
 _QT_RUNTIME_LIBS = (
     "libglib2.0-0", "libdbus-1-3", "libfontconfig1", "libfreetype6",
     "libgl1", "libopengl0", "libglx-mesa0", "libegl1", "libxkbcommon0", "libpq5",
@@ -107,14 +67,9 @@ DOCKER_DIR = "docker"
 CLIENT_MODES = ("image", "host")
 
 # Where the image assembles the checkout it builds with, and the four directories that make
-# one. They mirror `_FRAMEWORK_DIRS` in tools/synqt/_build_backend.py plus the CLI itself,
-# because that backend is what runs when pip installs the CLI out of this tree: it vendors
-# `src/`, `cmake/` and `tools/synqtc/` from beside the package, so those three have to be
-# there, at those paths, or the install produces a CLI that cannot build anything.
-#
-# Named build contexts rather than one context at the top of the checkout: a working
-# checkout also holds `build/`, `site/` and `node_modules/`, and a context is transferred
-# whole before a single COPY is read. Measured at 17 GB against 14 MB for these four.
+# one. They mirror `_FRAMEWORK_DIRS` in tools/synqt/_build_backend.py plus the CLI, because
+# that backend vendors `src/`, `cmake/` and `tools/synqtc/` from beside the package. They
+# are separate named build contexts, so `build/`, `site/` and `node_modules/` are not sent.
 SYNQT_SRC_DIR = "/opt/synqt"
 SYNQT_CONTEXTS = (
     ("synqt-cmake", "cmake", f"{SYNQT_SRC_DIR}/cmake"),
@@ -129,21 +84,14 @@ LOCAL_PIP_SPEC = f"{SYNQT_SRC_DIR}/tools/synqt"
 #: And what it installs when there is no checkout to hand it. The published distribution.
 PUBLISHED_PIP_SPEC = "synqt"
 
-# Where the project lives inside the image. Absolute and fixed, because every path in a
-# topology is resolved relative to the directory an entity is started from.
+# The project path inside the image. Fixed, because topology paths are relative to the
+# directory an entity starts in.
 APP_DIR = "/app"
 
-# The engine containers, one per external provider a project can declare
-# (``addentity._EXTERNAL``). Each names the image to run, where it keeps its data, how to
-# tell whether it is up yet, and which of its own environment variables carry the
-# credential SynQt knows by a different name. The images are pinned to a major version
-# rather than ``latest``: a quick start that silently changes engine version between two
-# runs is not a quick start.
-#
-# `secret_env` is the NAME of the environment variable the scaffolded provider block reads
-# this engine's credential from (addentity._EXTERNAL), never a credential itself, and
-# `aliases` are the names the engine's own image reads, written into the same file so one
-# value serves both sides of the connection.
+# The engine containers, one per external provider (``addentity._EXTERNAL``): the image
+# (pinned to a major version), its data directory, its health check, and its credential
+# variables. `secret_env` is the name of the variable the scaffolded provider block reads;
+# `aliases` are the names the engine image reads, written into the same file.
 _ENGINES: Dict[str, Dict[str, Any]] = {
     "postgres": {
         "image": "postgres:16",
@@ -154,8 +102,8 @@ _ENGINES: Dict[str, Dict[str, Any]] = {
         "aliases": ["POSTGRES_PASSWORD"],
     },
     "mysql": {
-        # MariaDB, not Oracle's MySQL, to match the driver SynQt builds: the QMYSQL plugin
-        # is built against MariaDB Connector/C for the licensing reason in docs/licensing.md.
+        # MariaDB, matching the QMYSQL plugin built against MariaDB Connector/C
+        # (docs/licensing.md).
         "image": "mariadb:11",
         "port": 3306,
         "data": "/var/lib/mysql",
@@ -186,31 +134,22 @@ _ENGINES: Dict[str, Dict[str, Any]] = {
 
 
 def _host_modules() -> str:
-    """The `-m` list for the host kit install, as one line.
-
-    The four modules SynQt links, plus qtshadertools. Nothing here calls find_package on
-    it, but it carries qsb, which qt_add_qml_module runs over any shader a project's QML
-    brings with it. An image without it builds this framework and fails on the first
-    application that has one.
+    """The `-m` list for the host kit install: the four modules SynQt links, plus qtshadertools
+    for qsb, which qt_add_qml_module runs over any shader in the project QML.
     """
     return " ".join(toolchain.host_module_archives() + ["qtshadertools"])
 
 
 def checkout_source() -> Optional[Path]:
-    """The SynQt checkout this CLI is running out of, or None if it is not running from one.
+    """The SynQt checkout this CLI runs from, or None.
 
-    What the generated image builds with. `synqt` is not on PyPI yet, so an image that
-    reached for the published distribution would stop at `pip install` before it compiled a
-    line, and even once it is published, a developer running `synqt docker up` out of a
-    checkout means the checkout, not last month's release.
-
-    None is the installed case. A wheel or the frozen binary carries the framework under
-    `synqt/framework/` but not the CLI's own sources, so there is nothing here to build
-    from, and the published distribution is the right answer.
+    The image builds with this checkout. None when installed from a wheel or the frozen
+    binary, which carry the framework but not the CLI sources; the image then installs the
+    published distribution.
     """
     try:
         root = appmodel.framework_root()
-    except Exception:                    # noqa: BLE001 (no checkout is an answer, not an error)
+    except Exception:                    # noqa: BLE001 (a missing checkout is a valid answer)
         return None
     if all((root / where).is_dir() for _, where, _ in SYNQT_CONTEXTS):
         return root
@@ -218,11 +157,7 @@ def checkout_source() -> Optional[Path]:
 
 
 def service_entities(config: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """Every entity that becomes a container. All of them except the client.
-
-    The client is a bundle the edge serves rather than a process of its own, so it has no
-    container however it was built.
-    """
+    """Every entity that becomes a container: all but the client, which the edge serves."""
     return [entity for entity in appmodel.entities(config) if appmodel.is_service(entity)]
 
 
@@ -237,11 +172,8 @@ def _provider(entity: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def engines(config: Dict[str, Any]) -> List[Tuple[Dict[str, Any], str, Dict[str, Any]]]:
-    """The entities backed by an engine that needs a container of its own.
-
-    Returns ``(entity, engine name, engine spec)``. An entity on an embedded provider
-    (``sqlite``, ``memory``) is absent. It keeps its data in its own directory,
-    and a container for it would be a container running nothing.
+    """The entities backed by an engine that needs its own container, as ``(entity, engine
+    name, engine spec)``. Embedded providers (``sqlite``, ``memory``) are absent.
     """
     found = []
     for entity in service_entities(config):
@@ -256,18 +188,11 @@ def engine_service_name(entity_name: str, engine: str) -> str:
 
 
 def embedded_data_dirs(config: Dict[str, Any]) -> Dict[str, str]:
-    """The directory each embedded-engine entity keeps its data in, by entity name.
+    """The data directory of each embedded-engine entity, by entity name.
 
-    An entity on the default `sqlite` provider owns a file under its own directory
-    (`settings.file`, `<entity>/data/app.db` as scaffolded), and that file is the whole of
-    what the entity is for. Two things follow, and both are wrong by default in a container.
-    The directory has to exist before the provider opens the file, or the entity dies at
-    startup on "unable to open database file". And it has to be a volume, or the data is
-    inside the container layer and every `docker compose up --build` silently starts the
-    database over from nothing.
-
-    An entity with an external provider is absent. Its data is the engine's, and the engine
-    has a volume of its own.
+    An entity on `sqlite` owns a file under its directory (`settings.file`,
+    `<entity>/data/app.db` as scaffolded). The directory must exist before the provider
+    opens the file, and must be a volume so a rebuild keeps the data.
     """
     external = {entity["name"] for entity, _, _ in engines(config)}
     dirs: Dict[str, str] = {}
@@ -281,20 +206,14 @@ def embedded_data_dirs(config: Dict[str, Any]) -> Dict[str, str]:
         if not isinstance(path, str) or not path.strip():
             continue
         parent = PurePosixPath(path.strip()).parent
-        # A file with no directory part lives in the project root, which is already the
-        # whole tree. Carving a volume out from under it would hide the build.
+        # A file in the project root gets no volume; it would hide the build.
         if str(parent) not in (".", "", "/"):
             dirs[name] = str(parent)
     return dirs
 
 
 def replica_names(entity: Dict[str, Any]) -> List[str]:
-    """The compose service names for one entity's processes.
-
-    One replica keeps the entity's own name, so a project that never asks to be replicated
-    generates the compose file it generated before any of this existed: the un-replicated
-    case must not pay for the replicated one.
-    """
+    """The compose service names of one entity. One replica keeps the entity name."""
     name = str(entity.get("name"))
     if appmodel.replicas(entity) == 1:
         return [name]
@@ -302,11 +221,8 @@ def replica_names(entity: Dict[str, Any]) -> List[str]:
 
 
 def container_names(config: Dict[str, Any]) -> List[str]:
-    """Every container that needs an address, in declaration order.
-
-    An entity is usually one, and a replicated web edge is N plus the front that balances
-    them. The front is last so adding replicas does not renumber it, and so a project that
-    grows one keeps every address it already had.
+    """Every container that needs an address, in declaration order. A replicated web edge is N
+    replicas plus the front, last, so adding replicas renumbers nothing.
     """
     names: List[str] = []
     for entity in service_entities(config):
@@ -318,18 +234,13 @@ def container_names(config: Dict[str, Any]) -> List[str]:
 
 FRONT_SERVICE = "front"
 
-#: The one-shot service that issues the development authority and every entity's
-#: certificate into the mesh volume. Named here because `synqt docker ca` runs a container
-#: from it to read that authority back out.
+#: The one-shot service that issues the development CA and every entity certificate into the
+#: mesh volume. `synqt docker ca` reads the CA back from it.
 MESH_SERVICE = "mesh-init"
 
 
 def front_name(config: Dict[str, Any]) -> str:
-    """The balancer's service name, or empty when this project needs none.
-
-    Needed exactly when the web edge is replicated. One process behind a balancer is a
-    balancer nobody asked for, and the published port belongs on the edge itself there.
-    """
+    """The balancer service name, or empty when the web edge is not replicated."""
     edge = edge_entity(config)
     if edge and appmodel.replicas(edge) > 1:
         return FRONT_SERVICE
@@ -337,23 +248,18 @@ def front_name(config: Dict[str, Any]) -> str:
 
 
 def mesh_addresses(config: Dict[str, Any], subnet: str = DEFAULT_SUBNET) -> Dict[str, str]:
-    """One address per container, assigned in the order the entities are declared.
+    """One address per container, in declaration order.
 
-    Deterministic, because the address ends up in the generated profile, in the compose
-    file, and through the topology in what each entity dials. Regenerating has to produce
-    the same wiring, or a half-regenerated project talks to itself wrong.
-
-    A replicated edge takes one address per replica, and the entity's own name also maps to
-    the first of them. Nothing dials a web edge over the mesh (it consumes and never hosts),
-    so that entry is for the readers that index by entity name rather than for any traffic.
+    Deterministic, since the addresses go into the profile, the compose file and the
+    topology. The entity name of a replicated edge maps to its first replica, for readers
+    that index by entity; nothing dials a web edge over the mesh.
     """
     try:
         network = ipaddress.ip_network(subnet, strict=True)
     except ValueError as error:
         raise DockerError(f"{subnet} is not a usable subnet: {error}") from error
     names = container_names(config)
-    # Counted rather than listing every host. A /16 would materialize 65534 addresses to
-    # take the first few off the front of.
+    # Counted rather than listing hosts: a /16 has 65534.
     room = network.num_addresses - FIRST_HOST - 1
     if len(names) > room:
         raise DockerError(
@@ -371,10 +277,8 @@ def mesh_addresses(config: Dict[str, Any], subnet: str = DEFAULT_SUBNET) -> Dict
 def secret_names(config: Dict[str, Any]) -> Dict[str, List[str]]:
     """Every ``env:`` reference in the configuration, grouped by the entity that answers it.
 
-    This is what makes the questions `synqt docker init` asks specific: not "any secrets?"
-    but "the edge needs GITHUB_CLIENT_SECRET". The values never enter the configuration or
-    the image. They go in the entity's own ``.env``, which is what the runtime already reads
-    and what the repository already ignores.
+    `synqt docker init` asks for each by name. The values go in the entity ``.env``, never
+    in the configuration or the image.
     """
     wanted: Dict[str, List[str]] = {}
 
@@ -395,9 +299,7 @@ def secret_names(config: Dict[str, Any]) -> Dict[str, List[str]]:
         walk(entity, names)
         if names:
             wanted[entity["name"]] = names
-    # The identity section belongs to whoever runs identity even though it is not written
-    # inside that entity, so it is walked separately and attributed. Missing it would leave
-    # the one secret every signed-in app has unasked for.
+    # The identity section belongs to whoever runs identity, so it is walked separately.
     identity = appmodel.identity_settings(config)
     if identity:
         owner = appmodel.provider_entity(config)
@@ -414,20 +316,15 @@ def secret_names(config: Dict[str, Any]) -> Dict[str, List[str]]:
 
 # the generated profile
 
-#: The OAuth callback's yaml key and its default, from `src/identity/identityconfig.h`.
-#: The origin in front of it is this project's. The path is the edge's own route.
+#: The OAuth callback key and default, from `src/identity/identityconfig.h`.
 CALLBACK_KEY = "callback"
 CALLBACK_ROUTE = "/auth/callback"
 
 
 def edge_origin(config: Dict[str, Any], port: Optional[int] = None) -> str:
-    """Where a browser reaches the edge once compose has published its port.
-
-    Not the bind address, and this is the difference that decides whether anyone can sign
-    in. A container binds every interface, so the edge has no name to read off itself. The
-    published port is on the machine running docker, so localhost is that name. It becomes
-    the OAuth ``redirect_uri``, what ``self`` expands to in ``security.allowed_origins``,
-    and the sync endpoint in the CSP, all three of which a browser is compared against.
+    """Where a browser reaches the edge once compose publishes its port: localhost. It becomes
+    the OAuth ``redirect_uri``, ``self`` in ``security.allowed_origins`` and the CSP sync
+    endpoint.
     """
     edge = edge_entity(config)
     public = appmodel.public_settings(edge) if edge else {}
@@ -445,28 +342,24 @@ def callback_url(config: Dict[str, Any], port: Optional[int] = None) -> str:
 
 def render_profile(config: Dict[str, Any], addresses: Dict[str, str],
                    subnet: str = DEFAULT_SUBNET, port: Optional[int] = None) -> str:
-    """``synqt.docker.yaml``: what changes about the topology when it runs in containers.
+    """``synqt.docker.yaml``: the topology changes for containers.
 
-    A profile changes and adds, never removes (``config.merge``), so this file is only the
-    differences: where each entity answers on the container network, and where an entity on
-    an external provider finds its engine. Every consumer list and every scope is still the
-    one in ``synqt.yaml``, and is still what gets validated.
+    A profile only changes and adds (``config.merge``): where each entity answers on the
+    container network, and where an external-provider entity finds its engine. Consumer
+    lists and scopes stay those of ``synqt.yaml``.
     """
     lines = [
         "# SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux",
         "# SPDX-License-Identifier: Apache-2.0",
         "",
-        "# Generated by `synqt docker init`; layered over synqt.yaml with --profile docker.",
+        "# Generated by `synqt docker init` and layered over synqt.yaml with --profile docker.",
         "#",
-        "# Addresses, not names: a mesh endpoint is read into a QHostAddress, which holds an",
-        "# address and not a hostname, so an entity cannot dial a compose service by name.",
-        f"# These come out of {subnet}, which docker-compose.yml assigns to the containers,",
-        "# and they are what each owner binds to and each consumer connects to. Certificates",
-        "# still verify: a peer is identified by the entity name in its certificate, never by",
-        "# the address it answered on.",
+        "# A mesh endpoint is a QHostAddress, which holds an address and not a host name, so each",
+        f"# entity gets a fixed address from {subnet}. Owners bind to it and consumers connect to",
+        "# it. Peers are still identified by the entity name in their certificate.",
         "#",
-        "# Regenerate with `synqt docker init --force` rather than editing this by hand;",
-        "# `synqt docker up` passes --profile docker for you.",
+        "# Regenerate with `synqt docker init --force`. `synqt docker up` passes --profile",
+        "# docker.",
         "",
         "entities:",
     ]
@@ -507,19 +400,13 @@ def render_profile(config: Dict[str, Any], addresses: Dict[str, str],
 
 
 def _provider_loopback(engine: str, entity: str) -> List[str]:
-    """Point an entity at the engine sharing its network namespace.
-
-    Loopback rather than a service name, and it is required rather than convenient.
-    An external provider refuses an unverified connection in release unless the engine is
-    on loopback (``ProviderConfig::isLoopbackHost``), and here it truly is: the compose
-    file puts the engine container in this entity's network namespace, so this link never
-    reaches an interface. Nothing is relaxed to make it work, which is what keeps a
-    deployed entity holding the verified TLS its synqt.yaml asks for.
+    """Point an entity at the engine sharing its network namespace, on loopback. The release
+    guard allows an unverified connection only to loopback
+    (``ProviderConfig::isLoopbackHost``), and this link never leaves the namespace.
     """
-    note = [f"      # The engine shares '{entity}'s network namespace (see the",
-            "      # network_mode in docker-compose.yml), so this link is loopback inside",
-            "      # one namespace and never touches an interface. That is why plaintext is",
-            "      # accepted here and refused everywhere else; nothing is switched off.",
+    note = [f"      # The engine shares the network namespace of '{entity}' (see network_mode in",
+            "      # docker-compose.yml). This link is loopback inside that namespace, so the",
+            "      # release guard accepts plaintext here.",
             "      host: 127.0.0.1"]
     if engine in ("postgres", "mysql"):
         return note + ["      sslmode: disable"]
@@ -534,20 +421,14 @@ def render_dockerfile(config: Dict[str, Any], *, client: str = "image",
                       from_checkout: bool = True) -> str:
     """The image every entity container runs.
 
-    Three stages. ``toolchain`` provisions the pinned Qt and Emscripten: it is the slow one
-    and the one that caches, because it depends on two version numbers and on nothing in the
-    project, so editing the app never rebuilds it. ``build`` compiles the entities.
-    ``runtime`` is what ships: the artifacts, the Qt shared libraries they link, and the CLI,
-    with none of the compilers.
+    Three stages. ``toolchain`` provisions the pinned Qt and Emscripten and caches, since it
+    depends on nothing in the project. ``build`` compiles the entities. ``runtime`` ships
+    the artifacts, their Qt libraries and the CLI, without compilers.
 
-    `client`: ``image`` builds the WebAssembly bundle in here too, which is what makes the
-    quick start need nothing installed. ``host`` leaves it out, and the compose file mounts
-    the bundle ``synqt build`` produced outside, which is much faster to iterate on.
-
-    `from_checkout`: whether the ``build`` stage installs the CLI out of the checkout this
-    command is running from, handed to it as named build contexts, or reaches for the
-    published distribution. :func:`checkout_source` is what answers that, and it is passed
-    in rather than asked for here so this stays a function of its arguments.
+    `client`: ``image`` builds the WebAssembly bundle in the image; ``host`` mounts the
+    bundle `synqt build` produced. `from_checkout`: whether the ``build`` stage installs the
+    CLI from the checkout (as named build contexts) or from the published distribution (see
+    :func:`checkout_source`).
     """
     wasm = client == "image"
     threads = (config.get("build") or {}).get("client_threads") or "single"
@@ -557,16 +438,14 @@ def render_dockerfile(config: Dict[str, Any], *, client: str = "image",
         "# SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux",
         "# SPDX-License-Identifier: Apache-2.0",
         "",
-        "# Generated by `synqt docker init`. One image, every entity: each container runs a",
-        "# different binary out of it, which is what a compose file of one image and several",
-        "# commands means. Regenerate with `synqt docker init --force`.",
+        "# Generated by `synqt docker init`. Every entity runs a different binary from this one",
+        "# image. Regenerate with `synqt docker init --force`.",
         "",
         "# syntax=docker/dockerfile:1",
         "",
-        "# toolchain: the pinned Qt and Emscripten, and nothing about this project",
-        "# Keyed on two version numbers, so this layer is built once and reused for every",
-        "# later change to the app. It is also the slow one: the first build downloads a Qt",
-        "# kit" + (" and compiles a Qt module from source" if wasm else "") + ".",
+        "# toolchain: the pinned Qt and Emscripten, and nothing about this project.",
+        "# It depends only on the two versions, so later app changes reuse it. The first build",
+        "# downloads a Qt kit" + (" and compiles a Qt module" if wasm else "") + ".",
         "FROM debian:bookworm-slim AS toolchain",
         "",
         f"ARG QT_VERSION={toolchain.QT_VERSION}",
@@ -581,33 +460,26 @@ def render_dockerfile(config: Dict[str, Any], *, client: str = "image",
         f"        {' '.join(_QT_RUNTIME_LIBS[5:])} \\",
         "    && rm -rf /var/lib/apt/lists/*",
         "",
-        "# A virtual environment rather than --break-system-packages: Debian's interpreter is",
-        "# externally managed (PEP 668) and pip refuses to write into it, correctly.",
+        "# A virtual environment, because Debian's interpreter is externally managed (PEP 668).",
         "RUN python3 -m venv /opt/venv",
         'ENV PATH="/opt/venv/bin:$PATH"',
-        "# aqtinstall pinned, like Qt and Emscripten: an image that installs whatever aqt",
-        "# released this morning is not the reproducible build the rest of this file is",
-        "# written to be.",
-        f'RUN pip install --no-cache-dir "aqtinstall=={toolchain.AQT_VERSION}"',
+        "# aqtinstall is pinned like Qt and Emscripten, so the build is reproducible.",
+        f'RUN pip install --no-cache-dir "{toolchain.AQT_REQUIREMENT}"',
         "",
-        "# The host kit builds the services. The module list is what SynQt itself links:",
-        "# QtRemoteObjects for every connect point, QtWebSockets for the browser link, and",
-        "# the HTTP server and network authorization the web edge needs. It is taken from",
-        "# the resolver's own table rather than written out again here, because a kit that",
-        "# is short of one of them builds right up to that module's find_package and stops.",
+        "# The host kit builds the services. The module list is what SynQt links:",
+        "# QtRemoteObjects, QtWebSockets, QtHttpServer and QtNetworkAuth. It comes from the",
+        "# toolchain resolver's table.",
         'RUN aqt install-qt linux desktop "$QT_VERSION" linux_gcc_64 \\',
         f"        -m {_host_modules()} \\",
         '        --outputdir "$QT_ROOT"',
         "",
-        "# jwt-cpp (MIT, header-only): SynQtIdentity verifies OIDC ID-token signatures with it,",
-        '# and the configure step stops on "jwt-cpp not found" without it. v0.7.1 is the floor',
-        "# (create_public_key_from_rsa_components, which JwksVerifier uses, arrived there);",
-        f"# {JWT_CPP_VERSION} is the version SynQt's own CI builds against.",
+        "# jwt-cpp (MIT, header-only) verifies OIDC ID-token signatures in SynQtIdentity. The",
+        "# configure step fails without it. v0.7.1 is the minimum",
+        f"# (create_public_key_from_rsa_components). {JWT_CPP_VERSION} is the version SynQt CI",
+        "# uses.",
         "#",
-        "# The whole include directory is kept and pointed at, rather than jwt-cpp/ alone being",
-        "# copied into /usr/local/include: jwt.h includes the picojson header that sits beside",
-        "# it, so a copy of one directory compiles right up to the first file that needs the",
-        "# other. This is also the mechanism the CI workflows use, so the two stay in step.",
+        "# The whole include directory is kept, because jwt.h includes the picojson header beside",
+        "# it. The CI workflows use the same layout.",
         f"RUN git clone --depth 1 --branch {JWT_CPP_VERSION} "
         "https://github.com/Thalhammer/jwt-cpp /opt/jwt-cpp \\",
         "    && rm -rf /opt/jwt-cpp/.git",
@@ -616,10 +488,7 @@ def render_dockerfile(config: Dict[str, Any], *, client: str = "image",
     if wasm:
         lines += [
             "",
-            "# The browser client. Emscripten is pinned to the version Qt selects for this Qt,",
-            "# because this build path is the unsupported one (QtRemoteObjects over",
-            "# QtWebSockets on WebAssembly) and it is not assumed to behave the same across",
-            "# versions.",
+            "# The browser client. Emscripten is pinned to the version Qt selects for this Qt.",
             "RUN git clone --depth 1 https://github.com/emscripten-core/emsdk /opt/emsdk \\",
             '    && /opt/emsdk/emsdk install "$EMSCRIPTEN_VERSION" \\',
             '    && /opt/emsdk/emsdk activate "$EMSCRIPTEN_VERSION"',
@@ -630,21 +499,13 @@ def render_dockerfile(config: Dict[str, Any], *, client: str = "image",
             '        --outputdir "$QT_ROOT" \\',
             f'    && chmod +x "$QT_ROOT/$QT_VERSION/{kit}/bin/"*',
             "",
-            "# The chmod above is not decoration. aqt writes the scripts it generates itself",
-            "# (qmake6, qtpaths) executable, but the ones that come out of the WebAssembly",
-            "# archive arrive 0644, qt-cmake among them, so invoking it is exit 126,",
-            '# "Permission denied", from a file that is plainly there. The host kit does not',
-            "# have the problem, which is why only this one is touched.",
+            "# The WebAssembly archive ships qt-cmake without the executable bit, so the chmod",
+            "# above is needed. The host kit does not have this problem.",
             "",
-            "# The prebuilt WebAssembly kits ship QtWebSockets but not QtRemoteObjects, so it",
-            "# is built from the pinned source with the kit's own qt-cmake and installed into",
-            "# the kit. QT_HOST_PATH is required because a cross-compiled Qt carries the host",
-            "# tool path from the machine it was built on, which is not this one.",
-            "# `cd` first, and not for tidiness: a Dockerfile RUN is /bin/sh, and",
-            "# emsdk_env.sh finds its own directory through $BASH_SOURCE. Under dash that is",
-            "# empty, so it prints \"unable to determine 'emsdk' directory\" and returns 0,",
-            "# leaving emcc off PATH and the failure to surface later as something else.",
-            "# Sourcing it from its own directory is the fallback it documents.",
+            "# The prebuilt WebAssembly kits have no QtRemoteObjects, so it is built from the",
+            "# pinned source with the kit's own qt-cmake. QT_HOST_PATH is required for a",
+            "# cross-compiled Qt. RUN uses /bin/sh, where emsdk_env.sh cannot find itself through",
+            "# $BASH_SOURCE, so it is sourced from its own directory.",
             "RUN cd /opt/emsdk && . ./emsdk_env.sh \\",
             '    && export QT_HOST_PATH="$QT_ROOT/$QT_VERSION/gcc_64" \\',
             f'    && "$QT_ROOT/$QT_VERSION/{kit}/bin/qt-cmake" \\',
@@ -664,71 +525,54 @@ def render_dockerfile(config: Dict[str, Any], *, client: str = "image",
         "",
     ]
     lines += ([
-        "# Which synqt to build with: the checkout `synqt docker init` was run out of.",
-        "#",
-        "# It arrives as four named build contexts rather than as part of the project, so",
-        "# every build reads the checkout as it is now. A copy taken at init would be a",
-        "# second SynQt on the machine, going stale from the moment it was written, and the",
-        "# failure that follows is an image built from last week's framework with nothing",
-        "# saying so. The compose file is where the four are pointed at a path.",
-        "#",
-        "# All four, because installing the CLI runs tools/synqt/_build_backend.py, which",
-        "# vendors src/, cmake/ and tools/synqtc/ from beside the package into the wheel. A",
-        "# CLI installed without them scaffolds and builds nothing.",
+        "# Which synqt to build with: the checkout that ran `synqt docker init`. It arrives as",
+        "# four named build contexts, so every build reads the current checkout. The compose file",
+        "# sets their paths. All four are needed, because installing the CLI vendors src/, cmake/",
+        "# and tools/synqtc/ into the wheel.",
     ] + [f"COPY --from={name} . {into}" for name, _, into in SYNQT_CONTEXTS] + [
         "",
-        "# Overridable all the same: a name, a wheel or a git URL, for the day `pip install",
-        "# synqt` is a thing that works. In the environment rather than as a --build-arg,",
-        "# because `up --build` takes no build arguments; the compose file passes this",
-        "# variable through to here.",
+        "# Set SYNQT_PIP_SPEC in the environment to install another synqt: a name, a wheel or a",
+        "# git URL. `up --build` takes no build arguments, so the compose file passes it in.",
         "#",
-        "# After the COPY rather than before it, so a spec naming a path is actually in the",
-        "# image by the time pip looks for it. That does mean an edit to the app invalidates",
-        "# this layer, which is what the pip cache mount is for: the reinstall is a copy.",
+        "# It comes after the COPY so a path in the project exists when pip runs. An app edit",
+        "# then invalidates this layer, and the pip cache mount keeps the reinstall fast.",
         f"ARG SYNQT_PIP_SPEC={LOCAL_PIP_SPEC}",
         "RUN --mount=type=cache,target=/root/.cache/pip pip install \"$SYNQT_PIP_SPEC\"",
     ] if from_checkout else [
         "# Which synqt to build with. The default is the published CLI, which carries the",
-        "# framework's own sources, so nothing outside this file is needed. Point it at a",
-        "# path inside the project, or at a git URL, to build against a checkout instead:",
+        "# framework sources. To build against a checkout, point this at a path in the project or",
+        "# at a git URL:",
+        "#",
         "#     SYNQT_PIP_SPEC=./vendor/synqt synqt docker up",
         "#",
-        "# In the environment rather than as a --build-arg, because `up --build` takes no",
-        "# build arguments; the compose file passes this variable through to here.",
+        "# Set it in the environment: `up --build` takes no build arguments, so the compose",
+        "# file passes it in.",
         "#",
-        "# After the COPY rather than before it, so a path spec is actually in the image by",
-        "# the time pip looks for it. That does mean an edit to the app invalidates this",
-        "# layer, which is what the pip cache mount is for: the reinstall is a local copy.",
+        "# It comes after the COPY so a path in the project exists when pip runs. An app edit",
+        "# then invalidates this layer, and the pip cache mount keeps the reinstall fast.",
         f"ARG SYNQT_PIP_SPEC={PUBLISHED_PIP_SPEC}",
         "RUN --mount=type=cache,target=/root/.cache/pip pip install \"$SYNQT_PIP_SPEC\"",
     ])
     lines += [
         "",
-        "# QTDIR names the kit installed above, which is how the toolchain resolver finds it",
-        "# without a provisioned synqt/toolchain directory in the project.",
+        "# QTDIR names the kit installed above, so the toolchain resolver finds it.",
         f"ENV QTDIR={qt_dir}",
         "",
-        "# One build of every entity, with the container topology layered on. No certificates",
-        "# here: a build machine has no reason to hold a private key, and the compose file",
-        "# issues them into a volume at first start instead.",
+        "# Build every entity with the container topology layered on. No certificates here: the",
+        "# compose file issues them into a volume at first start.",
         "#",
-        "# --verbose, always: an image build is not something anyone is sitting in front of,",
-        "# and the build log is the only account of it there will be. Without it a failed",
-        '# compile reports "cmake build failed with no output captured", which names neither',
-        "# the file nor the error, in the one place there is nothing left to re-run.",
+        "# --verbose, so a failed compile shows its file and error in the build log.",
     ]
     if wasm:
         lines += [
-            "# The `cd` dance is the emsdk_env.sh one explained in the toolchain stage; the",
-            "# second `cd` puts the build back in the project directory.",
+            "# Source emsdk_env.sh from its own directory, then return to the project.",
             f"RUN cd /opt/emsdk && . ./emsdk_env.sh && cd {APP_DIR} \\",
             f"    && synqt build --release --profile {PROFILE} --verbose",
         ]
     else:
         lines += [
-            "# --client none: the services and no browser bundle. The bundle is built outside",
-            "# with `synqt build` and mounted in by the compose file, which is the fast loop",
-            "# when the app's QML is what is changing.",
+            "# --client none builds the services only. `synqt build` builds the bundle outside and",
+            "# the compose file mounts it.",
             f"RUN synqt build --release --profile {PROFILE} --client none --verbose",
         ]
     lines += [
@@ -743,23 +587,21 @@ def render_dockerfile(config: Dict[str, Any], *, client: str = "image",
         f"        {' '.join(_QT_RUNTIME_LIBS[5:])} \\",
         "    && rm -rf /var/lib/apt/lists/*",
         "",
-        "# The Qt shared libraries the entity binaries link, the QML modules they load, and",
-        "# the plugins they resolve at run time (the SQL drivers among them).",
+        "# The Qt libraries the entities link, the QML modules they load, and the plugins they",
+        "# load at run time (the SQL drivers among them).",
         f"COPY --from=build {qt_dir}/lib /opt/qt/lib",
         f"COPY --from=build {qt_dir}/qml /opt/qt/qml",
         f"COPY --from=build {qt_dir}/plugins /opt/qt/plugins",
-        "# QT_QPA_PLATFORM=offscreen because a service entity has no display and must not",
-        "# want one. LANG because the image's default locale is not UTF-8, and Qt says so at",
-        "# every start; the warning is harmless and the noise is not, since it is what an",
-        "# entity's log is otherwise full of.",
+        "# QT_QPA_PLATFORM=offscreen because a service has no display. LANG so Qt does not warn",
+        "# about a non-UTF-8 locale at every start.",
         "ENV LD_LIBRARY_PATH=/opt/qt/lib \\",
         "    QML_IMPORT_PATH=/opt/qt/qml \\",
         "    QT_PLUGIN_PATH=/opt/qt/plugins \\",
         "    QT_QPA_PLATFORM=offscreen \\",
         "    LANG=C.UTF-8",
         "",
-        "# The CLI comes along so the mesh certificates can be issued from inside the network",
-        "# by the one-shot service in the compose file.",
+        "# The CLI is included so the one-shot service in the compose file can issue the mesh",
+        "# certificates.",
         "COPY --from=build /opt/venv /opt/venv",
         'ENV PATH="/opt/venv/bin:$PATH"',
         "",
@@ -768,11 +610,8 @@ def render_dockerfile(config: Dict[str, Any], *, client: str = "image",
         f"COPY {DOCKER_DIR}/entrypoint.sh /usr/local/bin/synqt-entrypoint",
         "RUN chmod +x /usr/local/bin/synqt-entrypoint",
         "",
-        "# A non-root user, because nothing in here needs to be root, and an entity reachable",
-        "# from the internet least of all. The mesh directory is created and owned here before",
-        "# the volume is mounted over it: Docker seeds a fresh named volume from the image's",
-        "# own directory, ownership included, and a volume mounted over a path that does not",
-        "# exist is created owned by root, which the certificate service could then not write.",
+        "# Run as a non-root user. The mesh directory is created here with this owner, because",
+        "# Docker seeds a new named volume from the image directory, ownership included.",
         "RUN useradd --system --uid 10001 --create-home synqt \\",
         f"    && mkdir -p {APP_DIR}/synqt/mesh"
         + "".join(f" \\\n              {APP_DIR}/{directory}"
@@ -787,39 +626,26 @@ def render_dockerfile(config: Dict[str, Any], *, client: str = "image",
     return "\n".join(lines)
 
 
-#: The edge's browser-facing certificate, in a directory of its own.
-#:
-#: Not `synqt/mesh/<edge>.crt`, and the difference decides whether this works. `synqt mesh cert
-#: --all` writes one file per entity flat into `synqt/mesh/`, so an edge named `edge` has
-#: a mesh identity at exactly that path already, and the browser certificate, issued
-#: after it behind an "if it does not exist yet" guard, was never issued at all. What the
-#: browser then got handed was the mesh identity: subject `CN=edge`, its only name `edge`,
-#: which no browser opening `https://localhost:8443` can match. A subdirectory cannot
-#: collide with an entity name, whatever anybody calls their entities.
+#: The edge browser certificate, in its own directory. `synqt mesh cert --all` writes
+#: `synqt/mesh/<entity>.crt` for every entity, so a flat path could collide with the edge
+#: mesh identity.
 BROWSER_CERT_DIR = "synqt/mesh/browser"
 EDGE_CERT = f"{BROWSER_CERT_DIR}/localhost.crt"
 EDGE_KEY = f"{BROWSER_CERT_DIR}/localhost.key"
 
-#: The development authority inside the volume, and where `synqt docker ca` copies it to.
-#: The certificate only. The key beside it in the volume stays there: it signs every
-#: entity's identity on this mesh, and a copy of it in the project is a copy to leak.
+#: The development CA certificate inside the volume, and where `synqt docker ca` copies it.
+#: The key stays in the volume.
 CA_CERT = "synqt/mesh/ca.crt"
 CA_COPY = "synqt/mesh/docker-ca.crt"
 
 
 def render_entrypoint(edge_name: str = "web") -> str:
-    """What a container runs. One entity, or the one-shot certificate issuance.
+    """What a container runs: one entity, or the one-shot certificate issuance.
 
-    The certificate half is a separate argument rather than something every entity does on
-    the way up, so it happens exactly once and the entities have nothing to race over.
-
-    It issues two kinds. The mesh certificates identify entities to each other, and `synqt
-    mesh` owns those. The browser-facing one is different in kind and is made here: it is
-    not a mesh identity, it names `localhost`, and a scaffolded project's `tls:` block
-    points at a deployment certificate that does not exist yet, so without this the edge
-    comes up listening on a port whose handshake can never complete. Signed by the same
-    development authority, so a browser warns once about an unknown issuer and then works,
-    which reflects the state of affairs rather than a plaintext port pretending otherwise.
+    Issuance runs once, so entities never race over it. It issues the mesh certificates
+    (through `synqt mesh`) and a browser certificate for `localhost`, signed by the same
+    development CA, since the scaffolded `tls:` block points at a deployment certificate
+    that does not exist yet.
     """
     return "\n".join([
         "#!/bin/sh",
@@ -837,29 +663,22 @@ def render_entrypoint(edge_name: str = "web") -> str:
         f"cd {APP_DIR}",
         "",
         'if [ "${1:-}" = "mesh-init" ]; then',
-        "    # Idempotent: `up` runs this every time, and re-issuing on every start would",
-        "    # hand one entity a certificate signed by an authority the others no longer",
-        "    # trust, halfway through a restart.",
+        "    # Idempotent: `up` runs this every time, and reissuing would split the entities",
+        "    # between two authorities.",
         "    if [ -f synqt/mesh/ca.crt ]; then",
         '        echo "mesh: reusing the development CA already in the volume"',
         "    else",
         '        echo "mesh: issuing a development CA for this project"',
         "        synqt mesh init",
         "    fi",
-        "    # --all is safe to repeat: an entity that already has a certificate keeps it, and",
-        "    # one added since the volume was created gets its own now.",
+        "    # --all is safe to repeat: existing certificates are kept and new entities get one.",
         f"    synqt mesh cert --all --profile {PROFILE}",
         "    synqt mesh status",
         "",
-        f"    # The browser-facing certificate for '{edge_name}'. Not a mesh identity, and",
-        "    # not beside them either: `synqt mesh cert --all` above has already written",
-        "    # one file per entity into synqt/mesh/, so an edge whose name matched this",
-        "    # file's would leave the browser holding a mesh identity it cannot match a",
-        "    # hostname against. This one names localhost, which is what a person opening",
-        "    # the page types.",
-        "    # The extensions go in a file rather than through -addext, which has been",
-        "    # observed to emit a second, malformed basicConstraints that Secure Transport",
-        "    # on macOS then rejects outright.",
+        f"    # The browser certificate for '{edge_name}'. It names localhost and lives in its own",
+        "    # directory, because `synqt mesh cert --all` has already written one file per entity",
+        "    # into synqt/mesh/. The extensions go in a file: -addext has produced a duplicate",
+        "    # basicConstraints that Secure Transport on macOS rejects.",
         f"    if [ ! -f {EDGE_CERT} ]; then",
         '        echo "mesh: issuing a development certificate for the browser link"',
         f"        mkdir -p {BROWSER_CERT_DIR}",
@@ -883,21 +702,16 @@ def render_entrypoint(edge_name: str = "web") -> str:
         'entity="${1:?usage: synqt-entrypoint <entity>|mesh-init}"',
         "shift",
         "",
-        "# Started from the project root, not from the directory the binary is in: every path",
-        "# in a topology (the certificate, the schema, the bundle, the .env) is resolved",
-        "# relative to the working directory, exactly as it is spelled in synqt.yaml.",
+        "# Start from the project root: topology paths (certificate, schema, bundle, .env) are",
+        "# relative to the working directory.",
         'exec "build/$entity/$entity" "$@"',
         "",
     ])
 
 
 def render_dockerignore() -> str:
-    """What never enters the build context.
-
-    Two reasons, and the second is the one that matters. A smaller context is faster. A
-    context without ``synqt/mesh`` cannot bake a private key into an image layer, where it
-    would stay readable to anyone who pulls the image whether or not a later stage
-    deleted it.
+    """What never enters the build context. Excluding ``synqt/mesh`` keeps private keys out of
+    image layers.
     """
     return "\n".join([
         "# SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux",
@@ -905,15 +719,13 @@ def render_dockerignore() -> str:
         "",
         "# Generated by `synqt docker init`.",
         "",
-        "# Never: the mesh private keys and the per-entity secrets. A file in the build",
-        "# context is a file in an image layer, readable by anyone who has the image, whether",
-        "# or not a later stage deletes it. The certificates are issued into a volume at first",
-        "# start and the .env files are mounted at run time, so neither is needed here.",
+        "# Never: the mesh private keys and the entity secrets. A file in the build context ends",
+        "# up in an image layer. The certificates are issued into a volume and the .env files are",
+        "# mounted at run time.",
         "synqt/mesh/",
         "**/.env",
         "",
-        "# Host build outputs and toolchains. The image builds its own; copying a host build",
-        "# in would mix objects from two different compilers.",
+        "# Host build outputs and toolchains. The image builds its own.",
         "build/",
         "synqt/toolchain/",
         "CMakeUserPresets.json",
@@ -930,11 +742,8 @@ def render_dockerignore() -> str:
 # the generated compose file
 
 def _build_contexts(checkout: Optional[Path], indent: str) -> List[str]:
-    """The `additional_contexts:` block that hands a build the checkout, or nothing.
-
-    Four narrow contexts and not one at the top of the checkout. A build context is
-    transferred whole before the first COPY is read, and a working checkout carries a build
-    tree, a built docs site and a node_modules beside the four directories that are wanted.
+    """The `additional_contexts:` block that hands a build the checkout, or nothing. Four
+    narrow contexts, since a context is sent whole.
     """
     if not checkout:
         return []
@@ -952,11 +761,9 @@ def render_compose(config: Dict[str, Any], addresses: Dict[str, str], *,
                    subnet: str = DEFAULT_SUBNET, client: str = "image",
                    port: Optional[int] = None,
                    checkout: Optional[Path] = None) -> str:
-    """``docker-compose.yml``: the containers, the network they share, and the start order.
-
-    `checkout` is the SynQt the image builds with, from :func:`checkout_source`. It is
-    written as the default of an environment variable rather than as a bare path, so a
-    checkout that moves is one `SYNQT_SRC=...` away rather than a regeneration.
+    """``docker-compose.yml``: the containers, their network and the start order. `checkout`
+    (from :func:`checkout_source`) is the default of `SYNQT_SRC`, so a moved checkout needs
+    no regeneration.
     """
     project = (config.get("project") or {}).get("name") or "synqt-app"
     edge = edge_entity(config)
@@ -976,19 +783,17 @@ def render_compose(config: Dict[str, Any], addresses: Dict[str, str], *,
         "#",
         "#     synqt docker up",
         "#",
-        "# which is `docker compose up --build` plus the checks that catch what goes wrong",
-        "# first. This file is derived from synqt.yaml; regenerate it with",
-        "# `synqt docker init --force` rather than editing it, because a hand edit is lost.",
+        "# That runs `docker compose up --build` after a few checks. This file is derived from",
+        "# synqt.yaml. Regenerate it with `synqt docker init --force` instead of editing it.",
         "#",
-        "# This is a development system. The mesh links between the entities are real mutual",
-        "# TLS, but the authority behind them is issued here and thrown away with the volume.",
-        "# https://synqt.org/deploying/ covers a real deployment.",
+        "# This is a development system. The mesh links use real mutual TLS, but the certificate",
+        "# authority is created here and removed with the volume. https://synqt.org/deploying/",
+        "# covers a real deployment.",
         "",
         f"name: {project}",
         "",
-        "# Every entity runs the same image and differs only in which binary it starts, which",
-        "# is what naming the image once and building it once achieves. Compose builds it for",
-        "# the first service that asks and takes it from the layer cache for the rest.",
+        "# Every entity runs the same image and starts a different binary. Compose builds it once",
+        "# and reuses it.",
         "x-synqt-entity: &synqt-entity",
         f"  image: {image}",
         "  build:",
@@ -996,8 +801,8 @@ def render_compose(config: Dict[str, Any], addresses: Dict[str, str], *,
         f"    dockerfile: {DOCKER_DIR}/Dockerfile",
     ] + _build_contexts(checkout, "    ") + [
         "    args:",
-        "      # Which synqt the image builds with. Set SYNQT_PIP_SPEC in the environment to",
-        "      # install something else: a name, a wheel, a git URL, or a path in the project.",
+        "      # Which synqt the image builds with. Set SYNQT_PIP_SPEC to install a name, a",
+        "      # wheel, a git URL or a path in the project.",
         f"      SYNQT_PIP_SPEC: ${{SYNQT_PIP_SPEC:-{pip_spec}}}",
         "  restart: unless-stopped",
         "  depends_on:",
@@ -1006,9 +811,9 @@ def render_compose(config: Dict[str, Any], addresses: Dict[str, str], *,
         "",
         "services:",
         "",
-        "  # One shot, before anything else: the development certificate authority and one",
-        "  # certificate per entity, into the shared volume. It exits, and the entities wait",
-        "  # for it to have exited successfully rather than merely started.",
+        "  # Runs once, before anything else: the development certificate authority and one",
+        "  # certificate per entity, into the shared volume. The entities wait for it to exit",
+        "  # successfully.",
         f"  {MESH_SERVICE}:",
         f"    image: {image}",
         "    build:",
@@ -1038,9 +843,9 @@ def render_compose(config: Dict[str, Any], addresses: Dict[str, str], *,
     
     lines += [
         "networks:",
-        "  # A network of this project's own, with its range written down: the entities",
-        "  # address each other by address (see synqt.docker.yaml), and compose only assigns",
-        "  # a fixed one on a network whose subnet is declared.",
+        "  # A network with a declared subnet. The entities reach each other by fixed address",
+        "  # (see synqt.docker.yaml), and compose assigns fixed addresses only on a declared",
+        "  # subnet.",
         "  synqt:",
         "    driver: bridge",
         "    ipam:",
@@ -1048,8 +853,8 @@ def render_compose(config: Dict[str, Any], addresses: Dict[str, str], *,
         f"        - subnet: {subnet}",
         "",
         "volumes:",
-        "  # The development CA, its key, and one certificate per entity. Removing this volume",
-        "  # (`synqt docker down --volumes`) is how to start over with a fresh authority.",
+        "  # The development CA, its key, and the entity certificates. `synqt docker down",
+        "  # --volumes` removes it and starts over with a new authority.",
         "  mesh:",
     ]
     for name in sorted(data_dirs):
@@ -1067,11 +872,9 @@ def _entity_service(config: Dict[str, Any], entity: Dict[str, Any], name: str,
                     edge_port: int, behind_front: bool) -> List[str]:
     """One entity container.
 
-    `name` is the SERVICE name and `entity["name"]` the entity's. They differ only for a
-    replicated web edge, where N services run the one entity. Everything that follows the
-    process (its address, and the fact that it publishes no port when a front does) keys on
-    the service name. Everything that follows the entity (its engine, its data volume, its
-    env file) keys on the entity's, because N replicas are one entity and share those.
+    `name` is the service name, `entity["name"]` the entity name; they differ for a
+    replicated web edge. The address and published port follow the service; the engine, data
+    volume and env file follow the entity.
     """
     entity_name = entity["name"]
     is_edge = entity_name == edge_name
@@ -1110,8 +913,7 @@ def _entity_service(config: Dict[str, Any], entity: Dict[str, Any], name: str,
     env_file = appmodel.env_file(entity)
     if env_file:
         lines.append("    env_file:")
-        # `required: false` so a project with no secrets still comes up: an absent .env
-        # is the normal case, not a misconfiguration.
+        # `required: false`: a project with no secrets has no .env.
         lines.append(f"      - path: {env_file}")
         lines.append("        required: false")
     if is_edge and not behind_front:
@@ -1125,9 +927,8 @@ def _entity_service(config: Dict[str, Any], entity: Dict[str, Any], name: str,
         lines.append("    # below, which is the only thing outside this network sees.")
     if entity_name in engine_of:
         engine_name, _ = engine_of[entity_name]
-        # Restated in full rather than added to. A mapping key in a service replaces the
-        # one the anchor merged in, so naming only the engine here would drop the wait
-        # for the certificates.
+        # Restated in full: a service key replaces the one the anchor merged, so naming only
+        # the engine would drop the wait for the certificates.
         lines.append("    depends_on:")
         lines.append("      mesh-init:")
         lines.append("        condition: service_completed_successfully")
@@ -1139,19 +940,13 @@ def _entity_service(config: Dict[str, Any], entity: Dict[str, Any], name: str,
 
 def _front_service(config: Dict[str, Any], addresses: Dict[str, str],
                    edge_port: int) -> List[str]:
-    """The balancer in front of a replicated edge.
-
-    An off-the-shelf nginx with a generated configuration, and not a SynQt
-    process: distributing TCP connections is a solved problem with good implementations,
-    and what matters about a replicated SynQt deployment is that the edges hold
-    nothing, rather than that the thing in front of them is SynQt's.
-    """
+    """The balancer in front of a replicated edge: nginx with a generated configuration."""
     edge = edge_entity(config)
     replicas = replica_names(edge)
     return [
         f"  {FRONT_SERVICE}:",
-        "    # The one published port in the system now. The replicas behind it are reachable",
-        "    # only from inside this network, exactly as every other entity is.",
+        "    # The only published port. The replicas behind it are reachable only inside this",
+        "    # network.",
         "    image: nginx:alpine",
         "    restart: unless-stopped",
         "    depends_on: [" + ", ".join(replicas) + "]",
@@ -1167,10 +962,8 @@ def _front_service(config: Dict[str, Any], addresses: Dict[str, str],
 
 
 def render_front_config(config: Dict[str, Any], addresses: Dict[str, str]) -> str:
-    """``nginx.conf``: one balancer in front of N identical edges.
-
-    Empty for a project whose edge is not replicated, which is every project that has not
-    asked for this. There is nothing to balance and no file to write.
+    """``nginx.conf``: one balancer in front of N identical edges. Empty when the edge is not
+    replicated.
     """
     edge = edge_entity(config)
     if not edge or not front_name(config):
@@ -1181,21 +974,18 @@ def render_front_config(config: Dict[str, Any], addresses: Dict[str, str]) -> st
         "# SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux",
         "# SPDX-License-Identifier: Apache-2.0",
         "",
-        "# Generated by `synqt docker init` from synqt.yaml. Regenerate it with",
-        "# `synqt docker init --force` rather than editing it, because a hand edit is lost.",
+        "# Generated by `synqt docker init` from synqt.yaml. Regenerate it with `synqt docker",
+        "# init --force` instead of editing it.",
         "#",
-        "# What the edges need from whatever sits in front of them, and nothing else: the",
-        "# WebSocket upgrade passed through, the visitor's address stated, and a read timeout",
-        "# longer than the heartbeat. A deployment with its own balancer wants these four",
-        "# things in it, whatever it is written in.",
+        "# The edges need three things from the proxy in front of them: the WebSocket upgrade",
+        "# passed through, the visitor address forwarded, and a read timeout longer than the",
+        "# heartbeat.",
         "",
         "events { worker_connections 4096; }",
         "",
         "http {",
         "  upstream synqt_edges {",
-        "    # least_conn rather than round robin: a browser link is long lived, so what has",
-        "    # to be balanced is how many are open on each replica, not how many have been",
-        "    # handed out since the process started.",
+        "    # least_conn: browser links are long-lived, so balance on open connections.",
         "    least_conn;",
     ]
     for name in names:
@@ -1216,12 +1006,11 @@ def render_front_config(config: Dict[str, Any], addresses: Dict[str, str]) -> st
         "      proxy_set_header Upgrade $http_upgrade;",
         '      proxy_set_header Connection "upgrade";',
         "      proxy_set_header Host $host;",
-        "      # The edge reads this, and only from a peer on public.trusted_proxies. Without",
-        "      # both halves every per-IP cap and rate limit counts every visitor as one.",
+        "      # The edge trusts this header only from a peer in public.trusted_proxies. Without",
+        "      # both, every per-IP limit counts all visitors as one.",
         "      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;",
         "      proxy_set_header X-Forwarded-Proto $scheme;",
-        "      # Longer than the QtRO heartbeat, or a live but quiet connection is reaped as",
-        "      # idle and every client reconnects for no reason.",
+        "      # Longer than the QtRO heartbeat, so a quiet connection is not closed as idle.",
         "      proxy_read_timeout 300s;",
         "    }",
         "  }",
@@ -1233,25 +1022,19 @@ def render_front_config(config: Dict[str, Any], addresses: Dict[str, str]) -> st
 
 def _engine_service(entity: Dict[str, Any], engine: str, spec: Dict[str, Any],
                     address: str) -> List[str]:
-    """One engine container, sharing a network namespace with the entity that masks it.
+    """One engine container, sharing a network namespace with the entity that uses it.
 
-    It holds the address because it has to start first. The entity waits for it to be
-    healthy, and a namespace has to exist before anything can join it. Nothing outside the
-    pair can reach it, which is stricter than the entities themselves manage.
-
-    Its credentials come out of the same ``.env`` the entity reads, through ``env_file``:
-    the password is written once and both ends take it from there. Compose's own ``${...}``
-    interpolation is not used for it, because that reads the shell environment
-    and a root ``.env``, neither of which is where a SynQt secret lives.
+    It holds the address because it starts first; the entity waits for it to be healthy.
+    Credentials come from the entity ``.env`` through ``env_file``, not compose ``${...}``
+    interpolation, which reads the shell and a root ``.env``.
     """
     name = entity["name"]
     provider = _provider(entity)
     service = engine_service_name(name, engine)
     env_file = appmodel.env_file(entity)
     lines = [
-        f"  # The engine behind '{name}', and the holder of that entity's address on the",
-        "  # mesh network: the two share this namespace, so nothing outside the pair can",
-        f"  # reach the engine at all, and '{name}' reaches it over loopback.",
+        f"  # The engine behind '{name}'. It holds the mesh address of '{name}' and shares its",
+        f"  # namespace, so only '{name}' can reach it, over loopback.",
         f"  {service}:",
         f"    image: {spec['image']}",
         "    restart: unless-stopped",
@@ -1261,8 +1044,8 @@ def _engine_service(entity: Dict[str, Any], engine: str, spec: Dict[str, Any],
         "    volumes:",
         f"      - {service}-data:{spec['data']}",
         "    env_file:",
-        f"      # The same file '{name}' reads. `synqt docker init` writes this engine's own",
-        "      # variable names into it alongside SynQt's, so one value serves both ends.",
+        f"      # The same file '{name}' reads. `synqt docker init` writes the engine variable",
+        "      # names into it too, so one value serves both.",
         f"      - path: {env_file}",
         "        required: false",
     ]
@@ -1277,9 +1060,7 @@ def _engine_service(entity: Dict[str, Any], engine: str, spec: Dict[str, Any],
                   f"      MARIADB_DATABASE: {database}",
                   f"      MARIADB_USER: {user}"]
     elif engine == "redis":
-        # $$ escapes compose's own interpolation, so the shell inside the container expands
-        # it from the environment env_file put there, rather than compose expanding it from
-        # the host's environment at config time (where it is not, and must not be).
+        # $$ escapes compose interpolation, so the container shell expands it from env_file.
         lines += ['    command: ["sh", "-c", '
                   '"exec redis-server --requirepass \\"$$REDIS_PASSWORD\\""]']
     lines += [
@@ -1312,14 +1093,12 @@ def _read_env(path: Path) -> Dict[str, str]:
 
 
 def _write_env(path: Path, values: Dict[str, str], order: List[str]) -> None:
-    """Rewrite an entity's ``.env``, keeping every key it already had.
-
-    Not through `writer.write_if_changed`: that exists to keep build timestamps still, and
-    this is not a build output. It is written directly, and only when something changed.
+    """Rewrite an entity ``.env``, keeping every existing key. Written only when something
+    changed.
     """
     names = list(order) + [name for name in values if name not in order]
-    lines = ["# This entity's secrets, read by the entity at startup and, for an engine",
-             "# container, by that engine too. Never committed.",
+    lines = ["# This entity's secrets, read by the entity at startup and by its engine",
+             "# container. Never committed.",
              ""]
     lines += [f"{name}={values.get(name, '')}" for name in names]
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -1327,17 +1106,12 @@ def _write_env(path: Path, values: Dict[str, str], order: List[str]) -> None:
 
 
 def _generated_value(entity: Dict[str, Any], engine: str, name: str) -> Optional[str]:
-    """A value worth inventing rather than asking for, or None to ask.
-
-    An engine credential is internal to this compose network. Nobody types it, nobody
-    registers it anywhere, and a strong random one is strictly better than whatever a
-    developer would pick for a local database. A secret that came from outside, an OAuth
-    client secret above all, cannot be invented and has to be asked for.
+    """A value to generate rather than ask for, or None to ask. Engine credentials are internal
+    to the compose network and generated; an OAuth client secret must be asked for.
     """
     if engine == "mongodb" and name == "MONGODB_URI":
-        # Loopback, for the reason in `_provider_loopback`: the engine is in this entity's
-        # own network namespace, so this is not a relaxation of the release guard but a
-        # statement of where the engine is.
+        # Loopback: the engine is in this entity network namespace (see
+        # `_provider_loopback`).
         database = _provider(entity).get("database") or entity["name"]
         return f"mongodb://127.0.0.1:27017/{database}"
     if name == _ENGINES[engine]["secret_env"]:
@@ -1347,14 +1121,10 @@ def _generated_value(entity: Dict[str, Any], engine: str, name: str) -> Optional
 
 def ask_secrets(config: Dict[str, Any], root: Path, *, out: TextIO,
                 source: Optional[TextIO]) -> Tuple[List[str], List[str]]:
-    """Fill in the ``env:`` references that have no value yet, one entity's file at a time.
+    """Fill in the ``env:`` references that have no value yet, one entity file at a time.
 
-    Returns the files written and the names that were generated rather than asked for.
-    Only what is missing is touched, so running this twice does not reset a value
-    that was already set. An empty answer leaves the name in the file with no value: a
-    placeholder to fill in later is more use than a question that has to be answered before
-    anything will run. Nothing typed here reaches the configuration, the image, or the
-    repository.
+    Returns the files written and the names generated. Existing values are kept. An empty
+    answer leaves the name with no value.
     """
     wanted = secret_names(config)
     engine_of = {entity["name"]: name for entity, name, _ in engines(config)}
@@ -1365,8 +1135,8 @@ def ask_secrets(config: Dict[str, Any], root: Path, *, out: TextIO,
         names = list(wanted.get(name) or [])
         engine = engine_of.get(name)
         if engine:
-            # The engine image reads its credential under its own name, so the same value
-            # is written under both. Compose hands this one file to both containers.
+            # The engine image reads its credential under its own name, so the value is
+            # written under both.
             names += [alias for alias in _ENGINES[engine]["aliases"] if alias not in names]
         if not names:
             continue
@@ -1417,12 +1187,8 @@ def _relative(path: Path, root: Path) -> str:
 # writing it all out
 
 def generated_files(config: Optional[Dict[str, Any]] = None) -> Tuple[str, ...]:
-    """Everything `init` writes for this project, so `--force` and the tests agree.
-
-    All but one are written for every project. The balancer configuration is written only
-    where there is something to balance, so it is in the list only when a config is given
-    and that config replicates its edge. Without a config the answer is the set every
-    project gets.
+    """Everything `init` writes, shared by `--force` and the tests. nginx.conf is included only
+    when a config is given and it replicates its edge.
     """
     always = (f"synqt.{PROFILE}.yaml", COMPOSE_FILE, f"{DOCKER_DIR}/Dockerfile",
               f"{DOCKER_DIR}/entrypoint.sh", ".dockerignore")
@@ -1435,11 +1201,8 @@ def init(project_dir: os.PathLike[str] | str, config: Dict[str, Any], *,
          force: bool = False, subnet: str = DEFAULT_SUBNET, client: str = "image",
          port: Optional[int] = None, out: Optional[TextIO] = None,
          source: Optional[TextIO] = None) -> str:
-    """Generate everything needed to run this project in containers.
-
-    `source` is where the questions are answered from, or None to ask nothing and leave a
-    placeholder for every secret that has to come from outside, which is what a script
-    wants.
+    """Generate everything needed to run this project in containers. `source` answers the
+    questions; None asks nothing and leaves placeholders.
     """
     out = out or sys.stdout
     root = Path(project_dir)
@@ -1453,10 +1216,8 @@ def init(project_dir: os.PathLike[str] | str, config: Dict[str, Any], *,
         raise DockerError(
             "this project declares no web edge, so there is nothing to publish a port for. "
             "Add an entity with `type: web_edge` first.")
-    # An engine shares its entity's network namespace, and a namespace shared that way
-    # cannot also publish a port. That collides only for a web edge that owns an engine of
-    # its own, which is a topology worth stopping on anyway. The one entity facing the
-    # internet is the last one that should hold a database.
+    # A container that shares a namespace cannot publish a port, so a web edge with its own
+    # engine is refused.
     engine_edge = [entity for entity, _, _ in engines(config)
                    if entity.get("name") == edge.get("name")]
     if engine_edge:
@@ -1468,8 +1229,8 @@ def init(project_dir: os.PathLike[str] | str, config: Dict[str, Any], *,
             "it belongs regardless (see https://synqt.org/entities/).")
 
     addresses = mesh_addresses(config, subnet)
-    # The SynQt the image will build with, decided once and written into both files, so the
-    # Dockerfile cannot expect a context the compose file does not hand it.
+    # Decided once and written into both files, so the Dockerfile and compose file agree on
+    # the contexts.
     checkout = checkout_source()
     files = {
         f"synqt.{PROFILE}.yaml": render_profile(config, addresses, subnet, port),
@@ -1480,8 +1241,7 @@ def init(project_dir: os.PathLike[str] | str, config: Dict[str, Any], *,
         f"{DOCKER_DIR}/entrypoint.sh": render_entrypoint(edge.get("name") or "web"),
         ".dockerignore": render_dockerignore(),
     }
-    # Only when there is something to balance. An unreplicated project writes no nginx.conf
-    # at all, rather than one describing a balancer in front of a single process.
+    # nginx.conf only when there is something to balance.
     front = render_front_config(config, addresses)
     if front:
         files[f"{DOCKER_DIR}/{FRONT_FILE}"] = front
@@ -1496,9 +1256,7 @@ def init(project_dir: os.PathLike[str] | str, config: Dict[str, Any], *,
     written = [name for name, content in files.items()
                if writer.write_if_changed(root / name, content)]
     entrypoint = root / DOCKER_DIR / "entrypoint.sh"
-    # Executable in the checkout as well as in the image. A Dockerfile COPY preserves the
-    # mode, and the image chmods it anyway, but a developer running it directly should not
-    # have to work out why they cannot.
+    # Executable in the checkout too, for a developer running it directly.
     entrypoint.chmod(entrypoint.stat().st_mode | 0o111)
 
     env_files, generated = ask_secrets(config, root, out=out, source=source)
@@ -1617,16 +1375,10 @@ def down_command(project_dir: os.PathLike[str] | str, *,
 
 
 def export_ca(project_dir: os.PathLike[str] | str) -> str:
-    """Copy the development authority's certificate out of the volume, and say how to
-    trust it.
+    """Copy the development CA certificate out of the volume, and print how to trust it.
 
-    Why this exists at all. The edge serves the browser over TLS from a certificate that
-    authority signed, and a browser has never heard of it. The interstitial is the visible
-    half and the smaller one: an origin with a certificate error also gets no service
-    worker, so a bundle that installs one runs a degraded copy of itself all through
-    development and only on this transport. Trusting the authority once fixes both, and
-    trusting an authority is not something a tool should do to a machine on its own, so
-    this hands over the file and the command rather than running it.
+    A browser that does not trust the CA shows an interstitial and gets no service worker.
+    Trusting a CA is left to the user, so this prints the command instead of running it.
     """
     root = Path(project_dir)
     _require_generated(root)
@@ -1672,8 +1424,9 @@ def export_ca(project_dir: os.PathLike[str] | str) -> str:
 
 
 def _environment() -> Dict[str, str]:
-    """The environment a compose command runs with. `SYNQT_SRC` pointed at the checkout
-    answering `synqt` right now, unless the caller already said which one."""
+    """The compose environment: `SYNQT_SRC` set to the checkout running `synqt`, unless already
+    set.
+    """
     environment = dict(os.environ)
     checkout = checkout_source()
     if checkout and "SYNQT_SRC" not in environment:
@@ -1684,14 +1437,8 @@ def _environment() -> Dict[str, str]:
 def run(project_dir: os.PathLike[str] | str, command: List[str]) -> int:
     """Run a compose command in the project directory, streaming its output.
 
-    Not captured. `docker compose up` is a long-running foreground process whose output is
-    the point, and swallowing it to reprint at the end would make the first build, which
-    downloads a Qt kit, look like a hang.
-
-    `SYNQT_SRC` is passed through from wherever this command is running, so the image is
-    built against the checkout answering `synqt` right now. The compose file carries the
-    path it was generated with as the default, which is what a bare `docker compose up`
-    uses. A checkout that has since moved would fail there on a directory that is not
-    around any more, and this is what keeps that from being a regeneration.
+    Output is not captured: `docker compose up` runs in the foreground and the first build
+    downloads a Qt kit. `SYNQT_SRC` points at the checkout running `synqt`, overriding the
+    path the compose file was generated with.
     """
     return subprocess.call(command, cwd=str(project_dir), env=_environment())

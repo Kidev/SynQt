@@ -55,7 +55,7 @@ inputs:
     description: jwt-cpp tag to clone
     required: true
   aqt_version:
-    description: aqtinstall release to install
+    description: aqtinstall commit to install (see toolchain.AQT_VERSION)
     required: true
 
 runs:
@@ -117,6 +117,15 @@ runs:
       # pulls the libglvnd dev files, so it covers all three of CMake's OPENGL_opengl_LIBRARY,
       # OPENGL_glx_LIBRARY, and OPENGL_INCLUDE_DIR. macOS has OpenGL in the SDK, and the
       # Windows kit ships the opengl32sw software rasteriser.
+      #
+      # Wayland (Linux only): the 6.12.0 desktop kit ships the QtWayland platform plugins, and
+      # Qt6Gui's plugin scanning includes their configs, each of which find_dependency's
+      # Qt6WaylandClient, which in turn wants the wayland-client, wayland-server,
+      # wayland-cursor and wayland-egl pkg-config modules. Without them Qt6WaylandClient is
+      # NOT FOUND, and because a plugin's dependency failing takes its module with it, so is
+      # Qt6Gui: exactly the same shape as the OpenGL note above, reported as "Failed to find
+      # required Qt component Gui" with nothing on the line about Wayland. 6.11.1's kit did
+      # not ship those plugins, which is why this only started mattering at 6.12.
       shell: bash
       run: |
         set -eu
@@ -137,8 +146,17 @@ runs:
             # hand the suite a private session bus and a private, unlocked keyring; a runner
             # has neither logged in, and without them every store test skips.
             sudo apt-get install -y libssl-dev libgl1-mesa-dev \
+                libwayland-dev libwayland-bin \
                 libhiredis-dev libmongoc-dev libpq-dev \
                 libsecret-1-dev gnome-keyring dbus
+            # Named here rather than left to find_package, which reports the dependant and
+            # not the dependency (see the Wayland note above).
+            for w in wayland-client wayland-server wayland-cursor wayland-egl; do
+              if ! pkg-config --exists "$w"; then
+                echo "::error::$w is missing, so Qt6WaylandClient and with it Qt6Gui would not be found"
+                exit 1
+              fi
+            done
             # The store tests skip on a machine with no store, which is correct there and
             # useless here: this column is the one that has one. Fail if it does not, rather
             # than reporting green over a package that quietly stopped installing.
@@ -218,11 +236,10 @@ runs:
 
     - name: Install aqtinstall
       if: steps.qt-cache.outputs.cache-hit != 'true'
-      # A pinned release from PyPI. This installed from a git commit for as long as the
-      # released line (3.1.x) predated the current Qt repository layout and could not resolve
-      # the all_os/wasm host and target the WebAssembly kits are published under; the release
-      # that can is out, and was checked against the live repository for this Qt before the
-      # pin moved. Installing every workflow's aqt identically keeps them from drifting onto
+      # A pinned commit, not a release: the last release predates the support for Qt's
+      # per-toolchain Windows repository layout, so it cannot install the msvc2022_64 kit this
+      # action's Windows column asks for at any Qt from 6.11 on. toolchain.AQT_VERSION carries
+      # the detail. Installing every workflow's aqt identically keeps them from drifting onto
       # different Qt-repository knowledge.
       #
       # shell: bash is required here. Without it this step runs under the
@@ -232,7 +249,7 @@ runs:
       # in this workflow that spans lines therefore names its shell.
       shell: bash
       run: |
-        python -m pip install "aqtinstall==${{ inputs.aqt_version }}"
+        python -m pip install "aqtinstall @ git+https://github.com/miurahr/aqtinstall@${{ inputs.aqt_version }}"
 
     - name: Install the Qt host kit and its add-on modules
       if: steps.qt-cache.outputs.cache-hit != 'true'
@@ -266,6 +283,7 @@ runs:
             qtnetworkauth)  echo Qt6NetworkAuth ;;
             qttasktree)     echo Qt6TaskTree ;;
             qtquick3d)      echo Qt6Quick3D ;;
+            qtquicktimeline) echo Qt6QuickTimeline ;;
             qtshadertools)  echo Qt6ShaderTools ;;
           esac
         }

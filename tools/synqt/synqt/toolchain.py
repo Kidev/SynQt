@@ -25,15 +25,24 @@ from typing import Any, Dict, List, Optional
 QT_VERSION = "6.12.0"
 EMSCRIPTEN_VERSION = "5.0.5"  # the version Qt 6.12.0 pins
 
-# aqtinstall, pinned like everything else here, and to a published release rather than to a
-# commit. The CI workflows installed it from git while the released line (3.1.x) predated the
-# current Qt repository layout and could not resolve the all_os/wasm host and target the
-# WebAssembly kits are published under, which meant it could not install this project's
-# client kit at any Qt version. 3.3.0 resolves them: checked against the live repository for
-# 6.12.0, which lists both wasm kits and, on the desktop kit, all four of the add-on modules
-# below. A release also arrives as a hash-checked wheel rather than as whatever a branch held
-# when the job started.
-AQT_VERSION = "3.3.0"
+# aqtinstall, pinned like everything else here, and to a commit rather than to a release
+# because no release can install this project's Windows kit. Qt publishes the Windows desktop
+# repository one folder per toolchain (windows_x86/desktop/qt6_6120/qt6_6120_msvc2022_64/),
+# and aqt only learned to look there in "Support Qt 6.11+ for Windows x64" (7e5a5c3, March
+# 2026), which is nine months newer than 3.3.0, the latest release. Given win64_msvc2022_64,
+# 3.3.0 asks for qt6_6120/qt6_6120/Updates.xml, which 404s, and reports "Failed to locate XML
+# data for Qt version 6.12.0", which reads like an outage rather than like a tool that
+# cannot address the layout. Linux and macOS still publish the flat folder, so they were
+# unaffected and the break showed up only in the Windows column.
+#
+# A commit is still a pin. It is one immutable tree, moved only by a reviewed edit, in every
+# workflow at once. What it gives up against a release is the hash-checked wheel, which is
+# why it is a specific commit and never a branch or a tag.
+AQT_VERSION = "16db45a70b5905ad596941b223469bc86a56901e"
+
+# What every workflow, and the Dockerfile, hands pip. One string, so no copy can pin a
+# different thing by spelling the install differently.
+AQT_REQUIREMENT = f"aqtinstall @ git+https://github.com/miurahr/aqtinstall@{AQT_VERSION}"
 
 # The Qt modules SynQt links that no kit carries by default, as CMake package names paired
 # with the aqt archive that installs them. Every other module SynQt names (Core, Gui,
