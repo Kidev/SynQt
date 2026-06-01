@@ -186,10 +186,13 @@ class ToolchainTest(unittest.TestCase):
         self.assertIn("--archives qtremoteobjects", source)
         build = next(h for h in hints if "qt-cmake" in h)
         # Against the resolved kit, so the command can be pasted as printed rather than
-        # edited into place, and installed back into that same kit.
-        self.assertIn(str(qt / "wasm_singlethread" / "bin" / "qt-cmake"), build)
-        self.assertIn(f"QT_HOST_PATH={qt / 'gcc_64'}", build)
-        self.assertIn(f"-DCMAKE_INSTALL_PREFIX={qt / 'wasm_singlethread'}", build)
+        # edited into place, and installed back into that same kit. Compared as posix
+        # paths because that is what the hint prints. A Windows str(Path) is backslashed,
+        # and a backslash is an escape to every shell the hint is pasted into and to CMake,
+        # which takes forward slashes on Windows too.
+        self.assertIn((qt / "wasm_singlethread" / "bin" / "qt-cmake").as_posix(), build)
+        self.assertIn(f"QT_HOST_PATH={(qt / 'gcc_64').as_posix()}", build)
+        self.assertIn(f"-DCMAKE_INSTALL_PREFIX={(qt / 'wasm_singlethread').as_posix()}", build)
 
     def test_adding_a_module_lands_in_the_kit_that_is_short_of_it(self):
         # aqt lays out <outputdir>/<version>/<kit>, so adding a module to an installed kit
